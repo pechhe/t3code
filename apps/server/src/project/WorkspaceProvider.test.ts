@@ -11,6 +11,7 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as WorkspaceAllocationIntents from "../persistence/WorkspaceAllocationIntents.ts";
 import * as Processes from "../processRunner.ts";
+import * as Custody from "../workspace/WorkspaceCustody.ts";
 import * as Git from "../vcs/GitVcsDriver.ts";
 import * as Workspaces from "./WorkspaceProvider.ts";
 
@@ -61,14 +62,40 @@ const harness = Effect.fn("test.harness")(function* (handlers: Partial<Record<st
         Layer.mock(Processes.ProcessRunner)({
           run: (input) =>
             Effect.suspend(() => {
-              commands.push({ args: [input.command, ...input.args], cwd: input.cwd });
-              const key = input.args[0] === "attempt" ? `attempt ${input.args[1]}` : input.args[0];
-              const result = (key === undefined ? undefined : handlers[key])?.(input.args);
-              return result === undefined
-                ? Effect.succeed(output())
-                : Effect.isEffect(result)
-                  ? result
-                  : Effect.succeed(result);
+              const args = input.command === "bun" ? input.args.slice(1) : input.args;
+              commands.push({ args: ["slipjay", ...args], cwd: input.cwd });
+              const key = args[0] === "attempt" ? `attempt ${args[1]}` : args[0];
+              const result = (key === undefined ? undefined : handlers[key])?.(args);
+              const reply =
+                result === undefined
+                  ? Effect.succeed(output())
+                  : Effect.isEffect(result)
+                    ? result
+                    : Effect.succeed(result);
+              return reply.pipe(
+                Effect.map((value) => {
+                  if (key !== "start" || value.code !== 0 || !input.stdin) return value;
+                  try {
+                    const body = JSON.parse(value.stdout);
+                    const request = JSON.parse(input.stdin);
+                    return {
+                      ...value,
+                      stdout: JSON.stringify({
+                        ...body,
+                        claim: {
+                          version: 1,
+                          path: body.workspacePath,
+                          generation: "generation",
+                          claimId: request.ownerId,
+                          ownerId: request.ownerId,
+                        },
+                      }),
+                    };
+                  } catch {
+                    return value;
+                  }
+                }),
+              );
             }),
         }),
         Layer.mock(Git.GitVcsDriver)({}),
@@ -84,8 +111,64 @@ const harness = Effect.fn("test.harness")(function* (handlers: Partial<Record<st
   return { intents, service, commands, named };
 });
 
-const layerIntents = WorkspaceAllocationIntents.layer.pipe(
+const layerIntents = Layer.mergeAll(WorkspaceAllocationIntents.layer, Custody.layer).pipe(
   Layer.provideMerge(SqlitePersistence.layerMemory),
+  Layer.provide(
+    Layer.mock(Processes.ProcessRunner)({
+      run: (input) =>
+        Effect.sync(() => {
+          const args = input.command === "bun" ? input.args.slice(1) : input.args;
+          switch (args[1]) {
+            case "capability":
+              return output(
+                JSON.stringify({
+                  ok: true,
+                  capability: "generation-bound-custody",
+                  protocol: 1,
+                  supported: true,
+                  producerEntry: "/producer/cli.ts",
+                }),
+              );
+            case "activate":
+              return output(JSON.stringify({ ok: true, version: 1, activationId: "activation" }));
+            case "controller":
+              return output(
+                JSON.stringify({
+                  ok: true,
+                  controller: { platform: "linux", pid: process.pid, boot: "boot", start: "start" },
+                }),
+              );
+            case "acquire": {
+              const request = JSON.parse(input.stdin ?? "{}");
+              return output(
+                JSON.stringify({
+                  ok: true,
+                  version: 1,
+                  ownerId: request.ownerId,
+                  path: args[2],
+                  generation: "generation",
+                  claimId: request.ownerId,
+                }),
+              );
+            }
+            case "release": {
+              const request = JSON.parse(input.stdin ?? "{}");
+              return output(
+                JSON.stringify({
+                  ok: true,
+                  version: 1,
+                  released: true,
+                  generation: request.generation,
+                  claimId: request.claimId,
+                }),
+              );
+            }
+            default:
+              return output(JSON.stringify({ ok: true }));
+          }
+        }),
+    }),
+  ),
 );
 
 const request = {
@@ -279,6 +362,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
             args: [
               "slipjay",
               "start",
+              "--claim-stdin",
               "--integration",
               "--json",
               "--attempt",
@@ -326,7 +410,16 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
           });
           expect(commands).toEqual([
             {
-              args: ["slipjay", "start", "--integration", "--json", "--attempt", id, "work"],
+              args: [
+                "slipjay",
+                "start",
+                "--claim-stdin",
+                "--integration",
+                "--json",
+                "--attempt",
+                id,
+                "work",
+              ],
               cwd: "/project",
             },
             { args: ["slipjay", "attach-issue", "42"], cwd: "/fresh" },

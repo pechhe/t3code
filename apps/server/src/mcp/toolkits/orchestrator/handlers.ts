@@ -1,3 +1,4 @@
+import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as AdviceMcpService from "../../AdviceMcpService.ts";
 import {
   OrchestratorMcpAskAdviceInput,
@@ -84,6 +85,37 @@ export const handlers = {
     (input) => input.action === "ask" && input.destination === "advisor",
     McpToolAccess.startsThreads(() => ({}), executeAdvice, "stamped"),
     McpToolAccess.reads(executeAdvice),
+  ),
+  t3_workspace_custody_handoff: McpToolAccess.reads((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const sender = scope.client?.senderThread;
+      if (scope.client?.linked !== true || sender === undefined)
+        return yield* new OrchestratorMcpFailure({
+          code: "capability_denied",
+          message: "Workspace handback requires its authenticated linked parent.",
+        });
+      yield* (yield* ThreadManagement.ThreadManagementService)
+        .acknowledgeRemoteCustody(input, {
+          sessionId: scope.client.sessionId,
+          parentThreadId: sender.threadId,
+          environmentId: sender.environmentId,
+        })
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new OrchestratorMcpFailure({
+                code:
+                  cause._tag === "CustodyHandoffIdentityError"
+                    ? "capability_denied"
+                    : "orchestration_error",
+                message:
+                  "Workspace handback identity or settlement is unavailable; custody is retained.",
+              }),
+          ),
+        );
+      return { version: 1 as const, acknowledged: true as const };
+    }),
   ),
   t3_advice_peer: McpToolAccess.reads((input) =>
     Effect.gen(function* () {

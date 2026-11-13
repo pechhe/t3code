@@ -1,3 +1,4 @@
+import * as CustodyPeer from "../../../workspace/custodyPeerProtocol.ts";
 import {
   OrchestratorMcpAdvice,
   OrchestratorMcpAskAdviceWireInput,
@@ -161,6 +162,19 @@ const AskAdviceTool = Tool.make("ask_advice", {
   failureMode: "return",
   dependencies: [...dependencies, AdviceMcpService.AdviceMcpService],
 }).annotate(Tool.Idempotent, true);
+
+const CustodyPeerTool = Tool.make(CustodyPeer.toolName, {
+  description:
+    "Internal acknowledgement of a durably accepted workspace handback by its owning linked parent.",
+  parameters: CustodyPeer.Input,
+  success: CustodyPeer.Success,
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies: [
+    McpInvocationContext.McpInvocationContext,
+    ThreadManagementService.ThreadManagementService,
+  ],
+}).annotate(McpSchema.EnabledWhen, McpInvocationContext.onlyForLinkedEnvironments);
 
 const AdvicePeerTool = Tool.make("t3_advice_peer", {
   description:
@@ -534,6 +548,7 @@ export const OrchestratorToolkit = Toolkit.make(
   OrchestratorCapabilitiesTool,
   AskAdviceTool,
   AdvicePeerTool,
+  CustodyPeerTool,
   DelegateTaskTool,
   TaskStatusTool,
   TaskCancelTool,

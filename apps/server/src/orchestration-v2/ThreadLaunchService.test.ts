@@ -1,3 +1,4 @@
+import { layerNonSlipJay } from "./testkit/runWorkspaceCustody.ts";
 import * as DocumentText from "../provider/DocumentText.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
@@ -299,6 +300,7 @@ function makeHarness(options: HarnessOptions = {}) {
       }),
   );
   const layerLaunch = ThreadLaunch.layer.pipe(
+    Layer.provide(layerNonSlipJay),
     Layer.provide(
       Layer.mergeAll(
         layerExternalServices,

@@ -370,6 +370,7 @@ export interface ProjectionRecordFilter {
   readonly turnItemRunIds?: ReadonlyArray<RunId | null>;
   readonly turnItemNodeIds?: ReadonlyArray<NodeId>;
   readonly runIds?: ReadonlyArray<RunId>;
+  readonly runOrdinalRange?: { readonly from: number; readonly through: number };
   /** Without `includeLatestRun`, reads through a status index and sorts the matches, so keep it to statuses few runs hold. */
   readonly runStatuses?: ReadonlyArray<OrchestrationV2Run["status"]>;
   /** Keeps the thread's highest-ordinal run even when `runStatuses` excludes it. */
@@ -3982,6 +3983,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             FROM orchestration_v2_projection_runs
             WHERE ${threadColumn(filter?.runIds)} = ${threadId}
               ${filter?.runIds === undefined ? sql`` : sql`AND run_id IN (SELECT value FROM json_each(${encodeIdList(filter.runIds)}))`}
+              ${filter?.runOrdinalRange === undefined ? sql`` : sql`AND ordinal BETWEEN ${filter.runOrdinalRange.from} AND ${filter.runOrdinalRange.through}`}
               ${
                 filter?.runStatuses === undefined
                   ? sql`ORDER BY ordinal ASC`
@@ -8585,6 +8587,8 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             AND json_type(payload_json, '$.remoteChild.stoppedThere') IS NOT 'true'
           )
           OR json_type(payload_json, '$.remoteChild.stoppedThere') = 'false'
+          OR (json_type(payload_json, '$.remoteChild.custodyHandoff.acknowledged') = 'false'
+            AND json_extract(payload_json, '$.completionDelivery.state') IN ('acknowledged', 'disposed'))
         )
     `.pipe(
       Effect.map((rows) =>

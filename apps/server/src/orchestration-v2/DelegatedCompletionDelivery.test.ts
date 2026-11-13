@@ -1,3 +1,4 @@
+import { layerNonSlipJay, layerSyntheticWorkspaces } from "./testkit/runWorkspaceCustody.ts";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import * as Exit from "effect/Exit";
 import * as EffectOutbox from "./EffectOutbox.ts";
@@ -67,7 +68,7 @@ import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProviderContinuationService from "./ProviderContinuationService.ts";
 
 const layerPlatformTest = Layer.merge(
-  Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
+  Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, layerSyntheticWorkspaces),
   Layer.mock(SourceControlProviderRegistry.SourceControlProviderRegistry)({
     resolveLink: () => Effect.die("unused title link"),
   }),
@@ -128,7 +129,7 @@ const layerTestProviderInstanceRegistry = Layer.succeed(
 );
 
 const layerTest = Layer.mergeAll(
-  RuntimeLayer.layer,
+  RuntimeLayer.layerWithCustody(layerNonSlipJay),
   RuntimeLayer.layerEventSink,
   EffectOutbox.layer,
   ThreadCommandExecutor.layer,

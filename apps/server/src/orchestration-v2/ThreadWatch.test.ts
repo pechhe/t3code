@@ -1,3 +1,4 @@
+import { layerNonSlipJay, layerSyntheticWorkspaces } from "./testkit/runWorkspaceCustody.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
@@ -76,7 +77,7 @@ import * as ProviderTurnStartServiceTestkit from "./ProviderTurnStartService.tes
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 
 const layerPlatformTest = Layer.merge(
-  Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
+  Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, layerSyntheticWorkspaces),
   Layer.mock(SourceControlProviderRegistry.SourceControlProviderRegistry)({
     resolveLink: () => Effect.die("unused title link"),
   }),
@@ -136,7 +137,10 @@ const layerTestProviderInstanceRegistry = Layer.succeed(
   },
 );
 
-const layerRuntime = Layer.mergeAll(RuntimeLayer.layer, RuntimeLayer.layerEventSink).pipe(
+const layerRuntime = Layer.mergeAll(
+  RuntimeLayer.layerWithCustody(layerNonSlipJay),
+  RuntimeLayer.layerEventSink,
+).pipe(
   Layer.provideMerge(RuntimeLayer.layerProjectService),
   Layer.provide(
     Layer.mock(WorkspacePaths.WorkspacePaths)({

@@ -1,3 +1,4 @@
+import * as CustodyPeer from "../workspace/custodyPeerProtocol.ts";
 import { adviceVersion } from "../agents/adviceDelivery.ts";
 import {
   CommandId,
@@ -770,6 +771,7 @@ const make = Effect.gen(function* () {
     result: string,
     stoppedThere: "ran-out" | "stopped" | undefined,
     stopCount?: number,
+    custodyHandoff?: NonNullable<OrchestrationV2RemoteTaskChild["custodyHandoff"]>,
   ) {
     const attempt = yield* random.uuidV4();
     yield* threads
@@ -782,11 +784,22 @@ const make = Effect.gen(function* () {
         result,
         ...(stoppedThere === undefined ? {} : { stoppedThere }),
         ...(stopCount === undefined ? {} : { stopCount }),
+        ...(custodyHandoff === undefined ? {} : { custodyHandoff }),
       })
       .pipe(
         Effect.catch((error) =>
           readTask(parentThreadId, taskId).pipe(
-            Effect.flatMap(({ task }) => (task?.result != null ? Effect.void : Effect.fail(error))),
+            Effect.flatMap(({ task }) => {
+              const retained = task?.remoteChild?.custodyHandoff;
+              return task?.result != null &&
+                (custodyHandoff === undefined ||
+                  (retained?.sourceRunId === custodyHandoff.sourceRunId &&
+                    retained.runId === custodyHandoff.runId &&
+                    retained.receiptRef === custodyHandoff.receiptRef &&
+                    (!custodyHandoff.acknowledged || retained.acknowledged)))
+                ? Effect.void
+                : Effect.fail(error);
+            }),
           ),
         ),
       );
@@ -1006,6 +1019,51 @@ const make = Effect.gen(function* () {
    * A task completed here first (cancelled, or its parent stopped) is
    * stopped there, and done once that stop is recorded here.
    */
+  const acknowledgeHandoff = Effect.fn("RemoteDelegation.acknowledgeHandoff")(function* (
+    parentThreadId: ThreadId,
+    taskId: NodeId,
+  ) {
+    const { thread, task } = yield* readTask(parentThreadId, taskId);
+    const remote = task?.remoteChild;
+    const handoff = remote?.custodyHandoff;
+    if (
+      task === undefined ||
+      remote === undefined ||
+      handoff === undefined ||
+      handoff.acknowledged ||
+      (task.completionDelivery?.state !== "acknowledged" &&
+        task.completionDelivery?.state !== "disposed")
+    )
+      return;
+    if (Option.isNone(peers))
+      return yield* new OrchestratorMcpFailure({
+        code: "orchestration_error",
+        message: "Workspace handback cannot reach its peer; custody is retained.",
+      });
+    yield* peers.value.call({
+      environmentId: remote.environmentId,
+      tool: CustodyPeer.toolName,
+      arguments: {
+        threadId: remote.threadId,
+        sourceRunId: handoff.sourceRunId,
+        runId: handoff.runId,
+        receiptRef: handoff.receiptRef,
+      },
+      limits: { runtimeMode: thread.runtimeMode, interactionMode: thread.interactionMode },
+      sender: { environmentId: hereId, threadId: parentThreadId, title: thread.title },
+      success: CustodyPeer.Success,
+    });
+    yield* complete(
+      parentThreadId,
+      taskId,
+      terminalStatus(task.status),
+      task.result ?? noReply,
+      undefined,
+      undefined,
+      { ...handoff, acknowledged: true },
+    );
+  });
+
   const followOnce = Effect.fn("RemoteDelegation.followOnce")(function* (
     parentThreadId: ThreadId,
     taskId: NodeId,
@@ -1048,8 +1106,54 @@ const make = Effect.gen(function* () {
           "stopped",
           remote.stopCount,
         );
-        return yield* settled(parentThreadId, taskId);
+        return false;
       }
+      if (remote.custodyHandoff === undefined && remote.runId !== undefined) {
+        const stopOwed = threads
+          .streamStoredEventsFrom({
+            threadId: parentThreadId,
+            afterSequence: sequence,
+            eventType: "subagent.updated",
+          })
+          .pipe(
+            Stream.filter(
+              (stored) =>
+                stored.event.type === "subagent.updated" &&
+                stored.event.payload.id === taskId &&
+                stored.event.payload.remoteChild?.stoppedThere === false,
+            ),
+            Stream.runHead,
+            Effect.flatMap((event) =>
+              Option.isSome(event) ? Effect.succeed({ stopOwed: true } as const) : Effect.never,
+            ),
+          );
+        const waited = yield* forwarding
+          .waitForThread(scope, remote.environmentId, {
+            threadId: remote.threadId,
+            runId: remote.runId,
+            timeoutMs: FOLLOW_WAIT_MS,
+            untilDelegatedWorkSettled: true,
+          })
+          .pipe(Effect.raceFirst(stopOwed));
+        if ("stopOwed" in waited || waited.timedOut || !isTerminal(waited.status)) return false;
+        const runId = waited.resultRun?.runId ?? waited.runId;
+        if (runId !== null)
+          yield* complete(
+            parentThreadId,
+            taskId,
+            terminalStatus(task.status),
+            task.result,
+            undefined,
+            undefined,
+            {
+              sourceRunId: remote.runId,
+              runId,
+              receiptRef: CustodyPeer.receiptRef(remote.threadId, remote.runId, runId),
+              acknowledged: false,
+            },
+          );
+      }
+      yield* acknowledgeHandoff(parentThreadId, taskId);
       return true;
     }
     const inspection = yield* readAdvice(parentThreadId, remote, thread);
@@ -1180,7 +1284,17 @@ const make = Effect.gen(function* () {
       terminalStatus(resultRun.status),
       result ?? noReply,
       "ran-out",
+      undefined,
+      remote.runId === undefined
+        ? undefined
+        : {
+            sourceRunId: remote.runId,
+            runId: resultRun.runId,
+            receiptRef: CustodyPeer.receiptRef(remote.threadId, remote.runId, resultRun.runId),
+            acknowledged: false,
+          },
     );
+    yield* acknowledgeHandoff(parentThreadId, taskId);
     return yield* settled(parentThreadId, taskId);
   });
 
@@ -1326,7 +1440,11 @@ const make = Effect.gen(function* () {
         // thread there a stop starts it again. Started before the scan below;
         // a Stop that slips between the two stays owed for the next start.
         yield* Stream.runForEach(threads.streamDomainEvents, (event) =>
-          event.type === "subagent.updated" && event.payload.remoteChild?.stoppedThere === false
+          event.type === "subagent.updated" &&
+          (event.payload.remoteChild?.stoppedThere === false ||
+            (event.payload.remoteChild?.custodyHandoff?.acknowledged === false &&
+              (event.payload.completionDelivery?.state === "acknowledged" ||
+                event.payload.completionDelivery?.state === "disposed")))
             ? followOne(event.threadId, event.payload.id).pipe(Effect.forkIn(followers))
             : Effect.void,
         ).pipe(

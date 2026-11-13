@@ -1,3 +1,4 @@
+import * as RunCustody from "./RunWorkspaceCustody.ts";
 import { CheckpointScopeId, ProjectId, RunId, ThreadId } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -69,6 +70,7 @@ export class RunFinalizationService extends Context.Service<
 >()("t3/orchestration-v2/RunFinalizationService") {}
 
 const make = Effect.gen(function* () {
+  const custody = yield* RunCustody.RunWorkspaceCustody;
   const checkpointCapture = yield* CheckpointCapture.CheckpointCaptureServiceV2;
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const observer = yield* RunFinalizationObserver;
@@ -84,6 +86,18 @@ const make = Effect.gen(function* () {
         ),
       );
     yield* observer.recordHandoff(input);
+    yield* custody
+      .acknowledge(
+        input.runId,
+        `checkpoint:${input.scopeId}`,
+        `checkpoint-and-handoff:${input.scopeId}`,
+      )
+      .pipe(
+        Effect.mapError(
+          (cause) => new RunFinalizationError({ ...input, operation: "capture-checkpoint", cause }),
+        ),
+      );
+    yield* custody.settle(input.runId).pipe(Effect.ignore);
     const projection = yield* projections
       .getCheckpointContext(input.threadId)
       .pipe(

@@ -1,3 +1,4 @@
+import * as RunCustody from "./RunWorkspaceCustody.ts";
 import { makeAssistantStreamingFilter } from "./assistantStreaming.ts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import {
@@ -630,10 +631,12 @@ export const layer: Layer.Layer<
   | PreviewAgentActivity.PreviewAgentActivity
   | TurnItemPositionStore.TurnItemPositionStoreV2
   | ThreadCommandExecutor.ThreadCommandExecutor
+  | RunCustody.RunWorkspaceCustody
 > = Layer.effect(
   RunExecutionServiceV2,
   Effect.gen(function* () {
     const scope = yield* Effect.scope;
+    const custody = yield* RunCustody.RunWorkspaceCustody;
     const checkpointService = yield* CheckpointService.CheckpointServiceV2;
     const eventSink = yield* EventSink.EventSinkV2;
     const idAllocator = yield* IdAllocator.IdAllocatorV2;
@@ -978,6 +981,35 @@ export const layer: Layer.Layer<
 
     return RunExecutionServiceV2.of({
       startRootRun: Effect.fn("RunExecutionService.startRootRun")(function* (input) {
+        yield* Effect.gen(function* () {
+          yield* custody.admit({
+            runId: input.run.id,
+            projectRoot: input.checkpointScope.cwd,
+            workspacePath: input.checkpointScope.cwd,
+          });
+          yield* custody.register(input.run.id, {
+            id: `execution:${input.attemptId}`,
+            kind: "provider-turn",
+          });
+          yield* custody.register(input.run.id, {
+            id: `checkpoint:${input.checkpointScope.id}`,
+            kind: "checkpoint",
+          });
+          yield* custody.acknowledge(
+            input.run.id,
+            "admission",
+            `run-execution-registered:${input.run.id}`,
+          );
+        }).pipe(
+          Effect.mapError(
+            (cause) =>
+              new RunExecutionStartError({
+                commandId: input.commandId,
+                runId: input.run.id,
+                cause,
+              }),
+          ),
+        );
         const rootTurnOrigin: ProviderUsageAnalytics.ProviderTurnOrigin = {
           createdBy: input.message.createdBy,
           creationSource: input.message.creationSource,
@@ -1092,6 +1124,23 @@ export const layer: Layer.Layer<
           ),
         );
         if (responseStreamingMode === null) {
+          yield* custody
+            .acknowledge(
+              input.run.id,
+              `execution:${input.attemptId}`,
+              `provider-not-invoked:${input.attemptId}`,
+            )
+            .pipe(
+              Effect.mapError(
+                (cause) =>
+                  new RunExecutionStartError({
+                    commandId: input.commandId,
+                    runId: input.run.id,
+                    cause,
+                  }),
+              ),
+            );
+          yield* custody.settle(input.run.id).pipe(Effect.ignore);
           return;
         }
         const terminalEvent = yield* Ref.make<ProviderTerminalEvent | null>(null);
@@ -1797,7 +1846,44 @@ export const layer: Layer.Layer<
                   });
                 }
                 yield* finalizeRootRun(terminal);
+                const children = yield* Ref.get(activeChildProviderTurns);
+                const subagents = yield* Ref.get(activeChildSubagents);
+                const background = yield* Ref.get(activeBackgroundTurnItems);
+                const latest = yield* Ref.get(latestProviderThread);
+                const probe = input.session.hasPendingBackgroundWorkForThread;
+                const probed =
+                  probe === undefined
+                    ? false
+                    : yield* probe(latest).pipe(Effect.orElseSucceed(() => true));
+                if (
+                  children.size > 0 ||
+                  subagents.size > 0 ||
+                  background.size > 0 ||
+                  pendingBackgroundProviderTurns.size > 0 ||
+                  rootSnapshotPendingWork ||
+                  (latest.pendingBackgroundTasks?.length ?? 0) > 0 ||
+                  probed
+                ) {
+                  yield* custody.recover(input.run.id, "execution-obligations-not-acknowledged");
+                } else {
+                  yield* custody.acknowledge(
+                    input.run.id,
+                    `execution:${input.attemptId}`,
+                    `provider-stream-settled:${input.attemptId}`,
+                  );
+                  yield* custody.settle(input.run.id).pipe(Effect.ignore);
+                }
               }),
+            ),
+            Effect.mapError((cause) =>
+              isRunExecutionIngestError(cause)
+                ? cause
+                : new RunExecutionIngestError({ runId: input.run.id, cause }),
+            ),
+            Effect.onError(() =>
+              custody
+                .recover(input.run.id, "provider-stream-stop-proof-unavailable")
+                .pipe(Effect.ignore),
             ),
             // Server shutdown interrupts the subscription and leaves the run to
             // restart recovery; every other failure fails the run.
@@ -2009,6 +2095,23 @@ export const layer: Layer.Layer<
             : yield* Effect.exit(input.shouldStartProviderTurn());
         if (Exit.isSuccess(shouldStart) && !shouldStart.value) {
           yield* Fiber.interrupt(providerEventFiber);
+          yield* custody
+            .acknowledge(
+              input.run.id,
+              `execution:${input.attemptId}`,
+              `provider-not-invoked:${input.attemptId}`,
+            )
+            .pipe(
+              Effect.mapError(
+                (cause) =>
+                  new RunExecutionStartError({
+                    commandId: input.commandId,
+                    runId: input.run.id,
+                    cause,
+                  }),
+              ),
+            );
+          yield* custody.settle(input.run.id).pipe(Effect.ignore);
           return;
         }
 

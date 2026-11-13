@@ -1,3 +1,4 @@
+import { layerNonSlipJay } from "./testkit/runWorkspaceCustody.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it } from "@effect/vitest";
 import { CheckpointScopeId, CommandId, GitCommandError, RunId, ThreadId } from "@t3tools/contracts";
@@ -74,6 +75,7 @@ it.effect.each([
     ),
   );
   const finalization = RunFinalization.layer.pipe(
+    Layer.provide(layerNonSlipJay),
     Layer.provide(
       Layer.mergeAll(
         projections,

@@ -1,3 +1,4 @@
+import * as CustodyPeer from "../workspace/custodyPeerProtocol.ts";
 import * as EnvironmentAdvice from "../agents/AdviceService.ts";
 import * as AdviceService from "../agents/AdviceService.ts";
 import * as RemoteDelegationLayer from "./RemoteDelegationLayer.ts";
@@ -102,6 +103,9 @@ type LaunchedWith = Pick<
 
 /** The thread the box launches for the task, which the test finishes. */
 interface BoxThread {
+  readonly custodyReceipts: Ref.Ref<ReadonlyArray<typeof CustodyPeer.Input.Type>>;
+  readonly custodyAcknowledged: Deferred.Deferred<void>;
+  readonly custodyFailures: Ref.Ref<number>;
   readonly launched: Ref.Ref<ThreadId | null>;
   /** The link session that launched it, as the box stamps it. */
   readonly linkOrigin: Ref.Ref<{ readonly sessionId: string; readonly label: string } | null>;
@@ -143,6 +147,7 @@ interface BoxThread {
   readonly finished: Deferred.Deferred<void>;
   /** Ends the later run a message sent there started, for a wait pinned to it. */
   readonly laterFinished: Deferred.Deferred<void>;
+  readonly custodyWaitEntered: Deferred.Deferred<void>;
   /** While set, reading the thread there waits: completed once a read starts, released by `releaseRead`. */
   readonly holdRead: Ref.Ref<boolean>;
   readonly readStarted: Deferred.Deferred<void>;
@@ -162,6 +167,9 @@ interface BoxThread {
 
 const makeBoxThread = Effect.gen(function* () {
   return {
+    custodyReceipts: yield* Ref.make<ReadonlyArray<typeof CustodyPeer.Input.Type>>([]),
+    custodyAcknowledged: yield* Deferred.make<void>(),
+    custodyFailures: yield* Ref.make(0),
     launched: yield* Ref.make<ThreadId | null>(null),
     linkOrigin: yield* Ref.make<{ readonly sessionId: string; readonly label: string } | null>(
       null,
@@ -188,6 +196,7 @@ const makeBoxThread = Effect.gen(function* () {
     interruptedOnce: yield* Deferred.make<void>(),
     finished: yield* Deferred.make<void>(),
     laterFinished: yield* Deferred.make<void>(),
+    custodyWaitEntered: yield* Deferred.make<void>(),
     holdRead: yield* Ref.make(false),
     readStarted: yield* Deferred.make<void>(),
     releaseRead: yield* Deferred.make<void>(),
@@ -317,6 +326,21 @@ const boxToolkitLayer = (
       }
     });
   const layerBoxThreads = Layer.mock(ThreadManagement.ThreadManagementService)({
+    acknowledgeRemoteCustody: (input, peer) =>
+      Effect.gen(function* () {
+        expect(peer.sessionId).toBe((yield* Ref.get(thread.linkOrigin))?.sessionId);
+        expect(peer.parentThreadId).toBe((yield* Ref.get(thread.delegatedFrom))?.threadId);
+        expect(peer.environmentId).toBe((yield* Ref.get(thread.delegatedFrom))?.environmentId);
+        yield* Ref.update(thread.custodyReceipts, (receipts) => [...receipts, input]);
+        if (
+          (yield* Ref.getAndUpdate(thread.custodyFailures, (count) => Math.max(0, count - 1))) > 0
+        )
+          return yield* new Orchestrator.OrchestratorProjectionError({
+            threadId: input.threadId,
+            cause: "Lost acknowledgement reply",
+          });
+        yield* Deferred.succeed(thread.custodyAcknowledged, undefined);
+      }),
     getThreadShell: shellOf,
     isProviderInstanceEnabledForProject: () => Effect.succeed(true),
     listProjectThreads: () => Effect.succeed([] as never),
@@ -338,6 +362,8 @@ const boxToolkitLayer = (
         // The queued run's own task stays open while the follow-up ahead of it settles.
         if (input.runId === boxQueuedRunId) return yield* Effect.never;
         if (input.runId === boxLaterRunId) {
+          if ((yield* Ref.get(thread.interrupted)) >= 2)
+            yield* Deferred.succeed(thread.custodyWaitEntered, undefined);
           const laterDone = yield* Deferred.await(thread.laterFinished).pipe(
             Effect.timeoutOption(input.timeoutMs),
           );
@@ -994,9 +1020,13 @@ it.effect("a task delegated to the box wakes the laptop's parent when it ends th
         ReadonlyArray<ProviderContinuationRequests.ProviderContinuationRequest>
       >([]);
       const database = yield* SqlitePersistence.layerMemory.pipe(Layer.build);
-      const a = yield* makeLaptop(database, offers);
+      const retries = yield* steppedRetries;
+      const a = yield* makeLaptop(database, offers).pipe(
+        Effect.provideService(RemoteDelegation.FollowRetrySchedule, retries.schedule),
+      );
       yield* linkTo(a.links, b, "full-access");
       yield* seedParent(a);
+      yield* a.remote.start();
 
       const delegated = yield* delegateToBox(a);
       expect(delegated).toMatchObject({
@@ -1112,6 +1142,8 @@ it.effect("a task delegated to the box wakes the laptop's parent when it ends th
           return span;
         },
       });
+      expect(yield* Ref.get(thread.custodyReceipts)).toEqual([]);
+      yield* Ref.set(thread.custodyFailures, 1);
       const status = yield* a
         .call("task_status", { taskId: delegated.taskId })
         .pipe(Effect.withTracer(tracer));
@@ -1129,6 +1161,40 @@ it.effect("a task delegated to the box wakes the laptop's parent when it ends th
         state: "acknowledged",
         observedByRunId: parentRunId,
       });
+      yield* Queue.take(retries.failed);
+      expect(
+        (yield* a.projections.getOpenRemoteDelegatedTasks).some(
+          (task) => task.taskId === delegated.taskId,
+        ),
+      ).toBe(true);
+      yield* Queue.offer(retries.retry, undefined);
+      yield* Deferred.await(thread.custodyAcknowledged);
+      yield* a.orchestrator
+        .streamStoredEventsFrom({
+          threadId: parentThreadId,
+          afterSequence: 0,
+          eventType: "subagent.updated",
+        })
+        .pipe(
+          Stream.filter(
+            (stored) =>
+              stored.event.type === "subagent.updated" &&
+              stored.event.payload.id === delegated.taskId &&
+              stored.event.payload.remoteChild?.custodyHandoff?.acknowledged === true,
+          ),
+          Stream.runHead,
+        );
+      const receipts = yield* Ref.get(thread.custodyReceipts);
+      expect(receipts).toHaveLength(2);
+      expect(receipts[1]).toEqual(receipts[0]);
+      expect(receipts.slice(0, 1)).toEqual([
+        {
+          threadId: delegated.remoteChild.threadId,
+          sourceRunId: boxRunId,
+          runId: boxRunId,
+          receiptRef: CustodyPeer.receiptRef(delegated.remoteChild.threadId, boxRunId, boxRunId),
+        },
+      ]);
     }),
   ).pipe(
     Effect.provide(
@@ -2529,6 +2595,12 @@ it.effect("a parent stopped while the task's result is read still stops its thre
       expect(yield* taskResult(a, delegated.taskId)).toMatchObject({ status: "interrupted" });
       yield* Deferred.await(thread.interruptedOnce);
       expect(yield* Ref.get(thread.stops)).toContain("thread.stop");
+      const stopped = yield* stoppedThere(a, delegated.taskId, null);
+      expect(stopped?.remoteChild?.custodyHandoff).toMatchObject({
+        sourceRunId: boxRunId,
+        runId: boxRunId,
+        receiptRef: CustodyPeer.receiptRef(delegated.remoteChild.threadId, boxRunId, boxRunId),
+      });
     }),
   ).pipe(
     Effect.provide(
@@ -2753,6 +2825,7 @@ it.effect("stopping the parent stops follow-up work on a task there that has its
       expect(task).toMatchObject({ status: "completed", result: "All green." });
       expect(yield* a.projections.getOpenRemoteDelegatedTasks).toEqual([]);
 
+      yield* Deferred.await(thread.custodyWaitEntered);
       // A second Stop owes a second stop there, not a replay of the first.
       yield* a.threads.stopDelegatedTasks({
         threadId: parentThreadId,
@@ -2761,6 +2834,7 @@ it.effect("stopping the parent stops follow-up work on a task there that has its
       expect(yield* stoppedThere(a, delegated.taskId, 2)).toMatchObject({ status: "completed" });
       expect(yield* stoppedThere(a, followUpId, 1)).toMatchObject({ status: "interrupted" });
       expect(yield* Ref.get(thread.interrupted)).toBe(4);
+      expect(yield* Deferred.isDone(thread.laterFinished)).toBe(false);
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );

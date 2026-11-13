@@ -1,3 +1,4 @@
+import { layerNonSlipJay, layerSyntheticWorkspaces } from "./testkit/runWorkspaceCustody.ts";
 import { isQuietRunCompletion } from "@t3tools/contracts";
 import { PullRequestProviderError } from "@t3tools/source-control-core/server/PullRequestProvider";
 import { SourceControlProviderKind } from "@t3tools/contracts";
@@ -127,12 +128,17 @@ const layerProjectHydrationTest = Layer.mergeAll(
 
 const layerPlatformTest = Layer.mergeAll(
   NodeServices.layer,
+  layerSyntheticWorkspaces,
   NodeCrypto.layer,
   layerProjectHydrationTest,
   Layer.mock(SourceControlProviderRegistry.SourceControlProviderRegistry)({
     resolveLink: () => Effect.die("unused title link"),
   }),
 );
+
+const projectDirectory = Effect.flatMap(FileSystem.FileSystem, (fs) =>
+  fs.makeTempDirectoryScoped({ prefix: "t3-runtime-project-" }),
+).pipe(Effect.provide(NodeServices.layer));
 
 const layerServerConfig = ServerConfig.layerTest(process.cwd(), {
   prefix: "t3-orchestration-v2-runtime-layer-",
@@ -368,7 +374,7 @@ const layerProjectionReplayTest = ProjectionReplay.layer.pipe(
 );
 
 const layerTest = Layer.mergeAll(
-  RuntimeLayer.layer,
+  RuntimeLayer.layerWithCustody(layerNonSlipJay),
   layerProjectionReplayTest,
   RuntimeLayer.layerEventSink,
   ProjectStore.layer,
@@ -388,7 +394,10 @@ const layerTest = Layer.mergeAll(
   Layer.provide(layerPlatformTest),
 );
 
-const layerLegacyImportTest = Layer.merge(RuntimeLayer.layer, layerProjectionReplayTest).pipe(
+const layerLegacyImportTest = Layer.merge(
+  RuntimeLayer.layerWithCustody(layerNonSlipJay),
+  layerProjectionReplayTest,
+).pipe(
   Layer.provide(McpSessionRegistryTestkit.layer),
   Layer.provide(McpProviderSessions.layer),
   Layer.provideMerge(SqlitePersistence.layerMemory),
@@ -631,7 +640,9 @@ const layerResourceCleanupTest = ResourceCleanupService.layer.pipe(
 );
 
 const layerProjectDeletionTest = Layer.mergeAll(
-  RuntimeLayer.layer.pipe(Layer.provide(RuntimeLayer.layerProjectService)),
+  RuntimeLayer.layerWithCustody(layerNonSlipJay).pipe(
+    Layer.provide(RuntimeLayer.layerProjectService),
+  ),
   RuntimeLayer.layerProjectService,
   RuntimeLayer.layerEventSink,
   ThreadCommandExecutor.layer,
@@ -1172,7 +1183,9 @@ it.layer(layerProjectDeletionTest)("project deletion during thread commands", (i
 
 const layerSharedApplicationDataPlaneTest = Layer.mergeAll(
   layerProjectionReplayTest,
-  RuntimeLayer.layer.pipe(Layer.provide(RuntimeLayer.layerProjectService)),
+  RuntimeLayer.layerWithCustody(layerNonSlipJay).pipe(
+    Layer.provide(RuntimeLayer.layerProjectService),
+  ),
   RuntimeLayer.layerProjectService,
   RuntimeLayer.layerEventSink,
   RuntimeLayer.layerEventInfrastructure,
@@ -9425,7 +9438,7 @@ it.layer(layerSharedApplicationDataPlaneTest)("pending provider interruption", (
         commandId: CommandId.make("runtime-layer-pending-interrupt-project-create"),
         projectId,
         title: "Pending interrupt project",
-        workspaceRoot: "/tmp/runtime-layer-pending-interrupt-project",
+        workspaceRoot: yield* projectDirectory,
       });
       yield* orchestrator.dispatch({
         type: "thread.create",
@@ -9889,7 +9902,7 @@ it.layer(layerSharedApplicationDataPlaneTest)("snooze projection", (it) => {
         commandId: CommandId.make("runtime-layer-snoozed-project-create"),
         projectId,
         title: "Snoozed shell projection",
-        workspaceRoot: "/tmp/runtime-layer-snoozed-project",
+        workspaceRoot: yield* projectDirectory,
       });
       yield* orchestrator.dispatch({
         type: "thread.create",
@@ -10084,7 +10097,7 @@ it.layer(layerSharedApplicationDataPlaneTest)("visited projection", (it) => {
           commandId: commandId("project"),
           projectId,
           title: "Quiet sweeps",
-          workspaceRoot: `/tmp/quiet-${status}`,
+          workspaceRoot: yield* projectDirectory,
         });
         yield* orchestrator.dispatch({
           type: "thread.create",
@@ -11491,7 +11504,7 @@ const queueResumeDisabledInstanceProjectId = ProjectId.make(
 );
 
 const layerQueueResumeDisabledInstanceTest = Layer.mergeAll(
-  RuntimeLayer.layer,
+  RuntimeLayer.layerWithCustody(layerNonSlipJay),
   RuntimeLayer.layerEventSink,
   ProjectStore.layer,
   ProjectionStore.layer,

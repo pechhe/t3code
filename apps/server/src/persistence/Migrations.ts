@@ -143,6 +143,7 @@ import Migration0128 from "./Migrations/128_ProjectionProjectsCustomTitle.ts";
 import Migration0129 from "./Migrations/129_TurnItemTypeStatusIndex.ts";
 import Migration0130 from "./Migrations/130_ChampionMeasurements.ts";
 import Migration0131 from "./Migrations/131_ShellThreadReadIndexes.ts";
+import Migration0132 from "./Migrations/132_WorkspaceCustody.ts";
 
 const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -277,6 +278,7 @@ const migrationEntries = [
   [129, "TurnItemTypeStatusIndex", Migration0129],
   [130, "ChampionMeasurements", Migration0130],
   [131, "ShellThreadReadIndexes", Migration0131],
+  [132, "WorkspaceCustody", Migration0132],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

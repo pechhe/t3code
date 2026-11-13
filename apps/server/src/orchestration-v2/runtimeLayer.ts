@@ -1,3 +1,7 @@
+import * as RunCustody from "./RunWorkspaceCustody.ts";
+import * as Custody from "../workspace/WorkspaceCustody.ts";
+import * as CustodyJournal from "../persistence/WorkspaceCustody.ts";
+import * as CustodyProcesses from "../processRunner.ts";
 import * as BwsClient from "../secrets/BwsClient.ts";
 import * as SavedSecrets from "../secrets/SavedSecrets.ts";
 import * as Champions from "../champions/ChampionService.ts";
@@ -166,6 +170,12 @@ const layerProviderAuthServiceProvided = ProviderAuthService.layer.pipe(
   Layer.provide(Layer.merge(ProjectionStore.layer, layerProviderSessionManagerProvided)),
 );
 
+const layerRunCustodyProvided = RunCustody.layer.pipe(
+  Layer.provide(Layer.mergeAll(WorkspaceProvider.layer, Custody.layer, CustodyJournal.layer)),
+  Layer.provide(GitVcsDriver.layer),
+  Layer.provide(CustodyProcesses.layer),
+);
+
 const layerRunExecutionServiceProvided = RunExecutionService.layer.pipe(
   Layer.provide(
     Layer.mergeAll(
@@ -236,7 +246,7 @@ const layerCheckpointCaptureServiceProvided = CheckpointCaptureService.layer.pip
   ),
 );
 const layerRunFinalizationServiceProvided = RunFinalizationService.layer.pipe(
-  Layer.provide(Layer.merge(layerCheckpointCaptureServiceProvided, ProjectionStore.layer)),
+  Layer.provide(Layer.mergeAll(layerCheckpointCaptureServiceProvided, ProjectionStore.layer)),
 );
 
 const layerOrchestratorProvided = Orchestrator.layer.pipe(
@@ -439,9 +449,13 @@ const layerWithoutInstructionOverlay = Layer.mergeAll(
   layerLegacyV1ThreadImporterProvided,
 );
 
-export const layer = layerWithoutInstructionOverlay.pipe(
-  Layer.provide(InstructionOverlay.layerEmpty),
-);
+export const layerWithCustody = (custody: typeof layerRunCustodyProvided) =>
+  layerWithoutInstructionOverlay.pipe(
+    Layer.provide(custody),
+    Layer.provide(InstructionOverlay.layerEmpty),
+  );
+
+export const layer = layerWithCustody(layerRunCustodyProvided);
 
 export const layerProduction = Layer.mergeAll(
   WorktreeBranchSync.layer.pipe(
@@ -507,6 +521,7 @@ export const layerProduction = Layer.mergeAll(
 ).pipe(
   Layer.provide(ResourceCleanupService.layer.pipe(Layer.provide(layerScheduledTaskProvided))),
   Layer.provide(Scheduler.layer),
+  Layer.provide(layerRunCustodyProvided),
   // Exported so the run setup recorder reads the same per-run decisions runs delivered.
   Layer.provideMerge(InstructionOverlay.layer),
   Layer.provideMerge(layerEventInfrastructure),

@@ -1399,6 +1399,13 @@ const DedupedBodyMarker = Schema.optionalKey(Schema.Literal(true));
  * of in a child thread here: that environment and the ordinary thread it runs
  * as there. Such a task has no `childThreadId`.
  */
+export const OrchestrationV2RemoteCustodyHandoff = Schema.Struct({
+  sourceRunId: RunId,
+  runId: RunId,
+  receiptRef: TrimmedNonEmptyString,
+  acknowledged: Schema.Boolean,
+});
+
 export const OrchestrationV2RemoteTaskChild = Schema.Struct({
   environmentId: EnvironmentId,
   threadId: ThreadId,
@@ -1419,6 +1426,7 @@ export const OrchestrationV2RemoteTaskChild = Schema.Struct({
    * one owed, so each reaches the thread there once however often it is sent.
    */
   stopCount: Schema.optional(NonNegativeInt),
+  custodyHandoff: Schema.optional(OrchestrationV2RemoteCustodyHandoff),
   /** The role binding the linked environment resolved for a managed task, under its own policy. */
   agentTask: Schema.optional(AgentTaskBinding),
 });
@@ -4439,6 +4447,7 @@ const OrchestrationV2InternalCommand = Schema.Union([
     stoppedThere: Schema.optional(Schema.Literals(["ran-out", "stopped"])),
     /** The stop generation this report acknowledges; absent for the original unnumbered stop. */
     stopCount: Schema.optional(NonNegativeInt),
+    custodyHandoff: Schema.optional(OrchestrationV2RemoteCustodyHandoff),
   }),
   /**
    * Owes a stop to the thread there of a remote task that already has its result, as Stop on

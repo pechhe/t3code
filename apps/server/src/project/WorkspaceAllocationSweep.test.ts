@@ -9,6 +9,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as WorkspaceAllocationIntents from "../persistence/WorkspaceAllocationIntents.ts";
 import * as Processes from "../processRunner.ts";
+import * as Custody from "../workspace/WorkspaceCustody.ts";
 import * as Git from "../vcs/GitVcsDriver.ts";
 import * as WorkspaceAllocationSweep from "./WorkspaceAllocationSweep.ts";
 import * as Workspaces from "./WorkspaceProvider.ts";
@@ -85,26 +86,27 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("WorkspaceAllocat
           Workspaces.WorkspaceProvider,
           Workspaces.make.pipe(
             Effect.provide(
-              Layer.mergeAll(
-                Layer.mock(Processes.ProcessRunner)({
-                  run: (input) =>
-                    Effect.sync(() => {
-                      const [command, action, id] = input.args;
-                      if (command !== "attempt") return output("");
-                      if (action === "show")
-                        return output(
-                          JSON.stringify({
-                            status: "ready",
-                            workspacePath: `/ws/${id}`,
-                            owned: true,
-                            interrupted: false,
-                          }),
-                        );
-                      released.push(id ?? "");
-                      return output(JSON.stringify({ released: true, removed: `/ws/${id}` }));
-                    }),
-                }),
-                Layer.mock(Git.GitVcsDriver)({}),
+              Layer.mergeAll(Custody.layer, Layer.mock(Git.GitVcsDriver)({})).pipe(
+                Layer.provideMerge(
+                  Layer.mock(Processes.ProcessRunner)({
+                    run: (input) =>
+                      Effect.sync(() => {
+                        const [command, action, id] = input.args;
+                        if (command !== "attempt") return output("");
+                        if (action === "show")
+                          return output(
+                            JSON.stringify({
+                              status: "ready",
+                              workspacePath: `/ws/${id}`,
+                              owned: true,
+                              interrupted: false,
+                            }),
+                          );
+                        released.push(id ?? "");
+                        return output(JSON.stringify({ released: true, removed: `/ws/${id}` }));
+                      }),
+                  }),
+                ),
               ),
             ),
           ),

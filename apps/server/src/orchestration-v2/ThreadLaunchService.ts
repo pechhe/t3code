@@ -1,3 +1,4 @@
+import * as RunCustody from "./RunWorkspaceCustody.ts";
 import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
 import * as ProjectCloneTracker from "../project/ProjectCloneTracker.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
@@ -342,6 +343,7 @@ const make = Effect.gen(function* () {
   const git = yield* GitWorkflow.GitWorkflowService;
   const setupScripts = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
   const workspaces = yield* WorkspaceProvider.WorkspaceProvider;
+  const custody = yield* RunCustody.RunWorkspaceCustody;
   const path = yield* Path.Path;
   const fileSystem = yield* FileSystem.FileSystem;
   const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
@@ -867,6 +869,14 @@ const make = Effect.gen(function* () {
 
       // Do not rewrite reused worktrees; that could undo the original branch rename.
       if (reused === undefined) {
+        if (runId !== null && worktreePath !== null) {
+          yield* custody
+            .admit({ runId, projectRoot: project.workspaceRoot, workspacePath: worktreePath })
+            .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
+          yield* custody
+            .register(runId, { id: `preparation:${input.commandId}`, kind: "background" })
+            .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
+        }
         yield* threads
           .dispatch({
             type: "thread.metadata.update",
@@ -1067,6 +1077,7 @@ const make = Effect.gen(function* () {
               })
               .pipe(Effect.mapError(mapError(input, "run-setup-script", threadId)));
 
+      let setupAcknowledged = setup.status !== "started";
       let awaitAsyncSetup = Effect.void;
       if (setup.status === "started") {
         setupTerminalId = setup.terminalId;
@@ -1081,6 +1092,7 @@ const make = Effect.gen(function* () {
         if (setup.completion) {
           const awaitCompletion = Effect.gen(function* () {
             const completion = yield* setup.completion!;
+            setupAcknowledged = true;
             yield* setupTracker.stage(threadId, "setup-script", {
               status: completion.exitCode === 0 ? "done" : "failed",
               detail: `exited with ${completion.exitCode ?? "no exit code"}`,
@@ -1134,11 +1146,30 @@ const make = Effect.gen(function* () {
       }
       yield* setupTracker.stageStatus(threadId, "agent", "done");
       yield* awaitAsyncSetup;
+      if (runId !== null) {
+        if (setupAcknowledged)
+          yield* custody
+            .acknowledge(
+              runId,
+              `preparation:${input.commandId}`,
+              `preparation-completed:${input.commandId}`,
+            )
+            .pipe(Effect.mapError(mapError(input, "run-setup-script", threadId)));
+        else
+          yield* custody
+            .recover(runId, "setup-completion-acknowledgement-unavailable")
+            .pipe(Effect.mapError(mapError(input, "run-setup-script", threadId)));
+        yield* custody.settle(runId).pipe(Effect.ignore);
+      }
       yield* setupTracker.finish(threadId, "done");
     }).pipe(
       Effect.onError((cause) =>
         Effect.gen(function* () {
           const cancelled = Cause.hasInterruptsOnly(cause);
+          if (runId !== null)
+            yield* custody
+              .recover(runId, "workspace-preparation-stop-proof-unavailable")
+              .pipe(Effect.ignore);
           yield* setupTracker.finish(
             threadId,
             cancelled ? "cancelled" : "failed",

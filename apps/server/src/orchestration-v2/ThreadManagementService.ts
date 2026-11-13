@@ -380,6 +380,7 @@ const PAUSED_TASK_RESUME_TEXT =
   "Your parent thread was stopped, which interrupted you, and has now resumed. Before you continue, check any operation you had running when you were stopped (a landing, a background command, a delegated task) and whether it finished. Then carry on with your task.";
 
 export interface ThreadManagementServiceShape {
+  readonly acknowledgeRemoteCustody: Orchestrator.OrchestratorV2["Service"]["acknowledgeRemoteCustody"];
   readonly searchThreadStream: (
     input: OrchestrationV2SearchThreadInput,
   ) => Stream.Stream<OrchestrationV2SearchThreadResult, Orchestrator.OrchestratorV2Error>;
@@ -1860,6 +1861,7 @@ const make = Effect.gen(function* () {
   });
 
   return ThreadManagementService.of({
+    acknowledgeRemoteCustody: orchestrator.acknowledgeRemoteCustody,
     ensureLegacyTranscript,
     searchThreadStream: (input) =>
       Stream.unwrap(

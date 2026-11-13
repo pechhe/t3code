@@ -1,3 +1,5 @@
+import * as CustodyPeer from "../workspace/custodyPeerProtocol.ts";
+import * as RunCustody from "./RunWorkspaceCustody.ts";
 import { isDelegatedTaskThread, isSideChatThread } from "@t3tools/contracts";
 import type {
   EnvironmentId,
@@ -455,6 +457,7 @@ export const OrchestratorV2Error = Schema.Union([
   OrchestratorRuntimeModeAboveCeilingError,
 ]);
 export type OrchestratorV2Error = typeof OrchestratorV2Error.Type;
+const isCustodyHandoffIdentityError = Schema.is(CustodyPeer.CustodyHandoffIdentityError);
 const isOrchestratorV2Error = Schema.is(OrchestratorV2Error);
 
 export interface OrchestratorV2DispatchResult {
@@ -475,6 +478,14 @@ export type OrchestratorThreadWatchStanding =
   | { readonly state: "ended"; readonly outcome: OrchestrationV2RemoteThreadWatchOutcome };
 
 export interface OrchestratorV2Shape {
+  readonly acknowledgeRemoteCustody: (
+    input: typeof CustodyPeer.Input.Type,
+    peer: {
+      readonly sessionId: string;
+      readonly parentThreadId: ThreadId;
+      readonly environmentId: string;
+    },
+  ) => Effect.Effect<void, OrchestratorProjectionError | CustodyPeer.CustodyHandoffIdentityError>;
   readonly resumeQueuedRuns: Effect.Effect<number, OrchestratorV2Error>;
   readonly recoverDelegatedTasks: Effect.Effect<void>;
   /** Publish any managed child's result whose awaited work has outlived its grace. */
@@ -1679,6 +1690,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   const commandReceipts = yield* CommandReceiptStoreV2;
   const idAllocator = yield* IdAllocator.IdAllocatorV2;
   const projects = yield* ProjectStore.ProjectStoreV2;
+  const custody = yield* RunCustody.RunWorkspaceCustody;
   const projectionStore = yield* ProjectionStoreV2;
   const effectOutbox = yield* EffectOutbox.EffectOutboxV2;
   const nextTurnItemOrdinal = (
@@ -11663,10 +11675,48 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       (command.stopCount ?? 0) !== (task.remoteChild?.stopCount ?? 0)
     )
       return;
-    const remoteChild =
-      command.stoppedThere === undefined
-        ? task.remoteChild
-        : { ...task.remoteChild!, stoppedThere: true };
+    const previousHandoff = task.remoteChild?.custodyHandoff;
+    const handoff = command.custodyHandoff;
+    if (
+      handoff !== undefined &&
+      previousHandoff !== undefined &&
+      (handoff.sourceRunId !== previousHandoff.sourceRunId ||
+        handoff.runId !== previousHandoff.runId ||
+        handoff.receiptRef !== previousHandoff.receiptRef ||
+        (previousHandoff.acknowledged && !handoff.acknowledged))
+    )
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: "Remote handback custody identity conflicts with its retained receipt.",
+      });
+    const owesStop =
+      task.result !== null &&
+      (task.status === "cancelled" ||
+        task.status === "interrupted" ||
+        task.remoteChild?.stoppedThere === false);
+    const settlesStop =
+      command.stoppedThere === "stopped" || (command.stoppedThere === "ran-out" && !owesStop);
+    const remoteChild = {
+      ...task.remoteChild!,
+      ...(settlesStop ? { stoppedThere: true } : {}),
+      ...(handoff === undefined ? {} : { custodyHandoff: handoff }),
+    };
+    if (task.result !== null && handoff !== undefined) {
+      yield* emit(
+        events,
+        command,
+      )({
+        type: "subagent.updated",
+        threadId: command.parentThreadId,
+        ...(task.runId === null ? {} : { runId: task.runId }),
+        nodeId: task.id,
+        driver: task.driver,
+        occurredAt: yield* DateTime.now,
+        payload: { ...task, remoteChild, updatedAt: yield* DateTime.now },
+      });
+      return;
+    }
     // The first result stands; a repeated follower report records nothing, which
     // the dispatcher refuses. A stop there after the result is still recorded, but
     // a run that ended by itself does not settle a stop the task here still owes.
@@ -11675,10 +11725,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       if (command.stoppedThere === undefined) {
         return yield* emitRemoteStopOwed(events, command, task, task.remoteChild!);
       }
-      const owesStop =
-        task.status === "cancelled" ||
-        task.status === "interrupted" ||
-        task.remoteChild?.stoppedThere === false;
       if (
         task.remoteChild?.stoppedThere === true ||
         (owesStop && command.stoppedThere !== "stopped")
@@ -17723,6 +17769,173 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         storedEvents: [],
       } satisfies OrchestratorV2DispatchResult;
     }
+    const retainDelivery = Effect.fn("Orchestrator.retainDelivery")(function* (
+      task: OrchestrationV2Subagent,
+      sources: ReadonlyArray<{ readonly projectRoot: string; readonly workspacePath: string }>,
+    ) {
+      if (
+        task.origin !== "app_owned" ||
+        task.status === "idle" ||
+        task.completionDelivery?.state === "acknowledged" ||
+        task.completionDelivery?.state === "disposed"
+      )
+        return;
+      const owner = `delivery:${task.id}`;
+      for (const source of sources) {
+        if (!(yield* fileSystem.exists(source.workspacePath))) continue;
+        yield* custody.admit({ runId: owner, ...source, admissionId: command.commandId });
+      }
+      yield* custody.register(owner, { id: "delivery", kind: "delivery" });
+      yield* custody.acknowledge(owner, "admission", `delivery-registered:${task.id}`);
+    });
+    for (const event of plan.events) {
+      if (event.type !== "subagent.updated" || event.payload.origin !== "app_owned") continue;
+      const shell = (yield* projectionStore
+        .getThreadRecords(event.threadId, [])
+        .pipe(mapDispatchError(command))).thread;
+      const project = yield* projects.get(shell.projectId).pipe(mapDispatchError(command));
+      if (Option.isNone(project)) continue;
+      const sources = [
+        {
+          projectRoot: project.value.workspaceRoot,
+          workspacePath: shell.worktreePath ?? project.value.workspaceRoot,
+        },
+      ];
+      for (const attachment of liveWorkspaceAttachments(shell)) {
+        const attached = yield* projects.get(attachment.projectId).pipe(mapDispatchError(command));
+        if (Option.isSome(attached))
+          sources.push({
+            projectRoot: attached.value.workspaceRoot,
+            workspacePath: attachment.workspacePath,
+          });
+      }
+      yield* retainDelivery(event.payload, sources).pipe(mapDispatchError(command));
+    }
+    const sourceChanges = plan.events.filter(
+      (event) =>
+        event.type === "run.created" ||
+        event.type === "run.updated" ||
+        event.type === "thread.created" ||
+        event.type === "thread.metadata-updated",
+    );
+    for (const threadId of new Set(sourceChanges.map((event) => event.threadId))) {
+      const changes = sourceChanges.filter((event) => event.threadId === threadId);
+      const before = changes.some((event) => event.type === "thread.created")
+        ? null
+        : (yield* projectionStore.getThreadRecords(threadId, []).pipe(mapDispatchError(command)))
+            .thread;
+      const update = changes.findLast(
+        (
+          event,
+        ): event is Extract<
+          OrchestrationV2DomainEvent,
+          { readonly type: "thread.created" | "thread.metadata-updated" }
+        > => event.type === "thread.created" || event.type === "thread.metadata-updated",
+      );
+      const thread = update?.payload ?? before;
+      if (thread === null || thread === undefined) continue;
+      const pathsOf = (
+        value: Pick<
+          OrchestrationV2AppThread,
+          "projectId" | "worktreePath" | "workspaceAttachments"
+        >,
+      ) =>
+        JSON.stringify([
+          value.projectId,
+          value.worktreePath,
+          liveWorkspaceAttachments(value).map((attachment) => [
+            attachment.projectId,
+            attachment.workspacePath,
+          ]),
+        ]);
+      if (
+        before !== null &&
+        changes.every((event) => event.type !== "run.created" && event.type !== "run.updated") &&
+        pathsOf(before) === pathsOf(thread)
+      )
+        continue;
+      const records = new Map<RunId, OrchestrationV2Run>();
+      if (update !== undefined && before !== null && pathsOf(before) !== pathsOf(thread)) {
+        const projection = yield* projectionStore
+          .getThreadRecords(threadId, ["runs"], {
+            runStatuses: ["queued", "preparing", "starting", "running", "waiting"],
+          })
+          .pipe(mapDispatchError(command));
+        for (const run of projection.runs) records.set(run.id, run);
+      }
+      for (const event of changes)
+        if (event.type === "run.created" || event.type === "run.updated")
+          records.set(event.payload.id, event.payload);
+      const active = [...records.values()].filter(
+        (run) =>
+          (run.status === "queued" && run.queueHeld !== true) ||
+          run.status === "preparing" ||
+          run.status === "starting" ||
+          run.status === "running" ||
+          run.status === "waiting",
+      );
+      if (active.length === 0) continue;
+      const project = yield* projects.get(thread.projectId).pipe(mapDispatchError(command));
+      if (Option.isNone(project)) continue;
+      const paths = [
+        {
+          projectRoot: project.value.workspaceRoot,
+          workspacePath: thread.worktreePath ?? project.value.workspaceRoot,
+          replacement: thread.worktreePath !== null,
+        },
+      ];
+      for (const attachment of liveWorkspaceAttachments(thread)) {
+        const attachedProject = yield* projects
+          .get(attachment.projectId)
+          .pipe(mapDispatchError(command));
+        if (Option.isNone(attachedProject))
+          return yield* new OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause: "An attached workspace project is unavailable for custody admission.",
+          });
+        paths.push({
+          projectRoot: attachedProject.value.workspaceRoot,
+          workspacePath: attachment.workspacePath,
+          replacement: false,
+        });
+      }
+      for (const run of active)
+        for (const source of paths) {
+          // A preparation may be replacing an already removed checkout; allocation acquires its replacement before publication.
+          if (!(yield* fileSystem.exists(source.workspacePath).pipe(mapDispatchError(command)))) {
+            if (source.replacement) continue;
+            return yield* new OrchestratorDispatchError({
+              commandId: command.commandId,
+              commandType: command.type,
+              cause: "A source checkout is unavailable for custody admission.",
+            });
+          }
+          yield* custody
+            .admit({
+              runId: run.id,
+              projectRoot: source.projectRoot,
+              workspacePath: source.workspacePath,
+              admissionId: command.commandId,
+            })
+            .pipe(mapDispatchError(command));
+        }
+      if (thread.linkOrigin != null && thread.delegatedFrom != null)
+        for (const run of active)
+          yield* custody
+            .register(run.id, { id: "remote-delivery", kind: "delivery" })
+            .pipe(mapDispatchError(command));
+      const childTask =
+        plan.events.findLast(
+          (
+            event,
+          ): event is Extract<OrchestrationV2DomainEvent, { readonly type: "subagent.updated" }> =>
+            event.type === "subagent.updated" && event.payload.childThreadId === threadId,
+        )?.payload ??
+        (yield* projectionStore.getSubagentByChildThread(threadId).pipe(mapDispatchError(command)));
+      if (childTask !== undefined)
+        yield* retainDelivery(childTask, paths).pipe(mapDispatchError(command));
+    }
     const acceptedAt = plan.events.at(-1)?.occurredAt ?? (yield* DateTime.now);
     const committed = yield* eventSink
       .commitCommand({
@@ -17778,6 +17991,32 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         receiptThreadId: committed.receipt.threadId,
         commandThreadId: commandThreadId(command),
       });
+    }
+    for (const stored of committed.storedEvents) {
+      const event = stored.event;
+      if (
+        event.type === "subagent.updated" &&
+        event.payload.origin === "app_owned" &&
+        (event.payload.completionDelivery?.state === "acknowledged" ||
+          event.payload.completionDelivery?.state === "disposed")
+      ) {
+        const owner = `delivery:${event.payload.id}`;
+        yield* custody
+          .acknowledge(owner, "delivery", `delivery-settled:${event.payload.id}`)
+          .pipe(Effect.andThen(custody.settle(owner)), Effect.ignoreCause({ log: true }));
+      }
+      if (
+        (event.type === "run.created" || event.type === "run.updated") &&
+        ((event.payload.status === "queued" && event.payload.queueHeld === true) ||
+          event.payload.status === "cancelled" ||
+          event.payload.status === "failed" ||
+          event.payload.status === "interrupted" ||
+          event.payload.status === "completed")
+      ) {
+        yield* custody
+          .endAdmission(event.payload.id, `admission-ended:${command.commandId}`)
+          .pipe(Effect.ignoreCause({ log: true }));
+      }
     }
     if (
       command.type === "queue.resume" ||
@@ -18363,7 +18602,66 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   const shellProjectionError = (cause: unknown) =>
     new OrchestratorProjectionError({ threadId: ThreadId.make("thread:shell"), cause });
 
+  const acknowledgeRemoteCustody = Effect.fn("Orchestrator.acknowledgeRemoteCustody")(
+    function* (
+      input: typeof CustodyPeer.Input.Type,
+      peer: {
+        readonly sessionId: string;
+        readonly parentThreadId: ThreadId;
+        readonly environmentId: string;
+      },
+    ) {
+      const boundary = yield* projectionStore.getThreadRecords(input.threadId, ["runs"], {
+        runIds: [input.sourceRunId, input.runId],
+      });
+      const thread = boundary.thread;
+      const source = boundary.runs.find((run) => run.id === input.sourceRunId);
+      const result = boundary.runs.find((run) => run.id === input.runId);
+      if (
+        thread.linkOrigin?.sessionId !== peer.sessionId ||
+        thread.delegatedFrom?.threadId !== peer.parentThreadId ||
+        thread.delegatedFrom.environmentId !== peer.environmentId ||
+        source === undefined ||
+        result === undefined ||
+        source.ordinal > result.ordinal ||
+        input.receiptRef !== CustodyPeer.receiptRef(input.threadId, input.sourceRunId, input.runId)
+      )
+        return yield* new CustodyPeer.CustodyHandoffIdentityError({ threadId: input.threadId });
+      const records = yield* projectionStore.getThreadRecords(input.threadId, ["runs"], {
+        runOrdinalRange: { from: source.ordinal, through: result.ordinal },
+      });
+      if (
+        records.runs.some((run) =>
+          ["queued", "preparing", "starting", "running", "waiting"].includes(run.status),
+        )
+      )
+        return yield* new OrchestratorProjectionError({
+          threadId: input.threadId,
+          cause: "Remote custody delivery still has admitted work.",
+        });
+      for (const run of records.runs) {
+        yield* custody.acknowledge(
+          run.id,
+          "remote-delivery",
+          `remote-delivery-accepted:${input.threadId}:${run.id}`,
+        );
+        yield* custody.settle(run.id).pipe(Effect.ignore);
+      }
+    },
+    (effect, input) =>
+      threadDispatch
+        .withLock(input.threadId, effect)
+        .pipe(
+          Effect.mapError((cause) =>
+            isCustodyHandoffIdentityError(cause)
+              ? cause
+              : new OrchestratorProjectionError({ threadId: input.threadId, cause }),
+          ),
+        ),
+  );
+
   return OrchestratorV2.of({
+    acknowledgeRemoteCustody,
     resumeQueuedRuns,
     recoverDelegatedTasks,
     sweepDelegatedTaskResults,
@@ -18620,6 +18918,7 @@ export const layer: Layer.Layer<
   | RuntimePolicyV2
   | ServerSettings.ServerSettingsService
   | ThreadForkServiceV2
+  | RunCustody.RunWorkspaceCustody
 > = Layer.effect(OrchestratorV2, makeOrchestrator()).pipe(
   Layer.provide(ThreadCommandExecutor.layer),
 );

@@ -7,6 +7,7 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
+import * as Redacted from "effect/Redacted";
 
 import * as WorkspaceAllocationIntents from "../persistence/WorkspaceAllocationIntents.ts";
 import * as ProcessRunner from "../processRunner.ts";
@@ -14,6 +15,7 @@ import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { type GitCommandError, type VcsRemoveWorktreeInput } from "@t3tools/contracts";
 import { containingRepositoryStore, repositoryStore } from "../agents/workspaceIdentity.ts";
 import { findSlipJayProject } from "../vcs/SlipJayProject.ts";
+import * as WorkspaceCustody from "../workspace/WorkspaceCustody.ts";
 
 /**
  * How a project creates a separate checkout for a thread. A SlipJay project
@@ -58,6 +60,15 @@ const SlipJayStartResult = Schema.Struct({
   // False when SlipJay bound or resumed a checkout that already existed, such as an Issue's;
   // absent when it did not say.
   created: Schema.optional(Schema.Boolean),
+  claim: Schema.optional(
+    Schema.Struct({
+      version: Schema.Literals([1]),
+      path: Schema.String,
+      generation: Schema.String,
+      claimId: Schema.String,
+      ownerId: Schema.String,
+    }),
+  ),
 });
 const decodeSlipJayStartResult = Schema.decodeUnknownEffect(
   Schema.fromJsonString(SlipJayStartResult),
@@ -171,6 +182,7 @@ export const make = Effect.gen(function* () {
 
   const intents = yield* WorkspaceAllocationIntents.WorkspaceAllocationIntents;
   const crypto = yield* SecureRandom.SecureRandom;
+  const custody = yield* WorkspaceCustody.WorkspaceCustody;
   // Allocations this process is making or has not yet settled; `reconcile` leaves them alone.
   const live = new Set<string>();
   // Serialises settling an intent against `adoptPrior` claiming it.
@@ -181,11 +193,13 @@ export const make = Effect.gen(function* () {
     projectRoot: string,
     args: ReadonlyArray<string>,
     cwd = projectRoot,
+    claimTransport?: { readonly producerEntry: string; readonly stdin: Redacted.Redacted<string> },
   ) =>
     processes
       .run({
-        command: "slipjay",
-        args,
+        command: claimTransport === undefined ? "slipjay" : "bun",
+        args: claimTransport === undefined ? args : [claimTransport.producerEntry, ...args],
+        ...(claimTransport === undefined ? {} : { stdin: Redacted.value(claimTransport.stdin) }),
         cwd,
         // A cold allocation installs the repository's dependencies.
         timeout: "10 minutes",
@@ -202,8 +216,9 @@ export const make = Effect.gen(function* () {
     projectRoot: string,
     args: ReadonlyArray<string>,
     cwd = projectRoot,
+    claimTransport?: { readonly producerEntry: string; readonly stdin: Redacted.Redacted<string> },
   ) =>
-    runSlipjay(operation, projectRoot, args, cwd).pipe(
+    runSlipjay(operation, projectRoot, args, cwd, claimTransport).pipe(
       Effect.filterOrFail(
         (output) => output.code === 0,
         (output) => {
@@ -281,7 +296,11 @@ export const make = Effect.gen(function* () {
   // created and nothing has used since, so this is safe for a resumed or bound one. A refusal
   // (unlanded work, a live process) keeps the intent with SlipJay's reason for a later sweep.
   const releaseAttempt = (root: string, attemptId: string) =>
-    runSlipjay("release", root, ["attempt", "release", attemptId]).pipe(
+    custody.finishAllocation(attemptId).pipe(
+      Effect.mapError(
+        (cause) => new WorkspaceProviderError({ operation: "release", projectRoot: root, cause }),
+      ),
+      Effect.andThen(runSlipjay("release", root, ["attempt", "release", attemptId])),
       Effect.flatMap((output) =>
         decodeSlipJayAttemptRelease(output.stdout.trim()).pipe(
           Effect.mapError(
@@ -480,6 +499,27 @@ export const make = Effect.gen(function* () {
               ),
             ));
         live.add(attemptId);
+        const epoch = yield* custody
+          .prepare({ ownerRef: `allocation:${attemptId}`, projectRoot: root })
+          .pipe(
+            Effect.mapError(
+              (cause) => new WorkspaceProviderError({ operation: "allocate", projectRoot, cause }),
+            ),
+          );
+        yield* custody
+          .register(epoch.id, { id: `allocation:${attemptId}`, kind: "allocation" })
+          .pipe(
+            Effect.mapError(
+              (cause) => new WorkspaceProviderError({ operation: "allocate", projectRoot, cause }),
+            ),
+          );
+        const claimTransport = yield* custody
+          .allocationInput(epoch.id)
+          .pipe(
+            Effect.mapError(
+              (cause) => new WorkspaceProviderError({ operation: "allocate", projectRoot, cause }),
+            ),
+          );
         // Recorded before SlipJay runs, so nothing T3 loses track of can strand a checkout.
         if (prior === null) {
           yield* intents
@@ -503,15 +543,22 @@ export const make = Effect.gen(function* () {
         const resume = issue?.mode === "resume";
         const result =
           prior ??
-          (yield* slipjay("allocate", root, [
-            "start",
-            "--integration",
-            "--json",
-            "--attempt",
-            attemptId,
-            ...(resume ? ["--issue", String(issue.number)] : []),
-            task,
-          ]).pipe(
+          (yield* slipjay(
+            "allocate",
+            root,
+            [
+              "start",
+              "--claim-stdin",
+              "--integration",
+              "--json",
+              "--attempt",
+              attemptId,
+              ...(resume ? ["--issue", String(issue.number)] : []),
+              task,
+            ],
+            root,
+            claimTransport,
+          ).pipe(
             Effect.flatMap((output) =>
               decodeSlipJayStartResult(output.stdout.trim()).pipe(
                 Effect.mapError(
@@ -522,6 +569,31 @@ export const make = Effect.gen(function* () {
             ),
             Effect.catch((error) => settleStart(root, attemptId, owner, error)),
           ));
+        if ("claim" in result && result.claim !== undefined) {
+          if (result.claim.path !== result.workspacePath)
+            return yield* new WorkspaceProviderError({
+              operation: "allocate",
+              projectRoot,
+              detail: "SlipJay custody receipt identifies another checkout.",
+            });
+          yield* custody
+            .acquired(epoch.id, { ...result.claim, ok: true })
+            .pipe(
+              Effect.mapError(
+                (cause) =>
+                  new WorkspaceProviderError({ operation: "allocate", projectRoot, cause }),
+              ),
+            );
+        } else {
+          yield* custody
+            .acquireExisting(epoch.id, result.workspacePath)
+            .pipe(
+              Effect.mapError(
+                (cause) =>
+                  new WorkspaceProviderError({ operation: "allocate", projectRoot, cause }),
+              ),
+            );
+        }
         // Resuming would hand over a workspace that may be another thread's. Attaching
         // refuses an item another workspace holds, so this checkout only ever belongs to
         // the thread that asked for it.
@@ -575,7 +647,11 @@ export const make = Effect.gen(function* () {
     ),
   );
 
-  const settled: WorkspaceProvider["Service"]["settled"] = (attemptId) => forgetIntent(attemptId);
+  const settled: WorkspaceProvider["Service"]["settled"] = (attemptId) =>
+    custody.finishAllocation(attemptId).pipe(
+      Effect.andThen(forgetIntent(attemptId)),
+      Effect.catch((error) => annotateIntent(attemptId, error.message)),
+    );
 
   const abandon: WorkspaceProvider["Service"]["abandon"] = (attemptId) =>
     intents.list.pipe(
@@ -708,6 +784,7 @@ export const make = Effect.gen(function* () {
 });
 
 export const layer = Layer.effect(WorkspaceProvider, make).pipe(
+  Layer.provide(WorkspaceCustody.layer),
   Layer.provide(ProcessRunner.layer),
   Layer.provide(WorkspaceAllocationIntents.layer),
 );

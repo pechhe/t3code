@@ -1,3 +1,4 @@
+import { layerNonSlipJay } from "./testkit/runWorkspaceCustody.ts";
 import * as FixtureManagedAgentService from "../agents/ManagedAgentService.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -49,6 +50,7 @@ it.effect("completes finalization when the post-checkpoint workspace refresh fai
   const scopeId = CheckpointScopeId.make("scope_refresh_failure");
   const captured: string[] = [];
   const layer = RunFinalization.layer.pipe(
+    Layer.provide(layerNonSlipJay),
     Layer.provide(
       Layer.mergeAll(
         Layer.mock(CheckpointCapture.CheckpointCaptureServiceV2)({

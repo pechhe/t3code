@@ -1,3 +1,5 @@
+import type * as Custody from "../RunWorkspaceCustody.ts";
+import { layerNonSlipJay } from "./runWorkspaceCustody.ts";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import * as VideoFrames from "../../videoFrames/VideoFrames.ts";
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
@@ -287,6 +289,7 @@ export function layerWithRegistry<Error>(
       MigrationError | PlatformError.PlatformError | SqlError
     >;
     readonly runEffectWorker?: boolean;
+    readonly custodyLayer?: Layer.Layer<Custody.RunWorkspaceCustody>;
     readonly configureMcp?: boolean;
     readonly mcpSessionRegistryLayer?: Layer.Layer<McpSessionRegistry.McpSessionRegistry>;
     readonly runContinuationWorker?: boolean;
@@ -310,6 +313,7 @@ export function layerWithRegistry<Error>(
   | ThreadCommandExecutor.ThreadCommandExecutor,
   Error | MigrationError | PlatformError.PlatformError | SqlError
 > {
+  const layerCustody = options.custodyLayer ?? layerNonSlipJay;
   const layerServerConfig = Layer.effect(
     ServerConfig.ServerConfig,
     makeReplayServerConfig(scenario.name).pipe(Effect.orDie),
@@ -432,6 +436,7 @@ export function layerWithRegistry<Error>(
     Layer.provide(layerProvidedRegistry),
   );
   const layerRunExecutionServiceProvided = RunExecutionService.layer.pipe(
+    Layer.provide(layerCustody),
     Layer.provide(
       Layer.mergeAll(
         McpAppModelContext.layerEmpty,
@@ -509,6 +514,7 @@ export function layerWithRegistry<Error>(
     ),
   );
   const layerRunFinalizationServiceProvided = RunFinalizationService.layer.pipe(
+    Layer.provide(layerCustody),
     Layer.provide(Layer.merge(layerCheckpointCaptureServiceProvided, layerStores)),
   );
   const layerThreadTitleRegenerationTest = Layer.succeed(
@@ -520,6 +526,7 @@ export function layerWithRegistry<Error>(
     }),
   );
   const layerOrchestratorProvided = Orchestrator.layer.pipe(
+    Layer.provide(layerCustody),
     Layer.provide(
       Layer.mergeAll(
         layerCheckpointServiceProvided,
