@@ -231,14 +231,15 @@ function PolicyEditor({
   onError: (message: string) => void;
 }) {
   const saved = data.snapshot.manifest;
-  const [draft, setDraft] = useState<Manifest>(() => editableManifest(saved));
+  const catalog = catalogModels(data.providers);
+  const [draft, setDraft] = useState<Manifest>(() => editableManifest(saved, catalog));
   const [pending, setPending] = useState(false);
   // A policy read after a reload or another device's save replaces the draft once nothing is
   // saving; the read that follows this page's own save already matches it.
   const [shownPolicy, setShownPolicy] = useState(saved);
   if (shownPolicy !== saved) {
     setShownPolicy(saved);
-    if (!pending) setDraft(editableManifest(saved));
+    if (!pending) setDraft(editableManifest(saved, catalog));
   }
   // Edits made while a save runs queue behind it; each save builds on the revision the last one
   // wrote, unless the policy has since changed elsewhere.
@@ -256,7 +257,6 @@ function PolicyEditor({
   const save = useAtomCommand(serverEnvironment.agentPolicySave);
   // Set when a save reached the file but not the shared checkout's remote.
   const [publishNotice, setPublishNotice] = useState<string | null>(null);
-  const catalog = catalogModels(data.providers);
   const jobs = jobsFor(draft, roleGroups(draft));
   const issue = councilIssue(draft);
   const blocked = !isValid(draft) || issue !== null || unsavedEnvironments > 0;
@@ -310,7 +310,7 @@ function PolicyEditor({
     setPending(false);
     if (failures.length > 0) {
       // Show what is on disk rather than an edit that did not save.
-      setDraft(editableManifest(saved));
+      setDraft(editableManifest(saved, catalog));
       onError(failures.join("; "));
       return;
     }
@@ -368,7 +368,7 @@ function PolicyEditor({
           />
         ))}
       </SettingsSection>
-      {blocked && JSON.stringify(draft) !== JSON.stringify(editableManifest(saved)) ? (
+      {blocked && JSON.stringify(draft) !== JSON.stringify(editableManifest(saved, catalog)) ? (
         <Alert variant="info">
           <AlertDescription>
             {!isValid(draft)
@@ -381,7 +381,7 @@ function PolicyEditor({
             <Button
               size="xs"
               variant="ghost-muted"
-              onClick={() => setDraft(editableManifest(saved))}
+              onClick={() => setDraft(editableManifest(saved, catalog))}
             >
               Discard
             </Button>

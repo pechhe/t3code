@@ -21,6 +21,7 @@ import {
   editableManifest,
   runsFast,
   setCaller,
+  setEntryEffort,
   setCouncil,
   setModelFast,
   setModelNote,
@@ -450,6 +451,66 @@ describe("delegation settings", () => {
       efforts: ["low", "medium"],
     });
     expect(effortForModel(kimi!)).toBe("medium");
+  });
+
+  it("recognises ACP reasoning controls and repairs existing bindings in every job", () => {
+    const antigravity = decodeProvider({
+      ...provider(),
+      driver: "antigravity",
+      instanceId: "antigravity",
+      models: [
+        {
+          slug: "gemini-hydrogen",
+          name: "Gemini Hydrogen",
+          isCustom: false,
+          capabilities: {
+            optionDescriptors: [
+              {
+                id: "thought_level",
+                label: "Thinking level",
+                role: "reasoning",
+                type: "select",
+                options: [
+                  { id: "low", label: "Low" },
+                  { id: "medium", label: "Medium" },
+                  { id: "high", label: "High" },
+                  { id: "xhigh", label: "X-High" },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    });
+    const catalog = catalogModels([antigravity]);
+    expect(catalog[0]).toMatchObject({
+      binding: { effortOption: "thought_level" },
+      efforts: ["low", "medium", "high", "xhigh"],
+    });
+    const original = manifest();
+    const existing = {
+      ...original,
+      models: {
+        ...original.models,
+        hydrogen: { driverKind: ProviderDriverKind.make("antigravity"), model: "gemini-hydrogen" },
+      },
+      lists: {
+        ...original.lists,
+        writers: [{ model: "hydrogen" }],
+        readers: [{ model: "hydrogen" }],
+      },
+    };
+    const edited = editableManifest(existing, catalog);
+    expect(edited.models.hydrogen?.effortOption).toBe("thought_level");
+    expect(edited.lists.writers).toEqual([{ model: "hydrogen", effort: "medium" }]);
+    expect(edited.lists.readers).toEqual([{ model: "hydrogen", effort: "medium" }]);
+    expect(decodeManifest(encodeManifest(edited))).toEqual(edited);
+    const highest = setEntryEffort(edited, "writers", "hydrogen", "xhigh");
+    expect(decodeManifest(encodeManifest(highest)).lists.writers).toEqual([
+      { model: "hydrogen", effort: "xhigh" },
+    ]);
+    expect(editableManifest(edited, catalog)).toEqual(edited);
+    expect(editableManifest(existing).models.hydrogen).toEqual(existing.models.hydrogen);
   });
 
   describe("council", () => {

@@ -106,6 +106,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### agent-policy-roles
 
+- **Reasoning controls:** Delegation settings use the shared reasoning-descriptor classification, including ACP options marked `role: "reasoning"` such as Antigravity `thought_level`. Editing an existing binding discovers its missing effort option and supplies an allowed effort in each job using it; saving persists the option for managed dispatch. Integration points: `DelegationSettings.logic.ts` catalog discovery and editable policy normalization, `DelegationSettings.tsx` draft initialization/reset, the shared `isReasoningSelect` helper, and `AgentPolicyManifest` effort bindings. Proof: `DelegationSettings.logic.test.ts`. Known upstream work: ACP reasoning descriptors are already supported by the shared picker; upstream has no equivalent managed role settings, and the upstream Antigravity reasoning search found no role-settings fix. Retire with equivalent upstream role settings.
+
 - **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Preserve managed role authority and provider enforcement around updated provider starts, model capabilities and ACP session notes. Evidence: ProviderTurnStartService.test.ts; packages/provider-acp/src/server/adapter.test.ts; shippedClientCompatibility.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Keep managed roles and host/read-only admission while adopting per-thread hasPendingWake; compare a Spec lead’s effective listing and wake state, rather than Effect object identity. Evidence: ProviderSessionManager.test.ts; packages/provider-core/src/server/driver.ts.

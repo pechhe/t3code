@@ -1,3 +1,4 @@
+import { isReasoningSelect } from "@t3tools/client-runtime/model-traits";
 import {
   AGENT_ROLE_TITLE_LABEL,
   AgentRole,
@@ -20,13 +21,38 @@ export function rolePolicy(manifest: Manifest, role: AgentRole): RolePolicy {
   return policy;
 }
 
-/**
- * The policy as the page edits it: without the retired ui-verifier role, so saving a policy
- * that still sets it removes it.
- */
-export function editableManifest(manifest: Manifest): Manifest {
+/** Removes the retired role and discovers reasoning controls added since a model was saved. */
+export function editableManifest(
+  manifest: Manifest,
+  catalog: ReadonlyArray<CatalogModel> = [],
+): Manifest {
   const { "ui-verifier": _retired, ...roles } = manifest.roles;
-  return { ...manifest, roles };
+  const discovered = new Map<string, CatalogModel>();
+  const models = Object.fromEntries(
+    Object.entries(manifest.models).map(([alias, binding]) => {
+      const model = catalog.find(
+        (candidate) =>
+          candidate.binding.driverKind === binding.driverKind &&
+          candidate.binding.model === binding.model,
+      );
+      if (binding.effortOption !== undefined || model?.binding.effortOption === undefined)
+        return [alias, binding];
+      discovered.set(alias, model);
+      return [alias, { ...binding, effortOption: model.binding.effortOption }];
+    }),
+  );
+  const lists = Object.fromEntries(
+    Object.entries(manifest.lists).map(([name, entries]) => [
+      name,
+      entries.map((entry) => {
+        const model = discovered.get(entry.model);
+        return model === undefined
+          ? entry
+          : { ...entry, effort: effortForModel(model, entry.effort) };
+      }),
+    ]),
+  );
+  return { ...manifest, roles, models, lists };
 }
 
 /** The jobs in the order the page lists them; roles sharing a list appear together. */
@@ -143,15 +169,6 @@ export function effortForModel(model: CatalogModel, current?: string): string | 
   return model.efforts.length === 0 ? undefined : effortFor(model.efforts, current);
 }
 
-/** The provider option ids that carry a model's reasoning effort, under the names adapters use. */
-const EFFORT_OPTION_IDS = new Set([
-  "effort",
-  "reasoningEffort",
-  "reasoning",
-  "thinking",
-  "variant",
-]);
-
 export interface CatalogModel {
   readonly key: string;
   readonly label: string;
@@ -180,9 +197,7 @@ export function catalogModels(providers: ReadonlyArray<ServerProvider>): Catalog
   for (const provider of providers) {
     if (provider.poolMembers !== undefined) continue;
     for (const model of provider.models) {
-      const option = model.capabilities?.optionDescriptors?.find(
-        (candidate) => candidate.type === "select" && EFFORT_OPTION_IDS.has(candidate.id),
-      );
+      const option = model.capabilities?.optionDescriptors?.find(isReasoningSelect);
       const key = `${provider.driver}:${model.slug}`;
       if (models.has(key)) continue;
       models.set(key, {
