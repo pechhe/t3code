@@ -33,6 +33,7 @@ import {
   type RuntimeMode,
   type ModelSelection,
   type ChampionInvestigationBranchAttempt,
+  type ChampionMeasurement,
   type ChampionLearningRecordInput,
   type ChampionLearningContributor,
   ChampionError,
@@ -165,6 +166,25 @@ const fixture = Effect.fn("test.championFixture")(() =>
       creationSource: string;
     }> = [];
     const children = new Map<ThreadId, OrchestrationV2ThreadShell>();
+    /** One-shot barriers on the owner's thread reads: the first matching read waits to be released. */
+    const holds: Array<{
+      readonly matches: (kinds: ReadonlyArray<string>) => boolean;
+      readonly reached: Deferred.Deferred<void>;
+      readonly release: Deferred.Deferred<void>;
+    }> = [];
+    const holdOwner = <A, E, R>(
+      id: ThreadId,
+      kinds: ReadonlyArray<string>,
+      read: () => Effect.Effect<A, E, R>,
+    ): Effect.Effect<A, E, R> => {
+      const index = id === owner ? holds.findIndex((hold) => hold.matches(kinds)) : -1;
+      if (index < 0) return Effect.suspend(read);
+      const [hold] = holds.splice(index, 1);
+      return Deferred.succeed(hold!.reached, undefined).pipe(
+        Effect.andThen(Deferred.await(hold!.release)),
+        Effect.andThen(Effect.suspend(read)),
+      );
+    };
     const childRuns = new Map<ThreadId, OrchestrationV2Run[]>();
     const dispatches: string[] = [];
     let ownerMode: RuntimeMode = "full-access";
@@ -268,42 +288,44 @@ const fixture = Effect.fn("test.championFixture")(() =>
       }),
       Layer.mock(ThreadManagement.ThreadManagementService)({
         getThreadShell: (id) => Effect.succeed(owner === id ? shell() : (children.get(id) ?? null)),
-        getThreadRecords: (id) =>
-          Effect.succeed(
-            (children.has(id)
-              ? {
-                  thread: children.get(id),
-                  runs: childRuns.get(id) ?? [],
-                  messages: threadMessages.get(id) ?? [],
-                  subagents: [],
-                  providerSessions: [],
-                }
-              : {
-                  thread: shell(),
-                  messages: threadMessages.get(id) ?? [],
-                  runs: [
-                    ...(priorCompletedRun
-                      ? [
-                          {
-                            id: RunId.make("prior-completed-run"),
-                            status: "completed",
-                            userMessageId: messageId,
-                          } as OrchestrationV2Run,
-                        ]
-                      : []),
-                    ...runHistory,
-                    currentRun(),
-                  ],
-                  providerThreads: [
-                    {
-                      id: providerThreadId,
-                      providerSessionId: "provider-session:provider-instance:codex:shared",
-                    } as OrchestrationV2ProviderThread,
-                  ],
-                  subagents: childTasks,
-                }) as unknown as Effect.Success<
-              ReturnType<ThreadManagement.ThreadManagementService["Service"]["getThreadRecords"]>
-            >,
+        getThreadRecords: (id, kinds) =>
+          holdOwner(id, kinds, () =>
+            Effect.succeed(
+              (children.has(id)
+                ? {
+                    thread: children.get(id),
+                    runs: childRuns.get(id) ?? [],
+                    messages: threadMessages.get(id) ?? [],
+                    subagents: [],
+                    providerSessions: [],
+                  }
+                : {
+                    thread: shell(),
+                    messages: threadMessages.get(id) ?? [],
+                    runs: [
+                      ...(priorCompletedRun
+                        ? [
+                            {
+                              id: RunId.make("prior-completed-run"),
+                              status: "completed",
+                              userMessageId: messageId,
+                            } as OrchestrationV2Run,
+                          ]
+                        : []),
+                      ...runHistory,
+                      currentRun(),
+                    ],
+                    providerThreads: [
+                      {
+                        id: providerThreadId,
+                        providerSessionId: "provider-session:provider-instance:codex:shared",
+                      } as OrchestrationV2ProviderThread,
+                    ],
+                    subagents: childTasks,
+                  }) as unknown as Effect.Success<
+                ReturnType<ThreadManagement.ThreadManagementService["Service"]["getThreadRecords"]>
+              >,
+            ),
           ),
         getReceipt: (id) => Effect.succeed(Option.fromUndefinedOr(receipts.get(id))),
         dispatch: (command) =>
@@ -379,6 +401,52 @@ const fixture = Effect.fn("test.championFixture")(() =>
       },
       ownerMode: (mode: RuntimeMode) => {
         ownerMode = mode;
+      },
+      /** Holds the next read of the owner's thread records that asks for exactly these kinds. */
+      holdOwnerRead: Effect.fn("test.holdOwnerRead")(function* (
+        match: (kinds: ReadonlyArray<string>) => boolean,
+      ) {
+        const reached = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        holds.push({ matches: match, reached, release });
+        return { reached, release };
+      }),
+      installMeasurement: (
+        measurement: ChampionMeasurement,
+        status: "running" | "completed" | "failed" | "cancelled",
+      ) => {
+        const admission = measurement.admission!;
+        children.set(admission.childThreadId, {
+          id: admission.childThreadId,
+          projectId,
+          agentTask: admission.binding,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          activeRunId: status === "running" ? RunId.make(measurement.measurementId) : null,
+          deletedAt: null,
+        } as OrchestrationV2ThreadShell);
+        const task = {
+          id: admission.taskId,
+          threadId: owner,
+          origin: "app_owned",
+          childThreadId: admission.childThreadId,
+          status,
+          result: status === "running" ? null : "Observed rendered evidence",
+          runId: null,
+        } as OrchestrationV2Subagent;
+        const index = childTasks.findIndex((t) => t.id === task.id);
+        if (index < 0) childTasks.push(task);
+        else childTasks[index] = task;
+        childRuns.set(admission.childThreadId, [
+          {
+            id: RunId.make(measurement.measurementId),
+            status,
+            userMessageId: admission.messageId,
+            modelSelection: admission.resolvedSelection,
+            delegatedTaskId: admission.taskId,
+            ordinal: 1,
+          },
+        ] as OrchestrationV2Run[]);
       },
       installBranch: (
         attempt: ChampionInvestigationBranchAttempt,
@@ -5827,6 +5895,852 @@ describe("a journey check", () => {
           assert.notInclude(text, "Bounded repair");
         }),
       ),
+    ),
+  );
+});
+
+describe("owner measurement on a live check", () => {
+  const revision = "a".repeat(40);
+  const otherRevision = "b".repeat(40);
+  const coverage: ChampionMetricInput = { ...metric, id: "coverage", name: "Coverage" };
+  const makeWorld = Effect.fn("test.championMeasurementWorld")(function* (
+    f: Effect.Success<ReturnType<typeof fixture>>,
+    service: Champions.ChampionService["Service"],
+  ) {
+    f.realProjectRoot();
+    yield* accepted(service, [collectedMetric(node("console.log(1)"), "collected"), coverage]);
+    yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
+    yield* service.runCheck({ id: config.id });
+    const context = yield* service.checkContext(f.caller());
+    const checkId = context.checkId;
+    const ownerThreadId = f.caller().threadId;
+    const sql = yield* SqlClient.SqlClient;
+    const start = (over: Partial<Parameters<typeof service.startMeasurementFromOwner>[1]> = {}) =>
+      service.startMeasurementFromOwner(f.caller(), {
+        id: config.id,
+        checkId,
+        measurementId: "browser-1",
+        role: "browser",
+        sourceRevision: revision,
+        metrics: [{ metricId: "coverage", version: 1 }],
+        observedRuntime: "combined preview 1c0947",
+        ...over,
+      });
+    const requestOf = (m: ChampionMeasurement) => ({
+      role: m.role,
+      taskClass: "ui" as const,
+      workId: m.workId,
+      attemptId: m.attemptId,
+      workspacePath: "/project/root",
+      readOnly: true,
+      sourceRevision: m.sourceRevision,
+    });
+    const proofOf = (
+      m: ChampionMeasurement,
+      requestId: string,
+      selection: ModelSelection,
+      over: Record<string, unknown> = {},
+    ) => {
+      const binding = decodeBinding({
+        ...requestOf(m),
+        executionBoundary: "read-only",
+        executionRequirement: "sandbox-required",
+        sourceAccess: "read-only",
+        toolProfile: m.role === "browser" ? "phi" : "source-reader",
+        requestFingerprint: "c".repeat(64),
+        policyHash: "a".repeat(64),
+        policyRevision: "policy-one",
+        briefHash: "b".repeat(64),
+        requested: selection,
+        assigned: null,
+        effective: selection,
+        ...over,
+      });
+      return {
+        ownerThreadId,
+        parentRunId: RunId.make("run:check"),
+        binding,
+        projectId,
+        workspacePath: binding.workspacePath,
+        selection,
+        commandId: CommandId.make(`command:${requestId}`),
+        taskId: NodeId.make(`task:${requestId}`),
+        childThreadId: ThreadId.make(`child:${requestId}`),
+        messageId: MessageId.make(`message:${requestId}`),
+        clientRequestId: requestId,
+        followup: false,
+      };
+    };
+    /** What the managed delegate_task path does, in order: guard, final admission, started. */
+    const launch = Effect.fn("test.launchMeasurement")(function* (
+      m: ChampionMeasurement,
+      requestId: string,
+    ) {
+      const guarded = yield* service.guardDelegation({
+        ownerThreadId,
+        request: requestOf(m),
+        clientRequestId: requestId,
+      });
+      const proof = proofOf(m, requestId, guarded!);
+      yield* service.admitInvestigation(proof);
+      yield* service.delegationOutcome({
+        ownerThreadId,
+        request: requestOf(m),
+        clientRequestId: requestId,
+        state: "started",
+        commandId: proof.commandId,
+      });
+      return { selection: guarded!, proof };
+    });
+    const measurements = () =>
+      service.runtimeState({ id: config.id }).pipe(Effect.map((state) => state.measurements!));
+    const settle = Effect.fn("test.settleMeasurement")(function* (
+      id: string,
+      status: "running" | "completed" | "failed" | "cancelled" = "completed",
+    ) {
+      const current = (yield* measurements()).find((m) => m.measurementId === id)!;
+      f.installMeasurement(current, status);
+      yield* service.runDue;
+      return (yield* measurements()).find((m) => m.measurementId === id)!;
+    });
+    const count = (table: string) =>
+      sql.unsafe<{ n: number }>(`SELECT COUNT(*) AS n FROM ${table}`).pipe(
+        Effect.orDie,
+        Effect.map((rows) => rows[0]!.n),
+      );
+    return {
+      f,
+      service,
+      sql,
+      checkId,
+      ownerThreadId,
+      start,
+      requestOf,
+      proofOf,
+      launch,
+      measurements,
+      settle,
+      count,
+    };
+  });
+  type World = Effect.Success<ReturnType<typeof makeWorld>>;
+  const withWorld = (
+    body: (world: World) => Effect.Effect<void, ChampionError, SqlClient.SqlClient | Scope.Scope>,
+    eligible = new Set(["cheap", "strong"]),
+  ) => {
+    const managed = {
+      roles: (input: {
+        readonly request: { readonly role?: string };
+        readonly selection?: { readonly model?: string };
+      }) =>
+        Effect.sync(() => {
+          const model = input.selection?.model ?? "cheap";
+          const offered = eligible.has(model);
+          return {
+            policyHash: "a".repeat(64),
+            policyRevision: "test",
+            roles: [
+              {
+                role: input.request.role,
+                selection: offered ? { instanceId, model } : null,
+                refusal: offered ? null : "no-eligible-model",
+              },
+            ],
+          };
+        }),
+    } as unknown as Managed.ManagedAgentService["Service"];
+    return Effect.gen(function* () {
+      const f = yield* fixture();
+      yield* Effect.gen(function* () {
+        const service = yield* Champions.ChampionService;
+        yield* body(yield* makeWorld(f, service));
+      }).pipe(Effect.provide(f.layer), Effect.provideService(Managed.ManagedAgentService, managed));
+    }).pipe(Effect.provide(Sqlite.layerMemory));
+  };
+
+  it.effect(
+    "admits a source-pinned browser audit and an independent reviewer on a live check with no finding",
+    () =>
+      withWorld((w) =>
+        Effect.gen(function* () {
+          const doc = yield* w.service.get({ id: config.id });
+          assert.equal(doc.findings.length, 0);
+          const browser = yield* w.start();
+          assert.equal(browser.state, "planned");
+          assert.equal(browser.workId, "champion-measurement:browser-1");
+          assert.equal(browser.sourceRevision, revision);
+          assert.equal(browser.observedRuntime, "combined preview 1c0947");
+          // A reviewer confirms a completed browser audit, not a planned one.
+          yield* refusedWith(
+            w.start({
+              measurementId: "review-1",
+              role: "reviewer",
+              browserMeasurementId: "browser-1",
+            }),
+            "has not completed",
+          );
+          const first = yield* w.launch(browser, "launch-browser");
+          assert.equal(first.selection.model, "cheap");
+          // Until the launch is confirmed it holds capacity as unknown, as an investigation branch does.
+          assert.equal((yield* w.measurements())[0]!.state, "unknown");
+          yield* w.settle("browser-1");
+          const review = yield* w.start({
+            measurementId: "review-1",
+            role: "reviewer",
+            browserMeasurementId: "browser-1",
+          });
+          const reviewer = yield* w.launch(review, "launch-review");
+          // Role policy offered cheap first; the reviewer skips the browser audit's model.
+          assert.equal(reviewer.selection.model, "strong");
+          const states = yield* w.measurements();
+          const stored = states.find((m) => m.measurementId === "browser-1")!;
+          assert.equal(stored.admission!.binding.sourceAccess, "read-only");
+          assert.equal(stored.admission!.binding.executionBoundary, "read-only");
+          assert.equal(stored.admission!.actualSelection?.model, "cheap");
+          assert.equal(stored.admission!.result, "Observed rendered evidence");
+          assert.equal(stored.checkId, w.checkId);
+          assert.equal(
+            states.find((m) => m.measurementId === "review-1")!.admission!.resolvedSelection.model,
+            "strong",
+          );
+          // Evidence of a measurement is never a finding, a repair claim or an investigation.
+          assert.equal((yield* w.service.get({ id: config.id })).findings.length, 0);
+          assert.equal(yield* w.count("champion_repair_claims"), 0);
+          assert.equal(yield* w.count("champion_investigations"), 0);
+          assert.equal(yield* w.count("champion_branch_attempts"), 0);
+        }),
+      ),
+  );
+
+  it.effect(
+    "refuses measurements whose check, metrics, source, role or reviewer reference are not exact",
+    () =>
+      withWorld((w) =>
+        Effect.gen(function* () {
+          yield* refusedWith(w.start({ checkId: "another-check" }), "current check");
+          yield* refusedWith(
+            w.start({ metrics: [{ metricId: "coverage", version: 2 }] }),
+            "not a distinct frozen metric",
+          );
+          yield* refusedWith(
+            w.start({
+              metrics: [
+                { metricId: "coverage", version: 1 },
+                { metricId: "coverage", version: 1 },
+              ],
+            }),
+            "not a distinct frozen metric",
+          );
+          yield* refusedWith(
+            w.start({ metrics: [{ metricId: "collected", version: 1 }] }),
+            "by command",
+          );
+          yield* refusedWith(w.start({ browserMeasurementId: "x" }), "Only a reviewer");
+          yield* refusedWith(
+            w.start({ role: "reviewer", measurementId: "review-0" }),
+            "names the completed browser audit",
+          );
+          yield* refusedWith(
+            w.start({ role: "reviewer", measurementId: "review-0", browserMeasurementId: "ghost" }),
+            "does not exist",
+          );
+          const browser = yield* w.start();
+          // The same id with other content is a conflict; the same content replays.
+          assert.deepEqual(yield* w.start(), browser);
+          yield* refusedWith(w.start({ sourceRevision: otherRevision }), "different measurement");
+          yield* w.launch(browser, "launch-browser");
+          yield* w.settle("browser-1");
+          yield* refusedWith(
+            w.start({
+              measurementId: "review-other-source",
+              role: "reviewer",
+              browserMeasurementId: "browser-1",
+              sourceRevision: otherRevision,
+            }),
+            "exactly the same full source revision",
+          );
+          // Guard: the request must be the plan's role, attempt, source and read-only.
+          const planned = yield* w.start({ measurementId: "browser-2" });
+          const request = w.requestOf(planned);
+          const ask = (over: Record<string, unknown>, id = "guard") =>
+            w.service.guardDelegation({
+              ownerThreadId: w.ownerThreadId,
+              request: { ...request, ...over } as typeof request,
+              clientRequestId: id,
+            });
+          yield* refusedWith(ask({ readOnly: false }), "read-only");
+          yield* refusedWith(ask({ sourceRevision: otherRevision }), "read-only");
+          yield* refusedWith(ask({ sourceRevision: "abc123" }), "read-only");
+          yield* refusedWith(ask({ role: "implementer" }), "is a browser task");
+          yield* refusedWith(ask({ attemptId: "browser-2:2" }), "attemptId");
+          yield* refusedWith(
+            w.service.guardDelegation({
+              ownerThreadId: w.ownerThreadId,
+              request: { ...request, workId: "champion-measurement:ghost" },
+              clientRequestId: "ghost",
+            }),
+            "names no measurement",
+          );
+          yield* refusedWith(
+            w.service.guardDelegation({
+              ownerThreadId: w.ownerThreadId,
+              request,
+              clientRequestId: "followup",
+              followup: true,
+            }),
+            "no follow-up",
+          );
+          yield* refusedWith(
+            w.service.guardDelegation({
+              ownerThreadId: w.ownerThreadId,
+              request,
+              clientRequestId: "remote",
+              remote: true,
+            }),
+            "",
+          );
+          // Final admission re-checks the task actually bound, not what was asked.
+          const selection = { instanceId, model: "cheap" };
+          yield* refused(
+            w.service.admitInvestigation(
+              w.proofOf(planned, "writer", selection, { sourceAccess: "scoped-write" }),
+            ),
+          );
+          yield* refused(
+            w.service.admitInvestigation(
+              w.proofOf(planned, "editable", selection, { readOnly: false }),
+            ),
+          );
+          yield* refusedWith(
+            w.service.admitInvestigation(
+              w.proofOf(planned, "other-source", selection, { sourceRevision: otherRevision }),
+            ),
+            "full source revision",
+          );
+          yield* refused(
+            w.service.admitInvestigation({
+              ...w.proofOf(planned, "wrong-run", selection),
+              parentRunId: RunId.make("run:not-active"),
+            }),
+          );
+          yield* refused(
+            w.service.admitInvestigation({
+              ...w.proofOf(planned, "wrong-project", selection),
+              projectId: ProjectId.make("foreign-project"),
+            }),
+          );
+          assert.equal((yield* w.measurements()).filter((m) => m.admission !== null).length, 1);
+        }),
+      ),
+  );
+
+  it.effect(
+    "needs a reviewer model other than its browser audit's, without overriding role policy",
+    () => {
+      const eligible = new Set(["cheap"]);
+      return withWorld(
+        (w) =>
+          Effect.gen(function* () {
+            yield* w.start();
+            const browser = (yield* w.measurements())[0]!;
+            yield* w.launch(browser, "launch-browser");
+            yield* w.settle("browser-1");
+            const review = yield* w.start({
+              measurementId: "review-1",
+              role: "reviewer",
+              browserMeasurementId: "browser-1",
+            });
+            const ask = () =>
+              w.service.guardDelegation({
+                ownerThreadId: w.ownerThreadId,
+                request: w.requestOf(review),
+                clientRequestId: "launch-review",
+              });
+            // Only the browser audit's own model is eligible: explicit, and nothing was admitted.
+            yield* refusedWith(ask(), "No eligible model other than");
+            // Final admission refuses the same model even if a caller names it.
+            yield* refusedWith(
+              w.service.admitInvestigation(
+                w.proofOf(review, "launch-review", { instanceId, model: "cheap" }),
+              ),
+              "not an independent confirmation",
+            );
+            // A provider prefix does not make it another model.
+            yield* refusedWith(
+              w.service.admitInvestigation(
+                w.proofOf(review, "launch-review", { instanceId, model: "vendor/cheap" }),
+              ),
+              "not an independent confirmation",
+            );
+            eligible.add("strong");
+            assert.equal((yield* ask())?.model, "strong");
+            assert.isNull((yield* w.measurements()).find((m) => m.role === "reviewer")!.admission);
+          }),
+        eligible,
+      );
+    },
+  );
+
+  it.effect(
+    "shares the two-active and six-a-day capacity with diagnostics, replays without charge and holds unknown launches",
+    () =>
+      withWorld((w) =>
+        Effect.gen(function* () {
+          const a = yield* w.start({ measurementId: "m-a" });
+          const b = yield* w.start({ measurementId: "m-b" });
+          const c = yield* w.start({ measurementId: "m-c" });
+          const launched = yield* Effect.all([w.launch(a, "req-a"), w.launch(b, "req-b")], {
+            concurrency: "unbounded",
+          });
+          assert.equal(launched.length, 2);
+          yield* refusedWith(w.launch(c, "req-c"), "read-only attempts running");
+          // Replay: the same request is not charged again; any other identity conflicts.
+          const replay = yield* w.launch(a, "req-a");
+          assert.deepEqual(replay.selection, launched[0]!.selection);
+          assert.equal((yield* w.measurements()).filter((m) => m.admission !== null).length, 2);
+          yield* refusedWith(
+            w.service.admitInvestigation({
+              ...w.proofOf(a, "req-a", launched[0]!.selection),
+              commandId: CommandId.make("command:other"),
+            }),
+            "already admitted by another request",
+          );
+          yield* refusedWith(
+            w.service.guardDelegation({
+              ownerThreadId: w.ownerThreadId,
+              request: w.requestOf(a),
+              clientRequestId: "req-other",
+            }),
+            "already admitted as clientRequestId req-a",
+          );
+          // A launch whose outcome is unknown keeps holding capacity until reconciled.
+          yield* w.service.delegationOutcome({
+            ownerThreadId: w.ownerThreadId,
+            request: w.requestOf(a),
+            clientRequestId: "req-a",
+            state: "failed",
+          });
+          yield* w.service.runDue;
+          const held = yield* w.measurements();
+          assert.equal(held.find((m) => m.measurementId === "m-a")!.state, "unknown");
+          yield* refusedWith(w.launch(c, "req-c"), "read-only attempts running");
+          // Receipt-rejected launches fail and free the slot, but still count against the day.
+          w.f.setReceipt(
+            held.find((m) => m.measurementId === "m-a")!.admission!.commandId,
+            "rejected",
+          );
+          yield* w.service.runDue;
+          assert.equal(
+            (yield* w.measurements()).find((m) => m.measurementId === "m-a")!.state,
+            "failed",
+          );
+          yield* w.launch(c, "req-c");
+          yield* w.settle("m-b");
+          yield* w.settle("m-c");
+          for (const id of ["m-d", "m-e", "m-f"]) {
+            yield* w.launch(yield* w.start({ measurementId: id }), `req-${id}`);
+            yield* w.settle(id);
+          }
+          assert.equal((yield* w.measurements()).filter((m) => m.admission !== null).length, 6);
+          // Plans beyond what a check could ever be admitted are refused too.
+          yield* refusedWith(w.start({ measurementId: "m-g" }), "most measurements");
+        }),
+      ),
+  );
+
+  it.effect("charges measurements and investigation branches against one aggregate", () => {
+    const managed = {
+      roles: (input: { readonly request: { readonly role?: string } }) =>
+        Effect.succeed({
+          policyHash: "a".repeat(64),
+          policyRevision: "test",
+          roles: [
+            {
+              role: input.request.role,
+              selection: { instanceId, model: "cheap" },
+              refusal: null,
+            },
+          ],
+        }),
+    } as unknown as Managed.ManagedAgentService["Service"];
+    return withFixture((f, service) =>
+      Effect.gen(function* () {
+        const { admission } = yield* investigationFixture(f, service);
+        yield* service.admitInvestigation(admission(0));
+        yield* service.admitInvestigation(admission(1));
+        yield* service.runCheck({ id: config.id });
+        const checkId = (yield* service.checkContext(f.caller())).checkId;
+        const ownerThreadId = f.caller().threadId;
+        const measure = Effect.fn("test.sharedMeasurement")(function* (id: string) {
+          const planned = yield* service.startMeasurementFromOwner(f.caller(), {
+            id: config.id,
+            checkId,
+            measurementId: id,
+            role: "browser",
+            sourceRevision: revision,
+            metrics: [{ metricId: "errors", version: 1 }],
+          });
+          const request = {
+            role: planned.role,
+            taskClass: "ui" as const,
+            workId: planned.workId,
+            attemptId: planned.attemptId,
+            workspacePath: "/project/root",
+            readOnly: true,
+            sourceRevision: revision,
+          };
+          const selection = (yield* service.guardDelegation({
+            ownerThreadId,
+            request,
+            clientRequestId: `${id}-request`,
+          }))!;
+          const binding = decodeBinding({
+            ...request,
+            executionBoundary: "read-only",
+            executionRequirement: "sandbox-required",
+            sourceAccess: "read-only",
+            toolProfile: "phi",
+            requestFingerprint: "c".repeat(64),
+            policyHash: "a".repeat(64),
+            policyRevision: "policy-one",
+            briefHash: "b".repeat(64),
+            requested: selection,
+            assigned: null,
+            effective: selection,
+          });
+          return {
+            planned,
+            proof: {
+              ownerThreadId,
+              parentRunId: RunId.make("run:check"),
+              binding,
+              projectId,
+              workspacePath: binding.workspacePath,
+              selection,
+              commandId: CommandId.make(`command:${id}`),
+              taskId: NodeId.make(`task:${id}`),
+              childThreadId: ThreadId.make(`child:${id}`),
+              messageId: MessageId.make(`message:${id}`),
+              clientRequestId: `${id}-request`,
+              followup: false,
+            },
+          };
+        });
+        const settleAll = Effect.fn("test.settleShared")(function* () {
+          const state = yield* service.runtimeState({ id: config.id });
+          for (const attempt of state.investigations[0]!.attempts)
+            f.installBranch(attempt, "completed");
+          for (const measured of state.measurements!)
+            if (measured.admission !== null) f.installMeasurement(measured, "completed");
+          yield* service.runDue;
+        });
+        // Two diagnostic branches fill the running slots, so the measurement waits.
+        const first = yield* measure("m-1");
+        yield* refusedWith(service.admitInvestigation(first.proof), "read-only attempts running");
+        yield* settleAll();
+        yield* service.admitInvestigation(first.proof);
+        // Capacity is free, so only the shared request id stops a branch reusing a measurement's.
+        yield* refused(service.admitInvestigation(admission(2, "m-1-request")));
+        yield* settleAll();
+        // The branches and a measurement are three of the day's six; three more measurements make six.
+        for (const id of ["m-2", "m-3", "m-4"]) {
+          yield* service.admitInvestigation((yield* measure(id)).proof);
+          yield* settleAll();
+        }
+        const seventh = yield* measure("m-5");
+        yield* refusedWith(service.admitInvestigation(seventh.proof), "daily admissions");
+        // The same six bound a diagnostic branch.
+        yield* refused(service.admitInvestigation(admission(2)));
+      }),
+    ).pipe(Effect.provideService(Managed.ManagedAgentService, managed));
+  });
+
+  it.effect(
+    "closes admission when the check reports and keeps late outcomes to their own record",
+    () =>
+      withWorld((w) =>
+        Effect.gen(function* () {
+          const admitted = yield* w.start({ measurementId: "m-admitted" });
+          const waiting = yield* w.start({ measurementId: "m-waiting" });
+          yield* w.launch(admitted, "req-admitted");
+          const report = yield* w.service.report(w.f.caller(), {
+            samples: [{ ...sample, metricId: "coverage", value: 1, evidence: "Reviewed screens" }],
+            findings: [],
+            summary: "Coverage reported",
+          });
+          const reported = report.champion.latestSamples;
+          // Report won: nothing new is planned or admitted for that check.
+          yield* refused(w.start({ measurementId: "m-late" }));
+          yield* refused(w.launch(waiting, "req-waiting"));
+          yield* refused(
+            w.service.admitInvestigation(
+              w.proofOf(waiting, "req-waiting", { instanceId, model: "cheap" }),
+            ),
+          );
+          // The task admitted before still settles, and only its own record changes.
+          const done = yield* w.settle("m-admitted");
+          assert.equal(done.state, "completed");
+          assert.deepEqual(
+            (yield* w.service.get({ id: config.id })).champion.latestSamples,
+            reported,
+          );
+          assert.equal(
+            (yield* w.measurements()).find((m) => m.measurementId === "m-waiting")!.state,
+            "planned",
+          );
+          // A newer check is its own anchor: the old plan cannot be admitted into it.
+          yield* w.service.runCheck({ id: config.id });
+          const newer = (yield* w.service.checkContext(w.f.caller())).checkId;
+          assert.notEqual(newer, w.checkId);
+          yield* refused(w.launch(waiting, "req-waiting"));
+          yield* refused(w.start({ measurementId: "m-stale", checkId: w.checkId }));
+          yield* w.settle("m-admitted", "failed");
+          assert.equal(
+            (yield* w.sql<{
+              status: string;
+            }>`SELECT status FROM champion_checks WHERE id = ${newer}`.pipe(Effect.orDie))[0]!
+              .status,
+            "pending",
+          );
+          assert.equal(
+            (yield* w.measurements()).find((m) => m.measurementId === "m-admitted")!.state,
+            "completed",
+          );
+        }),
+      ),
+  );
+
+  /** The refusal's message; an unexpected success fails the test rather than leaking into the error channel. */
+  const refusalOf = <A>(effect: Effect.Effect<A, ChampionError>) =>
+    effect.pipe(
+      Effect.match({
+        onFailure: (error) => error.message,
+        onSuccess: () => "Expected the admission to refuse, but it was admitted.",
+      }),
+    );
+  const coverageReport = {
+    samples: [{ ...sample, metricId: "coverage", value: 1, evidence: "Reviewed screens" }],
+    findings: [],
+    summary: "Coverage reported",
+  };
+  const checkStatus = (w: World, id: string) =>
+    w.sql<{ status: string }>`SELECT status FROM champion_checks WHERE id = ${id}`.pipe(
+      Effect.orDie,
+      Effect.map((rows) => rows[0]!.status),
+    );
+
+  it.effect(
+    "lets a report that commits while an admission is in flight win, leaving the plan unadmitted and the samples as reported",
+    () =>
+      withWorld((w) =>
+        Effect.gen(function* () {
+          const plan = yield* w.start();
+          const request = w.requestOf(plan);
+          const selection = (yield* w.service.guardDelegation({
+            ownerThreadId: w.ownerThreadId,
+            request,
+            clientRequestId: "race",
+          }))!;
+          // The admission passes its pre-launch checks, then waits just before its transaction.
+          const gate = yield* w.f.holdOwnerRead(
+            (kinds) => kinds.length === 1 && kinds[0] === "runs",
+          );
+          const admitting = yield* Effect.forkChild(
+            refusalOf(w.service.admitInvestigation(w.proofOf(plan, "race", selection))),
+          );
+          yield* Deferred.await(gate.reached);
+          const reported = yield* w.service.report(w.f.caller(), coverageReport);
+          assert.equal(yield* checkStatus(w, w.checkId), "reported");
+          yield* Deferred.succeed(gate.release, undefined);
+          assert.include(yield* Fiber.join(admitting), "current check");
+          const [stored] = yield* w.measurements();
+          assert.equal(stored!.state, "planned");
+          assert.isNull(stored!.admission);
+          assert.equal(yield* w.count("champion_repair_claims"), 0);
+          assert.deepEqual(
+            (yield* w.service.get({ id: config.id })).champion.latestSamples,
+            reported.champion.latestSamples,
+          );
+          assert.equal(yield* checkStatus(w, w.checkId), "reported");
+        }),
+      ),
+  );
+
+  it.effect(
+    "lets an admission that commits while a report is in flight win, and its late outcome never reopens the check or touches the samples",
+    () =>
+      withWorld((w) =>
+        Effect.gen(function* () {
+          const plan = yield* w.start();
+          // The report is authenticated and held before it can commit anything.
+          const gate = yield* w.f.holdOwnerRead((kinds) => kinds.includes("providerThreads"));
+          const reporting = yield* Effect.forkChild(w.service.report(w.f.caller(), coverageReport));
+          yield* Deferred.await(gate.reached);
+          yield* w.launch(plan, "race-admit");
+          assert.equal(yield* checkStatus(w, w.checkId), "pending");
+          yield* Deferred.succeed(gate.release, undefined);
+          const reported = yield* Fiber.join(reporting);
+          assert.equal(yield* checkStatus(w, w.checkId), "reported");
+          const admitted = (yield* w.measurements())[0]!;
+          assert.equal(admitted.state, "unknown");
+          assert.equal(admitted.admission!.clientRequestId, "race-admit");
+          // The admitted task still settles on its own record only.
+          const done = yield* w.settle(plan.measurementId);
+          assert.equal(done.state, "completed");
+          assert.equal(yield* checkStatus(w, w.checkId), "reported");
+          assert.deepEqual(
+            (yield* w.service.get({ id: config.id })).champion.latestSamples,
+            reported.champion.latestSamples,
+          );
+          yield* refused(w.start({ measurementId: "after-report" }));
+        }),
+      ),
+  );
+
+  it.effect(
+    "refuses an in-flight admission once a newer definition cancels its check, and leaves the newer check alone",
+    () =>
+      withWorld((w) =>
+        Effect.gen(function* () {
+          const plan = yield* w.start();
+          const selection = (yield* w.service.guardDelegation({
+            ownerThreadId: w.ownerThreadId,
+            request: w.requestOf(plan),
+            clientRequestId: "race",
+          }))!;
+          const gate = yield* w.f.holdOwnerRead(
+            (kinds) => kinds.length === 1 && kinds[0] === "runs",
+          );
+          const admitting = yield* Effect.forkChild(
+            refusalOf(w.service.admitInvestigation(w.proofOf(plan, "race", selection))),
+          );
+          yield* Deferred.await(gate.reached);
+          // The real cancellation: accepted definitions change, the run ends, the next check supersedes.
+          yield* w.service.propose({
+            id: config.id,
+            metrics: [{ ...coverage, description: "Stricter coverage" }],
+            reason: "Change",
+          });
+          yield* w.service.accept({ id: config.id });
+          w.f.endRun();
+          yield* w.service.runCheck({ id: config.id });
+          assert.equal(yield* checkStatus(w, w.checkId), "cancelled");
+          const newer = (yield* w.service.checkContext(w.f.caller())).checkId;
+          assert.notEqual(newer, w.checkId);
+          yield* Deferred.succeed(gate.release, undefined);
+          assert.include(yield* Fiber.join(admitting), "current check");
+          assert.isNull((yield* w.measurements())[0]!.admission);
+          assert.equal(yield* checkStatus(w, w.checkId), "cancelled");
+          assert.equal(yield* checkStatus(w, newer), "pending");
+          // The old plan cannot ride into the newer check; a plan made for it is admitted normally.
+          yield* refused(w.launch(plan, "race-again"));
+          const fresh = yield* w.service.startMeasurementFromOwner(w.f.caller(), {
+            id: config.id,
+            checkId: newer,
+            measurementId: "newer",
+            role: "browser",
+            sourceRevision: revision,
+            metrics: [{ metricId: "coverage", version: 2 }],
+          });
+          yield* w.launch(fresh, "newer-launch");
+          assert.equal(yield* checkStatus(w, newer), "pending");
+        }),
+      ),
+  );
+
+  it.effect("refuses admission once the check is cancelled, even for a plan made before", () =>
+    withWorld((w) =>
+      Effect.gen(function* () {
+        const plan = yield* w.start();
+        yield* w.sql`UPDATE champion_checks SET status = 'cancelled', document_json = json_set(document_json, '$.cancelled', json('true')) WHERE id = ${w.checkId}`.pipe(
+          Effect.orDie,
+        );
+        yield* refusedWith(
+          w.service.guardDelegation({
+            ownerThreadId: w.ownerThreadId,
+            request: w.requestOf(plan),
+            clientRequestId: "launch",
+          }),
+          "current check",
+        );
+        yield* refused(
+          w.service.admitInvestigation(w.proofOf(plan, "launch", { instanceId, model: "cheap" })),
+        );
+        yield* refused(w.start({ measurementId: "again" }));
+      }),
+    ),
+  );
+
+  it.effect(
+    "keeps a paused champion to inline measurement and a setup check out of measurement",
+    () =>
+      withWorld((w) =>
+        Effect.gen(function* () {
+          const plan = yield* w.start();
+          yield* w.service.setLifecycle({ id: config.id, lifecycle: "paused" });
+          yield* refusedWith(w.start({ measurementId: "paused" }), "measures only inline");
+          yield* refused(
+            w.service.guardDelegation({
+              ownerThreadId: w.ownerThreadId,
+              request: w.requestOf(plan),
+              clientRequestId: "launch",
+            }),
+          );
+          yield* refused(
+            w.service.admitInvestigation(w.proofOf(plan, "launch", { instanceId, model: "cheap" })),
+          );
+          assert.equal((yield* w.measurements()).filter((m) => m.admission !== null).length, 0);
+        }),
+      ),
+  );
+
+  it.effect("leaves unrelated threads and the post-repair gates as they were", () =>
+    withWorld((w) =>
+      Effect.gen(function* () {
+        const agent = ThreadId.make("thread:unrelated");
+        w.f.installAgentThread(agent, "Unrelated agent");
+        const plan = yield* w.start();
+        // An unrelated thread naming the workId gets no measurement and no refusal.
+        assert.isUndefined(
+          yield* w.service.guardDelegation({
+            ownerThreadId: agent,
+            request: w.requestOf(plan),
+            clientRequestId: "unrelated",
+          }),
+        );
+        yield* w.service.admitInvestigation({
+          ...w.proofOf(plan, "unrelated", { instanceId, model: "cheap" }),
+          ownerThreadId: agent,
+        });
+        assert.isNull((yield* w.measurements())[0]!.admission);
+        // A finding's own browser verification still waits for a repair handback, and
+        // measurements, however many completed, never stand in for one.
+        yield* w.launch(plan, "launch-browser");
+        yield* w.settle("browser-1");
+        yield* w.service.report(w.f.caller(), {
+          samples: [{ ...sample, metricId: "coverage", value: 3, evidence: "Breach" }],
+          findings: [],
+          summary: "Coverage breached",
+        });
+        const finding = (yield* w.service.get({ id: config.id })).findings[0]!;
+        yield* diagnose(w.f, w.service, finding);
+        yield* refusedWith(
+          w.service.guardDelegation({
+            ownerThreadId: w.ownerThreadId,
+            request: {
+              role: "browser",
+              taskClass: "ui",
+              workId: finding.workId,
+              attemptId: finding.attemptId,
+              workspacePath: "/project/root",
+              readOnly: true,
+            },
+            clientRequestId: "verify",
+          }),
+          "Verification starts only after",
+        );
+        assert.equal(yield* w.count("champion_repair_claims"), 0);
+      }),
     ),
   );
 });

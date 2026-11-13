@@ -341,6 +341,21 @@ export const INPUT_RULES: ReadonlyArray<InputRule> = [
     reason: "WebAssembly imported with ?inline, or read from disk",
   },
   {
+    when: /^apps\/web\/src\/(?:index\.css|components\/(?:chat\/device\/(?:deviceComposer|themeCharacter)|sidebarDevice|chat\/imageAnnotator)\.css)$/,
+    select: [
+      "apps/web/src/components/Sidebar.browser.test.tsx",
+      "apps/web/src/components/files/FilePreviewPanel.browser.test.tsx",
+      "apps/web/src/lib/workspaceFocus.browser.test.ts",
+    ],
+    reason: "the app stylesheet and the CSS it imports, imported with ?inline",
+  },
+  {
+    when: /^apps\/web\/src\/components\/files\/office\/(?:spreadsheet\.worker|sheet-fonts|sheet-frame|fonts)\.ts$/,
+    select: ["apps/web/src/components/files/office/sheet-resize.browser.test.ts"],
+    reason:
+      "the test spawns the spreadsheet worker from a URL; these are the modules only it imports",
+  },
+  {
     when: /^apps\/web\/index\.html$/,
     select: ["apps/web/src/themeBoot.test.ts"],
     reason: "imported with ?raw",

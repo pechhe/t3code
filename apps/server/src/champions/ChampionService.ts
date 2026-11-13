@@ -1,5 +1,6 @@
 import type { ForwardedChampionApproval } from "./ChampionApproval.ts";
 import * as ChampionEvidence from "./ChampionEvidence.ts";
+import { CHAMPION_MEASUREMENT_GUIDANCE } from "./measurementGuidance.ts";
 import * as ChampionJourneys from "./ChampionJourneys.ts";
 import {
   CANDIDATE_WORK_PREFIX,
@@ -49,6 +50,8 @@ import {
   MessageId,
   ThreadId,
   type ChampionConfig,
+  type ChampionMeasurement,
+  type ChampionMeasurementStartInput,
   type ChampionMetricInput,
   type ChampionReportInput,
   type ChampionSampleInput,
@@ -264,6 +267,10 @@ export class ChampionService extends Context.Service<
       caller: Caller,
       input: Parameters<Evidence["cancelInvestigation"]>[0],
     ) => ReturnType<Evidence["cancelInvestigation"]>;
+    readonly startMeasurementFromOwner: (
+      caller: Caller,
+      input: ChampionMeasurementStartInput,
+    ) => Effect.Effect<ChampionMeasurement, ChampionError>;
     readonly runtimeState: Evidence["runtimeState"];
     readonly recommendation: Evidence["recommendation"];
     readonly learningQuery: Evidence["learningQuery"];
@@ -990,6 +997,7 @@ const make = Effect.gen(function* () {
       "Route repair: delegate an implementer. Route spec: file an ordinary Forge Spec through your own Weave connection, with the diagnosis as its body and the finding named as its source, record it with t3_champions_finding_action action spec and specUrl, then delegate a lead with forgeItem set to that Spec. You lead one Spec at a time and never review or accept it. If you have no Weave connection, say so as attention; do not fall back to a repair. Route decision: request it with action decision.",
       "t3_champions_check_context may list handedOff findings: bugs a journey champion in this project confirmed and handed to you. Delegate and record repairs for them exactly as for your own, within your own limits. They stay with that champion, whose re-test settles them: never dismiss, reopen, verify or ask a decision on one.",
       "Before a bounded investigation, call t3_champions_learning_search action query for its exact topic and retain the current retrieval receipt, including a legitimate empty result. Call t3_champions_investigation action start with distinct read-only hypotheses, then delegate only its returned branch workId/attemptId through normal managed roles in this project. At most three alternatives, two active branches, six admitted attempts per investigation and six per champion per rolling 24 hours; follow-ups count. Unknown launches hold capacity; replay the same identity instead of duplicating work.",
+      CHAMPION_MEASUREMENT_GUIDANCE,
       "Call t3_champions_synthesize as the owner. Write recommendation as concise, coherent prose explaining the action, rationale, benefits, material trade-offs, uncertainty and proposed scope. Avoid labelled sections or a taxonomy; the user reads the finding issue, your recommendation and an answer field. Retain structured supporting fields for history and optional evidence expansion. Its immutable revision requests the user's decision; recheck the current revision and finding attempt before acting on an answer. Retain dated conditional learning with t3_champions_record_learning, opening with plainSummary (one plain sentence on what was learned) and including failed or inconclusive attempts and observed component versions. Due learning is uncertain and never authorizes an automatic paid rerun. Leaves return evidence; only you retain synthesis and learning.",
       "Use t3_champions_finding_action for handoff, confirmed SlipJay delivery and verification. Verification requires a comparable later measurement on the delivered/running revision. Missing evidence is inconclusive. Ordinary decisions go in the finding decision ledger and attention; keep measuring instead of blocking on questions.",
       "Write for a busy reader. Start each finding's evidence with one plain sentence naming the problem and its effect; raw numbers and commands follow. Request a decision with t3_champions_finding_action action decision: reason is the question in one line, and proposal gives action (the path you recommend, one sentence), why (one sentence) and otherOptions (each alternative in a few words with its main cost). The user can approve the proposal in one click.",
@@ -2905,6 +2913,15 @@ const make = Effect.gen(function* () {
     "ChampionService.admitDelegation",
   )(function* (proof) {
     const doc = yield* byThread(proof.ownerThreadId);
+    if (ChampionEvidence.isMeasurementWorkId(proof.binding.workId)) {
+      if (doc === undefined) return;
+      const run = yield* ownerRun(proof.ownerThreadId);
+      if (run === undefined || run.id !== proof.parentRunId)
+        return yield* new ChampionError({ reason: "unauthorized" });
+      yield* evidence.admitMeasurement({ ...proof, runMessageIds: run.messageIds });
+      yield* PubSub.publish(changes, undefined);
+      return;
+    }
     if (isCandidateWorkId(proof.binding.workId)) return;
     if (
       doc !== undefined &&
@@ -2944,6 +2961,80 @@ const make = Effect.gen(function* () {
       decisionEngines.luna.model,
       ...configured,
     ]);
+  });
+  /** The owner's active run and the messages its restart ancestry covers, which a check's own message must be among. */
+  const ownerRun = Effect.fn("ChampionService.ownerRun")(function* (ownerThreadId: ThreadId) {
+    const shell = yield* threads.getThreadShell(ownerThreadId);
+    if (
+      shell === null ||
+      shell.activeRunId === null ||
+      shell.archivedAt !== null ||
+      shell.deletedAt !== null
+    )
+      return undefined;
+    const records = yield* threads.getThreadRecords(ownerThreadId, ["runs"]);
+    const run = records.runs.find((candidate) => candidate.id === shell.activeRunId);
+    if (run === undefined || !ThreadManagement.isActiveRun(run)) return undefined;
+    return {
+      id: run.id,
+      messageIds: checkRunMessages(run, new Map(records.runs.map((r) => [r.id, r]))),
+    };
+  }, Effect.mapError(failure));
+  /** Role policy decides eligibility; a reviewer only skips the models its browser audit ran on. */
+  const measurementSelection = Effect.fn("ChampionService.measurementSelection")(function* (
+    doc: Document,
+    request: AgentTaskRequest,
+    avoid: ReadonlyArray<string>,
+  ) {
+    if (Option.isNone(managedAgents))
+      return yield* new ChampionError({
+        reason: "unavailable",
+        detail: "Managed agent roles are unavailable.",
+      });
+    const roles = managedAgents.value;
+    const enabled = yield* Effect.filter(yield* providers.getProviders, (provider) =>
+      threads.isProviderInstanceEnabledForProject({
+        projectId: doc.champion.projectId,
+        instanceId: provider.instanceId,
+      }),
+    );
+    const resolve = (selection?: ModelSelection) =>
+      roles
+        .roles({
+          projectId: doc.champion.projectId,
+          providers: enabled,
+          ceiling: "full-access",
+          request,
+          ...(selection === undefined ? {} : { selection }),
+        })
+        .pipe(
+          Effect.mapError(failure),
+          Effect.map((result) => result.roles.find((entry) => entry.role === request.role)),
+        );
+    const first = yield* resolve();
+    if (
+      first?.selection != null &&
+      first.refusal === null &&
+      !avoid.includes(ChampionEvidence.modelIdentity(first.selection.model))
+    )
+      return first.selection;
+    if (avoid.length === 0)
+      return yield* new ChampionError({
+        reason: "unavailable",
+        detail: first?.refusal ?? `No model is eligible for the ${request.role} role.`,
+      });
+    for (const provider of enabled)
+      for (const model of provider.models) {
+        if (avoid.includes(ChampionEvidence.modelIdentity(model.slug))) continue;
+        const alternative = yield* resolve({ instanceId: provider.instanceId, model: model.slug });
+        if (alternative?.selection != null && alternative.refusal === null)
+          return alternative.selection;
+      }
+    return yield* new ChampionError({
+      reason: "unavailable",
+      detail:
+        "No eligible model other than the browser measurement's can confirm it, so it stays unconfirmed.",
+    });
   });
   const guardConfirmation = Effect.fn("ChampionService.guardConfirmation")(function* (
     ownerThreadId: ThreadId,
@@ -3371,6 +3462,29 @@ const make = Effect.gen(function* () {
         reason: "unauthorized",
         detail: "During a journey check the only delegation is a replay.",
       });
+    if (ChampionEvidence.isMeasurementWorkId(request?.workId)) {
+      const run = yield* ownerRun(ownerThreadId);
+      if (run === undefined)
+        return yield* new ChampionError({
+          reason: "unauthorized",
+          detail: "A measurement is requested from the champion owner's active check run.",
+        });
+      const guarded = yield* evidence.guardMeasurement({
+        ownerThreadId,
+        request: request!,
+        clientRequestId,
+        followup: followup === true,
+        remote,
+        runMessageIds: run.messageIds,
+      });
+      const recorded = guarded.replay
+        ? yield* evidence.recordedBinding(ownerThreadId, clientRequestId)
+        : undefined;
+      if (recorded !== undefined) return recorded.effective;
+      const doc = yield* byThread(ownerThreadId);
+      if (!doc) return yield* new ChampionError({ reason: "unavailable" });
+      return yield* measurementSelection(doc, request!, guarded.avoid);
+    }
     if (yield* evidence.guard(ownerThreadId, request, clientRequestId, remote)) {
       const prior = yield* evidence.recordedBinding(ownerThreadId, clientRequestId);
       if (prior !== undefined) return prior.effective;
@@ -4342,6 +4456,24 @@ const make = Effect.gen(function* () {
       yield* authenticateOwner(caller, input.id);
       return yield* startInvestigation(input);
     });
+  const startMeasurementFromOwner: ChampionService["Service"]["startMeasurementFromOwner"] =
+    Effect.fn("ChampionService.startMeasurementFromOwner")(function* (caller, input) {
+      const { shell, run, runs } = yield* authenticateLive(caller);
+      const doc = yield* read(input.id);
+      if (
+        doc.champion.ownerThreadId !== shell.id ||
+        doc.champion.projectId !== shell.projectId ||
+        shell.agentTask !== undefined
+      )
+        return yield* new ChampionError({ reason: "unauthorized" });
+      const result = yield* evidence.startMeasurement({
+        ownerThreadId: shell.id,
+        runMessageIds: checkRunMessages(run, new Map(runs.map((r) => [r.id, r]))),
+        measurement: input,
+      });
+      yield* PubSub.publish(changes, undefined);
+      return result;
+    });
   const cancelInvestigationFromOwner: ChampionService["Service"]["cancelInvestigationFromOwner"] =
     Effect.fn("ChampionService.cancelInvestigationFromOwner")(function* (caller, input) {
       yield* authenticateOwner(caller, input.id);
@@ -4351,6 +4483,7 @@ const make = Effect.gen(function* () {
     verifyApproval,
     classChoices,
     startInvestigationFromOwner,
+    startMeasurementFromOwner,
     cancelInvestigationFromOwner,
     runtimeState: evidence.runtimeState,
     recommendation: evidence.recommendation,

@@ -59,6 +59,8 @@ import {
   BoundedBrowserSnapshotToolkit,
 } from "../../apps/server/src/mcp/toolkits/boundedBrowser/tools.ts";
 import { AttachmentToolkit } from "../../apps/server/src/mcp/toolkits/attachment/tools.ts";
+import { CHAMPION_MEASUREMENT_GUIDANCE } from "../../apps/server/src/champions/measurementGuidance.ts";
+import { ChampionsToolkit } from "../../apps/server/src/mcp/toolkits/champions/tools.ts";
 import { DeviceToolkit } from "../../apps/server/src/mcp/toolkits/device/tools.ts";
 import { EnvironmentToolkit } from "../../apps/server/src/mcp/toolkits/environment/tools.ts";
 import { HtmlToolkit } from "../../apps/server/src/mcp/toolkits/html/tools.ts";
@@ -315,6 +317,8 @@ export const McpToolUseCase = Schema.Struct({
     harness: Schema.optional(Schema.Literals(["claude", "codex"])),
     /** The Linked environments beta is on, so T3 lists its link tools. */
     linkedEnvironments: Schema.optional(Schema.Boolean),
+    /** The thread is a Champion's owner: T3 lists its Champion tools and its check prompt carries the measurement guidance. */
+    champions: Schema.optional(Schema.Boolean),
     /** delegate_task `role` for a delegated child. T3 builds the child's first message from it. */
     delegateRole: Schema.optional(OrchestratorMcpTaskRole),
     context: Schema.optional(Schema.String),
@@ -466,6 +470,7 @@ const t3SourceTools: ReadonlyArray<Tool.Any> = [
   PreviewToolkit,
   DeviceToolkit,
   HtmlToolkit,
+  ChampionsToolkit,
 ].flatMap((toolkit): ReadonlyArray<Tool.Any> => Object.values(toolkit.tools));
 // McpHttpServer decodes arguments with each tool's JSON codec, which drops undeclared keys.
 const t3InputDecoders = new Map(
@@ -528,10 +533,19 @@ const isHarnessExtra = (name: string) => HARNESS_EXTRAS.has(name.slice(name.last
 const READ_ONLY_DELEGATE_ROLES: ReadonlySet<string> = new Set(["review"]);
 // The Linked environments beta starts off, and T3 lists its tools only while it is on.
 const hiddenWhileLinksOff = enabledWhen(McpInvocationContext.hiddenWhileLinksOff);
-const visibleT3Tools = (options: { readonly readOnly?: boolean; readonly links?: boolean }) =>
+// Only a Champion's owner works with these, so other cases keep the tool list they were written against.
+const championTools = new Set(
+  Object.values(ChampionsToolkit.tools).map((tool: Tool.Any) => `${T3_PREFIX}${tool.name}`),
+);
+const visibleT3Tools = (options: {
+  readonly readOnly?: boolean;
+  readonly links?: boolean;
+  readonly champions?: boolean;
+}) =>
   t3Tools.filter(
     (tool) =>
       (options.links === true || !hiddenWhileLinksOff.has(tool.name)) &&
+      (options.champions === true || !championTools.has(tool.name)) &&
       (options.readOnly !== true || READ_ONLY_TOOLS.has(tool.name)),
   );
 
@@ -643,6 +657,7 @@ export const buildBase = (
     readonly subagent?: boolean;
     readonly readOnly?: boolean;
     readonly links?: boolean;
+    readonly champions?: boolean;
     /** A native subagent starts from its task: T3 appends nothing to its system prompt. */
     readonly nativeSubagent?: boolean;
     /** false: the thread has no agent device access, so T3's text leaves devices out. */
@@ -753,6 +768,7 @@ const buildCodexBase = (
     readonly subagent?: boolean;
     readonly readOnly?: boolean;
     readonly links?: boolean;
+    readonly champions?: boolean;
     /** false: the thread has no agent device access, so T3's text leaves devices out. */
     readonly deviceAccess?: boolean;
     /** false: the thread has no agent browser access, so T3's text leaves the browser out. */
@@ -1100,6 +1116,7 @@ export const buildMessages = (sample: Sample) => {
       ? "You are a subagent started by the parent agent's Agent tool. Your final message goes to the parent agent, not to the user."
       : undefined,
     context,
+    testCase.setup.champions === true ? CHAMPION_MEASUREMENT_GUIDANCE : undefined,
   ];
   const reminders = base.reminders.toSpliced(base.gitStatusAt, 0, reminder(gitStatus(testCase)));
   push("user", ...reminders, ...notes.flatMap((note) => (note ? [reminder(note)] : [])));
@@ -2653,6 +2670,7 @@ const main = Effect.gen(function* () {
     browserAccess: boolean,
     links: boolean,
     readOnly: boolean,
+    champions: boolean,
   ): Effect.Effect<Base, Schema.SchemaError> =>
     codex
       ? decodeCodexCapture(template).pipe(
@@ -2664,6 +2682,7 @@ const main = Effect.gen(function* () {
               subagent: role === "delegated-child",
               readOnly,
               links,
+              champions,
               deviceAccess,
               browserAccess,
             }),
@@ -2678,6 +2697,7 @@ const main = Effect.gen(function* () {
               readOnly,
               nativeSubagent: role === "native-subagent",
               links,
+              champions,
               deviceAccess,
               browserAccess,
             });
@@ -2690,14 +2710,15 @@ const main = Effect.gen(function* () {
         );
   // Codex has no native subagents; its cases with that role run as top-level threads.
   const baseKey = ({ setup }: McpToolUseCase) =>
-    `${codex && setup.role === "native-subagent" ? "top" : setup.role}:${setup.world?.deviceAgentAccess !== false}:${setup.world?.browserAgentAccess !== false}:${setup.linkedEnvironments === true}:${setup.role === "delegated-child" && READ_ONLY_DELEGATE_ROLES.has(setup.delegateRole ?? "implementation")}`;
-  const base = yield* buildFor("top", true, true, false, false);
-  const bases = new Map<string, Base>([["top:true:true:false:false", base]]);
+    `${codex && setup.role === "native-subagent" ? "top" : setup.role}:${setup.world?.deviceAgentAccess !== false}:${setup.world?.browserAgentAccess !== false}:${setup.linkedEnvironments === true}:${setup.role === "delegated-child" && READ_ONLY_DELEGATE_ROLES.has(setup.delegateRole ?? "implementation")}:${setup.champions === true}`;
+  const base = yield* buildFor("top", true, true, false, false, false);
+  const bases = new Map<string, Base>([["top:true:true:false:false:false", base]]);
   for (const testCase of selected) {
     const key = baseKey(testCase);
     if (bases.has(key)) continue;
-    const [role = "top", access, browser, links, readOnly] = key.split(":") as [
+    const [role = "top", access, browser, links, readOnly, champions] = key.split(":") as [
       McpToolUseCase["setup"]["role"],
+      string,
       string,
       string,
       string,
@@ -2711,6 +2732,7 @@ const main = Effect.gen(function* () {
         browser === "true",
         links === "true",
         readOnly === "true",
+        champions === "true",
       ),
     );
   }

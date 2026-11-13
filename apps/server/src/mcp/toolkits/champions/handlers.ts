@@ -434,6 +434,13 @@ export const handlers = {
             ),
           ),
   ),
+  t3_champions_measurement: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const service = yield* Champions.ChampionService;
+      return yield* service.startMeasurementFromOwner(scope.thread, input);
+    }).pipe(Effect.mapError(failure)),
+  ),
   t3_champions_finding_action: McpToolAccess.beforeForwarding(
     McpToolAccess.either(
       (input) => isFindingDecisionAction(input.action),

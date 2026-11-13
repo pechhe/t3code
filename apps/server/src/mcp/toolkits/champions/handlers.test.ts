@@ -166,6 +166,7 @@ const harness = Effect.sync(() => {
   const approvals: Array<unknown> = [];
   const cancelled: Array<unknown> = [];
   const proposed: Array<unknown> = [];
+  const measured: Array<{ caller: unknown; input: unknown }> = [];
   const revision = (input: { readonly id: string }) =>
     ({
       ...input,
@@ -230,6 +231,18 @@ const harness = Effect.sync(() => {
         proposed.push(input);
         return detail;
       }),
+    startMeasurementFromOwner: (caller, input) =>
+      Effect.sync(() => {
+        measured.push({ caller, input });
+        return {
+          ...input,
+          workId: `champion-measurement:${input.measurementId}`,
+          attemptId: `${input.measurementId}:1`,
+          createdAt: "2026-11-13T00:00:00.000Z",
+          state: "planned",
+          admission: null,
+        } as const;
+      }),
     verifyApproval: () => Effect.succeed(proof),
     accept: (_input, relay) =>
       Effect.sync(() => {
@@ -269,6 +282,7 @@ const harness = Effect.sync(() => {
     approvals,
     cancelled,
     proposed,
+    measured,
     layer,
   };
 });
@@ -658,4 +672,33 @@ it.effect(
         expect(h.forwarded).toHaveLength(2);
       }).pipe(Effect.provide(h.layer));
     }),
+);
+
+it.effect("starts a measurement only as the calling thread, never for a linked environment", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* Effect.gen(function* () {
+      const args = {
+        id: "champion:gate",
+        checkId: "check:1",
+        measurementId: "browser-1",
+        role: "browser",
+        sourceRevision: "a".repeat(40),
+        metrics: [{ metricId: "coverage", version: 1 }],
+      };
+      expect((yield* call("t3_champions_measurement", threadScope(leadThread), args)).isError).toBe(
+        false,
+      );
+      expect(h.measured).toMatchObject([{ caller: { threadId: leadThread }, input: args }]);
+      // A short or ambiguous revision never reaches the service.
+      for (const bad of [{ sourceRevision: "abc123" }, { metrics: [] }, { role: "implementer" }]) {
+        const exit = yield* Effect.exit(
+          call("t3_champions_measurement", threadScope(leadThread), { ...args, ...bad }),
+        );
+        expect(exit._tag, JSON.stringify(bad)).toBe("Failure");
+      }
+      expect((yield* call("t3_champions_measurement", linkScope, args)).isError).toBe(true);
+      expect(h.measured).toHaveLength(1);
+    }).pipe(Effect.provide(h.layer));
+  }),
 );

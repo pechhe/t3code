@@ -11,6 +11,8 @@ import {
   ChampionInvestigationStartInput,
   ChampionInvestigationCancelInput,
   ChampionInvestigation,
+  ChampionMeasurement,
+  ChampionMeasurementStartInput,
   ChampionSynthesisInput,
   ChampionRecommendation,
   ChampionRecommendationInput,
@@ -224,6 +226,15 @@ const investigation = Tool.make("t3_champions_investigation", {
 })
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false);
+const measurement = Tool.make("t3_champions_measurement", {
+  ...shared,
+  description:
+    "Register a read-only browser audit, or a reviewer's confirmation of a completed one, of your live check; no finding needed. id is the champion's id. Returns the workId and attemptId for delegate_task: same role and sourceRevision, readOnly true.",
+  parameters: ChampionMeasurementStartInput,
+  success: ChampionMeasurement,
+})
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false);
 const finding_action = Tool.make("t3_champions_finding_action", {
   ...shared,
   description:
@@ -398,6 +409,7 @@ export const ChampionsToolkit = Toolkit.make(
   record_learning,
   confirm_learning,
   investigation,
+  measurement,
   finding_action,
   synthesize,
   learning_read,

@@ -74,6 +74,8 @@ import * as Mcp from "./OrchestratorMcpService.ts";
 import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 import type { McpInvocationScope } from "./McpInvocationContext.ts";
 
+/** A full commit id the pinned-reader check also accepts, as the parent of an empty working copy. */
+const publishedPin = "d".repeat(40);
 const encodeManifest = Schema.encodeEffect(Schema.fromJsonString(AgentPolicyManifest));
 const encodeDelegateTaskFingerprint = Schema.encodeSync(
   Schema.fromJsonString(OrchestratorMcpDelegateTaskInput),
@@ -85,7 +87,7 @@ const dependencies = Layer.mergeAll(
   Layer.succeed(Processes.ProcessRunner, {
     run: () =>
       Effect.succeed({
-        stdout: "source-pin\n",
+        stdout: `source-pin ${publishedPin}\n`,
         stderr: "",
         code: ChildProcessSpawner.ExitCode(0),
         timedOut: false,
@@ -300,6 +302,10 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       /** The command is accepted, so the delegation counts as admitted; it still yields no child. */
       readonly accepts?: boolean;
       readonly champion?: boolean;
+      /** The champion's check stays live, with no report and so no finding yet. */
+      readonly liveCheck?: boolean;
+      /** The tests share one database, so a champion that leaves a check behind needs its own. */
+      readonly championId?: string;
       readonly register?: ReadonlyArray<"foreign" | "twin">;
       readonly scratch?: boolean;
       /** The lead holds the other project's isolated workspace as a live attachment. */
@@ -630,7 +636,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           ),
         );
         const doc = yield* service.upsert({
-          id: "managed-champion",
+          id: options.championId ?? "managed-champion",
           projectId,
           name: "Managed health",
           purpose: "Own improvements",
@@ -675,24 +681,28 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           browserToolsAvailable: false,
         });
         const frozenContext = yield* service.checkContext(scope.thread);
-        const report = yield* service.report(scope.thread, {
-          samples: [
-            {
-              metricId: "errors",
-              version: frozenContext.metrics[0]!.version,
-              unit: "count",
-              status: "measured",
-              value: 1,
-              observedAt: "1970-01-01T00:00:00Z",
-              source: "fixture",
-              evidence: "One observed error",
-              revision: null,
-            },
-          ],
-          findings: [],
-          summary: "Own the finding",
-        });
-        champion = { service, finding: report.findings[0]! };
+        if (options.liveCheck === true)
+          champion = { service, finding: undefined as unknown as ChampionFinding };
+        else {
+          const report = yield* service.report(scope.thread, {
+            samples: [
+              {
+                metricId: "errors",
+                version: frozenContext.metrics[0]!.version,
+                unit: "count",
+                status: "measured",
+                value: 1,
+                observedAt: "1970-01-01T00:00:00Z",
+                source: "fixture",
+                evidence: "One observed error",
+                revision: null,
+              },
+            ],
+            findings: [],
+            summary: "Own the finding",
+          });
+          champion = { service, finding: report.findings[0]! };
+        }
       }
       const championSelections: Array<ModelSelection | undefined> = [];
       const championLayer =
@@ -2409,6 +2419,164 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
     }).pipe(
       Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
     ),
+  );
+  it.effect(
+    "admits an owner's first audit on its live check through managed validation and final admission, then a different-model reviewer",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* harness(undefined, true, {
+          champion: true,
+          liveCheck: true,
+          championId: "managed-audit",
+        });
+        const { service } = h.champion!;
+        const owner = h.scope.thread!;
+        const checkId = (yield* service.checkContext(owner)).checkId;
+        const measurements = () =>
+          service.runtimeState({ id: "managed-audit" }).pipe(Effect.map((s) => s.measurements!));
+        const start = (over: Record<string, unknown>) =>
+          service.startMeasurementFromOwner(owner, {
+            id: "managed-audit",
+            checkId,
+            measurementId: "ui-browser",
+            role: "browser",
+            sourceRevision: publishedPin,
+            metrics: [{ metricId: "errors", version: 1 }],
+            observedRuntime: "combined preview",
+            ...over,
+          } as never);
+        const plan = yield* start({});
+        const audit = {
+          task: "Audit the sampled screens read-only",
+          clientRequestId: "audit-browser",
+          agentTask: request({
+            role: "browser",
+            taskClass: "ui",
+            workId: plan.workId,
+            attemptId: plan.attemptId,
+            workspacePath: h.lead,
+            readOnly: true,
+            sourceRevision: publishedPin,
+          }),
+        };
+        // The owner's own path never reaches the post-repair gate, so there is no finding to wait for.
+        expect((yield* service.get({ id: "managed-audit" })).findings).toHaveLength(0);
+        // A pin other than the plan's, or one the checkout is not at, dispatches nothing.
+        for (const [index, wrong] of ["e".repeat(40), "source-pin"].entries()) {
+          expect(
+            (yield* h.delegate({
+              ...audit,
+              clientRequestId: `wrong-pin-${index}`,
+              agentTask: { ...audit.agentTask, sourceRevision: wrong },
+            })).code,
+          ).toBe("capability_denied");
+        }
+        expect(h.dispatched).toHaveLength(0);
+        expect((yield* measurements())[0]!.admission).toBeNull();
+        const admittedAudit = yield* h.delegate(audit);
+        expect(h.dispatched, admittedAudit.message).toHaveLength(1);
+        const first = (yield* measurements())[0]!;
+        expect(first.state).toBe("unknown");
+        expect(first.admission!.binding).toMatchObject({
+          role: "browser",
+          sourceRevision: publishedPin,
+          sourceAccess: "read-only",
+          executionBoundary: "read-only",
+          readOnly: true,
+        });
+        expect(first.observedRuntime).toBe("combined preview");
+        // A retry is the same admission: one entry, the recorded binding, nothing charged again.
+        yield* h.delegate(audit);
+        const replayed = yield* measurements();
+        expect(replayed).toHaveLength(1);
+        expect(replayed[0]!.admission!.admittedAt).toBe(first.admission!.admittedAt);
+        expect(h.dispatched[1]).toMatchObject({
+          modelSelection: first.admission!.resolvedSelection,
+        });
+        // A reviewer waits for the browser audit to complete.
+        const reviewBody = {
+          measurementId: "ui-review",
+          role: "reviewer",
+          browserMeasurementId: "ui-browser",
+        };
+        expect(yield* Effect.flip(start(reviewBody))).toMatchObject({ reason: "conflict" });
+        h.completeBranch({
+          ...first.admission!,
+          id: first.measurementId,
+        } as unknown as ChampionInvestigationBranchAttempt);
+        const review = yield* start(reviewBody);
+        const confirm = {
+          task: "Confirm the audit against the same source",
+          clientRequestId: "audit-review",
+          agentTask: request({
+            role: "reviewer",
+            workId: review.workId,
+            attemptId: review.attemptId,
+            workspacePath: h.lead,
+            readOnly: true,
+            sourceRevision: publishedPin,
+            review: changeReview,
+          }),
+        };
+        yield* h.delegate(confirm);
+        expect(h.dispatched).toHaveLength(3);
+        const settled = yield* measurements();
+        const browser = settled.find((m) => m.measurementId === "ui-browser")!;
+        const reviewer = settled.find((m) => m.measurementId === "ui-review")!;
+        expect(browser.state).toBe("completed");
+        expect(reviewer.admission!.binding.sourceRevision).toBe(browser.sourceRevision);
+        expect(reviewer.admission!.resolvedSelection.model).not.toBe(
+          browser.admission!.resolvedSelection.model,
+        );
+        // Both entries count as admitted attempts; a third audit still fits the two-running bound.
+        const third = yield* start({ measurementId: "ui-third" });
+        yield* h.delegate({
+          ...audit,
+          clientRequestId: "audit-third",
+          agentTask: { ...audit.agentTask, workId: third.workId, attemptId: third.attemptId },
+        });
+        expect(h.dispatched).toHaveLength(4);
+        // The report closes the check: nothing more is planned or admitted for it.
+        const late = yield* start({ measurementId: "ui-late" });
+        yield* service.report(owner, {
+          samples: [
+            {
+              metricId: "errors",
+              version: 1,
+              unit: "count",
+              status: "measured",
+              value: 0,
+              observedAt: "1970-01-01T00:00:00Z",
+              source: "fixture",
+              evidence: "Audited screens show no errors",
+              revision: null,
+            },
+          ],
+          findings: [],
+          summary: "Reported",
+        });
+        expect(
+          (yield* h.delegate({
+            ...audit,
+            clientRequestId: "audit-late",
+            agentTask: { ...audit.agentTask, workId: late.workId, attemptId: late.attemptId },
+          })).code,
+        ).toBe("capability_denied");
+        expect(h.dispatched).toHaveLength(4);
+        expect(yield* Effect.flip(start({ measurementId: "ui-after" }))).toMatchObject({
+          reason: "unauthorized",
+        });
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}),
+            Settings.layerTest({
+              enableAgentBrowserAccess: true,
+              agentBrowserBackends: { enabled: ["integrated"], default: "integrated" },
+            }),
+          ),
+        ),
+      ),
   );
   it.effect(
     "admits Champion investigations only after resolved managed validation, freezes unknown replay and keeps refusal free",

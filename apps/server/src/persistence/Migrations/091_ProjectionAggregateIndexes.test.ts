@@ -23,13 +23,13 @@ it.layer(NodeSqliteClient.layer({ filename: ":memory:" }))("projection aggregate
       const check = () =>
         Effect.gen(function* () {
           const expected = yield* sql`
-          SELECT thread_id, run_id, COUNT(*) AS item_count
-          FROM orchestration_v2_projection_turn_items GROUP BY thread_id, run_id
-          ORDER BY thread_id, run_id
+          SELECT thread_id, COALESCE(run_id, '') AS run_key, COUNT(*) AS item_count
+          FROM orchestration_v2_projection_turn_items GROUP BY thread_id, run_key
+          ORDER BY thread_id, run_key
         `;
           const actual = yield* sql`
-          SELECT thread_id, run_id, item_count FROM orchestration_v2_projection_run_item_counts
-          ORDER BY thread_id, run_id
+          SELECT thread_id, run_key, item_count FROM orchestration_v2_projection_turn_item_counts
+          ORDER BY thread_id, run_key
         `;
           assert.deepEqual(actual, expected);
         });

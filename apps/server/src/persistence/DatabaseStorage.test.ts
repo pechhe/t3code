@@ -38,6 +38,9 @@ const storageLayer = <E>(
 
 const testConfig = ServerConfig.layerTest(process.cwd(), { prefix: "database-storage-" });
 
+// One reclaim pass returns at most this many pages (RECLAIM_PAGES_PER_PASS in DatabaseStorage.ts).
+const pagesPerPass = 4096;
+
 it.effect("a new database returns freed pages online without losing data", () =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -46,10 +49,10 @@ it.effect("a new database returns freed pages online without losing data", () =>
     yield* sql`CREATE TABLE retained (value TEXT)`;
     yield* sql`INSERT INTO retained VALUES ('keep')`;
     yield* sql`CREATE TABLE discarded (value BLOB)`;
-    yield* sql`INSERT INTO discarded VALUES (zeroblob(6291456))`;
+    yield* sql`INSERT INTO discarded VALUES (zeroblob(20971520))`;
     yield* sql`DROP TABLE discarded`;
     const before = yield* freePages;
-    assert.isAbove(before, 1024);
+    assert.isAbove(before, pagesPerPass);
     const spans: Array<Tracer.NativeSpan> = [];
     const tracer = Tracer.make({
       span(options) {
@@ -59,13 +62,13 @@ it.effect("a new database returns freed pages online without losing data", () =>
       },
     });
     yield* storage.reclaim.pipe(Effect.withTracer(tracer), Effect.withTracerEnabled(true));
-    assert.equal(before - (yield* freePages), 1024);
+    assert.equal(before - (yield* freePages), pagesPerPass);
     assert.lengthOf(spans, 1);
     assert.deepEqual(
       spans.map((span) => span.name),
       ["DatabaseStorage.reclaim"],
     );
-    assert.equal(spans[0]?.attributes.get("db.reclaimed_pages"), 1024);
+    assert.equal(spans[0]?.attributes.get("db.reclaimed_pages"), pagesPerPass);
     yield* storage.reclaim;
     assert.equal(yield* freePages, 0);
     assert.deepEqual(yield* sql`SELECT value FROM retained`, [{ value: "keep" }]);

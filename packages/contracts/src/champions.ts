@@ -950,6 +950,64 @@ export const ChampionInvestigation = Schema.Struct({
   attention: Schema.NullOr(ChampionText),
 });
 export type ChampionInvestigation = typeof ChampionInvestigation.Type;
+export const ChampionSourceRevision = Schema.String.check(
+  Schema.isPattern(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/),
+);
+export const ChampionMeasurementMetricRef = Schema.Struct({
+  metricId: ChampionLabel,
+  version: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
+});
+export const ChampionMeasurementStartInput = Schema.Struct({
+  id: ChampionId,
+  checkId: ChampionLabel,
+  measurementId: ChampionLabel,
+  role: Schema.Literals(["browser", "reviewer"]),
+  /** The full commit the audit is pinned to; a reviewer's equals the browser audit it confirms. */
+  sourceRevision: ChampionSourceRevision,
+  /** Frozen, agent-measured metrics of the check this audit gathers evidence for. */
+  metrics: Schema.Array(ChampionMeasurementMetricRef).check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(8),
+  ),
+  /** A reviewer's completed browser audit in the same check. */
+  browserMeasurementId: Schema.optional(ChampionLabel),
+  /** What the audited preview says it serves; never taken as proof of the source pin. */
+  observedRuntime: Schema.optional(ChampionLabel),
+});
+export type ChampionMeasurementStartInput = typeof ChampionMeasurementStartInput.Type;
+export const ChampionMeasurementAdmission = Schema.Struct({
+  clientRequestId: ChampionLabel,
+  commandId: CommandId,
+  taskId: NodeId,
+  childThreadId: ThreadId,
+  messageId: MessageId,
+  workspacePath: ChampionText,
+  policyHash: ChampionText,
+  policyRevision: ChampionText,
+  binding: AgentTaskBinding,
+  resolvedSelection: ModelSelection,
+  actualSelection: Schema.NullOr(ModelSelection),
+  admittedAt: IsoDateTime,
+  result: Schema.NullOr(ChampionText),
+});
+export type ChampionMeasurementAdmission = typeof ChampionMeasurementAdmission.Type;
+export const ChampionMeasurement = Schema.Struct({
+  ...ChampionMeasurementStartInput.fields,
+  workId: ChampionText,
+  attemptId: ChampionText,
+  createdAt: IsoDateTime,
+  state: Schema.Literals([
+    "planned",
+    "admitted",
+    "unknown",
+    "accepted",
+    "completed",
+    "failed",
+    "cancelled",
+  ]),
+  admission: Schema.NullOr(ChampionMeasurementAdmission),
+});
+export type ChampionMeasurement = typeof ChampionMeasurement.Type;
 export const ChampionInvestigationCancelInput = Schema.Struct({
   id: ChampionId,
   investigationId: ChampionLabel,
@@ -989,6 +1047,7 @@ export const ChampionRuntimeState = Schema.Struct({
   attempts: Schema.Array(ChampionExecutionAttempt).check(Schema.isMaxLength(50)),
   investigations: Schema.Array(ChampionInvestigation).check(Schema.isMaxLength(20)),
   recommendations: Schema.Array(ChampionRecommendation).check(Schema.isMaxLength(20)),
+  measurements: Schema.optional(Schema.Array(ChampionMeasurement).check(Schema.isMaxLength(20))),
 });
 export type ChampionRuntimeState = typeof ChampionRuntimeState.Type;
 export const ChampionMetricsLeadResult = Schema.Struct({ threadId: ThreadId });

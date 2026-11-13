@@ -49,6 +49,7 @@ const RUN_ONLY_TOOLS = new Set([
   "t3_champions_proposal",
   "t3_champions_report",
   "t3_champions_confirm_learning",
+  "t3_champions_measurement",
 ]);
 
 /** Agent writes with no screen command: people read learnings, agents record them (T3-444). */

@@ -7,6 +7,9 @@ import {
   ChampionInvestigation,
   ChampionInvestigationBranchAttempt,
   ChampionLearningRevision,
+  ChampionMeasurement,
+  type ChampionMeasurementAdmission,
+  type ChampionMeasurementStartInput,
   ChampionRecommendation,
   type ChampionInvestigationStartInput,
   type ChampionInvestigationCancelInput,
@@ -53,16 +56,29 @@ interface Admission {
   readonly messageId: MessageId;
   readonly clientRequestId: string;
   readonly followup: boolean;
+  /** The messages of the owner's active run's restart ancestry: a measurement's check must be among them. */
+  readonly runMessageIds?: ReadonlyArray<string>;
 }
 const json = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
 const terminal = (state: string) => ["completed", "failed", "cancelled"].includes(state);
+/** Read-only attempts a champion may have running, and may be admitted in a rolling day, across investigations and measurements. */
+const MAX_ACTIVE_ATTEMPTS = 2;
+const MAX_ADMITTED_ATTEMPTS_PER_DAY = 6;
+const MEASUREMENT_WORK_PREFIX = "champion-measurement:";
+export const isMeasurementWorkId = (workId: string | undefined) =>
+  workId?.startsWith(MEASUREMENT_WORK_PREFIX) === true;
+const measurementIdOf = (workId: string) => workId.slice(MEASUREMENT_WORK_PREFIX.length);
+/** Two models count as one when only a provider prefix tells them apart. */
+export const modelIdentity = (model: string) =>
+  model.slice(model.lastIndexOf("/") + 1).toLowerCase();
 const isChampionError = Schema.is(ChampionError);
 const failure = (cause: unknown) =>
   isChampionError(cause) ? cause : new ChampionError({ reason: "unavailable", cause });
 const invalid = () => new ChampionError({ reason: "invalid" });
 const invalidBecause = (detail: string) => new ChampionError({ reason: "invalid", detail });
 const conflict = () => new ChampionError({ reason: "conflict" });
+const conflictBecause = (detail: string) => new ChampionError({ reason: "conflict", detail });
 const refused = (detail?: string) =>
   new ChampionError({ reason: "unauthorized", ...(detail === undefined ? {} : { detail }) });
 const decodeDoc = Schema.decodeUnknownEffect(Schema.fromJsonString(ChampionDetail));
@@ -72,6 +88,18 @@ const decodeInvestigation = Schema.decodeUnknownEffect(
 const decodeAttempt = Schema.decodeUnknownEffect(
   Schema.fromJsonString(ChampionInvestigationBranchAttempt),
 );
+const decodeMeasurement = Schema.decodeUnknownEffect(Schema.fromJsonString(ChampionMeasurement));
+const checkRowSchema = Schema.Struct({
+  kind: Schema.Literals(["setup", "check"]),
+  metrics: Schema.Array(
+    Schema.Struct({
+      id: Schema.String,
+      version: Schema.Int,
+      collect: Schema.optional(Schema.Unknown),
+    }),
+  ),
+});
+const decodeCheckRow = Schema.decodeUnknownEffect(Schema.fromJsonString(checkRowSchema));
 const sameBinding = Schema.toEquivalence(AgentTaskBinding);
 const sameLearningContent = Schema.toEquivalence(ChampionLearningContent);
 const decodeLearning = Schema.decodeUnknownEffect(Schema.fromJsonString(ChampionLearningRevision));
@@ -146,6 +174,85 @@ export const make = Effect.gen(function* () {
     value: ChampionInvestigationBranchAttempt,
   ) {
     yield* sql`UPDATE champion_branch_attempts SET state = CASE WHEN state IN ('completed','failed','cancelled') THEN state ELSE ${value.state} END, document_json = json_set(${json(value)}, '$.state', CASE WHEN state IN ('completed','failed','cancelled') THEN state ELSE ${value.state} END) WHERE id = ${value.id}`;
+  }, Effect.mapError(failure));
+  const readMeasurement = Effect.fn("ChampionEvidence.readMeasurement")(function* (id: string) {
+    const [row] = yield* sql<{
+      document_json: string;
+    }>`SELECT document_json FROM champion_measurements WHERE id = ${id}`.pipe(
+      Effect.mapError(failure),
+    );
+    if (!row) return yield* new ChampionError({ reason: "not-found" });
+    return yield* decodeMeasurement(row.document_json).pipe(Effect.mapError(failure));
+  });
+  const saveMeasurement = Effect.fn("ChampionEvidence.saveMeasurement")(function* (
+    value: ChampionMeasurement,
+  ) {
+    yield* sql`UPDATE champion_measurements SET state = CASE WHEN state IN ('completed','failed','cancelled') THEN state ELSE ${value.state} END, document_json = json_set(${json(value)}, '$.state', CASE WHEN state IN ('completed','failed','cancelled') THEN state ELSE ${value.state} END) WHERE id = ${value.measurementId}`;
+  }, Effect.mapError(failure));
+  /** One count for every read-only attempt a champion starts, whatever it is for. */
+  const capacityFull = Effect.fn("ChampionEvidence.capacityFull")(function* (championId: string) {
+    const since = DateTime.formatIso(DateTime.subtract(yield* DateTime.now, { days: 1 }));
+    const [counts] = yield* sql<{
+      active: number | null;
+      recent: number | null;
+    }>`SELECT SUM(CASE WHEN state IN ('admitted','unknown','accepted') THEN 1 ELSE 0 END) AS active, SUM(CASE WHEN at > ${since} THEN 1 ELSE 0 END) AS recent FROM (SELECT state, at FROM champion_branch_attempts WHERE champion_id = ${championId} UNION ALL SELECT state, admitted_at AS at FROM champion_measurements WHERE champion_id = ${championId} AND admitted_at IS NOT NULL)`;
+    return (
+      (counts?.active ?? 0) >= MAX_ACTIVE_ATTEMPTS ||
+      (counts?.recent ?? 0) >= MAX_ADMITTED_ATTEMPTS_PER_DAY
+    );
+  }, Effect.mapError(failure));
+  const requestIdTaken = Effect.fn("ChampionEvidence.requestIdTaken")(function* (
+    championId: string,
+    requestId: string,
+    table: "champion_branch_attempts" | "champion_measurements",
+  ) {
+    const rows =
+      table === "champion_branch_attempts"
+        ? yield* sql`SELECT id FROM champion_branch_attempts WHERE champion_id = ${championId} AND request_id = ${requestId} LIMIT 1`
+        : yield* sql`SELECT id FROM champion_measurements WHERE champion_id = ${championId} AND request_id = ${requestId} LIMIT 1`;
+    return rows.length > 0;
+  }, Effect.mapError(failure));
+  /** The check must still be this owner's unreported, uncancelled, current check, entered through its own run. */
+  const liveCheck = Effect.fn("ChampionEvidence.liveCheck")(function* (
+    doc: ChampionDetail,
+    checkId: string,
+    ownerThreadId: ThreadId,
+    runMessageIds: ReadonlyArray<string>,
+  ) {
+    const [row] = yield* sql<{
+      champion_id: string;
+      thread_id: string;
+      message_id: string;
+      status: string;
+      document_json: string;
+    }>`SELECT champion_id, thread_id, message_id, status, document_json FROM champion_checks WHERE id = ${checkId}`.pipe(
+      Effect.mapError(failure),
+    );
+    if (
+      !row ||
+      row.champion_id !== doc.champion.id ||
+      row.thread_id !== ownerThreadId ||
+      row.status !== "pending" ||
+      doc.champion.outstandingCheckId !== checkId ||
+      !runMessageIds.includes(row.message_id)
+    )
+      return yield* refused(
+        "A measurement belongs to this owner's current check: unreported, uncancelled and entered through the run that is making this request.",
+      );
+    const check = yield* decodeCheckRow(row.document_json).pipe(Effect.mapError(failure));
+    if (check.kind !== "check")
+      return yield* refused("A measurement belongs to a check, not to setup.");
+    return check;
+  });
+  const measurementForRequest = Effect.fn("ChampionEvidence.measurementForRequest")(function* (
+    ownerThreadId: ThreadId,
+    request: AgentTaskRequest | undefined,
+  ) {
+    if (!request || !isMeasurementWorkId(request.workId)) return undefined;
+    const [row] = yield* sql<{
+      document_json: string;
+    }>`SELECT m.document_json FROM champion_measurements m JOIN champions c ON c.id = m.champion_id WHERE m.id = ${measurementIdOf(request.workId)} AND json_extract(c.document_json, '$.champion.ownerThreadId') = ${ownerThreadId}`;
+    return row === undefined ? undefined : yield* decodeMeasurement(row.document_json);
   }, Effect.mapError(failure));
   const signature = Effect.fn("ChampionEvidence.learningSignature")(function* (
     id: string,
@@ -457,10 +564,11 @@ export const make = Effect.gen(function* () {
       return yield* refused();
     return true;
   });
-  const admit = Effect.fn("ChampionEvidence.admit")(function* (proof: Admission) {
-    const match = yield* branchForRequest(proof.ownerThreadId, proof.binding);
-    if (!match) return;
-    const doc = yield* read(match.investigation.id);
+  /** Only a read-only task of the owner's own project, launched in the owner's active run, is evidence. */
+  const verifyReadOnlyProof = Effect.fn("ChampionEvidence.verifyReadOnlyProof")(function* (
+    proof: Admission,
+    doc: ChampionDetail,
+  ) {
     if (
       proof.projectId !== doc.champion.projectId ||
       (proof.binding.projectId !== undefined && proof.binding.projectId !== proof.projectId) ||
@@ -479,6 +587,12 @@ export const make = Effect.gen(function* () {
       owner.deletedAt !== null
     )
       return yield* refused();
+  });
+  const admit = Effect.fn("ChampionEvidence.admit")(function* (proof: Admission) {
+    const match = yield* branchForRequest(proof.ownerThreadId, proof.binding);
+    if (!match) return;
+    const doc = yield* read(match.investigation.id);
+    yield* verifyReadOnlyProof(proof, doc);
     const priorInvestigation = yield* readInvestigation(match.investigation.investigationId);
     const settled: ChampionInvestigationBranchAttempt[] = [];
     if (proof.followup)
@@ -546,6 +660,8 @@ export const make = Effect.gen(function* () {
             return yield* conflict();
           return;
         }
+        if (yield* requestIdTaken(doc.champion.id, proof.clientRequestId, "champion_measurements"))
+          return yield* conflict();
         for (const prior of settled) yield* saveAttempt(prior);
         const current = yield* readInvestigation(match.investigation.investigationId);
         const freshDoc = yield* read(doc.champion.id);
@@ -571,16 +687,7 @@ export const make = Effect.gen(function* () {
           return yield* conflict();
         if (current.attempts.some((a) => a.branchId === match.branch.id && !terminal(a.state)))
           return yield* conflict();
-        const since = DateTime.formatIso(DateTime.subtract(yield* DateTime.now, { days: 1 }));
-        const [counts] = yield* sql<{
-          active: number;
-          recent: number;
-        }>`SELECT SUM(CASE WHEN state IN ('admitted','unknown','accepted') THEN 1 ELSE 0 END) AS active, SUM(CASE WHEN at > ${since} THEN 1 ELSE 0 END) AS recent FROM champion_branch_attempts WHERE champion_id = ${doc.champion.id}`;
-        if (
-          current.attempts.length >= 6 ||
-          (counts?.active ?? 0) >= 2 ||
-          (counts?.recent ?? 0) >= 6
-        )
+        if (current.attempts.length >= 6 || (yield* capacityFull(doc.champion.id)))
           return yield* conflict();
         const attempt: ChampionInvestigationBranchAttempt = {
           id: yield* uuid,
@@ -616,7 +723,14 @@ export const make = Effect.gen(function* () {
     const [row] = yield* sql<{
       document_json: string;
     }>`SELECT a.document_json FROM champion_branch_attempts a JOIN champions c ON c.id = a.champion_id WHERE a.request_id = ${clientRequestId} AND json_extract(c.document_json, '$.champion.ownerThreadId') = ${ownerThreadId}`;
-    if (!row) return undefined;
+    if (!row) {
+      const [measured] = yield* sql<{
+        document_json: string;
+      }>`SELECT m.document_json FROM champion_measurements m JOIN champions c ON c.id = m.champion_id WHERE m.request_id = ${clientRequestId} AND json_extract(c.document_json, '$.champion.ownerThreadId') = ${ownerThreadId}`;
+      return measured === undefined
+        ? undefined
+        : (yield* decodeMeasurement(measured.document_json)).admission?.binding;
+    }
     return (yield* decodeAttempt(row.document_json)).binding;
   }, Effect.mapError(failure));
   const followupBinding = Effect.fn("ChampionEvidence.followupBinding")(function* (
@@ -674,6 +788,21 @@ export const make = Effect.gen(function* () {
     clientRequestId: string | undefined,
     state: "started" | "finished" | "failed",
   ) {
+    const measured = yield* measurementForRequest(ownerThreadId, request);
+    if (measured !== undefined) {
+      if (clientRequestId === undefined) return true;
+      yield* atomic(
+        Effect.gen(function* () {
+          const current = yield* readMeasurement(measured.measurementId);
+          if (current.admission?.clientRequestId === clientRequestId && !terminal(current.state))
+            yield* saveMeasurement({
+              ...current,
+              state: state === "finished" ? "accepted" : "unknown",
+            });
+        }),
+      );
+      return true;
+    }
     const match = yield* branchForRequest(ownerThreadId, request);
     if (!match) return false;
     if (!clientRequestId) return true;
@@ -797,6 +926,11 @@ export const make = Effect.gen(function* () {
     }>`SELECT document_json FROM champion_recommendations WHERE champion_id = ${id} ORDER BY at DESC, id DESC LIMIT 20`.pipe(
       Effect.mapError(failure),
     );
+    const measurements = yield* sql<{
+      document_json: string;
+    }>`SELECT document_json FROM champion_measurements WHERE champion_id = ${id} ORDER BY at DESC, id DESC LIMIT 20`.pipe(
+      Effect.mapError(failure),
+    );
     return {
       attempts: yield* Effect.forEach(attempts, (r) =>
         decodeExecution(r.document_json).pipe(Effect.mapError(failure)),
@@ -804,6 +938,9 @@ export const make = Effect.gen(function* () {
       investigations: yield* Effect.forEach(investigations, (r) => readInvestigation(r.id)),
       recommendations: yield* Effect.forEach(recommendations, (r) =>
         decodeRecommendation(r.document_json).pipe(Effect.mapError(failure)),
+      ),
+      measurements: yield* Effect.forEach(measurements, (r) =>
+        decodeMeasurement(r.document_json).pipe(Effect.mapError(failure)),
       ),
     };
   });
@@ -841,6 +978,395 @@ export const make = Effect.gen(function* () {
       }),
     );
   });
+  interface Observable {
+    readonly taskId: NodeId;
+    readonly childThreadId: ThreadId;
+    readonly messageId: MessageId;
+    readonly commandId: CommandId;
+    readonly workId: string;
+    readonly attemptId: string;
+    readonly role: string;
+    readonly workspacePath: string;
+    readonly state: string;
+    readonly actualSelection: ModelSelection | null;
+    readonly result: string | null;
+  }
+  /** What the owner's task record and the child's runs say now about one admitted read-only attempt. */
+  const observe = Effect.fn("ChampionEvidence.observe")(function* <A extends Observable>(
+    doc: ChampionDetail,
+    attempt: A,
+  ) {
+    const records = yield* threads
+      .getThreadRecords(doc.champion.ownerThreadId, ["subagents"], {
+        subagentIds: [attempt.taskId],
+      })
+      .pipe(Effect.mapError(failure));
+    const task = records.subagents.find(
+      (task) =>
+        task.id === attempt.taskId &&
+        task.origin === "app_owned" &&
+        task.childThreadId === attempt.childThreadId,
+    );
+    const shell = yield* threads
+      .getThreadShell(attempt.childThreadId)
+      .pipe(Effect.mapError(failure));
+    const valid =
+      task !== undefined &&
+      shell !== null &&
+      shell.projectId === doc.champion.projectId &&
+      shell.agentTask?.workId === attempt.workId &&
+      shell.agentTask.attemptId === attempt.attemptId &&
+      shell.agentTask.role === attempt.role &&
+      shell.agentTask.workspacePath === attempt.workspacePath &&
+      shell.agentTask.sourceAccess === "read-only" &&
+      shell.agentTask.executionBoundary === "read-only";
+    let next: A = attempt;
+    if (valid && task && shell) {
+      const child = yield* threads
+        .getThreadRecords(attempt.childThreadId, ["runs"])
+        .pipe(Effect.mapError(failure));
+      const run = child.runs.find((run) => run.userMessageId === attempt.messageId);
+      const live =
+        shell.activeRunId !== null ||
+        child.runs.some(
+          (run) =>
+            (run.userMessageId === attempt.messageId || run.delegatedTaskId === attempt.taskId) &&
+            !Threads.isTerminalRunStatus(run.status),
+        );
+      const status =
+        !live && ["completed", "failed", "cancelled", "interrupted"].includes(task.status)
+          ? task.status === "completed"
+            ? "completed"
+            : task.status === "cancelled"
+              ? "cancelled"
+              : "failed"
+          : "accepted";
+      next = {
+        ...attempt,
+        state: terminal(attempt.state) ? attempt.state : status,
+        actualSelection:
+          run !== undefined &&
+          (["running", "waiting", "completed"].includes(run.status) || run.startedAt != null)
+            ? run.modelSelection
+            : attempt.actualSelection,
+        result: task.result?.slice(0, 8000) ?? attempt.result,
+      } as A;
+    } else if (!terminal(attempt.state)) {
+      const receipt = yield* threads.getReceipt(attempt.commandId).pipe(Effect.option);
+      next = {
+        ...attempt,
+        state:
+          Option.isSome(receipt) &&
+          Option.isSome(receipt.value) &&
+          receipt.value.value.status === "rejected"
+            ? "failed"
+            : "unknown",
+      } as A;
+    }
+    return { next, valid };
+  });
+  const observableOf = (measurement: ChampionMeasurement) => {
+    const admission = measurement.admission;
+    return admission === null
+      ? undefined
+      : {
+          taskId: admission.taskId,
+          childThreadId: admission.childThreadId,
+          messageId: admission.messageId,
+          commandId: admission.commandId,
+          workId: measurement.workId,
+          attemptId: measurement.attemptId,
+          role: measurement.role,
+          workspacePath: admission.workspacePath,
+          state: measurement.state,
+          actualSelection: admission.actualSelection,
+          result: admission.result,
+        };
+  };
+  /** Settles one admitted measurement from its task, as reconcile does, and returns it. */
+  const refreshMeasurement = Effect.fn("ChampionEvidence.refreshMeasurement")(function* (
+    id: string,
+  ) {
+    const measurement = yield* readMeasurement(id);
+    const observable = observableOf(measurement);
+    if (observable === undefined || terminal(measurement.state) || measurement.admission === null)
+      return measurement;
+    const { next } = yield* observe(yield* read(measurement.id), observable);
+    const settled: ChampionMeasurement = {
+      ...measurement,
+      state: next.state as ChampionMeasurement["state"],
+      admission: {
+        ...measurement.admission,
+        actualSelection: next.actualSelection,
+        result: next.result,
+      },
+    };
+    if (json(settled) === json(measurement)) return measurement;
+    yield* atomic(saveMeasurement(settled));
+    return settled;
+  });
+  const sameSelection = (measurement: ChampionMeasurement) =>
+    measurement.admission === null
+      ? []
+      : [measurement.admission.resolvedSelection, measurement.admission.actualSelection]
+          .filter((selection) => selection !== null)
+          .map((selection) => modelIdentity(selection.model));
+  /** A reviewer confirms a completed browser audit of the same check and the same full source. */
+  const confirmedBrowser = Effect.fn("ChampionEvidence.confirmedBrowser")(function* (
+    championId: string,
+    checkId: string,
+    sourceRevision: string,
+    browserMeasurementId: string | undefined,
+  ) {
+    if (browserMeasurementId === undefined)
+      return yield* invalidBecause(
+        "A reviewer measurement names the completed browser audit it confirms.",
+      );
+    const browser = yield* readMeasurement(browserMeasurementId).pipe(
+      Effect.mapError(() => invalidBecause("That browser measurement does not exist.")),
+    );
+    if (
+      browser.id !== championId ||
+      browser.checkId !== checkId ||
+      browser.role !== "browser" ||
+      browser.sourceRevision !== sourceRevision
+    )
+      return yield* refused(
+        "A reviewer confirms a browser measurement of the same check pinned to exactly the same full source revision.",
+      );
+    if (browser.state !== "completed")
+      return yield* conflictBecause("The browser measurement has not completed yet.");
+    return browser;
+  });
+  const startMeasurement = Effect.fn("ChampionEvidence.startMeasurement")(function* (input: {
+    readonly ownerThreadId: ThreadId;
+    readonly runMessageIds: ReadonlyArray<string>;
+    readonly measurement: ChampionMeasurementStartInput;
+  }) {
+    const request = input.measurement;
+    if (request.role === "reviewer" && request.browserMeasurementId !== undefined)
+      yield* refreshMeasurement(request.browserMeasurementId).pipe(Effect.ignore);
+    return yield* atomic(
+      Effect.gen(function* () {
+        const doc = yield* read(request.id);
+        if (doc.champion.ownerThreadId !== input.ownerThreadId) return yield* refused();
+        const comparable = (value: ChampionMeasurementStartInput) =>
+          json({
+            id: value.id,
+            checkId: value.checkId,
+            role: value.role,
+            sourceRevision: value.sourceRevision,
+            metrics: value.metrics,
+            browserMeasurementId: value.browserMeasurementId ?? null,
+            observedRuntime: value.observedRuntime ?? null,
+          });
+        const [existing] = yield* sql<{
+          document_json: string;
+        }>`SELECT document_json FROM champion_measurements WHERE id = ${request.measurementId}`;
+        if (existing) {
+          const prior = yield* decodeMeasurement(existing.document_json).pipe(
+            Effect.mapError(failure),
+          );
+          if (comparable(prior) !== comparable(request))
+            return yield* conflictBecause(
+              "That measurementId already names a different measurement. Use a new measurementId.",
+            );
+          return prior;
+        }
+        if (doc.champion.lifecycle !== "active")
+          return yield* refused(
+            "This champion is paused, so it measures only inline. Report what you measured and raise attention for anything else.",
+          );
+        if (doc.champion.journeys !== undefined)
+          return yield* refused("A journey champion's only delegation is a replay.");
+        const check = yield* liveCheck(
+          doc,
+          request.checkId,
+          input.ownerThreadId,
+          input.runMessageIds,
+        );
+        const seen = new Set<string>();
+        for (const ref of request.metrics) {
+          const frozen = check.metrics.find(
+            (metric) => metric.id === ref.metricId && metric.version === ref.version,
+          );
+          if (frozen === undefined || seen.has(ref.metricId))
+            return yield* invalidBecause(
+              `Metric ${ref.metricId} version ${ref.version} is not a distinct frozen metric of this check.`,
+            );
+          if (frozen.collect !== undefined)
+            return yield* invalidBecause(
+              `Metric ${ref.metricId} is read by the server by command, so a measurement cannot gather it.`,
+            );
+          seen.add(ref.metricId);
+        }
+        if (request.role === "browser" && request.browserMeasurementId !== undefined)
+          return yield* invalidBecause("Only a reviewer measurement names a browser measurement.");
+        if (request.role === "reviewer")
+          yield* confirmedBrowser(
+            request.id,
+            request.checkId,
+            request.sourceRevision,
+            request.browserMeasurementId,
+          );
+        const [planned] = yield* sql<{
+          count: number;
+        }>`SELECT COUNT(*) AS count FROM champion_measurements WHERE check_id = ${request.checkId}`;
+        if ((planned?.count ?? 0) >= MAX_ADMITTED_ATTEMPTS_PER_DAY)
+          return yield* conflictBecause(
+            "This check already holds the most measurements a champion may be admitted in a day.",
+          );
+        const created: ChampionMeasurement = {
+          ...request,
+          workId: `${MEASUREMENT_WORK_PREFIX}${request.measurementId}`,
+          attemptId: `${request.measurementId}:1`,
+          createdAt: yield* now,
+          state: "planned",
+          admission: null,
+        };
+        yield* sql`INSERT INTO champion_measurements (id,champion_id,check_id,role,request_id,at,admitted_at,state,document_json) VALUES (${request.measurementId},${request.id},${request.checkId},${request.role},NULL,${created.createdAt},NULL,'planned',${json(created)})`;
+        return created;
+      }),
+    );
+  });
+  /** The pre-launch decision; the launch itself is admitted again, atomically, by admitMeasurement. */
+  const guardMeasurement = Effect.fn("ChampionEvidence.guardMeasurement")(function* (input: {
+    readonly ownerThreadId: ThreadId;
+    readonly request: AgentTaskRequest;
+    readonly clientRequestId: string | undefined;
+    readonly followup: boolean;
+    readonly remote: boolean | undefined;
+    readonly runMessageIds: ReadonlyArray<string>;
+  }) {
+    const { request } = input;
+    const found = yield* measurementForRequest(input.ownerThreadId, request);
+    if (found === undefined)
+      return yield* refused(
+        "That agentTask names no measurement of this champion. Start one with t3_champions_measurement and copy its workId and attemptId.",
+      );
+    if (input.remote) return yield* refused();
+    if (input.followup)
+      return yield* refused("A measurement takes no follow-up. Start a new measurement.");
+    if (input.clientRequestId === undefined)
+      return yield* refused("A measurement delegation needs a clientRequestId.");
+    const measurement = yield* readMeasurement(found.measurementId);
+    if (request.role !== measurement.role || request.attemptId !== measurement.attemptId)
+      return yield* conflictBecause(
+        `That measurement is a ${measurement.role} task with attemptId ${measurement.attemptId}.`,
+      );
+    if (measurement.admission !== null) {
+      if (measurement.admission.clientRequestId !== input.clientRequestId)
+        return yield* conflictBecause(
+          `That measurement was already admitted as clientRequestId ${measurement.admission.clientRequestId}. Repeat that request, or start a new measurement.`,
+        );
+      return { measurement, replay: true as const, avoid: [] as ReadonlyArray<string> };
+    }
+    const doc = yield* read(measurement.id);
+    if (
+      doc.champion.lifecycle !== "active" ||
+      doc.champion.journeys !== undefined ||
+      request.readOnly !== true ||
+      request.sourceRevision !== measurement.sourceRevision ||
+      (request.projectId !== undefined && request.projectId !== doc.champion.projectId)
+    )
+      return yield* refused(
+        "A measurement is read-only, pinned to the source revision it was started with, and runs only for an active champion in its own project.",
+      );
+    yield* liveCheck(doc, measurement.checkId, input.ownerThreadId, input.runMessageIds);
+    if (measurement.role === "browser")
+      return { measurement, replay: false as const, avoid: [] as ReadonlyArray<string> };
+    yield* refreshMeasurement(measurement.browserMeasurementId ?? "").pipe(Effect.ignore);
+    const browser = yield* confirmedBrowser(
+      measurement.id,
+      measurement.checkId,
+      measurement.sourceRevision,
+      measurement.browserMeasurementId,
+    );
+    return { measurement, replay: false as const, avoid: sameSelection(browser) };
+  });
+  const admitMeasurement = Effect.fn("ChampionEvidence.admitMeasurement")(function* (
+    proof: Admission & { readonly runMessageIds: ReadonlyArray<string> },
+  ) {
+    const found = yield* measurementForRequest(proof.ownerThreadId, proof.binding);
+    if (found === undefined) return yield* refused();
+    const doc = yield* read(found.id);
+    yield* verifyReadOnlyProof(proof, doc);
+    if (proof.followup) return yield* refused("A measurement takes no follow-up.");
+    if (found.browserMeasurementId !== undefined)
+      yield* refreshMeasurement(found.browserMeasurementId).pipe(Effect.ignore);
+    return yield* atomic(
+      Effect.gen(function* () {
+        const measurement = yield* readMeasurement(found.measurementId);
+        const prior = measurement.admission;
+        if (prior !== null) {
+          if (
+            prior.clientRequestId !== proof.clientRequestId ||
+            prior.commandId !== proof.commandId ||
+            prior.taskId !== proof.taskId ||
+            prior.childThreadId !== proof.childThreadId ||
+            prior.messageId !== proof.messageId
+          )
+            return yield* conflictBecause(
+              "That measurement was already admitted by another request.",
+            );
+          return;
+        }
+        if (
+          yield* requestIdTaken(doc.champion.id, proof.clientRequestId, "champion_branch_attempts")
+        )
+          return yield* conflict();
+        const fresh = yield* read(measurement.id);
+        if (fresh.champion.lifecycle !== "active" || fresh.champion.journeys !== undefined)
+          return yield* refused();
+        yield* liveCheck(fresh, measurement.checkId, proof.ownerThreadId, proof.runMessageIds);
+        if (
+          proof.binding.role !== measurement.role ||
+          proof.binding.workId !== measurement.workId ||
+          proof.binding.attemptId !== measurement.attemptId ||
+          proof.binding.sourceRevision !== measurement.sourceRevision
+        )
+          return yield* refused(
+            "The task does not match the measurement it names: role, workId, attemptId and full source revision must all be the ones it was started with.",
+          );
+        if (measurement.role === "reviewer") {
+          const browser = yield* confirmedBrowser(
+            measurement.id,
+            measurement.checkId,
+            measurement.sourceRevision,
+            measurement.browserMeasurementId,
+          );
+          if (sameSelection(browser).includes(modelIdentity(proof.selection.model)))
+            return yield* new ChampionError({
+              reason: "unavailable",
+              detail:
+                "The reviewer's resolved model is the browser measurement's model, so it is not an independent confirmation.",
+            });
+        }
+        if (yield* capacityFull(measurement.id))
+          return yield* conflictBecause(
+            "This champion already has its read-only attempts running or its daily admissions used.",
+          );
+        const at = yield* now;
+        const admission: ChampionMeasurementAdmission = {
+          clientRequestId: proof.clientRequestId,
+          commandId: proof.commandId,
+          taskId: proof.taskId,
+          childThreadId: proof.childThreadId,
+          messageId: proof.messageId,
+          workspacePath: proof.workspacePath,
+          policyHash: proof.binding.policyHash,
+          policyRevision: proof.binding.policyRevision,
+          binding: { ...proof.binding, effective: proof.selection },
+          resolvedSelection: proof.selection,
+          actualSelection: null,
+          admittedAt: at,
+          result: null,
+        };
+        const admitted: ChampionMeasurement = { ...measurement, state: "admitted", admission };
+        yield* sql`UPDATE champion_measurements SET state = 'admitted', request_id = ${proof.clientRequestId}, admitted_at = ${at}, document_json = ${json(admitted)} WHERE id = ${measurement.measurementId} AND state = 'planned'`;
+      }),
+    );
+  });
   const reconcile = Effect.fn("ChampionEvidence.reconcile")(function* (id: string) {
     let changed = false;
     const attentionItems: string[] = [];
@@ -854,76 +1380,9 @@ export const make = Effect.gen(function* () {
       const investigation = yield* readInvestigation(row.id);
       let attention: string | null = null;
       for (const attempt of investigation.attempts) {
-        const records = yield* threads
-          .getThreadRecords(doc.champion.ownerThreadId, ["subagents"], {
-            subagentIds: [attempt.taskId],
-          })
-          .pipe(Effect.mapError(failure));
-        const task = records.subagents.find(
-          (task) =>
-            task.id === attempt.taskId &&
-            task.origin === "app_owned" &&
-            task.childThreadId === attempt.childThreadId,
-        );
-        const shell = yield* threads
-          .getThreadShell(attempt.childThreadId)
-          .pipe(Effect.mapError(failure));
-        const valid =
-          task !== undefined &&
-          shell !== null &&
-          shell.projectId === doc.champion.projectId &&
-          shell.agentTask?.workId === attempt.workId &&
-          shell.agentTask.attemptId === attempt.attemptId &&
-          shell.agentTask.role === attempt.role &&
-          shell.agentTask.workspacePath === attempt.workspacePath &&
-          shell.agentTask.sourceAccess === "read-only" &&
-          shell.agentTask.executionBoundary === "read-only";
-        let next = attempt;
-        if (valid && task && shell) {
-          const child = yield* threads
-            .getThreadRecords(attempt.childThreadId, ["runs"])
-            .pipe(Effect.mapError(failure));
-          const run = child.runs.find((run) => run.userMessageId === attempt.messageId);
-          const live =
-            shell.activeRunId !== null ||
-            child.runs.some(
-              (run) =>
-                (run.userMessageId === attempt.messageId ||
-                  run.delegatedTaskId === attempt.taskId) &&
-                !Threads.isTerminalRunStatus(run.status),
-            );
-          const status =
-            !live && ["completed", "failed", "cancelled", "interrupted"].includes(task.status)
-              ? task.status === "completed"
-                ? "completed"
-                : task.status === "cancelled"
-                  ? "cancelled"
-                  : "failed"
-              : "accepted";
-          next = {
-            ...attempt,
-            state: terminal(attempt.state) ? attempt.state : status,
-            actualSelection:
-              run !== undefined &&
-              (["running", "waiting", "completed"].includes(run.status) || run.startedAt != null)
-                ? run.modelSelection
-                : attempt.actualSelection,
-            result: task.result?.slice(0, 8000) ?? attempt.result,
-          };
-        } else if (!terminal(attempt.state)) {
-          const receipt = yield* threads.getReceipt(attempt.commandId).pipe(Effect.option);
-          next = {
-            ...attempt,
-            state:
-              Option.isSome(receipt) &&
-              Option.isSome(receipt.value) &&
-              receipt.value.value.status === "rejected"
-                ? "failed"
-                : "unknown",
-          };
-          if (next.state === "unknown")
-            attention = "Branch ownership or launch is unconfirmed; capacity remains held.";
-        }
+        const { next, valid } = yield* observe(doc, attempt);
+        if (!valid && next.state === "unknown")
+          attention = "Branch ownership or launch is unconfirmed; capacity remains held.";
         if (json(next) !== json(attempt)) {
           yield* atomic(saveAttempt(next));
           changed = true;
@@ -973,6 +1432,20 @@ export const make = Effect.gen(function* () {
         }),
       );
     }
+    const measurements = yield* sql<{
+      id: string;
+    }>`SELECT id FROM champion_measurements WHERE champion_id = ${id} AND state IN ('admitted','unknown','accepted') ORDER BY at DESC LIMIT 100`.pipe(
+      Effect.mapError(failure),
+    );
+    for (const row of measurements) {
+      const before = yield* readMeasurement(row.id);
+      const after = yield* refreshMeasurement(row.id);
+      if (json(before) !== json(after)) changed = true;
+      if (after.state === "unknown")
+        attentionItems.push(
+          "Measurement: ownership or launch is unconfirmed; capacity remains held.",
+        );
+    }
     return { changed, attention: [...new Set(attentionItems)] };
   });
   return {
@@ -984,6 +1457,9 @@ export const make = Effect.gen(function* () {
     learningQuery,
     guard,
     admit,
+    startMeasurement,
+    guardMeasurement,
+    admitMeasurement,
     outcome,
     hasLive,
     synthesis,

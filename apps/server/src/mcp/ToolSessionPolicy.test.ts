@@ -96,9 +96,10 @@ const session = (
 // These ceilings catch tools growing unnoticed. An editor lists every tool; providers load them lazily.
 // T3-613 adds saved-secret search and storage fields: 144,865 chars. T3-622 adds environmentId to
 // the Champion tools, the forwarded approval and cross-environment watches: 147,041.
+// T3-633 adds t3_champions_measurement (944 chars of description and schema): 148,014.
 const budgets: ReadonlyArray<[string, SessionToolProfile | undefined, number]> = [
-  ["editor", undefined, 148_000],
-  ["editor worker", session("implementation", "implementer"), 148_000],
+  ["editor", undefined, 149_000],
+  ["editor worker", session("implementation", "implementer"), 149_000],
   ["reader", session("source-reader", "reviewer"), 42_500],
   ["browser", session("phi", "browser"), 36_500],
   ["researcher", session("web-research", "researcher"), 19_500],
