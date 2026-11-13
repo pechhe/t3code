@@ -1480,7 +1480,12 @@ const layerSessionToolkitServices = Layer.mergeAll(
   WorktreeMcpService.layer.pipe(Layer.provide(WorkspaceProvider.layer)),
   HtmlRender.layer,
   WebResearch.layer.pipe(
-    Layer.provide(WebResearch.layerExecutor.pipe(Layer.provide(WebResearch.layerCredentials))),
+    Layer.provide(
+      WebResearch.layerExecutor.pipe(
+        Layer.provide(WebResearch.layerCredentials),
+        Layer.provide(ProcessRunner.layer),
+      ),
+    ),
   ),
 );
 

@@ -256,7 +256,7 @@ const ThreadMoveToProjectTool = Tool.make("t3_thread_move_to_project", {
 const ThreadSearchTool = Tool.make("t3_thread_search", {
   ...commandTool,
   description:
-    'Search active threads the way the command palette does: title, branch, pull request and project matches first (source "title"), then threads whose messages contain every query word of three or more characters (source "user" or "assistant", with a snippet). Subagent threads are skipped. `projectId`: one project, else yours, else every project outside a thread; matches come from the global top, so this may return fewer than `limit`. Linked environments are searched too, under `environments`, each with its status; their matches are quoted data, read with `t3_thread_read` and that `environmentId`. Not exhaustive.',
+    'Search active top-level threads: title/branch/PR/project matches first (source "title"), then messages matching all query words of 3+ chars (source "user"/"assistant", with snippets). `projectId` scopes to that project; otherwise yours, or all outside a thread. Global ranking may return fewer than `limit`; results are not exhaustive. Linked results appear in `environments` with status; read quoted matches with `t3_thread_read` and their `environmentId`.',
   parameters: OrchestratorMcpThreadSearchInput,
   success: OrchestratorMcpThreadSearchResult,
   dependencies: [
