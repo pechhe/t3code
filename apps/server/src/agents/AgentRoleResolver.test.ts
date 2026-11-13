@@ -1008,6 +1008,68 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       }),
   );
 
+  it.effect("requires a caller choice for multi-model roles regardless of list order or outages", () =>
+    Effect.gen(function* () {
+      const resolver = yield* Resolver.AgentRoleResolver;
+      const original = snapshot();
+      const build = (models: string[], providers: ReadonlyArray<ServerProvider> = [codex, claude]) =>
+        input({
+          requireExplicitSelection: true,
+          snapshot: {
+            ...original,
+            manifest: {
+              ...original.manifest,
+              lists: {
+                ...original.manifest.lists,
+                workhorse: models.map((model) => ({ model, effort: "medium" })),
+              },
+            },
+          },
+          providers,
+        });
+      const omitted = yield* resolver.preview(build(["sonnet", "sol"]));
+      const permuted = yield* resolver.preview(build(["sol", "sonnet"]));
+      expect(omitted.selection).toBeNull();
+      expect(omitted.refusal).toContain("choose a model");
+      expect(omitted.candidates.map(({ model }) => model).sort()).toEqual(
+        permuted.candidates.map(({ model }) => model).sort(),
+      );
+      const offline = yield* refusal(
+        build(["sonnet", "sol"], [{ ...codex, availability: "unavailable" }, claude]),
+      );
+      expect(offline.detail).toContain("choose a model");
+      expect(
+        (yield* resolver.resolve({ ...build(["sonnet", "sol"]), selection: { model: codexModel } }))
+          .model,
+      ).toBe(codexModel);
+    }),
+  );
+
+  it.effect("counts one configured model once across aliases and accounts", () =>
+    Effect.gen(function* () {
+      const original = snapshot();
+      const policy = {
+        ...original,
+        manifest: {
+          ...original.manifest,
+          models: { ...original.manifest.models, solCopy: original.manifest.models.sol! },
+          lists: {
+            ...original.manifest.lists,
+            workhorse: [
+              { model: "sol", effort: "medium" },
+              { model: "solCopy", effort: "medium" },
+            ],
+          },
+        },
+      };
+      const other = { ...codex, instanceId: ProviderInstanceId.make("codex-copy") };
+      const result = yield* resolve(
+        input({ snapshot: policy, providers: [codex, other], requireExplicitSelection: true }),
+      );
+      expect(result.model).toBe(codexModel);
+    }),
+  );
+
   it.effect("delegates to the member whose usage resets soonest", () =>
     Effect.gen(function* () {
       const usage = (usedPercent: number, resetsAt: string) => ({

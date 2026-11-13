@@ -89,6 +89,8 @@ type ResolutionInput = {
    */
   readonly caller?: ModelSelection;
   readonly selection?: RequestedModel;
+  /** Ordinary discovery and new launches require an explicit task-fit choice for multi-model roles. */
+  readonly requireExplicitSelection?: boolean;
   /**
    * A running trial's assigned model and effort for this task. It replaces the role's list, so a
    * trial can compare what Delegation does not choose today;
@@ -447,6 +449,12 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
       });
     }
   }
+  const choices = new Set(
+    list.map(({ model: alias }) => {
+      const binding = snapshot.manifest.models[alias]!;
+      return `${binding.driverKind}:${binding.model}`;
+    }),
+  );
   const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
   // Which account serves each model follows the pool rule a new pooled thread uses: a member its
   // pool switches off, or an account out of usage (at its pool's reserve), never serves while
@@ -580,7 +588,7 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
   }
   // The list order, unless the asking model has its own first choice.
   const callerFirst =
-    input.callerModel === undefined
+    input.requireExplicitSelection || input.callerModel === undefined
       ? undefined
       : Object.entries(snapshot.manifest.models)
           .filter(([, binding]) => binding.model === input.callerModel)
@@ -647,6 +655,15 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
       };
     });
   }
+  if (input.requireExplicitSelection && input.selection?.model === undefined && choices.size > 1) {
+    return yield* new AgentRoleError({
+      reason: "selection-denied",
+      candidates: finalDiagnostics(undefined).map((candidate) =>
+        candidate.reason === "lower-preference" ? { ...candidate, reason: "eligible" } : candidate,
+      ),
+      detail: `choose a model for ${request.role} based on this task; available models and their notes are listed by agent_roles`,
+    });
+  }
   const chosen = candidates[0];
   if (chosen === undefined)
     return yield* excluded.size > 0 && eligible.every((candidate) => excluded.has(candidate))
@@ -682,13 +699,22 @@ export const layer = Layer.succeed(AgentRoleResolver, {
   preview: Effect.fn("AgentRoleResolver.preview")((input) =>
     inspect(input).pipe(
       Effect.catchTags({
-        AgentRoleError: (error) =>
-          Effect.succeed({
+        AgentRoleError: (error) => {
+          const admission = managedExecution({
+            readOnly:
+              input.request.readOnly === true ||
+              input.snapshot.manifest.roles[input.request.role]?.sourceAccess === "read-only",
+            requested: input.request.executionRequirement,
+          });
+          return Effect.succeed({
             selection: null,
             refusal: error.detail === undefined ? error.reason : `${error.reason}: ${error.detail}`,
             candidates: error.candidates ?? [],
             ranked: [],
-          }),
+            executionRequirement: admission.executionRequirement,
+            executionBoundary: admission.executionBoundary,
+          });
+        },
       }),
     ),
   ),

@@ -3849,31 +3849,19 @@ it.effect(
         const classes = yield* decodeClasses({}).pipe(Effect.orDie);
         const preview = yield* service.classChoices({ projectId });
         assert.isNull(preview.refusal);
-        assert.equal(
-          preview.roles.find((role) => role.role === "advisor")!.selection!.model,
-          "gpt-astra-test",
-        );
+        assert.isNull(preview.roles.find((role) => role.role === "advisor")!.selection);
         const draft = yield* service.upsert({
           ...config,
           classes,
           setupModelSelection: { instanceId: codex.instanceId, model: "historical-model" },
         });
-        assert.deepEqual(
-          draft.champion.setupModelSelection,
-          preview.roles.find((role) => role.role === "advisor")!.selection,
-        );
-        assert.deepEqual(
-          draft.champion.routineModelSelection,
-          preview.roles.find((role) => role.role === "implementer")!.selection,
-        );
+        assert.equal(draft.champion.setupModelSelection.model, "gpt-astra-test");
+        assert.equal(draft.champion.routineModelSelection.model, codexModel);
         f.failNextLaunch();
         yield* service.setup({ id: config.id });
         const first = (yield* service.runtimeState({ id: config.id })).attempts[0]!;
         assert.equal(first.resolvedSelection.model, "gpt-astra-test");
-        assert.deepEqual(
-          first.resolvedSelection,
-          preview.roles.find((role) => role.role === "advisor")!.selection,
-        );
+        assert.deepEqual(first.resolvedSelection, draft.champion.setupModelSelection);
         assert.equal(first.policyHash, preview.policyHash);
         yield* refused(
           service.classChoices({
@@ -3883,7 +3871,10 @@ it.effect(
         );
         // The implementer takes UI work like any other.
         const ui = yield* service.classChoices({ projectId, taskClass: "ui" });
-        assert.isNull(ui.roles.find((role) => role.role === "implementer")!.refusal);
+        assert.include(
+          ui.roles.find((role) => role.role === "implementer")!.refusal,
+          "selection-denied",
+        );
         f.ownerMode("approval-required");
         const narrowed = yield* service.classChoices({
           projectId,
@@ -3978,9 +3969,14 @@ it.effect("starts a metrics lead thread on the lead role's current model and rec
     yield* Effect.gen(function* () {
       const service = yield* Champions.ChampionService;
       yield* service.upsert({ ...config, classes: yield* decodeClasses({}).pipe(Effect.orDie) });
-      const lead = (yield* service.classChoices({ projectId })).roles.find(
-        (role) => role.role === "lead",
-      )!.selection!;
+      const [lead] = yield* managed.ranked({
+        role: "lead",
+        projectId,
+        providers: [codex],
+        ceiling: "full-access",
+        request: { taskClass: "non-ui", runtimeMode: "full-access" },
+      });
+      assert.isDefined(lead);
       const { threadId } = yield* service.startMetricsLead({ id: config.id });
       assert.equal(f.counts().launches, 1);
       assert.equal(f.launchRequests[0]!.model, lead.model);
@@ -4022,7 +4018,6 @@ it.effect("starts a metrics lead thread on the lead role's current model and rec
         findings: [],
         summary: "Breached",
       })).findings[0]!;
-      const setupClass = (yield* service.get({ id: config.id })).champion.classes!.setup;
       const advice = {
         ownerThreadId: f.caller().threadId,
         clientRequestId: "advice",
@@ -4030,9 +4025,7 @@ it.effect("starts a metrics lead thread on the lead role's current model and rec
       };
       assert.deepEqual(
         yield* service.guardDelegation(advice),
-        (yield* service.classChoices({ projectId })).roles.find(
-          (role) => role.role === setupClass.role,
-        )!.selection!,
+        (yield* service.get({ id: config.id })).champion.setupModelSelection,
       );
       const launched = f.counts().launches;
 
@@ -4415,6 +4408,7 @@ const reviewedFinding = (
     const eligible = new Set(["cheap", "strong"]);
     const asked: Array<string> = [];
     const managed = {
+      ranked: () => Effect.succeed(eligible.has("cheap") ? [{ instanceId, model: "cheap" }] : []),
       roles: (input: {
         readonly request: { readonly role?: string };
         readonly selection?: { readonly model?: string };
@@ -6029,6 +6023,7 @@ describe("owner measurement on a live check", () => {
     eligible = new Set(["cheap", "strong"]),
   ) => {
     const managed = {
+      ranked: () => Effect.succeed(eligible.has("cheap") ? [{ instanceId, model: "cheap" }] : []),
       roles: (input: {
         readonly request: { readonly role?: string };
         readonly selection?: { readonly model?: string };
@@ -6350,6 +6345,7 @@ describe("owner measurement on a live check", () => {
 
   it.effect("charges measurements and investigation branches against one aggregate", () => {
     const managed = {
+      ranked: () => Effect.succeed([{ instanceId, model: "cheap" }]),
       roles: (input: { readonly request: { readonly role?: string } }) =>
         Effect.succeed({
           policyHash: "a".repeat(64),

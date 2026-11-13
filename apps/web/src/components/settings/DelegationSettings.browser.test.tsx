@@ -208,27 +208,25 @@ const buttons = (label: string) =>
 const button = (label: string) => buttons(label)[0]!;
 const click = (label: string) => userEvent.click(button(label));
 const text = () => container.textContent ?? "";
+const editModelNote = async (value = "Task fit") => {
+  const field = container.querySelector<HTMLTextAreaElement>(
+    'textarea[aria-label="What gpt-test is good at"]',
+  )!;
+  await userEvent.clear(field);
+  await userEvent.type(field, value);
+  await userEvent.keyboard("{Enter}");
+};
 
-it("saves a reordered list as soon as it changes, against the loaded revision", async () => {
+it("shows ordinary models as candidates without ordering controls", async () => {
   reset();
   await using _screen = await mount();
-  await click("Move claude-test up");
-  expect(state.save).toHaveBeenCalledWith({
-    environmentId: EnvironmentId.make("test-env"),
-    input: {
-      expectedHash: "a".repeat(64),
-      manifest: expect.objectContaining({
-        lists: expect.objectContaining({
-          workhorse: [
-            { model: "opus", effort: "high" },
-            { model: "sol", effort: "medium" },
-          ],
-        }),
-      }),
-    },
-  });
-  expect(state.data!.snapshot.manifest.lists["workhorse"]?.[0]?.model).toBe("sol");
-  expect(state.refresh).toHaveBeenCalledOnce();
+  expect(buttons("Move claude-test up")).toHaveLength(0);
+  expect(buttons("Move claude-test down")).toHaveLength(0);
+  expect(text()).not.toContain("→");
+  expect(container.querySelector('textarea[aria-label="What gpt-test is good at"]')).not.toBeNull();
+  expect(
+    container.querySelector('textarea[aria-label="What claude-test is good at"]'),
+  ).not.toBeNull();
 });
 
 it("saves a model note on Enter, and a later read keeps the editor mounted", async () => {
@@ -259,11 +257,7 @@ it("saves a model note on Enter, and a later read keeps the editor mounted", asy
   await act(async () => publishRead());
   expect(note()).toBe(field);
   expect(field.value).toBe("Careful coder");
-  await click("Move claude-test down");
-  expect(state.save.mock.calls.at(-1)![0].input).toMatchObject({
-    expectedHash: "e".repeat(64),
-    manifest: { lists: { workhorse: manifest.lists["workhorse"] } },
-  });
+  expect(state.save.mock.calls.at(-1)![0].input.expectedHash).toBe("a".repeat(64));
 });
 
 const withUiVerifier = () => {
@@ -313,7 +307,7 @@ it("lists no UI verifier, and the next save of a policy that still sets it remov
   await using _screen = await mount();
   expect(text()).not.toContain("UI verifier");
   expect(text()).not.toContain("Checks the running app");
-  await click("Move claude-test up");
+  await editModelNote();
   const saved = state.save.mock.calls[0]![0].input.manifest;
   expect(Object.keys(saved.roles)).not.toContain("ui-verifier");
   expect(Object.keys(saved.roles)).toContain("browser");
@@ -325,7 +319,7 @@ it("reports a stale save, reloads the current policy and does not retry", async 
     AsyncResult.failure(Cause.fail(new AgentPolicySettingsError({ reason: "stale" }))),
   );
   await using _screen = await mount();
-  await click("Move claude-test up");
+  await editModelNote();
   expect(text()).toContain("policy changed on disk");
   expect(state.refresh).toHaveBeenCalledOnce();
   expect(state.save).toHaveBeenCalledOnce();
@@ -350,15 +344,15 @@ it("queues an edit made while a save runs and saves it against the revision just
     .mockReturnValueOnce(new Promise((resolve) => (finish = resolve)))
     .mockResolvedValue(AsyncResult.success(written));
   await using _screen = await mount();
-  await click("Move claude-test up");
-  await click("Move claude-test down");
+  await editModelNote();
+  await editModelNote("restored note");
   expect(state.save).toHaveBeenCalledOnce();
   await act(async () => finish(AsyncResult.success(written)));
   expect(state.save.mock.calls.map(([call]) => call.input.expectedHash)).toEqual([
     "a".repeat(64),
     "d".repeat(64),
   ]);
-  expect(state.save.mock.calls[1]![0].input.manifest.lists.workhorse[0].model).toBe("sol");
+  expect(state.save.mock.calls[1]![0].input.manifest.models.sol.note).toBe("restored note");
   expect(state.refresh).toHaveBeenCalledOnce();
 });
 
@@ -396,7 +390,7 @@ it("saves one policy to every selected environment against each one's own revisi
   addEnvironment({ ...base, snapshot: { ...base.snapshot, hash: "c".repeat(64) } });
   await using _screen = await mount();
   expect(text().match(/Code and UI changes/g)).toHaveLength(1);
-  await click("Move claude-test up");
+  await editModelNote();
   expect(
     state.save.mock.calls.map(([call]) => [
       call.environmentId,
@@ -430,7 +424,7 @@ it("does not save secondary environments when the editor's catalog rejects a mod
     AsyncResult.failure(Cause.fail(new AgentPolicySettingsError({ reason: "unsupported-model" }))),
   );
   await using _screen = await mount();
-  await click("Move claude-test up");
+  await editModelNote();
   expect(state.save).toHaveBeenCalledOnce();
   expect(text()).toContain("Test Mac:");
 });
@@ -444,7 +438,7 @@ it("names the environment whose save failed", async () => {
       AsyncResult.failure(Cause.fail(new AgentPolicySettingsError({ reason: "stale" }))),
     );
   await using _screen = await mount();
-  await click("Move claude-test up");
+  await editModelNote();
   expect(text()).toContain("Other Box:");
 });
 
@@ -454,7 +448,7 @@ it("cannot save to all environments while one is disconnected", async () => {
   scope.environments[1]!.connection.phase = "disconnected";
   await using _screen = await mount();
   expect(text()).toContain("Other Box: Reconnect");
-  await click("Move claude-test up");
+  await editModelNote();
   expect(state.save).not.toHaveBeenCalled();
   expect(text()).toContain("Every selected environment needs a readable policy");
 });
@@ -465,7 +459,7 @@ it("cannot save to all environments while one has no readable policy", async () 
   state.unreadable.add("other-env");
   await using _screen = await mount();
   expect(text()).toContain("Other Box: Could not read");
-  await click("Move claude-test up");
+  await editModelNote();
   expect(state.save).not.toHaveBeenCalled();
   expect(text()).toContain("Every selected environment needs a readable policy");
 });
@@ -513,27 +507,17 @@ it("shows the Reviewer with a change list and a Spec list, each editable", async
   expect(text()).not.toContain("Different model for large tasks");
 });
 
-it("saves a Spec list edit without touching the change list", async () => {
+it("shows Spec review candidates without preference ordering", async () => {
   reset();
-  const manifest = separateReviewerLists();
+  separateReviewerLists();
   await using _screen = await mount();
-  // Shared job, then the Reviewer's change list and Spec list.
-  await userEvent.click(buttons("Move gpt-test down")[2]!);
-  expect(state.save).toHaveBeenCalledWith(
-    expect.objectContaining({
-      input: expect.objectContaining({
-        manifest: expect.objectContaining({
-          lists: expect.objectContaining({
-            "reviewer-spec": [
-              { model: "opus", effort: "low" },
-              { model: "sol", effort: "low" },
-            ],
-            workhorse: manifest.lists["workhorse"],
-          }),
-        }),
-      }),
-    }),
-  );
+  expect(buttons("Move gpt-test up")).toHaveLength(0);
+  expect(buttons("Move gpt-test down")).toHaveLength(0);
+  expect(state.save).not.toHaveBeenCalled();
+  expect(state.data?.snapshot.manifest.lists["reviewer-spec"]?.map(({ model }) => model)).toEqual([
+    "sol",
+    "opus",
+  ]);
 });
 
 it("does not warn when a first choice is unavailable", async () => {
@@ -558,6 +542,7 @@ it("shows the council Off for a policy without it, and turning it On saves counc
   expect(text()).toMatch(/makers? can sit now/);
   expect(text()).toContain("OpenAI");
   expect(text()).toContain("Anthropic");
+  expect(container.querySelectorAll('button[aria-label^="Move "]').length).toBeGreaterThan(0);
   expect(state.save).toHaveBeenCalledWith(
     expect.objectContaining({
       input: expect.objectContaining({
@@ -613,7 +598,7 @@ it("says a save was not pushed when agent-config could not publish it", async ()
     AsyncResult.success({ ...state.data!, publish: { pushed: false, detail: "not on main" } }),
   );
   await using _screen = await mount();
-  await click("Move claude-test up");
+  await editModelNote();
   await vi.waitFor(() =>
     expect(text()).toContain("Saved, but not pushed to agent-config: not on main."),
   );
@@ -621,6 +606,6 @@ it("says a save was not pushed when agent-config could not publish it", async ()
   state.save.mockResolvedValue(
     AsyncResult.success({ ...state.data!, publish: { pushed: true, detail: null } }),
   );
-  await click("Move claude-test down");
+  await editModelNote("restored note");
   await vi.waitFor(() => expect(text()).not.toContain("not pushed to agent-config"));
 });

@@ -776,6 +776,41 @@ const make = Effect.gen(function* () {
     );
     return { ...result, roles };
   });
+  const resolveRankedClass = Effect.fn("ChampionService.resolveRankedClass")(function* (
+    projectId: ChampionConfig["projectId"],
+    taskClass: NonNullable<ChampionClassChoicesInput["taskClass"]>,
+    role: AgentTaskRequest["role"],
+    threadId?: ThreadId | null,
+  ) {
+    if (Option.isNone(managedAgents)) return yield* new ChampionError({ reason: "unavailable" });
+    const enabled = yield* Effect.filter(yield* providers.getProviders, (provider) =>
+      threads.isProviderInstanceEnabledForProject({ projectId, instanceId: provider.instanceId }),
+    );
+    const owner =
+      threadId == null
+        ? null
+        : yield* threads.getThreadShell(threadId).pipe(Effect.mapError(failure));
+    const ceiling = owner?.runtimeMode ?? "full-access";
+    const request = { taskClass, runtimeMode: ceiling };
+    const [selection] = yield* managedAgents.value
+      .ranked({ projectId, providers: enabled, ceiling, request, role })
+      .pipe(Effect.mapError(failure));
+    if (selection === undefined)
+      return { selection: null, refusal: "No eligible model is available." };
+    const result = yield* managedAgents.value
+      .roles({ projectId, providers: enabled, ceiling, request, selection })
+      .pipe(Effect.mapError(failure));
+    const selected = result.roles.find((entry) => entry.role === role);
+    if (selected?.selection == null || selected.refusal !== null)
+      return { selection: null, refusal: selected?.refusal ?? "No eligible model is available." };
+    yield* validateModel(selected.selection);
+    return {
+      selection: selected.selection,
+      refusal: null,
+      policyHash: result.policyHash,
+      policyRevision: result.policyRevision,
+    };
+  });
   const classChoices: ChampionService["Service"]["classChoices"] = Effect.fn(
     "ChampionService.classChoices",
   )(function* (input) {
@@ -817,19 +852,26 @@ const make = Effect.gen(function* () {
       // Migrated class configuration may retain historical selections that no longer exist.
       const priorConfig = yield* read(input.id).pipe(Effect.option);
       if (Option.isNone(priorConfig) && input.classes !== undefined) {
-        const setup = yield* resolveClasses(input.projectId, input.classes.setup.taskClass);
-        const routine =
-          input.classes.routine.taskClass === input.classes.setup.taskClass
-            ? setup
-            : yield* resolveClasses(input.projectId, input.classes.routine.taskClass);
-        const setupSelection = setup.roles.find((role) => role.role === input.classes!.setup.role);
-        const routineSelection = routine.roles.find(
-          (role) => role.role === input.classes!.routine.role,
+        const setup = yield* resolveRankedClass(
+          input.projectId,
+          input.classes.setup.taskClass,
+          input.classes.setup.role,
         );
+        const routine =
+          input.classes.routine.taskClass === input.classes.setup.taskClass &&
+          input.classes.routine.role === input.classes.setup.role
+            ? setup
+            : yield* resolveRankedClass(
+                input.projectId,
+                input.classes.routine.taskClass,
+                input.classes.routine.role,
+              );
+        const setupSelection = setup;
+        const routineSelection = routine;
         if (
-          setupSelection?.selection == null ||
+          setupSelection.selection == null ||
           setupSelection.refusal !== null ||
-          routineSelection?.selection == null ||
+          routineSelection.selection == null ||
           routineSelection.refusal !== null
         )
           return yield* new ChampionError({ reason: "unavailable" });
@@ -1022,17 +1064,17 @@ const make = Effect.gen(function* () {
     let policyHash: string | null = null;
     let policyRevision: string | null = null;
     if (selectionClass !== null) {
-      const result = yield* resolveClasses(
+      const selected = yield* resolveRankedClass(
         doc.champion.projectId,
         selectionClass.taskClass,
+        selectionClass.role,
         check.threadId,
       );
-      const selected = result.roles.find((role) => role.role === selectionClass.role);
-      if (selected?.selection == null || selected.refusal !== null)
+      if (selected.selection == null || selected.refusal !== null)
         return yield* new ChampionError({ reason: "unavailable" });
       resolvedSelection = selected.selection;
-      policyHash = result.policyHash;
-      policyRevision = result.policyRevision;
+      policyHash = selected.policyHash ?? null;
+      policyRevision = selected.policyRevision ?? null;
     }
     if (selectionClass !== null) yield* validateModel(resolvedSelection);
     const attempt: ChampionExecutionAttempt = {
@@ -2307,9 +2349,8 @@ const make = Effect.gen(function* () {
         reason: "conflict",
         detail: "This champion is retired. Restore it before starting a lead on its metrics.",
       });
-    const result = yield* resolveClasses(doc.champion.projectId, "non-ui");
-    const lead = result.roles.find((role) => role.role === "lead");
-    if (lead?.selection == null || lead.refusal !== null)
+    const lead = yield* resolveRankedClass(doc.champion.projectId, "non-ui", "lead");
+    if (lead.selection == null || lead.refusal !== null)
       return yield* new ChampionError({
         reason: "unavailable",
         detail: "No model is available for the lead role, so nothing was started.",
@@ -3011,7 +3052,16 @@ const make = Effect.gen(function* () {
           Effect.mapError(failure),
           Effect.map((result) => result.roles.find((entry) => entry.role === request.role)),
         );
-    const first = yield* resolve();
+    const [automatic] = yield* roles
+      .ranked({
+        role: request.role,
+        projectId: doc.champion.projectId,
+        providers: enabled,
+        ceiling: "full-access",
+        request,
+      })
+      .pipe(Effect.mapError(failure));
+    const first = yield* resolve(automatic);
     if (
       first?.selection != null &&
       first.refusal === null &&
@@ -3506,18 +3556,17 @@ const make = Effect.gen(function* () {
           instanceId: provider.instanceId,
         }),
       );
-      const result = yield* managedAgents.value
-        .roles({
+      const [selected] = yield* managedAgents.value
+        .ranked({
+          role: request.role,
           projectId: doc.champion.projectId,
           providers: enabled,
           ceiling: "full-access",
           request,
         })
         .pipe(Effect.mapError(failure));
-      const selected = result.roles.find((entry) => entry.role === request.role);
-      if (selected?.selection == null || selected.refusal !== null)
-        return yield* new ChampionError({ reason: "unavailable" });
-      return selected.selection;
+      if (selected === undefined) return yield* new ChampionError({ reason: "unavailable" });
+      return selected;
     }
     const outcome = yield* mutate(
       Effect.gen(function* () {
@@ -3596,20 +3645,20 @@ const make = Effect.gen(function* () {
                     unavailable: "the champion's setup model is not available on this machine",
                   })),
                 )
-              : yield* resolveClasses(
+              : yield* resolveRankedClass(
                   doc.champion.projectId,
                   classes.setup.taskClass,
+                  classes.setup.role,
                   ownerThreadId,
                 ).pipe(
                   Effect.map((result) => {
-                    const setup = result.roles.find((role) => role.role === classes.setup.role);
-                    return setup?.selection == null || setup.refusal !== null
+                    return result.selection == null || result.refusal !== null
                       ? {
                           unavailable:
-                            setup?.refusal ??
+                            result.refusal ??
                             `no model is eligible for the ${classes.setup.role} role`,
                         }
-                      : { selection: setup.selection };
+                      : { selection: result.selection };
                   }),
                   Effect.orElseSucceed(() => ({ unavailable: "the role policy is unavailable" })),
                 );

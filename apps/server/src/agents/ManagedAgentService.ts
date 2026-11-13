@@ -199,6 +199,7 @@ export class ManagedAgentService extends Context.Service<
         readonly callerModel?: string;
         readonly caller?: ModelSelection;
         readonly selection?: Resolver.RequestedModel;
+        readonly requireExplicitSelection?: boolean;
       },
     ) => Effect.Effect<{ binding: AgentTaskBinding; brief: string }, ManagedAgentError>;
     readonly validate: (
@@ -638,6 +639,7 @@ const make = Effect.gen(function* () {
     role: AgentTaskRequest["role"],
     policy: ReturnType<typeof configuredRoles>[number]["policy"],
     brief: ReturnType<typeof configuredRoles>[number]["brief"],
+    requireExplicitSelection = true,
   ) {
     const context = yield* execution(
       {
@@ -670,6 +672,7 @@ const make = Effect.gen(function* () {
       ...(browser === undefined ? {} : { browser }),
       providers: input.providers,
       ...(input.selection === undefined ? {} : { selection: input.selection }),
+      requireExplicitSelection,
       ...(input.callerModel === undefined ? {} : { callerModel: input.callerModel }),
       ...(input.caller === undefined ? {} : { caller: input.caller }),
       request: {
@@ -855,7 +858,7 @@ const make = Effect.gen(function* () {
       const configured = configuredRoles(snapshot).find(({ role }) => role === input.role);
       if (configured === undefined) return [];
       const { policy, brief } = configured;
-      return (yield* discover(input, snapshot, input.role, policy, brief)).ranked;
+      return (yield* discover(input, snapshot, input.role, policy, brief, false)).ranked;
     }),
     otherModels: Effect.fn("ManagedAgentService.otherModels")(
       function* (input) {
@@ -962,6 +965,8 @@ const make = Effect.gen(function* () {
           ...(input.recordedBinding === undefined
             ? {}
             : { selection: input.recordedBinding.requested }),
+          requireExplicitSelection:
+            input.requireExplicitSelection === true && input.recordedBinding === undefined,
         })
         .pipe(Effect.mapError((cause) => new ManagedAgentError({ reason: "selection", cause })));
       yield* store

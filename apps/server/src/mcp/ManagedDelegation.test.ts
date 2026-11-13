@@ -227,6 +227,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           const input = {
             task: "Review a pinned mixed change",
             clientRequestId: "one-attempt",
+            target: { model: codexModel },
             agentTask: request({
               role: "reviewer",
               taskClass: "mixed",
@@ -958,7 +959,8 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         const h = yield* harness();
         const reviewer = (result: Effect.Success<ReturnType<typeof h.roles>>) =>
           result.roles.find((entry) => entry.role === "reviewer")!;
-        expect(reviewer(yield* h.roles()).selection?.model).toBe(claudeModel);
+        expect(reviewer(yield* h.roles()).selection).toBeNull();
+        expect(reviewer(yield* h.roles()).refusal).toContain("choose a model");
         const explicit = reviewer(yield* h.roles(codexModel));
         expect(explicit.refusal).toBeNull();
         expect(explicit.selection?.model).toBe(codexModel);
@@ -1043,6 +1045,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
             task: "Read package metadata",
             clientRequestId: "root-reader",
             agentTask: request({ workspacePath: h.lead, readOnly: true }),
+            target: { model: codexModel },
           })).code,
         ).toBe("orchestration_error");
         expect(h.dispatched).toHaveLength(1);
@@ -1072,6 +1075,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         task: "Read package metadata",
         clientRequestId: "shadow-reader",
         agentTask: request({ workspacePath: h.lead, readOnly: true }),
+        target: { model: codexModel },
       });
       const command = h.dispatched[0] as { modelSelection: ModelSelection };
       expect(observed).toHaveLength(1);
@@ -1109,6 +1113,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         task: "Read package metadata",
         clientRequestId: "shadow-refused",
         agentTask: request({ workspacePath: h.lead, readOnly: true }),
+        target: { model: codexModel },
       });
       expect(h.dispatched).toHaveLength(1);
       expect(observed).toHaveLength(0);
@@ -1135,6 +1140,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
               task: "Read package metadata",
               clientRequestId,
               agentTask: request({ workspacePath: h.lead, readOnly: true }),
+              target: { model: codexModel },
             });
             // A workspace path feeds the request fingerprint, so only that hash differs between runs.
             return JSON.stringify([result.code, h.dispatched])
@@ -1366,6 +1372,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         task: "Review the change",
         clientRequestId: "change",
         agentTask: { ...review, review: changeReview },
+        target: { model: claudeModel },
       });
       expect(change.code).toBe("orchestration_error");
       expect(h.dispatched).toHaveLength(4);
@@ -1374,6 +1381,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         task: "Review the Spec",
         clientRequestId: "alone",
         agentTask: { ...review, review: { ...review.review!, council: false } },
+        target: { model: claudeModel },
       });
       expect(alone.code).toBe("orchestration_error");
       expect(h.dispatched).toHaveLength(5);
@@ -1463,6 +1471,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         const sat = yield* h.sit({
           task: "Review the Spec",
           clientRequestId: "round-solo",
+          target: { model: claudeModel },
           agentTask: councilReview(h.lead, { council: false }),
         });
         expect(sat.council?.formed).toBe(false);
@@ -1536,6 +1545,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         const change = yield* h.sit({
           task: "Review the change",
           clientRequestId: "round-change",
+          target: { model: claudeModel },
           agentTask: councilReview(h.lead, changeReview),
         });
         expect(change.council).toBeUndefined();
@@ -1585,21 +1595,40 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
             specRevision: "3",
           },
         });
-        const discovered = (yield* h.roles()).roles.find((entry) => entry.role === "reviewer")!;
+        const discovered = (yield* h.roles(claudeModel)).roles.find(
+          (entry) => entry.role === "reviewer",
+        )!;
         const own = {
           instanceId: claude.instanceId,
           model: claudeModel,
           options: [{ id: "effort", value: "medium" }],
         };
         expect(discovered.selection).toEqual(own);
+        for (const [index, target] of [
+          undefined,
+          { providerInstanceId: claude.instanceId },
+          { options: [{ id: "effort", value: "medium" }] },
+        ].entries()) {
+          const omitted = yield* h.delegate({
+            task: "Review the Spec",
+            clientRequestId: `own-omitted-${index}`,
+            agentTask: review,
+            ...(target === undefined ? {} : { target }),
+          });
+          expect(omitted.code).toBe("capability_denied");
+          expect(omitted.message).toContain("choose a model");
+          expect(h.dispatched).toHaveLength(0);
+        }
         const attempts = [
-          { label: "omitted target" },
           {
             label: "role options",
             target: { model: claudeModel, options: [{ id: "effort", value: "medium" }] },
           },
           { label: "empty options", target: { model: claudeModel, options: [] } },
-          { label: "options only", target: { options: [{ id: "effort", value: "medium" }] } },
+          {
+            label: "options accompany model",
+            target: { model: claudeModel, options: [{ id: "effort", value: "medium" }] },
+          },
         ];
         for (const [index, attempt] of attempts.entries()) {
           const result = yield* h.delegate({
@@ -1622,7 +1651,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           agentTask: review,
           target: { providerInstanceId: alternate.instanceId, model: claudeModel },
         });
-        expect(h.dispatched[4]).toMatchObject({
+        expect(h.dispatched[3]).toMatchObject({
           modelSelection: { ...own, instanceId: alternate.instanceId },
         });
         // A genuinely unsupported option is refused by name and value, with the correction.
@@ -1640,9 +1669,9 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           expect(refused.message).toContain(`option ${stated}`);
           expect(refused.message).toContain("which is effort=medium");
         }
-        expect(h.dispatched).toHaveLength(5);
+        expect(h.dispatched).toHaveLength(4);
         // Naming only an account: discovery and dispatch read it the same way.
-        const named = (yield* h.roles(undefined, alternate.instanceId)).roles.find(
+        const named = (yield* h.roles(claudeModel, alternate.instanceId)).roles.find(
           (entry) => entry.role === "reviewer",
         )!;
         expect(named.selection).toEqual({ ...own, instanceId: alternate.instanceId });
@@ -1650,9 +1679,9 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           task: "Review the Spec",
           clientRequestId: "account-only",
           agentTask: review,
-          target: { providerInstanceId: alternate.instanceId },
+          target: { providerInstanceId: alternate.instanceId, model: claudeModel },
         });
-        expect(h.dispatched[5]).toMatchObject({ modelSelection: named.selection });
+        expect(h.dispatched[4]).toMatchObject({ modelSelection: named.selection });
         // Echoing the lead's own fastMode=false is inherited, not chosen: it is dropped and the
         // role starts with exactly its own options.
         yield* h.delegate({
@@ -1661,7 +1690,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           agentTask: review,
           target: { model: claudeModel, options: [{ id: "fastMode", value: false }] },
         });
-        expect(h.dispatched[6]).toMatchObject({
+        expect(h.dispatched[5]).toMatchObject({
           modelSelection: own,
           agentTask: { requested: own, effective: own },
         });
@@ -1743,6 +1772,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         const leadFailure = yield* h.delegate({
           task: "Run shaped Spec 9",
           clientRequestId: "champion-spec",
+          target: { model: codexModel },
           forgeItem: 9,
           agentTask: request({
             role: "lead",
@@ -1767,6 +1797,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         h.delegate({
           task: "Run T3-9",
           clientRequestId: `again-${workId}`,
+          target: { model: codexModel },
           forgeItem: 9,
           agentTask: request({
             role: "lead",
@@ -1788,6 +1819,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       const specLead = (extra: { readonly forgeItem?: number } = {}) => ({
         task: "Run T3-9",
         clientRequestId: `spec-lead-${extra.forgeItem ?? "none"}`,
+        target: { model: codexModel },
         agentTask: request({
           role: "lead",
           taskClass: "mixed",
@@ -1825,6 +1857,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       yield* child.delegate({
         task: "Implement the importer",
         clientRequestId: "lead-worker",
+        target: { model: codexModel },
         agentTask: request({ workspacePath: child.lead }),
       });
       expect(child.dispatched).toHaveLength(1);
@@ -1834,6 +1867,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       const leafAttempt = yield* leaf.delegate({
         task: "Implement the importer",
         clientRequestId: "leaf-worker",
+        target: { model: codexModel },
         agentTask: request({ workspacePath: leaf.lead }),
       });
       expect(leafAttempt.code).not.toBe("capability_denied");
@@ -1924,6 +1958,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         task: "Implement the importer",
         clientRequestId: `isolated-${workId}`,
         agentTask: request({ workspacePath: path, workspaceAssignment: "isolated", workId }),
+        target: { model: codexModel },
       });
       const h = yield* harness();
       yield* h.delegate(isolatedTask(h.helper));
@@ -2000,6 +2035,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         task: "Implement the exporter",
         clientRequestId: "lead-exporter",
         agentTask: request({ workspacePath: free.lead, workId: "exporter" }),
+        target: { model: codexModel },
       });
       expect([...read.locked, ...free.locked]).toEqual([true, true, false]);
     }).pipe(
@@ -2015,6 +2051,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           task: "Implement the importer",
           clientRequestId: "demanding-retry",
           agentTask: request({ workspacePath: h.lead }),
+          target: { model: codexModel },
         };
         yield* h.delegate(delegated);
         const first = h.dispatched[0] as { commandId: CommandId; agentTask: AgentTaskBinding };
@@ -2060,6 +2097,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
             readOnly: true,
             sourceRevision: "source-pin",
           }),
+          target: { model: "claude-fable-test" },
         });
         yield* h.delegate(scout(h.foreign));
         expect(commands[0]?.agentTask).toMatchObject({
@@ -2075,6 +2113,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
             workspacePath: h.foreignHelper,
             workspaceAssignment: "isolated",
           }),
+          target: { model: codexModel },
         });
         expect(commands[1]?.agentTask).toMatchObject({
           workspacePath: h.foreignHelper,
@@ -2089,6 +2128,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           task: "Write in the foreign checkout",
           clientRequestId: "foreign-sharing",
           agentTask: request({ workId: "sharing", workspacePath: h.foreign }),
+          target: { model: codexModel },
         });
         expect(sharing.code).toBe("capability_denied");
         expect(sharing.message).toContain("no workspace of its own in that project");
@@ -2101,6 +2141,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
               workspacePath: h.foreign,
               workspaceAssignment: "isolated",
             }),
+            target: { model: codexModel },
           })).code,
         ).toBe("capability_denied");
         // Naming a project that is not registered is refused.
@@ -2136,6 +2177,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         yield* h.delegate({
           task: "Run YS-9",
           clientRequestId: "foreign-spec-lead",
+          target: { model: codexModel },
           forgeItem: 9,
           // The caller holds no checkout there, so it names a path in that project; the launch
           // replaces it with the item's own workspace.
@@ -2217,6 +2259,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       yield* h.delegate({
         task: "Run T3-9",
         clientRequestId: "spec-lead-own-project",
+        target: { model: codexModel },
         forgeItem: 9,
         agentTask: request({
           role: "lead",
@@ -2251,6 +2294,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       const scout = (projectId?: string) => ({
         task: "Map the foreign code",
         clientRequestId: `twin-${projectId ?? "inferred"}`,
+        target: { model: "claude-fable-test" },
         agentTask: request({
           role: "advisor",
           attemptId: projectId ?? "inferred",
@@ -2280,6 +2324,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       yield* h.delegate({
         task: "Challenge the Spec",
         clientRequestId: "scratch-advisor",
+        target: { model: "claude-fable-test" },
         agentTask: request({
           role: "advisor",
           workspacePath: h.foreign,
@@ -2292,6 +2337,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       yield* h.delegate({
         task: "Advise on the approach",
         clientRequestId: "scratch-folder-advisor",
+        target: { model: "claude-fable-test" },
         agentTask: request({
           role: "advisor",
           workId: "folder-advice",
@@ -2389,6 +2435,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       yield* h.delegate({
         task: "Write in the attached workspace",
         clientRequestId: "attached-sharing",
+        target: { model: codexModel },
         agentTask: request({ workId: "attached-work", workspacePath: h.foreignHelper }),
       });
       expect(commands[0]?.agentTask).toMatchObject({
@@ -2668,8 +2715,8 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         expect(
           (yield* service.runtimeState({ id: "managed-champion" })).investigations[0]!.attempts,
         ).toHaveLength(0);
-        yield* h.delegate(input);
-        expect(h.dispatched).toHaveLength(1);
+        const admitted = yield* h.delegate(input);
+        expect(h.dispatched, admitted.message).toHaveLength(1);
         expect(h.locked).toEqual([true]);
         const first = (yield* service.runtimeState({ id: "managed-champion" })).investigations[0]!
           .attempts[0]!;

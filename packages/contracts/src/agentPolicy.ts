@@ -212,9 +212,9 @@ export const AgentListEntry = Schema.Struct({
 });
 export type AgentListEntry = typeof AgentListEntry.Type;
 const RolePolicy = Schema.Struct({
-  /** The ordered model list this role uses; roles naming the same list share it. */
+  /** The model pool this role uses; roles naming the same list share it. */
   list: Alias,
-  /** Reviewer only: the ordered list for Spec-scope reviews. */
+  /** Reviewer only: the Spec-review pool; council seating uses its stored order. */
   specList: Schema.optional(Alias),
   brief: BriefPath,
   sourceAccess: SourceAccess,
@@ -280,7 +280,7 @@ const manifestFields = {
   version: Schema.Literal(2),
   revision: TrimmedNonEmptyString,
   models: Schema.Record(Alias, ModelBinding),
-  /** Each list orders the models a role may use; the first available one is the default. */
+  /** Eligible model pools; ordinary multi-model delegation requires a caller choice. */
   lists: Schema.Record(Alias, Schema.Array(AgentListEntry).check(Schema.isMinLength(1))),
 };
 const Manifest = Schema.Struct({ ...manifestFields, roles: rolesRecord(StoredRolePolicy) });
@@ -924,7 +924,7 @@ export const AgentRolesResult = Schema.Struct({
       browserTasks: Schema.optional(Schema.Boolean),
       selection: Schema.NullOr(ModelSelection),
       refusal: Schema.NullOr(TrimmedNonEmptyString),
-      /** Every model on the role's list, in list order; name one as `target.model` to use it. */
+      /** Eligible candidates, not preference order; choose one with `target.model`. */
       models: Schema.Array(
         Schema.Struct({
           model: Schema.String,

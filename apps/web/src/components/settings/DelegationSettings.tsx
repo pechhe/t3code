@@ -33,17 +33,15 @@ import {
   councilSeating,
   effortForModel,
   ensureModel,
-  listModel,
   makerName,
-  modelLabel,
   moveEntry,
+  modelLabel,
   readOnlyUnenforcedProviders,
   removeEntry,
   replaceEntry,
   ROLE_DESCRIPTIONS,
   editableManifest,
   roleGroups,
-  setCaller,
   setCouncil,
   setEntryEffort,
   setModelNote,
@@ -55,7 +53,6 @@ import {
   setPreferOtherAuthorProvider,
   roleClassLabel,
   rolePolicy,
-  type RolePolicy,
   unavailableReason,
   type CatalogModel,
   type Job,
@@ -444,7 +441,7 @@ function RoleBriefChip({
   );
 }
 
-/** One ordered fallback list: its models, how to edit them and a way to add another. */
+/** A role's model candidates, how to edit them and a way to add another. */
 function ListEditor({
   environmentId,
   list,
@@ -453,6 +450,7 @@ function ListEditor({
   catalog,
   onChange,
   makers,
+  ordered = false,
   children,
 }: {
   environmentId: EnvironmentId;
@@ -463,10 +461,14 @@ function ListEditor({
   onChange: (manifest: Manifest) => void;
   /** Council members are labelled with their model's maker. */
   makers?: boolean;
+  /** Council seating is the only list whose stored order remains intentional. */
+  ordered?: boolean;
   children?: ReactNode;
 }) {
-  const entries = manifest.lists[list] ?? [];
   const label = (alias: string) => modelLabel(manifest.models[alias], alias, providers);
+  const entries = [...(manifest.lists[list] ?? [])].sort((a, b) =>
+    ordered ? 0 : label(a.model).localeCompare(label(b.model)),
+  );
   const listed = (model: CatalogModel) =>
     entries.some((entry) => {
       const binding = manifest.models[entry.model];
@@ -494,9 +496,11 @@ function ListEditor({
           const reason = unavailableReason(binding, providers);
           return (
             <li key={entry.model} className="flex min-w-0 items-center gap-1.5 px-2 py-1">
-              <span className="w-4 shrink-0 text-right text-xs text-muted-foreground tabular-nums">
-                {index + 1}
-              </span>
+              {ordered ? (
+                <span className="w-4 shrink-0 text-right text-xs text-muted-foreground tabular-nums">
+                  {index + 1}
+                </span>
+              ) : null}
               <PolicyModelPicker
                 environmentId={environmentId}
                 catalog={catalog}
@@ -545,24 +549,28 @@ function ListEditor({
                 <Badge variant="outline">{makerName(modelMaker(binding))}</Badge>
               ) : null}
               <span className="min-w-0 flex-1 truncate text-xs text-warning">{reason}</span>
-              <Button
-                size="icon-xs"
-                variant="ghost-muted"
-                aria-label={`Move ${label(entry.model)} up`}
-                disabled={index === 0}
-                onClick={() => onChange(moveEntry(manifest, list, index, -1))}
-              >
-                <ArrowUpIcon />
-              </Button>
-              <Button
-                size="icon-xs"
-                variant="ghost-muted"
-                aria-label={`Move ${label(entry.model)} down`}
-                disabled={index === entries.length - 1}
-                onClick={() => onChange(moveEntry(manifest, list, index, 1))}
-              >
-                <ArrowDownIcon />
-              </Button>
+              {ordered ? (
+                <Button
+                  size="icon-xs"
+                  variant="ghost-muted"
+                  aria-label={`Move ${label(entry.model)} up`}
+                  disabled={index === 0}
+                  onClick={() => onChange(moveEntry(manifest, list, index, -1))}
+                >
+                  <ArrowUpIcon />
+                </Button>
+              ) : null}
+              {ordered ? (
+                <Button
+                  size="icon-xs"
+                  variant="ghost-muted"
+                  aria-label={`Move ${label(entry.model)} down`}
+                  disabled={index === entries.length - 1}
+                  onClick={() => onChange(moveEntry(manifest, list, index, 1))}
+                >
+                  <ArrowDownIcon />
+                </Button>
+              ) : null}
               <Button
                 size="icon-xs"
                 variant="ghost-muted"
@@ -615,12 +623,7 @@ function JobRow({
   onChange: (manifest: Manifest) => void;
 }) {
   const primary = job.sections[0]!;
-  const primaryEntries = manifest.lists[primary.list] ?? [];
-  const single = job.roles.length === 1 ? job.roles[0] : undefined;
   const sectioned = job.sections.length > 1;
-  const exceptions = job.roles.flatMap((role) =>
-    Object.keys(rolePolicy(manifest, role).callers ?? {}).map((caller) => ({ role, caller })),
-  );
   const chip = (alias: string) => {
     const binding = manifest.models[alias];
     return binding ? (
@@ -634,10 +637,15 @@ function JobRow({
       <Badge variant="outline">{alias}</Badge>
     );
   };
+  const labelFor = (alias: string) => modelLabel(manifest.models[alias], alias, providers);
   const council = job.roles.includes("reviewer") && councilOn(manifest);
   const councilSection = job.sections.at(-1)!;
   const chips = (section: JobSection) => {
-    const entries = manifest.lists[section.list] ?? [];
+    const configured = manifest.lists[section.list] ?? [];
+    const ordered = council && section === councilSection;
+    const entries = ordered
+      ? configured
+      : [...configured].sort((a, b) => labelFor(a.model).localeCompare(labelFor(b.model)));
     const reasons = entries.map((entry) =>
       unavailableReason(manifest.models[entry.model], providers),
     );
@@ -649,11 +657,11 @@ function JobRow({
             key={entry.model}
             className={cn(
               "flex min-w-0 items-center gap-1",
-              index !== firstAvailable && "opacity-60",
+              ordered && index !== firstAvailable && "opacity-60",
               reasons[index] !== null && "line-through",
             )}
           >
-            {index > 0 ? <span className="text-xs text-muted-foreground">→</span> : null}
+            {ordered && index > 0 ? <span className="text-xs text-muted-foreground">→</span> : null}
             {chip(entry.model)}
           </span>
         ))}
@@ -665,31 +673,6 @@ function JobRow({
   };
   const actions = (
     <>
-      {single && primaryEntries.length > 0 ? (
-        <PolicyModelPicker
-          environmentId={environmentId}
-          catalog={catalog}
-          binding={undefined}
-          pickDisabledReason={(model) => {
-            const alias = aliasOf(manifest, model);
-            return alias !== undefined &&
-              rolePolicy(manifest, single).callers?.[alias] !== undefined
-              ? "Already has its own choice"
-              : null;
-          }}
-          trigger={
-            <Button size="xs" variant="ghost-muted">
-              Different model for one agent
-            </Button>
-          }
-          onPick={(model) => {
-            const [next, alias] = ensureModel(manifest, model);
-            onChange(
-              setCaller(next, single, alias, primaryEntries[primaryEntries.length - 1]!.model),
-            );
-          }}
-        />
-      ) : null}
       {job.splitGroups.length > 0 ? (
         <Button size="xs" variant="ghost-muted" onClick={() => onChange(splitJob(manifest, job))}>
           Split into separate jobs
@@ -757,22 +740,11 @@ function JobRow({
                   catalog={catalog}
                   onChange={onChange}
                   makers={council && section === councilSection}
+                  ordered={council && section === councilSection}
                 >
                   {sectioned ? null : actions}
                 </ListEditor>
               </div>
-            ))}
-            {exceptions.map(({ role, caller }) => (
-              <CallerLine
-                key={`${role}:${caller}`}
-                environmentId={environmentId}
-                role={job.roles.length > 1 ? role : undefined}
-                caller={caller}
-                policy={rolePolicy(manifest, role)}
-                catalog={catalog}
-                manifest={manifest}
-                onChange={(edit) => onChange(edit(manifest, role))}
-              />
             ))}
             {sectioned ? (
               <div className="flex flex-wrap items-center gap-1.5">{actions}</div>
@@ -789,7 +761,7 @@ function JobRow({
                   }
                 />
                 {job.roles.length > 1 ? `${AGENT_ROLE_PRESENTATION[role].label}: ` : ""}Prefer a
-                different provider from the author. Never defaults to the author&apos;s own model.
+                different provider from the author for automatic council seating.
               </label>
             ))}
           </div>
@@ -838,74 +810,6 @@ function CouncilBlock({
           <AlertDescription role="alert">{issue}</AlertDescription>
         </Alert>
       ) : null}
-    </div>
-  );
-}
-
-const aliasOf = (manifest: Manifest, model: CatalogModel) =>
-  Object.entries(manifest.models).find(
-    ([, binding]) =>
-      binding.driverKind === model.binding.driverKind && binding.model === model.binding.model,
-  )?.[0];
-
-/**
- * A role's exception to its list: a different first model when a given agent asks. Its choice
- * must be listed in the job, so picking another model lists it last.
- */
-function CallerLine({
-  environmentId,
-  role,
-  caller,
-  policy,
-  catalog,
-  manifest,
-  onChange,
-}: {
-  environmentId: EnvironmentId;
-  role: AgentRole | undefined;
-  caller: string;
-  policy: RolePolicy;
-  catalog: ReadonlyArray<CatalogModel>;
-  manifest: Manifest;
-  onChange: (edit: (manifest: Manifest, role: AgentRole) => Manifest) => void;
-}) {
-  const first = policy.callers?.[caller] ?? "";
-  const binding = manifest.models[caller];
-  return (
-    <div className="flex flex-wrap items-center gap-1.5 rounded-lg bg-muted/40 py-1 ps-3 pe-1 text-xs text-muted-foreground">
-      {role ? <AgentRoleChip role={role} /> : null}
-      <span>When</span>
-      {binding ? (
-        <ModelLabel
-          variant="chip"
-          environmentId={environmentId}
-          driverKind={binding.driverKind}
-          model={binding.model}
-        />
-      ) : (
-        <span>{caller}</span>
-      )}
-      <span>asks, start on</span>
-      <PolicyModelPicker
-        environmentId={environmentId}
-        catalog={catalog}
-        binding={manifest.models[first]}
-        onPick={(model) =>
-          onChange((m, r) => {
-            const [next, alias] = listModel(m, policy.list, model, effortForModel(model));
-            return setCaller(next, r, caller, alias);
-          })
-        }
-      />
-      <Button
-        size="icon-xs"
-        variant="ghost-muted"
-        className="ms-auto"
-        aria-label="Remove exception"
-        onClick={() => onChange((m, r) => setCaller(m, r, caller, undefined))}
-      >
-        <XIcon />
-      </Button>
     </div>
   );
 }
@@ -1021,7 +925,7 @@ function NoteField({
       </div>
       {note === "" && !unsaved ? (
         <span className="text-xs text-warning-foreground">
-          No note: agents choose {name} by list order alone.
+          Add a note to help agents judge when to use {name}.
         </span>
       ) : null}
     </div>

@@ -208,7 +208,13 @@ export const admitLinkedRole = Effect.fn("LinkedRoleAdmission.admit")(function* 
         ? workspaces.settled(allocation.attemptId)
         : workspaces.abandon(allocation.attemptId);
   const prepared = yield* policy
-    .prepare({ ...authority, request, requestFingerprint, ...requestedSelection })
+    .prepare({
+      ...authority,
+      request,
+      requestFingerprint,
+      requireExplicitSelection: true,
+      ...requestedSelection,
+    })
     .pipe(
       Effect.tap((prepared) =>
         policy.validate({

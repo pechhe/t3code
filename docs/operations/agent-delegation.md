@@ -32,7 +32,8 @@ read-only. They differ by brief and permissions, not by which models may take th
 work: any model a role lists may take that role's UI work as well as its other work.
 The implementer takes every task class, and hands its work back as a pinned revision
 unless its brief or the request tells it to land, install or publish.
-Each role has an ordered model `list`, with effort for models that offer it. Roles
+Each role has a model `list`, with effort for models that offer it. For ordinary
+delegation, the list is a pool of candidates, not a preference order. Roles
 naming the same list share it: the shipped policy gives `scout`, `researcher` and
 `browser` one list, so editing that list under any of the three edits the one list
 all three use. The Reviewer also requires `specList`, an alias into `lists` for Spec
@@ -50,8 +51,10 @@ cannot be recorded never stops the review. Forge accepts the Spec only when ever
 member's review is clean.
 Any installed provider's models can be listed, not only Codex and Claude. A model
 may carry a `note` saying what it is good at: one note per model, shared by every
-alias that binds it, and edited in Settings → Delegation → Models. A role may start
-with a different model when a named model asks. Reviewers can prefer a provider other than the author's.
+alias that binds it, and edited in Settings → Delegation → Models. The caller chooses a
+model for a multi-model role using the task, model notes, effort and availability; a role
+with one distinct model can choose it automatically. Aliases and accounts for that same
+driver/model pair count as one choice. Reviewers can prefer a provider other than the author's.
 Briefs remain read-only.
 
 Each change in Settings → Delegation saves at once; an edit made while a save runs
@@ -238,14 +241,14 @@ its revision and the role names, or the reason the policy is refused.
   and it is occupied like a primary workspace.
 - The pin matches the workspace's working copy, or, in jj, the single parent of
   an empty working copy such as the one `jj commit` leaves.
-- A role uses the first available model in its list. An account at a usage
-  limit is passed over for the next listed model with allowance, and
-  `agent_roles` names it in `usageLimited`; only when every candidate is limited
-  does the one resetting soonest serve, and the task continues after the reset. A
-  caller whose model has a `callers` entry starts with that model instead; the
-  rest of the list follows. A caller may name any listed model with
-  `target.model`, which is how a delegating agent picks one: `agent_roles` lists
-  each role's models in order with effort, note and whether one can start now.
+- A multi-model role requires `target.model` for a new ordinary task. `agent_roles`
+  lists each candidate with effort, note and whether it can start now; choose from that
+  set for the task. A one-model role needs no redundant choice. Availability and usage
+  limits do not change how many models require a choice. Aliases and accounts for the
+  same driver/model are one choice. A caller whose model has a legacy `callers` entry
+  gets no ordinary-task preference from it. After an explicit model choice, account
+  routing still follows pool allowance; if no eligible account can serve that named
+  model, the request is refused without switching models.
   `agent_roles` resolves for the same caller; pass `reviewScope: "spec"` for the Spec list. Without it, discovery
   shows the change list. Role-based schedules have no review scope and use that
   change default.

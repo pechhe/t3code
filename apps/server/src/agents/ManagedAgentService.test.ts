@@ -1285,9 +1285,10 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
             Effect.provideService(HostProcess.Environment, f.environment),
             Effect.map((result) => result.roles.find((role) => role.role === "reviewer")!),
           );
-      expect((yield* reviewer()).selection?.model).toBe(claudeModel);
-      expect((yield* reviewer("change")).selection?.model).toBe(claudeModel);
-      expect((yield* reviewer("spec")).selection?.model).toBe("claude-fable-test");
+      expect((yield* reviewer()).selection).toBeNull();
+      expect((yield* reviewer("change")).selection).toBeNull();
+      expect((yield* reviewer("spec")).selection).toBeNull();
+      expect((yield* reviewer("spec")).refusal).toContain("choose a model");
       // Discovery names the permission class, and a tool profile only for the narrow web readers.
       expect((yield* reviewer()).permissionClass).toBe("read-only");
       expect((yield* reviewer()).toolProfile).toBeUndefined();
@@ -1322,7 +1323,8 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         })
         .pipe(Effect.provideService(HostProcess.Environment, f.environment));
       const reviewer = discovered.roles.find((role) => role.role === "reviewer")!;
-      expect(reviewer.selection?.model).toBe(codexModel);
+      expect(reviewer.selection).toBeNull();
+      expect(reviewer.refusal).toContain("choose a model");
       expect(reviewer.usageLimited).toContainEqual(
         expect.objectContaining({ model: claudeModel, providerInstanceId: claude.instanceId }),
       );
@@ -1331,6 +1333,12 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         { model: claudeModel, effort: "medium", available: false },
         { model: codexModel, effort: "medium", note: "Careful coder", available: true },
       ]);
+      const omitted = yield* f.prepare({
+        requireExplicitSelection: true,
+        request: request({ role: "implementer", workspacePath: f.workspacePath }),
+      }).pipe(Effect.flip);
+      expect(omitted.reason).toBe("selection");
+      expect(omitted.message).toContain("choose a model");
       // A choice that must start now, such as a Champion replay, skips the exhausted account.
       const ranked = yield* f.service
         .ranked({
@@ -1725,7 +1733,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
       }),
   );
 
-  it.effect("discovers the model a launch for the same caller would use", () =>
+  it.effect("does not infer an ordinary choice from the caller's model", () =>
     Effect.gen(function* () {
       const f = yield* fixture;
       const advisorFor = (callerModel: string) =>
@@ -1740,9 +1748,8 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
             Effect.provideService(HostProcess.Environment, f.environment),
             Effect.map((result) => result.roles.find((role) => role.role === "advisor")!),
           );
-      // The policy starts an Opus caller's advisor with Astra; others follow the list.
-      expect((yield* advisorFor("claude-opus-test")).selection?.model).toBe("gpt-astra-test");
-      expect((yield* advisorFor(claudeModel)).selection?.model).toBe("claude-fable-test");
+      expect((yield* advisorFor("claude-opus-test")).selection).toBeNull();
+      expect((yield* advisorFor(claudeModel)).selection).toBeNull();
     }),
   );
   it.effect("records an earlier review's change against a new base only when the diffs match", () =>

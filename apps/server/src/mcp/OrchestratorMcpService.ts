@@ -4184,6 +4184,7 @@ const make = Effect.gen(function* () {
                         ...(specLead ? { allocatesWorkspace: true } : {}),
                         callerModel: parent.thread.modelSelection.model,
                         caller: parent.thread.modelSelection,
+                        requireExplicitSelection: true,
                         ...selectionOf(input.target),
                       })
                       .pipe(
