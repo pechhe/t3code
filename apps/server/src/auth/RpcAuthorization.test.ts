@@ -95,9 +95,13 @@ describe("RPC authorization scopes", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.buildConnectionRead)).toBe(
       AuthOrchestrationReadScope,
     );
-    expect(requiredScopeForRpcMethod(WS_METHODS.forgeWorkItemRead)).toBe(
-      AuthOrchestrationReadScope,
-    );
+    for (const method of [
+      WS_METHODS.forgeWorkItemRead,
+      WS_METHODS.forgeWorkItemCard,
+      WS_METHODS.forgeArcRunSummary,
+      WS_METHODS.forgeArcRunDetail,
+    ])
+      expect(requiredScopeForRpcMethod(method)).toBe(AuthOrchestrationReadScope);
     expect(requiredScopeForRpcMethod(WS_METHODS.forgeWorkItemLink)).toBe(
       AuthOrchestrationOperateScope,
     );

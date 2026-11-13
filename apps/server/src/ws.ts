@@ -161,6 +161,7 @@ import * as DocumentText from "./provider/DocumentText.ts";
 import * as PeerEnvironments from "./peers/PeerEnvironments.ts";
 import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
 import * as ForgeWorkItems from "./weave/ForgeWorkItems.ts";
+import * as ForgeArcRuns from "./weave/ForgeArcRuns.ts";
 import * as ForgeHome from "./weave/ForgeHome.ts";
 import * as WeaveSignIn from "./weave/WeaveSignIn.ts";
 import * as ReleaseApprovals from "./releases/ReleaseApprovals.ts";
@@ -1591,6 +1592,7 @@ export const layerWsRpc = (
       const providerSessionManager = yield* ProviderSessionManager.ProviderSessionManagerV2;
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
       const forgeWorkItems = yield* ForgeWorkItems.ForgeWorkItems;
+      const forgeArcRuns = yield* ForgeArcRuns.ForgeArcRuns;
       const forgeHome = yield* ForgeHome.ForgeHome;
       const weaveSignIn = yield* WeaveSignIn.WeaveSignIn;
       const secretRequests = yield* SecretRequests.SecretRequests;
@@ -3072,6 +3074,14 @@ export const layerWsRpc = (
         [WS_METHODS.forgeWorkItemCard]: (input) =>
           Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
             Effect.andThen(forgeWorkItems.card(input)),
+          ),
+        [WS_METHODS.forgeArcRunSummary]: (input) =>
+          Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
+            Effect.andThen(forgeArcRuns.summary(input)),
+          ),
+        [WS_METHODS.forgeArcRunDetail]: (input) =>
+          Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
+            Effect.andThen(forgeArcRuns.detail(input)),
           ),
         [WS_METHODS.forgeWorkItemMentions]: (input) =>
           Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(

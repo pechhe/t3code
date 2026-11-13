@@ -109,13 +109,34 @@ it.effect("arc_run dispatches for the caller's own thread and refuses any other"
 
     yield* update({
       action: "arc_run",
-      arcRun: { op: "start", arc: 12, ref: "YS-ARC-12" },
+      arcRun: {
+        op: "start",
+        arc: 12,
+        ref: "YS-ARC-12",
+        specs: [101, 102],
+        plan: [102, 101],
+        current: 102,
+      },
     }).pipe(Effect.exit);
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({
       type: "thread.arc-run",
       op: "start",
       arc: { number: 12, ref: "YS-ARC-12" },
+      specs: [101, 102],
+      plan: [102, 101],
+      current: 102,
+    });
+
+    yield* update({
+      action: "arc_run",
+      arcRun: { op: "checkpoint", phase: "Implementing", plan: [101, 102], current: null },
+    }).pipe(Effect.exit);
+    expect(sent[1]).toMatchObject({
+      type: "thread.arc-run",
+      op: "checkpoint",
+      plan: [101, 102],
+      current: null,
     });
 
     const refused = yield* update({
@@ -124,7 +145,7 @@ it.effect("arc_run dispatches for the caller's own thread and refuses any other"
       arcRun: { op: "pause" },
     }).pipe(Effect.flip);
     expect(refused.code).toBe("capability_denied");
-    expect(sent).toHaveLength(1);
+    expect(sent).toHaveLength(2);
   }),
 );
 

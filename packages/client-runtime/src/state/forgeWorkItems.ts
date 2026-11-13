@@ -1,5 +1,9 @@
 import {
   WS_METHODS,
+  type ForgeArcRunDetail,
+  type ForgeArcRunSpec,
+  type ForgeArcRunSummary,
+  type OrchestrationV2ThreadArcRun,
   type ForgeWorkItemCard,
   type ForgeWorkItemSession,
   type ForgeWorkItemSummary,
@@ -42,6 +46,18 @@ export function createForgeWorkItemAtoms<R, E>(
     card: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:build:work-item-card",
       tag: WS_METHODS.forgeWorkItemCard,
+      ...polling,
+    }),
+    /** The Arc run chip's counts, mounted while a thread holding a run is on screen. */
+    arcRunSummary: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:build:arc-run-summary",
+      tag: WS_METHODS.forgeArcRunSummary,
+      ...polling,
+    }),
+    /** Mounted only while the Arc run popover is open: the whole Arc's Specs. */
+    arcRunDetail: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:build:arc-run-detail",
+      tag: WS_METHODS.forgeArcRunDetail,
       ...polling,
     }),
     /** Mounted only while a mention is on screen; the same item in many chips is one query. */
@@ -210,3 +226,105 @@ export function presentForgeCardKind(detail: ForgeWorkItemCard["detail"]) {
 /** A card footer's session, as plain text until it can open a T3 thread. */
 export const buildSessionLabel = (session: ForgeWorkItemSession) =>
   `${session.harness === "t3" ? "T3 thread" : `${session.harness} session`} · ${session.activity}`;
+
+export type ArcRunState = "running" | "paused" | "attention";
+
+/** One Spec row of the Arc run view. Forge's fields are null until the open view has read them. */
+export interface ArcRunRow {
+  readonly number: number;
+  readonly label: string;
+  readonly spec: ForgeArcRunSpec | null;
+  /** Its place in the lead's plan, from 1; null when the run has no plan or it is not in it. */
+  readonly position: number | null;
+  readonly current: boolean;
+  /** Not one of this run's Specs: the rest of the Arc, shown dimmed. */
+  readonly outsideRun: boolean;
+}
+
+export interface ArcRunPresentation {
+  readonly arcLabel: string;
+  readonly state: ArcRunState;
+  /** The run answers for named Specs rather than the whole Arc. */
+  readonly namedSpecs: boolean;
+  readonly planned: boolean;
+  /** This run's Specs: in plan order when there is a plan, else as the run names them or Forge lists them. */
+  readonly run: ReadonlyArray<ArcRunRow>;
+  /** A run of named Specs: the Arc's other Specs. */
+  readonly elsewhere: ReadonlyArray<ArcRunRow>;
+  /** A whole-Arc run with a plan: member Specs the plan leaves out. */
+  readonly notPlanned: ReadonlyArray<ArcRunRow>;
+  /** Every Spec in the Arc once, for the Arc bar: Specs done outside the run, the run, then the rest. */
+  readonly bar: ReadonlyArray<ArcRunRow>;
+  readonly checkpoint: OrchestrationV2ThreadArcRun["checkpoint"] | null;
+}
+
+const ARC_RUN_STATE: Record<OrchestrationV2ThreadArcRun["state"], ArcRunState> = {
+  active: "running",
+  paused: "paused",
+  attention: "attention",
+};
+
+/**
+ * The chip's numbers: the run's Specs Landed or Accepted, out of those not Dropped. `complete` is
+ * false when Forge was only partly read, and the chip must then say the count may be short.
+ */
+export function arcRunChip(
+  arcRun: OrchestrationV2ThreadArcRun,
+  summary: ForgeArcRunSummary | null,
+) {
+  return {
+    label: summary === null ? forgeItemLabel(arcRun.arc) : forgeItemLabel(summary.arc),
+    state: ARC_RUN_STATE[arcRun.state],
+    progress: summary === null ? null : { landed: summary.landed, total: summary.total },
+    complete: summary?.complete ?? true,
+  };
+}
+
+/**
+ * The Arc run popover. Works from the run alone, so the plan shows at once, and
+ * fills in titles, statuses and the rest of the Arc once the open view's detail arrives.
+ */
+export function presentArcRun(
+  arcRun: OrchestrationV2ThreadArcRun,
+  detail: ForgeArcRunDetail | null,
+): ArcRunPresentation {
+  const specs = new Map((detail?.specs ?? []).map((spec) => [spec.number, spec] as const));
+  const scope = arcRun.specs;
+  const plan = arcRun.plan;
+  const inRun = (number: number) => scope === undefined || scope.includes(number);
+  const row = (number: number, position: number | null): ArcRunRow => {
+    const spec = specs.get(number) ?? null;
+    return {
+      number,
+      label: forgeItemLabel({ number, ref: spec?.ref }),
+      spec,
+      position,
+      current: arcRun.current === number,
+      outsideRun: !inRun(number),
+    };
+  };
+  const members = (detail?.specs ?? []).filter((spec) => spec.inArc).map((spec) => spec.number);
+  const runNumbers = plan ?? scope ?? members;
+  const run = runNumbers.map((number, index) => row(number, plan === undefined ? null : index + 1));
+  const listed = new Set(runNumbers);
+  const rest = members.filter((number) => !listed.has(number)).map((number) => row(number, null));
+  const elsewhere = scope === undefined ? [] : rest;
+  const notPlanned = scope === undefined ? rest : [];
+  const done = (r: ArcRunRow) => r.spec?.status === "accepted";
+  return {
+    arcLabel: forgeItemLabel(detail?.arc ?? arcRun.arc),
+    state: ARC_RUN_STATE[arcRun.state],
+    namedSpecs: scope !== undefined,
+    planned: plan !== undefined,
+    run,
+    elsewhere,
+    notPlanned,
+    bar: [
+      ...elsewhere.filter(done),
+      ...run.filter((r) => r.spec?.inArc !== false),
+      ...elsewhere.filter((r) => !done(r)),
+      ...notPlanned,
+    ],
+    checkpoint: arcRun.checkpoint ?? null,
+  };
+}

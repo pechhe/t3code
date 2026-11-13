@@ -23,6 +23,32 @@ export function useThreadForgeWorkItem(threadRef: ScopedThreadRef | null) {
   );
 }
 
+/** The thread's Arc run counts for its header chip; nothing is read without a run. */
+export function useThreadArcRunSummary(threadRef: ScopedThreadRef | null) {
+  const arc = useThreadShell(threadRef)?.arcRun?.arc.number;
+  return useEnvironmentQuery(
+    threadRef === null || arc === undefined
+      ? null
+      : forgeWorkItems.arcRunSummary({
+          environmentId: threadRef.environmentId,
+          input: { threadId: threadRef.threadId, arc },
+        }),
+  );
+}
+
+/** The whole Arc for the open Arc run popover; `open` names one opening of it, null when closed. */
+export function useThreadArcRunDetail(threadRef: ScopedThreadRef | null, open: string | null) {
+  const arc = useThreadShell(threadRef)?.arcRun?.arc.number;
+  return useEnvironmentQuery(
+    threadRef === null || arc === undefined || open === null
+      ? null
+      : forgeWorkItems.arcRunDetail({
+          environmentId: threadRef.environmentId,
+          input: { threadId: threadRef.threadId, arc, open },
+        }),
+  );
+}
+
 /** Whether the environment is connected to Weave, so its threads offer Link Forge item. */
 export function useForgeConnected(environmentId: EnvironmentId | null): boolean {
   return (

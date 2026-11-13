@@ -4954,6 +4954,35 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const now = yield* DateTime.now;
     const nowIso = DateTime.formatIso(now);
     const current = thread.arcRun;
+    const plan = command.plan ?? current?.plan;
+    const currentSpec =
+      command.current === null ? undefined : (command.current ?? current?.current);
+    if (command.op === "start" || command.op === "checkpoint") {
+      const specs = command.op === "start" ? command.specs : current?.specs;
+      if (plan !== undefined && new Set(plan).size !== plan.length) {
+        return yield* refuse("The Arc run plan contains a duplicate Spec. List each Spec once.");
+      }
+      if (
+        plan !== undefined &&
+        specs !== undefined &&
+        (plan.length !== specs.length || specs.some((number) => !plan.includes(number)))
+      ) {
+        return yield* refuse(
+          "The plan must contain exactly this run's named Specs, in your intended order.",
+        );
+      }
+      const scope = plan ?? specs;
+      if (currentSpec !== undefined && scope !== undefined && !scope.includes(currentSpec)) {
+        return yield* refuse(
+          "The current Spec must be in the run's plan, or its named Specs when no plan is recorded.",
+        );
+      }
+    }
+    const { current: _currentSpec, ...runWithoutCurrent } = current ?? {};
+    const planAndCurrent = {
+      ...(plan === undefined ? {} : { plan }),
+      ...(currentSpec === undefined ? {} : { current: currentSpec }),
+    };
     let next: OrchestrationV2ThreadArcRun | undefined;
     switch (command.op) {
       case "start": {
@@ -5001,7 +5030,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           );
         }
         next = {
-          ...current,
+          ...runWithoutCurrent,
+          ...planAndCurrent,
           arc: command.arc,
           ...(specs === undefined ? {} : { specs }),
           state: "active",
@@ -5016,13 +5046,22 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         if (command.phase === undefined) return yield* refuse("A checkpoint names its phase.");
         next = {
           ...current,
-          progressAt: current.checkpoint?.phase === command.phase ? current.progressAt : nowIso,
+          ...planAndCurrent,
+          progressAt:
+            current.checkpoint?.phase !== command.phase ||
+            (currentSpec !== undefined && currentSpec !== current.current)
+              ? nowIso
+              : current.progressAt,
           checkpoint: {
             phase: command.phase,
             ...(command.note === undefined ? {} : { note: command.note }),
             at: nowIso,
           },
         };
+        if (currentSpec === undefined) {
+          const { current: _cleared, ...withoutCurrent } = next;
+          next = withoutCurrent;
+        }
         break;
       }
       case "pause": {

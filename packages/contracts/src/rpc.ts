@@ -276,6 +276,10 @@ import {
   ForgeWorkItemLinkResult,
   ForgeWorkItemReadInput,
   ForgeWorkItemCardInput,
+  ForgeArcRunDetailInput,
+  ForgeArcRunDetailResult,
+  ForgeArcRunReadInput,
+  ForgeArcRunSummaryResult,
   ForgeWorkItemCardResult,
   ForgeWorkItemMentionsInput,
   ForgeWorkItemMentionsResult,
@@ -729,6 +733,8 @@ export const WS_METHODS = {
   forgeWorkItemCard: "build.workItem.card",
   forgeWorkItemMentions: "build.workItem.mentions",
   forgeWorkItemLink: "build.workItem.link",
+  forgeArcRunSummary: "build.arcRun.summary",
+  forgeArcRunDetail: "build.arcRun.detail",
   forgeHomeRead: "build.home.read",
   forgeHomeDecide: "build.home.decide",
 
@@ -2497,6 +2503,18 @@ const WsForgeWorkItemCardRpc = Rpc.make(WS_METHODS.forgeWorkItemCard, {
   error: Schema.Union([ForgeWorkItemError, EnvironmentAuthorizationError]),
 });
 
+const WsForgeArcRunSummaryRpc = Rpc.make(WS_METHODS.forgeArcRunSummary, {
+  payload: ForgeArcRunReadInput,
+  success: ForgeArcRunSummaryResult,
+  error: Schema.Union([ForgeWorkItemError, EnvironmentAuthorizationError]),
+});
+
+const WsForgeArcRunDetailRpc = Rpc.make(WS_METHODS.forgeArcRunDetail, {
+  payload: ForgeArcRunDetailInput,
+  success: ForgeArcRunDetailResult,
+  error: Schema.Union([ForgeWorkItemError, EnvironmentAuthorizationError]),
+});
+
 const WsForgeWorkItemMentionsRpc = Rpc.make(WS_METHODS.forgeWorkItemMentions, {
   payload: ForgeWorkItemMentionsInput,
   success: ForgeWorkItemMentionsResult,
@@ -3080,6 +3098,8 @@ export const WsServerOperationsRpcGroup = RpcGroup.make(
   WsForgeConnectionReadRpc,
   WsForgeWorkItemReadRpc,
   WsForgeWorkItemCardRpc,
+  WsForgeArcRunSummaryRpc,
+  WsForgeArcRunDetailRpc,
   WsForgeWorkItemMentionsRpc,
   WsForgeWorkItemLinkRpc,
   WsForgeHomeReadRpc,

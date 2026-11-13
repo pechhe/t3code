@@ -63,6 +63,7 @@ import * as RuntimePolicy from "./RuntimePolicy.ts";
 import * as RuntimeRequestService from "./RuntimeRequestService.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
+import * as ForgeArcRuns from "../weave/ForgeArcRuns.ts";
 import * as ForgeHome from "../weave/ForgeHome.ts";
 import * as ThreadProjectMoveService from "./ThreadProjectMoveService.ts";
 import * as ThreadImportService from "./ThreadImportService.ts";
@@ -291,6 +292,8 @@ const layerThreadManagementProvided = ThreadManagementService.layerWithLegacyImp
     ),
   ),
 );
+// One instance, so the Arc run view shares the linked items' Forge cache.
+const layerForgeWorkItems = ForgeWorkItems.layer.pipe(Layer.provide(layerThreadManagementProvided));
 export const layerProjectSetupScriptRunner = ProjectSetupScriptRunner.layer.pipe(
   Layer.provide(layerProjectService),
   // Whether a thread came from a linked environment, which skips setup.
@@ -466,7 +469,12 @@ export const layerProduction = Layer.mergeAll(
   layerSecretRequestsProvided,
   layerSavedSecrets,
   ReleaseApprovals.layer.pipe(Layer.provide(layerThreadManagementProvided)),
-  ForgeWorkItems.layer.pipe(Layer.provide(layerThreadManagementProvided)),
+  layerForgeWorkItems,
+  ForgeArcRuns.layer.pipe(
+    Layer.provide(layerForgeWorkItems),
+    Layer.provide(layerThreadManagementProvided),
+    Layer.provide(ProjectionStore.layer),
+  ),
   ForgeHome.layer.pipe(
     Layer.provide(
       Layer.mergeAll(

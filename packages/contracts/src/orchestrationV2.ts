@@ -691,6 +691,13 @@ export const OrchestrationV2ThreadArcRun = Schema.Struct({
   }),
   /** Forge numbers when this thread answers for only these Specs; absent means the whole Arc. */
   specs: Schema.optional(Schema.NonEmptyArray(PositiveInt)),
+  /**
+   * The lead's planned order of Spec numbers, revised at checkpoints. With `specs` it lists exactly
+   * those; for a whole Arc it lists the members the lead means to take.
+   */
+  plan: Schema.optional(Schema.NonEmptyArray(PositiveInt)),
+  /** The Spec the lead is working on; in `plan` when there is one, else in `specs`. */
+  current: Schema.optional(PositiveInt),
   state: Schema.Literals(["active", "paused", "attention"]),
   startedAt: IsoDateTime,
   /** The last advancing checkpoint or message from the owner; bounds the no-progress wakes. */
@@ -2806,6 +2813,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   parkedWaits: Schema.optional(Schema.Array(OrchestrationV2ParkedWait)),
   parkedWaitGaveUp: Schema.optional(OrchestrationV2ParkedWaitGaveUp),
   parkedWaitWoke: Schema.optional(OrchestrationV2ParkedWaitWoke),
+  arcRun: Schema.optional(OrchestrationV2ThreadArcRun),
   workspaceAttachments: Schema.optional(Schema.Array(OrchestrationV2WorkspaceAttachment)),
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   lineage: OrchestrationV2AppThreadLineage,
@@ -4541,6 +4549,9 @@ const OrchestrationV2InternalCommand = Schema.Union([
     op: Schema.Literals(["start", "checkpoint", "pause", "end"]),
     arc: Schema.optional(OrchestrationV2ThreadArcRun.fields.arc),
     specs: OrchestrationV2ThreadArcRun.fields.specs,
+    plan: OrchestrationV2ThreadArcRun.fields.plan,
+    /** Null clears the current Spec; absent leaves it as it is. */
+    current: Schema.optional(Schema.NullOr(PositiveInt)),
     phase: Schema.optional(TrimmedNonEmptyString),
     note: Schema.optional(TrimmedNonEmptyString),
   }),

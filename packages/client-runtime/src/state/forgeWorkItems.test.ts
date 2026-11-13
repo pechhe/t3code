@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import type { ForgeWorkItemView } from "@t3tools/contracts";
+import type {
+  ForgeArcRunDetail,
+  ForgeArcRunSpec,
+  ForgeWorkItemView,
+  OrchestrationV2ThreadArcRun,
+} from "@t3tools/contracts";
 
 import {
+  arcRunChip,
   describeForgeWait,
+  presentArcRun,
   presentForgeCardKind,
   presentForgeWorkItem,
   presentSpecTickets,
@@ -139,5 +146,92 @@ describe("describeForgeWait with a ref", () => {
         required: "landed",
       }).blocker,
     ).toBe("YS-9 Projects");
+  });
+});
+
+describe("presentArcRun", () => {
+  const spec = (number: number, status: ForgeArcRunSpec["status"], inArc = true) =>
+    ({
+      number,
+      ref: `T3-${number}`,
+      title: `Spec ${number}`,
+      status,
+      url: `https://weave.example/forge/${number}`,
+      holds: [],
+      waits: [],
+      inArc,
+      thread: null,
+    }) satisfies ForgeArcRunSpec;
+  const run = (fields: Partial<OrchestrationV2ThreadArcRun>): OrchestrationV2ThreadArcRun => ({
+    arc: { number: 50, ref: "T3-ARC-05" },
+    state: "active",
+    startedAt: "2026-11-13T10:00:00.000Z",
+    progressAt: "2026-11-13T10:00:00.000Z",
+    ceilingSince: "2026-11-13T10:00:00.000Z",
+    ...fields,
+  });
+  const detail = (specs: ReadonlyArray<ForgeArcRunSpec>): ForgeArcRunDetail => ({
+    arc: { number: 50, ref: "T3-ARC-05", title: "Arc", url: "https://weave.example/forge/50" },
+    goal: null,
+    specs,
+    complete: true,
+    readAt: "2026-11-13T10:00:00.000Z",
+  });
+
+  it("numbers a named run in plan order and lists the rest of the Arc apart", () => {
+    const shown = presentArcRun(
+      run({ specs: [3, 2, 4], plan: [2, 3, 4], current: 3 }),
+      detail([
+        spec(1, "accepted"),
+        spec(2, "landed"),
+        spec(3, "in_progress"),
+        spec(4, "ready"),
+        spec(5, "shaping"),
+      ]),
+    );
+    expect(shown.run.map((r) => [r.number, r.position, r.current])).toEqual([
+      [2, 1, false],
+      [3, 2, true],
+      [4, 3, false],
+    ]);
+    expect(shown.elsewhere.map((r) => r.number)).toEqual([1, 5]);
+    expect(shown.notPlanned).toEqual([]);
+    expect(shown.bar.map((r) => [r.number, r.outsideRun])).toEqual([
+      [1, true],
+      [2, false],
+      [3, false],
+      [4, false],
+      [5, true],
+    ]);
+  });
+
+  it("lists a whole-Arc run's unplanned members apart and keeps a planned Spec that left the Arc", () => {
+    const shown = presentArcRun(
+      run({ plan: [2, 9] }),
+      detail([spec(1, "accepted"), spec(2, "ready"), spec(9, "ready", false)]),
+    );
+    expect(shown.run.map((r) => [r.number, r.position, r.spec?.inArc])).toEqual([
+      [2, 1, true],
+      [9, 2, false],
+    ]);
+    expect(shown.notPlanned.map((r) => r.number)).toEqual([1]);
+    expect(shown.elsewhere).toEqual([]);
+    expect(shown.bar.map((r) => r.number)).toEqual([2, 1]);
+  });
+
+  it("shows a run with no plan unnumbered, from the run alone before Forge is read", () => {
+    const shown = presentArcRun(run({ specs: [7, 6], state: "attention" }), null);
+    expect(shown.planned).toBe(false);
+    expect(shown.state).toBe("attention");
+    expect(shown.run.map((r) => [r.number, r.label, r.position])).toEqual([
+      [7, "#7", null],
+      [6, "#6", null],
+    ]);
+    expect(arcRunChip(run({ state: "paused" }), null)).toEqual({
+      label: "T3-ARC-05",
+      state: "paused",
+      progress: null,
+      complete: true,
+    });
   });
 });

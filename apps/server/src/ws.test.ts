@@ -114,6 +114,7 @@ import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolve
 import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as ForgeWorkItems from "./weave/ForgeWorkItems.ts";
+import * as ForgeArcRuns from "./weave/ForgeArcRuns.ts";
 import * as ForgeHome from "./weave/ForgeHome.ts";
 import * as WeaveSignIn from "./weave/WeaveSignIn.ts";
 import * as ReleaseApprovals from "./releases/ReleaseApprovals.ts";
@@ -892,6 +893,7 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(ResourceTelemetry.ResourceTelemetry)({}),
   Layer.mock(ReviewService.ReviewService)({}),
   Layer.mock(ForgeWorkItems.ForgeWorkItems)({}),
+  Layer.mock(ForgeArcRuns.ForgeArcRuns)({}),
   Layer.mock(ForgeHome.ForgeHome)({}),
   Layer.mock(WeaveSignIn.WeaveSignIn)({}),
   Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),

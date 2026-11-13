@@ -990,6 +990,7 @@ function makeLocalCommandHarness(input: {
                   ? Effect.succeed({
                       driver: providerThread.driver,
                       startTurn,
+                      compactThread: startTurn,
                       providerSession: {
                         id: providerSessionId,
                         driver: providerThread.driver,
@@ -1039,21 +1040,22 @@ function makeLocalCommandHarness(input: {
     input.sideChat !== undefined
       ? started.session.startTurn(started as never).pipe(Effect.orDie)
       : input.deliverTurn === true
-        ? started.session
-            .startTurn({
-              appThread: started.appThread,
-              threadId: started.run.threadId,
-              runId: started.run.id,
-              runOrdinal: started.run.ordinal,
-              providerTurnOrdinal: started.providerTurnOrdinal,
-              attemptId: started.attemptId,
-              rootNodeId: started.rootNode.id,
-              providerThread: started.providerThread,
-              message: started.message,
-              modelSelection: started.modelSelection,
-              runtimePolicy: started.runtimePolicy,
-            })
-            .pipe(Effect.orDie)
+        ? (started.message.attachments.length === 0 &&
+            started.message.text.trim().toLowerCase() === "/compact"
+            ? started.session.compactThread!
+            : started.session.startTurn)({
+            appThread: started.appThread,
+            threadId: started.run.threadId,
+            runId: started.run.id,
+            runOrdinal: started.run.ordinal,
+            providerTurnOrdinal: started.providerTurnOrdinal,
+            attemptId: started.attemptId,
+            rootNodeId: started.rootNode.id,
+            providerThread: started.providerThread,
+            message: started.message,
+            modelSelection: started.modelSelection,
+            runtimePolicy: started.runtimePolicy,
+          }).pipe(Effect.orDie)
         : input.failReadsAfterRunning === true || input.previousTurn !== undefined
           ? Effect.suspend(() =>
               providerBusy
@@ -3734,3 +3736,59 @@ effectIt.effect("fails the run instead of replacing a native thread another clie
     ]);
   }),
 );
+
+for (const kind of ["ordinary", "wake", "compact", "goal"] as const) {
+  effectIt.effect(`Arc run context is delivered only on ordinary provider turns: ${kind}`, () =>
+    Effect.gen(function* () {
+      const harness = makeLocalCommandHarness({
+        text:
+          kind === "compact" ? "/compact" : kind === "goal" ? "/goal Finish the Arc" : "Continue",
+        deliverTurn: true,
+        previousMessages: ["Earlier work"],
+        ...(kind === "compact" ? { nativeSession: true } : {}),
+      });
+      const projection = harness.projection();
+      const messageId =
+        kind === "wake"
+          ? MessageId.make("message:arc-run-wake:continue:earlier-run")
+          : projection.runs.at(-1)!.userMessageId;
+      harness.setProjection({
+        ...projection,
+        thread: {
+          ...projection.thread,
+          arcRun: {
+            arc: { number: 12, ref: "T3-ARC-12" },
+            plan: [102, 101],
+            current: 102,
+            state: "active",
+            startedAt: "2026-09-04T10:00:00.000Z",
+            progressAt: "2026-09-04T10:00:00.000Z",
+            ceilingSince: "2026-09-04T10:00:00.000Z",
+            checkpoint: { phase: "Implementing", at: "2026-09-04T10:00:00.000Z" },
+          },
+        },
+        messages: projection.messages.map((message) =>
+          message.id === projection.runs.at(-1)!.userMessageId
+            ? { ...message, id: messageId }
+            : message,
+        ),
+        runs: projection.runs.map((run) =>
+          run.id === projection.runs.at(-1)!.id ? { ...run, userMessageId: messageId } : run,
+        ),
+      });
+      harness.tryHandlePromptCommand.mockReturnValue(Effect.succeed(false));
+      yield* harness.start;
+      expect(harness.startTurn).toHaveBeenCalledOnce();
+      const text = harness.startTurn.mock.calls[0]![0].message.text;
+      if (kind === "ordinary") {
+        expect(text).toContain("Arc lead for T3-ARC-12");
+        expect(text).toContain("#102 → #101");
+        expect(text).toContain("current Spec: #102");
+        expect(text).toContain("last checkpoint: Implementing");
+      } else {
+        expect(text).not.toContain("Arc lead for T3-ARC-12");
+        expect(text).not.toContain("Your plan, in order");
+      }
+    }),
+  );
+}

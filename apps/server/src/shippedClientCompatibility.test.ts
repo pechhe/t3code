@@ -7,6 +7,7 @@ import {
   OrchestrationV2DelegatedCompletionTaskDeliveryState,
   OrchestrationV2Notification,
   OrchestrationV2Subagent,
+  type OrchestrationV2ThreadArcRun,
   OrchestrationV2ThreadShell,
   OrchestrationV2ThreadStanding,
   RunId,
@@ -302,6 +303,27 @@ it.effect(
       assert.notDeepEqual(violations(withoutStatus, shipped, "shell"), []);
       assert.notDeepEqual(violations({ ...wire, status: "parked" }, shipped, "shell"), []);
     }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("a shipped client decodes a shell carrying an Arc run plan and current Spec", () =>
+  Effect.gen(function* () {
+    const shipped = yield* loadShippedThreadShellSchema;
+    const arcRun: OrchestrationV2ThreadArcRun = {
+      arc: { number: 12, ref: "T3-ARC-12" },
+      specs: [101, 102],
+      plan: [102, 101],
+      current: 102,
+      state: "active",
+      startedAt: "2026-11-13T09:00:00.000Z",
+      progressAt: "2026-11-13T09:00:00.000Z",
+      ceilingSince: "2026-11-13T09:00:00.000Z",
+    };
+    const sent = encodeForkShell({ arcRun });
+    assert.deepEqual(sent.arcRun, arcRun);
+    assert.deepEqual(violations(sent, shipped, "shell"), []);
+    assert.deepEqual(decodeForkShell(sent).arcRun, arcRun);
+    assert.notProperty(shipped.properties ?? {}, "arcRun");
+  }).pipe(Effect.provide(NodeServices.layer)),
 );
 
 const decodeStanding = Schema.decodeUnknownSync(OrchestrationV2ThreadStanding);

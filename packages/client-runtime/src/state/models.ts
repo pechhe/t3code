@@ -211,6 +211,7 @@ export interface EnvironmentThreadShell {
   readonly workflow?: import("@t3tools/contracts").OrchestrationV2ThreadWorkflow | null;
   /** The Build Spec, Ticket or Arc the thread is linked to. */
   readonly workItem?: import("@t3tools/contracts").OrchestrationV2ThreadWorkItem | null;
+  readonly arcRun?: import("@t3tools/contracts").OrchestrationV2ThreadArcRun | null;
   /** A project the thread's agent suggested for this No project chat. */
   readonly projectSuggestion?: {
     readonly projectId: import("@t3tools/contracts").ProjectId;
@@ -388,6 +389,7 @@ export function presentThreadShell(
     compactAt: thread.compactAt ?? null,
     workflow: thread.workflow ?? null,
     workItem: thread.workItem ?? null,
+    arcRun: thread.arcRun ?? null,
     projectSuggestion: thread.projectSuggestion
       ? {
           projectId: thread.projectSuggestion.projectId,

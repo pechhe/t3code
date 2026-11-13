@@ -110,12 +110,14 @@ export const ThreadMetadataMcpUpdateInput = Schema.Struct({
       arc: Schema.optional(PositiveInt),
       ref: Schema.optional(TrimmedNonEmptyString),
       specs: Schema.optional(Schema.NonEmptyArray(PositiveInt)),
+      plan: Schema.optional(Schema.NonEmptyArray(PositiveInt)),
+      current: Schema.optional(Schema.NullOr(PositiveInt)),
       phase: Schema.optional(TrimmedNonEmptyString),
       note: Schema.optional(TrimmedNonEmptyString),
     }),
   ).annotate({
     description:
-      "Required only for arc_run, on your own thread. start names arc (its Forge number) and ref, plus specs (Forge numbers) to answer for only those Specs in that Arc; checkpoint names phase (a new phase counts as progress) and note; only end finishes the run.",
+      "Required only for arc_run, on your own thread. start names arc (its Forge number) and ref, plus specs (Forge numbers) to answer for only those Specs in that Arc; checkpoint names phase and note; only end finishes the run. Both start and checkpoint take plan, the Spec numbers in the order you will take them (with specs, exactly those), and current, the Spec you are on (null clears it). A new phase or current Spec counts as progress; reordering alone does not.",
   }),
   clientRequestId: Schema.optional(ThreadMetadataClientRequestId),
 }).check(

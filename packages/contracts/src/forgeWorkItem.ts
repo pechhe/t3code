@@ -174,6 +174,83 @@ export type ForgeWorkItemCardInput = typeof ForgeWorkItemCardInput.Type;
 export const ForgeWorkItemCardResult = Schema.NullOr(ForgeWorkItemCard);
 export type ForgeWorkItemCardResult = typeof ForgeWorkItemCardResult.Type;
 
+/** The Arc a thread's Arc run serves. */
+export const ForgeArcRunArc = Schema.Struct({
+  number: PositiveInt,
+  ref: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  title: Schema.String,
+  /** The Arc's page in Weave. */
+  url: Schema.String,
+});
+export type ForgeArcRunArc = typeof ForgeArcRunArc.Type;
+
+/** What the Arc run chip shows: the run's Specs that are Landed or Accepted, out of those not Dropped. */
+export const ForgeArcRunSummary = Schema.Struct({
+  arc: ForgeArcRunArc,
+  landed: Schema.Number,
+  total: Schema.Number,
+  /** False when a read failed or membership was only partly read, so the counts may be short. */
+  complete: Schema.Boolean,
+  readAt: IsoDateTime,
+});
+export type ForgeArcRunSummary = typeof ForgeArcRunSummary.Type;
+
+/** Another thread on this environment answering for a Spec: this run's Spec lead, or another run. */
+export const ForgeArcRunSpecThread = Schema.Struct({
+  threadId: ThreadId,
+  title: Schema.String,
+  relation: Schema.Literals(["spec-lead", "other-run"]),
+});
+export type ForgeArcRunSpecThread = typeof ForgeArcRunSpecThread.Type;
+
+/** One Spec of the Arc, or one the run names that Forge no longer tags to it. */
+export const ForgeArcRunSpec = Schema.Struct({
+  number: PositiveInt,
+  ref: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  title: Schema.String,
+  status: ForgeItemStatus,
+  /** The Spec's page in Weave. */
+  url: Schema.String,
+  holds: ForgeWorkItemSummary.fields.holds,
+  waits: Schema.Array(ForgeWorkItemWait),
+  /** False for a Spec the run names that is no longer tagged to the Arc. */
+  inArc: Schema.Boolean,
+  thread: Schema.NullOr(ForgeArcRunSpecThread),
+});
+export type ForgeArcRunSpec = typeof ForgeArcRunSpec.Type;
+
+/** The open Arc run view: the Arc, its goal and every Spec, read only while the view is open. */
+export const ForgeArcRunDetail = Schema.Struct({
+  arc: ForgeArcRunArc,
+  /** Forge's plain-text summary of the Arc's body. */
+  goal: Schema.NullOr(Schema.String),
+  specs: Schema.Array(ForgeArcRunSpec),
+  /** False when a read failed or membership was only partly read: the view says it is incomplete. */
+  complete: Schema.Boolean,
+  readAt: IsoDateTime,
+});
+export type ForgeArcRunDetail = typeof ForgeArcRunDetail.Type;
+
+export const ForgeArcRunReadInput = Schema.Struct({
+  threadId: ThreadId,
+  /** The run's Arc as the client knows it, so a new run is a new query. */
+  arc: PositiveInt,
+});
+export type ForgeArcRunReadInput = typeof ForgeArcRunReadInput.Type;
+
+export const ForgeArcRunDetailInput = Schema.Struct({
+  ...ForgeArcRunReadInput.fields,
+  /** Identifies one opening of the view, as for a card: a new one reads Forge at once. */
+  open: TrimmedNonEmptyString,
+});
+export type ForgeArcRunDetailInput = typeof ForgeArcRunDetailInput.Type;
+
+/** Null when the thread holds no Arc run or T3 is not connected to Weave. */
+export const ForgeArcRunSummaryResult = Schema.NullOr(ForgeArcRunSummary);
+export type ForgeArcRunSummaryResult = typeof ForgeArcRunSummaryResult.Type;
+export const ForgeArcRunDetailResult = Schema.NullOr(ForgeArcRunDetail);
+export type ForgeArcRunDetailResult = typeof ForgeArcRunDetailResult.Type;
+
 /** Where a Connect to Weave sign-in stands. `failed` names why in `reason`; `cancelled` is Weave's consent declined. */
 export const WeaveSignInState = Schema.Struct({
   status: Schema.Literals(["pending", "cancelled", "failed"]),

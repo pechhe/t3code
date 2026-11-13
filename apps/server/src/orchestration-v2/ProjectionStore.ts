@@ -1900,6 +1900,7 @@ export function threadShellFromProjection(
     ...(projection.thread.endedThreadWatches === undefined
       ? {}
       : { endedThreadWatches: projection.thread.endedThreadWatches }),
+    ...(projection.thread.arcRun === undefined ? {} : { arcRun: projection.thread.arcRun }),
     ...(projection.thread.parkedWaits === undefined
       ? {}
       : { parkedWaits: projection.thread.parkedWaits }),
@@ -2277,6 +2278,7 @@ function shellFromState(input: {
     ...(input.state.thread.endedThreadWatches === undefined
       ? {}
       : { endedThreadWatches: input.state.thread.endedThreadWatches }),
+    ...(input.state.thread.arcRun === undefined ? {} : { arcRun: input.state.thread.arcRun }),
     ...(input.state.thread.parkedWaits === undefined
       ? {}
       : { parkedWaits: input.state.thread.parkedWaits }),

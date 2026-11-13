@@ -35,6 +35,8 @@ import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
 import { ProjectChip } from "../ProjectChip";
 import { ThreadWorkflowMenu } from "./ThreadWorkflowMenu";
 import { ForgeWorkItemSegment } from "../forgeItem/ForgeWorkItemSegment";
+import { ArcRunChip } from "../arcRun/ArcRunChip";
+import { useThreadShell } from "../../state/entities";
 import { useForgeConnected, useThreadForgeWorkItem } from "../../state/forgeWorkItems";
 import {
   WorkspaceBreadcrumb,
@@ -112,6 +114,7 @@ export const ChatHeader = memo(function ChatHeader({
     reportFailure: false,
   });
   const forgeWorkItem = useThreadForgeWorkItem(isServerThread ? activeThreadRef : null).data;
+  const arcRun = useThreadShell(isServerThread ? activeThreadRef : null)?.arcRun;
   const buildConnected = useForgeConnected(isServerThread ? activeThreadEnvironmentId : null);
   const [renaming, setRenaming] = useState<{
     threadId: ThreadId;
@@ -472,6 +475,9 @@ export const ChatHeader = memo(function ChatHeader({
           ) : null}
         </WorkspaceBreadcrumbItem>
       </WorkspaceBreadcrumb>
+      {arcRun ? (
+        <ArcRunChip threadRef={activeThreadRef} arcRun={arcRun} onOpenThread={onOpenThread} />
+      ) : null}
       {actions}
       {isServerThread ? <GuestShareIndicator threadRef={activeThreadRef} /> : null}
     </div>

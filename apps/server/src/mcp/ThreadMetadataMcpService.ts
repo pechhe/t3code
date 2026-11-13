@@ -225,6 +225,8 @@ const make = Effect.gen(function* () {
                     },
                   }),
               ...(arcRunInput!.specs === undefined ? {} : { specs: arcRunInput!.specs }),
+              ...(arcRunInput!.plan === undefined ? {} : { plan: arcRunInput!.plan }),
+              ...(arcRunInput!.current === undefined ? {} : { current: arcRunInput!.current }),
               ...(arcRunInput!.phase === undefined ? {} : { phase: arcRunInput!.phase }),
               ...(arcRunInput!.note === undefined ? {} : { note: arcRunInput!.note }),
             })

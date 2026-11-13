@@ -139,6 +139,8 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.buildConnectionRead]: AuthOrchestrationReadScope,
   [WS_METHODS.forgeWorkItemRead]: AuthOrchestrationReadScope,
   [WS_METHODS.forgeWorkItemCard]: AuthOrchestrationReadScope,
+  [WS_METHODS.forgeArcRunSummary]: AuthOrchestrationReadScope,
+  [WS_METHODS.forgeArcRunDetail]: AuthOrchestrationReadScope,
   [WS_METHODS.forgeWorkItemMentions]: AuthOrchestrationReadScope,
   [WS_METHODS.forgeHomeRead]: AuthOrchestrationReadScope,
   [WS_METHODS.championsClassChoices]: AuthOrchestrationReadScope,

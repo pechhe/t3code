@@ -42,6 +42,9 @@ import {
   ARC_RUN_STALL_IDLE_MINUTES,
   ARC_RUN_TURN_CEILING,
   decideArcRunWake,
+  arcRunWakeMessage,
+  arcRunStallMessage,
+  arcRunAttentionMessage,
 } from "./arcRun.ts";
 import * as DelegatedTaskQuestionReactor from "./DelegatedTaskQuestionReactor.ts";
 import * as EffectOutbox from "./EffectOutbox.ts";
@@ -141,6 +144,8 @@ const arcRunCommand = Effect.fn(function* (
     readonly arc?: { readonly number: number; readonly ref?: string };
     readonly specs?: ReadonlyArray<number>;
     readonly phase?: string;
+    readonly plan?: ReadonlyArray<number>;
+    readonly current?: number | null;
   },
 ) {
   const orchestrator = yield* Orchestrator.OrchestratorV2;
@@ -411,9 +416,186 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
       assert.include(sent[0]!.text, `YS-ARC-${number}`);
       assert.include(sent[0]!.text, "Arc lead");
       assert.include(sent[0]!.text, "Re-read");
+      assert.include(sent[0]!.text, "No plan is recorded");
+      assert.include(sent[0]!.text, "No current Spec is recorded");
       // A second look at the same ended turn changes nothing.
       yield* reactor.handle(event);
       assert.equal((yield* wakes(threadId)).length, 1);
+    }),
+  );
+
+  it.effect(
+    "stores the plan and current Spec, preserves omissions and removes the ended run from shells",
+    () =>
+      Effect.gen(function* () {
+        const threadId = yield* createThread("planned");
+        const arc = { number: (arcNumbers += 1) };
+        yield* arcRunCommand(threadId, "start", {
+          op: "start",
+          arc,
+          specs: [101, 102],
+          plan: [102, 101],
+          current: 102,
+        });
+        const projections = yield* ProjectionStore.ProjectionStoreV2;
+        assert.deepEqual((yield* arcRunOf(threadId))?.plan, [102, 101]);
+        assert.equal((yield* projections.getThreadShell(threadId))?.arcRun?.current, 102);
+        const projectionShell = Effect.map(
+          projections.getThreadProjection(threadId),
+          ProjectionStore.threadShellFromProjection,
+        );
+        assert.deepEqual((yield* projectionShell).arcRun, yield* arcRunOf(threadId));
+        yield* arcRunCommand(threadId, "checkpoint", {
+          op: "checkpoint",
+          phase: "Implementing",
+          plan: [101, 102],
+          current: 101,
+        });
+        yield* arcRunCommand(threadId, "same", { op: "checkpoint", phase: "Implementing" });
+        assert.deepEqual((yield* arcRunOf(threadId))?.plan, [101, 102]);
+        assert.equal((yield* arcRunOf(threadId))?.current, 101);
+        yield* arcRunCommand(threadId, "start-again", { op: "start", arc, specs: [101, 102] });
+        assert.equal((yield* arcRunOf(threadId))?.current, 101);
+        yield* arcRunCommand(threadId, "clear", {
+          op: "checkpoint",
+          phase: "Implementing",
+          current: null,
+        });
+        assert.notProperty((yield* projections.getThreadShell(threadId))!.arcRun!, "current");
+        yield* arcRunCommand(threadId, "end", { op: "end" });
+        assert.notProperty((yield* projections.getThreadShell(threadId))!, "arcRun");
+        assert.notProperty(yield* projectionShell, "arcRun");
+      }),
+  );
+
+  it.effect(
+    "refuses duplicate or out-of-scope plans and current Specs on start and checkpoint",
+    () =>
+      Effect.gen(function* () {
+        for (const op of ["start", "checkpoint"] as const) {
+          for (const [index, invalid] of [
+            { plan: [101, 101], current: 101 },
+            { plan: [101], current: 101 },
+            { plan: [101, 103], current: 101 },
+            { plan: [101, 102], current: 103 },
+            { current: 103 },
+          ].entries()) {
+            const threadId = yield* createThread(`invalid-${op}-${index}`);
+            const arc = { number: (arcNumbers += 1) };
+            if (op === "checkpoint") {
+              yield* arcRunCommand(threadId, "start", { op: "start", arc, specs: [101, 102] });
+            }
+            const result = yield* arcRunCommand(threadId, "invalid", {
+              op,
+              arc,
+              specs: [101, 102],
+              phase: "Implementing",
+              ...invalid,
+            }).pipe(Effect.exit);
+            assert.equal(result._tag, "Failure");
+          }
+        }
+        const threadId = yield* createThread("whole-plan");
+        const arc = { number: (arcNumbers += 1) };
+        yield* arcRunCommand(threadId, "start", {
+          op: "start",
+          arc,
+          plan: [201, 202],
+          current: 201,
+        });
+        const invalidCurrent = yield* arcRunCommand(threadId, "outside-plan", {
+          op: "checkpoint",
+          phase: "Implementing",
+          current: 203,
+        }).pipe(Effect.exit);
+        assert.equal(invalidCurrent._tag, "Failure");
+        const invalidPlan = yield* arcRunCommand(threadId, "drops-current", {
+          op: "checkpoint",
+          phase: "Implementing",
+          plan: [202, 203],
+        }).pipe(Effect.exit);
+        assert.equal(invalidPlan._tag, "Failure");
+        yield* arcRunCommand(threadId, "new-current", {
+          op: "checkpoint",
+          phase: "Implementing",
+          plan: [203, 202],
+          current: 203,
+        });
+        assert.deepEqual((yield* arcRunOf(threadId))?.plan, [203, 202]);
+      }),
+  );
+
+  it.effect("only a changed phase or a different current Spec advances progress", () =>
+    Effect.gen(function* () {
+      const threadId = yield* createThread("plan-progress");
+      yield* arcRunCommand(threadId, "start", {
+        op: "start",
+        arc: { number: (arcNumbers += 1) },
+        plan: [101, 102],
+        current: 101,
+      });
+      yield* arcRunCommand(threadId, "phase", { op: "checkpoint", phase: "Implementing" });
+      const initial = (yield* arcRunOf(threadId))!.progressAt;
+      yield* TestClock.adjust("1 minute");
+      yield* arcRunCommand(threadId, "reorder", {
+        op: "checkpoint",
+        phase: "Implementing",
+        plan: [102, 101],
+      });
+      assert.equal((yield* arcRunOf(threadId))?.progressAt, initial);
+      yield* arcRunCommand(threadId, "clear", {
+        op: "checkpoint",
+        phase: "Implementing",
+        current: null,
+      });
+      assert.equal((yield* arcRunOf(threadId))?.progressAt, initial);
+      yield* arcRunCommand(threadId, "next", {
+        op: "checkpoint",
+        phase: "Implementing",
+        current: 102,
+      });
+      const advanced = (yield* arcRunOf(threadId))!.progressAt;
+      assert.notEqual(advanced, initial);
+      yield* TestClock.adjust("1 minute");
+      yield* arcRunCommand(threadId, "same", {
+        op: "checkpoint",
+        phase: "Implementing",
+        current: 102,
+      });
+      assert.equal((yield* arcRunOf(threadId))?.progressAt, advanced);
+      yield* arcRunCommand(threadId, "different", {
+        op: "checkpoint",
+        phase: "Implementing",
+        current: 101,
+      });
+      assert.notEqual((yield* arcRunOf(threadId))?.progressAt, advanced);
+    }),
+  );
+
+  it.effect("wake, stalled-child and attention notes describe the same plan and current Spec", () =>
+    Effect.gen(function* () {
+      const { threadId } = yield* setup("plan-notes");
+      yield* arcRunCommand(threadId, "plan", {
+        op: "checkpoint",
+        phase: "Implementing",
+        plan: [102, 101],
+        current: 102,
+      });
+      const arcRun = (yield* arcRunOf(threadId))!;
+      const messages = [
+        arcRunWakeMessage({ arcRun, decision: { kind: "continue" }, answersQuestion: false }),
+        arcRunStallMessage({
+          arcRun,
+          stall: { childThreadId: "child", title: "Spec lead", quietMinutes: 30, openWork: false },
+        }),
+        arcRunAttentionMessage({ arcRun, reason: "no-progress" }),
+      ];
+      for (const { text } of messages) {
+        assert.include(text, "Arc lead");
+        assert.include(text, "#102 → #101");
+        assert.include(text, "current Spec: #102");
+        assert.include(text, "last checkpoint: Implementing");
+      }
     }),
   );
 
@@ -1028,14 +1210,23 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
     Effect.gen(function* () {
       const reactor = yield* ArcRunReactor.ArcRunReactor;
       const { threadId, run } = yield* setup("cap");
-      yield* arcRunCommand(threadId, "first", { op: "checkpoint", phase: "Implementing" });
+      yield* arcRunCommand(threadId, "first", {
+        op: "checkpoint",
+        phase: "Implementing",
+        plan: [101, 102],
+        current: 101,
+      });
       let current = run;
       for (let wake = 0; wake < ARC_RUN_NO_PROGRESS_CAP; wake += 1) {
         yield* reactor.handle(yield* finish(current));
         current = yield* latestRun(threadId);
         yield* TestClock.adjust("1 minute");
         // Checkpointing the same phase is not progress.
-        yield* arcRunCommand(threadId, `same:${wake}`, { op: "checkpoint", phase: "Implementing" });
+        yield* arcRunCommand(threadId, `same:${wake}`, {
+          op: "checkpoint",
+          phase: "Implementing",
+          plan: wake % 2 === 0 ? [102, 101] : [101, 102],
+        });
       }
       assert.equal((yield* wakes(threadId)).length, ARC_RUN_NO_PROGRESS_CAP);
       assert.equal((yield* arcRunOf(threadId))?.state, "active");

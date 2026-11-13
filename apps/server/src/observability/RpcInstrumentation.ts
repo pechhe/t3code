@@ -126,6 +126,8 @@ const RPC_AGGREGATES = {
   [WS_METHODS.retainedWeaveDisconnect]: "build",
   [WS_METHODS.forgeWorkItemRead]: "build",
   [WS_METHODS.forgeWorkItemCard]: "build",
+  [WS_METHODS.forgeArcRunSummary]: "build",
+  [WS_METHODS.forgeArcRunDetail]: "build",
   [WS_METHODS.forgeWorkItemMentions]: "build",
   [WS_METHODS.forgeWorkItemLink]: "build",
   [WS_METHODS.forgeHomeRead]: "build",

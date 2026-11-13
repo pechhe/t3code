@@ -210,6 +210,18 @@ function arcRunRole(arcRun: OrchestrationV2ThreadArcRun): string {
     : `You lead Specs ${arcRun.specs.map((number) => `#${number}`).join(", ")} within Arc ${label}, responsible for delivering those and not the rest of the Arc.`;
 }
 
+export function describeArcRun(arcRun: OrchestrationV2ThreadArcRun): string {
+  const plan =
+    arcRun.plan === undefined
+      ? "No plan is recorded. Record the intended Spec order with t3_thread_update action arc_run."
+      : `Your plan, in order: ${arcRun.plan.map((number) => `#${number}`).join(" → ")}.`;
+  const current =
+    arcRun.current === undefined
+      ? "No current Spec is recorded."
+      : `Your current Spec: #${arcRun.current}.`;
+  return `${arcRunRole(arcRun)} ${plan} ${current} ${checkpointLine(arcRun)}`;
+}
+
 const YIELD_RULE =
   "Before this turn ends, one of these must hold: work is running; a delegated task or watch will wake you; every remaining item is a Forge hold with a watch on it; or the outcome is proven and you have called t3_thread_update action arc_run with op end. A final report alone does not end the run. Record each step with op checkpoint.";
 
@@ -227,7 +239,7 @@ export function arcRunWakeMessage(input: {
     arcRun.specs === undefined
       ? "the Arc and its member Specs"
       : "those Specs and the Arc's direction";
-  const body = `${arcRunRole(arcRun)} T3 resumed this thread because ${CONDITION[input.decision.kind]}. ${checkpointLine(arcRun)}${resumed} Re-read ${reread} from Forge, reconcile what is actually delivered and who owns what before dispatching anything, decide within your authority and continue. ${YIELD_RULE}`;
+  const body = `${describeArcRun(arcRun)} T3 resumed this thread because ${CONDITION[input.decision.kind]}.${resumed} Re-read ${reread} from Forge, reconcile what is actually delivered and who owns what before dispatching anything, decide within your authority and continue. ${YIELD_RULE}`;
   const text = input.answersQuestion ? `${ARC_RUN_ANSWER}\n\n${body}` : body;
   return {
     text,
@@ -251,7 +263,7 @@ export function arcRunStallMessage(input: {
 }): { readonly text: string; readonly notification: OrchestrationV2Notification } {
   const { stall } = input;
   const label = arcLabel(input.arcRun);
-  const text = `${arcRunRole(input.arcRun)} Your delegated task "${stall.title}" (thread ${stall.childThreadId}) has been silent for ${stall.quietMinutes} minutes${stall.openWork ? " with a command or tool still open, which can be legitimate" : " with nothing open"}. T3 has changed nothing. Read that thread, then decide: leave it, send it a correction, or cancel and replace it. ${YIELD_RULE}`;
+  const text = `${describeArcRun(input.arcRun)} Your delegated task "${stall.title}" (thread ${stall.childThreadId}) has been silent for ${stall.quietMinutes} minutes${stall.openWork ? " with a command or tool still open, which can be legitimate" : " with nothing open"}. T3 has changed nothing. Read that thread, then decide: leave it, send it a correction, or cancel and replace it. ${YIELD_RULE}`;
   return {
     text,
     notification: {
@@ -271,8 +283,8 @@ export function arcRunAttentionMessage(input: {
   const why =
     input.reason === "ceiling"
       ? `this run has reached its limit of ${ARC_RUN_TURN_CEILING} turns without a message from the owner`
-      : `T3 woke you ${ARC_RUN_NO_PROGRESS_CAP} times with no checkpoint advancing to a new phase`;
-  const text = `T3 has stopped waking this thread for Arc ${label} because ${why}. This is your last turn until the owner replies. Start no new work. Tell him plainly what is done, what is stuck and what you need from him, then end your turn.`;
+      : `T3 woke you ${ARC_RUN_NO_PROGRESS_CAP} times with no checkpoint advancing to a new phase or current Spec`;
+  const text = `${describeArcRun(input.arcRun)} T3 has stopped waking this thread for Arc ${label} because ${why}. This is your last turn until the owner replies. Start no new work. Tell him plainly what is done, what is stuck and what you need from him, then end your turn.`;
   return {
     text,
     notification: {

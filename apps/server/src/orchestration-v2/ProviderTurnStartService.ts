@@ -1,3 +1,5 @@
+import { describeArcRun } from "./arcRun.ts";
+import { ARC_RUN_WAKE_MESSAGE_PREFIX } from "./serverContinuation.ts";
 import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
 import * as ProcessRunner from "../processRunner.ts";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
@@ -2388,6 +2390,12 @@ export const layer: Layer.Layer<
                   } satisfies TurnWorkspace;
                 }),
             );
+      const arcRunNote =
+        projection.thread.arcRun === undefined ||
+        goalCommand ||
+        message.id.startsWith(ARC_RUN_WAKE_MESSAGE_PREFIX)
+          ? ""
+          : describeArcRun(projection.thread.arcRun);
       const startWithHandoffs = Effect.fn("ProviderTurnStartService.startWithHandoffs")(
         function* (turnInput: Parameters<typeof session.startTurn>[0], compact = false) {
           const delivery = yield* deliverContextHandoffs({
@@ -2418,6 +2426,7 @@ export const layer: Layer.Layer<
             delivery.context,
             sideChatContext,
             restartNote,
+            compact ? "" : arcRunNote,
             isSideChatThread(projection.thread) ? SIDE_CHAT_NOTE : "",
             offersProjectSuggestion ? NO_PROJECT_NOTE : "",
             projectFolder === "" ? "" : projectFolderNote(projectFolder),
@@ -2509,6 +2518,7 @@ export const layer: Layer.Layer<
         retryHandoff.length === 0 &&
         sideChatHandoff === undefined &&
         restartNote === "" &&
+        arcRunNote === "" &&
         !noteContinuation &&
         !isSideChatThread(projection.thread) &&
         !scheduled &&
