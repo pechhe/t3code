@@ -3,6 +3,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import {
   ANTIGRAVITY_DEFAULT_MODEL,
+  EnvironmentId,
   ProviderInstanceId,
   ProviderSessionId,
   ThreadId,
@@ -139,6 +140,8 @@ const makeHarness = Effect.fn("makeAntigravityDriverHarness")(function* (
     profileDirectory: string | undefined;
     harnessPath: string | undefined;
     forceFileStorage: string | undefined;
+    mcpNode: string | undefined;
+    mcpEndpoint: string | undefined;
     credentialKeys: ReadonlyArray<string>;
     geminiApiKey: string | undefined;
     tempDirectory: string | undefined;
@@ -194,6 +197,8 @@ const makeHarness = Effect.fn("makeAntigravityDriverHarness")(function* (
         profileDirectory: env("GEMINI_HOME"),
         harnessPath: env("ANTIGRAVITY_HARNESS_PATH"),
         forceFileStorage: env("AGY_ACP_FORCE_FILE_STORAGE"),
+        mcpNode: env("T3_ACP_MCP_NODE"),
+        mcpEndpoint: env("T3_ACP_MCP_ENDPOINT"),
         credentialKeys: Object.keys(environment).filter((key) =>
           blockedCredentialKeys.has(key.toUpperCase()),
         ),
@@ -372,6 +377,16 @@ it.layer(layerTest)("AntigravityDriver", (it) => {
           cwd: workspace,
         });
         const modelSelection = { instanceId: h.instance.instanceId, model: "gemini-test-low" };
+        const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
+        yield* mcpSessions.set({
+          environmentId: EnvironmentId.make("antigravity-test"),
+          threadId,
+          providerSessionId: "provider-session-antigravity-capabilities",
+          providerInstanceId: h.instance.instanceId,
+          endpoint: "http://127.0.0.1:1/mcp/editor",
+          authorizationHeader: "Bearer fixture",
+          browserToolsAvailable: false,
+        });
         const session = yield* h.instance.orchestrationAdapter.openSession({
           threadId,
           providerSessionId: ProviderSessionId.make("provider-session-antigravity-capabilities"),
@@ -379,6 +394,8 @@ it.layer(layerTest)("AntigravityDriver", (it) => {
           runtimePolicy,
         });
         yield* session.ensureThread({ threadId, modelSelection, runtimePolicy });
+        expect(h.launches.at(-1)?.mcpNode).toBeTruthy();
+        expect(h.launches.at(-1)?.mcpEndpoint).toBe("http://127.0.0.1:1/mcp/editor");
 
         const helper = {
           fs: { readTextFile: false, writeTextFile: false },

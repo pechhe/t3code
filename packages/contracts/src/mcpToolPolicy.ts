@@ -144,6 +144,7 @@ export const toolFamily = (name: string): ToolFamily => {
  * roles (`delegate_task` checks the role). `McpHttpServer` applies it to listing and calling.
  */
 export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
+  "tool_search",
   "watch_pull_request",
   "unwatch_pull_request",
   "ask_advice",

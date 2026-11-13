@@ -1592,30 +1592,30 @@ const layerDeferredListing = McpServer.visibility(
 );
 
 /** Outside layerTools: the clients its budget measures never list `tool_search`. */
-export const layerToolSearch = Layer.mergeAll(
+const layerToolSearch = Layer.mergeAll(
   toolkitRegistration(ToolSearchToolkit, ToolSearchHandlers.layer),
   layerDeferredListing,
 ).pipe(Layer.provide(layerToolExposure));
 
-const layerSessionEndpoint = (
+export const layerSessionTransport = <RA, RE, RR>(
   key: SessionEndpointKey,
-  endpoint: { readonly path: string; readonly families: ReadonlySet<ToolFamily> },
+  registrations: Layer.Layer<RA, RE, RR>,
 ) =>
   Layer.fresh(
     McpServer.layerHttp({
       name: "T3 Code",
       version: packageJson.version,
-      path: endpoint.path as HttpRouter.PathInput,
+      path: SESSION_TOOL_ENDPOINTS[key].path as HttpRouter.PathInput,
       protocols: [McpProtocol.v2025_06_18],
       allowSessionTermination: true,
-      registrations: Layer.mergeAll(
-        layerSessionToolkits(endpoint.families).pipe(Layer.provide(layerSessionToolkitServices)),
-        Layer.fresh(layerToolSearch),
-      ),
+      registrations: Layer.mergeAll(registrations, layerToolSearch),
     }).pipe(Layer.provide(layerSessionAuthMiddleware(key))),
   );
 const sessionEndpointLayers = Object.entries(SESSION_TOOL_ENDPOINTS).map(([key, endpoint]) =>
-  layerSessionEndpoint(key as SessionEndpointKey, endpoint),
+  layerSessionTransport(
+    key as SessionEndpointKey,
+    layerSessionToolkits(endpoint.families).pipe(Layer.provide(layerSessionToolkitServices)),
+  ),
 );
 export const layerManagedBrowserToolkit = Layer.fresh(
   Layer.mergeAll(
@@ -1671,7 +1671,7 @@ export const layerMcpTransport = <RA, RE, RR>(registrations: Layer.Layer<RA, RE,
     // The first protocol is the fallback for clients that offer an unknown version.
     protocols: [McpProtocol.v2025_06_18, McpProtocol.v2026_07_28],
     allowSessionTermination: true,
-    registrations,
+    registrations: Layer.mergeAll(registrations, layerToolSearch),
   }).pipe(Layer.provide(layerMcpAuthMiddleware));
 
 /** Every tool the T3 MCP server advertises. AgentContextBudget.test.ts measures this set. */
@@ -1699,7 +1699,7 @@ export const layerTools = Layer.mergeAll(
 );
 
 export const layer = Layer.mergeAll(
-  layerMcpTransport(Layer.mergeAll(layerTools, Layer.fresh(layerToolSearch))),
+  Layer.fresh(layerMcpTransport(layerTools)),
   layerManagedBrowserToolkit,
   ...sessionEndpointLayers,
 ).pipe(

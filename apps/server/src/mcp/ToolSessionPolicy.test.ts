@@ -1,3 +1,4 @@
+import { ToolSearchToolkit } from "./toolkits/toolSearch/tools.ts";
 import { DecisionToolkit } from "./toolkits/decisions/tools.ts";
 import {
   isToolListedForSession,
@@ -100,7 +101,7 @@ const session = (
 const budgets: ReadonlyArray<[string, SessionToolProfile | undefined, number]> = [
   ["editor", undefined, 149_000],
   ["editor worker", session("implementation", "implementer"), 149_000],
-  ["reader", session("source-reader", "reviewer"), 42_500],
+  ["reader", session("source-reader", "reviewer"), 43_000],
   ["browser", session("phi", "browser"), 36_500],
   ["researcher", session("web-research", "researcher"), 19_500],
 ];
@@ -232,7 +233,7 @@ it("lists every editor the same tools, whatever its role", () => {
 });
 
 it("keeps a read-only agent to the closed list, and every name on it real", () => {
-  const catalogue = tools.map((tool) => tool.name);
+  const catalogue = [...tools, ...Object.values(ToolSearchToolkit.tools)].map((tool) => tool.name);
   const reader = session("source-reader", "reviewer");
   const known = new Set<string>(catalogue);
   for (const name of READ_ONLY_TOOLS) {

@@ -2366,7 +2366,6 @@ it.effect("lists optional tools to a deferring client only after tool_search loa
               schedule_task: reads,
             }),
           ),
-          McpHttpServer.layerToolSearch,
         ),
       ).pipe(
         Layer.provide(ServerSettings.layerTest()),

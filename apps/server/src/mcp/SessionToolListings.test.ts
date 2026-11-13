@@ -6,6 +6,11 @@ import * as ContextPeerLinkRequests from "../peer/PeerLinkRequests.ts";
 import * as ContextPeerLinks from "../peer/PeerLinks.ts";
 import * as ContextProjectCloneTracker from "../project/ProjectCloneTracker.ts";
 import * as ContextDocumentText from "../provider/DocumentText.ts";
+import { NodeHttpServer } from "@effect/platform-node";
+import { HttpBody, HttpClient, HttpRouter } from "effect/http";
+import * as McpSessionRegistry from "./McpSessionRegistry.ts";
+import * as McpInvocationContext from "./McpInvocationContext.ts";
+import { EnvironmentId, ThreadId, ProviderInstanceId } from "@t3tools/contracts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as DecisionRouter from "../decisionRouting/DecisionRouter.ts";
 import * as BrowserTaskService from "../browserTasks/BrowserTaskService.ts";
@@ -224,4 +229,127 @@ it.effect("gives an editor every toolkit, including what used to be workspace-on
       Layer.merge(contextServices, Layer.mock(FixtureRemoteDelegation.RemoteDelegation)({})),
     ),
   ),
+);
+
+it.effect("loads editor tools through its own deferred HTTP catalogue", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const scope: McpInvocationContext.McpThreadInvocationScope = {
+        environmentId: EnvironmentId.make("editor-tools-test"),
+        requestNamespace: "editor-tools-test",
+        endpointKey: "editor",
+        thread: {
+          threadId: ThreadId.make("editor-tools-test"),
+          providerSessionId: "editor-tools-test",
+          providerInstanceId: ProviderInstanceId.make("antigravity"),
+        },
+        client: undefined,
+        capabilities: new Set(["orchestration"]),
+        issuedAt: 1,
+      };
+      const endpoints = Layer.mergeAll(
+        McpHttpServer.layerSessionTransport(
+          "editor",
+          McpHttpServer.layerSessionToolkits(SESSION_TOOL_ENDPOINTS.editor.families),
+        ),
+        McpHttpServer.layerSessionTransport(
+          "reader",
+          McpHttpServer.layerSessionToolkits(SESSION_TOOL_ENDPOINTS.reader.families),
+        ),
+      ).pipe(
+        Layer.provide(serviceMocks),
+        Layer.provide(contextServices),
+        Layer.provide(Layer.mock(FixtureRemoteDelegation.RemoteDelegation)({})),
+        Layer.provide(
+          Layer.mock(McpSessionRegistry.McpSessionRegistry)({
+            resolve: (token) =>
+              Effect.succeed({ ...scope, endpointKey: token === "reader" ? "reader" : "editor" }),
+          }),
+        ),
+        Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+      );
+      yield* HttpRouter.serve(endpoints, { disableListenLog: true, disableLogger: true }).pipe(
+        Layer.build,
+      );
+      const client = yield* HttpClient.HttpClient;
+      const connect = (key: "editor" | "reader") =>
+        Effect.gen(function* () {
+          const path = SESSION_TOOL_ENDPOINTS[key].path;
+          const headers = {
+            accept: "application/json, text/event-stream",
+            authorization: `Bearer ${key}`,
+            "t3-tool-exposure": "deferred",
+          };
+          const initialize = yield* client.post(path, {
+            headers,
+            body: HttpBody.jsonUnsafe({
+              jsonrpc: "2.0",
+              id: 1,
+              method: "initialize",
+              params: {
+                protocolVersion: "2025-06-18",
+                capabilities: {},
+                clientInfo: { name: "probe", version: "1" },
+              },
+            }),
+          });
+          const rpc = (method: string, params: object) =>
+            client
+              .post(path, {
+                headers: {
+                  ...headers,
+                  "mcp-session-id": initialize.headers["mcp-session-id"]!,
+                  "mcp-protocol-version": "2025-06-18",
+                },
+                body: HttpBody.jsonUnsafe({ jsonrpc: "2.0", id: 2, method, params }),
+              })
+              .pipe(
+                Effect.flatMap((response) => response.text),
+                Effect.map((text) =>
+                  text
+                    .split("\n")
+                    .filter((line) => line.startsWith("data: ") || line.startsWith("{"))
+                    .map(
+                      (line) =>
+                        JSON.parse(line.replace(/^data: /u, "")) as {
+                          id?: number;
+                          error?: { code: number; message: string };
+                          result?: { tools?: Array<{ name: string }>; structuredContent?: unknown };
+                        },
+                    )
+                    .find((message) => message.id === 2)!,
+                ),
+              );
+          return {
+            rpc,
+            listed: rpc("tools/list", {}).pipe(
+              Effect.map((body) => body.result!.tools!.map((tool) => tool.name).sort()),
+            ),
+          };
+        });
+      const editor = yield* connect("editor");
+      const reader = yield* connect("reader");
+      const core = ["delegate_task", "orchestrator_capabilities", "task_status", "tool_search"];
+      expect(yield* editor.listed).toEqual(core);
+      expect(yield* reader.listed).toEqual(core);
+      const result = yield* editor.rpc("tools/call", {
+        name: "tool_search",
+        arguments: { query: "html_render" },
+      });
+      expect(result.result?.structuredContent).toMatchObject({
+        tools: expect.arrayContaining([expect.objectContaining({ name: "html_render" })]),
+      });
+      expect(yield* editor.listed).toContain("html_render");
+      expect(yield* reader.listed).toEqual(core);
+      yield* reader.rpc("tools/call", { name: "tool_search", arguments: { query: "html_render" } });
+      expect(yield* reader.listed).toContain("html_render");
+      yield* reader.rpc("tools/call", {
+        name: "tool_search",
+        arguments: { query: "t3_project_create" },
+      });
+      expect(yield* reader.listed).not.toContain("t3_project_create");
+      const denied = yield* reader.rpc("tools/call", { name: "t3_project_create", arguments: {} });
+      expect(denied.error?.message).toContain("not found");
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );

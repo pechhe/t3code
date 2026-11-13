@@ -46,6 +46,7 @@ export interface AntigravityAcpRuntimeInput extends Omit<
   /** Serve `fs/read_text_file` for runtimes whose native reader is not qualified. */
   readonly clientFileReads?: boolean;
   readonly clientCapabilities?: AcpSessionRuntime.AcpSessionRuntimeOptions["clientCapabilities"];
+  readonly processEnvironment?: NodeJS.ProcessEnv;
   /** The installed version, known before `initialize`; it picks the file reader and client name. */
   readonly runtimeVersion?: string | null;
   /** Conversational sessions only; helpers and probes leave the system prompt untouched. */
