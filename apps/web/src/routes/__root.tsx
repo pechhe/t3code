@@ -64,6 +64,7 @@ import { readProject } from "../state/entities";
 
 import { isSnapShotOverlaySurface } from "../lib/appSurface";
 import { getDesktopSnapShotBridge } from "../lib/desktopSnapShot";
+import { isChunkLoadError } from "../lib/chunkReloadGuard";
 import { shouldResumeSnapShotSetupOnStartup } from "../lib/snapShotSetupResume";
 import { useComposerFinishSync } from "../lib/composerFinish";
 
@@ -270,7 +271,12 @@ function RootRouteErrorView({ error }: ErrorComponentProps) {
       <StandalonePageHeader title="Something went wrong." description={message} />
 
       <div className="mt-5 flex flex-wrap gap-2">
-        <Button size="sm" onClick={() => void router.invalidate()}>
+        <Button
+          size="sm"
+          onClick={() =>
+            isChunkLoadError(error) ? window.location.reload() : void router.invalidate()
+          }
+        >
           Try again
         </Button>
         <Button size="sm" variant="outline" onClick={() => window.location.reload()}>

@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
-// Both are read by name (INDEXED BY), so dropping or renaming one fails its readers' tests.
+// Watch reactors address the watching index by name; migration 129 replaces the original type-index keys.
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   // ProjectionStore.readCanonicalProjection's turn-item type filter.

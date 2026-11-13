@@ -306,7 +306,8 @@ export function layerWithRegistry<Error>(
   | EventSink.EventSinkV2
   | ProviderSessionManager.ProviderSessionManagerV2
   | CommandOutputRecorder.CommandOutputRecorder
-  | ProjectStore.ProjectStoreV2,
+  | ProjectStore.ProjectStoreV2
+  | ThreadCommandExecutor.ThreadCommandExecutor,
   Error | MigrationError | PlatformError.PlatformError | SqlError
 > {
   const layerServerConfig = Layer.effect(
@@ -475,7 +476,9 @@ export function layerWithRegistry<Error>(
         framesForMessage: () => Effect.succeed({ frames: [], guide: "" }),
       }),
     ),
-    Layer.provide(Layer.merge(layerStores, layerProviderSessionManagerProvided)),
+    Layer.provide(
+      Layer.mergeAll(layerEventSinkProvided, layerStores, layerProviderSessionManagerProvided),
+    ),
   );
   const layerRuntimeRequestServiceProvided = RuntimeRequestService.layer.pipe(
     Layer.provide(Layer.merge(layerStores, layerProviderSessionManagerProvided)),
@@ -587,6 +590,7 @@ export function layerWithRegistry<Error>(
     layerContinuationWorkerProvided,
     layerCommandOutputHubProvided,
     layerStores,
+    ThreadCommandExecutor.layer,
   ).pipe(
     Layer.provide(ProviderTurnStartServiceTestkit.layer),
     // Replays never compact across accounts, so no instance is resolvable.

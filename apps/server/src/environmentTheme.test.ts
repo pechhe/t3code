@@ -60,7 +60,7 @@ const withEnvironmentThemes = <A, E>(
         ),
       ),
     );
-  }).pipe(Effect.scoped);
+  });
 
 const currentThemes = Effect.gen(function* () {
   const environmentTheme = yield* EnvironmentTheme.EnvironmentThemeService;

@@ -4,7 +4,6 @@ import type * as NodeWorkerThreads from "node:worker_threads";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
-import type * as Duration from "effect/Duration";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -27,11 +26,27 @@ import * as SqliteClient from "./nodeSqliteClient.ts";
 const startedWorkers = vi.hoisted((): Array<NodeWorkerThreads.Worker> => []);
 const silentWorkers = vi.hoisted(() => ({ on: false, readyOnTerminate: false }));
 const failingWorkers = vi.hoisted(() => ({ message: undefined as string | undefined }));
+const gateFixture = vi.hoisted(() => ({ lowerCeiling: false, disableAuthorizer: false }));
+const checkpointWorkers = vi.hoisted((): Array<NodeWorkerThreads.Worker> => []);
 
 vi.mock("node:worker_threads", async (importOriginal) => {
   const actual = await importOriginal<typeof NodeWorkerThreads>();
   class RecordedWorker extends actual.Worker {
     constructor(...args: ConstructorParameters<typeof actual.Worker>) {
+      if (gateFixture.lowerCeiling && args[1]?.workerData?.writer) {
+        args[1] = {
+          ...args[1],
+          workerData: { ...args[1].workerData, frameLimit: 100, backstop: 50 },
+        };
+      }
+      if (
+        gateFixture.disableAuthorizer &&
+        args[1]?.workerData?.writer &&
+        typeof args[0] === "string"
+      ) {
+        args[0] =
+          'require("node:sqlite").DatabaseSync.prototype.setAuthorizer = undefined;\n' + args[0];
+      }
       super(
         ...((silentWorkers.on
           ? ["setInterval(() => {}, 1 << 30);", { eval: true }]
@@ -40,6 +55,7 @@ vi.mock("node:worker_threads", async (importOriginal) => {
             : args) as ConstructorParameters<typeof actual.Worker>),
       );
       startedWorkers.push(this);
+      if (args[1]?.workerData?.frames !== undefined) checkpointWorkers.push(this);
     }
     override terminate() {
       // A "ready" already queued when termination starts reaches the parent before "exit".
@@ -253,7 +269,7 @@ it.effect("waits for another process's lock while the database opens", () =>
     yield* Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       assert.deepEqual(yield* sql`SELECT COUNT(*) FROM entries`.values, [[0]]);
-    }).pipe(Effect.provide(SqliteClient.layer({ filename, checkpointWorker: true })));
+    }).pipe(Effect.provide(SqliteClient.layer({ filename, writerWorker: true })));
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 
@@ -273,6 +289,67 @@ it.effect("reports a transaction blocked by another writer as a lock timeout", (
       assert.deepEqual(yield* read, [[0]]);
     }).pipe(Effect.provide(SqliteClient.layer({ filename })));
   }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("lets the event loop run while a write waits for another connection's lock", () =>
+  Effect.gen(function* () {
+    const { filename, other } = yield* makeTempDatabase;
+    yield* Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`PRAGMA busy_timeout = 5000`;
+      yield* Effect.sync(() => other.exec("BEGIN IMMEDIATE"));
+      const write = yield* Effect.forkChild(
+        sql`UPDATE counters SET value = value + 1 WHERE id = 1`,
+        { startImmediately: true },
+      );
+      // A writer on the event loop sleeps in SQLite's busy handler here, so this commit
+      // cannot run until that write has already timed out.
+      yield* eventLoopTurn;
+      yield* Effect.sync(() => other.exec("UPDATE counters SET value = 10 WHERE id = 1; COMMIT"));
+      yield* Fiber.join(write);
+      assert.deepEqual(yield* sql`SELECT value FROM counters WHERE id = 1`.values, [[11]]);
+    }).pipe(Effect.provide(SqliteClient.layer({ filename, writerWorker: true })));
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.effect("finishes a write already sent to the writer before its caller is interrupted", () =>
+  Effect.gen(function* () {
+    const { filename, other } = yield* makeTempDatabase;
+    yield* Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`PRAGMA busy_timeout = 5000`;
+      yield* Effect.sync(() => other.exec("BEGIN IMMEDIATE"));
+      const posted = yield* Deferred.make<void>();
+      const writer = startedWorkers.findLast((worker) => !checkpointWorkers.includes(worker))!;
+      const post = writer.postMessage.bind(writer);
+      using _observe = vi.spyOn(writer, "postMessage").mockImplementation((message, ...args) => {
+        post(message, ...args);
+        if (
+          message &&
+          typeof message === "object" &&
+          "sql" in message &&
+          typeof message.sql === "string" &&
+          message.sql.startsWith("UPDATE") &&
+          !("type" in message)
+        )
+          Deferred.doneUnsafe(posted, Effect.void);
+      });
+      const write = yield* Effect.forkChild(
+        sql`UPDATE counters SET value = value + 1 WHERE id = 1`,
+        { startImmediately: true },
+      );
+      yield* Deferred.await(posted);
+      const interrupted = yield* Effect.forkChild(Fiber.interrupt(write), {
+        startImmediately: true,
+      });
+      yield* eventLoopTurn;
+      // The write is waiting in the worker for the lock, so the interrupt has to wait too.
+      assert.isUndefined(interrupted.pollUnsafe());
+      yield* Effect.sync(() => other.exec("COMMIT"));
+      yield* Fiber.join(interrupted);
+      assert.deepEqual(yield* sql`SELECT value FROM counters WHERE id = 1`.values, [[1]]);
+    }).pipe(Effect.provide(SqliteClient.layer({ filename, writerWorker: true })));
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 
 it.effect("lets the writer commit while a read-only transaction is open", () =>
@@ -525,10 +602,6 @@ const withCheckpointClient = <A, E>(
     sql: SqlClient.SqlClient,
     filename: string,
   ) => Effect.Effect<A, E, SqlClient.SqlClient | FileSystem.FileSystem | Scope.Scope>,
-  options: {
-    readonly readerWorker?: boolean;
-    readonly checkpointGateBound?: Duration.Input;
-  } = {},
 ) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -539,170 +612,13 @@ const withCheckpointClient = <A, E>(
       const sql = yield* SqlClient.SqlClient;
       yield* sql`PRAGMA journal_mode = WAL`;
       return yield* use(sql, filename);
-    }).pipe(Effect.provide(SqliteClient.layer({ filename, checkpointWorker: true, ...options })));
+    }).pipe(
+      Effect.provide(
+        SqliteClient.layer({ filename, writerWorker: true, checkpointGateBound: "1 millis" }),
+      ),
+    );
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer));
 
-const checkpointWorkerReply = (worker: NodeWorkerThreads.Worker) =>
-  Effect.promise(
-    () =>
-      new Promise<void>((resolve) => {
-        let replies = 0;
-        const onReply = (reply: unknown) => {
-          if (reply !== "barrier") return;
-          if (++replies < 2) {
-            // One checkpoint response may queue a coalesced follow-up behind the first barrier.
-            // A second barrier observes that follow-up and makes the helper deterministic.
-            // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Node workers do not accept a target origin.
-            worker.postMessage("barrier");
-            return;
-          }
-          worker.off("message", onReply);
-          resolve();
-        };
-        worker.on("message", onReply);
-        // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Node workers do not accept a target origin.
-        worker.postMessage("barrier");
-      }),
-  );
-
-const pauseCheckpointRequests = (worker: NodeWorkerThreads.Worker) => {
-  const queued: Array<Parameters<typeof worker.postMessage>> = [];
-  const send = worker.postMessage.bind(worker);
-  const spy = vi.spyOn(worker, "postMessage").mockImplementation((...args) => {
-    queued.push(args);
-  });
-  let restored = false;
-  return {
-    queued,
-    sendNext() {
-      const args = queued.shift();
-      if (args !== undefined) send(...args);
-      return args?.[0];
-    },
-    release() {
-      if (restored) return;
-      restored = true;
-      spy.mockRestore();
-      for (const args of queued.splice(0)) send(...args);
-    },
-  };
-};
-
-it.effect("checkpoints the WAL on the worker instead of the writer", () =>
-  withCheckpointClient((sql, filename) =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const walSize = Effect.map(fs.stat(`${filename}-wal`), (info) => Number(info.size));
-      const worker = startedWorkers.at(-1)!;
-      const checkpointRequests = pauseCheckpointRequests(worker);
-      yield* Effect.addFinalizer(() => Effect.sync(checkpointRequests.release));
-      const limit = 1024 * 1024;
-      yield* sql.unsafe(`PRAGMA journal_size_limit = ${limit}`);
-      const autocheckpoint = yield* sql<{
-        readonly wal_autocheckpoint: number;
-      }>`PRAGMA wal_autocheckpoint`;
-      assert.equal(autocheckpoint[0]?.wal_autocheckpoint, 0);
-      assert.deepEqual(yield* sql`PRAGMA synchronous`, [{ synchronous: 2 }]);
-
-      // About 4200 frames, past the 4000 that start a checkpoint.
-      yield* sql`CREATE TABLE pages(payload BLOB)`;
-      yield* sql`
-        WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 4200)
-        INSERT INTO pages(payload) SELECT randomblob(4000) FROM n
-      `;
-      const pending = yield* sql<{
-        readonly log: number;
-        readonly checkpointed: number;
-      }>`PRAGMA wal_checkpoint(NOOP)`;
-      assert.isAbove(pending[0]!.log, 4000);
-      assert.isBelow(pending[0]!.checkpointed, pending[0]!.log);
-      checkpointRequests.release();
-      yield* checkpointWorkerReply(worker);
-      const wal = yield* sql<{
-        readonly log: number;
-        readonly checkpointed: number;
-      }>`PRAGMA wal_checkpoint(NOOP)`;
-      assert.isAtMost(wal[0]!.log - wal[0]!.checkpointed, 4000);
-
-      assert.isAtMost(yield* walSize, limit);
-      yield* sql`INSERT INTO pages(payload) VALUES (x'00')`;
-      assert.isAtMost(yield* walSize, limit);
-    }),
-  ),
-);
-
-const ceilingFrames = 10_000;
-
-const walFrames = (sql: SqlClient.SqlClient) =>
-  Effect.map(
-    sql<{ readonly log: number; readonly checkpointed: number }>`PRAGMA wal_checkpoint(NOOP)`,
-    (rows) => rows[0]!,
-  );
-
-// About 12,000 frames, past the 10,000 where writes wait for the checkpoint.
-const fillWalPastCeiling = (sql: SqlClient.SqlClient) =>
-  sql`
-    WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 12000)
-    INSERT INTO pages(payload) SELECT randomblob(4000) FROM n
-  `;
-
-it.effect("attributes a held checkpoint to admission rather than the transaction body", () =>
-  withCheckpointClient((sql, filename) =>
-    Effect.gen(function* () {
-      yield* sql`CREATE TABLE pages(payload BLOB)`;
-      yield* sql`CREATE TABLE pings(n INTEGER)`;
-      yield* sql`INSERT INTO pages(payload) VALUES (randomblob(4000))`;
-      const pin = new NodeSqlite.DatabaseSync(filename);
-      yield* Effect.addFinalizer(() => Effect.sync(() => pin.isOpen && pin.close()));
-      pin.exec("BEGIN");
-      pin.prepare("SELECT count(*) FROM pages").get();
-      const worker = startedWorkers.at(-1)!;
-      const requests = pauseCheckpointRequests(worker);
-      yield* Effect.addFinalizer(() => Effect.sync(requests.release));
-      yield* fillWalPastCeiling(sql);
-
-      const completed: Array<Map<string, unknown>> = [];
-      const tracer = Tracer.make({
-        span: (options) => {
-          const span = new Tracer.NativeSpan(options);
-          const end = span.end.bind(span);
-          span.end = (...args) => {
-            if (span.name === "sql.transaction") completed.push(new Map(span.attributes));
-            end(...args);
-          };
-          return span;
-        },
-      });
-      const transaction = yield* sql
-        .withTransaction(
-          sql`INSERT INTO pings VALUES (1)`.pipe(Effect.andThen(TestClock.adjust("11 millis"))),
-        )
-        .pipe(Effect.provideService(Tracer.Tracer, tracer), (effect) =>
-          Effect.forkChild(effect, { startImmediately: true }),
-        );
-      assert.isNotEmpty(requests.queued);
-      yield* TestClock.adjust("37 millis");
-      pin.exec("COMMIT");
-      requests.release();
-      yield* Fiber.join(transaction);
-
-      assert.lengthOf(completed, 1);
-      const attributes = completed[0]!;
-      assert.equal(attributes.get("db.connection"), "writer");
-      assert.equal(attributes.get("db.lock_wait_ms"), 0);
-      assert.equal(attributes.get("db.transaction.lease_wait_ms"), 0);
-      assert.equal(attributes.get("db.transaction.checkpoint_admission_wait_ms"), 37);
-      assert.equal(attributes.get("db.transaction.begin_ms"), 0);
-      assert.equal(attributes.get("db.transaction.body_ms"), 11);
-      assert.equal(attributes.get("db.transaction.commit_ms"), 0);
-      assert.typeOf(attributes.get("db.transaction.checkpoint_episode_id"), "string");
-      assert.include(String(attributes.get("db.transaction.checkpoint_reason")), "wal-ceiling");
-      assert.deepEqual(yield* sql`SELECT n FROM pings`, [{ n: 1 }]);
-    }),
-  ),
-);
-
-// Collects the gate's records, and resolves `first` when one arrives.
 const collectGateRecords = Effect.gen(function* () {
   const records: Array<Record<string, unknown>> = [];
   const first = yield* Deferred.make<void>();
@@ -715,84 +631,143 @@ const collectGateRecords = Effect.gen(function* () {
   return { records, first, layer: Logger.layer([logger], { mergeWithExisting: false }) };
 });
 
-it.live("bounds admission while the checkpoint worker cannot report a pinned reader", () =>
+const pinnedWal = (sql: SqlClient.SqlClient, filename: string) =>
   Effect.gen(function* () {
-    const gate = yield* collectGateRecords;
-    yield* withCheckpointClient(
-      (sql, filename) =>
-        Effect.gen(function* () {
-          yield* sql`CREATE TABLE pages(payload BLOB)`;
-          yield* sql`CREATE TABLE pings(n INTEGER)`;
-          yield* sql`INSERT INTO pages(payload) VALUES (randomblob(4000))`;
-          // An independent connection holding its snapshot, as a long read does.
-          const pin = new NodeSqlite.DatabaseSync(filename);
-          yield* Effect.addFinalizer(() => Effect.sync(() => pin.isOpen && pin.close()));
-          pin.exec("BEGIN");
-          pin.prepare("SELECT count(*) FROM pages").get();
-          const requests = pauseCheckpointRequests(startedWorkers.at(-1)!);
-          yield* Effect.addFinalizer(() => Effect.sync(requests.release));
-          yield* fillWalPastCeiling(sql);
-          const stuck = yield* walFrames(sql);
-          assert.isAtLeast(stuck.log, ceilingFrames);
-          assert.isBelow(stuck.checkpointed, stuck.log);
-
-          // Waits out the 20 ms bound instead of the pin, which is still open below.
-          yield* sql`INSERT INTO pings VALUES (1)`;
-          assert.isTrue(pin.isTransaction);
-          assert.deepEqual(gate.records, []);
-
-          pin.exec("COMMIT");
-          requests.release();
-          yield* Deferred.await(gate.first);
-          assert.lengthOf(gate.records, 1);
-          const record = gate.records[0]!;
-          assert.strictEqual(record.outcome, "cleared");
-          assert.include(String(record.reasons).split(","), "wal-ceiling");
-          assert.include(String(record.reasons).split(","), "checkpoint-blocked");
-          assert.include(String(record.reasons).split(","), "checkpoint-pinned");
-          assert.isAtLeast(Number(record.startLog), ceilingFrames);
-          assert.isAtLeast(Number(record.peakLog), ceilingFrames);
-          assert.isBelow(Number(record.endLog), ceilingFrames);
-          assert.isAtLeast(Number(record.writersHeld), 1);
-          assert.isAtLeast(Number(record.writesWhileReleased), 1);
-          assert.isDefined(record.releasedAfterMs);
-          assert.isBelow(Number(record.releasedAfterMs), Number(record.durationMs));
-
-          // The worker emptied the WAL, so the next write is not held.
-          assert.isBelow((yield* walFrames(sql)).log, ceilingFrames);
-          yield* sql`INSERT INTO pings VALUES (2)`;
-          assert.lengthOf(gate.records, 1);
+    yield* sql`CREATE TABLE pages(payload BLOB)`;
+    yield* sql`CREATE TABLE pings(n INTEGER)`;
+    yield* sql`INSERT INTO pages VALUES (x'00')`;
+    const pin = yield* Effect.acquireRelease(
+      Effect.sync(() => new NodeSqlite.DatabaseSync(filename)),
+      (db) =>
+        Effect.sync(() => {
+          if (db.isTransaction) db.exec("ROLLBACK");
+          db.close();
         }),
-      { checkpointGateBound: "20 millis" },
-    ).pipe(Effect.provide(gate.layer));
-  }),
-);
+    );
+    pin.exec("BEGIN");
+    pin.prepare("SELECT COUNT(*) FROM pages").get();
+    return pin;
+  });
 
-it.effect("records no gate episode when the checkpoint finishes without holding a write", () =>
+it.live("bounds admission below the disk ceiling and records why a pinned WAL held writes", () =>
   Effect.gen(function* () {
     const gate = yield* collectGateRecords;
-    yield* withCheckpointClient((sql) =>
+    yield* withCheckpointClient((sql, filename) =>
       Effect.gen(function* () {
-        yield* sql`CREATE TABLE pages(payload BLOB)`;
-        yield* fillWalPastCeiling(sql);
-        yield* checkpointWorkerReply(startedWorkers.at(-1)!);
-        assert.isBelow((yield* walFrames(sql)).log, ceilingFrames);
-        assert.deepEqual(gate.records, []);
+        const pin = yield* pinnedWal(sql, filename);
+        yield* sql`INSERT INTO pages VALUES (zeroblob(${48 * 1024 * 1024}))`;
+        yield* sql`INSERT INTO pings VALUES (1)`;
+        assert.isTrue(pin.isTransaction);
+        pin.exec("COMMIT");
+        yield* sql`INSERT INTO pings VALUES (2)`;
+        yield* Deferred.await(gate.first);
+        const record = gate.records[0]!;
+        assert.equal(record.outcome, "released");
+        assert.include(String(record.reasons), "wal-ceiling");
+        assert.include(String(record.reasons), "checkpoint-pinned");
+        assert.typeOf(record.releasedAfterMs, "number");
+        assert.isAtLeast(Number(record.peakLog), 10_000);
+        assert.deepEqual(yield* sql`SELECT n FROM pings`, [{ n: 1 }, { n: 2 }]);
       }),
     ).pipe(Effect.provide(gate.layer));
   }),
 );
 
-it.effect("hands checkpoints back to the writer when the worker stops", () =>
-  withCheckpointClient((sql) =>
+it.live.each([{ authorizer: true }, { authorizer: false }])(
+  "holds writes at the pinned-reader disk ceiling, permits cancellation, then resumes after the pin ends (authorizer: $authorizer)",
+  ({ authorizer }) =>
     Effect.gen(function* () {
-      yield* Effect.promise(() => startedWorkers.at(-1)!.terminate());
-      const autocheckpoint = yield* sql<{
-        readonly wal_autocheckpoint: number;
-      }>`PRAGMA wal_autocheckpoint`;
-      assert.equal(autocheckpoint[0]?.wal_autocheckpoint, 4000);
+      gateFixture.lowerCeiling = true;
+      gateFixture.disableAuthorizer = !authorizer;
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          gateFixture.lowerCeiling = false;
+          gateFixture.disableAuthorizer = false;
+        }),
+      );
+      const gate = yield* collectGateRecords;
+      yield* withCheckpointClient((sql, filename) =>
+        Effect.gen(function* () {
+          const pin = yield* pinnedWal(sql, filename);
+          yield* sql`INSERT INTO pages VALUES (zeroblob(${1024 * 1024}))`;
+          const writer = startedWorkers.findLast((worker) => !checkpointWorkers.includes(worker))!;
+          const held = yield* Deferred.make<void>();
+          const onMessage = (reply: { type?: string }) => {
+            if (reply.type === "admission-wait") Deferred.doneUnsafe(held, Effect.void);
+          };
+          writer.on("message", onMessage);
+          yield* Effect.addFinalizer(() => Effect.sync(() => writer.off("message", onMessage)));
+          const write = yield* sql
+            .withTransaction(sql`INSERT INTO pings VALUES (1)`)
+            .pipe(Effect.forkChild);
+          assert.equal(
+            yield* Effect.race(
+              Deferred.await(held).pipe(Effect.as("held")),
+              Fiber.await(write).pipe(Effect.as("ran")),
+            ),
+            "held",
+          );
+          yield* Fiber.interrupt(write);
+          yield* Deferred.await(gate.first);
+          assert.equal(gate.records[0]!.outcome, "cancelled");
+          assert.include(String(gate.records[0]!.reasons), "release-limit");
+          assert.deepEqual(
+            yield* sql`WITH empty AS (SELECT n FROM pings) SELECT count(*) FROM empty`.values,
+            [[0]],
+          );
+          pin.exec("COMMIT");
+          assert.deepEqual(yield* sql`SELECT n FROM pings`, []);
+          const spans: Array<Map<string, unknown>> = [];
+          const tracer = Tracer.make({
+            span: (options) => {
+              const span = new Tracer.NativeSpan(options);
+              const end = span.end.bind(span);
+              span.end = (...args) => {
+                if (span.name === "sql.transaction") spans.push(new Map(span.attributes));
+                end(...args);
+              };
+              return span;
+            },
+          });
+          yield* sql
+            .withTransaction(sql`INSERT INTO pings VALUES (2)`)
+            .pipe(Effect.provideService(Tracer.Tracer, tracer));
+          assert.deepEqual(yield* sql`SELECT n FROM pings`, [{ n: 2 }]);
+          assert.lengthOf(spans, 1);
+          for (const attribute of [
+            "lease_wait_ms",
+            "checkpoint_admission_wait_ms",
+            "begin_ms",
+            "body_ms",
+            "commit_ms",
+          ])
+            assert.typeOf(spans[0]!.get(`db.transaction.${attribute}`), "number");
+
+          yield* sql`INSERT INTO pages VALUES (zeroblob(${1024 * 1024}))`;
+          yield* sql`PRAGMA wal_checkpoint(PASSIVE)`;
+          pin.exec("BEGIN");
+          pin.prepare("SELECT COUNT(*) FROM pages").get();
+          const heldAgain = yield* Deferred.make<void>();
+          const observeAgain = (reply: { type?: string }) => {
+            if (reply.type === "admission-wait") Deferred.doneUnsafe(heldAgain, Effect.void);
+          };
+          writer.on("message", observeAgain);
+          yield* Effect.addFinalizer(() => Effect.sync(() => writer.off("message", observeAgain)));
+          const afterBackfill = yield* sql`PRAGMA user_version = 3`.pipe(Effect.forkChild);
+          assert.equal(
+            yield* Effect.race(
+              Deferred.await(heldAgain).pipe(Effect.as("held")),
+              Fiber.await(afterBackfill).pipe(Effect.as("ran")),
+            ),
+            "held",
+          );
+          yield* Fiber.interrupt(afterBackfill);
+          pin.exec("COMMIT");
+          assert.deepEqual(yield* sql`SELECT n FROM pings`, [{ n: 2 }]);
+          assert.deepEqual(yield* sql`PRAGMA user_version`.values, [[0]]);
+        }),
+      ).pipe(Effect.provide(gate.layer));
     }),
-  ),
 );
 
 it.effect("fails with a typed SqlError when the database file is not SQLite", () =>
@@ -803,7 +778,7 @@ it.effect("fails with a typed SqlError when the database file is not SQLite", ()
     const filename = path.join(directory, "state.sqlite");
     yield* fs.writeFileString(filename, "not a db\n");
 
-    const exit = yield* Layer.build(SqliteClient.layer({ filename, checkpointWorker: true })).pipe(
+    const exit = yield* Layer.build(SqliteClient.layer({ filename, writerWorker: true })).pipe(
       Effect.exit,
     );
 
@@ -897,45 +872,13 @@ it.effect.each([
     }).pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" }))),
 );
 
-const PAYLOAD = new Uint8Array(1024 * 1024).fill(7);
-const WAL_SIZE_LIMIT = 32 * 1024 * 1024;
-
-// Fails instead of hanging when admission holds the write: the worker retries a blocked
-// checkpoint on its own, so two blocked reports for one WAL generation mean a held write.
-const insertUnlessHeld = Effect.fnUntraced(function* (
-  sql: SqlClient.SqlClient,
-  worker: NodeWorkerThreads.Worker,
-  label: string,
-) {
-  const stalled = yield* Deferred.make<void>();
-  let seen: unknown;
-  const onMessage = (message: { type?: unknown; blocked?: unknown; generation?: unknown }) => {
-    if (message?.type !== "checkpoint" || message.blocked !== true) return;
-    if (message.generation === seen) Deferred.doneUnsafe(stalled, Effect.void);
-    seen = message.generation;
-  };
-  worker.on("message", onMessage);
-  const held = yield* Effect.raceFirst(
-    sql`INSERT INTO blobs VALUES (${PAYLOAD})`.pipe(Effect.as(false)),
-    Deferred.await(stalled).pipe(Effect.as(true)),
-  ).pipe(Effect.ensuring(Effect.sync(() => worker.off("message", onMessage))));
-  if (held) assert.fail(`${label} is held by admission while an outside reader pins the WAL`);
-});
-
-// `outside` stands in for `sqlite3 statev2.sqlite` or a backup script reading the database.
-const withOutsideConnection = <A, E>(
-  use: (options: {
-    readonly sql: SqlClient.SqlClient;
-    readonly worker: NodeWorkerThreads.Worker;
-    readonly outside: NodeSqlite.DatabaseSync;
-    readonly walSize: Effect.Effect<number>;
-  }) => Effect.Effect<A, E, SqlClient.SqlClient>,
-) =>
+it.effect("keeps writes moving while an outside reader pins the WAL, then trims the WAL", () =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-sqlite-pinned-wal-" });
     const filename = path.join(directory, "state.sqlite");
+    // Stands in for `sqlite3 statev2.sqlite` or a backup script reading the database.
     const outside = yield* Effect.acquireRelease(
       Effect.sync(() => new NodeSqlite.DatabaseSync(filename)),
       (db) =>
@@ -944,64 +887,46 @@ const withOutsideConnection = <A, E>(
           db.close();
         }),
     );
-    outside.exec(`
-      PRAGMA journal_mode = WAL;
-      PRAGMA wal_autocheckpoint = 0;
-      CREATE TABLE blobs(data BLOB NOT NULL);
-    `);
+    outside.exec("PRAGMA journal_mode = WAL; CREATE TABLE blobs(data BLOB NOT NULL)");
     const walSize = fs.stat(`${filename}-wal`).pipe(
       Effect.map((info) => Number(info.size)),
       Effect.orDie,
     );
+    const limit = 8 * 1024 * 1024;
+    const payload = new Uint8Array(1024 * 1024).fill(7);
     yield* Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      yield* sql.unsafe(`PRAGMA journal_size_limit = ${WAL_SIZE_LIMIT}`);
-      return yield* use({ sql, worker: startedWorkers.at(-1)!, outside, walSize });
-    }).pipe(Effect.provide(SqliteClient.layer({ filename, checkpointWorker: true })));
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer));
-
-const openReadTransaction = (db: NodeSqlite.DatabaseSync) => {
-  db.exec("BEGIN");
-  db.prepare("SELECT COUNT(*) FROM blobs").get();
-};
-
-it.effect("keeps admitting writes while an outside read transaction pins the WAL", () =>
-  withOutsideConnection(({ sql, worker, outside }) =>
-    Effect.gen(function* () {
-      yield* sql`INSERT INTO blobs VALUES (${PAYLOAD})`;
-      openReadTransaction(outside);
-      // 140 MiB passes both the 32 MiB size limit and the 32,768-frame ceiling.
-      for (let write = 1; write <= 140; write++) {
-        yield* insertUnlessHeld(sql, worker, `write ${write}`);
-      }
-      const rows = yield* sql<{ count: number }>`SELECT COUNT(*) AS count FROM blobs`;
-      assert.equal(rows[0]?.count, 141);
-    }),
-  ),
-);
-
-it.effect("keeps admitting writes while a reader stops TRUNCATE, then resets the WAL", () =>
-  withOutsideConnection(({ sql, worker, outside, walSize }) =>
-    Effect.gen(function* () {
-      const insert = outside.prepare("INSERT INTO blobs VALUES (?)");
-      for (let write = 1; write <= 40; write++) insert.run(PAYLOAD);
-      // A snapshot of an unbackfilled WAL lets PASSIVE finish but stops TRUNCATE.
-      openReadTransaction(outside);
-      const stopped = yield* Deferred.make<void>();
-      const reset = yield* Deferred.make<void>();
-      worker.on("message", (message: { type?: unknown; truncateId?: unknown; log?: unknown }) => {
-        if (message?.type !== "checkpoint" || message.truncateId === undefined) return;
-        Deferred.doneUnsafe(message.log === 0 ? reset : stopped, Effect.void);
-      });
-      // Starts a checkpoint without appending a frame past the reader's snapshot.
-      yield* sql`DELETE FROM blobs WHERE 0`;
-      yield* Deferred.await(stopped);
-      yield* insertUnlessHeld(sql, worker, "a write after the failed TRUNCATE");
-      assert.isAbove(yield* walSize, WAL_SIZE_LIMIT);
+      yield* sql.unsafe(`PRAGMA journal_size_limit = ${limit}`);
+      yield* sql`INSERT INTO blobs VALUES (${payload})`;
+      outside.exec("BEGIN");
+      outside.prepare("SELECT COUNT(*) FROM blobs").get();
+      for (let write = 0; write < 24; write++) yield* sql`INSERT INTO blobs VALUES (${payload})`;
+      assert.isAbove(yield* walSize, limit);
       outside.exec("COMMIT");
-      // No further write arrives; the worker has to retry on its own.
-      yield* Deferred.await(reset);
-      assert.equal(yield* walSize, 0);
-    }),
-  ),
+      const checkpointer = checkpointWorkers.at(-1)!;
+      const caughtUp = Effect.callback<void>((resume) => {
+        const onMessage = (message: { type?: unknown; log?: unknown; checkpointed?: unknown }) => {
+          if (
+            message?.type === "checked" &&
+            typeof message.log === "number" &&
+            message.log > 0 &&
+            message.log === message.checkpointed
+          ) {
+            resume(Effect.void);
+          }
+        };
+        checkpointer.on("message", onMessage);
+        checkpointer.ref();
+        return Effect.sync(() => {
+          checkpointer.off("message", onMessage);
+          checkpointer.unref();
+        });
+      });
+      // The worker checkpoints the released frames; the next write restarts the WAL at the limit.
+      yield* Effect.all([caughtUp, sql`DELETE FROM blobs WHERE rowid = 1`], { concurrency: 2 });
+      yield* sql`DELETE FROM blobs WHERE rowid = 2`;
+      assert.isAtMost(yield* walSize, limit);
+      assert.deepEqual(yield* sql`SELECT COUNT(*) FROM blobs`.values, [[23]]);
+    }).pipe(Effect.provide(SqliteClient.layer({ filename, writerWorker: true })));
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );

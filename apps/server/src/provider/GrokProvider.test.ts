@@ -645,7 +645,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("readGrokAccount"
         ),
       );
       expect(limits.windows[0]?.usedPercent).toBe(37);
-    }).pipe(Effect.scoped),
+    }),
   );
 
   it.effect(
@@ -755,7 +755,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("readGrokAccount"
             message: "Grok could not read usage limits.",
           });
         }
-      }).pipe(Effect.scoped),
+      }),
   );
 
   it.effect("sanitizes HTTP failures and malformed billing responses, keeping the account", () =>

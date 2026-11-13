@@ -199,9 +199,10 @@ const layerProviderTurnStartServiceProvided = ProviderTurnStartService.layer.pip
 const layerProviderTurnControlServiceProvided = ProviderTurnControlService.layer.pipe(
   Layer.provide(
     Layer.mergeAll(
+      VideoFrames.layerLive,
+      layerEventSink,
       ProjectionStore.layer,
       layerProviderSessionManagerProvided,
-      VideoFrames.layerLive,
     ),
   ),
 );

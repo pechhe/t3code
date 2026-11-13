@@ -1,5 +1,6 @@
 import { Debouncer } from "@tanstack/react-pacer";
-import type { PullRequestMergeMethod } from "@t3tools/contracts";
+import { PullRequestMergeMethod } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 import { create } from "zustand";
 import { normalizeProjectPathForComparison } from "@t3tools/client-runtime/state/projects";
 import { isSnapShotOverlaySurface } from "./lib/appSurface";
@@ -137,6 +138,7 @@ function sanitizeThemeChoiceRecord(value: unknown): Record<string, ThemeChoice> 
     }),
   );
 }
+const isPullRequestMergeMethod = Schema.is(PullRequestMergeMethod);
 
 function sanitizeTimestampRecord(value: unknown): Record<string, string> {
   if (!value || typeof value !== "object") {
@@ -151,10 +153,6 @@ function sanitizeTimestampRecord(value: unknown): Record<string, string> {
         Number.isFinite(Date.parse(entry[1])),
     ),
   );
-}
-
-function isPullRequestMergeMethod(value: unknown): value is PullRequestMergeMethod {
-  return value === "merge" || value === "squash" || value === "rebase";
 }
 
 export function parsePersistedState(parsed: PersistedUiState): UiState {

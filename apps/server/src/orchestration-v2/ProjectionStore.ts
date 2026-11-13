@@ -633,8 +633,8 @@ export interface ProjectionStoreV2Shape {
     now: DateTime.Utc,
   ) => Effect.Effect<number | null, ProjectionStoreV2Error>;
   /** With `timer`, the store may skip threads only the inactivity timer could settle that are
-      not yet due: no branch or pull request, and inactive since `inactiveBefore` or later
-      (every such thread when it is null). It may still return them. */
+not yet due: no branch or pull request, and inactive since `inactiveBefore` or later
+(every such thread when it is null). It may still return them. */
   readonly getSettlementCandidates: (
     threadId?: ThreadId,
     timer?: { readonly now: DateTime.Utc; readonly inactiveBefore: DateTime.Utc | null },
@@ -1202,15 +1202,6 @@ const encodeIdList = Schema.encodeSync(Schema.fromJsonString(Schema.Array(Schema
 // Empty filters still scan SQLite rows; short-circuit them, including turnItemTypes: [].
 const matchesNothing = (...filters: ReadonlyArray<ReadonlyArray<unknown> | undefined>) =>
   filters.some((values) => values?.length === 0);
-
-// A typed item read that names no tool type fits in migration 082's conversation index. A run or
-// node filter is left alone: it already reads through a narrower index.
-const readsConversationItemsOnly = (filter: ProjectionRecordFilter | undefined) =>
-  filter?.turnItemTypes !== undefined &&
-  filter.turnItemRunId === undefined &&
-  filter.turnItemRunIds === undefined &&
-  filter.turnItemNodeIds === undefined &&
-  filter.turnItemTypes.every((type) => DEFERRED_WORK_ITEM_TYPES.every((tool) => tool !== type));
 
 const encodeThreadPayload = Schema.encodeEffect(
   Schema.fromJsonString(OrchestrationV2AppThreadJsonSchema),
@@ -3705,6 +3696,16 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               `;
     });
 
+    const turnItemMatch = (threadId: ThreadId, filter: ProjectionRecordFilter | undefined) => sql`
+      thread_id = ${threadId}
+        ${filter?.turnItemRequestIds === undefined ? sql`` : sql`AND json_extract(payload_json, '$.requestId') IN (SELECT value FROM json_each(${encodeIdList(filter.turnItemRequestIds)}))`}
+        ${filter?.turnItemTypes === undefined ? sql`` : sql`AND type IN (SELECT value FROM json_each(${encodeIdList(filter.turnItemTypes)}))`}
+        ${filter?.turnItemStatuses === undefined ? sql`` : sql`AND status IN (SELECT value FROM json_each(${encodeIdList(filter.turnItemStatuses)}))`}
+        ${filter?.turnItemRunId === undefined ? sql`` : sql`AND run_id = ${filter.turnItemRunId}`}
+        ${filter?.turnItemNodeIds === undefined ? sql`` : sql`AND node_id IN (SELECT value FROM json_each(${encodeIdList(filter.turnItemNodeIds)}))`}
+        ${filter?.turnItemRunIds === undefined ? sql`` : sql`AND (run_id IN (SELECT value FROM json_each(${encodeIdList(filter.turnItemRunIds.filter((id): id is RunId => id !== null))})) OR (${filter.turnItemRunIds.includes(null) ? 1 : 0} = 1 AND run_id IS NULL))`}
+    `;
+
     // An id filter reads by primary key. `+` keeps SQLite off the thread index, which walks
     // every row of the thread to find the few ids.
     const threadColumn = (ids: ReadonlyArray<unknown> | undefined, column = "thread_id") =>
@@ -3805,19 +3806,10 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 SELECT payload_json
                 FROM orchestration_v2_projection_turn_items
                 ${
-                  // A type list of conversation items reads them from the conversation index.
-                  // Any other plan fetches every tool call of the thread to check its type.
-                  readsConversationItemsOnly(filter)
-                    ? sql`INDEXED BY orchestration_v2_projection_turn_items_conversation_idx
-                WHERE thread_id = ${threadId} AND type NOT IN ${CONVERSATION_INDEX_EXCLUDED_TYPES}`
-                    : sql`${filter?.turnItemTypes === undefined ? sql`` : sql`INDEXED BY orchestration_v2_projection_turn_items_thread_type_idx`} WHERE thread_id = ${threadId}`
+                  filter?.turnItemTypes === undefined
+                    ? sql`WHERE ${turnItemMatch(threadId, filter)}`
+                    : sql`WHERE rowid IN (SELECT rowid FROM orchestration_v2_projection_turn_items WHERE ${turnItemMatch(threadId, filter)})`
                 }
-                  ${filter?.turnItemRequestIds === undefined ? sql`` : sql`AND json_extract(payload_json, '$.requestId') IN (SELECT value FROM json_each(${encodeIdList(filter.turnItemRequestIds)}))`}
-                  ${filter?.turnItemTypes === undefined ? sql`` : sql`AND type IN (SELECT value FROM json_each(${encodeIdList(filter.turnItemTypes)}))`}
-                  ${filter?.turnItemStatuses === undefined ? sql`` : sql`AND status IN (SELECT value FROM json_each(${encodeIdList(filter.turnItemStatuses)}))`}
-                  ${filter?.turnItemRunId === undefined ? sql`` : sql`AND run_id = ${filter.turnItemRunId}`}
-                  ${filter?.turnItemNodeIds === undefined ? sql`` : sql`AND node_id IN (SELECT value FROM json_each(${encodeIdList(filter.turnItemNodeIds)}))`}
-                  ${filter?.turnItemRunIds === undefined ? sql`` : sql`AND (run_id IN (SELECT value FROM json_each(${encodeIdList(filter.turnItemRunIds.filter((id): id is RunId => id !== null))})) OR (${filter.turnItemRunIds.includes(null) ? 1 : 0} = 1 AND run_id IS NULL))`}
                 ORDER BY ordinal ASC, turn_item_id ASC
               `
               : yield* sql<PayloadRow>`

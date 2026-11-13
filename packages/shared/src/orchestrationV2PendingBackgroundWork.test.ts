@@ -6,6 +6,7 @@ import {
   delegatedCompletionHold,
   derivePendingBackgroundWork,
   ownBackgroundWork,
+  monitorHoldsWakeCompletion,
 } from "./orchestrationV2PendingBackgroundWork.ts";
 
 describe("ownBackgroundWork", () => {
@@ -523,6 +524,45 @@ describe("derivePendingBackgroundWork kinds", () => {
         "pull-request-watch:github.com/acme/app#1",
         "pull-request-watch:github.com/acme/app#5",
       ]);
+    });
+
+    it("stops a watch whose checks all finished from holding the thread, while still listing it", () => {
+      const tasks = derivePendingBackgroundWork({
+        latestRun: { id: "run-1" as never, ordinal: 1, status: "completed" },
+        providerThreads: [],
+        turnItems: [],
+        pullRequests: [{ ...link(1, {}), watch: { ...watch, passed: true, checksPending: false } }],
+      });
+      expect(tasks).toEqual([
+        {
+          taskId: "pull-request-watch:github.com/acme/app#1",
+          description: "Watching pull request #1",
+          kind: "monitor",
+          watching: { kind: "pull_request", url: "https://github.com/acme/app/pull/1" },
+        },
+      ]);
+      expect(backgroundWorkHoldsCompletion(tasks)).toBe(false);
+      // Unlike a monitor that wakes per line, it lets a comment wake's run complete too.
+      expect(
+        monitorHoldsWakeCompletion({
+          latestRunBackgroundWake: true,
+          pendingBackgroundTasks: tasks,
+        }),
+      ).toBe(false);
+      expect(
+        monitorHoldsWakeCompletion({
+          latestRunBackgroundWake: true,
+          pendingBackgroundTasks: [...tasks, { taskId: "tail", kind: "monitor" }],
+        }),
+      ).toBe(true);
+
+      const running = derivePendingBackgroundWork({
+        latestRun: { id: "run-1" as never, ordinal: 1, status: "completed" },
+        providerThreads: [],
+        turnItems: [],
+        pullRequests: [{ ...link(1, {}), watch: { ...watch, checksPending: true } }],
+      });
+      expect(backgroundWorkHoldsCompletion(running)).toBe(true);
     });
 
     it("lists no watch while a run is active", () => {

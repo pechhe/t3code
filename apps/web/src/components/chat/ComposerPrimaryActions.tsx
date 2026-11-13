@@ -91,6 +91,8 @@ const formatPendingPrimaryActionLabel = (input: {
 };
 
 const STOP_PENDING_MAX_MS = 10_000;
+// The action that takes Stop's place ignores clicks this long, so repeat Stop clicks can't resume.
+const STOP_LANDED_CLICK_GUARD_MS = 500;
 
 const messageActionPillClassName =
   "inline-flex shrink-0 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-message-action font-medium text-base text-message-action-foreground shadow-xs shadow-message-action/24 outline-none hover:bg-message-action-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-64 disabled:shadow-none sm:text-sm";
@@ -118,11 +120,16 @@ function useStopPhase(input: {
       setStopPhase("landed");
     else if (stopPhase === "landed" && canInterrupt) setStopPhase(null);
   }
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- timer that re-enables Stop if the interrupt never settles
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- timers that re-enable an unsettled Stop and end the landed click guard
   useEffect(() => {
-    if (stopPhase !== "pending") return;
-    const timeout = setTimeout(() => setStopPhase("timedOut"), STOP_PENDING_MAX_MS);
-    return () => clearTimeout(timeout);
+    if (stopPhase === "pending") {
+      const timeout = setTimeout(() => setStopPhase("timedOut"), STOP_PENDING_MAX_MS);
+      return () => clearTimeout(timeout);
+    }
+    if (stopPhase === "landed") {
+      const timeout = setTimeout(() => setStopPhase(null), STOP_LANDED_CLICK_GUARD_MS);
+      return () => clearTimeout(timeout);
+    }
   }, [stopPhase]);
   return [stopPhase, setStopPhase] as const;
 }
@@ -142,7 +149,7 @@ function StopGenerationButton({
   onStopRequested: () => void;
   onInterrupt: () => void;
 }) {
-  const isStopDisabled = stopPhase === "pending" || stopPhase === "landed";
+  const isStopDisabled = stopPhase === "pending";
   return (
     <Tooltip>
       <TooltipTrigger
@@ -160,13 +167,7 @@ function StopGenerationButton({
               onStopRequested();
               onInterrupt();
             }}
-            aria-label={
-              stopPhase === "landed"
-                ? "Stopped"
-                : stopPhase === "pending"
-                  ? "Stopping"
-                  : "Stop generation"
-            }
+            aria-label={stopPhase === "pending" ? "Stopping" : "Stop generation"}
           />
         }
       >
@@ -174,9 +175,7 @@ function StopGenerationButton({
           <rect x="2" y="2" width="8" height="8" rx="1.5" />
         </svg>
       </TooltipTrigger>
-      <TooltipPopup>
-        {stopPhase === "pending" ? "Stopping…" : stopPhase === "landed" ? "Stopped" : "Interrupt"}
-      </TooltipPopup>
+      <TooltipPopup>{stopPhase === "pending" ? "Stopping…" : "Interrupt"}</TooltipPopup>
     </Tooltip>
   );
 }
@@ -283,26 +282,9 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         ? { onPointerDown: preventPointerFocus }
         : undefined;
   const pointerFocusProps = pointerPropsFor(() => true);
-  const [stopPhase, setStopPhase] = useState<"pending" | "timedOut" | "landed" | null>(null);
-  const [stopRunId, setStopRunId] = useState(runId);
-  if (runId !== null && stopRunId !== runId) {
-    setStopRunId(runId);
-    setStopPhase(null);
-  } else if (canOperateThread) {
-    // Losing permission also clears canInterrupt; it does not acknowledge the stop.
-    if ((stopPhase === "pending" || stopPhase === "timedOut") && !canInterrupt)
-      setStopPhase("landed");
-    else if (stopPhase === "landed" && canInterrupt) setStopPhase(null);
-  }
-  const isStopDisabled = stopPhase === "pending" || stopPhase === "landed";
-  const stopLabel =
-    stopPhase === "landed" ? "Stopped" : stopPhase === "pending" ? "Stopping" : "Stop generation";
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- timer that re-enables Stop if the interrupt never settles
-  useEffect(() => {
-    if (stopPhase !== "pending") return;
-    const timeout = setTimeout(() => setStopPhase("timedOut"), STOP_PENDING_MAX_MS);
-    return () => clearTimeout(timeout);
-  }, [stopPhase]);
+  const [stopPhase, setStopPhase] = useStopPhase({ runId, canInterrupt, canOperateThread });
+  const isStopDisabled = stopPhase === "pending";
+  const stopLabel = stopPhase === "pending" ? "Stopping" : "Stop generation";
   const environmentIdentificationMode = useEnvironmentIdentificationMode();
   const shortcutModifiers = useShortcutModifierState();
   // What a send would do even while editing a queued message, whose label stays "Update".
@@ -359,7 +341,9 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   const withStopButton = (action: ReactNode) => (
     <>
       {action}
-      {stopPhase === null ? null : renderStopGenerationButton(false)}
+      {stopPhase === "pending" || stopPhase === "timedOut"
+        ? renderStopGenerationButton(false)
+        : null}
     </>
   );
 
@@ -406,6 +390,9 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
               className="send-dial"
               data-has-input={submitDisabled ? undefined : ""}
               {...pointerPropsFor(() => dialClicks(false))}
+              onClick={(event) => {
+                if (stopPhase === "landed") event.preventDefault();
+              }}
               disabled={submitDisabled}
               aria-label={formatPendingPrimaryActionLabel({
                 compact: false,
@@ -457,6 +444,9 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
           type="submit"
           className={cn(messageActionPillClassName, "h-8 sm:h-7", compact ? "px-3" : "px-4")}
           {...pointerPropsFor(() => dialClicks(false))}
+          onClick={(event) => {
+            if (stopPhase === "landed") event.preventDefault();
+          }}
           disabled={
             !canOperateThread ||
             isEnvironmentUnavailable ||
@@ -475,7 +465,9 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
             questionIndex: pendingAction.questionIndex,
           })}
         </button>
-        {canInterrupt || stopPhase !== null ? renderStopGenerationButton(true) : null}
+        {canInterrupt || stopPhase === "pending" || stopPhase === "timedOut"
+          ? renderStopGenerationButton(true)
+          : null}
       </div>
     );
   }
@@ -568,7 +560,14 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
             )
       }
       {...pointerPropsFor(() => showResume || dialClicks(dispatchesQueued))}
-      onClick={showResume ? onResume : onSubmitMessage}
+      onClick={(event) => {
+        if (stopPhase === "landed") {
+          event.preventDefault();
+          return;
+        }
+        if (showResume) onResume?.();
+        else onSubmitMessage?.(event);
+      }}
       disabled={
         isSendBusy ||
         isSendDisabled ||

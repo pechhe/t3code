@@ -58,6 +58,7 @@ import {
   type ServerProviderCompatibilityAdvisory,
   type ServerProviderModel,
   isDelegatedAppThread,
+  ThreadId,
 } from "@t3tools/contracts";
 import { SKILL_MENTION_PATTERN } from "@t3tools/shared/composerInlineTokens";
 import { AgentScope } from "@t3tools/shared/AgentScope";
@@ -96,7 +97,6 @@ import type {
   ProviderTurnId,
   ProviderInstanceId,
   RuntimeMode,
-  ThreadId,
   TurnTokenUsage,
 } from "@t3tools/contracts";
 import * as CodexClient from "effect-codex-app-server/client";
@@ -701,14 +701,15 @@ function answerValueToStrings(value: unknown): ReadonlyArray<string> {
 
 function toCodexUserInputAnswers(
   answers: ProviderUserInputAnswers,
-  allowedQuestionIds: ReadonlySet<string>,
+  nativeQuestionIds: ReadonlyMap<string, string>,
 ): CodexSchema.ToolRequestUserInputResponse["answers"] {
   return Object.fromEntries(
-    Object.entries(answers).flatMap(([questionId, value]) =>
-      allowedQuestionIds.has(questionId)
-        ? [[questionId, { answers: [...answerValueToStrings(value)] }]]
-        : [],
-    ),
+    Object.entries(answers).flatMap(([questionId, value]) => {
+      const nativeId = nativeQuestionIds.get(questionId);
+      return nativeId === undefined
+        ? []
+        : [[nativeId, { answers: [...answerValueToStrings(value)] }]];
+    }),
   );
 }
 
@@ -1709,9 +1710,77 @@ export const makeCodexAppServerSpawnCommand = Effect.fn(
   });
 });
 
+function readCodexProtocolPath(value: unknown, ...path: ReadonlyArray<string>): unknown {
+  let current = value;
+  for (const key of path) {
+    if (current === null || typeof current !== "object") return undefined;
+    current = Reflect.get(current, key);
+  }
+  return current;
+}
+
+const CODEX_THREAD_ENV_CONFIG_KEY = `shell_environment_policy.set.${PortScanner.AGENT_THREAD_ENV}`;
+
+/**
+ * One app-server serves every Codex thread on an instance, so each frame is routed to the
+ * T3 thread it belongs to. Frames tied to no thread, such as `initialize`, go to the global log.
+ */
+function makeCodexProtocolThreadRouter() {
+  const threadIdsByNativeId = new Map<string, ThreadId>();
+  const threadIdsByRequest = new Map<string, ThreadId>();
+  return (direction: "incoming" | "outgoing", frame: unknown): ThreadId | null => {
+    const id = readCodexProtocolPath(frame, "id");
+    const method = readCodexProtocolPath(frame, "method");
+    const isRequest = typeof method === "string";
+    const requestKey =
+      typeof id === "string" || typeof id === "number"
+        ? `${isRequest === (direction === "outgoing") ? "client" : "server"}:${id}`
+        : undefined;
+    if (!isRequest) {
+      if (requestKey === undefined) return null;
+      const threadId = threadIdsByRequest.get(requestKey);
+      threadIdsByRequest.delete(requestKey);
+      const nativeThreadId = readCodexProtocolPath(frame, "result", "thread", "id");
+      if (threadId !== undefined && typeof nativeThreadId === "string") {
+        threadIdsByNativeId.set(nativeThreadId, threadId);
+      }
+      return threadId ?? null;
+    }
+
+    const params = readCodexProtocolPath(frame, "params");
+    const configuredThreadId = readCodexProtocolPath(params, "config", CODEX_THREAD_ENV_CONFIG_KEY);
+    const nativeThreadId =
+      readCodexProtocolPath(params, "threadId") ?? readCodexProtocolPath(params, "thread", "id");
+    let threadId =
+      typeof configuredThreadId === "string"
+        ? ThreadId.make(configuredThreadId)
+        : typeof nativeThreadId === "string"
+          ? threadIdsByNativeId.get(nativeThreadId)
+          : undefined;
+    if (threadId === undefined && typeof nativeThreadId === "string") {
+      const parentNativeThreadId = readCodexProtocolPath(
+        params,
+        "thread",
+        "source",
+        "subAgent",
+        "thread_spawn",
+        "parent_thread_id",
+      );
+      threadId =
+        typeof parentNativeThreadId === "string"
+          ? threadIdsByNativeId.get(parentNativeThreadId)
+          : undefined;
+      if (threadId !== undefined) threadIdsByNativeId.set(nativeThreadId, threadId);
+    }
+    if (threadId !== undefined && requestKey !== undefined) {
+      threadIdsByRequest.set(requestKey, threadId);
+    }
+    return threadId ?? null;
+  };
+}
+
 export function makeCodexAppServerProtocolLogger(input: {
   readonly nativeEventLogger: ProviderEventLoggers.EventNdjsonLogger | undefined;
-  readonly threadId: ThreadId;
   readonly providerSessionId: OrchestrationV2ProviderSession["id"];
 }): CodexClient.CodexAppServerClientOptions["logger"] | undefined {
   const { nativeEventLogger } = input;
@@ -1719,8 +1788,10 @@ export function makeCodexAppServerProtocolLogger(input: {
     return undefined;
   }
 
+  const routeThread = makeCodexProtocolThreadRouter();
   return (event) => {
     if (!shouldPersistProviderEvent("native", event)) return Effect.void;
+    const threadId = event.stage === "decoded" ? routeThread(event.direction, event.payload) : null;
     return nativeEventLogger
       .write(
         {
@@ -1730,7 +1801,7 @@ export function makeCodexAppServerProtocolLogger(input: {
           providerSessionId: input.providerSessionId,
           event: redactCodexProtocolValue(boundProviderEventForLogging(event)),
         },
-        input.threadId,
+        threadId,
       )
       .pipe(Effect.ignore);
   };
@@ -1834,7 +1905,6 @@ export const layerAppServerClientFactory: Layer.Layer<
         );
         const protocolLogger = makeCodexAppServerProtocolLogger({
           nativeEventLogger,
-          threadId: input.threadId,
           providerSessionId: input.providerSessionId,
         });
         const clientOptions: CodexClient.CodexAppServerClientOptions =
@@ -4861,6 +4931,12 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               `Provider thread ${input.context.providerThread.id} is missing a provider session id.`,
             );
           }
+          const nativeQuestionIds = new Map(
+            input.questions.map((question, index) => [
+              nonEmptyText(question.id, `question-${index + 1}`),
+              question.id,
+            ]),
+          );
           const questions = input.questions.map((question, index) => ({
             id: nonEmptyText(question.id, `question-${index + 1}`),
             header: nonEmptyText(question.header, "Question"),
@@ -4935,7 +5011,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             questions,
             ...(input.responseMode === undefined ? {} : { responseMode: input.responseMode }),
           };
-          return { node, request, turnItem };
+          return { node, request, turnItem, nativeQuestionIds };
         });
 
         yield* client.handleServerNotification("item/agentMessage/delta", (payload) =>
@@ -6548,10 +6624,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               ),
             );
             return {
-              answers: toCodexUserInputAnswers(
-                resolved,
-                new Set(payload.questions.map((question) => question.id)),
-              ),
+              answers: toCodexUserInputAnswers(resolved, artifacts.nativeQuestionIds),
             } satisfies CodexSchema.ToolRequestUserInputResponse;
           }).pipe(Effect.orDie),
         );

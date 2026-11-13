@@ -83,7 +83,7 @@ describe("AcpMcpOverAcpBridge", () => {
       expect(requests[1]?.headers.get("mcp-protocol-version")).toBe("2025-06-18");
       expect(requests.at(-1)?.method).toBe("DELETE");
       expect(requests.at(-1)?.headers.get("mcp-session-id")).toBe("session-42");
-    }).pipe(Effect.scoped),
+    }),
   );
 
   it.effect("sends each server's requests to its own endpoint with its own credential", () =>
@@ -148,7 +148,7 @@ describe("AcpMcpOverAcpBridge", () => {
       const signal = yield* Effect.promise(() => started.promise);
       yield* Fiber.interrupt(request);
       expect(signal.aborted).toBe(true);
-    }).pipe(Effect.scoped),
+    }),
   );
 
   it.effect("answers a call while a long call on the same connection is pending", () =>
@@ -194,7 +194,7 @@ describe("AcpMcpOverAcpBridge", () => {
 
       waitResponse.resolve(reply(2, { content: [] }));
       expect(yield* Fiber.join(wait)).toEqual({ content: [] });
-    }).pipe(Effect.scoped),
+    }),
   );
 
   it.effect("rejects unknown servers, connections, and oversized messages", () =>
