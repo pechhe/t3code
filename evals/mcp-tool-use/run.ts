@@ -54,6 +54,10 @@ import { OrchestratorMcpAdvice, OrchestratorMcpAskAdviceInput } from "@t3tools/c
 import { buildCodexAdditionalContext } from "../../apps/server/src/provider/CodexDeveloperInstructions.ts";
 import { makeSideChatContext } from "../../apps/server/src/orchestration-v2/ContextHandoffService.ts";
 import { withInlineContext } from "../../apps/server/src/orchestration-v2/ContextHandoffDelivery.ts";
+import {
+  BoundedBrowserToolkit,
+  BoundedBrowserSnapshotToolkit,
+} from "../../apps/server/src/mcp/toolkits/boundedBrowser/tools.ts";
 import { AttachmentToolkit } from "../../apps/server/src/mcp/toolkits/attachment/tools.ts";
 import { DeviceToolkit } from "../../apps/server/src/mcp/toolkits/device/tools.ts";
 import { EnvironmentToolkit } from "../../apps/server/src/mcp/toolkits/environment/tools.ts";
@@ -450,6 +454,8 @@ export const normalizeToolInput = (name: string, input: unknown) => {
 // description, and schema through unchanged.
 const t3SourceTools: ReadonlyArray<Tool.Any> = [
   OrchestratorToolkit,
+  BoundedBrowserToolkit,
+  BoundedBrowserSnapshotToolkit,
   ThreadToolkit,
   AttachmentToolkit,
   ProjectToolkit,

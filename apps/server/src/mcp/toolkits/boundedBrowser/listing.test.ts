@@ -15,13 +15,12 @@ const listed = (tools: ReadonlyArray<Tool.Any>) =>
   );
 
 it("keeps the bounded browser task tools within their listing budget", () => {
-  // Measured at 14,389, 14,354 and 17,014 after YS-1211's drag, focus check and optional key target
-  // (a drag inlines the target schema twice). A change that needs more states the new number here.
-  expect(listed([BoundedBrowserToolkit.tools.t3_browser_task])).toBeLessThan(14_500);
+  // T3-571's guarded ordinal repeats at every target: task 16,348; full family 19,025.
+  expect(listed([BoundedBrowserToolkit.tools.t3_browser_task])).toBeLessThan(16_450);
   expect(
     listed([
       ...Object.values(BoundedBrowserToolkit.tools),
       ...Object.values(BoundedBrowserSnapshotToolkit.tools),
     ]),
-  ).toBeLessThan(17_100);
+  ).toBeLessThan(19_150);
 });

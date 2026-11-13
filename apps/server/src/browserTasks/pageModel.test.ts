@@ -316,7 +316,7 @@ describe("targetCandidates", () => {
     resolveTarget(page, target)._tag === "unique";
 
   it("gives each element an ambiguous target matched a target a retry resolves", () => {
-    const candidates = targetCandidates(
+    const { candidates } = targetCandidates(
       page,
       { role: "button", name: "Save" },
       { text: false, hint: true },
@@ -324,17 +324,60 @@ describe("targetCandidates", () => {
     expect(candidates.map(({ target }) => target)).toEqual([
       { role: "button", name: "Save", scope: { role: "region", name: "Billing" } },
       { role: "button", name: "Save", scope: { role: "region", name: "Shipping" } },
-      { role: "button", name: "Save", hint: "in main" },
+      { role: "button", name: "Save", ordinal: 3, matchSet: expect.any(String) },
     ]);
-    expect(candidates.slice(0, 2).every(({ target }) => selects(target))).toBe(true);
-    // Without a hint to fall back on, an element no scope singles out is left out.
+    expect(candidates.every(({ target }) => selects(target))).toBe(true);
+    // Bindings get the same deterministic fallback, without a model hint.
     expect(
-      targetCandidates(page, { role: "button", name: "Save" }, { text: false, hint: false }),
-    ).toHaveLength(2);
+      targetCandidates(page, { role: "button", name: "Save" }, { text: false, hint: false })
+        .candidates,
+    ).toHaveLength(3);
+  });
+
+  it("lists every unnamed-container match and resolves only the supplied ordinal", () => {
+    const repeated = pageModelFromSnapshot(
+      snapshot(
+        Array.from(
+          { length: 6 },
+          (_, i) => `- generic [ref=g${i}]:\n  - textbox "Email" [ref=e${i}]`,
+        ).join("\n"),
+      ),
+    );
+    const target = { role: "textbox", name: "Email" };
+    const { candidates } = targetCandidates(repeated, target, { text: false, hint: false });
+    expect(candidates).toHaveLength(6);
+    expect(resolveTarget(repeated, target)._tag).toBe("ambiguous");
+    for (const [index, candidate] of candidates.entries()) {
+      const resolved = resolveTarget(repeated, candidate.target);
+      expect(resolved._tag === "unique" && resolved.node.ref).toBe(`e${index}`);
+    }
+    expect(resolveTarget(repeated, { ...candidates[0]!.target, ordinal: 7 })._tag).toBe("missing");
+    expect(resolveTarget({ ...repeated, truncated: true }, candidates[0]!.target)._tag).toBe(
+      "unknown",
+    );
+  });
+
+  it("keeps candidate identities across snapshot generations but rejects changed match sets", () => {
+    const page = (tree: string) => pageModelFromSnapshot(snapshot(tree));
+    const initial = page('- textbox "Email" [ref=t3-1-e1]\n- textbox "Email" [ref=t3-1-e2]');
+    const candidate = targetCandidates(initial, { role: "textbox" }, { text: false, hint: false })
+      .candidates[1]!.target;
+    const refreshed = page(
+      '- textbox "Email" [ref=t3-9-e1]: reader@example.test\n- textbox "Email" [ref=t3-9-e2]',
+    );
+    expect(resolveTarget(refreshed, candidate)._tag).toBe("unique");
+    for (const tree of [
+      '- textbox "Email" [ref=t3-9-e2]\n- textbox "Email" [ref=t3-9-e1]',
+      '- textbox "Email" [ref=t3-9-e2]',
+      '- textbox "Email" [ref=t3-9-e1]\n- textbox "CC" [ref=t3-9-e2]',
+      '- textbox "Email" [ref=t3-9-e1]\n- textbox "Email" [ref=t3-9-e3]',
+    ])
+      expect(resolveTarget(page(tree), candidate)._tag).toBe("stale");
+    expect(resolveTarget(initial, { ...candidate, matchSet: undefined })._tag).toBe("stale");
   });
 
   it("offers the controls of the expected kind for a wrong-control target", () => {
-    const candidates = targetCandidates(
+    const { candidates } = targetCandidates(
       page,
       { role: "generic", nameIncludes: "email" },
       { text: false, hint: false, roles: ["textbox"] },
@@ -348,7 +391,7 @@ describe("targetCandidates", () => {
   });
 
   it("offers the near misses of a missing target, each selectable", () => {
-    const candidates = targetCandidates(
+    const { candidates } = targetCandidates(
       page,
       { role: "button", name: "Send mesage" },
       { text: false, hint: false },

@@ -1,3 +1,6 @@
+// @effect-diagnostics nodeBuiltinImport:off - synchronous fingerprints keep page-model resolution pure.
+import * as NodeCrypto from "node:crypto";
+import { PREVIEW_TASK_LIMITS } from "@t3tools/contracts";
 import type {
   PreviewAutomationSnapshot,
   PreviewTaskBinding,
@@ -162,6 +165,7 @@ export const pageModelFromSnapshot = (snapshot: PreviewAutomationSnapshot): Page
 export type TargetResolution =
   | { readonly _tag: "unique"; readonly node: PageNode }
   | { readonly _tag: "missing" }
+  | { readonly _tag: "stale" }
   /** With `scope`, it is the ancestor that matched more than once; otherwise `nodes` are the matches. */
   | {
       readonly _tag: "ambiguous";
@@ -220,6 +224,17 @@ export const matchingAll = (model: PageModel, target: PreviewTaskTarget): readon
   return found.filter((node) => scopes.some((scope) => inside(model, node, scope)));
 };
 
+// Snapshot generations change on every read; Playwright's native element ref survives them.
+const matchSet = (model: PageModel, nodes: readonly PageNode[]) =>
+  `${nodes.length}:${NodeCrypto.createHash("sha256")
+    .update(
+      JSON.stringify([
+        model.url,
+        nodes.map((node) => [node.ref?.replace(/^t3-\d+-/, ""), node.role, node.name]),
+      ]),
+    )
+    .digest("hex")}`;
+
 export const resolveTarget = (model: PageModel, target: PreviewTaskTarget): TargetResolution => {
   let found = matchingTarget(model, target);
   if (target.scope !== undefined) {
@@ -230,6 +245,11 @@ export const resolveTarget = (model: PageModel, target: PreviewTaskTarget): Targ
     found = scope === undefined ? [] : found.filter((node) => inside(model, node, scope));
   }
   if (model.truncated) return { _tag: "unknown", count: found.length };
+  if (target.ordinal !== undefined) {
+    if (target.matchSet !== matchSet(model, found)) return { _tag: "stale" };
+    const node = found[target.ordinal - 1];
+    return node === undefined ? { _tag: "missing" } : { _tag: "unique", node };
+  }
   if (found.length === 0) return { _tag: "missing" };
   return found.length === 1
     ? { _tag: "unique", node: found[0]! }
@@ -330,6 +350,8 @@ const evaluateTarget = (
   check: Extract<PreviewTaskCheck, { kind: "target" }>,
 ): Omit<PreviewTaskCheckResult, "id"> => {
   const resolved = resolveTarget(model, check.target);
+  if (resolved._tag === "stale")
+    return { status: "not-evaluated", detail: "The candidate match set changed; snapshot again." };
   if (check.expect === "absent") {
     if (resolved._tag === "missing") return { status: "passed" };
     if (resolved._tag === "unknown" && resolved.count === 0)
@@ -553,17 +575,16 @@ export interface TargetCandidate {
 /**
  * A target that resolves to exactly this element: its own role and name, or visible text where
  * the use allows it, narrowed by the nearest named ancestor that holds no other match; failing
- * that, a `hint` naming its region where the use takes one.
+ * that, an explicit ordinal among the base target's matches.
  */
 const selectingTarget = (
   model: PageModel,
   node: PageNode,
   use: { readonly text: boolean; readonly hint: boolean },
 ): PreviewTaskTarget | undefined => {
-  if (node.name.length > MAX_TARGET_NAME_CHARS) return undefined;
   const text = lineText(node);
   const base: PreviewTaskTarget =
-    node.name !== ""
+    node.name !== "" && node.name.length <= MAX_TARGET_NAME_CHARS
       ? { role: node.role, name: node.name }
       : use.text && text !== "" && text.length <= MAX_TARGET_NAME_CHARS
         ? { text }
@@ -581,11 +602,12 @@ const selectingTarget = (
     if (selects(scoped)) return scoped;
   }
   const resolved = resolveTarget(model, base);
-  return use.hint &&
-    resolved._tag === "ambiguous" &&
-    resolved.scope !== true &&
-    resolved.nodes.includes(node)
-    ? { ...base, hint: regionOf(model, node).slice(0, 200) }
+  return resolved._tag === "ambiguous" && resolved.scope !== true && resolved.nodes.includes(node)
+    ? {
+        ...base,
+        ordinal: resolved.nodes.indexOf(node) + 1,
+        matchSet: matchSet(model, resolved.nodes),
+      }
     : undefined;
 };
 
@@ -598,7 +620,7 @@ export const targetCandidates = (
   model: PageModel,
   target: PreviewTaskTarget,
   use: { readonly text: boolean; readonly hint: boolean; readonly roles?: readonly string[] },
-): readonly TargetCandidate[] => {
+): { readonly candidates: readonly TargetCandidate[]; readonly total: number } => {
   const resolved = resolveTarget(model, target);
   const roles = use.roles;
   const nodes =
@@ -620,13 +642,22 @@ export const targetCandidates = (
         : resolved._tag === "missing"
           ? nearNodes(model, target)
           : [];
-  return [...new Set(nodes)]
-    .slice(0, MAX_CANDIDATES * 2)
+  const limit =
+    resolved._tag === "ambiguous" ? PREVIEW_TASK_LIMITS.targetCandidates : MAX_CANDIDATES;
+  const unique = [...new Set(nodes)];
+  const candidates = unique
+    .slice(0, limit * 2)
     .flatMap((node) => {
       const selecting = selectingTarget(model, node, use);
       return selecting === undefined
         ? []
-        : [{ element: describeElement(model, node), target: selecting }];
+        : [
+            {
+              element: `${describeElement(model, node)}${selecting.ordinal === undefined ? "" : ` (match ${selecting.ordinal})`}`,
+              target: selecting,
+            },
+          ];
     })
-    .slice(0, MAX_CANDIDATES);
+    .slice(0, limit);
+  return { candidates, total: unique.length };
 };

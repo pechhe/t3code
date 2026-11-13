@@ -355,6 +355,8 @@ const unresolvedDetail = (
           : `${id}: ${resolved.count} elements match ${describeTarget(target)}; a hint chooses among at most ${MAX_HINT_MATCHES}.`;
     case "unknown":
       return `${id}: the snapshot was cut; it shows ${resolved.count} matching ${describeTarget(target)}.`;
+    case "stale":
+      return `${id}: the candidate match set changed.`;
     case "missing":
       return `${id}: 0 elements match ${describeTarget(target)}.`;
   }
@@ -715,8 +717,14 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
     use: Parameters<typeof targetCandidates>[2],
   ) =>
     Effect.sync(() => {
-      const candidates = targetCandidates(model, target, use);
-      if (candidates.length > 0) (record as Mutable<RunRecord>).candidates = candidates;
+      const { candidates, total } = targetCandidates(model, target, use);
+      if (candidates.length > 0) {
+        const mutable = record as Mutable<RunRecord>;
+        mutable.candidates = candidates;
+        mutable.candidateTotal = total;
+        if (total > candidates.length)
+          mutable.candidateNote = `Showing ${candidates.length} of ${total}. Use a snapshot to identify further matches; an ordinal beyond this list is allowed with its matchSet.`;
+      }
     });
 
   const resolveNode = Effect.fn("BrowserTaskRunner.resolveNode")(function* (
@@ -1003,6 +1011,14 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
     let fill: PreviewTaskBinding | undefined;
     for (const binding of bindings) {
       const resolved = resolveTarget(model, binding.target);
+      if (resolved._tag === "stale") {
+        yield* stop(
+          "blocked",
+          "stale-target",
+          unresolvedDetail(binding.id, binding.target, resolved),
+        );
+        return undefined;
+      }
       if (resolved._tag === "ambiguous" || resolved._tag === "unknown") {
         if (resolved._tag === "ambiguous")
           yield* offerCandidates(model, binding.target, { text: false, hint: false });
@@ -1045,6 +1061,10 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
       let absent = false;
       for (const target of actionTargets(action)) {
         const resolved = resolveTarget(model, target);
+        if (resolved._tag === "stale") {
+          yield* stop("blocked", "stale-target", unresolvedDetail(action.id, target, resolved));
+          return undefined;
+        }
         if (hintable(target, resolved)) {
           // Jev picks the element when the step runs, so it is offered as the caller described it.
         } else if (resolved._tag === "ambiguous" || resolved._tag === "unknown") {
@@ -1073,6 +1093,14 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
     }
     if (request.submit !== undefined && !submitDispatched) {
       const resolved = resolveTarget(model, request.submit.target);
+      if (resolved._tag === "stale") {
+        yield* stop(
+          "blocked",
+          "stale-target",
+          unresolvedDetail(request.submit.id, request.submit.target, resolved),
+        );
+        return undefined;
+      }
       if (resolved._tag === "ambiguous" && !hintable(request.submit.target, resolved)) {
         yield* offerCandidates(model, request.submit.target, { text: true, hint: true });
         yield* stop(
@@ -1104,6 +1132,14 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
     }
     if (request.capture !== undefined) {
       const resolved = resolveTarget(model, request.capture.target);
+      if (resolved._tag === "stale") {
+        yield* stop(
+          "blocked",
+          "stale-target",
+          unresolvedDetail("capture", request.capture.target, resolved),
+        );
+        return undefined;
+      }
       if (resolved._tag === "ambiguous") {
         yield* offerCandidates(model, request.capture.target, { text: false, hint: false });
         yield* stop(

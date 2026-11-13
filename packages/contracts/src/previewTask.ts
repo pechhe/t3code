@@ -21,6 +21,7 @@ export const PREVIEW_TASK_LIMITS = {
   inlineImages: 3,
   /** Page reach: choices offered at once, counting the caller's own actions; and dropdown options. */
   candidates: 40,
+  targetCandidates: 20,
   origins: 16,
   avoid: 16,
   /** Replay protection is never evicted, so a session past this many requests is refused. */
@@ -45,6 +46,12 @@ export const PreviewTaskTarget = Schema.Struct({
   nameIncludes: Schema.optional(NameFragment).annotate({ description: "Part of the name." }),
   text: Schema.optional(NameFragment).annotate({
     description: "Visible line text.",
+  }),
+  ordinal: Schema.optional(Schema.Int.check(Schema.isGreaterThan(0))).annotate({
+    description: "1-based match; copy matchSet too.",
+  }),
+  matchSet: Schema.optional(Schema.String.check(Schema.isMaxLength(80))).annotate({
+    description: "Candidate match-set fingerprint.",
   }),
   hint: Schema.optional(
     Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
@@ -189,8 +196,14 @@ export const PreviewTaskStep = Schema.Union([
 ]);
 export type PreviewTaskStep = typeof PreviewTaskStep.Type;
 
-// Every target form but a hint, which picks one match, and a scope, kept out of the listing.
-const { hint: _hint, scope: _scope, ...avoidFields } = PreviewTaskTarget.fields;
+// Avoid applies to every match, without a hint, ordinal or scope.
+const {
+  hint: _hint,
+  ordinal: _ordinal,
+  matchSet: _matchSet,
+  scope: _scope,
+  ...avoidFields
+} = PreviewTaskTarget.fields;
 
 export const PreviewTaskPageReach = Schema.Struct({
   origins: Schema.optional(Schema.Array(Text)).annotate({
@@ -434,11 +447,15 @@ export const PreviewTaskResult = Schema.Struct({
   ),
   /**
    * With reason `ambiguous-target`, `wrong-control` or `target-not-found`: elements the page has,
-   * each with a target that selects it, through a `scope` or else a `hint`. Page data.
+   * each with a target that selects it, through a `scope` or else an `ordinal`. Page data.
    */
   candidates: Schema.optional(
-    Schema.Array(Schema.Struct({ element: Schema.String, target: PreviewTaskTarget })),
+    Schema.Array(Schema.Struct({ element: Schema.String, target: PreviewTaskTarget })).check(
+      Schema.isMaxLength(PREVIEW_TASK_LIMITS.targetCandidates),
+    ),
   ),
+  candidateTotal: Schema.optional(Schema.Int),
+  candidateNote: Schema.optional(Schema.String),
   evidence: Schema.Struct({
     url: Schema.NullOr(Schema.String),
     title: Schema.NullOr(Schema.String),

@@ -738,8 +738,14 @@ describe("BrowserTaskService", () => {
   it.effect("refuses an ambiguous target before spending a decision or touching the page", () =>
     Effect.gen(function* () {
       const task = yield* harness({
+        choices: ["save", "DONE"],
+        onAct: (operation, input, page) => {
+          if (operation === "type")
+            page.tree = page.tree!.replace("[ref=b]", `[ref=b]: ${input.text}`);
+          if (operation === "click") page.submits += 1;
+        },
         page: {
-          tree: `- textbox "Email" [ref=a]\n- textbox "Email" [ref=b]\n- button "Save" [ref=c]`,
+          tree: `- generic [ref=first]:\n  - textbox "Email" [ref=a]\n- generic [ref=second]:\n  - textbox "Email" [ref=b]\n- button "Save" [ref=c]`,
         },
       });
       const result = yield* report(
@@ -748,6 +754,104 @@ describe("BrowserTaskService", () => {
       assert.strictEqual(result.reason, "ambiguous-target");
       assert.strictEqual(task.decisions.length, 0);
       assert.strictEqual(task.acts.length, 0);
+      assert.strictEqual(result.candidates?.length, 2);
+      const candidate = result.candidates![1]!;
+      const retry = yield* report(
+        task.service.run({
+          scope,
+          request: {
+            ...FORM_REQUEST,
+            requestId: "form-retry",
+            bindings: [{ ...FORM_REQUEST.bindings![0]!, target: candidate.target }],
+          },
+          authorize: allow,
+        }),
+      );
+      assert.strictEqual(retry.status, "passed");
+      assert.deepStrictEqual(
+        task.acts.filter(({ operation }) => operation === "type").map(({ input }) => input.locator),
+        ["aria-ref=b"],
+      );
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("refuses stale candidate ordinals without touching the page", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({
+        page: { tree: '- textbox "Email" [ref=a]\n- textbox "Email" [ref=b]' },
+      });
+      const result = yield* report(
+        task.service.run({ scope, request: FORM_REQUEST, authorize: allow }),
+      );
+      const target = result.candidates![1]!.target;
+      for (const [index, tree] of [
+        '- textbox "Email" [ref=new]\n- textbox "Email" [ref=a]\n- textbox "Email" [ref=b]',
+        '- textbox "Email" [ref=b]\n- textbox "Email" [ref=a]',
+      ].entries()) {
+        task.page.tree = tree;
+        const retry = yield* report(
+          task.service.run({
+            scope,
+            request: {
+              ...FORM_REQUEST,
+              requestId: `stale-${index}`,
+              bindings: [{ ...FORM_REQUEST.bindings![0]!, target }],
+            },
+            authorize: allow,
+          }),
+        );
+        assert.strictEqual(retry.reason, "stale-target");
+        assert.strictEqual(task.page.tree, tree);
+        assert.match(retry.detail!, /snapshot/i);
+        assert.strictEqual(task.acts.length, 0);
+        assert.strictEqual(task.decisions.length, 0);
+      }
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("bounds a large candidate reply while allowing an unlisted ordinal", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({
+        choices: ["save", "DONE"],
+        page: {
+          tree:
+            Array.from({ length: 50 }, (_, i) => `- textbox "Email" [ref=e${i}]`).join("\n") +
+            '\n- button "Save" [ref=save]',
+        },
+        onAct: (operation, input, page) => {
+          if (operation === "type")
+            page.tree = page.tree!.replace("[ref=e49]", `[ref=e49]: ${input.text}`);
+          if (operation === "click") page.submits += 1;
+        },
+      });
+      const result = yield* report(
+        task.service.run({ scope, request: FORM_REQUEST, authorize: allow }),
+      );
+      assert.strictEqual(result.candidates?.length, 20);
+      assert.strictEqual(result.candidateTotal, 50);
+      assert.match(result.candidateNote!, /ordinal/);
+      assert.strictEqual(task.acts.length, 0);
+      const retry = yield* report(
+        task.service.run({
+          scope,
+          request: {
+            ...FORM_REQUEST,
+            requestId: "unlisted",
+            bindings: [
+              {
+                ...FORM_REQUEST.bindings![0]!,
+                target: { ...result.candidates![0]!.target, ordinal: 50 },
+              },
+            ],
+          },
+          authorize: allow,
+        }),
+      );
+      assert.strictEqual(retry.status, "passed");
+      assert.deepStrictEqual(
+        task.acts.filter(({ operation }) => operation === "type").map(({ input }) => input.locator),
+        ["aria-ref=e49"],
+      );
     }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
   );
 
