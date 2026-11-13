@@ -203,7 +203,7 @@ describe("ConnectionResolver", () => {
         label: "Primary",
         httpBaseUrl: "http://127.0.0.1:3777",
         socketUrl:
-          "ws://127.0.0.1:3777/ws?clientSurface=web&clientDeviceType=desktop&connectionMethod=direct&orchestrationProtocol=2&liveResponseStreaming=1&clientCapabilities=settingsSecretReferences%2CimplementerRole%2CstorageAwareSecretRequests",
+          "ws://127.0.0.1:3777/ws?clientSurface=web&clientDeviceType=desktop&connectionMethod=direct&orchestrationProtocol=2&liveResponseStreaming=1&clientCapabilities=settingsSecretReferences%2CimplementerRole%2CstorageAwareSecretRequests%2CchampionThreads",
         httpAuthorization: null,
         target,
         // The shell reads the server's build and shell flags here before the socket opens.
@@ -251,7 +251,7 @@ describe("ConnectionResolver", () => {
 
       expect(yield* broker.prepare(catalogEntry(target))).toMatchObject({
         socketUrl:
-          "ws://127.0.0.1:3777/ws?wsTicket=desktop&orchestrationProtocol=2&liveResponseStreaming=1&clientCapabilities=settingsSecretReferences%2CimplementerRole%2CstorageAwareSecretRequests",
+          "ws://127.0.0.1:3777/ws?wsTicket=desktop&orchestrationProtocol=2&liveResponseStreaming=1&clientCapabilities=settingsSecretReferences%2CimplementerRole%2CstorageAwareSecretRequests%2CchampionThreads",
         httpAuthorization: { _tag: "Bearer", token: "desktop-bearer" },
         target,
       });

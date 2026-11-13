@@ -32,6 +32,7 @@ import {
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import {
+  championThreadHiddenFromList,
   loadShellUnlessResumable,
   loadSubscriberShellSnapshot,
   projectIdentitiesDigest,
@@ -84,6 +85,7 @@ export const layer = HttpApiBuilder.group(
       function* (options: {
         readonly omitIdleSubagents: boolean;
         readonly omitOlderSettled: boolean;
+        readonly championThreads: boolean;
       }) {
         const { snapshot } = yield* loadSubscriberShellSnapshot({
           sql,
@@ -98,7 +100,16 @@ export const layer = HttpApiBuilder.group(
           options,
         });
         const projects = yield* enrichProjectShells(snapshot.projects);
-        return { ...snapshot, projects, projectIdentities: projectIdentitiesDigest(projects) };
+        return {
+          ...snapshot,
+          projects,
+          projectIdentities: projectIdentitiesDigest(projects),
+          ...(options.championThreads
+            ? {}
+            : {
+                threads: snapshot.threads.filter((thread) => !championThreadHiddenFromList(thread)),
+              }),
+        };
       },
     );
 
@@ -107,6 +118,7 @@ export const layer = HttpApiBuilder.group(
       readonly omitIdleSubagents?: string;
       readonly omitOlderSettled?: string;
       readonly resumeFrom?: string;
+      readonly championThreads?: string;
     }) => {
       const resumeFrom = query.resumeFrom === undefined ? Number.NaN : Number(query.resumeFrom);
       return loadShellUnlessResumable({
@@ -115,6 +127,7 @@ export const layer = HttpApiBuilder.group(
         loadSnapshot: loadShellSnapshot({
           omitIdleSubagents: query.omitIdleSubagents === "1",
           omitOlderSettled: query.omitOlderSettled === "1",
+          championThreads: query.championThreads === "1",
         }),
       });
     });

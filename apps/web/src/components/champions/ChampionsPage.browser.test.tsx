@@ -141,6 +141,7 @@ vi.mock(import("@tanstack/react-router"), async (original) => ({
 
 import { ChampionActivityList, ChampionDecisionList } from "./ChampionActivityList";
 import { ChampionForm } from "./ChampionForm";
+import { ChampionRoleControls } from "./ChampionRoles";
 import { ChampionsPage } from "./ChampionsPage";
 
 const PROJECT_A = { environmentId: "machine-a", id: "project-a", title: "Peach", isScratch: false };
@@ -1065,6 +1066,27 @@ describe("the champion form's roles", () => {
     await vi.waitFor(() => expect(fixtures.commands.get("champion save")).toHaveBeenCalledTimes(1));
     expect(fixtures.commands.get("champion save")?.mock.calls[0]?.[0].input).toMatchObject({
       classes,
+      setupModelSelection: model("history-setup"),
+    });
+  });
+
+  it("changes one role from the champion's page and keeps the rest of its configuration", async () => {
+    reset();
+    answering(eligible);
+    const classes = {
+      setup: { role: "advisor", taskClass: "non-ui" },
+      routine: { role: "implementer", taskClass: "non-ui" },
+    } as const;
+    await using _screen = await render(
+      <ChampionRoleControls environmentId={ENV} champion={saved(classes)} />,
+    );
+    await userEvent.click(page.getByRole("button", { name: "Change models" }));
+    await userEvent.click(page.getByRole("combobox", { name: "Checks use" }));
+    await userEvent.click(page.getByRole("option", { name: /Advisor/ }));
+    await vi.waitFor(() => expect(fixtures.commands.get("champion save")).toHaveBeenCalledTimes(1));
+    expect(fixtures.commands.get("champion save")?.mock.calls[0]?.[0].input).toMatchObject({
+      id: "c1",
+      classes: { setup: classes.setup, routine: { role: "advisor", taskClass: "non-ui" } },
       setupModelSelection: model("history-setup"),
     });
   });

@@ -5,8 +5,8 @@ import type {
   EnvironmentId,
   ModelSelection,
 } from "@t3tools/contracts";
-import { Link } from "@tanstack/react-router";
 import { InfoIcon } from "lucide-react";
+import type { ReactNode } from "react";
 
 import { AgentRoleChip } from "../AgentRoleChip";
 import { ModelLabel } from "../ModelLabel";
@@ -50,9 +50,9 @@ export function ChampionRunStrip(props: {
   readonly environmentId: EnvironmentId;
   readonly champion: ChampionSummary;
   readonly runtimeState: ChampionRuntimeState | null;
+  readonly roleControls?: ReactNode;
   readonly projectTitle: string | null;
   readonly machineLabel: string | null;
-  readonly ownerThreadExists: boolean;
 }) {
   const { champion, environmentId } = props;
   const runs = props.runtimeState === null ? [] : championRecentRuns(props.runtimeState);
@@ -87,21 +87,10 @@ export function ChampionRunStrip(props: {
         role={champion.classes?.setup.role ?? null}
         selection={lastOf(false) ?? (champion.classes ? null : champion.setupModelSelection)}
       />
+      {props.roleControls}
       <span className="text-muted-foreground">
         {props.projectTitle ?? "Project not loaded"}
         {props.machineLabel === null ? "" : ` on ${props.machineLabel}`}
-        {props.ownerThreadExists ? (
-          <>
-            {" · "}
-            <Link
-              to="/$environmentId/$threadId"
-              params={{ environmentId, threadId: champion.ownerThreadId }}
-              className="underline-offset-2 hover:underline"
-            >
-              Working thread
-            </Link>
-          </>
-        ) : null}
       </span>
     </div>
   );

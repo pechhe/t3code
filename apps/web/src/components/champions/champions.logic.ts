@@ -860,3 +860,17 @@ export function latestGoalProgress(
       latest = event;
   return latest;
 }
+
+/** Metric setup runs in its own thread; routine checks and everything else run in the owner's. */
+export function championCurrentThreadId(
+  champion: Pick<
+    ChampionSummary,
+    "outstandingSetupId" | "setupThreadId" | "lastCheckAt" | "ownerThreadId"
+  >,
+  checkRunning: boolean,
+): ThreadId | null {
+  if (champion.outstandingSetupId != null && champion.setupThreadId !== null) {
+    return champion.setupThreadId;
+  }
+  return champion.lastCheckAt !== null || checkRunning ? champion.ownerThreadId : null;
+}

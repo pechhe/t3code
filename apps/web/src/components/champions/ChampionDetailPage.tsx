@@ -20,6 +20,7 @@ import {
   ArchiveRestoreIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  MessageSquareIcon,
   PencilIcon,
   PlayIcon,
 } from "lucide-react";
@@ -47,10 +48,12 @@ import { ChampionActivityList, ChampionDecisionList } from "./ChampionActivityLi
 import { ChampionLearnings, useChampionLearningCount } from "./ChampionLearnings";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { ChampionRunStrip } from "./ChampionHowItWorks";
+import { ChampionRoleControls } from "./ChampionRoles";
 import { ClampedText } from "./ClampedText";
 import { ChampionMetricRow } from "./ChampionMetrics";
 import {
   championActivityView,
+  championCurrentThreadId,
   latestGoalProgress,
   metricChange,
   metricTargetLabel,
@@ -511,7 +514,7 @@ export function ChampionDetailPage(props: {
     (finding) => pendingChampionDecision(finding) !== null,
   ).length;
   const noLongerTracked = retiredMetrics(metrics, history.definitions);
-  const ownerThreadExists = champion.lastCheckAt !== null || checkRunning;
+  const currentThreadId = championCurrentThreadId(champion, checkRunning);
   const goalProgress = latestGoalProgress(history.activity);
   const badge = statusBadge(championStatus(champion, nowMs));
   const paused = champion.lifecycle === "paused";
@@ -818,6 +821,21 @@ export function ChampionDetailPage(props: {
               </Button>
             ) : (
               <>
+                {currentThreadId === null ? null : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    render={
+                      <Link
+                        to="/$environmentId/$threadId"
+                        params={{ environmentId, threadId: currentThreadId }}
+                      />
+                    }
+                  >
+                    <MessageSquareIcon />
+                    Open thread
+                  </Button>
+                )}
                 <ReasonedTooltip
                   reason={
                     runDisabledReason ??
@@ -894,7 +912,11 @@ export function ChampionDetailPage(props: {
           runtimeState={runtimeQuery.data}
           projectTitle={project?.title ?? null}
           machineLabel={machines.size > 1 && machine ? machine.label : null}
-          ownerThreadExists={ownerThreadExists}
+          roleControls={
+            retired ? null : (
+              <ChampionRoleControls environmentId={environmentId} champion={champion} />
+            )
+          }
         />
         {retired ? (
           <p className="text-muted-foreground text-xs">

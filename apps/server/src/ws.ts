@@ -72,6 +72,7 @@ import {
   SETTINGS_SECRET_REFERENCES_CAPABILITY,
   STORAGE_AWARE_SECRET_REQUESTS_CAPABILITY,
   SecretRequestError,
+  CHAMPION_THREADS_CAPABILITY,
   IMPLEMENTER_ROLE_CAPABILITY,
   ORCHESTRATION_PROTOCOL_VERSION,
   OrchestrationV2DispatchCommandError,
@@ -81,6 +82,7 @@ import {
   type OrchestrationProjectShell,
   type OrchestrationV2ShellSnapshot,
   type OrchestrationV2ShellStreamItem,
+  type OrchestrationV2ThreadShell,
   type OrchestrationV2ThreadStreamItem,
   type ApplicationStoredEvent,
   type ProjectEntriesFailure,
@@ -180,7 +182,9 @@ import {
   shellStreamItemsFromResumeSnapshot,
   shouldPublishShellApplicationEvent,
   skipUnchangedThreadShells,
+  championThreadHiddenFromList,
   toShellApplicationEvent,
+  withoutChampionThreads,
   type ShellApplicationEvent,
 } from "./orchestration-v2/ShellStream.ts";
 import {
@@ -1521,6 +1525,7 @@ export const layerWsRpc = (
   serverBrowser: ServerBrowser.ServerBrowser["Service"],
   reportProfiles: ServerBrowser.ProfileReporter,
   settingsClient: { readonly secretReferences: boolean; readonly storageAwareSecrets?: boolean },
+  championThreads = false,
 ) =>
   Layer.unwrap(
     Effect.gen(function* () {
@@ -2311,7 +2316,11 @@ export const layerWsRpc = (
             ),
           ),
         [ORCHESTRATION_V2_WS_METHODS.subscribeShell]: (input) =>
-          Stream.unwrap(subscribeOrchestrationV2Shell(input)),
+          championThreads
+            ? Stream.unwrap(subscribeOrchestrationV2Shell(input))
+            : Stream.unwrap(subscribeOrchestrationV2Shell(input)).pipe(
+                Stream.map(withoutChampionThreads),
+              ),
         [ORCHESTRATION_V2_WS_METHODS.subscribeThread]: (input) =>
           Stream.unwrap(
             Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
@@ -3627,65 +3636,79 @@ const makeOmittableShellRowsReader = (
     return { snapshotSequence, threads: threads.threads };
   });
 
-const layerWsThreadStructureRpc = ServerWsThreadStructureRpcGroup.toLayer(
-  Effect.gen(function* () {
-    const threadManagement = yield* ThreadManagementService.ThreadManagementService;
-    const applicationEvents = yield* OrchestrationEventStore.OrchestrationEventStore;
-    const sql = yield* SqlClient.SqlClient;
-    const providerSessionManager = yield* ProviderSessionManager.ProviderSessionManagerV2;
-    const readOmittableShellRows = makeOmittableShellRowsReader(threadManagement, {
-      sql,
-      latestSequence: applicationEvents.latestApplicationSequence,
-    });
-    return ServerWsThreadStructureRpcGroup.of({
-      [ORCHESTRATION_V2_WS_METHODS.getThreadFamily]: (input) =>
-        readOmittableShellRows({ familyOf: input.threadId }, "Failed to load the thread family"),
-      [ORCHESTRATION_V2_WS_METHODS.getThreadTitles]: (input) =>
-        threadManagement.getThreadTitles(input.threadIds).pipe(
-          Effect.mapError(
-            (cause) =>
-              new OrchestrationV2GetShellSnapshotError({
-                message: "Failed to load thread titles",
-                cause,
-              }),
+const layerWsThreadStructureRpc = (championThreads: boolean) =>
+  ServerWsThreadStructureRpcGroup.toLayer(
+    Effect.gen(function* () {
+      const listable = <T extends { readonly threads: ReadonlyArray<OrchestrationV2ThreadShell> }>(
+        page: T,
+      ): T =>
+        championThreads
+          ? page
+          : {
+              ...page,
+              threads: page.threads.filter((thread) => !championThreadHiddenFromList(thread)),
+            };
+      const threadManagement = yield* ThreadManagementService.ThreadManagementService;
+      const applicationEvents = yield* OrchestrationEventStore.OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const providerSessionManager = yield* ProviderSessionManager.ProviderSessionManagerV2;
+      const readOmittableShellRows = makeOmittableShellRowsReader(threadManagement, {
+        sql,
+        latestSequence: applicationEvents.latestApplicationSequence,
+      });
+      return ServerWsThreadStructureRpcGroup.of({
+        [ORCHESTRATION_V2_WS_METHODS.getThreadFamily]: (input) =>
+          readOmittableShellRows(
+            { familyOf: input.threadId },
+            "Failed to load the thread family",
+          ).pipe(Effect.map(listable)),
+        [ORCHESTRATION_V2_WS_METHODS.getThreadTitles]: (input) =>
+          threadManagement.getThreadTitles(input.threadIds).pipe(
+            Effect.mapError(
+              (cause) =>
+                new OrchestrationV2GetShellSnapshotError({
+                  message: "Failed to load thread titles",
+                  cause,
+                }),
+            ),
           ),
-        ),
-      [ORCHESTRATION_V2_WS_METHODS.getOlderSettledThreads]: (input) =>
-        loadOlderSettledThreadsPage({
-          sql: sql,
-          listThreads: threadManagement.listOlderSettledThreads(input),
-          readThreads: (threadIds) =>
-            threadManagement.readShellSnapshot({ location: "active", threadIds }),
-          latestSequence: applicationEvents.latestApplicationSequence,
-        }).pipe(
-          Effect.mapError(
-            (cause) =>
-              new OrchestrationV2GetShellSnapshotError({
-                message: "Failed to load older settled threads",
-                cause,
-              }),
+        [ORCHESTRATION_V2_WS_METHODS.getOlderSettledThreads]: (input) =>
+          loadOlderSettledThreadsPage({
+            sql: sql,
+            listThreads: threadManagement.listOlderSettledThreads(input),
+            readThreads: (threadIds) =>
+              threadManagement.readShellSnapshot({ location: "active", threadIds }),
+            latestSequence: applicationEvents.latestApplicationSequence,
+          }).pipe(
+            Effect.map(listable),
+            Effect.mapError(
+              (cause) =>
+                new OrchestrationV2GetShellSnapshotError({
+                  message: "Failed to load older settled threads",
+                  cause,
+                }),
+            ),
           ),
-        ),
-      [ORCHESTRATION_V2_WS_METHODS.getWorktreeThreadIds]: (input) =>
-        readOmittableShellRows(
-          { worktreePath: input.worktreePath },
-          "Failed to load the worktree's threads",
-        ).pipe(Effect.map(({ threads }) => ({ threadIds: threads.map((thread) => thread.id) }))),
-      [ORCHESTRATION_V2_WS_METHODS.subscribePromptSuggestion]: (input) =>
-        providerSessionManager.subscribePromptSuggestion(input.threadId),
-      [ORCHESTRATION_V2_WS_METHODS.getThreadLinkMetadata]: (input) =>
-        threadManagement.getThreadLinkMetadata(input.threadIds).pipe(
-          Effect.mapError(
-            (cause) =>
-              new OrchestrationV2GetShellSnapshotError({
-                message: "Failed to load thread link metadata",
-                cause,
-              }),
+        [ORCHESTRATION_V2_WS_METHODS.getWorktreeThreadIds]: (input) =>
+          readOmittableShellRows(
+            { worktreePath: input.worktreePath },
+            "Failed to load the worktree's threads",
+          ).pipe(Effect.map(({ threads }) => ({ threadIds: threads.map((thread) => thread.id) }))),
+        [ORCHESTRATION_V2_WS_METHODS.subscribePromptSuggestion]: (input) =>
+          providerSessionManager.subscribePromptSuggestion(input.threadId),
+        [ORCHESTRATION_V2_WS_METHODS.getThreadLinkMetadata]: (input) =>
+          threadManagement.getThreadLinkMetadata(input.threadIds).pipe(
+            Effect.mapError(
+              (cause) =>
+                new OrchestrationV2GetShellSnapshotError({
+                  message: "Failed to load thread link metadata",
+                  cause,
+                }),
+            ),
           ),
-        ),
-    });
-  }),
-);
+      });
+    }),
+  );
 
 const layerWsPeersRpc = ServerWsPeersRpcGroup.toLayer(
   Effect.gen(function* () {
@@ -3973,13 +3996,16 @@ export const layer = Layer.unwrap(
                 serverBrowser,
                 reportProfiles,
                 readSettingsClient(url.value),
+                readClientCapabilities(url.value).includes(CHAMPION_THREADS_CAPABILITY),
               ),
               layerWsVcsRpc,
               layerWsPullRequestRpc,
               layerWsPeersRpc,
               layerWsWeaveRpc,
               layerWsGuestShareRpc,
-              layerWsThreadStructureRpc,
+              layerWsThreadStructureRpc(
+                readClientCapabilities(url.value).includes(CHAMPION_THREADS_CAPABILITY),
+              ),
               layerWsAwayRpc,
               layerWsChampionsRpc,
               layerWsThreadControlRpc,

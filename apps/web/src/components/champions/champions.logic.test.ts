@@ -47,6 +47,7 @@ import {
   safeExternalUrl,
   sparklineGeometry,
   validateChampionsSearch,
+  championCurrentThreadId,
 } from "./champions.logic";
 
 const ENV = EnvironmentId.make("env-a");
@@ -774,4 +775,24 @@ it("shows the newest check report as the goal's latest progress", () => {
       event({ id: "later", kind: "finding-opened", at: "2026-10-07T00:00:00.000Z" }),
     ]),
   ).toBe(newest);
+});
+
+describe("championCurrentThreadId", () => {
+  const owner = ThreadId.make("owner");
+  const setup = ThreadId.make("setup");
+  const champion = {
+    outstandingSetupId: null,
+    setupThreadId: setup,
+    lastCheckAt: null,
+    ownerThreadId: owner,
+  };
+
+  it.each([
+    ["metric setup is running", { ...champion, outstandingSetupId: "s1" }, false, setup],
+    ["a check has run", { ...champion, lastCheckAt: "2026-01-01T00:00:00.000Z" }, false, owner],
+    ["a first check is running", champion, true, owner],
+    ["nothing has run yet", champion, false, null],
+  ] as const)("opens the right thread when %s", (_, input, running, expected) => {
+    expect(championCurrentThreadId(input, running)).toBe(expected);
+  });
 });

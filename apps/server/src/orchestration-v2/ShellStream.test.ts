@@ -27,6 +27,7 @@ import {
   shellStreamItemsFromInitialSnapshot,
   shouldPublishShellApplicationEvent,
   skipUnchangedThreadShells,
+  withoutChampionThreads,
 } from "./ShellStream.ts";
 
 const emptyShellSnapshot = {
@@ -147,6 +148,48 @@ it.effect("coalesces a slow shell subscriber by identity and location in sequenc
 function shellFixture(overrides: Partial<OrchestrationV2ThreadShell>): OrchestrationV2ThreadShell {
   return { id: "thread-a", archivedAt: null, ...overrides } as OrchestrationV2ThreadShell;
 }
+
+describe("withoutChampionThreads", () => {
+  const champion = { id: "c", attention: false };
+  const quiet = {
+    pendingRuntimeRequest: null,
+    pendingReleaseApprovals: [],
+    hasActionableProposedPlan: false,
+    pendingGuestMessageCount: 0,
+  };
+  const check = shellFixture({ id: ThreadId.make("check"), champion, ...quiet });
+  const waiting = shellFixture({
+    id: ThreadId.make("waiting"),
+    champion,
+    ...quiet,
+    hasActionableProposedPlan: true,
+  });
+  const ordinary = shellFixture({ id: ThreadId.make("ordinary"), ...quiet });
+
+  it("keeps a quiet Champion thread out of a snapshot, and one that waits on the person in", () => {
+    const item = withoutChampionThreads({
+      kind: "snapshot",
+      snapshot: { ...emptyShellSnapshot, threads: [check, waiting, ordinary] },
+    });
+    expect(item.kind === "snapshot" && item.snapshot.threads.map((thread) => thread.id)).toEqual([
+      "waiting",
+      "ordinary",
+    ]);
+  });
+
+  it("turns a quiet Champion thread's update into a removal and passes other updates through", () => {
+    const update = (thread: OrchestrationV2ThreadShell) =>
+      ({ kind: "thread.updated", sequence: 4, location: "active", thread }) as const;
+    expect(withoutChampionThreads(update(check))).toEqual({
+      kind: "thread.removed",
+      sequence: 4,
+      location: "active",
+      threadId: "check",
+    });
+    expect(withoutChampionThreads(update(waiting))).toEqual(update(waiting));
+    expect(withoutChampionThreads(update(ordinary))).toEqual(update(ordinary));
+  });
+});
 
 describe("omitIdleSubagentShells", () => {
   const row = (

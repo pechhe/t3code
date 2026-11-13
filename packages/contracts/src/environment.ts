@@ -27,6 +27,8 @@ export const STORAGE_AWARE_SECRET_REQUESTS_CAPABILITY = "storageAwareSecretReque
 export const SETTINGS_SECRET_REFERENCES_CAPABILITY = "settingsSecretReferences";
 /** The client reads the `implementer` role; one that omits this gets `implementation-worker`. */
 export const IMPLEMENTER_ROLE_CAPABILITY = "implementerRole";
+/** The client keeps Champion threads out of its lists itself; one that omits this is not sent them. */
+export const CHAMPION_THREADS_CAPABILITY = "championThreads";
 
 export const ExecutionEnvironmentPlatformOs = Schema.Literals([
   "darwin",

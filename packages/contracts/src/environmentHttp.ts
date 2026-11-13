@@ -715,6 +715,8 @@ export const EnvironmentOrchestrationShellSnapshotQuery = Schema.Struct({
    * `resumable` instead of a snapshot when the socket can replay from it.
    */
   resumeFrom: Schema.optionalKey(Schema.String),
+  /** "1" from a client that lists Champion threads itself; others are not sent them. */
+  championThreads: Schema.optionalKey(Schema.String),
 });
 
 export const EnvironmentOrchestrationThreadBoundedSnapshotQuery = Schema.Struct({
