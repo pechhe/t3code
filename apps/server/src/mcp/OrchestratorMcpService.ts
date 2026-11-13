@@ -3902,13 +3902,22 @@ const make = Effect.gen(function* () {
             "invalid_request",
             "Managed work requires a stable clientRequestId.",
           );
-        if (input.agentTask !== undefined && input.offPolicyReason !== undefined)
+        if (
+          input.agentTask !== undefined &&
+          input.offPolicyReason !== undefined &&
+          input.target?.model === undefined
+        )
           return yield* failure(
             "invalid_request",
-            "offPolicyReason applies only to a delegation without agentTask.",
+            "offPolicyReason with agentTask requires target.model to name the alternate model.",
           );
-        // Managed identity is required by child capabilities, including native Weave access.
-        if (input.agentTask === undefined && !isRetryOfAcceptedDelegation) {
+        // Managed identity is required by child capabilities, including native Weave access,
+        // unless the caller supplies an explicit offPolicyReason explaining why no role fits.
+        if (
+          input.agentTask === undefined &&
+          input.offPolicyReason === undefined &&
+          !isRetryOfAcceptedDelegation
+        ) {
           const policyService = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
           // A named but unreadable policy still refuses: an outage must not open free choice.
           const configured =
@@ -3916,7 +3925,7 @@ const make = Effect.gen(function* () {
           if (configured)
             return yield* failure(
               "invalid_request",
-              "A role policy is configured: call agent_roles, then delegate_task with agentTask (role, taskClass, workId, attemptId, workspacePath). If no eligible role fits, report the task as blocked.",
+              "A role policy is configured: call agent_roles, then delegate_task with agentTask (role, taskClass, workId, attemptId, workspacePath). Supply offPolicyReason only if the user forces an off-list model or no configured role fits.",
             );
         }
         const fingerprintText = yield* encodeDelegateTaskFingerprint({
@@ -4109,9 +4118,15 @@ const make = Effect.gen(function* () {
         });
         const workspaceAuthority = yield* readWorkspaceAuthority;
         const agentTask =
-          input.agentTask === undefined || taskProjectId === parent.thread.projectId
-            ? input.agentTask
-            : { ...input.agentTask, projectId: taskProjectId };
+          input.agentTask === undefined
+            ? undefined
+            : {
+                ...input.agentTask,
+                ...(taskProjectId === parent.thread.projectId ? {} : { projectId: taskProjectId }),
+                ...(input.offPolicyReason === undefined
+                  ? {}
+                  : { offPolicyReason: input.offPolicyReason }),
+              };
         const prepared =
           managedService === undefined || agentTask === undefined
             ? undefined

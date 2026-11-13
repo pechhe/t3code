@@ -390,7 +390,7 @@ export function EnvironmentSubagentAvatar({
 }
 
 const SUBAGENT_PILL_CLASS =
-  "my-1 ml-2 inline-flex max-w-full min-w-0 cursor-pointer items-center gap-1.5 rounded-full border py-0.5 pr-2.5 pl-1 text-2xs text-muted-foreground transition-colors hover:bg-accent/20 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-inset data-[return-highlight]:bg-info/12 data-[return-highlight]:ring-1 data-[return-highlight]:ring-info/40";
+  "my-1 ml-2 inline-flex max-w-full min-w-0 cursor-pointer items-center gap-1.5 rounded-full border py-0.5 pr-2.5 pl-1 text-2xs text-muted-foreground transition-colors hover:bg-accent/20 hover:text-foreground disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-inset data-[return-highlight]:bg-info/12 data-[return-highlight]:ring-1 data-[return-highlight]:ring-info/40";
 
 /**
  * One compact event involving a subagent: its return, or a follow-up round with an agent that
@@ -400,6 +400,7 @@ function SubagentPill(props: {
   readonly parentRef: ScopedThreadRef;
   readonly providerInstanceId: ProviderInstanceId;
   readonly driver: ProviderDriverKind | undefined;
+  readonly remote?: OrchestrationV2RemoteTaskChild | undefined;
   readonly status: OrchestrationV2TurnItem["status"] | undefined;
   readonly topic: string;
   readonly round: number | null;
@@ -409,7 +410,7 @@ function SubagentPill(props: {
   readonly ariaLabel: string;
   readonly kind: "notification" | "subagent";
   readonly subagentId: NodeId | undefined;
-  readonly onActivate: () => void;
+  readonly onActivate: (() => void) | undefined;
   readonly onHighlight: ((highlighted: boolean) => void) | undefined;
   readonly trailing: ReactNode;
 }) {
@@ -420,6 +421,7 @@ function SubagentPill(props: {
       data-v2-item-type={props.kind}
       data-subagent-id={props.subagentId}
       aria-label={props.ariaLabel}
+      disabled={props.onActivate === undefined}
       onPointerEnter={highlight ? () => highlight(true) : undefined}
       onPointerLeave={highlight ? () => highlight(false) : undefined}
       onFocus={highlight ? () => highlight(true) : undefined}
@@ -434,6 +436,7 @@ function SubagentPill(props: {
         environmentId={props.parentRef.environmentId}
         providerInstanceId={props.providerInstanceId}
         driver={props.driver}
+        remote={props.remote}
         status={props.status}
         size="sm"
       />
@@ -488,9 +491,10 @@ export function SubagentReturnChip(props: {
   const round = useAtomValue(environmentThreadDetails.threadAtom(props.parentRef), (thread) =>
     agent === null ? null : subagentFollowUpRound(thread?.projection.subagents ?? [], agent.id),
   );
-  const role = useThreadShell(
+  const localRole = useThreadShell(
     childThreadId ? scopeThreadRef(props.parentRef.environmentId, childThreadId) : null,
   )?.source.agentTask?.role;
+  const role = localRole ?? agent?.remoteChild?.agentTask?.role;
   if (agent === null) return props.fallback;
   const title = formatSubagentDisplayTitle(agent.title ?? "Subagent");
   const name = subagentDisplayName(title, role);
@@ -503,6 +507,7 @@ export function SubagentReturnChip(props: {
       parentRef={props.parentRef}
       providerInstanceId={agent.providerInstanceId}
       driver={agent.driver}
+      remote={agent.remoteChild}
       status={subagentReturnStatus(props.outcome) ?? agent.status}
       topic={name}
       round={round}
@@ -528,18 +533,20 @@ function SubagentFollowUpChip(props: {
   readonly subagentId: NodeId;
   readonly providerInstanceId: ProviderInstanceId;
   readonly driver: ProviderDriverKind;
+  readonly remote?: OrchestrationV2RemoteTaskChild | undefined;
   readonly status: OrchestrationV2TurnItem["status"];
   readonly name: string;
   readonly round: number;
   readonly reviewing: boolean;
   readonly elapsed: ReactNode;
-  readonly onOpen: () => void;
+  readonly onOpen: (() => void) | undefined;
 }) {
   return (
     <SubagentPill
       parentRef={props.parentRef}
       providerInstanceId={props.providerInstanceId}
       driver={props.driver}
+      remote={props.remote}
       status={props.status}
       topic={props.name}
       round={props.round}
@@ -552,7 +559,9 @@ function SubagentFollowUpChip(props: {
       onActivate={props.onOpen}
       onHighlight={undefined}
       trailing={
-        <ArrowUpRightIcon aria-hidden className="size-3 shrink-0 text-muted-foreground/60" />
+        props.onOpen === undefined ? null : (
+          <ArrowUpRightIcon aria-hidden className="size-3 shrink-0 text-muted-foreground/60" />
+        )
       }
     />
   );
@@ -591,12 +600,13 @@ function SubagentTimelineLink(props: {
     (thread) => subagentFollowUpRound(thread?.projection.subagents ?? [], props.subagentId),
   );
   const threadId = props.threadId;
+  const remote = props.remote ?? agent?.remoteChild;
   // A managed task names its role in its title; the row shows it as the role chip instead.
-  const role = useThreadShell(
+  const localRole = useThreadShell(
     threadId ? scopeThreadRef(props.parentRef.environmentId, threadId) : null,
   )?.source.agentTask?.role;
+  const role = localRole ?? remote?.agentTask?.role;
   const topic = role ? agentTaskTopic(props.title, role) : props.title;
-  const remote = props.remote ?? agent?.remoteChild;
   const remoteEnvironment = useEnvironment(remote?.environmentId ?? null);
   const navigate = useNavigate();
   // A task in a linked environment opens there, if this client is connected to it.
@@ -625,19 +635,24 @@ function SubagentTimelineLink(props: {
     startedAt: isoOrNull(agent?.startedAt ?? props.startedAt),
     completedAt: isoOrNull(agent?.completedAt ?? props.completedAt),
   };
-  if (followUpRound !== null && threadId !== null) {
+  if (followUpRound !== null) {
+    const openFollowUp =
+      threadId !== null
+        ? () => props.onOpenThread(threadId, subagentRoundHash(props.subagentId))
+        : (open ?? undefined);
     return (
       <SubagentFollowUpChip
         parentRef={props.parentRef}
         subagentId={props.subagentId}
         providerInstanceId={props.providerInstanceId}
         driver={props.driver}
+        remote={remote}
         status={liveStatus}
         name={subagentDisplayName(props.title, role)}
         round={followUpRound}
         reviewing={role !== undefined && isReviewerRole(role)}
         elapsed={<SubagentElapsed agent={timing} />}
-        onOpen={() => props.onOpenThread(threadId, subagentRoundHash(props.subagentId))}
+        onOpen={openFollowUp}
       />
     );
   }

@@ -9,11 +9,12 @@ import {
   parkedWaitWakesOn,
   type ParkedWaitKindLabel,
 } from "@t3tools/client-runtime/state/thread-settled";
-import type {
-  EnvironmentId,
-  OrchestrationV2ParkedWait,
-  ScopedThreadRef,
-  ThreadId,
+import {
+  agentTaskTopic,
+  type EnvironmentId,
+  type OrchestrationV2ParkedWait,
+  type ScopedThreadRef,
+  type ThreadId,
 } from "@t3tools/contracts";
 import { formatDuration } from "@t3tools/shared/orchestrationTiming";
 import {
@@ -37,6 +38,7 @@ import { useThreadRelationshipShells, useThreadShell } from "~/state/entities";
 import { threadEnvironment } from "~/state/threads";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { ForgeMentionChip } from "../forgeItem/ForgeMentionChip";
+import { AgentRoleChip } from "../AgentRoleChip";
 import { Button, InlineButton } from "../ui/button";
 import type { ThreadStructure } from "@t3tools/client-runtime/state/shell";
 import { BackgroundWorkDetails } from "./BackgroundWorkDetails";
@@ -301,11 +303,19 @@ export function WaitRow(props: {
   const kind = panelWaitKind(item.group);
   const presentation = KIND_PRESENTATION[kind];
   const mono = item.kind === "command" || item.kind === "monitor";
+  const displayItem =
+    wait.role === undefined
+      ? item
+      : { ...item, label: agentTaskTopic(item.label, wait.role) || item.label };
   return (
     <div className="group/wait relative flex min-w-0 items-center gap-2 px-3 py-2 not-first:border-t not-first:border-border/70">
-      <PanelKindLabel icon={presentation.icon}>
-        {KIND_LABEL_BY_GROUP[item.group] ?? presentation.label}
-      </PanelKindLabel>
+      {wait.role === undefined ? (
+        <PanelKindLabel icon={presentation.icon}>
+          {KIND_LABEL_BY_GROUP[item.group] ?? presentation.label}
+        </PanelKindLabel>
+      ) : (
+        <AgentRoleChip role={wait.role} />
+      )}
       <span
         className={
           mono && item.watching === undefined
@@ -316,7 +326,7 @@ export function WaitRow(props: {
         {kind === "watch" ? (
           <span className="font-normal text-muted-foreground">Watching </span>
         ) : null}
-        <WaitLabel item={item} handlers={handlers} />
+        <WaitLabel item={displayItem} handlers={handlers} />
       </span>
       {props.stalledSince != null ? (
         <StalledStatus since={props.stalledSince} />

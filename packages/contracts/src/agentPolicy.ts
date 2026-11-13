@@ -741,10 +741,16 @@ export const StoredAgentRole = Schema.Union([AgentRole, RetiredRole]).pipe(
     encode: SchemaGetter.transform((role) => role),
   }),
 );
-const CurrentAgentTaskRequest = Schema.Struct(agentTaskRequestFields);
+const offPolicyReasonField = {
+  offPolicyReason: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(500))),
+};
+const CurrentAgentTaskRequest = Schema.Struct({
+  ...agentTaskRequestFields,
+  ...offPolicyReasonField,
+});
 export const AgentTaskRequest = Schema.Union([
   CurrentAgentTaskRequest,
-  Schema.Struct({ ...agentTaskRequestFields, role: RetiredRole }).pipe(
+  Schema.Struct({ ...agentTaskRequestFields, ...offPolicyReasonField, role: RetiredRole }).pipe(
     Schema.decodeTo(CurrentAgentTaskRequest, {
       decode: SchemaGetter.transform(withCurrentRole),
       encode: SchemaGetter.forbidden(() => "Retired role names are never written."),
@@ -754,10 +760,9 @@ export const AgentTaskRequest = Schema.Union([
 export type AgentTaskRequest = typeof AgentTaskRequest.Type;
 
 /**
- * A managed role a linked environment asks this one to run. No path, workspace, project, work
- * unit or revision of the caller's crosses the link: this environment chooses those and resolves
- * the role under its own policy, so a role that needs a pinned revision is refused here.
- * `selection` is only a request: a model the role's list here does not hold is refused.
+ * A managed role a linked environment asks this one to run. Caller paths, workspaces, projects,
+ * work units and revisions never cross the link; this environment resolves the role under its own
+ * policy, and refuses an off-list `selection.model` unless `offPolicyReason` is set.
  */
 export const AgentTaskLinkedRequest = Schema.Struct({
   browser: agentTaskRequestFields.browser,
@@ -769,6 +774,7 @@ export const AgentTaskLinkedRequest = Schema.Struct({
   attemptId: TrimmedNonEmptyString,
   readOnly: agentTaskRequestFields.readOnly,
   authorModel: agentTaskRequestFields.authorModel,
+  ...offPolicyReasonField,
   selection: Schema.optional(
     Schema.Struct({
       instanceId: Schema.optional(ProviderInstanceId),
@@ -787,6 +793,7 @@ export type AgentTaskWireRequest = typeof AgentTaskWireRequest.Type;
 
 const agentTaskBindingFields = {
   ...agentTaskRequestFields,
+  ...offPolicyReasonField,
   executionBoundary: Schema.optional(AgentExecutionBoundary),
   requestFingerprint: Sha256,
   policyHash: Sha256,

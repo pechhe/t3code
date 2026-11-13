@@ -277,6 +277,14 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
       .map((model) => model.driverKind),
   );
   const authorDriver = authorDrivers.size === 1 ? [...authorDrivers][0] : undefined;
+  const claudeWriterRefusal = (driverKind: string): string | undefined => {
+    if (readOnly || specLead || driverKind !== "claudeAgent") return undefined;
+    if (!input.allowTrustedClaudeWriters) return "trusted-claude-disabled";
+    if ((input.runtimeMode ?? input.ceiling) !== "full-access")
+      return "trusted-claude-requires-full-access";
+    if (admission.executionRequirement !== "trusted-host-allowed") return "sandbox-required";
+    return undefined;
+  };
   const eligible: Array<{ selection: ModelSelection; alias: string; provider: ServerProvider }> =
     [];
   for (const entry of list) {
@@ -284,18 +292,10 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
     const binding = snapshot.manifest.models[alias]!;
     const effort = entry.effort;
     // Writers may use any installed provider; readers require declared enforcement.
-    if (!readOnly && !specLead && binding.driverKind === "claudeAgent") {
-      const refusal = !input.allowTrustedClaudeWriters
-        ? "trusted-claude-disabled"
-        : (input.runtimeMode ?? input.ceiling) !== "full-access"
-          ? "trusted-claude-requires-full-access"
-          : admission.executionRequirement !== "trusted-host-allowed"
-            ? "sandbox-required"
-            : undefined;
-      if (refusal !== undefined) {
-        record(alias, binding.model, refusal);
-        continue;
-      }
+    const writerRefusal = claudeWriterRefusal(binding.driverKind);
+    if (writerRefusal !== undefined) {
+      record(alias, binding.model, writerRefusal);
+      continue;
     }
     const providers = input.providers.filter(
       (provider) => provider.poolMembers === undefined && provider.driver === binding.driverKind,
@@ -365,6 +365,88 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
       });
     }
   }
+  const requestedModel = input.selection?.model;
+  if (
+    request.offPolicyReason !== undefined &&
+    requestedModel !== undefined &&
+    !list.some((entry) => snapshot.manifest.models[entry.model]?.model === requestedModel)
+  ) {
+    const alias = `off-policy:${requestedModel}`;
+    const statedOptions = input.selection?.options ?? [];
+    for (const provider of input.providers.filter(
+      (candidate) => candidate.poolMembers === undefined,
+    )) {
+      const skip = (reason: string) => record(alias, requestedModel, reason, provider.instanceId);
+      const writerRefusal = claudeWriterRefusal(provider.driver);
+      if (writerRefusal !== undefined) {
+        skip(writerRefusal);
+        continue;
+      }
+      if (!provider.enabled || provider.status === "disabled") {
+        skip("provider-disabled");
+        continue;
+      }
+      if (!provider.installed) {
+        skip("provider-not-installed");
+        continue;
+      }
+      if (provider.availability === "unavailable" || provider.status === "error") {
+        skip("provider-unavailable");
+        continue;
+      }
+      if (provider.auth.status !== "authenticated") {
+        skip("not-signed-in");
+        continue;
+      }
+      if (readOnly && provider.readOnlySourceAccess !== "enforced") {
+        skip("read-only-unenforced");
+        continue;
+      }
+      const model = provider.models.find((candidate) => candidate.slug === requestedModel);
+      if (model === undefined) {
+        skip("model-unavailable");
+        continue;
+      }
+      const descriptors = model.capabilities?.optionDescriptors ?? [];
+      const supportedOptions = statedOptions.filter((option) => {
+        const descriptor = descriptors.find((candidate) => candidate.id === option.id);
+        if (descriptor === undefined) {
+          // Drop options merely echoed from the caller's own thread if this model lacks them.
+          return false;
+        }
+        if (descriptor.type === "select") {
+          return descriptor.options.some((choice) => choice.id === option.value);
+        }
+        if (descriptor.type === "boolean") {
+          return typeof option.value === "boolean";
+        }
+        return true;
+      });
+      const rejectedOption = statedOptions.find(
+        (option) =>
+          !supportedOptions.includes(option) &&
+          !(
+            input.caller?.instanceId === provider.instanceId &&
+            input.caller.model === model.slug &&
+            input.caller.options?.some((own) => own.id === option.id && own.value === option.value)
+          ),
+      );
+      if (rejectedOption !== undefined) {
+        skip("unsupported-options");
+        continue;
+      }
+      skip("eligible");
+      eligible.push({
+        alias,
+        provider,
+        selection: {
+          instanceId: provider.instanceId,
+          model: model.slug,
+          ...(supportedOptions.length === 0 ? {} : { options: supportedOptions }),
+        },
+      });
+    }
+  }
   const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
   // Which account serves each model follows the pool rule a new pooled thread uses: a member its
   // pool switches off, or an account out of usage (at its pool's reserve), never serves while
@@ -428,12 +510,19 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
     );
     // Explicit choices override preferences, including a reviewer's different-model
     // preference. Role eligibility and authority still apply to every candidate.
-    if (named.length === 0)
+    if (named.length === 0) {
+      const offListHint =
+        selection.model !== undefined &&
+        request.offPolicyReason === undefined &&
+        !diagnostics.some((candidate) => candidate.model === selection.model)
+          ? " (pass offPolicyReason only if the user requested this model or every listed model is unavailable)"
+          : "";
       return yield* new AgentRoleError({
         reason: "selection-denied",
         candidates: diagnostics,
-        detail: `${requestedName(selection)} is not eligible for ${request.role}: ${explain(input, diagnostics, selection.instanceId)}`,
+        detail: `${requestedName(selection)} is not eligible for ${request.role}: ${explain(input, diagnostics, selection.instanceId)}${offListHint}`,
       });
+    }
     // A named account that is out hands the task to a pool sibling offering the same model and
     // options, so naming an account never starts work where it would be refused.
     const substitutes = (candidate: (typeof eligible)[number]) => {

@@ -652,10 +652,14 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
       const watchStartedAt = activeThreadShell?.source.threadWatches?.find(
         (watch) => threadWatchTaskId(watch.id) === item.taskId,
       )?.startedAt;
+      const subagentId = turnItem?.type === "subagent" ? turnItem.subagentId : item.taskId;
+      const subagent = subagents.find((candidate) => candidate.id === subagentId);
+      const role = subagent?.remoteChild?.agentTask?.role;
       return {
         item,
         task,
         awaited: task?.awaited === true,
+        ...(role === undefined ? {} : { role }),
         startedAtMs:
           turnItem?.startedAt != null
             ? DateTime.toEpochMillis(turnItem.startedAt)

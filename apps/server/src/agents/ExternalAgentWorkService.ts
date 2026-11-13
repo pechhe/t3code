@@ -759,7 +759,12 @@ const make = Effect.gen(function* () {
                 sharesPoolWith(eligible, input.target.providerInstanceId, p)) &&
               (input.target?.driverKind === undefined || p.driver === input.target.driverKind),
           );
-          const agentTask = input.agentTask;
+          if (input.offPolicyReason !== undefined && input.target?.model === undefined)
+            return yield* new ExternalAgentWorkError({ reason: "policy" });
+          const agentTask =
+            input.offPolicyReason === undefined
+              ? input.agentTask
+              : { ...input.agentTask, offPolicyReason: input.offPolicyReason };
           const authority = yield* workspaceAuthority(session.projectId, agentTask, session.key);
           // The first choice's cached reading may hide that it is out of allowance, so it is
           // re-read before the work starts there.

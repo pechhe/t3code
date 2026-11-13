@@ -1200,37 +1200,72 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       ),
   );
 
-  it.effect("requires a managed role where a policy is configured, even with a reason", () =>
-    Effect.gen(function* () {
-      const h = yield* harness();
-      const raw = { task: "Do something", clientRequestId: "raw-1" };
-      const refusal = yield* h.delegate(raw);
-      expect(refusal.code).toBe("invalid_request");
-      expect(refusal.message).toContain("agent_roles");
-      expect(refusal.message).toContain("agentTask");
-      expect(h.dispatched).toHaveLength(0);
-      expect(
-        (yield* h.delegate({ ...raw, offPolicyReason: "No canonical role fits a spike." })).code,
-      ).toBe("invalid_request");
-      expect(h.dispatched).toHaveLength(0);
-      // A named but unreadable policy still refuses; an outage does not open free choice.
-      const fs = yield* FileSystem.FileSystem;
-      yield* fs.remove(`${h.policyRoot}/roles/policy.json`);
-      expect((yield* h.delegate({ ...raw, clientRequestId: "raw-2" })).code).toBe(
-        "invalid_request",
-      );
-      // Legacy reasons cannot override a managed role either.
-      expect(
-        (yield* h.delegate({
+  it.effect(
+    "requires a managed role where a policy is configured, allowing offPolicyReason only as an explicit fallback",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* harness(() => [], true, { providers: [unlistedCodex, claude] });
+        const raw = { task: "Do something", clientRequestId: "raw-1" };
+        const refusal = yield* h.delegate(raw);
+        expect(refusal.code).toBe("invalid_request");
+        expect(refusal.message).toContain("agent_roles");
+        expect(refusal.message).toContain("agentTask");
+        expect(h.dispatched).toHaveLength(0);
+
+        // Managed task with an off-list model is refused without offPolicyReason,
+        // and offPolicyReason with agentTask requires target.model.
+        expect(
+          (yield* h.delegate({
+            ...raw,
+            clientRequestId: "off-list-no-reason",
+            agentTask: request({ workspacePath: h.lead }),
+            target: { model: "gpt-unlisted-test" },
+          })).code,
+        ).toBe("capability_denied");
+        expect(
+          (yield* h.delegate({
+            ...raw,
+            clientRequestId: "managed-reason-no-model",
+            offPolicyReason: "Prefer another model",
+            agentTask: request({ workspacePath: h.lead }),
+          })).code,
+        ).toBe("invalid_request");
+        expect(h.dispatched).toHaveLength(0);
+
+        // Managed task with off-list target.model + offPolicyReason keeps the role binding.
+        const offListReason = "User explicitly requested gpt-unlisted-test for this task.";
+        yield* h.delegate({
           ...raw,
-          clientRequestId: "managed-1",
-          offPolicyReason: "Prefer my model",
+          clientRequestId: "off-list-with-reason",
+          offPolicyReason: offListReason,
           agentTask: request({ workspacePath: h.lead }),
-        })).code,
-      ).toBe("invalid_request");
-    }).pipe(
-      Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
-    ),
+          target: { model: "gpt-unlisted-test" },
+        });
+        expect(h.dispatched).toHaveLength(1);
+        expect((h.dispatched[0] as { modelSelection: ModelSelection }).modelSelection.model).toBe(
+          "gpt-unlisted-test",
+        );
+        expect(
+          (h.dispatched[0] as { agentTask?: AgentTaskBinding }).agentTask?.offPolicyReason,
+        ).toBe(offListReason);
+
+        // Unmanaged fallback succeeds when offPolicyReason explains why no role fits.
+        yield* h.delegate({
+          ...raw,
+          clientRequestId: "raw-with-reason",
+          offPolicyReason: "No canonical role fits a spike.",
+        });
+        expect(h.dispatched).toHaveLength(2);
+
+        // A named but unreadable policy still refuses bare unmanaged requests without offPolicyReason.
+        const fs = yield* FileSystem.FileSystem;
+        yield* fs.remove(`${h.policyRoot}/roles/policy.json`);
+        expect((yield* h.delegate({ ...raw, clientRequestId: "raw-2" })).code).toBe(
+          "invalid_request",
+        );
+      }).pipe(
+        Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+      ),
   );
 
   it.effect("sits a Spec review as a council of one reviewer per model maker", () =>

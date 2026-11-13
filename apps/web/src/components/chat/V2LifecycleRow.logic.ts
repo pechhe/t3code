@@ -66,9 +66,13 @@ type SubagentRoundFacts = {
   readonly id: string;
   readonly origin: "provider_native" | "app_owned";
   readonly childThreadId: string | null;
+  readonly remoteChild?: { readonly threadId: string } | undefined;
   readonly startedAt: DateTime.Utc | null;
   readonly updatedAt: DateTime.Utc;
 };
+
+const subagentConversationId = (subagent: SubagentRoundFacts): string | null =>
+  subagent.childThreadId ?? subagent.remoteChild?.threadId ?? null;
 
 /**
  * Which exchange with the same child conversation a managed task is, counting the assignment
@@ -80,13 +84,15 @@ export function subagentFollowUpRound(
   subagentId: string,
 ): number | null {
   const current = subagents.find((subagent) => subagent.id === subagentId);
-  if (current === undefined || current.origin !== "app_owned" || current.childThreadId === null) {
+  const currentConversationId = current === undefined ? null : subagentConversationId(current);
+  if (current === undefined || current.origin !== "app_owned" || currentConversationId === null) {
     return null;
   }
   const rounds = subagents
     .filter(
       (subagent) =>
-        subagent.origin === "app_owned" && subagent.childThreadId === current.childThreadId,
+        subagent.origin === "app_owned" &&
+        subagentConversationId(subagent) === currentConversationId,
     )
     .toSorted(
       (left, right) =>

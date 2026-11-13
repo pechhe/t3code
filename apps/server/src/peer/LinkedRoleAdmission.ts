@@ -125,11 +125,16 @@ export const admitLinkedRole = Effect.fn("LinkedRoleAdmission.admit")(function* 
     return yield* refuse(
       `This environment's role policy has no \`${role.role}\` role. agent_roles with this environmentId lists the roles here.`,
     );
-  if (selection?.model !== undefined && !row.models.some((m) => m.model === selection.model))
+  const offPolicyWithModel = role.offPolicyReason !== undefined && selection?.model !== undefined;
+  if (
+    selection?.model !== undefined &&
+    role.offPolicyReason === undefined &&
+    !row.models.some((m) => m.model === selection.model)
+  )
     return yield* refuse(
       `${selection.model} is not on this environment's list for \`${role.role}\` (${row.models.map((m) => m.model).join(", ") || "none"}). Omit target.model to let it choose, or pick one agent_roles with this environmentId lists.`,
     );
-  if (row.refusal !== null || row.selection === null)
+  if (!offPolicyWithModel && (row.refusal !== null || row.selection === null))
     return yield* refuse(
       `This environment cannot start \`${role.role}\` now: ${row.refusal ?? "no eligible model"}. agent_roles with this environmentId says why.`,
     );

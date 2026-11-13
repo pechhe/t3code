@@ -211,12 +211,9 @@ export const OrchestratorMcpDelegateTaskInput = Schema.Struct({
         "Continue an owned, idle managed task in its existing conversation, workspace, model and permissions: taskId is any earlier ID, changes say what happened since, sourceRevision pins the revision. Pass no agentTask, target, isolation or mode.",
     }),
   ),
-  offPolicyReason: Schema.optional(
-    TrimmedNonEmptyString.check(Schema.isMaxLength(500)).annotate({
-      description:
-        "Legacy field retained for replaying accepted unmanaged requests. It does not bypass a configured role policy; new delegations under that policy require agentTask.",
-    }),
-  ),
+  offPolicyReason: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(500))).annotate({
+    description: "Rare fallback: why no policy role or model fits.",
+  }),
   task: OrchestratorMcpPrompt,
   target: Schema.optional(OrchestratorMcpTarget),
   title: Schema.optional(OrchestratorMcpTitle),
@@ -237,12 +234,10 @@ export const OrchestratorMcpDelegateTaskInput = Schema.Struct({
     description: "Mode 'wait' only. Default 4 min. A timeout does not cancel the child.",
   }),
   clientRequestId: Schema.optional(OrchestratorMcpClientRequestId),
-  runtimeMode: Schema.optional(
-    OrchestratorMcpRuntimeMode.annotate({
-      description:
-        "Omit unless the user asks for a supervised child. Narrow modes pause for human approval in the child's thread, not read-only. Above yours is rejected.",
-    }),
-  ),
+  runtimeMode: Schema.optional(OrchestratorMcpRuntimeMode).annotate({
+    description:
+      "Omit unless asked for a supervised child; narrow modes pause for approval, not read-only. Above yours rejects.",
+  }),
   interactionMode: Schema.optional(OrchestratorMcpInteractionMode),
   forgeItem: Schema.optional(ForgeItemReferenceInput),
 });

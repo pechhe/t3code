@@ -1122,10 +1122,15 @@ const make = Effect.gen(function* () {
             : role.list
         ] ?? []
       ).map((entry) => entry.model);
+      const offPolicyAllowed =
+        input.binding.offPolicyReason !== undefined &&
+        input.selection.model === input.binding.requested.model &&
+        provider?.models.some((candidate) => candidate.slug === input.selection.model) === true;
       if (
         !role.taskClasses.includes(input.binding.taskClass) ||
         (input.binding.sourceAccess === "scoped-write" && role.sourceAccess === "read-only") ||
         (treatment?.model !== input.selection.model &&
+          !offPolicyAllowed &&
           !allowed.some((alias) => {
             const model = current.manifest.models[alias];
             return model?.driverKind === provider?.driver && model?.model === input.selection.model;

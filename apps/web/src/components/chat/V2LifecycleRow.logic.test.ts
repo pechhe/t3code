@@ -127,6 +127,25 @@ describe("subagent follow-up rounds", () => {
     expect(subagentFollowUpRound(rounds, "task:native-second")).toBeNull();
   });
 
+  it("numbers later tasks in the same linked-environment child conversation as follow-up rounds", () => {
+    const rounds = [
+      task("task:remote-1", { childThreadId: null, remoteChild: { threadId: "thread:remote-a" } }),
+      task("task:remote-2", {
+        childThreadId: null,
+        remoteChild: { threadId: "thread:remote-a" },
+        startedAt: at("05"),
+      }),
+      task("task:remote-other", {
+        childThreadId: null,
+        remoteChild: { threadId: "thread:remote-b" },
+        startedAt: at("10"),
+      }),
+    ];
+    expect(subagentFollowUpRound(rounds, "task:remote-1")).toBeNull();
+    expect(subagentFollowUpRound(rounds, "task:remote-2")).toBe(2);
+    expect(subagentFollowUpRound(rounds, "task:remote-other")).toBeNull();
+  });
+
   it("treats a task the projection does not know as no follow-up", () => {
     expect(subagentFollowUpRound([task("task:first")], "task:missing")).toBeNull();
   });

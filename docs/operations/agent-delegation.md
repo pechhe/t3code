@@ -162,10 +162,14 @@ its revision and the role names, or the reason the policy is refused.
   model no list allows. Without a readable policy the check is skipped; dispatch
   still refuses the model.
 - While a policy is configured, `delegate_task` requires a managed role through
-  `agent_roles` and `agentTask`. A call without `agentTask` is refused, including
-  when it gives an `offPolicyReason` or the configured policy is unreadable.
-  If no eligible role fits, report the task as blocked. Without a configured
-  policy, unmanaged delegation is unchanged.
+  `agent_roles` and `agentTask` using a model from the role's policy list. To
+  avoid brittleness, `offPolicyReason` acts as a high-friction fallback: paired
+  with `agentTask` and `target.model`, it admits an available model outside the
+  role's list while preserving the role's brief, permissions and workspace rules;
+  without `agentTask`, it permits an unmanaged fallback only when no role fits
+  (calls omitting `offPolicyReason` are still refused, even when the configured
+  policy is unreadable). Without a configured policy, unmanaged delegation is
+  unchanged.
 - A `lead` task is the one delegated task with a top-level thread's lifecycle: any editor starts
   it with the Spec as `forgeItem`, and it runs in that item's SlipJay workspace with
   exactly a top-level thread's runtime mode and instructions. The item's own repository decides the project the

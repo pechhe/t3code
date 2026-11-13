@@ -1,5 +1,6 @@
 import type { PendingBackgroundWorkItem } from "@t3tools/client-runtime/state/thread-execution";
 import type {
+  AgentRole,
   OrchestrationV2PendingBackgroundTask,
   OrchestrationV2ThreadStanding,
   OrchestrationV2ThreadWatch,
@@ -12,6 +13,7 @@ export interface PanelWait {
   readonly awaited: boolean;
   readonly startedAtMs: number | null;
   readonly task: OrchestrationV2PendingBackgroundTask | undefined;
+  readonly role?: AgentRole | undefined;
 }
 
 export type PanelWaitKind = "agent" | "watch" | "command";

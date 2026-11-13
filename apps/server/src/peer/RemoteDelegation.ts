@@ -329,6 +329,17 @@ const make = Effect.gen(function* () {
             "A `lead` runs only in its own environment. Launch a thread there with t3_thread_launch and its forgeItem, or lead the Spec here.",
         });
       }
+      if (
+        managed !== undefined &&
+        input.offPolicyReason !== undefined &&
+        target.model === undefined
+      ) {
+        return yield* new OrchestratorMcpFailure({
+          code: "invalid_request",
+          message:
+            "offPolicyReason with agentTask requires target.model to name the alternate model.",
+        });
+      }
       if (managed !== undefined) {
         const resolved = yield* links
           .resolve(target.environmentId)
@@ -435,6 +446,9 @@ const make = Effect.gen(function* () {
                   ...(managed.authorModel === undefined
                     ? {}
                     : { authorModel: managed.authorModel }),
+                  ...(input.offPolicyReason === undefined
+                    ? {}
+                    : { offPolicyReason: input.offPolicyReason }),
                   ...(target.providerInstanceId === undefined &&
                   target.model === undefined &&
                   target.options === undefined
