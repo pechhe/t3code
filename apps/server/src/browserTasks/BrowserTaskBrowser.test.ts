@@ -1045,7 +1045,24 @@ it.live("runs ordered steps with no decision and saves a real screenshot for eac
           checks: [{ id: "saved", kind: "text", includes: "Saved a@b.c", expect: "present" }],
         }),
       });
-      expect(result, JSON.stringify(result)).toMatchObject({ status: "passed", decisions: 0 });
+      const diagnostic =
+        result.status === "passed" && result.decisions === 0
+          ? undefined
+          : {
+              reason: result.reason,
+              detail: result.detail,
+              step:
+                result.actions.find(({ state }) => state !== "completed")?.id ??
+                result.checks.find(({ status }) => status === "failed")?.id,
+              timings: result.timings,
+            };
+      expect(
+        result,
+        diagnostic === undefined ? undefined : JSON.stringify(diagnostic),
+      ).toMatchObject({
+        status: "passed",
+        decisions: 0,
+      });
       expect(
         result.screenshots?.map(({ id, afterStep, framing, url }) => [
           id,
