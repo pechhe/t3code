@@ -1,4 +1,7 @@
-import type { ProjectionRecordField } from "../orchestration-v2/ProjectionStore.ts";
+import type {
+  ProjectionRecordField,
+  ProjectionRecordFilter,
+} from "../orchestration-v2/ProjectionStore.ts";
 import {
   CommandId,
   OrchestratorMcpFailure,
@@ -9,7 +12,6 @@ import {
   type RuntimeMode,
   ThreadId,
   type OrchestrationV2ThreadShell,
-  type OrchestrationV2TurnItem,
 } from "@t3tools/contracts";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
@@ -265,8 +267,7 @@ export const readThread = Effect.fn("mcp.readThread")(function* <
 >(
   threadId?: ThreadId,
   fields: ReadonlyArray<K> = [],
-  /** The turn-item types to load when `fields` includes "turnItems". */
-  turnItemTypes: ReadonlyArray<OrchestrationV2TurnItem["type"]> = ["user_input_request"],
+  filter?: ProjectionRecordFilter,
 ) {
   const context = yield* readCaller();
   const targetId = yield* resolveThreadId(context, threadId);
@@ -277,7 +278,8 @@ export const readThread = Effect.fn("mcp.readThread")(function* <
   yield* assertExternalWorkOwner(context.scope, shell);
   const projection = yield* context.threads
     .getProjectThreadRecords({ projectId: shell.projectId, threadId: targetId }, fields, {
-      turnItemTypes,
+      turnItemTypes: ["user_input_request"],
+      ...filter,
     })
     .pipe(
       Effect.mapError((error) =>
