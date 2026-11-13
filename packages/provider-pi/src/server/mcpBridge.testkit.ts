@@ -3,7 +3,7 @@ import * as NodeCrypto from "node:crypto";
 import * as NodeModule from "node:module";
 import * as NodePath from "node:path";
 import * as NodeVM from "node:vm";
-import { EventEmitter } from "node:events";
+import * as NodeEvents from "node:events";
 import { PI_T3_MCP_EXTENSION_SOURCE } from "./mcpExtensionSource.ts";
 
 interface RegisteredTool {
@@ -49,6 +49,7 @@ export async function loadMcpBridge(
     readonly toolSearchDisabled?: boolean;
     readonly allowsTool?: (name: string) => boolean;
     readonly runtimeMode?: string;
+    readonly environment?: NodeJS.ProcessEnv;
     /** A delegated task's instructions, as T3 passes them to a child Pi session. */
     readonly delegatedInstructions?: string;
     readonly inputSchema?: Record<string, unknown>;
@@ -141,7 +142,7 @@ export async function loadMcpBridge(
   await NodeVM.runInNewContext(`${source}\nt3McpExtension(pi)`, {
     process: {
       cwd: () => "/fixture/workspace",
-      env: {
+      env: options.environment ?? {
         ...(options.withoutT3
           ? {}
           : { T3_MCP_URL: "http://fixture.invalid/mcp", T3_MCP_BEARER_TOKEN: "fixture-token" }),
@@ -233,17 +234,17 @@ function fixtureHttp(
       options: { headers: Record<string, string>; signal?: AbortSignal },
       onResponse: (res: unknown) => void,
     ) => {
-      const events = new EventEmitter();
+      const events = new NodeEvents.EventEmitter();
       return Object.assign(events, {
         destroy: () => {},
         end: (body: string) => {
           void responder()(url.toString(), {
-              body,
-              headers: options.headers,
-              ...(options.signal === undefined ? {} : { signal: options.signal }),
-            }).then(
+            body,
+            headers: options.headers,
+            ...(options.signal === undefined ? {} : { signal: options.signal }),
+          }).then(
             async (response) => {
-              const res = new EventEmitter();
+              const res = new NodeEvents.EventEmitter();
               onResponse(
                 Object.assign(res, {
                   statusCode: response.status,

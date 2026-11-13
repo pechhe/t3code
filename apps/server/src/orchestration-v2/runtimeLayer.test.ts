@@ -40,6 +40,8 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Ref from "effect/Ref";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
@@ -99,10 +101,34 @@ import * as TerminalManager from "../terminal/Manager.ts";
 import * as ResourceCleanupService from "./ResourceCleanupService.ts";
 import * as ThreadLaunchService from "./ThreadLaunchService.ts";
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
-import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
+import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 
-const layerPlatformTest = Layer.merge(
-  Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
+const layerProjectHydrationTest = Layer.mergeAll(
+  Layer.mock(ProjectEnrichmentService.ProjectEnrichmentService)({
+    peek: () =>
+      Effect.succeed({
+        repositoryIdentity: null,
+        faviconPath: null,
+        repositoryIdentityResolved: false,
+      }),
+    getAvailable: () =>
+      Effect.succeed({
+        repositoryIdentity: null,
+        faviconPath: null,
+        repositoryIdentityResolved: false,
+      }),
+    invalidate: () => Effect.void,
+    readRepositoryIdentity: () => Effect.succeed(null),
+  }),
+  Layer.mock(WorkspacePaths.WorkspacePaths)({
+    normalizeWorkspaceRoot: (workspaceRoot) => Effect.succeed(workspaceRoot),
+  }),
+);
+
+const layerPlatformTest = Layer.mergeAll(
+  NodeServices.layer,
+  NodeCrypto.layer,
+  layerProjectHydrationTest,
   Layer.mock(SourceControlProviderRegistry.SourceControlProviderRegistry)({
     resolveLink: () => Effect.die("unused title link"),
   }),
@@ -373,6 +399,150 @@ const layerLegacyImportTest = Layer.merge(RuntimeLayer.layer, layerProjectionRep
   Layer.provide(layerGitWorkflowTest),
   Layer.provide(layerProjectServiceTest),
   Layer.provide(layerPlatformTest),
+);
+
+it.effect.each([
+  "unrelated-override",
+  "current-allow",
+  "current-deny",
+  "backend-disabled",
+] as const)("the shared runtime composition preserves managed browser access for %s", (scenario) =>
+  Effect.gen(function* () {
+    const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
+    const captured = yield* Ref.make<ReadonlyArray<boolean>>([]);
+    const projectId = ProjectId.make("project:runtime-browser-access");
+    const otherProjectId = ProjectId.make("project:runtime-browser-other");
+    const threadId = ThreadId.make("thread:runtime-browser-access");
+    const instance: ProviderInstance = {
+      ...providerInstance,
+      orchestrationAdapter: {
+        ...orchestrationAdapter,
+        openSession: (input) =>
+          Effect.gen(function* () {
+            const config = yield* mcpSessions.read(input.threadId);
+            yield* Ref.update(captured, (values) => [...values, config !== undefined]);
+            return yield* new ProviderAdapter.ProviderAdapterOpenSessionError({
+              driver,
+              providerSessionId: input.providerSessionId,
+              cause: "The fixture stops before starting a provider process.",
+            });
+          }),
+      },
+    };
+    const fixture = Layer.mergeAll(
+      RuntimeLayer.layerProviderSessionManagerProvided,
+      RuntimeLayer.layerEventSink,
+      ProjectStore.layer,
+    ).pipe(
+      Layer.provide(McpSessionRegistryTestkit.layer),
+      Layer.provide(Layer.succeed(McpProviderSessions.McpProviderSessions, mcpSessions)),
+      Layer.provide(SqlitePersistence.layerMemory),
+      Layer.provide(layerCheckpointStoreTest),
+      Layer.provide(layerServerConfig),
+      Layer.provide(
+        ServerSettings.layerTest({
+          enableAgentBrowserAccess: true,
+          agentBrowserBackends:
+            scenario === "backend-disabled"
+              ? { enabled: ["phi"], default: "phi" }
+              : { enabled: ["integrated", "phi"], default: "phi" },
+          projectSettingsOverrides: {
+            [otherProjectId]: { enableAgentBrowserAccess: true },
+            ...(scenario === "current-allow" || scenario === "current-deny"
+              ? { [projectId]: { enableAgentBrowserAccess: scenario === "current-allow" } }
+              : {}),
+          },
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
+          getInstance: (id) => Effect.succeed(id === instance.instanceId ? instance : undefined),
+        }),
+      ),
+      Layer.provide(layerGitWorkflowTest),
+      Layer.provide(layerPlatformTest),
+    );
+    yield* Effect.gen(function* () {
+      yield* seedProject({
+        projectId,
+        title: "Browser access",
+        workspaceRoot: "/fixture/browser-access",
+        defaultModelSelection: modelSelection,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      });
+      const now = yield* DateTime.now;
+      yield* (yield* EventSink.EventSinkV2).write({
+        events: [
+          {
+            id: EventId.make("runtime-browser:create"),
+            type: "thread.created",
+            threadId,
+            occurredAt: now,
+            payload: {
+              createdBy: "agent",
+              creationSource: "mcp",
+              id: threadId,
+              projectId,
+              title: "Managed integrated browser",
+              providerInstanceId: modelSelection.instanceId,
+              modelSelection,
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              branch: null,
+              worktreePath: null,
+              activeProviderThreadId: null,
+              lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+              forkedFrom: null,
+              createdAt: now,
+              updatedAt: now,
+              archivedAt: null,
+              settledOverride: null,
+              settledAt: null,
+              lastVisitedAt: null,
+              deletedAt: null,
+              agentTask: {
+                role: "browser",
+                taskClass: "ui",
+                browser: { backend: "integrated" },
+                workId: "browser-work",
+                attemptId: "1",
+                workspacePath: "/fixture/browser-access",
+                sourceRevision: "revision-one",
+                requestFingerprint: "a".repeat(64),
+                policyHash: "b".repeat(64),
+                policyRevision: "test",
+                briefHash: "c".repeat(64),
+                sourceAccess: "read-only",
+                toolProfile: "phi",
+                requested: modelSelection,
+                assigned: null,
+                effective: modelSelection,
+              },
+            },
+          },
+        ],
+      });
+      const result = yield* (yield* ProviderSessionManager.ProviderSessionManagerV2)
+        .open({
+          threadId,
+          providerSessionId: ProviderSessionId.make("runtime-browser:session"),
+          modelSelection,
+          runtimePolicy: {
+            managedAgent: true,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            cwd: null,
+            approvalPolicy: "never",
+            sandboxPolicy: { type: "readOnly", networkAccess: false },
+          },
+        })
+        .pipe(Effect.exit);
+      assert.isTrue(Exit.isFailure(result));
+    }).pipe(Effect.provide(fixture));
+    assert.deepEqual(yield* Ref.get(captured), [
+      scenario === "unrelated-override" || scenario === "current-allow",
+    ]);
+  }).pipe(Effect.provide(McpProviderSessions.layer)),
 );
 
 const layerScheduledTasksTest = ScheduledTaskService.layer.pipe(

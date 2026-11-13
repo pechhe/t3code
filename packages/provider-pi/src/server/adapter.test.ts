@@ -2326,6 +2326,70 @@ describe("PiAdapterV2", () => {
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 
+  it.effect("delivers the managed browser catalogue and guidance beside Weave", () =>
+    Effect.gen(function* () {
+      const sessions = yield* McpProviderSessions.McpProviderSessions;
+      yield* sessions.set({
+        environmentId: EnvironmentId.make("environment-pi-browser"),
+        threadId: THREAD_ID,
+        providerSessionId: "mcp-session-pi-browser",
+        providerInstanceId: PI_INSTANCE_ID,
+        endpoint: "http://fixture.invalid/mcp/browser",
+        authorizationHeader: "Bearer fixture-browser-token",
+        browserToolsAvailable: true,
+        managedBrowser: true,
+        delegated: true,
+        listsPreview: true,
+        listsHtml: false,
+      });
+      const weave = {
+        name: "weave",
+        url: "http://weave.invalid/mcp/weave",
+        authorizationHeader: "Bearer fixture-weave-token",
+        tools: ["weave_forge_read"],
+      };
+      const fake = yield* makeFakePi;
+      const adapter = yield* makeAdapter(fake).pipe(
+        Effect.provideService(AgentMcpServers.AgentMcpServers, {
+          read: () => Effect.succeed([weave]),
+        }),
+      );
+      yield* adapter.openSession({
+        threadId: THREAD_ID,
+        providerSessionId: SESSION_ID,
+        modelSelection: modelSelection("default"),
+        runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+          ...runtimePolicy,
+          managedAgent: true,
+          approvalPolicy: "never",
+          sandboxPolicy: { type: "readOnly", networkAccess: false },
+        }),
+      });
+      const environment = Object.fromEntries(
+        Object.entries(fake.lastSpawn().env).map(([name, value]) => [
+          name,
+          value === undefined ? undefined : readSpawnEnv(value),
+        ]),
+      );
+      const bridge = yield* Effect.promise(() =>
+        loadMcpBridge({ modern: true, environment, agentServers: [weave] }),
+      );
+      const ctx = { ui: { notify: assert.fail } };
+      yield* Effect.promise(() => bridge.handlers.get("session_start")!({ systemPrompt: "" }, ctx));
+      assert.isDefined(bridge.tools.find((tool) => tool.name === "mcp__t3-code__preview_snapshot"));
+      assert.isDefined(bridge.tools.find((tool) => tool.name === "mcp__weave__weave_forge_read"));
+      assert.isTrue(bridge.transports.some((transport) => transport.url.endsWith("/mcp/browser")));
+      const sections: Record<string, string> = {};
+      yield* Effect.promise(async () => {
+        await bridge.handlers.get("before_agent_start")!(
+          { systemPrompt: "", systemPromptOptions: { sections } },
+          ctx,
+        );
+      });
+      assert.include(sections.t3_code_orchestration ?? "", "preview_open");
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
   it.effect.each(["canonical", "legacy"] as const)(
     "launches Pi with the restored %s registration choice",
     (registration) =>

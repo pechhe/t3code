@@ -838,6 +838,8 @@ function makeBrowserAccessProject(projectId: ProjectId): Project {
 function runBrowserAccessScenario(input: {
   readonly enableAgentBrowserAccess: boolean;
   readonly projectOverride?: boolean;
+  readonly otherProjectOverride?: boolean;
+  readonly projectServicePresent?: boolean;
   readonly agentBrowserBackends?: import("@t3tools/contracts").AgentBrowserBackends;
   readonly deviceOverride?: boolean;
   readonly managedBrowser?: boolean;
@@ -909,13 +911,20 @@ function runBrowserAccessScenario(input: {
           state,
           idleTimeoutMs: 1_000,
           mcpConfigs,
-          projectServiceLayer: layerProjectService,
+          ...(input.projectServicePresent === false
+            ? {}
+            : { projectServiceLayer: layerProjectService }),
           serverSettingsLayer: ServerSettings.layerTest({
             enableAgentBrowserAccess: input.enableAgentBrowserAccess,
             ...(input.agentBrowserBackends === undefined
               ? {}
               : { agentBrowserBackends: input.agentBrowserBackends }),
             projectSettingsOverrides: {
+              ...(input.otherProjectOverride === undefined
+                ? {}
+                : {
+                    "other-project": { enableAgentBrowserAccess: input.otherProjectOverride },
+                  }),
               [projectId]: {
                 ...(input.projectOverride === undefined
                   ? {}
@@ -2778,6 +2787,49 @@ it.effect(
       assert.isTrue(captured?.browserToolsAvailable);
       assert.deepEqual(captured?.browserBackends, { enabled: ["phi"], default: "phi" });
       assert.isFalse(captured?.capabilities?.has("device"));
+    }),
+);
+
+it.effect.each(
+  [true, false].flatMap((projectServicePresent) =>
+    [true, false].flatMap((backendEnabled) =>
+      (["none", "other-project", "current-allow", "current-deny"] as const).map((override) => ({
+        projectServicePresent,
+        backendEnabled,
+        override,
+      })),
+    ),
+  ),
+)(
+  "resolves integrated browser credentials with ProjectService=$projectServicePresent backend=$backendEnabled override=$override",
+  ({ projectServicePresent, backendEnabled, override }) =>
+    Effect.gen(function* () {
+      const captured = yield* runBrowserAccessScenario({
+        enableAgentBrowserAccess: true,
+        projectServicePresent,
+        agentBrowserBackends: backendEnabled
+          ? { enabled: ["integrated", "phi"], default: "phi" }
+          : { enabled: ["phi"], default: "phi" },
+        managedBrowser: true,
+        agentTask: { browser: { backend: "integrated" } },
+        ...(override === "other-project" ? { otherProjectOverride: false } : {}),
+        ...(override === "current-allow" ? { projectOverride: true } : {}),
+        ...(override === "current-deny" ? { projectOverride: false } : {}),
+      });
+      const granted =
+        backendEnabled &&
+        override !== "current-deny" &&
+        (projectServicePresent || override === "none");
+      if (granted) {
+        assert.isTrue(captured?.resolvedManagedBrowser);
+        assert.match(captured?.endpoint ?? "", /\/mcp\/browser$/);
+        assert.deepEqual(captured?.browserBackends, {
+          enabled: ["integrated"],
+          default: "integrated",
+        });
+      } else {
+        assert.isUndefined(captured);
+      }
     }),
 );
 

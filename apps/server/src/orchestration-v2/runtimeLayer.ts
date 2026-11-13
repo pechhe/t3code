@@ -146,9 +146,10 @@ const layerCommandOutputHubProvided = CommandOutputHub.layer.pipe(
   Layer.provide(Layer.merge(layerEventSink, ProjectionStore.layer)),
 );
 
-const layerProviderSessionManagerProvided = ProviderSessionManager.layer.pipe(
+export const layerProviderSessionManagerProvided = ProviderSessionManager.layer.pipe(
   Layer.provide(
     Layer.mergeAll(
+      layerProjectService,
       layerCommandOutputHubProvided,
       ProviderAdapterRegistry.layerFromProviderInstanceRegistry,
       layerEventSink,
