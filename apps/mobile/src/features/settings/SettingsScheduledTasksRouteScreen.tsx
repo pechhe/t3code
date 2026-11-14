@@ -764,8 +764,6 @@ function TaskForm({
       title: draft.title.trim(),
       prompt: draft.prompt.trim(),
       projectId: draft.projectId,
-      // The role picks the model at each run; the saved selection is only this
-      // machine's fallback when its policy cannot resolve the role.
       modelSelection: draft.modelSelection ?? undefined,
       agentRole: draft.agentRole,
       schedule,
@@ -899,18 +897,35 @@ function TaskForm({
             value={
               draft.task?.threadId != null
                 ? "This thread's model"
-                : AGENT_ROLE_TITLE_LABEL[draft.agentRole]
+                : draft.agentRole === null
+                  ? "Explicit model"
+                  : AGENT_ROLE_TITLE_LABEL[draft.agentRole]
             }
             actions={
               saving || dictationPending || environmentUnavailable || draft.task?.threadId != null
                 ? []
-                : AgentRole.literals.map((role) => ({
-                    id: role,
-                    title: AGENT_ROLE_TITLE_LABEL[role],
-                    state: role === draft.agentRole ? "on" : undefined,
-                  }))
+                : [
+                    ...(draft.task?.agentRole === null
+                      ? [
+                          {
+                            id: "explicit-model",
+                            title: "Explicit model",
+                            state: draft.agentRole === null ? ("on" as const) : undefined,
+                          },
+                        ]
+                      : []),
+                    ...AgentRole.literals.map((role) => ({
+                      id: role,
+                      title: AGENT_ROLE_TITLE_LABEL[role],
+                      state: role === draft.agentRole ? ("on" as const) : undefined,
+                    })),
+                  ]
             }
             onSelect={(id) => {
+              if (id === "explicit-model") {
+                setDraft({ ...draft, agentRole: null });
+                return;
+              }
               const role = AgentRole.literals.find((candidate) => candidate === id);
               if (role) setDraft({ ...draft, agentRole: role });
             }}

@@ -312,6 +312,9 @@ it.effect("requires a fresh explained follow-up to an answered consultation", ()
       const service = yield* Advice.AdviceService;
       yield* service.ask(scope(workerId), "one", question);
       yield* service.answer(scope(parentId), workerId, "one", "Keep v1.");
+      expect((yield* service.ask(scope(workerId), "repeat", question).pipe(Effect.flip)).code).toBe(
+        "invalid_request",
+      );
       expect(
         (yield* service
           .ask(scope(workerId), "two", { ...question, followsRequestId: "one" })

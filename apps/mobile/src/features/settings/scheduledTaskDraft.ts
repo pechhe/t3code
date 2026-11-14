@@ -212,8 +212,7 @@ export type ScheduledTaskDraft = {
   readonly prompt: string;
   readonly projectId: ProjectId | null;
   /** The role whose policy picks the model at each run. */
-  readonly agentRole: AgentRole;
-  /** Only a fallback for a machine whose policy cannot resolve `agentRole`; nothing picks it. */
+  readonly agentRole: AgentRole | null;
   readonly threadId: ThreadId | null;
   readonly modelSelection: ModelSelection | null;
   /** Whether a saved task kept its own fallback model rather than the project default. */
@@ -332,7 +331,7 @@ export function editDraft(task: ScheduledTask): ScheduledTaskDraft {
     title: task.title,
     prompt: task.prompt,
     projectId: task.projectId,
-    agentRole: task.agentRole ?? DEFAULT_SCHEDULED_TASK_ROLE,
+    agentRole: task.agentRole ?? null,
     threadId: task.threadId,
     modelSelection: task.modelSelection,
     modelSelectionIsExplicit: true,

@@ -10,6 +10,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as Option from "effect/Option";
 import * as DateTime from "effect/DateTime";
 import {
+  AGENT_ROLE_GUIDANCE,
   type AgentTaskRequest,
   type OrchestrationV2AppThread,
   type ResolvedDelegationStance,
@@ -766,6 +767,8 @@ const make = Effect.gen(function* () {
     const startable = new Set(runnable.map((candidate) => candidate.alias));
     const entry = {
       role,
+      guidance: policy.guidance ?? AGENT_ROLE_GUIDANCE[role],
+      ...(input.request.role === role ? { instructions: brief.text } : {}),
       briefHash: brief.hash,
       sourceAccess,
       permissionClass: sourceAccess === "read-only" ? ("read-only" as const) : ("editor" as const),
@@ -953,7 +956,10 @@ const make = Effect.gen(function* () {
     ),
     roles: Effect.fn("ManagedAgentService.roles")(function* (input) {
       const snapshot = yield* currentPolicy;
-      const roles = yield* Effect.forEach(configuredRoles(snapshot), ({ role, policy, brief }) =>
+      const presets = configuredRoles(snapshot).filter(
+        ({ role }) => input.request.role === undefined || input.request.role === role,
+      );
+      const roles = yield* Effect.forEach(presets, ({ role, policy, brief }) =>
         discover(input, snapshot, role, policy, brief).pipe(Effect.map(({ entry }) => entry)),
       );
       return { policyHash: snapshot.hash, policyRevision: snapshot.sourceRevision, roles };

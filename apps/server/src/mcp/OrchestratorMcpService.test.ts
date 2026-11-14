@@ -4858,6 +4858,8 @@ describe("OrchestratorMcpService provider resolution", () => {
       saved: Ref.Ref<ReadonlyArray<ScheduledTask["workspaceStrategy"]>>,
       task: ScheduledTask = existing,
       modes?: Ref.Ref<ReadonlyArray<ScheduledTaskUpsertInput["threadMode"]>>,
+      selections?: Ref.Ref<ReadonlyArray<ScheduledTaskUpsertInput>>,
+      enabledForProject = true,
     ) =>
       OrchestratorMcpService.layer.pipe(
         Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
@@ -4867,12 +4869,42 @@ describe("OrchestratorMcpService provider resolution", () => {
             Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
             NodeCrypto.layer,
             Layer.mock(ThreadManagementService.ThreadManagementService)({
+              getThreadRecords: () =>
+                Effect.succeed({
+                  ...parentProjection([]),
+                  thread: { ...parentProjection([]).thread, projectId },
+                } as never),
               getThreadShell: () => Effect.succeed(null),
+              isProviderInstanceEnabledForProject: () => Effect.succeed(enabledForProject),
             }),
             ServerSettings.layerTest(),
-            Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+            providerRegistryLayer([
+              {
+                ...providerSnapshot({
+                  instanceId: antigravityInstanceId,
+                  driver: ProviderDriverKind.make("antigravity"),
+                }),
+                models: [
+                  {
+                    slug: "opus",
+                    name: "Opus",
+                    isCustom: false,
+                    capabilities: {
+                      optionDescriptors: [
+                        {
+                          id: "effort",
+                          label: "Effort",
+                          type: "select",
+                          options: [{ id: "high", label: "High" }],
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+            ]),
             Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
-              list: () => Effect.succeed([]),
+              list: () => Effect.succeed([antigravityInstanceId]),
             }),
             Layer.mock(ProjectService.ProjectService)({
               getById: () =>
@@ -4900,7 +4932,18 @@ describe("OrchestratorMcpService provider resolution", () => {
                       ? Effect.void
                       : Ref.update(modes, (all) => [...all, input.threadMode]),
                   ),
-                  Effect.as({ task }),
+                  Effect.andThen(
+                    selections === undefined
+                      ? Effect.void
+                      : Ref.update(selections, (all) => [...all, input]),
+                  ),
+                  Effect.as({
+                    task: {
+                      ...task,
+                      modelSelection: input.modelSelection ?? task.modelSelection,
+                      agentRole: input.agentRole === undefined ? task.agentRole : input.agentRole,
+                    },
+                  }),
                 ),
             }),
           ),
@@ -4913,6 +4956,135 @@ describe("OrchestratorMcpService provider resolution", () => {
       resolveCommit: () => Effect.succeed({ commitSha: "abc123" }),
     };
     const schedule = { type: "interval", everyMs: 3_600_000 } as const;
+
+    it.effect(
+      "schedules an explicit model instead of the caller default and preserves ordinary updates",
+      () =>
+        Effect.gen(function* () {
+          const saved = yield* Ref.make<ReadonlyArray<ScheduledTask["workspaceStrategy"]>>([]);
+          const selections = yield* Ref.make<ReadonlyArray<ScheduledTaskUpsertInput>>([]);
+          const selection = {
+            instanceId: antigravityInstanceId,
+            model: "opus",
+            options: [{ id: "effort", value: "high" }],
+          };
+          const mcp = yield* OrchestratorMcpService.OrchestratorMcpService.pipe(
+            Effect.provide(
+              service(
+                masterRepository,
+                saved,
+                { ...existing, agentRole: null, modelSelection: selection },
+                undefined,
+                selections,
+              ),
+            ),
+          );
+          const created = yield* mcp.scheduleTask(scope, {
+            projectId,
+            prompt: "Review weekly",
+            schedule,
+            purpose: "long_running",
+            modelSelection: selection,
+          });
+          assert.equal(created.agentRole, null);
+          assert.deepEqual(created.modelSelection, selection);
+          const updated = yield* mcp.updateScheduledTask(client, {
+            scheduledTaskId: existing.id,
+            title: "Weekly review",
+          });
+          assert.deepEqual(updated.modelSelection, selection);
+          yield* mcp.updateScheduledTask(client, {
+            scheduledTaskId: existing.id,
+            modelSelection: selection,
+          });
+          yield* mcp.updateScheduledTask(client, {
+            scheduledTaskId: existing.id,
+            agentRole: "reviewer",
+          });
+          const inputs = yield* Ref.get(selections);
+          assert.equal(inputs[0]?.threadId, null);
+          assert.deepEqual(
+            inputs.map((input) => input.modelSelection),
+            [selection, selection, selection, selection],
+          );
+          assert.deepEqual(
+            inputs.map((input) => input.agentRole),
+            [null, undefined, null, "reviewer"],
+          );
+        }),
+    );
+
+    it.effect(
+      "rejects conflicting, unavailable, disabled and invalid explicit schedule selections",
+      () =>
+        Effect.gen(function* () {
+          const saved = yield* Ref.make<ReadonlyArray<ScheduledTask["workspaceStrategy"]>>([]);
+          const selections = yield* Ref.make<ReadonlyArray<ScheduledTaskUpsertInput>>([]);
+          for (const testCase of [
+            {
+              modelSelection: { instanceId: antigravityInstanceId, model: "opus" },
+              agentRole: "reviewer" as const,
+              code: "invalid_request",
+            },
+            {
+              modelSelection: { instanceId: antigravityInstanceId, model: "missing" },
+              code: "model_unavailable",
+            },
+            {
+              modelSelection: { instanceId: ProviderInstanceId.make("missing"), model: "opus" },
+              code: "provider_unavailable",
+            },
+            {
+              modelSelection: {
+                instanceId: antigravityInstanceId,
+                model: "opus",
+                options: [{ id: "effort", value: "unsupported" }],
+              },
+              code: "invalid_request",
+            },
+            {
+              modelSelection: { instanceId: antigravityInstanceId, model: "opus" },
+              enabledForProject: false,
+              code: "provider_unavailable",
+            },
+          ]) {
+            const mcp = yield* OrchestratorMcpService.OrchestratorMcpService.pipe(
+              Effect.provide(
+                service(
+                  masterRepository,
+                  saved,
+                  existing,
+                  undefined,
+                  selections,
+                  testCase.enabledForProject,
+                ),
+              ),
+            );
+            const create = yield* mcp
+              .scheduleTask(client, {
+                projectId,
+                prompt: "Review weekly",
+                schedule,
+                purpose: "long_running",
+                modelSelection: testCase.modelSelection,
+                agentRole: testCase.agentRole,
+              })
+              .pipe(Effect.result);
+            const update = yield* mcp
+              .updateScheduledTask(client, {
+                scheduledTaskId: existing.id,
+                modelSelection: testCase.modelSelection,
+                agentRole: testCase.agentRole,
+              })
+              .pipe(Effect.result);
+            assert(Result.isFailure(create));
+            assert.equal(create.failure.code, testCase.code);
+            assert(Result.isFailure(update));
+            assert.equal(update.failure.code, testCase.code);
+          }
+          assert.deepEqual(yield* Ref.get(selections), []);
+        }),
+    );
 
     it.effect("keeps the saved workspace when an unbound task stays unbound", () =>
       Effect.gen(function* () {

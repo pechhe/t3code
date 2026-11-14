@@ -531,6 +531,13 @@ const make = Effect.gen(function* () {
               );
             return existing;
           }
+          const answered = rows.find(
+            (row) => row.status === "answered" && row.fingerprint === fingerprint,
+          );
+          if (answered !== undefined)
+            return yield* refuse(
+              `This consultation was answered as ${answered.request_id}. Read that answer; reopen it with followsRequestId and newEvidence only when something changed.`,
+            );
           const currentWorker = yield* requireWorker(scope);
           if (currentWorker.activeRunId !== worker.activeRunId)
             return yield* new OrchestratorMcpFailure({

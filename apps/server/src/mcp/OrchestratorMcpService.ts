@@ -28,6 +28,7 @@ import {
   type ExperimentWorkEvidenceInput,
   type ExperimentWorkEvidence,
   type ExperimentWorkReport,
+  type AgentRole,
   type AgentTaskOutcomeInput,
   type ExperimentOutcome,
   type ExperimentOutcomeInput,
@@ -443,6 +444,7 @@ function scheduledTaskSummary(task: ScheduledTask, mayRun: boolean): Orchestrato
     projectId: task.projectId,
     boundThreadId: task.threadId,
     agentRole: task.agentRole ?? null,
+    modelSelection: task.modelSelection,
     freshSession: scheduledTaskThreadMode(task) === "fresh_session",
     purpose: scheduledTaskPurpose(task),
     schedule: task.schedule,
@@ -1959,6 +1961,54 @@ const make = Effect.gen(function* () {
     };
   });
 
+  const validateScheduledModel = Effect.fn("OrchestratorMcpService.validateScheduledModel")(
+    function* (
+      projectId: ProjectId,
+      selection: ModelSelection,
+      agentRole: AgentRole | null | undefined,
+    ) {
+      if (agentRole != null) {
+        return yield* failure("invalid_request", "Choose modelSelection or agentRole, not both.");
+      }
+      const providers = yield* loadProviders;
+      const provider = providers.find((candidate) => candidate.instanceId === selection.instanceId);
+      if (provider === undefined) {
+        return yield* failure(
+          "provider_unavailable",
+          `Provider instance ${selection.instanceId} is not registered.`,
+        );
+      }
+      const constraints = providerConstraints(
+        provider,
+        (yield* loadOrchestrationCapableInstanceIds()).has(selection.instanceId),
+      );
+      if (
+        constraints.length > 0 ||
+        !(yield* threadManagement.isProviderInstanceEnabledForProject({
+          projectId,
+          instanceId: selection.instanceId,
+        }))
+      ) {
+        return yield* failure(
+          "provider_unavailable",
+          `Provider ${selection.instanceId} is unavailable or disabled for this project.`,
+        );
+      }
+      yield* requireAdvertisedModel(provider, selection.model);
+      const descriptors = advertisedModel(provider, selection.model)?.capabilities
+        ?.optionDescriptors;
+      const options = withLegacyUltracodeEffort(descriptors, selection.options);
+      const invalid = invalidOptionSelections(options ?? [], descriptors);
+      if (invalid.length > 0) {
+        return yield* failure(
+          "invalid_request",
+          `Model ${selection.model} on provider ${selection.instanceId} rejected options: ${invalid.join(" ")}`,
+        );
+      }
+      return { ...selection, ...(options === undefined ? {} : { options }) };
+    },
+  );
+
   const requestKey = (clientRequestId: string | undefined): Effect.Effect<string> =>
     clientRequestId === undefined ? random.uuidV4() : Effect.succeed(clientRequestId);
 
@@ -2758,7 +2808,14 @@ const make = Effect.gen(function* () {
       const project = yield* requireProject(projectId);
       const bindToCurrentThread =
         input.bindToCurrentThread ??
-        (parent !== undefined && parent.thread.projectId === projectId);
+        (input.modelSelection === undefined &&
+          parent !== undefined &&
+          parent.thread.projectId === projectId);
+      if (input.modelSelection !== undefined && bindToCurrentThread)
+        return yield* failure(
+          "invalid_request",
+          "A bound schedule follows its thread's model. Use bindToCurrentThread: false for an explicit model.",
+        );
       if (bindToCurrentThread && (parent === undefined || parent.thread.projectId !== projectId)) {
         return yield* failure(
           "invalid_request",
@@ -2768,7 +2825,9 @@ const make = Effect.gen(function* () {
         );
       }
       const modelSelection =
-        parent?.thread.modelSelection ?? (yield* projectDefaultModelSelection(project));
+        input.modelSelection === undefined
+          ? (parent?.thread.modelSelection ?? (yield* projectDefaultModelSelection(project)))
+          : yield* validateScheduledModel(projectId, input.modelSelection, input.agentRole);
       const derivedTitle = input.prompt.split("\n")[0]?.trim() ?? "";
       const title =
         input.title ?? (derivedTitle.length > 0 ? derivedTitle.slice(0, 80) : "Scheduled task");
@@ -2787,7 +2846,11 @@ const make = Effect.gen(function* () {
         purpose: input.purpose,
         workspaceStrategy: yield* scheduledTaskWorkspaceStrategy(bindToCurrentThread, projectId),
         modelSelection,
-        ...(input.agentRole === undefined ? {} : { agentRole: input.agentRole }),
+        ...(input.modelSelection !== undefined
+          ? { agentRole: null }
+          : input.agentRole === undefined
+            ? {}
+            : { agentRole: input.agentRole }),
         runtimeMode: limits.runtimeMode,
         interactionMode: limits.interactionMode,
         createdBy: "agent",
@@ -2866,6 +2929,11 @@ const make = Effect.gen(function* () {
             : input.bindToCurrentThread && parent !== undefined
               ? parent.thread.id
               : null;
+        if (input.modelSelection !== undefined && threadId !== null)
+          return yield* failure(
+            "invalid_request",
+            "A bound schedule follows its thread's model. Unbind it with bindToCurrentThread: false when changing its model.",
+          );
         // Reset the workspace only when the binding flips, so unbinding cannot leave runs in the shared checkout.
         const workspaceStrategy =
           (threadId === null) === (existing.threadId === null)
@@ -2893,8 +2961,19 @@ const make = Effect.gen(function* () {
                   : "continue",
           ...(input.purpose === undefined ? {} : { purpose: input.purpose }),
           workspaceStrategy,
-          modelSelection: existing.modelSelection,
-          ...(input.agentRole === undefined ? {} : { agentRole: input.agentRole }),
+          modelSelection:
+            input.modelSelection === undefined
+              ? existing.modelSelection
+              : yield* validateScheduledModel(
+                  existing.projectId,
+                  input.modelSelection,
+                  input.agentRole,
+                ),
+          ...(input.modelSelection !== undefined
+            ? { agentRole: null }
+            : input.agentRole === undefined
+              ? {}
+              : { agentRole: input.agentRole }),
           runtimeMode: existing.runtimeMode,
           interactionMode: existing.interactionMode,
           createdBy: existing.createdBy,

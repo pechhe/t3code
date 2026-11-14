@@ -529,12 +529,36 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
       Effect.gen(function* () {
         const f = yield* fixture;
         const settings = yield* Settings.ServerSettingsService;
+        yield* f.writeManifest({
+          ...f.manifest,
+          roles: {
+            ...f.manifest.roles,
+            implementer: {
+              ...f.manifest.roles.implementer,
+              guidance: "Implement a settled change within the assigned scope.",
+            },
+          },
+        });
         const roles = yield* f.service
           .roles({ ...f.prepareInput, request: { taskClass: "ui" } })
           .pipe(Effect.provideService(HostProcess.Environment, f.environment));
         const ui = roles.roles.find((role) => role.role === "implementer")!;
         expect(ui.executionBoundary).toBe("trusted-host-access");
         expect(ui.executionRequirement).toBe("trusted-host-allowed");
+        expect(ui).toMatchObject({
+          guidance: "Implement a settled change within the assigned scope.",
+          permissionClass: "editor",
+        });
+        expect(ui).not.toHaveProperty("instructions");
+        const selected = yield* f.service
+          .roles({ ...f.prepareInput, request: { taskClass: "ui", role: "implementer" } })
+          .pipe(Effect.provideService(HostProcess.Environment, f.environment));
+        expect(selected.roles).toHaveLength(1);
+        expect(selected.roles[0]).toMatchObject({
+          role: "implementer",
+          instructions: "Original roles/implementer.md\n",
+          permissionClass: "editor",
+        });
         const writer = yield* f.prepare({
           selection: { instanceId: codex.instanceId, model: codexModel },
         });

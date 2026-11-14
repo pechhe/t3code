@@ -92,12 +92,19 @@ describe("editDraft", () => {
       schedule: { type: "fixed_time", timeOfDay: "09:00" },
       workspaceStrategy: { type: "root" },
       purpose: "check_back",
+      modelSelection: {
+        instanceId: ProviderInstanceId.make("claudeAgent"),
+        model: "claude-opus-5-5",
+      },
     } as ScheduledTask;
     const draft = editDraft(task);
     expect(draft.purpose).toBe("check_back");
     expect(editDraft({ ...task, purpose: undefined }).purpose).toBe("long_running");
     expect(hasScheduledTaskDraftChanges(draft, draft)).toBe(false);
     expect(hasScheduledTaskDraftChanges(draft, { ...draft, purpose: "long_running" })).toBe(true);
+    const explicit = editDraft({ ...task, agentRole: null });
+    expect(explicit.agentRole).toBeNull();
+    expect({ ...explicit, title: "Weekly review" }.modelSelection).toEqual(task.modelSelection);
   });
 });
 

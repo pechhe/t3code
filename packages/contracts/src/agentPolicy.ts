@@ -19,6 +19,19 @@ export const AgentRole = Schema.Literals([
   "lead",
 ]);
 export type AgentRole = typeof AgentRole.Type;
+export const AGENT_ROLE_GUIDANCE = {
+  scout:
+    "Map unfamiliar code when a separate source investigation saves context; keep narrow lookups local.",
+  researcher: "Answer a factual question about a library, API or product from primary sources.",
+  browser: "Drive an authorised page or device task without editing source.",
+  "ui-verifier": "Check the running app without editing source.",
+  reviewer: "Independently judge pinned work against its requirements and repository standards.",
+  advisor:
+    "Give a solo lead an independent diagnosis or consequential second opinion; delegated workers normally consult their parent.",
+  implementer:
+    "Complete bounded implementation within a settled scope and interface; given a Spec as forgeItem, own it through delivery.",
+  lead: "Own one Spec under its orchestrator, including implementation, integration and delivery.",
+} as const satisfies Record<AgentRole, string>;
 /**
  * The three writing roles `implementer` replaced. Saved policies, snapshots, tasks and records
  * still carry them, and callers may still pass them; each reads as `implementer`, task class kept.
@@ -246,6 +259,7 @@ export const AgentListEntry = Schema.Struct({
 });
 export type AgentListEntry = typeof AgentListEntry.Type;
 const RolePolicy = Schema.Struct({
+  guidance: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(500))),
   /** The model pool this role uses; roles naming the same list share it. */
   list: Alias,
   /** Reviewer only: the Spec-review pool; council seating uses its stored order. */
@@ -948,6 +962,10 @@ export const AgentExternalSession = Schema.Struct({
 export type AgentExternalSession = typeof AgentExternalSession.Type;
 
 export const AgentRolesInput = Schema.Struct({
+  role: Schema.optional(AgentRole).annotate({
+    description:
+      "Return only this preset, including its child instructions. Omit for the concise catalogue.",
+  }),
   browser: Schema.optional(AgentTaskBrowser),
   executionRequirement: Schema.optional(AgentExecutionRequirement),
   runtimeMode: Schema.optional(RuntimeMode),
@@ -982,6 +1000,8 @@ export const AgentRolesResult = Schema.Struct({
   roles: Schema.Array(
     Schema.Struct({
       role: AgentRole,
+      guidance: Schema.optional(Schema.String),
+      instructions: Schema.optional(Schema.String),
       sourceAccess: Schema.Literals(["read-only", "scoped-write"]),
       /** Which of T3's two permission classes the role's tasks are in. */
       permissionClass: Schema.optional(Schema.Literals(["editor", "read-only"])),

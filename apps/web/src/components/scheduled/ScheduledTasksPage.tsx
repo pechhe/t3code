@@ -174,7 +174,7 @@ interface EditorDraft extends ScheduleDraft, WebhookDraft {
   /** Null until edited: the task's own projects, read once the project list has loaded. */
   readonly projectKeys: ReadonlyArray<string> | null;
   readonly workspace: WorkspaceChoice;
-  readonly agentRole: AgentRole;
+  readonly agentRole: AgentRole | null;
   readonly threadMode: ScheduledTaskThreadMode;
   readonly purpose: ScheduledTaskPurpose;
   /** The thread picked in this editor; null keeps the one the task is stored with. */
@@ -431,7 +431,7 @@ function draftOf(
         : [defaultMachine],
     projectKeys: group ? null : [],
     workspace: lead ? workspaceChoiceOf(lead.workspaceStrategy) : "fresh",
-    agentRole: lead?.agentRole ?? DEFAULT_ROLE,
+    agentRole: lead ? (lead.agentRole ?? null) : DEFAULT_ROLE,
     threadMode: lead ? scheduledTaskThreadMode(lead) : "new_thread",
     purpose: lead ? scheduledTaskPurpose(lead) : "long_running",
     destination: null,
@@ -543,6 +543,7 @@ function TaskDetail(props: {
       projectKeys,
       workspace: draft.workspace,
       agentRole: draft.agentRole,
+      ...(group === null ? {} : { modelSelection: group.lead.modelSelection }),
       threadMode: draft.threadMode,
       purpose: draft.purpose,
       destination: draft.destination,
@@ -553,7 +554,9 @@ function TaskDetail(props: {
   });
   // A bound run follows its thread's current model, so a role only picks one for fresh threads.
   const roleSummary =
-    !bound && policy.data ? roleModelSummary(policy.data.snapshot.manifest, draft.agentRole) : null;
+    !bound && policy.data && draft.agentRole !== null
+      ? roleModelSummary(policy.data.snapshot.manifest, draft.agentRole)
+      : null;
 
   const scheduleToSave = (): ScheduledTaskUpsertSchedule | null => {
     if (!isWebhook) return timedScheduleOf(draft);
@@ -923,15 +926,25 @@ function TaskDetail(props: {
             </Select>
             <span className="text-muted-foreground">as</span>
             <Select
-              value={draft.agentRole}
-              onValueChange={(value) => value && update({ agentRole: value as AgentRole })}
+              value={draft.agentRole ?? "explicit-model"}
+              onValueChange={(value) =>
+                value &&
+                update({ agentRole: value === "explicit-model" ? null : (value as AgentRole) })
+              }
             >
               <SelectTrigger size="xs" variant="ghost" aria-label="Subagent role">
                 <SelectValue>
-                  <AgentRoleChip role={draft.agentRole} />
+                  {draft.agentRole === null ? (
+                    "Explicit model"
+                  ) : (
+                    <AgentRoleChip role={draft.agentRole} />
+                  )}
                 </SelectValue>
               </SelectTrigger>
               <SelectPopup>
+                {group?.members.some((member) => member.task.agentRole == null) ? (
+                  <SelectItem value="explicit-model">Explicit model</SelectItem>
+                ) : null}
                 {ROLE_OPTIONS.map((role) => (
                   <SelectItem key={role} value={role}>
                     <span className="flex items-center gap-2">

@@ -187,6 +187,15 @@ describe("planGroupSave", () => {
     ]);
     // The role picks the model, so the save never pins one.
     expect(plan.upserts.every((entry) => entry.input.modelSelection === undefined)).toBe(true);
+    const pinned = task({ id: "explicit", agentRole: null });
+    const kept = planGroupSave({
+      draft: draft({ machines: [mac], agentRole: null }),
+      groupId: "g",
+      existing: [{ environmentId: mac, task: pinned }],
+      projects: [t3peach],
+    });
+    expect(kept.upserts[0]?.input.agentRole).toBeNull();
+    expect(kept.upserts[0]?.input.modelSelection).toEqual(pinned.modelSelection);
   });
 
   it("carries the thread mode the editor chose and drops the binding for a new thread", () => {

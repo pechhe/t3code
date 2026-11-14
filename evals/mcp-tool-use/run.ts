@@ -950,7 +950,7 @@ type Sample = {
 const SHELL_TOOLS = new Set(["Bash", "Read", "Edit", "Write", "WebFetch"]);
 
 const isAdvice = Schema.is(OrchestratorMcpAdvice);
-const isAdviceInput = Schema.is(OrchestratorMcpAskAdviceInput);
+const decodeAdviceInput = Schema.decodeUnknownOption(OrchestratorMcpAskAdviceInput);
 
 export const makeSample = (testCase: McpToolUseCase, capturedBase: Base): Sample => {
   const staticTools = testCase.setup.staticMcpTools;
@@ -1317,32 +1317,37 @@ export const t3Default = (
   };
   switch (name) {
     case "ask_advice": {
-      if (!isAdviceInput(input)) return { error: "Invalid advice input" };
-      if (input.action === "answer") return { error: "Only the parent may answer" };
-      if (input.action === "read" || input.action === "cancel") {
-        const request = sample.advice.get(input.requestId);
+      const decoded = decodeAdviceInput(input);
+      if (Option.isNone(decoded)) return { error: "Invalid advice input" };
+      const requestInput = decoded.value;
+      if (requestInput.action === "answer") return { error: "Only the parent may answer" };
+      if (requestInput.action === "read" || requestInput.action === "cancel") {
+        const request = sample.advice.get(requestInput.requestId);
         if (request === undefined) return { error: "Advice request not found" };
-        if (input.action === "cancel" && request.status === "pending") {
+        if (requestInput.action === "cancel" && request.status === "pending") {
           const cancelled = { ...request, status: "cancelled" as const };
-          sample.advice.set(input.requestId, cancelled);
+          sample.advice.set(requestInput.requestId, cancelled);
           return cancelled;
         }
         return request;
       }
-      if (input.action !== "ask") return { error: "Invalid advice action" };
-      if (input.destination === "advisor") return { error: "No advisor configured in this world" };
+      if (requestInput.action !== "ask") return { error: "Invalid advice action" };
+      if (requestInput.destination === "advisor")
+        return { error: "No advisor configured in this world" };
       const request: OrchestratorMcpAdvice = {
-        requestId: input.clientRequestId,
+        requestId: requestInput.clientRequestId,
         workerThreadId: ThreadId.make("worker"),
         parentThreadId: ThreadId.make("parent"),
-        question: input.question,
-        evidence: input.evidence,
-        recommendation: input.recommendation,
-        blocking: input.blocking,
-        ...(input.followsRequestId === undefined
+        question: requestInput.question,
+        evidence: requestInput.evidence,
+        recommendation: requestInput.recommendation,
+        blocking: requestInput.blocking,
+        ...(requestInput.followsRequestId === undefined
           ? {}
-          : { followsRequestId: input.followsRequestId }),
-        ...(input.newEvidence === undefined ? {} : { newEvidence: input.newEvidence }),
+          : { followsRequestId: requestInput.followsRequestId }),
+        ...(requestInput.newEvidence === undefined
+          ? {}
+          : { newEvidence: requestInput.newEvidence }),
         status: "pending",
         answer: null,
         delivery: "delivered",

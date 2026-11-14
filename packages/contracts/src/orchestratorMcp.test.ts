@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import * as Schema from "effect/Schema";
 
 import {
+  OrchestratorMcpAskAdviceInput,
   OrchestratorMcpDelegateTaskInput,
   OrchestratorMcpDelegateTaskResult,
   OrchestratorMcpScheduleTaskInput,
@@ -21,6 +22,30 @@ const decodeDelegateTaskResult = Schema.decodeUnknownSync(OrchestratorMcpDelegat
 const decodeThreadWaitResult = Schema.decodeUnknownSync(OrchestratorMcpThreadWaitResult);
 
 describe("orchestrator MCP contracts", () => {
+  it("accepts a concise parent question without fabricating evidence or a recommendation", () => {
+    const decode = Schema.decodeUnknownSync(OrchestratorMcpAskAdviceInput);
+    expect(
+      decode({ action: "ask", clientRequestId: "contract", question: "Which contract?" }),
+    ).toMatchObject({
+      evidence: "Not supplied separately.",
+      recommendation: "No recommendation supplied.",
+      blocking: true,
+    });
+    expect(
+      decode({
+        action: "ask",
+        clientRequestId: "contract",
+        question: "Which contract?",
+        evidence: "Read both callers.",
+        recommendation: "Keep v1.",
+        blocking: false,
+      }),
+    ).toMatchObject({
+      evidence: "Read both callers.",
+      recommendation: "Keep v1.",
+      blocking: false,
+    });
+  });
   it("decodes cross-provider delegated task requests and durable results", () => {
     const request = decodeDelegateTaskInput({
       task: "Inspect the workspace and report the result.",
@@ -122,6 +147,36 @@ describe("scheduled task MCP contracts", () => {
         schedule,
         purpose: "check_back",
         agentRole: "not-a-role",
+      }),
+    ).toThrow();
+  });
+
+  it("accepts an explicit model on create and update without a role", () => {
+    const modelSelection = {
+      instanceId: "claudeAgent",
+      model: "claude-opus-4-6",
+      options: [{ id: "effort", value: "high" }],
+    };
+    expect(
+      decodeScheduleTaskInputLoose({
+        prompt: "Review.",
+        schedule,
+        purpose: "long_running",
+        modelSelection,
+      }).modelSelection,
+    ).toEqual(modelSelection);
+    expect(
+      decodeUpdateScheduledTaskInput({
+        scheduledTaskId: "scheduled-task:1",
+        modelSelection,
+      }).modelSelection,
+    ).toEqual(modelSelection);
+    expect(() =>
+      decodeScheduleTaskInputLoose({
+        prompt: "Review.",
+        schedule,
+        purpose: "long_running",
+        modelSelection: { model: "" },
       }),
     ).toThrow();
   });

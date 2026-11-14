@@ -609,18 +609,29 @@ const OrchestratorMcpAdviceAdvisor = Schema.Struct({
   ),
 });
 
+const adviceQuestionInputFields = {
+  ...OrchestratorMcpAdviceQuestion.fields,
+  evidence: OrchestratorMcpAdviceQuestion.fields.evidence.pipe(
+    Schema.withDecodingDefault(Effect.succeed("Not supplied separately.")),
+  ),
+  recommendation: OrchestratorMcpAdviceQuestion.fields.recommendation.pipe(
+    Schema.withDecodingDefault(Effect.succeed("No recommendation supplied.")),
+  ),
+  blocking: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+};
+
 export const OrchestratorMcpAskAdviceInput = Schema.Union([
   Schema.Struct({
     action: Schema.Literal("ask"),
     destination: Schema.optional(Schema.Literal("parent")),
     clientRequestId: OrchestratorMcpClientRequestId,
-    ...OrchestratorMcpAdviceQuestion.fields,
+    ...adviceQuestionInputFields,
   }),
   Schema.Struct({
     action: Schema.Literal("ask"),
     destination: Schema.Literal("advisor"),
     clientRequestId: OrchestratorMcpClientRequestId,
-    ...OrchestratorMcpAdviceQuestion.fields,
+    ...adviceQuestionInputFields,
     advisor: OrchestratorMcpAdviceAdvisor,
   }),
   Schema.Struct({
@@ -1184,9 +1195,13 @@ export const OrchestratorMcpScheduleTaskInput = Schema.Struct({
         "Post here, else new thread per run. Unset: true in own project, else false; updates keep it.",
     }),
   ),
-  agentRole: Schema.optional(StoredAgentRole).annotate({
+  agentRole: Schema.optional(Schema.NullOr(StoredAgentRole)).annotate({
     description:
-      "Subagent role whose policy picks the model at each run. Defaults to 'implementer'.",
+      "Role whose policy picks the model at each run. Defaults to 'implementer' unless modelSelection is explicit. Cannot combine a role with modelSelection.",
+  }),
+  modelSelection: Schema.optional(ModelSelection).annotate({
+    description:
+      "Explicit provider, model and options for new runs instead of a role. Creates an unbound task by default; a bound task follows its thread's model.",
   }),
   freshSession: Schema.optional(
     Schema.Boolean.annotate({
@@ -1231,8 +1246,9 @@ export const OrchestratorMcpScheduledTask = Schema.Struct({
   boundThreadId: Schema.NullOr(ThreadId),
   agentRole: Schema.NullOr(AgentRole).annotate({
     description:
-      "Subagent role this task runs as; its policy picks the model. Null only for a legacy task saved before roles.",
+      "Subagent role this task runs as; its policy picks the model. Null for an explicit model or a legacy task saved before roles.",
   }),
+  modelSelection: Schema.optional(ModelSelection),
   freshSession: Schema.Boolean,
   purpose: ScheduledTaskPurpose,
   schedule: ScheduledTaskSchedule,
@@ -1277,8 +1293,13 @@ export const OrchestratorMcpUpdateScheduledTaskInput = Schema.Struct({
   schedule: Schema.optional(OrchestratorMcpSchedule),
   enabled: Schema.optional(Schema.Boolean),
   bindToCurrentThread: Schema.optional(Schema.Boolean),
-  agentRole: Schema.optional(StoredAgentRole).annotate({
-    description: "Move the task to another subagent role; a bound task follows its thread's model.",
+  agentRole: Schema.optional(Schema.NullOr(StoredAgentRole)).annotate({
+    description:
+      "Switch back to role selection. Cannot combine a role with modelSelection. Omit both to keep the current choice.",
+  }),
+  modelSelection: Schema.optional(ModelSelection).annotate({
+    description:
+      "Replace the saved model and switch off role selection. A bound task must also set bindToCurrentThread:false. Omit to keep the current choice.",
   }),
   freshSession: Schema.optional(Schema.Boolean),
   purpose: Schema.optional(ScheduledTaskPurpose),

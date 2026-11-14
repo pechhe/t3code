@@ -32,7 +32,9 @@ Only connections with identified usage readings can be configured. Usage is refr
 
 On web and desktop, **Settings → Delegation** edits the configured source
 policy. Settings permission is required; agents have no MCP tool to edit it.
-The policy has seven roles: `implementer`, `lead`, `scout`, `researcher`, `browser`,
+The policy has seven named presets over two execution authority classes (read-only and editor). `agent_roles` returns concise guidance for each preset a caller can request; pass `role` for one preset and its full child instructions. A preset's optional `guidance` in the policy customises selection advice without changing permissions.
+
+The presets are: `implementer`, `lead`, `scout`, `researcher`, `browser`,
 `reviewer` and `advisor`. The implementer and lead are editors; the other five are
 read-only. Callers ask for one writing role, `implementer`: handed a Forge Spec as
 `forgeItem` it runs as the internal `lead` (the Spec lead), so `agent_roles` lists no

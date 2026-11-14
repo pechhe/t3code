@@ -14,6 +14,7 @@ import {
   ScheduledTaskId,
   type AgentPolicyManifest,
   type AgentRole,
+  type ModelSelection,
   type OrchestrationV2ThreadLaunchWorkspaceStrategy,
   type ProjectId,
   type ProviderDriverKind,
@@ -216,7 +217,8 @@ export interface GroupDraftFields {
   readonly machines: ReadonlyArray<EnvironmentId>;
   readonly projectKeys: ReadonlyArray<string>;
   readonly workspace: WorkspaceChoice;
-  readonly agentRole: AgentRole;
+  readonly agentRole: AgentRole | null;
+  readonly modelSelection?: ModelSelection;
   /** One thread each run continues or opens a fresh session in; "new_thread" starts one per run. */
   readonly threadMode: ScheduledTaskThreadMode;
   readonly purpose: ScheduledTaskPurpose;
@@ -357,9 +359,10 @@ export function planGroupSave(input: {
             draft.workspace,
             previous?.workspaceStrategy ?? null,
           ),
-          // Every task names a role, so one policy edit reaches every task on every machine.
-          // The stored model is only the fallback for a machine whose policy cannot resolve it.
           agentRole: draft.agentRole,
+          ...(draft.agentRole === null
+            ? { modelSelection: previous?.modelSelection ?? draft.modelSelection }
+            : {}),
           runtimeMode: previous?.runtimeMode ?? "full-access",
           interactionMode: previous?.interactionMode ?? "default",
           groupId: input.groupId,

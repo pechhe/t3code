@@ -2780,7 +2780,10 @@ it.effect(
             assert.deepEqual(recovered.completionDelivery, completionDelivery);
             return;
           }
-          yield* advice.ask(scope(task.childThreadId!), "cancel-hold", request);
+          yield* advice.ask(scope(task.childThreadId!), "cancel-hold", {
+            ...request,
+            question: "Should the follow-on migration preserve the old index?",
+          });
           const cancelRun = (yield* projections.getThreadRecords(task.childThreadId!, [
             "runs",
           ])).runs

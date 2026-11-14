@@ -4804,6 +4804,15 @@ it("keeps advice mock identities and state consistent with answered prior consul
   );
   assert.equal(cancelled.requestId, result.requestId);
   assert.equal(cancelled.status, "cancelled");
+  const concise = decodeAdvice(
+    t3Default(sample, "ask_advice", {
+      action: "ask",
+      clientRequestId: "concise",
+      question: "Which shared contract?",
+    }),
+  );
+  assert.equal(concise.blocking, true);
+  assert.equal(concise.evidence, "Not supplied separately.");
 });
 
 it("requires both payload questions in the single bundled consultation", () => {

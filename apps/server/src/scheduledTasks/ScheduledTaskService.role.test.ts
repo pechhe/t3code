@@ -156,6 +156,38 @@ it.effect("a task with a subagent role runs on the model its policy picks", () =
   ),
 );
 
+it.effect("an explicit model survives ordinary saves and runs until a role is selected", () =>
+  Effect.gen(function* () {
+    const launched = yield* Ref.make<ReadonlyArray<ModelSelection>>([]);
+    yield* Effect.gen(function* () {
+      const service = yield* ScheduledTaskService.ScheduledTaskService;
+      const { task } = yield* service.upsert({ ...baseInput, agentRole: null });
+      assert.equal(task.agentRole, null);
+      assert.deepEqual(task.modelSelection, savedModel);
+      const { task: updated } = yield* service.upsert({
+        ...baseInput,
+        id: task.id,
+        title: "Renamed",
+      });
+      assert.equal(updated.agentRole, null);
+      assert.deepEqual(updated.modelSelection, savedModel);
+      yield* service.runNow({ id: task.id });
+      const { task: moved } = yield* service.upsert({
+        ...baseInput,
+        id: task.id,
+        agentRole: "implementer",
+      });
+      assert.equal(moved.agentRole, "implementer");
+      yield* service.runNow({ id: task.id });
+      assert.deepEqual(yield* Ref.get(launched), [savedModel, implementerModel]);
+    }).pipe(Effect.provide(serviceLayer(launched, policyLayer)));
+  }).pipe(
+    Effect.provide(
+      SqlitePersistence.layerMemory.pipe(Layer.provideMerge(ContextManagedPolicy.layerTest())),
+    ),
+  ),
+);
+
 it.effect("without a role policy the task runs on its saved model", () =>
   Effect.gen(function* () {
     const launched = yield* Ref.make<ReadonlyArray<ModelSelection>>([]);
