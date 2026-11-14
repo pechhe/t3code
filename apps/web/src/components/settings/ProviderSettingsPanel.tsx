@@ -47,11 +47,13 @@ import {
   useEnvironmentSettings,
   usePersistEnvironmentProviderInstanceMutation,
   useUpdateEnvironmentSettings,
-  useUpdateEnvironmentModelPreferences,
-  useToggleEnvironmentModelFavorite,
 } from "../../hooks/useSettings";
 import { useStableCallback } from "../../hooks/useStableCallback";
-import { useUpdateModelCompactAt } from "./useScopedSettings";
+import {
+  useToggleScopedModelFavorite,
+  useUpdateModelCompactAt,
+  useUpdateScopedModelPreferences,
+} from "./useScopedSettings";
 import { ensureLocalApi } from "../../localApi";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { cn } from "../../lib/utils";
@@ -599,9 +601,9 @@ export function EnvironmentProviderSettings({
   const canWriteSettings = useEnvironmentScope(environmentId, AuthSettingsWriteScope);
   const canRefreshProviders = useEnvironmentScope(environmentId, AuthOrchestrationReadScope);
   const updateSettings = useUpdateEnvironmentSettings(environmentId);
-  const updateModelPreferences = useUpdateEnvironmentModelPreferences(environmentId);
+  const updateModelPreferences = useUpdateScopedModelPreferences(environmentId);
   const updateModelCompactAt = useUpdateModelCompactAt(environmentId);
-  const toggleModelFavorite = useToggleEnvironmentModelFavorite(environmentId);
+  const toggleModelFavorite = useToggleScopedModelFavorite(environmentId);
   const persistProviderInstance = usePersistEnvironmentProviderInstanceMutation(environmentId);
   const serverProviders = useAtomValue(providersIgnoringCheckedAtAtom(environmentId));
   // Hide overrides on older servers that silently ignore providerInstances patches.
@@ -1290,8 +1292,8 @@ interface ProviderInstanceRowActions {
     instanceId: ProviderInstanceId,
     next: boolean | undefined,
   ) => void;
-  readonly updateModelPreferences: ReturnType<typeof useUpdateEnvironmentModelPreferences>;
-  readonly toggleModelFavorite: ReturnType<typeof useToggleEnvironmentModelFavorite>;
+  readonly updateModelPreferences: ReturnType<typeof useUpdateScopedModelPreferences>;
+  readonly toggleModelFavorite: ReturnType<typeof useToggleScopedModelFavorite>;
   readonly updateModelCompactAt: (next: Record<string, number>) => void;
   readonly selectInstance: (instanceId: ProviderInstanceId) => void;
 }

@@ -473,12 +473,18 @@ export function useUpdateEnvironmentModelPreferences(environmentId: EnvironmentI
 }
 
 /** Send the desired state so two clients adding a favorite do not cancel each other. */
-export function useToggleEnvironmentModelFavorite(environmentId: EnvironmentId | null) {
+export function useToggleEnvironmentModelFavorite(
+  environmentId: EnvironmentId | null,
+  saveOverride?: (
+    patch: ServerSettingsPatch,
+  ) => Promise<AsyncResult.AsyncResult<ServerSettings, unknown> | undefined>,
+) {
   const registry = use(RegistryContext);
   const pendingFavorites = useRef(
     new Map<string, { favorite: boolean; settings: ServerSettings; pending: boolean }>(),
   );
-  const save = useUpdateEnvironmentModelPreferences(environmentId);
+  const defaultSave = useUpdateEnvironmentModelPreferences(environmentId);
+  const save = saveOverride ?? defaultSave;
   return async (provider: ProviderInstanceId, model: string) => {
     if (!environmentId) return;
     const settingsAtom = serverEnvironment.settingsValueAtom(environmentId);
