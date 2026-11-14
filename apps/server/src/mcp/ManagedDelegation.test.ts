@@ -465,6 +465,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       let accepted = false;
       const children = new Map<ThreadId, OrchestrationV2ThreadShell>();
       const childRecords = new Map<ThreadId, OrchestrationV2ThreadProjection>();
+      const listedOccupants = new Map<ThreadId, OrchestrationV2ThreadShell>();
       const transport = Layer.mergeAll(
         Layer.mock(Threads.ThreadManagementService)({
           getThreadRecords: (id) => Effect.succeed(childRecords.get(id) ?? parent),
@@ -486,13 +487,26 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           hasReceipt: () => Effect.succeed(accepted),
           isProviderInstanceEnabledForProject: () => Effect.succeed(true),
           listProjectThreads: (input) =>
-            Effect.succeed(
-              occupantsFor(helper, {
+            Effect.sync(() => {
+              const threads = occupantsFor(helper, {
                 projectId: input.projectId ?? projectId,
                 foreign,
                 foreignHelper,
-              }),
-            ),
+              });
+              for (const thread of threads) listedOccupants.set(thread.id, thread);
+              return threads;
+            }),
+          getShellSnapshot: (options) => {
+            const threads = [...listedOccupants.values()].filter(
+              (thread) => options?.threadIds?.includes(thread.id) ?? true,
+            );
+            return Effect.succeed({
+              schemaVersion: 1,
+              snapshotSequence: 0,
+              threads: options?.location === "archive" ? [] : threads,
+              archivedThreads: [],
+            });
+          },
           dispatch: (command) =>
             Effect.suspend(() => {
               if (options.champion && command.type !== "delegated_task.request")

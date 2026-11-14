@@ -106,6 +106,9 @@ import * as SecretResolver from "./secrets/SecretResolver.ts";
 import * as ProviderInstanceRegistryHydration from "./provider/ProviderInstanceRegistryHydration.ts";
 import * as ProjectSettingsOverrideSweep from "./provider/ProjectSettingsOverrideSweep.ts";
 import * as WorkspaceAllocationSweep from "./project/WorkspaceAllocationSweep.ts";
+import * as WorkspaceCustody from "./workspace/WorkspaceCustody.ts";
+import * as WorkspaceCustodyJournal from "./persistence/WorkspaceCustody.ts";
+import * as Schedule from "effect/Schedule";
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as McpHttpServer from "./mcp/McpHttpServer.ts";
 import * as FleetSummaryService from "./fleet/FleetSummaryService.ts";
@@ -857,6 +860,20 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   // Forked: each allocation it settles asks SlipJay, which can take seconds.
   Layer.effectDiscard(Effect.forkScoped(WorkspaceAllocationSweep.sweep)).pipe(
     Layer.provide(WorkspaceProvider.layer),
+  ),
+  Layer.effectDiscard(
+    Effect.gen(function* () {
+      const custody = yield* WorkspaceCustody.WorkspaceCustody;
+      yield* custody.reconcile.pipe(
+        Effect.catch(() => Effect.logWarning("Could not read pending workspace custody releases")),
+        Effect.repeat(Schedule.spaced("10 seconds")),
+        Effect.forkScoped,
+      );
+    }),
+  ).pipe(
+    Layer.provide(WorkspaceCustody.layer),
+    Layer.provide(WorkspaceCustodyJournal.layer),
+    Layer.provide(ProcessRunner.layer),
   ),
 )
   .pipe(

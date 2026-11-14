@@ -128,6 +128,13 @@ it.effect(
         Layer.mock(Threads.ThreadManagementService)({
           getThreadRecords: (id) => Effect.succeed(id === parentId ? parent : child),
           listProjectThreads: () => Effect.succeed([]),
+          getShellSnapshot: () =>
+            Effect.succeed({
+              schemaVersion: 1,
+              snapshotSequence: 0,
+              threads: [],
+              archivedThreads: [],
+            }),
           isProviderInstanceEnabledForProject: () => Effect.succeed(true),
           delegatedTaskResultPending: () => Effect.succeed(false),
           dispatch: () => Effect.succeed({} as never),

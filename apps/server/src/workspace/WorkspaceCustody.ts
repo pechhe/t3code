@@ -112,6 +112,7 @@ export class WorkspaceCustody extends Context.Service<
     ) => Effect.Effect<void, WorkspaceCustodyError>;
     readonly close: (id: string) => Effect.Effect<void, WorkspaceCustodyError>;
     readonly releaseSettled: (id: string) => Effect.Effect<void, WorkspaceCustodyError>;
+    readonly reconcile: Effect.Effect<void, WorkspaceCustodyError>;
     readonly recover: (id: string, reason: string) => Effect.Effect<void, WorkspaceCustodyError>;
     readonly finishAllocation: (attemptId: string) => Effect.Effect<void, WorkspaceCustodyError>;
   }
@@ -405,6 +406,27 @@ const make = Effect.gen(function* () {
         .pipe(Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "journal", cause }))),
     ),
     releaseSettled,
+    reconcile: Effect.gen(function* () {
+      const epochs = yield* journal.list.pipe(
+        Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "journal", cause })),
+      );
+      for (const epoch of epochs) {
+        if (
+          epoch.phase !== "closing" ||
+          epoch.receipt === null ||
+          epoch.obligations.some((item) => item.acknowledgement === null)
+        )
+          continue;
+        yield* releaseSettled(epoch.id).pipe(
+          Effect.catch((error) =>
+            Effect.logWarning("Workspace custody release publication remains pending", {
+              epochId: epoch.id,
+              stage: error.stage,
+            }),
+          ),
+        );
+      }
+    }).pipe(Effect.withSpan("WorkspaceCustody.reconcile")),
     finishAllocation: Effect.fn("WorkspaceCustody.finishAllocation")(function* (attemptId) {
       const epoch = yield* journal
         .forOwner(`allocation:${attemptId}`)

@@ -144,3 +144,71 @@ it.effect.each([
     }).pipe(Effect.provide(f.layer));
   }).pipe(Effect.provide(NodeServices.layer)),
 );
+
+it.effect("retries proved release publication across refusal, lost reply and restart", () =>
+  Effect.gen(function* () {
+    const f = yield* fixture;
+    yield* Effect.gen(function* () {
+      const journal = yield* Journal.WorkspaceCustody;
+      const epochs = yield* Effect.gen(function* () {
+        const custody = yield* WorkspaceCustody.WorkspaceCustody;
+        const ids = new Map<string, string>();
+        for (const state of [
+          "a-retry",
+          "b-independent",
+          "open",
+          "unacknowledged",
+          "recovery",
+          "missing-receipt",
+        ]) {
+          const epoch = yield* custody.prepare({ ownerRef: state, projectRoot: "/source" });
+          ids.set(state, epoch.id);
+          yield* custody.register(epoch.id, { id: "provider", kind: "provider-turn" });
+          if (state !== "missing-receipt")
+            yield* custody.acquireExisting(epoch.id, "/source/" + state);
+          if (state !== "unacknowledged")
+            yield* custody.acknowledge(epoch.id, "provider", "observed-provider-stop");
+          if (state !== "open") yield* custody.close(epoch.id);
+          if (state === "recovery") yield* custody.recover(epoch.id, "unknown-original-worker");
+        }
+        yield* Ref.set(f.releaseRefusalClaim, `custody:${ids.get("a-retry")!}`);
+        yield* Ref.set(f.releaseFailures, 2);
+        assert.equal(
+          (yield* custody.releaseSettled(ids.get("a-retry")!).pipe(Effect.result))._tag,
+          "Failure",
+        );
+        yield* custody.reconcile;
+        assert.equal((yield* journal.get(ids.get("a-retry")!)).phase, "closing");
+        assert.equal((yield* journal.get(ids.get("b-independent")!)).phase, "released");
+        yield* Ref.set(f.releaseLostReplies, 1);
+        assert.equal(
+          (yield* custody.releaseSettled(ids.get("a-retry")!).pipe(Effect.result))._tag,
+          "Failure",
+        );
+        assert.equal((yield* journal.get(ids.get("a-retry")!)).phase, "closing");
+        return ids;
+      }).pipe(Effect.provide(WorkspaceCustody.layer));
+      yield* Ref.set(f.controllerStart, "after-restart");
+      yield* Effect.gen(function* () {
+        const custody = yield* WorkspaceCustody.WorkspaceCustody;
+        yield* custody.reconcile;
+        assert.equal((yield* journal.get(epochs.get("a-retry")!)).phase, "released");
+        assert.equal(yield* Ref.get(f.releases), 2);
+        const requests = (yield* Ref.get(f.releaseRequests)).filter(
+          (request) => request.claimId === `custody:${epochs.get("a-retry")!}`,
+        );
+        assert.equal(requests.length, 4);
+        assert.isTrue(
+          requests.every((request) => JSON.stringify(request) === JSON.stringify(requests[0])),
+        );
+        for (const [state, phase] of [
+          ["open", "open"],
+          ["unacknowledged", "closing"],
+          ["recovery", "recovery-required"],
+          ["missing-receipt", "closing"],
+        ] as const)
+          assert.equal((yield* journal.get(epochs.get(state)!)).phase, phase);
+      }).pipe(Effect.provide(WorkspaceCustody.layer));
+    }).pipe(Effect.provide(f.dependencies));
+  }),
+);
