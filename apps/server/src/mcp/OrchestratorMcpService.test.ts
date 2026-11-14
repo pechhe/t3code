@@ -841,6 +841,10 @@ describe("OrchestratorMcpService", () => {
         Layer.mock(ThreadManagementService.ThreadManagementService)({
           getThreadShell: (threadId) => Effect.succeed(byId.get(threadId) ?? null),
           listProjectThreads: () => Effect.succeed(shells),
+          getShellSnapshot: (options) =>
+            Effect.succeed({
+              threads: shells.filter((shell) => options?.threadIds?.includes(shell.id) ?? true),
+            } as never),
           getProjectThreadRecords: (input) =>
             Effect.succeed(idleThreadProjection(byId.get(input.threadId)!)),
           getThreadRecords: (threadId) =>
@@ -5706,11 +5710,16 @@ describe("OrchestratorMcpService thread list", () => {
       ],
     },
   ];
+  const shellRequests: Array<ReadonlyArray<ThreadId>> = [];
   const service = layerOrchestratorService.pipe(
     Layer.provide(
       Layer.mergeAll(
         Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
         NodeCrypto.layer,
+        Layer.mock(Experiments.ExperimentService)({
+          assignForTask: () => Effect.succeed([]),
+          assignments: () => Effect.succeed([]),
+        }),
         Layer.mock(ThreadManagementService.ThreadManagementService)({
           listProjectThreads: (input) =>
             Effect.succeed(
@@ -5718,6 +5727,13 @@ describe("OrchestratorMcpService thread list", () => {
                 (thread) => input.projectId === undefined || thread.projectId === input.projectId,
               ),
             ),
+          getShellSnapshot: (options) => {
+            const threadIds = options?.threadIds ?? shells.map((thread) => thread.id);
+            shellRequests.push(threadIds);
+            return Effect.succeed({
+              threads: shells.filter((thread) => threadIds.includes(thread.id)),
+            } as never);
+          },
         }),
         ServerSettings.layerTest(),
         Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
@@ -5739,6 +5755,7 @@ describe("OrchestratorMcpService thread list", () => {
                 })
               : Effect.succeedNone,
         }),
+        Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
         Layer.mock(SecretRequests.SecretRequests)({}),
         Layer.mock(RemoteDelegation.RemoteDelegation)({}),
         Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
@@ -5853,31 +5870,29 @@ describe("OrchestratorMcpService thread list", () => {
     ),
   );
 
-  it.effect("lists all projects for a caller outside any thread when it omits projectId", () =>
+  it.effect("builds shells only for the threads on the page", () =>
     Effect.gen(function* () {
       const mcp = yield* OrchestratorMcpService.OrchestratorMcpService;
-      const result = yield* mcp.listThreads(client, {});
-      assert.equal(result.projectId, null);
-      assert.equal(result.currentThreadId, null);
+      shellRequests.length = 0;
+      const listed = yield* mcp.listThreads(client, {
+        projectId: ProjectId.make("project:a"),
+        limit: 1,
+      });
       assert.deepStrictEqual(
-        result.threads.map((thread) => thread.threadId),
-        shells.map((thread) => thread.id),
+        [listed.threads.map((thread) => thread.threadId), listed.total, listed.nextCursor],
+        [["thread:a-snoozed"], 3, 1],
       );
-    }).pipe(
-      Effect.provide(
-        service.pipe(
-          Layer.provideMerge(
-            Layer.mergeAll(
-              Layer.mock(FixtureExperimentService.ExperimentService)({
-                assignForTask: () => Effect.succeed([]),
-                assignments: () => Effect.succeed([]),
-              }),
-              Layer.mock(FixtureReleaseApprovals.ReleaseApprovals)({}),
-            ),
-          ),
-        ),
-      ),
-    ),
+      assert.deepStrictEqual(shellRequests, [[ThreadId.make("thread:a-snoozed")]]);
+    }).pipe(Effect.provide(service)),
+  );
+
+  it.effect("points a caller outside any thread at allProjects when it omits projectId", () =>
+    Effect.gen(function* () {
+      const mcp = yield* OrchestratorMcpService.OrchestratorMcpService;
+      const error = yield* mcp.listThreads(client, {}).pipe(Effect.flip);
+      assert.equal(error.code, "target_required");
+      assert.include(error.message, "allProjects");
+    }).pipe(Effect.provide(service)),
   );
 });
 

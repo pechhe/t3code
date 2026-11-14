@@ -85,6 +85,8 @@ import * as WorkspaceInspection from "../workspace/WorkspaceInspection.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as BitwardenSecrets from "../secrets/BitwardenSecrets.ts";
 import * as BrowserLogins from "../secrets/BrowserLogins.ts";
+import { ThemeToolkit } from "./toolkits/theme/tools.ts";
+import * as ThemeHandlers from "./toolkits/theme/handlers.ts";
 import { ProjectToolkit } from "./toolkits/project/tools.ts";
 import * as ProjectHandlers from "./toolkits/project/handlers.ts";
 import { AttachmentToolkit } from "./toolkits/attachment/tools.ts";
@@ -133,6 +135,8 @@ import {
 } from "./toolkits/device/tools.ts";
 import * as HtmlHandlers from "./toolkits/html/handlers.ts";
 import * as VideoFrames from "../videoFrames/VideoFrames.ts";
+import { MessageToolkit } from "./toolkits/message/tools.ts";
+import * as MessageHandlers from "./toolkits/message/handlers.ts";
 import { HtmlPreviewTool, HtmlPreviewToolkit, HtmlRenderToolkit } from "./toolkits/html/tools.ts";
 import { GuardToolkit } from "./toolkits/guard/tools.ts";
 import * as GuardHandlers from "./toolkits/guard/handlers.ts";
@@ -1416,6 +1420,8 @@ export const layerThreadToolkit = toolkitRegistration(ThreadToolkit, ThreadHandl
   Layer.provide(ThreadDirectory.layer),
 );
 
+const layerMessageToolkit = toolkitRegistration(MessageToolkit, MessageHandlers.layer);
+
 const layerWorktreeToolkitRegistration = toolkitRegistration(
   WorktreeToolkit,
   WorktreeHandlers.layer,
@@ -1441,6 +1447,10 @@ export const layerWorkspaceInspectionToolkit = toolkitRegistration(
   WorkspaceToolkit,
   WorkspaceHandlers.layer,
 ).pipe(Layer.provide(WorkspaceInspection.layer.pipe(Layer.provide(ProcessRunner.layer))));
+
+const layerThemeToolkit = toolkitRegistration(ThemeToolkit, ThemeHandlers.layer).pipe(
+  Layer.provide(ThreadCommandExecutor.layer),
+);
 
 export const layerAttachmentToolkit = toolkitRegistration(
   AttachmentToolkit,
@@ -1736,6 +1746,7 @@ export const layerTools = Layer.mergeAll(
   layerProjectRegistration,
   layerEnvironmentToolkit,
   toolkitRegistration(FleetToolkit, FleetHandlers.layer),
+  layerThemeToolkit,
   layerPreviewControlsRegistration,
   layerWorktreeToolkitRegistration,
   toolkitRegistration(ChampionsToolkit, ChampionsHandlers.layer),
@@ -1746,6 +1757,7 @@ export const layerTools = Layer.mergeAll(
   layerPullRequestsToolkit,
   layerDeviceToolkit,
   layerHtmlToolkit,
+  layerMessageToolkit,
 );
 
 export const layer = Layer.mergeAll(

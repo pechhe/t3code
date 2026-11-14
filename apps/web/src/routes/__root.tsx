@@ -36,6 +36,7 @@ import { DesktopOpenThreadCoordinator } from "../components/desktop/DesktopOpenT
 import { RunningThreadKeepAlive } from "../components/desktop/RunningThreadKeepAlive";
 import { ReopenClosedViewShortcut } from "../components/ReopenClosedViewShortcut";
 import { ProjectCloneToastCoordinator } from "../components/ProjectCloneToastCoordinator";
+import { ConnectDeviceApprovalCoordinator } from "../components/ConnectDeviceApprovalCoordinator";
 import { ChatGptWelcomeCoordinator } from "../components/settings/ChatGptWelcomeCoordinator";
 import { SharedProviderSetupSync } from "../components/settings/SharedProviderSetup";
 import { ThemeEditorHost } from "../components/settings/ThemeEditorHost";
@@ -218,6 +219,7 @@ function RootRouteBranch() {
       <GuestShareDialogHost />
       <DesktopOpenThreadCoordinator />
       <ProjectCloneToastCoordinator />
+      <ConnectDeviceApprovalCoordinator />
       <AddProjectToMachineDialogHost />
       <UseInAnotherAppDialogHost />
       {import.meta.env.DEV && primaryEnvironmentAuthenticated ? <DevReplayHost /> : null}

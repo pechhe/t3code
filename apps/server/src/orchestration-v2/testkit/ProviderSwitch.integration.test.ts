@@ -2004,8 +2004,9 @@ describe("orchestration v2 provider switching", () => {
         yield* Deferred.await(started);
         yield* Fiber.join(toolCallRunning);
 
-        const runInterrupted = yield* awaitEvent(
-          (event) => event.type === "run.updated" && event.payload.status === "interrupted",
+        // The handoff ends the old session cleanly; the queued continuation owns the next run.
+        const runSettled = yield* awaitEvent(
+          (event) => event.type === "run.updated" && event.payload.status === "waiting",
         );
         yield* orchestrator.dispatch({
           type: "thread.metadata.update",
@@ -2016,10 +2017,11 @@ describe("orchestration v2 provider switching", () => {
           expectedWorktreePath: null,
         });
         yield* worker.drain();
-        yield* Fiber.join(runInterrupted);
+        yield* Fiber.join(runSettled);
+        yield* worker.drain();
 
         const projection = yield* orchestrator.getThreadProjection(scenarioThreadId);
-        assert.equal(projection.runs.at(-1)?.status, "interrupted");
+        assert.equal(projection.runs.at(-1)?.status, "completed");
         assert.isFalse(projection.turnItems.some((item) => item.type === "error"));
         const toolCall = projection.turnItems.find((item) => item.id === toolCallId);
         assert.equal(toolCall?.status, "interrupted");

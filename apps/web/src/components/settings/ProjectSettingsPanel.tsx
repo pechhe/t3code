@@ -376,6 +376,13 @@ function ProjectDetail({
     if (checkProjectAccess(members, "Failed to remove project")) return;
 
     const draftStore = useComposerDraftStore.getState();
+    const remainingMember = allMembers.find(
+      (candidate) =>
+        !members.some(
+          (member) =>
+            member.environmentId === candidate.environmentId && member.id === candidate.id,
+        ),
+    );
     for (const member of members) {
       if (checkProjectAccess([member], "Failed to remove project")) return;
       const memberThreads = projectThreads.filter(
@@ -402,7 +409,13 @@ function ProjectDetail({
         memberThreads.map((thread) => scopeThreadRef(thread.environmentId, thread.id)),
       );
       const projectDraftThread = draftStore.getDraftThreadByProjectRef(projectRef);
-      if (projectDraftThread) {
+      if (projectDraftThread && remainingMember) {
+        draftStore.setDraftThreadContext(projectDraftThread.draftId, {
+          projectRef: scopeProjectRef(remainingMember.environmentId, remainingMember.id),
+          environmentSelection: "manual",
+          loadBalancedEnvironmentId: null,
+        });
+      } else if (projectDraftThread) {
         draftStore.clearDraftThread(projectDraftThread.draftId);
       }
       draftStore.clearProjectDraftThreadId(projectRef);
@@ -477,8 +490,8 @@ function ProjectDetail({
                 ) : null}
                 {!hasMultiple ? (
                   <Tooltip>
-                    <TooltipTrigger render={<span className="block truncate" />}>
-                      {firstMember.workspaceRoot}
+                    <TooltipTrigger render={<span />}>
+                      <span className="block truncate">{firstMember.workspaceRoot}</span>
                     </TooltipTrigger>
                     <TooltipPopup>{firstMember.workspaceRoot}</TooltipPopup>
                   </Tooltip>
@@ -495,12 +508,10 @@ function ProjectDetail({
                     className="flex min-w-0 flex-col gap-1.5 @min-[36rem]/settings-row:flex-row @min-[36rem]/settings-row:items-center @min-[36rem]/settings-row:justify-between @min-[36rem]/settings-row:gap-3"
                   >
                     <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <span className="min-w-0 max-w-full truncate text-xs text-muted-foreground/80" />
-                        }
-                      >
-                        {member.workspaceRoot}
+                      <TooltipTrigger render={<span />}>
+                        <span className="block min-w-0 max-w-full truncate text-xs text-muted-foreground/80">
+                          {member.workspaceRoot}
+                        </span>
                       </TooltipTrigger>
                       <TooltipPopup>{member.workspaceRoot}</TooltipPopup>
                     </Tooltip>

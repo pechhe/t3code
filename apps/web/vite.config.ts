@@ -19,6 +19,7 @@ import {
 } from "@t3tools/shared/devProxy";
 
 import { loadRepoEnv } from "../../scripts/lib/public-config";
+import { resolveTaggedSourceVersion } from "../../scripts/lib/tagged-source-version";
 import { thirdPartyLicensesPlugin } from "../../scripts/lib/third-party-licenses";
 import { tailwindPlugins } from "./vite/tailwind";
 import { warmBundledDevPlugin } from "./vite/warmBundledDev";
@@ -44,7 +45,6 @@ const configuredRelayTracingToken = repoEnv.VITE_RELAY_OTLP_TRACES_TOKEN?.trim()
 const configuredHostedAppChannel = process.env.VITE_HOSTED_APP_CHANNEL?.trim() || "";
 const configuredReleaseChannel =
   process.env.T3CODE_BUILT_DEV === "1" ? "dev" : process.env.VITE_RELEASE_CHANNEL?.trim() || "";
-const configuredAppVersion = process.env.APP_VERSION?.trim() || pkg.version;
 const configuredDesktopUpdateRepository =
   process.env.T3CODE_DESKTOP_UPDATE_REPOSITORY?.trim() ||
   process.env.GITHUB_REPOSITORY?.trim() ||
@@ -287,7 +287,14 @@ const configuredAllowedHosts = (process.env.T3CODE_DEV_ALLOWED_HOSTS ?? "")
   .filter((entry) => entry.length > 0);
 const allowedHosts = [".ts.net", ...configuredAllowedHosts];
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ command, mode }) => {
+  // `vp dev` and `--built` dev pair this client with a server run from source, which reports the
+  // manifest version. Only a production build is paired with a packed server.
+  const configuredAppVersion =
+    process.env.APP_VERSION?.trim() ||
+    (command === "build" && !builtDev
+      ? resolveTaggedSourceVersion(`${import.meta.dirname}/../..`, pkg.version)
+      : pkg.version);
   return {
     run: {
       tasks: {
@@ -369,11 +376,9 @@ export default defineConfig(({ mode }) => {
       port,
       strictPort: true,
       allowedHosts,
-      // Warm the module graph before first request to avoid serial import transforms over tailnet.
-      // Bundled dev ignores this; warmBundledDevPlugin handles it there.
-      // Test projects inherit it: the browser server would compile the whole app on its one thread
-      // while testers wait against Vitest's fixed 60 s limits (T3-338). Keyed on mode, not
-      // process.env.VITEST, which the landing runner's createVitest never sets.
+      // Warm modules before the first tailnet request; bundled dev has its own plugin.
+      // Tests skip warmup so the browser server does not compile the app under T3-338's 60 s limit.
+      // Use mode because the landing runner's createVitest does not set process.env.VITEST.
       warmup: {
         clientFiles: mode === "test" ? [] : ["./src/main.tsx"],
       },

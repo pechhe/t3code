@@ -10,6 +10,7 @@ import {
   type AgentExternalSession,
   type AgentTaskOutcomeInput,
   type ExperimentDefinition,
+  type OrchestrationV2ThreadShellSnapshot,
   OrchestratorMcpDelegateTaskInput,
 } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
@@ -66,7 +67,9 @@ interface LaunchState {
   /** Threads whose run finished, for reading a terminal result and its handoff. */
   readonly completedThreads?: ReadonlySet<string>;
   /** Threads of another project, which may hold a workspace here as an attachment. */
-  readonly otherProjectThreads?: ReadonlyArray<unknown>;
+  readonly otherProjectThreads?: ReadonlyArray<
+    Pick<OrchestrationV2ThreadShellSnapshot["threads"][number], "id">
+  >;
 }
 
 const encodeSubmission = Schema.encodeSync(Schema.fromJsonString(OrchestratorMcpDelegateTaskInput));
@@ -222,6 +225,7 @@ const makeTestLayer = (
                 .map(
                   (call) =>
                     ({
+                      id: call.threadId,
                       worktreePath:
                         call.workspaceStrategy?.type === "existing_worktree"
                           ? call.workspaceStrategy.worktreePath
@@ -231,6 +235,36 @@ const makeTestLayer = (
                     }) as never,
                 ),
         ),
+      getShellSnapshot: (
+        options?: Parameters<Threads.ThreadManagementService["Service"]["getShellSnapshot"]>[0],
+      ) =>
+        Effect.map(Ref.get(state), (current) => {
+          const shells: ReadonlyArray<
+            Pick<OrchestrationV2ThreadShellSnapshot["threads"][number], "id">
+          > = [
+            ...current.calls
+              .filter((call) => current.activeThreads.has(call.threadId!))
+              .map((call) => ({
+                id: call.threadId!,
+                lineage: {
+                  rootThreadId: call.threadId!,
+                  parentThreadId: null,
+                  relationshipToParent: null,
+                },
+                agentTask: call.agentTask,
+                worktreePath:
+                  call.workspaceStrategy?.type === "existing_worktree"
+                    ? call.workspaceStrategy.worktreePath
+                    : null,
+                workspaceAttachments: [],
+                status: "running",
+              }) as never),
+            ...(current.otherProjectThreads ?? []),
+          ];
+          return {
+            threads: shells.filter((shell) => options?.threadIds?.includes(shell.id) ?? true),
+          } as never;
+        }),
     } as unknown as Threads.ThreadManagementService["Service"]),
   );
   const launch = Layer.succeed(
@@ -1296,7 +1330,7 @@ it.effect("runs an isolated helper under the same lead session and hands back it
         ...current,
         otherProjectThreads: [
           {
-            id: "thread:other-project-lead",
+            id: ThreadId.make("thread:other-project-lead"),
             worktreePath: null,
             status: "running",
             workspaceAttachments: [

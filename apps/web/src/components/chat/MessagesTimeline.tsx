@@ -131,6 +131,7 @@ import {
   AssistantMetaTimelineRow,
   ProposedPlanTimelineRow,
   HtmlRenderTimelineRow,
+  SentMessageTimelineRow,
   McpAppTimelineRow,
 } from "./TimelineAssistantRows";
 import { V2EventTimelineRow } from "./TimelineV2EventRow";
@@ -180,11 +181,11 @@ function TimelineListFooter({
   useLayoutEffect(() => {
     const content = contentRef.current;
     if (!content || !onGrow) return;
-    let height = content.offsetHeight;
+    const previousHeight = { current: content.offsetHeight };
     return observeResize(content, () => {
       const next = content.offsetHeight;
-      if (next > height) onGrow();
-      height = next;
+      if (next > previousHeight.current) onGrow();
+      previousHeight.current = next;
     });
   }, [onGrow]);
   return (
@@ -264,10 +265,7 @@ interface MessagesTimelineProps {
   announceTurnStatus?: boolean;
   onOpenToolDiff?: (target: ToolCallDiffTarget) => void;
   onOpenTurnDiff?: (runId: RunId, filePath?: string) => void;
-  onOpenThread: (
-    threadId: OrchestrationV2TurnItem["threadId"],
-    target?: string,
-  ) => void;
+  onOpenThread: (threadId: OrchestrationV2TurnItem["threadId"], target?: string) => void;
   /** A follow-up round to land on when a thread opens from its pill. */
   roundAnchor?: { readonly runId: RunId; readonly key: string } | null;
   renderHtmlRender?: TimelineRowSharedState["renderHtmlRender"];
@@ -884,18 +882,20 @@ const ConversationTimeline = memo(function ConversationTimeline({
     }
     // The list is reused across threads and resets its own scroll while its data swaps, so land
     // on the round after that swap has laid out rather than during it.
-    let frame = requestAnimationFrame(() => {
-      frame = requestAnimationFrame(() => {
-        const current = roundAnchorScrolledRef.current;
-        if (current?.key === roundAnchorKey && current.identity === listIdentityKey) return;
-        const index = findRunFirstRowIndex(rows, roundAnchorRunId);
-        if (index < 0) return;
-        roundAnchorScrolledRef.current = { key: roundAnchorKey, identity: listIdentityKey };
-        navigateTimeline();
-        void listRef.current?.scrollToIndex({ index, animated: false, viewOffset: 24 });
-      });
-    });
-    return () => cancelAnimationFrame(frame);
+    const frame = {
+      current: requestAnimationFrame(() => {
+        frame.current = requestAnimationFrame(() => {
+          const current = roundAnchorScrolledRef.current;
+          if (current?.key === roundAnchorKey && current.identity === listIdentityKey) return;
+          const index = findRunFirstRowIndex(rows, roundAnchorRunId);
+          if (index < 0) return;
+          roundAnchorScrolledRef.current = { key: roundAnchorKey, identity: listIdentityKey };
+          navigateTimeline();
+          void listRef.current?.scrollToIndex({ index, animated: false, viewOffset: 24 });
+        });
+      }),
+    };
+    return () => cancelAnimationFrame(frame.current);
   }, [
     findListReady,
     listIdentityKey,
@@ -1152,15 +1152,15 @@ const ConversationTimeline = memo(function ConversationTimeline({
     const wasWorking = wasWorkingRef.current;
     wasWorkingRef.current = isWorking;
     if (!wasWorking || isWorking) return;
-    let innerFrame: number | null = null;
+    const innerFrame = { id: null as number | null };
     const outerFrame = requestAnimationFrame(() => {
-      innerFrame = requestAnimationFrame(() => {
+      innerFrame.id = requestAnimationFrame(() => {
         if (!isEndPinSuppressed()) void listRef.current?.scrollToEnd?.({ animated: false });
       });
     });
     return () => {
       cancelAnimationFrame(outerFrame);
-      if (innerFrame !== null) cancelAnimationFrame(innerFrame);
+      if (innerFrame.id !== null) cancelAnimationFrame(innerFrame.id);
     };
   }, [isEndPinSuppressed, isWorking, listRef]);
 
@@ -1455,19 +1455,18 @@ const ConversationTimeline = memo(function ConversationTimeline({
     const stopDisclosureReveal = viewport?.subscribe(() => {
       disclosureRevealRef.current = null;
     });
-    let contentSizeFrame: number | null = null;
+    const contentSize = { frame: null as number | null, data: null as unknown };
     // LegendList lays rows out from layout effects; the next frame sees them settled.
-    let scheduledData: unknown = null;
     const scheduleContentSizeChanged = () => {
       if (!list) return;
       const laidOutData = list.getState().data;
-      if (contentSizeFrame !== null) {
-        if (scheduledData === laidOutData) return;
-        cancelAnimationFrame(contentSizeFrame);
+      if (contentSize.frame !== null) {
+        if (contentSize.data === laidOutData) return;
+        cancelAnimationFrame(contentSize.frame);
       }
-      scheduledData = laidOutData;
-      contentSizeFrame = requestAnimationFrame(() => {
-        contentSizeFrame = null;
+      contentSize.data = laidOutData;
+      contentSize.frame = requestAnimationFrame(() => {
+        contentSize.frame = null;
         handleContentSizeChanged(laidOutData);
         revealExpandedDisclosure();
       });
@@ -1480,7 +1479,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
       stopListeningToContentSize?.();
       stopRememberingRelease?.();
       stopDisclosureReveal?.();
-      if (contentSizeFrame !== null) cancelAnimationFrame(contentSizeFrame);
+      if (contentSize.frame !== null) cancelAnimationFrame(contentSize.frame);
       if (disclosureRevealFrameRef.current !== null) {
         cancelAnimationFrame(disclosureRevealFrameRef.current);
         disclosureRevealFrameRef.current = null;
@@ -1826,6 +1825,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
                   row.kind === "event" ||
                   row.kind === "attempt-fold" ||
                   row.kind === "html-render" ||
+                  row.kind === "sent-message" ||
                   row.kind === "mcp-app" ||
                   row.kind === "viewed-images"
                 ? "pb-2"
@@ -1886,6 +1886,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       {row.kind === "assistant-meta" ? <AssistantMetaTimelineRow row={row} /> : null}
       {row.kind === "proposed-plan" ? <ProposedPlanTimelineRow row={row} /> : null}
       {row.kind === "html-render" ? <HtmlRenderTimelineRow row={row} /> : null}
+      {row.kind === "sent-message" ? <SentMessageTimelineRow row={row} /> : null}
       {row.kind === "viewed-images" ? <ViewedImagesTimelineRow row={row} /> : null}
       {row.kind === "mcp-app" ? <McpAppTimelineRow row={row} /> : null}
       {row.kind === "working" ? <WorkingTimelineRow row={row} /> : null}

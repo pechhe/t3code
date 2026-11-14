@@ -48,6 +48,7 @@ import { useCloudLinkState } from "../../cloud/cloudLinkState";
 import { hasCloudPublicConfig } from "../../cloud/publicConfig";
 import { PRIVACY_POLICY_URL } from "../../legalLinks";
 import { workspaceAreaProps } from "../../lib/workspaceFocus";
+import { retryClerkLoad, useClerkLoadFailed } from "../clerk/clerkLoadFailure";
 import { useT3ConnectAuthPrompt } from "../clerk/useT3ConnectAuthPrompt";
 import { completeOnboarding } from "../../onboarding/firstRun";
 import {
@@ -961,6 +962,7 @@ function PhoneStep({ step, children }: { readonly step: number; readonly childre
 
 function PhoneConnectLink({ environmentId }: { readonly environmentId: EnvironmentId }) {
   const { isLoaded, isSignedIn, userId } = useAuth({ treatPendingAsSignedOut: false });
+  const loadFailed = useClerkLoadFailed();
   const { openAuthPrompt } = useT3ConnectAuthPrompt();
   const linkState = useCloudLinkState(environmentId);
   const refreshLinkState = useEffectEvent(linkState.refresh);
@@ -1029,9 +1031,15 @@ function PhoneConnectLink({ environmentId }: { readonly environmentId: Environme
       <p className="text-sm text-foreground">
         Sign in to T3 Connect here, then in the app with the same account.
       </p>
-      <Button variant="outline" size="xs" disabled={!isLoaded} onClick={openAuthPrompt}>
-        Sign in to T3 Connect
-      </Button>
+      {loadFailed ? (
+        <Button variant="outline" size="xs" onClick={retryClerkLoad}>
+          Retry sign-in
+        </Button>
+      ) : (
+        <Button variant="outline" size="xs" disabled={!isLoaded} onClick={openAuthPrompt}>
+          Sign in to T3 Connect
+        </Button>
+      )}
     </>
   );
 }
@@ -1497,11 +1505,13 @@ function useProjectImport({
     const importedThreads = importedThreadsRef.current;
     const importedProjects = importedProjectsRef.current;
     const projectAttempts = projectAttemptsRef.current;
-    let importedProjectsCount =
-      importedProjects.size > 0
-        ? selection.filter((candidate) => importedProjects.has(candidate.key)).length
-        : 0;
-    let skippedThreadCount = 0;
+    const importCounts = {
+      projects:
+        importedProjects.size > 0
+          ? selection.filter((candidate) => importedProjects.has(candidate.key)).length
+          : 0,
+      skippedThreads: 0,
+    };
     const refreshEnvironments = new Set<EnvironmentId>();
     // Resolves false when the run stopped early: a newer run, an unmount, or lost access.
     const importEach = async () => {
@@ -1560,7 +1570,7 @@ function useProjectImport({
             candidate.key,
             (importedThreads.get(candidate.key) ?? 0) + threadImportResult.value.importedCount,
           );
-          skippedThreadCount += threadImportResult.value.skippedCount;
+          importCounts.skippedThreads += threadImportResult.value.skippedCount;
           if (threadImportResult.value.importedCount > 0) {
             projectsWithImportedHistoryRef.current.set(
               candidate.key,
@@ -1568,7 +1578,7 @@ function useProjectImport({
             );
           }
           if (threadImportResult.value.skippedCount === 0) {
-            importedProjectsCount += 1;
+            importCounts.projects += 1;
             importedProjects.set(candidate.key, scopeProjectRef(environmentId, projectId));
           }
         } else if (!isAtomCommandInterrupted(threadImportResult)) {
@@ -1588,11 +1598,11 @@ function useProjectImport({
     }
     setIsImporting(false);
     const importedThreadCount = importedThreadTotal();
-    if (importedProjectsCount < selection.length) {
-      if (importedThreadCount > 0 && skippedThreadCount > 0) {
-        importWarningRef.current = `Imported ${importedThreadCount} ${importedThreadCount === 1 ? "thread" : "threads"}. ${skippedThreadCount} ${skippedThreadCount === 1 ? "thread" : "threads"} could not be imported.`;
-      } else if (skippedThreadCount > 0) {
-        importWarningRef.current = `${skippedThreadCount} ${skippedThreadCount === 1 ? "thread could" : "threads could"} not be imported.`;
+    if (importCounts.projects < selection.length) {
+      if (importedThreadCount > 0 && importCounts.skippedThreads > 0) {
+        importWarningRef.current = `Imported ${importedThreadCount} ${importedThreadCount === 1 ? "thread" : "threads"}. ${importCounts.skippedThreads} ${importCounts.skippedThreads === 1 ? "thread" : "threads"} could not be imported.`;
+      } else if (importCounts.skippedThreads > 0) {
+        importWarningRef.current = `${importCounts.skippedThreads} ${importCounts.skippedThreads === 1 ? "thread could" : "threads could"} not be imported.`;
       } else if (importedThreadCount > 0) {
         importWarningRef.current = `Imported ${importedThreadCount} ${importedThreadCount === 1 ? "thread" : "threads"}. Some thread history could not be imported.`;
       } else {
@@ -1788,18 +1798,18 @@ function ImportCandidateRow({
     >
       <Checkbox checked={checked} onCheckedChange={(value) => onCheckedChange(value === true)} />
       <Tooltip>
-        <TooltipTrigger
-          render={<span className="flex min-w-0 flex-1 items-baseline gap-2 truncate" />}
-        >
-          {label !== undefined ? (
-            <span className="truncate text-sm font-medium">{label}</span>
-          ) : null}
-          {path !== undefined ? (
-            <ProjectPathText
-              path={path}
-              className={label === undefined ? "text-xs" : "text-2xs text-muted-foreground"}
-            />
-          ) : null}
+        <TooltipTrigger render={<span />}>
+          <span className="flex min-w-0 flex-1 items-baseline gap-2 truncate">
+            {label !== undefined ? (
+              <span className="truncate text-sm font-medium">{label}</span>
+            ) : null}
+            {path !== undefined ? (
+              <ProjectPathText
+                path={path}
+                className={label === undefined ? "text-xs" : "text-2xs text-muted-foreground"}
+              />
+            ) : null}
+          </span>
         </TooltipTrigger>
         <TooltipPopup variant="code">{candidate.path}</TooltipPopup>
       </Tooltip>

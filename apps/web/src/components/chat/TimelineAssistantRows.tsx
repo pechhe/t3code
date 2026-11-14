@@ -1,6 +1,8 @@
 import { AssistantMessageText } from "./AssistantMessageText";
+import ChatMarkdown from "../ChatMarkdown";
 import { type RunId, type TurnItemId } from "@t3tools/contracts";
 import { canForkProjectedAssistantItem } from "@t3tools/client-runtime/state/thread-workflows";
+import { agentWorkingDirectories } from "@t3tools/client-runtime/workspace-basename-lookup";
 import { memo, use, useState } from "react";
 import { type ChatMessage, type TurnDiffSummary } from "../../types";
 import { GitForkIcon, ReplyIcon } from "lucide-react";
@@ -22,13 +24,15 @@ import {
 import { MessageCopyButton } from "./MessageCopyButton";
 import { AssistantCitationSource } from "./AssistantCitationSource";
 import { resolveAssistantMessageCopyState } from "./MessagesTimeline.logic";
+import { shouldPreserveAssistantLineBreaks } from "@t3tools/shared/markdownPipeline";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
 import { useUiStateStore } from "~/uiStateStore";
 import { formatChatTimestampTooltip, formatDayAwareTimestamp } from "../../timestampFormat";
+import { readThreadTurnItems } from "../../state/entities";
 import { useV2ItemSupport } from "../../state/v2ItemSupport";
 import { TimelineRowCtx, TimelineRowActivityCtx, type TimelineRow } from "./timelineRowContext";
-import { MessageAuthorHeading } from "./TimelineRowParts";
+import { MESSAGE_HEADING_LEVEL, MessageAuthorHeading } from "./TimelineRowParts";
 
 export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
@@ -57,6 +61,11 @@ export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind
               text={messageText}
               renderInsights
               cwd={ctx.markdownCwd}
+              agentDirectories={() =>
+                ctx.threadRef && row.projectedItem
+                  ? agentWorkingDirectories(readThreadTurnItems(ctx.threadRef), row.projectedItem)
+                  : []
+              }
               threadRef={ctx.threadRef ?? undefined}
               streaming={Boolean(row.message.streaming)}
               calm={ctx.calmStreaming}
@@ -91,6 +100,32 @@ export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind
         ) : null}
       </div>
     </>
+  );
+}
+
+/** Text an agent sent with `send_to_user`, shown as its own words. */
+export function SentMessageTimelineRow({
+  row,
+}: {
+  row: Extract<TimelineRow, { kind: "sent-message" }>;
+}) {
+  const ctx = use(TimelineRowCtx);
+
+  return (
+    <div className="min-w-0 px-1 py-0.5">
+      <MessageAuthorHeading>T3 Code</MessageAuthorHeading>
+      <ChatMarkdown
+        text={row.text}
+        cwd={ctx.markdownCwd}
+        threadRef={ctx.threadRef ?? undefined}
+        lineBreaks={shouldPreserveAssistantLineBreaks(row.text)}
+        skills={ctx.skills}
+        headingLevelOffset={MESSAGE_HEADING_LEVEL}
+        onUseArtifactTemplate={ctx.onUseArtifactTemplate}
+        onRunShellCommand={ctx.onRunShellCommand}
+        onImageExpand={ctx.onImageExpand}
+      />
+    </div>
   );
 }
 
@@ -203,8 +238,10 @@ function AssistantMessageMeta({
       ) : null}
       {!message.streaming && (
         <Tooltip>
-          <TooltipTrigger render={<p className="text-muted-foreground text-xs tabular-nums" />}>
-            {formatDayAwareTimestamp(message.updatedAt, ctx.timestampFormat)}
+          <TooltipTrigger render={<span />}>
+            <span className="text-muted-foreground text-xs tabular-nums">
+              {formatDayAwareTimestamp(message.updatedAt, ctx.timestampFormat)}
+            </span>
           </TooltipTrigger>
           <TooltipPopup>
             {formatChatTimestampTooltip(message.updatedAt, ctx.timestampFormat)}

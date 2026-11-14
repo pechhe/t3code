@@ -614,6 +614,26 @@ describe("orchestrator MCP toolkit", () => {
               }),
             ),
           );
+        yield* orchestrator
+          .streamStoredEventsFrom({
+            threadId: parentThreadId,
+            afterSequence: finalSequence,
+          })
+          .pipe(
+            Stream.filter(
+              (stored) =>
+                stored.event.type === "subagent.updated" &&
+                stored.event.payload.id === followupTasks[0]!.id &&
+                stored.event.payload.status === "interrupted",
+            ),
+            Stream.runHead,
+            Effect.flatMap(
+              Option.match({
+                onNone: () => Effect.die("Interrupted follow-up task did not settle."),
+                onSome: () => Effect.void,
+              }),
+            ),
+          );
         const finishedParent = yield* orchestrator.getThreadProjection(parentThreadId);
         expect(
           finishedParent.subagents.find((task) => task.id === followupTasks[0]!.id)?.status,

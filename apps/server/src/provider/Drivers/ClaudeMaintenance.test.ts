@@ -364,6 +364,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("ClaudeMaintenanc
       }).pipe(
         Effect.provide(
           Layer.mock(ProviderHost.ProviderHost)({
+            awaitServerReady: Effect.void,
             paths: {
               cwd: f.directory,
               baseDir: f.directory,

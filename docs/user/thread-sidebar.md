@@ -13,10 +13,11 @@ your current project instead, press `mod+shift+n`. A machine that cannot run
 threads without a project starts in your current project.
 
 On mobile, **New thread** starts in the current thread's project, or else in the
-last project you opened or chose on that device. If neither is available, the
-project picker opens. Turn off **Settings → General → Use last project** to
-choose a project every time. When you pick a project that is on more than one
-machine, the thread starts on a connected one if any is connected.
+project the thread list is filtered to, or else in the last project you opened
+or chose on that device. If none is available, the project picker opens. Turn
+off **Settings → General → Use last project** to choose a project every time.
+When you pick a project that is on more than one machine, the thread starts on
+a connected one if any is connected.
 
 A new thread carries your model and mode selections, unless the destination
 project has its own model default. Its branch and workspace mode come from your

@@ -337,6 +337,7 @@ function AutomationMessageRow({ row }: { row: Extract<TimelineRow, { kind: "mess
           BUBBLE_CHIP_CLASS_NAME,
           expanded && "w-full",
         )}
+        data-user-message-bubble=""
       >
         <MessageAuthorHeading>Automation</MessageAuthorHeading>
         <FoldedMessageHeader
@@ -875,8 +876,10 @@ function UserMessageTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "me
         </InlineButton>
       ) : null}
       <Tooltip>
-        <TooltipTrigger render={<p className="text-muted-foreground text-xs tabular-nums" />}>
-          {formatDayAwareTimestamp(row.message.createdAt, ctx.timestampFormat)}
+        <TooltipTrigger render={<span />}>
+          <span className="text-muted-foreground text-xs tabular-nums">
+            {formatDayAwareTimestamp(row.message.createdAt, ctx.timestampFormat)}
+          </span>
         </TooltipTrigger>
         <TooltipPopup>
           {formatChatTimestampTooltip(row.message.createdAt, ctx.timestampFormat)}
@@ -957,6 +960,7 @@ function UserMessageTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "me
           !folded && !mediaOnly && !fileCardsOnly && !audioOnly && "p-3",
           folded && expanded && "w-full",
         )}
+        data-user-message-bubble=""
       >
         {/* Outside the fold so a collapsed message still has a heading to navigate to. */}
         {mediaAboveText ? null : (
@@ -1156,16 +1160,14 @@ function UserMessageIntentMarker({
 }) {
   return (
     <Tooltip>
-      <TooltipTrigger
-        render={
-          <div
-            className="me-1 flex items-center justify-end gap-1 text-xs leading-none text-muted-foreground"
-            data-user-message-intent={intent}
-          />
-        }
-      >
-        <Redo2Icon aria-hidden="true" className="size-3" />
-        {unread ? "Steer · waiting to be read" : "Steer"}
+      <TooltipTrigger render={<span />}>
+        <span
+          className="me-1 flex items-center justify-end gap-1 text-xs leading-none text-muted-foreground"
+          data-user-message-intent={intent}
+        >
+          <Redo2Icon aria-hidden="true" className="size-3" />
+          {unread ? "Steer · waiting to be read" : "Steer"}
+        </span>
       </TooltipTrigger>
       <TooltipPopup side="top">
         {unread

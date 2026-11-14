@@ -5,6 +5,9 @@ import type { VcsProcessInput, VcsProcessOutput } from "./VcsProcess.ts";
 
 // Paths are repository-relative, and log.showSignature prints verification text into the output.
 const STABLE_OUTPUT_CONFIG = ["-c", "diff.relative=false", "-c", "log.showSignature=false"];
+// Reflog subjects that only move a ref. Unknown subjects conservatively count as creating a commit.
+const REF_MOVE_REFLOG_SUBJECT =
+  /^(?:$|(?:checkout|reset|branch|clone|fetch)\b|[^:]*\((?:start|finish|abort|reset)\): |(?:merge|pull|rebase|cherry-pick)\b[^()]*: fast-forward$)/i;
 
 /** Filters clean imported upstream changes out of a turn's checkpoint summary. */
 export const listGitCheckpointAuthoredPaths = Effect.fn("listGitCheckpointAuthoredPaths")(
@@ -20,44 +23,100 @@ export const listGitCheckpointAuthoredPaths = Effect.fn("listGitCheckpointAuthor
         ...STABLE_OUTPUT_CONFIG,
         "log",
         "--no-walk=unsorted",
-        "--format=%P %ct",
+        "--format=%ct %P",
         `${input.fromCheckpointRef}^{commit}`,
         `${input.toCheckpointRef}^{commit}`,
       ],
     });
-    // Each line is "<parent> <committer time>". The parent is the HEAD at capture.
+    // Each line is "<committer time> <parent>"; the parent is the HEAD at capture.
     const [fromLine = "", toLine = ""] = heads.stdout.trimEnd().split("\n");
-    const [startHead = "", capturedAt = ""] = fromLine.split(" ");
-    const [endHead = ""] = toLine.split(" ");
-    if (startHead === "" || endHead === "" || startHead === endHead) {
-      return null;
-    }
+    const [capturedAt = "", startHead = ""] = fromLine.split(" ");
+    const [, endHead = ""] = toLine.split(" ");
+    if (startHead === "" || endHead === "" || startHead === endHead) return null;
 
-    const listPaths = (args: ReadonlyArray<string>) =>
+    const listLines = (args: ReadonlyArray<string>, stdin?: string) =>
       read({
         operation,
         cwd: input.cwd,
-        args: [...STABLE_OUTPUT_CONFIG, ...args, "--name-only", "-z", "--no-renames", "--no-ext-diff"],
+        args: ["-c", "log.showSignature=false", ...args],
+        ...(stdin === undefined ? {} : { stdin }),
+        maxOutputBytes: CHECKPOINT_DIFF_MAX_OUTPUT_BYTES,
+        outputMode: "error",
+      }).pipe(Effect.map((result) => result.stdout.split("\n").filter((line) => line !== "")));
+    const listPaths = (args: ReadonlyArray<string>, stdin?: string) =>
+      read({
+        operation,
+        cwd: input.cwd,
+        args: [
+          ...STABLE_OUTPUT_CONFIG,
+          ...args,
+          "--name-only",
+          "-z",
+          "--no-renames",
+          "--no-ext-diff",
+        ],
+        ...(stdin === undefined ? {} : { stdin }),
         maxOutputBytes: CHECKPOINT_DIFF_MAX_OUTPUT_BYTES,
         outputMode: "error",
       }).pipe(Effect.map((result) => result.stdout.split("\0")));
-    // Remerge diff lists a merge's paths only where the result differs from Git's
-    // automatic merge, so a merge keeps its conflict fixes and drops clean upstream changes.
-    const pathLists = yield* Effect.all(
+
+    // A fetched commit is not attributed to the turn unless a worktree reflog shows T3 created it.
+    const listImportedCommits = Effect.gen(function* () {
+      const entries = (yield* listLines([
+        "log",
+        "--walk-reflogs",
+        "--all",
+        `--since=@${capturedAt}`,
+        "--format=%H %gD %gs",
+      ])).map((line) => {
+        const [commit = "", selector = "", ...subject] = line.split(" ");
+        return {
+          commit,
+          fetched: selector.startsWith("refs/remotes/"),
+          subject: subject.join(" "),
+        };
+      });
+      const fetchedTips = new Set(
+        entries
+          .filter((entry) => entry.fetched && entry.subject !== "update by push")
+          .map((entry) => entry.commit),
+      );
+      if (fetchedTips.size === 0) return fetchedTips;
+      const createdHere = new Set(
+        entries
+          .filter((entry) => !entry.fetched && !REF_MOVE_REFLOG_SUBJECT.test(entry.subject))
+          .map((entry) => entry.commit),
+      );
+      const fetched = yield* listLines(
+        ["rev-list", `--since=@${capturedAt}`, "--stdin"],
+        `${[...fetchedTips, `^${startHead}`].join("\n")}\n`,
+      );
+      return new Set(fetched.filter((commit) => !createdHere.has(commit)));
+    });
+
+    // Remerge paths keep a merge's conflict fixes and omit its clean upstream changes.
+    const [recentCommits, ...pathLists] = yield* Effect.all(
       [
+        listLines(["rev-list", `--since=@${capturedAt}`, `${startHead}..${endHead}`]),
         listPaths(["diff", startHead, `${input.fromCheckpointRef}^{commit}`]),
         listPaths(["diff", endHead, `${input.toCheckpointRef}^{commit}`]),
         listPaths(["log", "--format=", "--diff-merges=remerge", `${endHead}..${startHead}`]),
-        listPaths([
-          "log",
-          "--format=",
-          "--diff-merges=remerge",
-          `--since=@${capturedAt}`,
-          `${startHead}..${endHead}`,
-        ]),
       ],
       { concurrency: 2 },
     );
-    return new Set(pathLists.flat().filter((path) => path.length > 0));
+    // Unreadable reflogs retain all recent commits as authored, matching the previous behavior.
+    const importedCommits =
+      recentCommits.length === 0
+        ? new Set<string>()
+        : yield* listImportedCommits.pipe(Effect.orElseSucceed(() => new Set<string>()));
+    const ownCommits = recentCommits.filter((commit) => !importedCommits.has(commit));
+    const ownCommitPaths =
+      ownCommits.length === 0
+        ? []
+        : yield* listPaths(
+            ["log", "--no-walk=unsorted", "--stdin", "--format=", "--diff-merges=remerge"],
+            `${ownCommits.join("\n")}\n`,
+          );
+    return new Set([...pathLists.flat(), ...ownCommitPaths].filter((path) => path.length > 0));
   },
 );

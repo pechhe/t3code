@@ -271,6 +271,7 @@ export interface ThreadDetailScreenProps {
   readonly activePendingUserInputAnswers: Record<string, string | ReadonlyArray<string>> | null;
   readonly respondingUserInputId: RuntimeRequestId | null;
   readonly connectionStateLabel: EnvironmentConnectionPhase;
+  readonly connectionAwaitingApproval?: boolean;
   readonly threadSyncStatus?: EnvironmentThreadStatus;
   readonly historyControls?: ThreadFeedHistoryControls;
   readonly activeThreadBusy: boolean;
@@ -771,6 +772,7 @@ function ThreadDetailBody(
     const connectionStatus = connectionFloatingStatus({
       connectionError: connectionRetrying ? retryConnectionError : props.connectionError,
       connectionState: props.connectionStateLabel,
+      connectionAwaitingApproval: props.connectionAwaitingApproval === true,
       environmentLabel: props.environmentLabel,
       onReconnect: props.onReconnectEnvironment,
     });
@@ -835,7 +837,11 @@ function ThreadDetailBody(
       return { kind: "compacting" };
     }
     if (props.activeWorkStartedAt !== null && contentPresentationKind === "ready") {
-      return { kind: "working", startedAt: props.activeWorkStartedAt };
+      return {
+        kind: "working",
+        environmentId: props.environmentId,
+        startedAt: props.activeWorkStartedAt,
+      };
     }
     if (pendingBackgroundWork !== null && contentPresentationKind === "ready") {
       return {
@@ -1320,7 +1326,7 @@ function ThreadDetailBody(
             );
           }
         : undefined;
-    let dismissingKeyboard = false;
+    const keyboardDismissal = { current: false };
     const messageId = await props.onSendMessage(followUp, declineBeforeDispatch, () => {
       if (
         scope.aborted ||
@@ -1330,7 +1336,7 @@ function ThreadDetailBody(
       )
         return;
       setSendingWithKeyboard(true);
-      dismissingKeyboard = true;
+      keyboardDismissal.current = true;
     });
     if (messageId === null || scope.aborted) {
       return messageId;
@@ -1347,11 +1353,11 @@ function ThreadDetailBody(
       deliveryDeferred: props.connectionStateLabel !== "connected",
     });
     setAnchorMessageId(nextAnchorMessageId);
-    if (!dismissingKeyboard) composerEditorRef.current?.blur();
+    if (!keyboardDismissal.current) composerEditorRef.current?.blur();
     const followSubmission =
       contentPresentationKind === "ready" &&
-      (dismissingKeyboard || nextAnchorMessageId === messageId);
-    if (dismissingKeyboard || followSubmission) {
+      (keyboardDismissal.current || nextAnchorMessageId === messageId);
+    if (keyboardDismissal.current || followSubmission) {
       // Commit the optimistic row before UIKit chooses the closing scroll offset.
       requestAnimationFrame(() => {
         if (scope.aborted) return;

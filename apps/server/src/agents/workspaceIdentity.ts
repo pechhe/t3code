@@ -182,22 +182,21 @@ const workspaceOccupants = (
  */
 export const occupantsEverywhere = (
   projects: ProjectService["Service"],
-  threads: Pick<ThreadManagementServiceShape, "listProjectThreads">,
+  threads: Pick<ThreadManagementServiceShape, "listProjectThreads" | "getShellSnapshot">,
   except?: ThreadId,
 ) =>
   projects.listShells().pipe(
     Effect.flatMap((all) =>
       Effect.forEach(all, (project) =>
-        threads
-          .listProjectThreads({ projectId: project.id, includeSubagents: true })
-          .pipe(
-            Effect.map((shells) =>
-              workspaceOccupants(
-                except === undefined ? shells : shells.filter((shell) => shell.id !== except),
-                project.workspaceRoot,
-              ),
-            ),
+        threads.listProjectThreads({ projectId: project.id, includeSubagents: true }).pipe(
+          Effect.flatMap((entries) =>
+            threads.getShellSnapshot({
+              location: "active",
+              threadIds: entries.map(({ id }) => id).filter((threadId) => threadId !== except),
+            }),
           ),
+          Effect.map((snapshot) => workspaceOccupants(snapshot.threads, project.workspaceRoot)),
+        ),
       ),
     ),
     Effect.map((occupants) => occupants.flat()),

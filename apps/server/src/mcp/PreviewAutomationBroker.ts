@@ -727,9 +727,12 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
       return yield* Option.match(result, {
         // The enclosing operation owns the span for this inline handler.
         onNone: Effect.fnUntraced(function* () {
-          // Never replay possibly applied actions; slow metadata reads must not evict the host,
-          // and nor may a journey's wait, since other agents share it.
-          if (input.updateCurrentTab !== false && journey === undefined) {
+          // Never replay possibly applied actions or evict a host shared by other agents.
+          if (
+            input.updateCurrentTab !== false &&
+            journey === undefined &&
+            connection.clientId !== SERVER_BROWSER_AUTOMATION_CLIENT_ID
+          ) {
             yield* disconnect(connection.clientId, connection.queue, true);
           }
           return yield* new PreviewAutomationTimeoutError(requestContext);

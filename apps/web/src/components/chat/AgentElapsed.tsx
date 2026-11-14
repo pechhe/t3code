@@ -1,8 +1,10 @@
 import type { RuntimeSubagent } from "@t3tools/client-runtime/state/subagentRuntime";
+import type { EnvironmentId } from "@t3tools/contracts";
 import { isOrchestrationV2WorkActive } from "@t3tools/contracts";
 import { deriveSubagentElapsedMs } from "@t3tools/shared/orchestrationTiming";
 import { RelativeTime } from "../RelativeTime";
 import { tickTextContent } from "~/lib/tickTextContent";
+import { toServerClock } from "@t3tools/client-runtime/clock";
 
 function formatElapsedSeconds(totalSeconds: number): string {
   const seconds = Math.max(0, Math.floor(totalSeconds));
@@ -29,9 +31,11 @@ function formatCompactElapsedSeconds(totalSeconds: number): string {
 export function AgentElapsed({
   agent,
   compact = false,
+  environmentId,
 }: {
   agent: Pick<RuntimeSubagent, "status" | "startedAt" | "completedAt">;
   compact?: boolean;
+  environmentId?: EnvironmentId;
 }) {
   const format = compact ? formatCompactElapsedSeconds : formatElapsedSeconds;
   const live = isOrchestrationV2WorkActive(agent.status);
@@ -42,7 +46,10 @@ export function AgentElapsed({
   return (
     <span
       ref={tickTextContent((nowMs) => {
-        const elapsedMs = deriveSubagentElapsedMs({ status, startedAt, completedAt }, nowMs);
+        const elapsedMs = deriveSubagentElapsedMs(
+          { status, startedAt, completedAt },
+          environmentId === undefined ? nowMs : toServerClock(environmentId, nowMs),
+        );
         return elapsedMs === null ? "" : format(elapsedMs / 1000);
       }, live)}
       className="tabular-nums"

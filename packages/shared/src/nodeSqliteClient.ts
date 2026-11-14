@@ -418,7 +418,7 @@ parentPort.on("message", (request) => {
     parentPort.close();
     return;
   }
-  const { id, sql, params, cached, values, raw, safeIntegers } = request;
+  const { id, sql, params, cached, values, raw, safeIntegers, received } = request;
   let operation = "open";
   const startedAt = performance.now();
   try {
@@ -429,12 +429,37 @@ parentPort.on("message", (request) => {
     statement.setReadBigInts(safeIntegers);
     if (statement.columns().length > 0) {
       statement.setReturnArrays(values);
-      parentPort.postMessage({ id, rows: statement.all(...params), executionMs: performance.now() - startedAt, inTransaction: db.isTransaction });
+      let rows = [];
+      let bytes = 0;
+      let pendingBatch = false;
+      for (const row of statement.iterate(...params)) {
+        let rowBytes = 0;
+        for (const key in row) {
+          const value = row[key];
+          rowBytes += typeof value === "string" ? value.length * 2
+            : ArrayBuffer.isView(value) ? value.byteLength : 8;
+        }
+        if (rows.length > 0 && (rows.length >= 16384 || bytes + rowBytes > 8 * 1024 * 1024)) {
+          // Build the next batch during receipt, but allow only one unacknowledged message.
+          if (pendingBatch) Atomics.wait(received, 0, 0);
+          Atomics.store(received, 0, 0);
+          parentPort.postMessage({ id, rows, more: true });
+          rows = [];
+          bytes = 0;
+          pendingBatch = true;
+        }
+        rows.push(row);
+        bytes += rowBytes;
+      }
+      if (pendingBatch) Atomics.wait(received, 0, 0);
+      parentPort.postMessage({ id, rows, executionMs: performance.now() - startedAt, inTransaction: db.isTransaction });
     } else {
       const result = statement.run(...params);
       parentPort.postMessage({ id, rows: raw ? result : [], executionMs: performance.now() - startedAt, inTransaction: db.isTransaction });
     }
   } catch (error) {
+    // A failed iterator can report its previous SQLite error when the statement is reused.
+    statements.delete(sql);
     parentPort.postMessage({ id, error: { operation, ...describe(error) }, inTransaction: db?.isTransaction });
   }
 });
@@ -459,21 +484,31 @@ type WorkerStartup =
   | { readonly type: "ready" }
   | ({ readonly type: "unavailable" } & WorkerFailure);
 
-type WorkerReply =
-  | {
-      readonly id: number;
-      readonly rows: ReadonlyArray<any>;
-      readonly inTransaction?: boolean;
-      readonly executionMs?: number;
-      readonly admissionMs?: number;
-      readonly episodeId?: string;
-      readonly reasons?: string;
-    }
-  | {
-      readonly id: number;
-      readonly inTransaction?: boolean;
-      readonly error: WorkerFailure & { readonly operation: "open" | "prepare" | "execute" };
-    };
+type WorkerRowsChunk = {
+  readonly id: number;
+  readonly rows: ReadonlyArray<any>;
+  readonly more: true;
+};
+
+type WorkerRowsFinal = {
+  readonly id: number;
+  readonly rows: ReadonlyArray<any>;
+  readonly more?: false;
+  readonly inTransaction?: boolean;
+  readonly executionMs?: number;
+  readonly admissionMs?: number;
+  readonly episodeId?: string;
+  readonly reasons?: string;
+};
+
+type WorkerErrorReply = {
+  readonly id: number;
+  readonly inTransaction?: boolean;
+  readonly error: WorkerFailure & { readonly operation: "open" | "prepare" | "execute" };
+};
+
+type WorkerFinalReply = WorkerRowsFinal | WorkerErrorReply;
+type WorkerReply = WorkerRowsChunk | WorkerFinalReply;
 
 const workerFailureMessages = {
   open: "Failed to open database",
@@ -546,7 +581,14 @@ const makeWorkerConnection = Effect.fnUntraced(function* (options: {
     let writerTransaction = false;
     const pending = new Map<
       number,
-      { readonly endsTransaction: boolean; readonly resume: (reply: WorkerReply) => void }
+      {
+        readonly admission: boolean;
+        cancelled: boolean;
+        readonly endsTransaction: boolean;
+        readonly received: Int32Array;
+        readonly rows: Array<unknown>;
+        readonly resume: (reply: WorkerFinalReply) => void;
+      }
     >();
     const stop = (message: string) => {
       stoppedMessage = message;
@@ -554,11 +596,13 @@ const makeWorkerConnection = Effect.fnUntraced(function* (options: {
       announce({ type: "unavailable", message });
       if (current?.worker === worker) current = undefined;
       for (const [id, request] of pending) {
-        request.resume(
-          request.endsTransaction
-            ? { id, rows: [] }
-            : { id, error: { operation: "execute", message } },
-        );
+        if (!request.cancelled) {
+          request.resume(
+            request.endsTransaction
+              ? { id, rows: [] }
+              : { id, error: { operation: "execute", message } },
+          );
+        }
       }
       pending.clear();
     };
@@ -588,9 +632,23 @@ const makeWorkerConnection = Effect.fnUntraced(function* (options: {
         }
         const request = pending.get(reply.id);
         if (request === undefined) return;
+        if ("rows" in reply && reply.more === true) {
+          if (!request.cancelled) {
+            for (const row of reply.rows) request.rows.push(row);
+          }
+          Atomics.store(request.received, 0, 1);
+          Atomics.notify(request.received, 0);
+          return;
+        }
         pending.delete(reply.id);
         if (pending.size === 0) worker.unref();
-        request.resume(reply);
+        if (request.cancelled) return;
+        if ("rows" in reply && request.rows.length > 0) {
+          for (const row of reply.rows) request.rows.push(row);
+          request.resume({ ...reply, rows: request.rows });
+        } else {
+          request.resume(reply);
+        }
       },
     );
     worker.on("error", (cause) => stop(`${label} failed: ${cause.message}`));
@@ -614,8 +672,13 @@ const makeWorkerConnection = Effect.fnUntraced(function* (options: {
         const safeIntegers = Boolean(Context.get(fiber.context, Client.SafeIntegers));
         const reply = Effect.callback<ReadonlyArray<any>, SqlError>((resume) => {
           const id = nextRequestId++;
+          const received = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
           pending.set(id, {
+            admission,
+            cancelled: false,
             endsTransaction,
+            received,
+            rows: [],
             resume: (reply) => {
               if (!admission) {
                 options.onReply?.();
@@ -642,19 +705,26 @@ const makeWorkerConnection = Effect.fnUntraced(function* (options: {
           });
           if (pending.size === 1) worker.ref();
           const cached = input.cached && !hasLargeBinding(input.params);
-          worker.postMessage(
-            {
-              id,
-              safeIntegers,
-              ...input,
-              cached,
-              ...(admission ? { type: "admit" } : {}),
-            },
-            [],
-          );
+          worker.postMessage({
+            id,
+            safeIntegers,
+            ...input,
+            cached,
+            received,
+            ...(admission ? { type: "admit" } : {}),
+          });
           return Effect.sync(() => {
-            pending.delete(id);
+            const request = pending.get(id);
+            if (admission) {
+              pending.delete(id);
+            } else if (request !== undefined) {
+              // A cancelled read stays registered to acknowledge chunks until its final reply.
+              request.cancelled = true;
+              request.rows.length = 0;
+            }
             if (pending.size === 0) worker.unref();
+            Atomics.store(received, 0, 1);
+            Atomics.notify(received, 0);
             if (admission) {
               // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Node workers do not accept a target origin.
               worker.postMessage({ type: "cancel-admission", id });

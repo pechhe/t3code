@@ -303,6 +303,19 @@ export type DelegatedTaskProjection = {
   >;
 };
 
+export function subagentHoldsCompletion(
+  task: Pick<OrchestrationV2ThreadProjection["subagents"][number], "status" | "completionDelivery">,
+): boolean {
+  return (
+    isOrchestrationV2WorkActive(task.status) ||
+    // Publishing a child's result precedes scheduling its parent's wake.
+    // The parent still owes that follow-up even between those transactions.
+    (task.status !== "idle" &&
+      (task.completionDelivery?.state === "pending" ||
+        task.completionDelivery?.state === "claimed"))
+  );
+}
+
 /**
  * How one result run stands: whether the thread's own work still holds it, and the commands and
  * monitors a publish would abandon. A managed task holds for an awaited command only through the
@@ -340,15 +353,7 @@ export function delegatedTaskRunHold(
     (projection.pendingBlockingAdvice === true && resultRun.status === "completed") ||
     (projection.thread.agentTask !== undefined &&
       (projection.thread.threadWatches?.length ?? 0) > 0) ||
-    projection.subagents.some(
-      (task) =>
-        isOrchestrationV2WorkActive(task.status) ||
-        // Publishing a child's result precedes scheduling its parent's wake.
-        // The parent still owes that follow-up even between those transactions.
-        (task.status !== "idle" &&
-          (task.completionDelivery?.state === "pending" ||
-            task.completionDelivery?.state === "claimed")),
-    ) ||
+    projection.subagents.some(subagentHoldsCompletion) ||
     holdsWork;
   return {
     held,
@@ -379,6 +384,7 @@ export function delegatedTaskProgress(projection: DelegatedTaskProjection): {
   const active = workRuns.some(
     (run) => !terminal(run.status) && !(run.status === "queued" && run.queueHeld === true),
   );
+
   const resultRun = workRuns
     .filter((run) => terminal(run.status) && (run.startedAt !== null || run.ordinal === 1))
     .toSorted((a, b) => (runRanAfter(a, b) ? -1 : runRanAfter(b, a) ? 1 : 0))[0];

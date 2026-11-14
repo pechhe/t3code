@@ -2227,9 +2227,11 @@ it.effect(
 
         const exit = yield* Fiber.join(collected);
         assert.isTrue(Exit.isFailure(exit));
-        assert.instanceOf(
-          Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined,
-          ProviderAdapter.ProviderSessionDetachedError,
+        const failure = Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined;
+        assert.instanceOf(failure, ProviderAdapter.ProviderAdapterEventStreamError);
+        assert.equal(
+          (failure as ProviderAdapter.ProviderAdapterEventStreamError).detachedThreadId,
+          threadId,
         );
       });
 
@@ -3831,9 +3833,18 @@ it.effect.each(["detach", "stream failure", "provider stop", "early close"] as c
           );
         yield* interrupts(1);
         yield* Deferred.succeed(resume, undefined);
+        const consumed = yield* Fiber.join(consumer);
         assert.equal(
-          Exit.isFailure(yield* Fiber.join(consumer)),
+          Exit.isFailure(consumed),
           release !== "provider stop" && release !== "early close",
+        );
+        // regression: #22971 only a detach names its thread, so a handoff run can settle on it.
+        assert.equal(
+          Exit.isFailure(consumed)
+            ? (Cause.squash(consumed.cause) as ProviderAdapter.ProviderAdapterEventStreamError)
+                .detachedThreadId
+            : undefined,
+          release === "detach" ? threadId : undefined,
         );
         yield* interrupts(2);
 

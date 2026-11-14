@@ -497,26 +497,13 @@ export class ProviderAdapterEventStreamError extends Schema.TaggedError<Provider
   {
     driver: ProviderDriverKind,
     providerSessionId: ProviderSessionId,
+    /** Set when T3 closed the session because this thread detached from it, not the provider. */
+    detachedThreadId: Schema.optional(ThreadId),
     cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
     return `Failed while streaming ${this.driver} provider session ${this.providerSessionId} events.`;
-  }
-}
-
-// A deliberate detach (workspace handoff, archive) ends the session under a live
-// run. Subscribers settle that run as interrupted; it is not a stream failure.
-export class ProviderSessionDetachedError extends Schema.TaggedError<ProviderSessionDetachedError>()(
-  "ProviderSessionDetachedError",
-  {
-    driver: ProviderDriverKind,
-    providerSessionId: ProviderSessionId,
-    detail: Schema.String,
-  },
-) {
-  override get message(): string {
-    return this.detail;
   }
 }
 
@@ -569,7 +556,6 @@ export const ProviderAdapterV2Error = Schema.Union([
   ProviderAdapterInterruptTimeoutError,
   ProviderAdapterRuntimeRequestResponseError,
   ProviderAdapterEventStreamError,
-  ProviderSessionDetachedError,
   ProviderAdapterProtocolError,
   ProviderAdapterSessionStoppedError,
 ]);
@@ -609,6 +595,8 @@ export interface ProviderAdapterV2TurnInput {
   readonly rootNodeId: NodeId;
   readonly providerThread: OrchestrationV2ProviderThread;
   readonly message: ProviderAdapterV2TurnMessage;
+  /** Leading characters of `message.text` that are inline handoff context, not the user's words. */
+  readonly inlineContextLength?: number;
   readonly modelSelection: ModelSelection;
   readonly runtimePolicy: ProviderAdapterV2RuntimePolicy;
   readonly appContext?: ReadonlyArray<{ readonly key: string; readonly text: string }>;

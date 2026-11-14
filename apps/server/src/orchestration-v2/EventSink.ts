@@ -1,4 +1,4 @@
-import { delegatedTaskResultRun } from "./RestartBackgroundNote.ts";
+import { delegatedTaskResultRun, delegatedTaskRuns } from "./RestartBackgroundNote.ts";
 import {
   delegatedTaskProgress,
   delegatedTaskProgressTurnItems,
@@ -501,9 +501,10 @@ const layerBase: Layer.Layer<
               child.thread.forkedFrom?.type === "node" ? child.thread.forkedFrom.nodeId : undefined;
             const followup =
               run?.delegatedTaskId !== undefined && run.delegatedTaskId !== originalTaskId;
-            const latestTaskRun = followup
-              ? delegatedTaskResultRun(child.runs, run.delegatedTaskId)
-              : progress.resultRun;
+            const latestTaskRun =
+              followup && run?.delegatedTaskId !== undefined
+                ? delegatedTaskResultRun(delegatedTaskRuns(child, run.delegatedTaskId))
+                : progress.resultRun;
             if (
               run === undefined ||
               latestTaskRun?.id !== guard.runId ||

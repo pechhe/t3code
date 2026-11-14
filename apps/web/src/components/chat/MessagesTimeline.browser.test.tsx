@@ -86,6 +86,10 @@ vi.mock(import("~/assets/assetUrls"), async (original) => {
       stubbedAsset.url
         ? { _tag: "Success", url: stubbedAsset.url }
         : actual.useAssetUrlState(...args)) as typeof actual.useAssetUrlState,
+    useAssetUrls: ((...args: Parameters<typeof actual.useAssetUrls>) =>
+      stubbedAsset.url
+        ? args[1].map(() => stubbedAsset.url)
+        : actual.useAssetUrls(...args)) as typeof actual.useAssetUrls,
   };
 });
 
@@ -1388,6 +1392,22 @@ const SENDER_THREAD_ID = ThreadId.make("thread-sender");
 const AGENT_MESSAGE = "Review finished\n\nThe migration drops the index before backfilling it.";
 
 describe("MessagesTimeline agent messages", () => {
+  it("renders text sent to the user by an agent", async () => {
+    setup();
+    const text = "The check is complete.\n\nSee the result below.";
+    await using screen = await renderTimeline([
+      {
+        id: "sent-message-1",
+        kind: "sent-message",
+        createdAt: CREATED_AT,
+        runId: RunId.make("run-sent-message"),
+        text,
+      },
+    ]);
+    expect(screen.text()).toContain("The check is complete.");
+    expect(screen.text()).toContain("See the result below.");
+  });
+
   it("folds a message from another agent into a one-line preview", async () => {
     setup();
     const managedSenderId = ThreadId.make("managed-sender");
@@ -1754,6 +1774,47 @@ describe("MessagesTimeline attachments", () => {
       </TimelineRowCtx>,
     );
     await screen.getByRole("button", { name: "Preview second.png" }).click();
+    expect(onImageExpand).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        index: 1,
+        images: ["first.png", "second.png", "third.png"].map((name) =>
+          expect.objectContaining({ name }),
+        ),
+      }),
+    );
+  });
+
+  it("opens an image from an expanded tool row as a gallery of the turn's viewed images", async () => {
+    stubbedAsset.url =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+    onTestFinished(() => {
+      stubbedAsset.url = "";
+    });
+    const onImageExpand = vi.fn<ComponentProps<typeof MessagesTimeline>["onImageExpand"]>();
+    const read = (name: string) =>
+      work(`read-${name}`, {
+        label: `Read ${name}`,
+        toolTitle: "Read",
+        tone: "tool",
+        itemType: "dynamic_tool",
+        toolLifecycleStatus: "completed",
+        viewedImagePath: `/repo/${name}`,
+      });
+    await using screen = await renderTimeline(
+      [read("first.png"), read("second.png"), read("third.png")],
+      { onImageExpand, workspaceRoot: "/repo" },
+    );
+    await click(screen.button(/^Read 3 files/));
+    await vi.waitFor(() => expect(screen.buttons("Read")).toHaveLength(3));
+    await click(screen.buttons("Read")[1]!);
+    const inRow = await vi.waitFor(() => {
+      const image = [...screen.container.querySelectorAll("img")].find(
+        (img) => img.alt === "second.png" && !img.closest("[data-image-gallery]"),
+      );
+      expect(image).toBeTruthy();
+      return image!;
+    });
+    await click(inRow.closest<HTMLElement>("button, [role=button]")!);
     expect(onImageExpand).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
         index: 1,

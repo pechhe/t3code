@@ -15,6 +15,7 @@ import {
   resolveDraftEnvModeAfterBranchChange,
   resolveEffectiveEnvMode,
   resolveBranchToolbarPrBranch,
+  resolveDefaultWorktreeBaseBranch,
   resolveLocalCheckoutBranchMismatch,
   isSlipJayLandRefusal,
   resolveSlipJayLandAvailability,
@@ -183,6 +184,24 @@ describe("resolveBranchToolbarPrBranch", () => {
   });
 });
 
+describe("resolveDefaultWorktreeBaseBranch", () => {
+  it("offers nothing while a clone has no refs, then the default branch once they are listed", () => {
+    expect(resolveDefaultWorktreeBaseBranch([])).toBeNull();
+    expect(
+      resolveDefaultWorktreeBaseBranch([
+        { name: "feature", isDefault: false, current: true },
+        { name: "staging", isDefault: true, current: false },
+      ]),
+    ).toBe("staging");
+    expect(
+      resolveDefaultWorktreeBaseBranch([
+        { name: "other", isDefault: false, current: false },
+        { name: "feature", isDefault: false, current: true },
+      ]),
+    ).toBe("feature");
+  });
+});
+
 describe("resolveLocalCheckoutBranchMismatch", () => {
   it("detects when a local thread is associated with a different branch than the checkout", () => {
     expect(
@@ -328,6 +347,7 @@ describe("resolveBranchSelectionTarget", () => {
       checkoutCwd: "/repo",
       nextWorktreePath: "/repo",
       reuseExistingWorktree: true,
+      staysInActiveCheckout: false,
     });
     expect(
       resolveBranchSelectionTarget({
@@ -342,6 +362,7 @@ describe("resolveBranchSelectionTarget", () => {
       checkoutCwd: "/repo/.t3/worktrees/feature-b",
       nextWorktreePath: "/repo/.t3/worktrees/feature-b",
       reuseExistingWorktree: true,
+      staysInActiveCheckout: false,
     });
   });
 
@@ -369,6 +390,8 @@ describe("resolveBranchSelectionTarget", () => {
         checkoutCwd: "/repo",
         nextWorktreePath: null,
         reuseExistingWorktree: true,
+        // A ref listed in the thread's own checkout may be stale, so it is checked out, not assumed.
+        staysInActiveCheckout: activeWorktreePath === null,
       });
     }
   });
@@ -387,6 +410,7 @@ describe("resolveBranchSelectionTarget", () => {
       checkoutCwd: "/repo/.t3/worktrees/feature-a",
       nextWorktreePath: "/repo/.t3/worktrees/feature-a",
       reuseExistingWorktree: false,
+      staysInActiveCheckout: true,
     });
   });
 });

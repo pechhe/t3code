@@ -1,5 +1,5 @@
 import { pipe } from "effect/Function";
-import type { EnvironmentTheme } from "@t3tools/contracts";
+import { THEME_CSS_MAX_LENGTH, type EnvironmentTheme } from "@t3tools/contracts";
 import * as Equal from "effect/Equal";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -32,6 +32,7 @@ import {
 } from "./lib/contextChipAccents";
 
 import { appAtomRegistry, subscribeAtomChanges } from "./rpc/atomRegistry";
+import { applyThemeCss } from "./themeCss";
 import { themeServerEnvironmentThemesAtom } from "./state/server";
 
 export { EMBER_THEME, GROVE_THEME, IRIS_THEME, OCEAN_THEME, T3_CHAT_THEME, THEME_COLOR_ROLES };
@@ -67,6 +68,7 @@ export type ThemeFile = Readonly<{
   variants?: ThemeVariantOverrides;
   collection?: ThemeCollection;
   managed?: boolean;
+  css?: string;
 }>;
 
 const customThemeListeners = new Set<() => void>();
@@ -120,6 +122,10 @@ function isThemeId(value: unknown): value is string {
 
 function isThemeLabel(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0 && value.trim().length <= 48;
+}
+
+function isThemeCss(value: unknown): value is string {
+  return typeof value === "string" && value.length <= THEME_CSS_MAX_LENGTH;
 }
 
 function parseThemeCollection(value: unknown): ThemeCollection | undefined {
@@ -186,6 +192,7 @@ function parseStoredTheme(value: unknown): ThemeDefinition | null {
     ...(variants ? { variants } : {}),
     ...(collection ? { collection } : {}),
     ...(value.managed === true ? { managed: true } : {}),
+    ...(isThemeCss(value.css) && value.css.length > 0 ? { css: value.css } : {}),
   };
 }
 
@@ -290,6 +297,7 @@ function environmentThemeDefinition(theme: EnvironmentTheme): ThemeDefinition {
     theme.variants === undefined
       ? { managed: true }
       : {}),
+    ...(theme.css ? { css: theme.css } : {}),
   };
 }
 
@@ -1500,6 +1508,10 @@ export function parseThemeFile(value: unknown): ThemeDefinition {
     throw new Error("Theme collections need a valid id and label.");
   }
 
+  if (value.css !== undefined && !isThemeCss(value.css)) {
+    throw new Error(`Theme CSS must be text of ${THEME_CSS_MAX_LENGTH} characters or fewer.`);
+  }
+
   const fallback = getDefaultThemeColors(appearance);
   const variants: Partial<Record<ThemeAppearance, ThemeColors>> = {};
   if (value.variants !== undefined) {
@@ -1527,6 +1539,7 @@ export function parseThemeFile(value: unknown): ThemeDefinition {
     ...(Object.keys(variants).length > 0 ? { variants } : {}),
     ...(collection ? { collection } : {}),
     ...(value.managed === true ? { managed: true } : {}),
+    ...(value.css ? { css: value.css } : {}),
   };
 }
 
@@ -1541,6 +1554,7 @@ export function serializeThemeFile(theme: ThemeDefinition): string {
     ...(canonicalTheme.variants ? { variants: canonicalTheme.variants } : {}),
     ...(canonicalTheme.collection ? { collection: canonicalTheme.collection } : {}),
     ...(canonicalTheme.managed ? { managed: true } : {}),
+    ...(canonicalTheme.css ? { css: canonicalTheme.css } : {}),
   };
   return `${JSON.stringify(file, null, 2)}\n`;
 }
@@ -1616,7 +1630,11 @@ export function getThemeColorVariable(role: ThemeColorRole): string {
 export const THEME_PREVIEW_ID = "__preview";
 
 /** Callers must restore the stored theme with refreshTheme when the draft closes. */
-export function applyThemeColorPreview(colors: ThemeColors, appearance: ThemeAppearance): void {
+export function applyThemeColorPreview(
+  colors: ThemeColors,
+  appearance: ThemeAppearance,
+  css?: string,
+): void {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
   if (!root?.style) return;
@@ -1627,6 +1645,7 @@ export function applyThemeColorPreview(colors: ThemeColors, appearance: ThemeApp
     if (isThemeColor(value)) root.style.setProperty(APP_THEME_VARIABLES[role], value);
   }
   applyContextChipVariables(root, colors);
+  applyThemeCss(css);
   setThemePreviewAppearance(appearance);
 }
 
@@ -1715,6 +1734,7 @@ export function applyThemePalette(theme: ThemePreference, appearance?: ThemeAppe
     : (appearance ?? "light");
   applyThemeDeviceColors(root, palette?.deviceVariants?.[paletteMode] ?? palette?.device);
   applyThemeCharacter(root, palette?.character, paletteMode);
+  applyThemeCss(palette?.css);
 
   if (palette) {
     root.dataset.themeId = palette.id;

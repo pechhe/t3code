@@ -1381,6 +1381,12 @@ export const layer: Layer.Layer<
                   providerThread.nativeMetadata.itemIdentityVersion,
               }),
         });
+      // Opening a session does not prompt the provider, so the workspace is still unchanged.
+      const baseline = yield* runExecution.forkBaseline({
+        appThread: projection.thread,
+        run,
+        checkpointScope,
+      });
       const sessionResult = yield* Effect.result(openSession(initialRegistration));
       if (sessionResult._tag === "Failure") {
         const failure = sessionResult.failure;
@@ -2285,8 +2291,11 @@ export const layer: Layer.Layer<
       if (!runningWrite.committed) {
         return;
       }
-      const routableSubagents = projection.subagents.filter((subagent) =>
-        RunExecutionService.canRouteRelatedSubagent(subagent.status),
+      // Delegated (app_owned) children run their own runs; routing them here ingests their items twice.
+      const routableSubagents = projection.subagents.filter(
+        (subagent) =>
+          subagent.origin === "provider_native" &&
+          RunExecutionService.canRouteRelatedSubagent(subagent.status),
       );
       const persistHandoff = Effect.fn("ProviderTurnStartService.persist")(function* (
         handoff: OrchestrationV2ContextHandoff,
@@ -2451,15 +2460,14 @@ export const layer: Layer.Layer<
             .join("\n\n");
           const messageLabel = scheduled ? SCHEDULED_TASK_PROMPT_LABEL : "User message";
           const { restartContinuationOfRunId: _resumedRunId, ...promptedInput } = turnInput;
+          const text =
+            goalCommand || context === ""
+              ? userText
+              : `${context}\n\n${messageLabel}:\n${userText}`;
           yield* start({
             ...(noteContinuation ? promptedInput : turnInput),
-            message: {
-              ...turnInput.message,
-              text:
-                goalCommand || context === ""
-                  ? userText
-                  : `${context}\n\n${messageLabel}:\n${userText}`,
-            },
+            message: { ...turnInput.message, text },
+            ...(text === userText ? {} : { inlineContextLength: text.length - userText.length }),
           }).pipe(
             // Clear pending handoff markers for refused prompts so the next turn retains the native session.
             Effect.tapError((error) =>
@@ -2548,6 +2556,7 @@ export const layer: Layer.Layer<
         providerThread: runningProviderThread,
         attempt: runningAttempt,
         attemptId: attempt.id,
+        baseline,
         loadInheritedBackgroundTurnItems: runControls.loadInheritedBackgroundTurnItems,
         relatedThreadIds: routableSubagents.flatMap((subagent) =>
           subagent.childThreadId === null ? [] : [subagent.childThreadId],

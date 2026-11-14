@@ -32,9 +32,11 @@ import {
 } from "@t3tools/client-runtime/state/models";
 import {
   AuthOrchestrationOperateScope,
+  type EnvironmentId,
   type EnvironmentMachineKind,
   isDelegatedTaskThread,
 } from "@t3tools/contracts";
+import { toServerClock } from "@t3tools/client-runtime/clock";
 import type { SnoozePresetSetting } from "@t3tools/contracts/settings";
 import { canSnooze } from "@t3tools/client-runtime/state/thread-settled";
 import { threadChipCopyTarget } from "@t3tools/client-runtime/thread-reference";
@@ -165,6 +167,7 @@ const TABULAR_DURATION_STYLE = {
 } as const;
 
 function ThreadListV2Duration(props: {
+  readonly environmentId: EnvironmentId;
   readonly startedAt: string | null;
   readonly leadingSpace: boolean;
 }) {
@@ -175,7 +178,7 @@ function ThreadListV2Duration(props: {
     <>
       {props.leadingSpace ? " " : null}
       <RNText style={TABULAR_DURATION_STYLE}>
-        {formatWorkingDurationLabel(nowMs - startedAtMs)}
+        {formatWorkingDurationLabel(toServerClock(props.environmentId, nowMs) - startedAtMs)}
       </RNText>
     </>
   );
@@ -1315,11 +1318,13 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
                 {statusLabel.label}
                 {status === "working" ? (
                   <ThreadListV2Duration
+                    environmentId={thread.environmentId}
                     startedAt={resolveThreadWorkingStartedAt(thread)}
                     leadingSpace={statusLabel.label !== null}
                   />
                 ) : status === "waiting" ? (
                   <ThreadListV2Duration
+                    environmentId={thread.environmentId}
                     startedAt={thread.latestRun?.completedAt ?? null}
                     leadingSpace={statusLabel.label !== null}
                   />

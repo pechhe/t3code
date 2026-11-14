@@ -362,11 +362,14 @@ function SegmentTriggers({
             type="button"
             style={{ gridColumn: index, gridRow: 1, ...paceMark?.gappedTrack }}
             aria-label={`${account.displayName ?? (account.email ? accountInitials(account.email) : account.driver)}: ${remaining}% left${resetsIn ? `, ${resetsIn}` : ""}${timeLeft === null ? "" : `, ${timeLeft}% of the window left`}${credits ? `, ${credits} reset ${credits === 1 ? "credit" : "credits"} banked` : ""}`}
-            className="relative h-5 min-w-0 cursor-pointer rounded-md bg-muted text-start outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background data-[popup-open]:ring-1 data-[popup-open]:ring-inset data-[popup-open]:ring-border @2xl/pool:h-8"
+            className="group/segment relative h-5 w-full min-w-0 @2xl/pool:h-8"
           />
         }
       >
-        <div aria-hidden className="absolute inset-0 overflow-hidden rounded-md">
+        <div
+          aria-hidden
+          className="absolute inset-0 overflow-hidden rounded-md bg-muted group-focus-visible/segment:ring-2 group-focus-visible/segment:ring-inset group-focus-visible/segment:ring-ring group-focus-visible/segment:ring-offset-2 group-focus-visible/segment:ring-offset-background group-data-[popup-open]/segment:ring-1 group-data-[popup-open]/segment:ring-inset group-data-[popup-open]/segment:ring-border"
+        >
           {/* Clipped inside the rounded clip so the bar's own corners keep their antialiasing. */}
           <div className="absolute inset-0" style={paceMark?.gap}>
             <div
@@ -527,6 +530,18 @@ function PoolBar({
               index={position + 1}
               showAccountName={pool.columns.length > 1}
             />
+          ) : pool.kind === "monthly" && member.account.limits.zeroSpendCap ? (
+            <div
+              key={member.account.key}
+              style={{ gridColumn: position + 1, gridRow: 1 }}
+              className="flex h-5 min-w-0 items-center justify-center gap-1.5 overflow-hidden rounded-md border border-dashed border-border text-3xs whitespace-nowrap text-muted-foreground @2xl/pool:h-8 @2xl/pool:justify-start @2xl/pool:px-2 @2xl/pool:text-xs"
+            >
+              <AccountName
+                account={member.account}
+                className="hidden min-w-0 truncate @2xl/pool:inline-flex"
+              />
+              $0 cap
+            </div>
           ) : null,
         )}
       </div>

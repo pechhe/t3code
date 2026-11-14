@@ -196,6 +196,8 @@ export type ThemeDefinition = Readonly<{
   /** Device colours for each appearance; `device` serves an appearance with none. */
   deviceVariants?: Partial<Record<ThemeAppearance, ThemeDeviceColors>>;
   character?: ThemeCharacter;
+  /** Custom styles for web and desktop. */
+  css?: string;
 }>;
 
 export const T3_CODE_LIGHT_THEME_COLORS: ThemeColors = {

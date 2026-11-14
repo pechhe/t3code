@@ -60,6 +60,7 @@ import * as ProviderSwitchService from "./ProviderSwitchService.ts";
 import * as ProviderTurnControlService from "./ProviderTurnControlService.ts";
 import * as ProviderTurnStartService from "./ProviderTurnStartService.ts";
 import * as VideoFrames from "../videoFrames/VideoFrames.ts";
+import { layerThreadWorktreeRestore } from "../workspace/restoreMissingWorktree.ts";
 import * as RunExecutionService from "./RunExecutionService.ts";
 import * as RunFinalizationService from "./RunFinalizationService.ts";
 import * as ResourceCleanupService from "./ResourceCleanupService.ts";
@@ -299,6 +300,7 @@ const layerThreadManagementProvided = ThreadManagementService.layerWithLegacyImp
       layerLegacyV1ThreadImporterProvided,
       layerCommandReceiptStoreProvided,
       layerProviderSessionManagerProvided,
+      layerThreadWorktreeRestore,
     ),
   ),
 );
@@ -315,7 +317,6 @@ const layerManagedProjectFoldersProvided = ManagedProjectFolders.layer.pipe(
 const layerThreadLaunchProvided = ThreadLaunchService.layer.pipe(
   Layer.provide(
     Layer.mergeAll(
-      layerProjectService,
       layerProjectSetupScriptRunner,
       layerManagedProjectFoldersProvided,
       WorkspaceProvider.layer,
@@ -323,7 +324,7 @@ const layerThreadLaunchProvided = ThreadLaunchService.layer.pipe(
       layerCommandReceiptStoreProvided,
       layerEventSink,
       IdAllocator.layer,
-    ),
+    ).pipe(Layer.provideMerge(layerProjectService)),
   ),
 );
 const layerThreadImportProvided = ThreadImportService.layer.pipe(
@@ -331,7 +332,9 @@ const layerThreadImportProvided = ThreadImportService.layer.pipe(
 );
 const layerWorkspaceAttachmentsProvided = WorkspaceAttachments.layer.pipe(
   Layer.provide(
-    Layer.mergeAll(layerProjectService, WorkspaceProvider.layer, layerThreadManagementProvided),
+    Layer.mergeAll(WorkspaceProvider.layer, layerThreadManagementProvided).pipe(
+      Layer.provideMerge(layerProjectService),
+    ),
   ),
 );
 const layerSavedSecrets = SavedSecrets.layer.pipe(Layer.provide(BwsClient.layer));
@@ -350,30 +353,30 @@ const layerScheduledTaskProvided = ScheduledTaskService.layer.pipe(
 );
 const layerChampionsProvided = Champions.layer.pipe(
   Layer.provide(
-    Layer.mergeAll(layerThreadLaunchProvided, layerThreadManagementProvided, layerProjectService),
+    Layer.mergeAll(layerThreadLaunchProvided, layerThreadManagementProvided).pipe(
+      Layer.provideMerge(layerProjectService),
+    ),
   ),
 );
 const layerThreadProjectMoveProvided = ThreadProjectMoveService.layer.pipe(
   Layer.provide(
     Layer.mergeAll(
       layerThreadManagementProvided,
-      layerProjectService,
       layerManagedProjectFoldersProvided,
       WorkspaceProvider.layer,
       layerThreadLaunchProvided,
       layerWorkspaceAttachmentsProvided,
       layerScheduledTaskProvided,
-    ),
+    ).pipe(Layer.provideMerge(layerProjectService)),
   ),
 );
 const layerScratchThreadPromotionProvided = ScratchThreadPromotion.layer.pipe(
   Layer.provide(
     Layer.mergeAll(
-      layerProjectService,
       layerManagedProjectFoldersProvided,
       layerThreadManagementProvided,
       layerScheduledTaskProvided,
-    ),
+    ).pipe(Layer.provideMerge(layerProjectService)),
   ),
 );
 const layerProviderContinuationWorkerProvided = ProviderContinuationService.layer.pipe(
@@ -470,7 +473,6 @@ export const layerProduction = Layer.mergeAll(
       ),
     ),
   ),
-  layerProjectService,
   layerManagedProjectFoldersProvided,
   layerThreadLaunchProvided,
   layerWorkspaceAttachmentsProvided,
@@ -494,9 +496,8 @@ export const layerProduction = Layer.mergeAll(
       Layer.mergeAll(
         layerThreadManagementProvided,
         layerThreadLaunchProvided,
-        layerProjectService,
         WorkspaceProvider.layer,
-      ),
+      ).pipe(Layer.provideMerge(layerProjectService)),
     ),
   ),
   GuestShareService.layer.pipe(
@@ -520,6 +521,7 @@ export const layerProduction = Layer.mergeAll(
   EffectOutbox.layerPruneWorker.pipe(Layer.provide(EffectOutbox.layer)),
 ).pipe(
   Layer.provide(ResourceCleanupService.layer.pipe(Layer.provide(layerScheduledTaskProvided))),
+  Layer.provideMerge(layerProjectService),
   Layer.provide(Scheduler.layer),
   Layer.provide(layerRunCustodyProvided),
   // Exported so the run setup recorder reads the same per-run decisions runs delivered.
