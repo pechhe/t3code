@@ -940,6 +940,8 @@ function HandoffEndpoint(props: {
           >
             <ProviderInstanceIcon
               driverKind={entry?.driverKind ?? ProviderDriverKind.make(props.instanceId)}
+              model={model}
+              subProvider={providerModel?.subProvider}
               displayName={entry?.displayName ?? props.instanceId}
               accentColor={entry?.accentColor}
               acpRegistryAgentId={entry?.acpRegistryAgentId}

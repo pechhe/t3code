@@ -1,10 +1,11 @@
 import type { EnvironmentId, ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
 import { formatModelSlugName } from "@t3tools/shared/model";
-import { useMemo } from "react";
 
 import { cn } from "~/lib/utils";
+import { useClientSettings } from "~/hooks/useSettings";
 import { deriveProviderInstanceEntries, entryAnswersTo } from "~/providerInstances";
 import { useEnvironmentProviders } from "~/state/environments";
+import { getCustomModelLabel, selectModelSlotLabels } from "./chat/modelLabels";
 import { ProviderInstanceIcon } from "./chat/ProviderInstanceIcon";
 import { getDisplayModelName, getProviderRowLabel } from "./chat/providerIconUtils";
 
@@ -27,22 +28,24 @@ export function ModelLabel(props: {
   const providersByEnvironment = useEnvironmentProviders();
   const providers =
     props.environmentId === null ? null : (providersByEnvironment.get(props.environmentId) ?? null);
-  const entry = useMemo(() => {
-    const entries = deriveProviderInstanceEntries(providers ?? []);
-    return (
-      entries.find((candidate) => entryAnswersTo(candidate, props.instanceId)) ??
-      entries.find(
-        (candidate) => candidate.driverKind === props.driverKind && candidate.isDefault,
-      ) ??
-      entries.find((candidate) => candidate.driverKind === props.driverKind)
-    );
-  }, [props.driverKind, props.instanceId, providers]);
+  const entries = deriveProviderInstanceEntries(providers ?? []);
+  const entry =
+    entries.find((candidate) => entryAnswersTo(candidate, props.instanceId)) ??
+    entries.find((candidate) => candidate.driverKind === props.driverKind && candidate.isDefault) ??
+    entries.find((candidate) => candidate.driverKind === props.driverKind);
+  const slotLabels = useClientSettings(selectModelSlotLabels);
   const model = entry?.models.find((candidate) => candidate.slug === props.model);
-  const name = model ? getDisplayModelName(model) : formatModelSlugName(props.model);
+  const customLabel = entry
+    ? getCustomModelLabel(slotLabels, entry.instanceId, props.model)
+    : undefined;
+  const name =
+    customLabel ?? (model ? getDisplayModelName(model) : formatModelSlugName(props.model));
   const driverKind = entry?.driverKind ?? props.driverKind;
   const icon = driverKind ? (
     <ProviderInstanceIcon
       driverKind={driverKind}
+      model={props.model}
+      subProvider={model?.subProvider}
       displayName={entry?.displayName ?? driverKind}
       acpRegistryAgentId={entry?.acpRegistryAgentId}
       acpRegistryIconUrl={entry?.acpRegistryIconUrl}

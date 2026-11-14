@@ -11,10 +11,17 @@ import { resolveOfficialAcpRegistryIconUrl } from "@t3tools/contracts";
 import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
 import { AppText as Text } from "./ui/AppText";
 import { cn } from "../lib/cn";
-import { getProviderClient, openRouterIcon } from "@t3tools/client-runtime/provider-clients";
+import {
+  getProviderClient,
+  MODEL_MAKER_ICONS,
+  openRouterIcon,
+  resolveModelIconMaker,
+} from "@t3tools/client-runtime/provider-clients";
 
 type ProviderIconProps = {
   readonly provider: string | null | undefined;
+  readonly model?: string | null | undefined;
+  readonly subProvider?: string | null | undefined;
   readonly iconUrl?: string | null | undefined;
   readonly size?: number;
 };
@@ -74,8 +81,28 @@ export function ProviderIcon(props: ProviderIconProps) {
   const gradientId = useId();
   const size = props.size ?? 16;
   const mono = isDarkMode ? "#e5e5e5" : "#171717";
+  const modelMaker = resolveModelIconMaker({
+    driverKind: props.provider,
+    model: props.model,
+    subProvider: props.subProvider,
+  });
+  const effectiveProvider =
+    modelMaker === "openai"
+      ? "codex"
+      : modelMaker === "anthropic"
+        ? "claudeAgent"
+        : modelMaker === "xai"
+          ? "grok"
+          : props.provider;
+  const makerPackageIcon =
+    modelMaker !== null &&
+    modelMaker !== "openai" &&
+    modelMaker !== "anthropic" &&
+    modelMaker !== "xai"
+      ? MODEL_MAKER_ICONS[modelMaker]
+      : undefined;
 
-  if (props.provider?.trim().toLowerCase() === "antigravity") {
+  if (!makerPackageIcon && effectiveProvider?.trim().toLowerCase() === "antigravity") {
     return (
       <Image
         source={require("../../assets/antigravity.png")}
@@ -84,11 +111,11 @@ export function ProviderIcon(props: ProviderIconProps) {
       />
     );
   }
-  if (props.provider === "acpRegistry") {
+  if (!makerPackageIcon && effectiveProvider === "acpRegistry") {
     return <AcpRegistryProviderIcon color={mono} iconUrl={props.iconUrl} size={size} />;
   }
 
-  if (props.provider === "claudeAgent") {
+  if (!makerPackageIcon && effectiveProvider === "claudeAgent") {
     return (
       <Svg width={size} height={size} viewBox="0 0 256 257" fill="none">
         <Path
@@ -100,7 +127,10 @@ export function ProviderIcon(props: ProviderIconProps) {
   }
 
   const packageIcon =
-    props.provider === "openrouter" ? openRouterIcon : getProviderClient(props.provider)?.icon;
+    makerPackageIcon ??
+    (effectiveProvider === "openrouter"
+      ? openRouterIcon
+      : getProviderClient(effectiveProvider)?.icon);
   if (packageIcon) {
     const themeFill = (fill: { readonly light: string; readonly dark: string }) =>
       isDarkMode ? fill.dark : fill.light;
@@ -170,6 +200,8 @@ export function providerInstanceNameLabel(props: {
 export function ProviderInstanceIcon(props: {
   readonly iconUrl?: string | null;
   readonly provider: string | null | undefined;
+  readonly model?: string | null | undefined;
+  readonly subProvider?: string | null | undefined;
   readonly size?: number;
   readonly displayName: string;
   readonly accentColor?: string;
@@ -180,7 +212,13 @@ export function ProviderInstanceIcon(props: {
   return (
     <View style={{ position: "relative" }}>
       <View style={{ opacity: 0.6 }}>
-        <ProviderIcon iconUrl={props.iconUrl} provider={props.provider} size={props.size} />
+        <ProviderIcon
+          iconUrl={props.iconUrl}
+          provider={props.provider}
+          model={props.model}
+          subProvider={props.subProvider}
+          size={props.size}
+        />
       </View>
       {props.showBadge ? (
         // An absolute badge alone is capped at icon width and clips initials.

@@ -40,7 +40,8 @@ import {
   ComboboxItem,
   ComboboxListVirtualized,
 } from "../ui/combobox";
-import { ModelEsque } from "./providerIconUtils";
+import { getDisplayModelName, ModelEsque } from "./providerIconUtils";
+import { getCustomModelLabel, saveModelLabel, selectModelSlotLabels } from "./modelLabels";
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
 import { registerModelPickerContent } from "../../modelPickerVisibility";
 import { primaryServerKeybindingsAtom } from "../../state/server";
@@ -51,6 +52,7 @@ import {
   shortcutLabelForCommand,
 } from "../../keybindings";
 import {
+  useClientSettings,
   useEnvironmentModelPreferences,
   useToggleEnvironmentModelFavorite,
 } from "~/hooks/useSettings";
@@ -458,13 +460,45 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   const serverKeybindings = useAtomValue(primaryServerKeybindingsAtom);
   const keybindings = providedKeybindings ?? serverKeybindings;
   const [searchHeight, setSearchHeight] = useState(0);
+  const slotLabels = useClientSettings(selectModelSlotLabels);
+  const [renamingModelKey, setRenamingModelKey] = useState<string | null>(null);
   const toggleFavorite = useToggleEnvironmentModelFavorite(props.environmentId);
 
   const focusSearchInput = () => {
     searchInputRef.current?.focus({ preventScroll: true });
   };
 
+  const handleStartRename = (instanceId: ProviderInstanceId, slug: string) => {
+    setRenamingModelKey(modelPickerModelKey(instanceId, slug));
+  };
+
+  const handleCommitRename = (
+    instanceId: ProviderInstanceId,
+    slug: string,
+    nextName: string,
+    restoreFocus: boolean,
+  ) => {
+    const model = modelOptionsByInstance.get(instanceId)?.find((option) => option.slug === slug);
+    saveModelLabel({
+      slotLabels,
+      instanceId,
+      slug,
+      nextName,
+      ...(model ? { defaultNames: [getDisplayModelName(model), model.name] } : {}),
+    });
+    setRenamingModelKey(null);
+    if (restoreFocus) {
+      focusSearchInput();
+    }
+  };
+
+  const handleCancelRename = () => {
+    setRenamingModelKey(null);
+    focusSearchInput();
+  };
+
   const handleSelectInstance = (instanceId: ProviderInstanceId | "favorites") => {
+    setRenamingModelKey(null);
     setSelectedInstanceId(instanceId);
     window.requestAnimationFrame(() => {
       focusSearchInput();
@@ -649,14 +683,18 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     if (searchQuery.trim()) {
       const candidates =
         lockedProvider !== null ? result.filter((m) => matchesLockedProvider(m)) : result;
-      return rankModelPickerSearch(candidates, searchQuery, (model) => ({
-        name: model.name,
-        ...(model.shortName ? { shortName: model.shortName } : {}),
-        ...(model.subProvider ? { subProvider: model.subProvider } : {}),
-        driverKind: model.driverKind,
-        providerDisplayName: model.instanceDisplayName,
-        isFavorite: favoritesSet.has(providerModelKey(model.instanceId, model.slug)),
-      }));
+      return rankModelPickerSearch(candidates, searchQuery, (model) => {
+        const customLabel = getCustomModelLabel(slotLabels, model.instanceId, model.slug);
+        return {
+          name: model.name,
+          ...(customLabel ? { customName: customLabel } : {}),
+          ...(model.shortName ? { shortName: model.shortName } : {}),
+          ...(model.subProvider ? { subProvider: model.subProvider } : {}),
+          driverKind: model.driverKind,
+          providerDisplayName: model.instanceDisplayName,
+          isFavorite: favoritesSet.has(providerModelKey(model.instanceId, model.slug)),
+        };
+      });
     }
 
     if (lockedProvider !== null) {
@@ -778,9 +816,21 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     modelJumpLabelByKey,
     activeModelKey,
     selectedModelKeySet,
+    slotLabels,
+    renamingModelKey,
   };
 
   const onWindowKeyDown = (event: globalThis.KeyboardEvent) => {
+    if (renamingModelKey !== null) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        handleCancelRename();
+      }
+      return;
+    }
+
     if (
       event.defaultPrevented ||
       event.repeat ||
@@ -788,6 +838,24 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       event.keyCode === 229 ||
       isCommandPaletteOpen()
     ) {
+      return;
+    }
+
+    if (
+      event.key === "F2" &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      !event.shiftKey
+    ) {
+      const highlightedKey = highlightedModelKeyRef.current;
+      const highlighted = highlightedKey ? filteredModelByKey.get(highlightedKey) : undefined;
+      if (highlighted && !getModelDisabledReason?.(highlighted.instanceId, highlighted.slug)) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        setRenamingModelKey(highlightedKey);
+      }
       return;
     }
 
@@ -1043,6 +1111,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                     index={index}
                     slug={model.slug}
                     name={model.name}
+                    customLabel={getCustomModelLabel(slotLabels, model.instanceId, model.slug)}
                     subProvider={model.subProvider}
                     instanceId={model.instanceId}
                     driverKind={model.driverKind}
@@ -1056,6 +1125,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                         ? selectedModelKeySet.has(modelKey)
                         : modelKey === activeModelKey
                     }
+                    isRenaming={renamingModelKey === modelKey}
                     favoriteStarOnHover={selectedInstanceId === "favorites" && !isSearching}
                     showInstanceBadge={badgedInstanceIds.has(model.instanceId)}
                     showNewBadge={model.badge === "new"}
@@ -1063,6 +1133,9 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                     jumpLabel={modelJumpLabelByKey.get(modelKey) ?? null}
                     disabledReason={disabledReason}
                     onToggleFavorite={toggleFavorite}
+                    onStartRename={handleStartRename}
+                    onCommitRename={handleCommitRename}
+                    onCancelRename={handleCancelRename}
                   />
                 );
               }}

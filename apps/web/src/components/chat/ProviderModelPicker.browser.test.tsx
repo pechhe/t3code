@@ -218,3 +218,193 @@ it("opens on the active provider when every favorite belongs to a disabled provi
   await screen.getByRole("button", { name: "Choose model" }).click();
   await expect.element(page.getByRole("option", { name: /Codex model/ })).toBeVisible();
 });
+
+it("shows model-matched icons for pi models while keeping the pi icon in the sidebar", async () => {
+  const entries = deriveProviderInstanceEntries([
+    {
+      instanceId: ProviderInstanceId.make("pi"),
+      driver: ProviderDriverKind.make("pi"),
+      enabled: true,
+      installed: true,
+      version: null,
+      status: "ready" as const,
+      auth: { status: "authenticated" as const },
+      checkedAt: "2026-01-01T00:00:00.000Z",
+      models: [
+        { slug: "default", name: "Default", isCustom: false, capabilities: {} },
+        {
+          slug: "openai/gpt-6-luna",
+          name: "GPT-6 Luna",
+          subProvider: "openai",
+          isCustom: false,
+          capabilities: {},
+        },
+        {
+          slug: "anthropic/claude-opus-4-6",
+          name: "Claude Opus 4.6",
+          subProvider: "anthropic",
+          isCustom: false,
+          capabilities: {},
+        },
+        {
+          slug: "opencode/deepseek-v4.1-flash",
+          name: "DeepSeek V4.1 Flash",
+          subProvider: "opencode",
+          isCustom: false,
+          capabilities: {},
+        },
+      ],
+      slashCommands: [],
+      skills: [],
+    },
+  ]);
+  const [piEntry] = entries;
+
+  await using screen = await render(
+    <ProviderModelPicker
+      environmentId={null}
+      activeInstanceId={piEntry!.instanceId}
+      model="openai/gpt-6-luna"
+      lockedProvider={null}
+      instanceEntries={entries}
+      modelOptionsByInstance={new Map(entries.map((entry) => [entry.instanceId, entry.models]))}
+      triggerAriaLabel="Choose model"
+      onInstanceModelChange={() => {}}
+    />,
+  );
+
+  // Trigger icon matches the active Pi model's maker.
+  const triggerIcon = screen.container.querySelector(
+    "[data-chat-provider-model-picker-icon] [data-model-maker]",
+  );
+  expect(triggerIcon?.getAttribute("data-model-maker")).toBe("openai");
+
+  await screen.getByRole("button", { name: "Choose model" }).click();
+  const lunaRow = page.getByRole("option", { name: /GPT-6 Luna/ });
+  const claudeRow = page.getByRole("option", { name: /Claude Opus 4.6/ });
+  const deepseekRow = page.getByRole("option", { name: /DeepSeek V4.1 Flash/ });
+  const defaultRow = page.getByRole("option", { name: /^Default\s*,/ });
+  await expect.element(lunaRow).toBeVisible();
+
+  expect(
+    (await lunaRow.element()).querySelector("[data-model-maker]")?.getAttribute("data-model-maker"),
+  ).toBe("openai");
+  expect(
+    (await claudeRow.element())
+      .querySelector("[data-model-maker]")
+      ?.getAttribute("data-model-maker"),
+  ).toBe("anthropic");
+  expect(
+    (await deepseekRow.element())
+      .querySelector("[data-model-maker]")
+      ?.getAttribute("data-model-maker"),
+  ).toBe("deepseek");
+  expect((await defaultRow.element()).querySelector("[data-model-maker]")).toBeNull();
+});
+
+it("renames a model inline from the picker, searches by custom name, and cancels on Escape without closing", async () => {
+  const entries = deriveProviderInstanceEntries([
+    {
+      instanceId: ProviderInstanceId.make("pi"),
+      driver: ProviderDriverKind.make("pi"),
+      enabled: true,
+      installed: true,
+      version: null,
+      status: "ready" as const,
+      auth: { status: "authenticated" as const },
+      checkedAt: "2026-01-01T00:00:00.000Z",
+      models: [
+        {
+          slug: "openai/gpt-6-luna",
+          name: "GPT-6 Luna",
+          subProvider: "openai",
+          isCustom: false,
+          capabilities: {},
+        },
+        {
+          slug: "anthropic/claude-opus-4-6",
+          name: "Claude Opus 4.6",
+          subProvider: "anthropic",
+          isCustom: false,
+          capabilities: {},
+        },
+      ],
+      slashCommands: [],
+      skills: [],
+    },
+  ]);
+  const [piEntry] = entries;
+  __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS);
+  using _settings = {
+    [Symbol.dispose]: () => __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS),
+  };
+
+  await using screen = await render(
+    <ProviderModelPicker
+      environmentId={null}
+      activeInstanceId={piEntry!.instanceId}
+      model="openai/gpt-6-luna"
+      lockedProvider={null}
+      instanceEntries={entries}
+      modelOptionsByInstance={new Map(entries.map((entry) => [entry.instanceId, entry.models]))}
+      triggerAriaLabel="Choose model"
+      onInstanceModelChange={() => {}}
+    />,
+  );
+
+  await screen.getByRole("button", { name: "Choose model" }).click();
+  const lunaRow = page.getByRole("option", { name: /GPT-6 Luna/ });
+  await expect.element(lunaRow).toBeVisible();
+  await lunaRow.hover();
+
+  const renameButton = (await lunaRow.element()).querySelector<HTMLButtonElement>(
+    'button[aria-label="Rename model"]',
+  );
+  expect(renameButton).not.toBeNull();
+  renameButton!.click();
+
+  const renameInput = page.getByRole("textbox", { name: "Model name" });
+  await expect.element(renameInput).toBeVisible();
+
+  // Escape cancels rename and keeps the popover open.
+  await userEvent.keyboard("{Escape}");
+  await expect.element(renameInput).not.toBeInTheDocument();
+  await expect.element(page.getByRole("option", { name: /GPT-6 Luna/ })).toBeVisible();
+
+  // Re-open rename, type a new name, and press Enter to save.
+  await page.getByRole("option", { name: /GPT-6 Luna/ }).hover();
+  (await page.getByRole("option", { name: /GPT-6 Luna/ }).element())
+    .querySelector<HTMLButtonElement>('button[aria-label="Rename model"]')!
+    .click();
+  await expect.element(page.getByRole("textbox", { name: "Model name" })).toBeVisible();
+  await userEvent.type(page.getByRole("textbox", { name: "Model name" }), "Daily Luna{Enter}");
+
+  // Trigger label and row reflect the custom name.
+  await expect.element(page.getByRole("option", { name: /Daily Luna/ })).toBeVisible();
+  expect(
+    screen.container.querySelector("[data-chat-provider-model-picker-label]")?.textContent,
+  ).toBe("Daily Luna");
+
+  // Search matches the custom name.
+  const searchInput = page.getByPlaceholder("Search models...");
+  await userEvent.type(searchInput, "Daily");
+  await expect.element(page.getByRole("option", { name: /Daily Luna/ })).toBeVisible();
+  await expect
+    .element(page.getByRole("option", { name: /Claude Opus 4.6/ }))
+    .not.toBeInTheDocument();
+
+  // Clear search and reset the custom name via the reset button.
+  await userEvent.clear(searchInput);
+  await page.getByRole("option", { name: /Daily Luna/ }).hover();
+  (await page.getByRole("option", { name: /Daily Luna/ }).element())
+    .querySelector<HTMLButtonElement>('button[aria-label="Rename model"]')!
+    .click();
+  const resetButton = page.getByRole("button", { name: "Reset model name" });
+  await expect.element(resetButton).toBeVisible();
+  await resetButton.click();
+
+  await expect.element(page.getByRole("option", { name: /GPT-6 Luna/ })).toBeVisible();
+  expect(
+    screen.container.querySelector("[data-chat-provider-model-picker-label]")?.textContent,
+  ).toBe("6 Luna");
+});

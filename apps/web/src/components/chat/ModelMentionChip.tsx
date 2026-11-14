@@ -13,6 +13,7 @@ import { getDisplayModelName } from "./providerIconUtils";
 interface ModelMentionPresentation {
   readonly label: string;
   readonly providerLabel: string;
+  readonly subProvider: string | undefined;
   readonly driverKind: ProviderDriverKind;
   readonly providerDisplayName: string;
   readonly acpRegistryAgentId: string | undefined;
@@ -23,6 +24,7 @@ function presentationsEqual(left: ModelMentionPresentation, right: ModelMentionP
   return (
     left.label === right.label &&
     left.providerLabel === right.providerLabel &&
+    left.subProvider === right.subProvider &&
     left.driverKind === right.driverKind &&
     left.providerDisplayName === right.providerDisplayName &&
     left.acpRegistryAgentId === right.acpRegistryAgentId &&
@@ -47,6 +49,7 @@ const modelMentionPresentationAtom = Atom.family((key: string) =>
     const next: ModelMentionPresentation = {
       label: getDisplayModelName(option),
       providerLabel: option.subProvider ?? entry.displayName,
+      subProvider: option.subProvider,
       driverKind: entry.driverKind,
       providerDisplayName: entry.displayName,
       acpRegistryAgentId: entry.acpRegistryAgentId,
@@ -104,6 +107,8 @@ export function ModelMentionChip(props: {
       icon={
         <ProviderInstanceIcon
           driverKind={presentation.driverKind}
+          model={props.model}
+          subProvider={presentation.subProvider}
           displayName={presentation.providerDisplayName}
           acpRegistryAgentId={presentation.acpRegistryAgentId}
           acpRegistryIconUrl={presentation.acpRegistryIconUrl}

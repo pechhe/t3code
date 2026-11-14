@@ -51,6 +51,7 @@ export function SubagentModelMeta(props: {
       {driver ? (
         <ProviderInstanceIcon
           driverKind={driver}
+          model={model ?? undefined}
           displayName={displayName ?? driver}
           acpRegistryIconUrl={iconUrl}
           className="z-auto"

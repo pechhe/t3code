@@ -165,4 +165,12 @@ describe("rankModelPickerSearch", () => {
       "Claude Opus 5",
     ]);
   });
+
+  it("matches custom model names as well as original names", () => {
+    const models = catalog.map((model) =>
+      model.name === "GPT-6 Luna" ? { ...model, customName: "Daily Driver" } : model,
+    );
+    expect(search("Daily Driver", models)[0]).toBe("GPT-6 Luna");
+    expect(search("gpt-6 luna", models)[0]).toBe("GPT-6 Luna");
+  });
 });

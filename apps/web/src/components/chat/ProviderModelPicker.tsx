@@ -21,6 +21,8 @@ import { Badge } from "../ui/badge";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
+import { useClientSettings } from "~/hooks/useSettings";
+import { getCustomModelLabel, selectModelSlotLabels } from "./modelLabels";
 import { ModelPickerContent, resolveModelPickerSelectedModel } from "./ModelPickerContent";
 import { retainedModelWhileProviderLocked } from "./ProviderModelPicker.logic";
 import { ChatGptSharingControl } from "./ChatGptSharingControl";
@@ -163,6 +165,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     props.instanceEntries.find((entry) => entryAnswersTo(entry, props.activeInstanceId)) ?? null;
 
   const activeInstanceId = props.activeInstanceId;
+  const slotLabels = useClientSettings(selectModelSlotLabels);
   const selectedInstanceOptions = props.modelOptionsByInstance.get(activeInstanceId) ?? [];
   const selectedModel =
     resolveModelPickerSelectedModel({
@@ -174,14 +177,22 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     (activeEntry?.driverKind === "opencode" || activeEntry?.driverKind === "antigravity"
       ? undefined
       : selectedInstanceOptions[0]);
-  const triggerTitle = selectedModel
-    ? getTriggerDisplayModelName(selectedModel, activeEntry?.driverKind)
-    : props.model === ANTIGRAVITY_DEFAULT_MODEL
-      ? "Choose model"
-      : props.model || "Choose model";
-  const triggerLabel = selectedModel
-    ? `${getDisplayModelName(selectedModel)}${selectedModel.isUnavailable ? " (Unavailable)" : ""}`
-    : triggerTitle;
+  const selectedCustomLabel =
+    selectedModel || props.model
+      ? getCustomModelLabel(slotLabels, activeInstanceId, selectedModel?.slug ?? props.model)
+      : undefined;
+  const triggerTitle =
+    selectedCustomLabel ??
+    (selectedModel
+      ? getTriggerDisplayModelName(selectedModel, activeEntry?.driverKind)
+      : props.model === ANTIGRAVITY_DEFAULT_MODEL
+        ? "Choose model"
+        : props.model || "Choose model");
+  const triggerLabel = selectedCustomLabel
+    ? `${selectedCustomLabel}${selectedModel?.isUnavailable ? " (Unavailable)" : ""}`
+    : selectedModel
+      ? `${getDisplayModelName(selectedModel)}${selectedModel.isUnavailable ? " (Unavailable)" : ""}`
+      : triggerTitle;
   const showInstanceBadge =
     activeEntry !== null && shouldShowInstanceBadge(activeEntry, props.instanceEntries);
 
@@ -246,13 +257,21 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       options: props.modelOptionsByInstance.get(selection.instanceId) ?? [],
     });
     const unavailable = model?.isUnavailable ? " (Unavailable)" : "";
+    const customLabel = getCustomModelLabel(slotLabels, selection.instanceId, selection.model);
     return {
       ...selection,
       entry,
-      label: model
-        ? `${getTriggerDisplayModelName(model, entry?.driverKind)}${unavailable}`
-        : selection.model,
-      fullLabel: model ? `${getDisplayModelName(model)}${unavailable}` : selection.model,
+      subProvider: model?.subProvider,
+      label: customLabel
+        ? `${customLabel}${unavailable}`
+        : model
+          ? `${getTriggerDisplayModelName(model, entry?.driverKind)}${unavailable}`
+          : selection.model,
+      fullLabel: customLabel
+        ? `${customLabel}${unavailable}`
+        : model
+          ? `${getDisplayModelName(model)}${unavailable}`
+          : selection.model,
     };
   });
   const multipleLabel = selectedEntries
@@ -394,6 +413,8 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                       <ProviderInstanceIcon
                         key={`${selection.instanceId}:${selection.model}`}
                         driverKind={selection.entry.driverKind}
+                        model={selection.model}
+                        subProvider={selection.subProvider}
                         displayName={selection.entry.displayName}
                         accentColor={selection.entry.accentColor}
                         acpRegistryAgentId={selection.entry.acpRegistryAgentId}
@@ -414,6 +435,8 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
               <span data-chat-provider-model-picker-icon className="contents">
                 <ProviderInstanceIcon
                   driverKind={activeEntry.driverKind}
+                  model={selectedModel?.slug ?? props.model}
+                  subProvider={selectedModel?.subProvider}
                   displayName={activeEntry.displayName}
                   accentColor={activeEntry.accentColor}
                   acpRegistryAgentId={activeEntry.acpRegistryAgentId}

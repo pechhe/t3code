@@ -76,6 +76,7 @@ export function UsageModelDialog({
           <div className="flex items-center gap-2">
             <ProviderInstanceIcon
               driverKind={presentation.driverKind}
+              model={model.model}
               displayName={presentation.label}
               iconClassName="size-5"
             />

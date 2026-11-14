@@ -71,3 +71,5 @@ export function resolveModelShortName(
   const families = driverKind ? providerClients.get(driverKind)?.modelFamilies : undefined;
   return modelShortName(model.name, families ?? []);
 }
+
+export { MODEL_MAKER_ICONS, resolveModelIconMaker, type ModelIconMaker } from "./modelIcons.ts";

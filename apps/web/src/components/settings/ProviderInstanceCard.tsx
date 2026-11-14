@@ -1492,6 +1492,18 @@ export function ProviderInstanceCard({
                   canWritePreferences={canWriteSettings}
                   instanceId={instanceId}
                   driverKind={driverKind}
+                  providerDisplayName={displayName}
+                  providerAccentColor={accentColor}
+                  acpRegistryAgentId={
+                    readConfigString(instance.config, "source") === "local"
+                      ? undefined
+                      : (readConfigString(instance.config, "agentId") ?? undefined)
+                  }
+                  acpRegistryIconUrl={
+                    readConfigString(instance.config, "source") === "local"
+                      ? undefined
+                      : (readConfigString(instance.config, "registryIconUrl") ?? undefined)
+                  }
                   models={modelsForDisplay}
                   customModels={customModels}
                   hiddenModels={hiddenModels}

@@ -1,5 +1,6 @@
 import { type CSSProperties, memo } from "react";
 
+import { MODEL_MAKER_ICONS, resolveModelIconMaker } from "@t3tools/client-runtime/provider-clients";
 import {
   normalizeProviderAccentColor,
   providerAccentForegroundColor,
@@ -86,9 +87,40 @@ export function resolveProviderInstanceAcpRegistryIconUrl(input: {
   );
 }
 
+export function resolveProviderInstanceIcon(input: {
+  readonly driverKind: ProviderDriverKind;
+  readonly model?: string | undefined;
+  readonly subProvider?: string | undefined;
+}) {
+  const maker = resolveModelIconMaker({
+    driverKind: input.driverKind,
+    model: input.model,
+    subProvider: input.subProvider,
+  });
+  const Icon =
+    maker === "openai"
+      ? OpenAI
+      : maker === "anthropic"
+        ? ClaudeAI
+        : maker
+          ? null
+          : (PROVIDER_ICON_BY_PROVIDER[input.driverKind] ?? null);
+  const packageIcon =
+    maker === "openai" || maker === "anthropic"
+      ? undefined
+      : maker === "xai"
+        ? providerClients.get(ProviderDriverKind.make("grok"))?.icon
+        : maker
+          ? MODEL_MAKER_ICONS[maker]
+          : providerClients.get(input.driverKind)?.icon;
+  return { maker, Icon, packageIcon };
+}
+
 export const ProviderInstanceIcon = memo(function ProviderInstanceIcon(props: {
   driverKind: ProviderDriverKind;
   displayName: string;
+  model?: string | undefined;
+  subProvider?: string | undefined;
   accentColor?: string | undefined;
   acpRegistryAgentId?: string | undefined;
   acpRegistryIconUrl?: string | undefined;
@@ -100,8 +132,11 @@ export const ProviderInstanceIcon = memo(function ProviderInstanceIcon(props: {
   badgeClassName?: string;
   indicatorBackground?: string;
 }) {
-  const Icon = PROVIDER_ICON_BY_PROVIDER[props.driverKind] ?? null;
-  const packageIcon = providerClients.get(props.driverKind)?.icon;
+  const { maker, Icon, packageIcon } = resolveProviderInstanceIcon({
+    driverKind: props.driverKind,
+    model: props.model,
+    subProvider: props.subProvider,
+  });
   const indicatorBackground = props.indicatorBackground ?? "var(--card)";
   const accentColor = normalizeProviderAccentColor(props.accentColor);
   const accentStyle = accentColor
@@ -129,6 +164,7 @@ export const ProviderInstanceIcon = memo(function ProviderInstanceIcon(props: {
       )}
       style={accentStyle}
       data-provider-accent-color={accentColor}
+      data-model-maker={maker ?? undefined}
     >
       {isAcpRegistry ? (
         <AcpRegistryAgentIcon

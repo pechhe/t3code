@@ -9,10 +9,15 @@ import {
 import { isReasoningControl } from "@t3tools/client-runtime/model-traits";
 import { type CustomModelDefinition, normalizeCustomModelSlug } from "@t3tools/shared/model";
 
+import { useClientSettings } from "../../hooks/useSettings";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { cn } from "../../lib/utils";
 import { sortModelsForProviderInstance } from "../../modelOrdering";
 import { MAX_CUSTOM_MODEL_LENGTH } from "../../modelSelection";
+import { getCustomModelLabel, saveModelLabel, selectModelSlotLabels } from "../chat/modelLabels";
+import { InlineModelRenameInput } from "../chat/ModelListRow";
+import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
+import { getDisplayModelName } from "../chat/providerIconUtils";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Switch } from "../ui/switch";
@@ -158,6 +163,10 @@ function nextHiddenModelsForBulkToggle(
 interface ProviderModelsSectionProps {
   readonly instanceId: ProviderInstanceId;
   readonly driverKind: ProviderDriverKind | null;
+  readonly providerDisplayName?: string | undefined;
+  readonly providerAccentColor?: string | undefined;
+  readonly acpRegistryAgentId?: string | undefined;
+  readonly acpRegistryIconUrl?: string | undefined;
   readonly models: ReadonlyArray<ServerProviderModel>;
   readonly customModels: ReadonlyArray<CustomModelDefinition>;
   readonly canManageCustomModels: boolean;
@@ -181,6 +190,10 @@ interface ProviderModelsSectionProps {
 export function ProviderModelsSection({
   instanceId,
   driverKind,
+  providerDisplayName,
+  providerAccentColor,
+  acpRegistryAgentId,
+  acpRegistryIconUrl,
   models,
   customModels,
   canManageCustomModels,
@@ -196,11 +209,13 @@ export function ProviderModelsSection({
   onToggleFavorite,
   onModelOrderChange,
 }: ProviderModelsSectionProps) {
+  const slotLabels = useClientSettings(selectModelSlotLabels);
   const [input, setInput] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [filter, setFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [editingSlug, setEditingSlug] = useState<string | null>(null);
+  const [renamingSlug, setRenamingSlug] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const scrollToSlugRef = useRef<string | null>(null);
   const hiddenModelSet = new Set(hiddenModels);
@@ -225,11 +240,14 @@ export function ProviderModelsSection({
   const normalizedFilter = filter.trim().toLowerCase();
   const isFiltering = showFilter && normalizedFilter.length > 0;
   const visibleModels = isFiltering
-    ? displayModels.filter(
-        (model) =>
+    ? displayModels.filter((model) => {
+        const customLabel = getCustomModelLabel(slotLabels, instanceId, model.slug);
+        return (
           model.name.toLowerCase().includes(normalizedFilter) ||
-          model.slug.toLowerCase().includes(normalizedFilter),
-      )
+          model.slug.toLowerCase().includes(normalizedFilter) ||
+          (customLabel !== undefined && customLabel.toLowerCase().includes(normalizedFilter))
+        );
+      })
     : displayModels;
 
   // A model added or moved lands in a later commit, so each commit looks for the pending row.
@@ -333,11 +351,32 @@ export function ProviderModelsSection({
     if (!canManageCustomModels) return;
     setEditingSlug((current) => (current === slug ? null : slug));
   });
+  const handleStartRename = useStableCallback((slug: string) => {
+    if (!canWritePreferences) return;
+    setRenamingSlug(slug);
+  });
+  const handleCommitRename = useStableCallback((slug: string, nextName: string) => {
+    const model = displayModels.find((candidate) => candidate.slug === slug);
+    saveModelLabel({
+      slotLabels,
+      instanceId,
+      slug,
+      nextName,
+      ...(model ? { defaultNames: [model.name, getDisplayModelName(model)] } : {}),
+    });
+    setRenamingSlug(null);
+  });
+  const handleCancelRename = useStableCallback(() => {
+    setRenamingSlug(null);
+  });
   const rowHandlers = {
     onToggleFavorite: useStableCallback(handleToggleFavorite),
     onMove: useStableCallback(handleMove),
     onSetHidden: useStableCallback(setHidden),
     onToggleEdit: handleToggleEdit,
+    onStartRename: handleStartRename,
+    onCommitRename: handleCommitRename,
+    onCancelRename: handleCancelRename,
     onRemove: useStableCallback(handleRemove),
   };
 
@@ -349,7 +388,14 @@ export function ProviderModelsSection({
     return (
       <ProviderModelRow
         key={`${instanceId}:${model.slug}`}
+        driverKind={driverKind}
+        providerDisplayName={providerDisplayName}
+        providerAccentColor={providerAccentColor}
+        acpRegistryAgentId={acpRegistryAgentId}
+        acpRegistryIconUrl={acpRegistryIconUrl}
         model={model}
+        customLabel={getCustomModelLabel(slotLabels, instanceId, model.slug)}
+        isRenaming={renamingSlug === model.slug}
         isHidden={!model.isCustom && hiddenModelSet.has(model.slug)}
         isFavorite={group === "favorite"}
         canMoveUp={!isFiltering && previousModel !== undefined && groupOf(previousModel) === group}
@@ -511,7 +557,14 @@ export function ProviderModelsSection({
 }
 
 function ProviderModelRow({
+  driverKind,
+  providerDisplayName,
+  providerAccentColor,
+  acpRegistryAgentId,
+  acpRegistryIconUrl,
   model,
+  customLabel,
+  isRenaming,
   isHidden,
   isFavorite,
   canMoveUp,
@@ -526,9 +579,19 @@ function ProviderModelRow({
   onMove,
   onSetHidden,
   onToggleEdit,
+  onStartRename,
+  onCommitRename,
+  onCancelRename,
   onRemove,
 }: {
+  readonly driverKind: ProviderDriverKind | null;
+  readonly providerDisplayName?: string | undefined;
+  readonly providerAccentColor?: string | undefined;
+  readonly acpRegistryAgentId?: string | undefined;
+  readonly acpRegistryIconUrl?: string | undefined;
   readonly model: ServerProviderModel;
+  readonly customLabel: string | undefined;
+  readonly isRenaming: boolean;
   readonly isHidden: boolean;
   readonly isFavorite: boolean;
   readonly canMoveUp: boolean;
@@ -543,9 +606,13 @@ function ProviderModelRow({
   readonly onMove: (slug: string, direction: -1 | 1) => void;
   readonly onSetHidden: (slug: string, hidden: boolean) => void;
   readonly onToggleEdit: (slug: string) => void;
+  readonly onStartRename: (slug: string) => void;
+  readonly onCommitRename: (slug: string, nextName: string) => void;
+  readonly onCancelRename: () => void;
   readonly onRemove: (slug: string) => void;
 }) {
   const capLabels = describeModelCapabilities(model, flagMissingReasoning);
+  const displayName = customLabel ?? model.name;
   const nameClassName = cn("text-xs", isHidden ? "text-muted-foreground" : "text-foreground/90");
   const pickerTooltip = model.isCustom
     ? "Custom models are always shown in the picker"
@@ -557,7 +624,7 @@ function ProviderModelRow({
     <div
       data-model-slug={model.slug}
       className={cn(
-        "grid h-7 items-center gap-2 rounded-md px-2 transition-colors hover:bg-muted/30",
+        "group grid h-7 items-center gap-2 rounded-md px-2 transition-colors hover:bg-muted/30",
         onCompactAtChange
           ? "grid-cols-[1.5rem_minmax(0,1fr)_auto_auto_minmax(5.5rem,auto)_auto]"
           : "grid-cols-[1.5rem_minmax(0,1fr)_auto_minmax(5.5rem,auto)_auto]",
@@ -572,7 +639,7 @@ function ProviderModelRow({
               variant="ghost-muted"
               disabled={!canWritePreferences}
               onClick={() => onToggleFavorite(model.slug)}
-              aria-label={`${isFavorite ? "Remove" : "Add"} ${model.name} ${
+              aria-label={`${isFavorite ? "Remove" : "Add"} ${displayName} ${
                 isFavorite ? "from" : "to"
               } favorites`}
             />
@@ -584,30 +651,71 @@ function ProviderModelRow({
           {isFavorite ? "Remove from favorites" : "Add to favorites"}
         </TooltipPopup>
       </Tooltip>
-      <span className="flex min-w-0 items-baseline gap-2">
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <span tabIndex={0} className="flex min-w-0 items-baseline gap-2 overflow-hidden" />
-            }
-          >
-            <span className={cn(nameClassName, "max-w-full shrink-0 truncate")}>{model.name}</span>
-            {model.name !== model.slug ? (
-              <code className="truncate font-mono text-2xs text-muted-foreground/70">
-                {model.slug}
-              </code>
-            ) : null}
-          </TooltipTrigger>
-          <TooltipPopup side="top" align="start">
-            <div>{model.name}</div>
-            {model.name !== model.slug ? (
-              <code className="font-mono text-2xs text-muted-foreground">{model.slug}</code>
-            ) : null}
-          </TooltipPopup>
-        </Tooltip>
-        {model.isCustom ? (
-          <span className="shrink-0 text-2xs text-muted-foreground/70">custom</span>
+      <span className="flex min-w-0 items-center gap-2">
+        {driverKind !== null ? (
+          <ProviderInstanceIcon
+            driverKind={driverKind}
+            model={model.slug}
+            subProvider={model.subProvider}
+            displayName={providerDisplayName ?? driverKind}
+            accentColor={providerAccentColor}
+            acpRegistryAgentId={acpRegistryAgentId}
+            acpRegistryIconUrl={acpRegistryIconUrl}
+            showBadge={false}
+            className="size-3.5 shrink-0"
+            iconClassName="size-3.5"
+          />
         ) : null}
+        {isRenaming ? (
+          <InlineModelRenameInput
+            key={model.slug}
+            initialValue={displayName}
+            placeholder={model.name}
+            hasCustomLabel={customLabel !== undefined}
+            inputClassName="h-5.5 text-xs"
+            onCommit={(nextName) => onCommitRename(model.slug, nextName)}
+            onCancel={onCancelRename}
+          />
+        ) : (
+          <>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span
+                    tabIndex={0}
+                    className="min-w-0 overflow-hidden"
+                    onDoubleClick={
+                      canWritePreferences ? () => onStartRename(model.slug) : undefined
+                    }
+                  />
+                }
+              >
+                <span className="flex min-w-0 items-baseline gap-2 overflow-hidden">
+                  <span className={cn(nameClassName, "max-w-full shrink-0 truncate")}>
+                    {displayName}
+                  </span>
+                  {displayName !== model.slug ? (
+                    <code className="truncate font-mono text-2xs text-muted-foreground/70">
+                      {model.slug}
+                    </code>
+                  ) : null}
+                </span>
+              </TooltipTrigger>
+              <TooltipPopup side="top" align="start">
+                <div>{displayName}</div>
+                {customLabel !== undefined && customLabel !== model.name ? (
+                  <div className="text-2xs text-muted-foreground">Default: {model.name}</div>
+                ) : null}
+                {displayName !== model.slug ? (
+                  <code className="font-mono text-2xs text-muted-foreground">{model.slug}</code>
+                ) : null}
+              </TooltipPopup>
+            </Tooltip>
+            {model.isCustom ? (
+              <span className="shrink-0 text-2xs text-muted-foreground/70">custom</span>
+            ) : null}
+          </>
+        )}
       </span>
       <span className="text-2xs text-muted-foreground/70">
         {capLabels.length > 0 ? (
@@ -623,6 +731,25 @@ function ProviderModelRow({
         />
       ) : null}
       <span className="flex shrink-0 items-center justify-end gap-0.5">
+        {!model.isCustom && canWritePreferences && !isRenaming ? (
+          <span className="inline-flex opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100">
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    size="icon-micro"
+                    variant="ghost-muted"
+                    aria-label={`Rename ${displayName}`}
+                    onClick={() => onStartRename(model.slug)}
+                  />
+                }
+              >
+                <PencilIcon className="size-3" />
+              </TooltipTrigger>
+              <TooltipPopup side="top">Rename model</TooltipPopup>
+            </Tooltip>
+          </span>
+        ) : null}
         {!isHidden && !isFiltering ? (
           <>
             <Tooltip>
@@ -633,7 +760,7 @@ function ProviderModelRow({
                     variant="ghost-muted"
                     disabled={!canWritePreferences || !canMoveUp}
                     onClick={() => onMove(model.slug, -1)}
-                    aria-label={`Move ${model.name} up`}
+                    aria-label={`Move ${displayName} up`}
                   />
                 }
               >
@@ -649,7 +776,7 @@ function ProviderModelRow({
                     variant="ghost-muted"
                     disabled={!canWritePreferences || !canMoveDown}
                     onClick={() => onMove(model.slug, 1)}
-                    aria-label={`Move ${model.name} down`}
+                    aria-label={`Move ${displayName} down`}
                   />
                 }
               >

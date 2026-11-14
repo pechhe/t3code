@@ -1,5 +1,4 @@
 import type { EnvironmentId, ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
-import type { ClientSettings } from "@t3tools/contracts/settings";
 import {
   type CSSProperties,
   type ReactElement,
@@ -9,16 +8,13 @@ import {
   useState,
 } from "react";
 
-import {
-  useClientSettings,
-  useEnvironmentModelPreferences,
-  updateClientSettings,
-} from "~/hooks/useSettings";
+import { useClientSettings, useEnvironmentModelPreferences } from "~/hooks/useSettings";
 import { playRotary } from "~/lib/interfaceSounds";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
 import { providerModelKey } from "../../../modelOrdering";
 import type { ProviderInstanceEntry } from "../../../providerInstances";
 import { resolveModelPickerSelectedModel } from "../ModelPickerContent";
+import { saveModelLabel, selectModelSlotLabels } from "../modelLabels";
 import { getTriggerDisplayModelName, type ModelEsque } from "../providerIconUtils";
 import { resolveFavoriteSlots } from "./favoriteSlots.logic";
 
@@ -44,8 +40,6 @@ const PROVIDER_LIGHTS: Readonly<Record<string, string>> = {
 function FastTag() {
   return <span className="device-slider__fast">Fast</span>;
 }
-
-const selectModelSlotLabels = (settings: ClientSettings) => settings.modelSlotLabels;
 
 export interface DeviceModelSliderHandle {
   /** Picks the favourite in slot `index` (0-based), as clicking its label would. */
@@ -158,13 +152,13 @@ export function DeviceModelSlider(props: {
 
   const rename = (slot: Slot, name: string) => {
     setRenamingKey(null);
-    const label = name.trim();
-    const others = { ...slotLabels };
-    delete others[slot.key];
-    const next = label && label !== slot.modelName ? { ...others, [slot.key]: label } : others;
-    if (next[slot.key] !== slotLabels[slot.key]) {
-      void updateClientSettings({ modelSlotLabels: next });
-    }
+    saveModelLabel({
+      slotLabels,
+      instanceId: slot.instanceId,
+      slug: slot.model,
+      nextName: name,
+      defaultNames: [slot.modelName],
+    });
   };
   const position = activeIndex >= 0 ? activeIndex : FAVORITE_SLOTS;
   const overflowLabel = activeIndex < 0 && active ? active.label : null;

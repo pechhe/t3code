@@ -151,6 +151,7 @@ function SubagentMetadata(props: {
       {showBadge ? (
         <ProviderInstanceIcon
           provider={provider.driver}
+          model={modelSlug ?? subagent.model}
           iconUrl={provider.iconUrl}
           size={12}
           displayName={resolveProviderInstanceDisplayName(provider)}
@@ -160,6 +161,7 @@ function SubagentMetadata(props: {
       ) : (
         <ProviderIcon
           provider={provider?.driver ?? subagent.driver}
+          model={modelSlug ?? subagent.model}
           iconUrl={provider?.iconUrl}
           size={12}
         />
