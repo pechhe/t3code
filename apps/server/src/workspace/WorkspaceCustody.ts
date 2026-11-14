@@ -190,11 +190,30 @@ const make = Effect.gen(function* () {
         claimed: fs.realPath(receipt.path),
         expected: fs.realPath(expectedPath),
       }).pipe(Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "reply", cause })));
-      if (paths.claimed !== paths.expected)
-        return yield* new WorkspaceCustodyError({
-          stage: "reply",
-          cause: "Custody acquisition path mismatch.",
-        });
+      if (paths.claimed !== paths.expected) {
+        const workspace = yield* processes
+          .run({
+            command: "jj",
+            args: ["root"],
+            cwd: expectedPath,
+            timeout: "30 seconds",
+            maxOutputBytes: 4096,
+          })
+          .pipe(Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "reply", cause })));
+        if (workspace.code !== 0 || workspace.stdoutTruncated || workspace.stdout.trim() === "")
+          return yield* new WorkspaceCustodyError({
+            stage: "reply",
+            cause: "Canonical checkout root could not be established.",
+          });
+        const canonicalWorkspaceRoot = yield* fs
+          .realPath(workspace.stdout.trim())
+          .pipe(Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "reply", cause })));
+        if (paths.claimed !== canonicalWorkspaceRoot)
+          return yield* new WorkspaceCustodyError({
+            stage: "reply",
+            cause: "Custody acquisition path mismatch.",
+          });
+      }
       canonicalPath = paths.claimed;
     }
     yield* journal

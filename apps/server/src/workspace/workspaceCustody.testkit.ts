@@ -20,6 +20,7 @@ const decodeRelease = Schema.decodeEffect(
 export const fixture = Effect.gen(function* () {
   const controllerStart = yield* Ref.make("first-start");
   const producerProtocol = yield* Ref.make(1);
+  const workspaceRoot = yield* Ref.make<string | null>(null);
   const releases = yield* Ref.make(0);
   const acquisitionPath = yield* Ref.make<string | null>(null);
   const acquisitionGate = yield* Ref.make<Effect.Effect<void>>(Effect.void);
@@ -28,6 +29,17 @@ export const fixture = Effect.gen(function* () {
     run: Effect.fn("custodyFixture.run")(function* (input) {
       yield* Ref.update(argumentsUsed, (all) => [...all, input.command, ...input.args]);
       const args = input.command === "bun" ? input.args.slice(1) : input.args;
+      if (input.command === "jj" && args[0] === "root")
+        return {
+          stdout: (yield* Ref.get(workspaceRoot)) ?? input.cwd ?? "",
+          stderr: "",
+          code: ChildProcessSpawner.ExitCode(0),
+          timedOut: false,
+          stdoutTruncated: false,
+          stderrTruncated: false,
+          stdoutInvalidUtf8: false,
+          stderrInvalidUtf8: false,
+        };
       let reply: unknown;
       switch (args[1]) {
         case "capability":
@@ -108,6 +120,7 @@ export const fixture = Effect.gen(function* () {
     layer,
     controllerStart,
     producerProtocol,
+    workspaceRoot,
     releases,
     argumentsUsed,
     acquisitionGate,

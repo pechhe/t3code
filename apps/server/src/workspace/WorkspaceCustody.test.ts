@@ -91,42 +91,56 @@ it.effect.each([0, 2])(
     }),
 );
 
-it.effect.each(["alias", "different-checkout", "missing-requested", "missing-receipt"] as const)(
-  "validates existing custody by filesystem identity: %s",
-  (scenario) =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const root = yield* fs.realPath(yield* fs.makeTempDirectoryScoped());
-      const checkout = `${root}/checkout`;
-      const alias = `${root}/alias`;
-      const other = `${root}/other`;
-      yield* fs.makeDirectory(checkout);
-      yield* fs.makeDirectory(other);
-      yield* fs.symlink(checkout, alias);
-      const requested = scenario === "missing-requested" ? `${root}/missing` : alias;
-      const claimed =
-        scenario === "different-checkout"
+it.effect.each([
+  "alias",
+  "monorepo-subdirectory",
+  "ancestor-mismatch",
+  "different-checkout",
+  "missing-requested",
+  "missing-receipt",
+] as const)("validates existing custody by filesystem identity: %s", (scenario) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const root = yield* fs.realPath(yield* fs.makeTempDirectoryScoped());
+    const checkout = `${root}/checkout`;
+    const alias = `${root}/alias`;
+    const other = `${root}/other`;
+    yield* fs.makeDirectory(checkout);
+    yield* fs.makeDirectory(`${checkout}/apps/weave`, { recursive: true });
+    yield* fs.makeDirectory(other);
+    yield* fs.symlink(checkout, alias);
+    const requested =
+      scenario === "missing-requested"
+        ? `${root}/missing`
+        : scenario === "monorepo-subdirectory" || scenario === "ancestor-mismatch"
+          ? `${checkout}/apps/weave`
+          : alias;
+    const claimed =
+      scenario === "ancestor-mismatch"
+        ? root
+        : scenario === "different-checkout"
           ? other
           : scenario === "missing-receipt"
             ? `${root}/missing`
             : checkout;
-      const f = yield* fixture;
-      yield* Ref.set(f.acquisitionPath, claimed);
-      yield* Effect.gen(function* () {
-        const custody = yield* WorkspaceCustody.WorkspaceCustody;
-        const journal = yield* Journal.WorkspaceCustody;
-        const epoch = yield* custody.prepare({
-          ownerRef: `identity:${scenario}`,
-          projectRoot: root,
-        });
-        const result = yield* custody.acquireExisting(epoch.id, requested).pipe(Effect.result);
-        if (scenario === "alias") {
-          assert.equal(result._tag, "Success");
-          assert.equal((yield* journal.get(epoch.id)).receipt?.path, checkout);
-        } else {
-          assert.equal(result._tag, "Failure");
-          assert.equal((yield* journal.get(epoch.id)).receipt, null);
-        }
-      }).pipe(Effect.provide(f.layer));
-    }).pipe(Effect.provide(NodeServices.layer)),
+    const f = yield* fixture;
+    yield* Ref.set(f.workspaceRoot, checkout);
+    yield* Ref.set(f.acquisitionPath, claimed);
+    yield* Effect.gen(function* () {
+      const custody = yield* WorkspaceCustody.WorkspaceCustody;
+      const journal = yield* Journal.WorkspaceCustody;
+      const epoch = yield* custody.prepare({
+        ownerRef: `identity:${scenario}`,
+        projectRoot: root,
+      });
+      const result = yield* custody.acquireExisting(epoch.id, requested).pipe(Effect.result);
+      if (scenario === "alias" || scenario === "monorepo-subdirectory") {
+        assert.equal(result._tag, "Success");
+        assert.equal((yield* journal.get(epoch.id)).receipt?.path, checkout);
+      } else {
+        assert.equal(result._tag, "Failure");
+        assert.equal((yield* journal.get(epoch.id)).receipt, null);
+      }
+    }).pipe(Effect.provide(f.layer));
+  }).pipe(Effect.provide(NodeServices.layer)),
 );
