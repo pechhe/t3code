@@ -546,6 +546,43 @@
   opacity: 0.85;
 }
 
+.device-context__bh-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 6px;
+  border: 1px solid color-mix(in oklch, var(--cream-ink) 20%, transparent);
+  border-radius: 4px;
+  background: color-mix(in oklch, var(--cream-ink) 5%, transparent);
+  color: var(--cream-ink-muted);
+  font: inherit;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+.device-context__bh-pill:hover {
+  border-color: color-mix(in oklch, var(--cream-ink) 38%, transparent);
+  color: var(--cream-ink);
+}
+.device-context__bh-pill[data-state="running"] {
+  border-color: color-mix(in oklch, var(--crt-amber) 48%, transparent);
+  background: color-mix(in oklch, var(--crt-amber) 14%, transparent);
+  color: var(--crt-amber);
+}
+.device-context__bh-pill[data-state="done"] {
+  border-color: color-mix(in oklch, oklch(0.6 0.16 148) 42%, transparent);
+  background: color-mix(in oklch, oklch(0.6 0.16 148) 12%, transparent);
+  color: oklch(0.52 0.15 148);
+}
+.device-context__bh-pill[data-state="off"] {
+  opacity: 0.65;
+}
+.device-context__bh-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
 /* ---------------- Controls strip ---------------- */
 .composer-device [data-chat-composer-footer] {
   min-height: 100px;

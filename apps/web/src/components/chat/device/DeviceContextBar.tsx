@@ -9,7 +9,13 @@ import {
 
 import type { ContextWindowSnapshot } from "@t3tools/client-runtime/state/context-window";
 import { formatContextWindowTokens } from "~/lib/contextWindow";
+import { Button } from "../../ui/button";
+import { Popover, PopoverPopup } from "../../ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
+import {
+  type BlackholeStatusSnapshot,
+  parseBlackholeExtensionStatus,
+} from "./blackholeStatus.logic";
 import {
   type CompactAtBounds,
   compactAtFromPointer,
@@ -30,6 +36,8 @@ function clampPercent(value: number): number {
  */
 export function DeviceContextBar(props: {
   usage: ContextWindowSnapshot | null;
+  extensionStatuses?: ReadonlyArray<{ readonly key: string; readonly text: string }> | undefined;
+  onRunBlackholeCommand?: ((command: string) => void) | undefined;
   /** This thread's own compact-at point; null follows the provider's setting. */
   threadCompactAt: number | null;
   /** The range the provider accepts for a compact-at point; null when it can't be set. */
@@ -62,6 +70,7 @@ export function DeviceContextBar(props: {
     : "0 / —";
   const overloaded = used > 90;
   const maxTokens = usage?.maxTokens ?? null;
+  const blackhole = parseBlackholeExtensionStatus(props.extensionStatuses);
   return (
     <div
       className="device-context"
@@ -92,6 +101,15 @@ export function DeviceContextBar(props: {
       </div>
       <span className="device-context__label">
         {readout}
+        {blackhole ? (
+          <BlackholeStatusControl
+            status={blackhole}
+            canOperateThread={props.canOperateThread}
+            compactDisabled={props.compactDisabled}
+            onRunCommand={props.onRunBlackholeCommand}
+            onCompact={props.onCompact}
+          />
+        ) : null}
         {props.compactBeforeSendTokens !== null ? (
           <CompactOnSendFlag
             tokens={props.compactBeforeSendTokens}
@@ -342,5 +360,160 @@ function CompactLine(props: {
         ) : null}
       </TooltipPopup>
     </Tooltip>
+  );
+}
+
+function formatBlackholePillLabel(status: BlackholeStatusSnapshot): string {
+  if (status.worker?.kind === "running") {
+    return `${status.worker.phase}…`;
+  }
+  if (status.worker?.kind === "done") {
+    return status.worker.delta !== null
+      ? `✓ +${status.worker.delta} obs`
+      : `✓ ${status.worker.phase}`;
+  }
+  if (!status.memoryEnabled) return "obs off";
+  if (status.observerFraction !== null) {
+    return `obs ${Math.round(status.observerFraction * 100)}%`;
+  }
+  return "obs";
+}
+
+function BlackholeStatusControl(props: {
+  status: BlackholeStatusSnapshot;
+  canOperateThread: boolean;
+  compactDisabled: boolean;
+  onRunCommand: ((command: string) => void) | undefined;
+  onCompact: (() => void) | undefined;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pillEl, setPillEl] = useState<HTMLButtonElement | null>(null);
+  const { status } = props;
+  const pillState = status.worker?.kind ?? (status.memoryEnabled ? "idle" : "off");
+
+  const runAndClose = (command: string) => {
+    setOpen(false);
+    props.onRunCommand?.(command);
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <button
+        ref={setPillEl}
+        type="button"
+        className="device-context__bh-pill"
+        data-state={pillState}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        aria-label="Blackhole observational memory details"
+        onPointerDown={(event) => event.preventDefault()}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span className="device-context__bh-dot" aria-hidden />
+        <span>{formatBlackholePillLabel(status)}</span>
+      </button>
+      <PopoverPopup anchor={pillEl} side="top" align="end" width="md" padding="compact">
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-semibold text-foreground">
+              Blackhole Observational Memory
+            </span>
+            <span className="font-mono text-2xs text-muted-foreground">
+              {status.worker?.kind === "running"
+                ? `Running ${status.worker.phase}…`
+                : status.worker?.kind === "done"
+                  ? `Settled${status.worker.delta !== null ? ` (+${status.worker.delta})` : ""}`
+                  : status.memoryEnabled
+                    ? "Active"
+                    : "Paused"}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            <BlackholeGauge
+              label="Observer"
+              fraction={status.observerFraction}
+              disabled={!status.memoryEnabled}
+              accent="amber"
+            />
+            <BlackholeGauge
+              label="Obs Pool"
+              fraction={status.poolFraction}
+              disabled={!status.memoryEnabled}
+              accent="ink"
+            />
+            <BlackholeGauge
+              label="Compaction"
+              fraction={status.compactionFraction}
+              disabled={false}
+              accent="ink"
+            />
+          </div>
+
+          {props.onRunCommand || props.onCompact ? (
+            <div className="flex items-center justify-end gap-1.5 border-t border-border/60 pt-2">
+              {props.onRunCommand ? (
+                <>
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="outline"
+                    disabled={!props.canOperateThread}
+                    onClick={() =>
+                      runAndClose(status.memoryEnabled ? "/blackhole om-off" : "/blackhole om-on")
+                    }
+                  >
+                    {status.memoryEnabled ? "Pause memory" : "Resume memory"}
+                  </Button>
+                </>
+              ) : null}
+              {props.onCompact ? (
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="outline"
+                  disabled={props.compactDisabled}
+                  onClick={() => {
+                    setOpen(false);
+                    props.onCompact?.();
+                  }}
+                >
+                  Compact
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </PopoverPopup>
+    </Popover>
+  );
+}
+
+function BlackholeGauge(props: {
+  label: string;
+  fraction: number | null;
+  disabled: boolean;
+  accent: "amber" | "ink";
+}) {
+  const pct = props.fraction !== null ? Math.round(clampPercent(props.fraction * 100)) : null;
+  return (
+    <div className="flex flex-col gap-1.5 rounded-md bg-muted/60 px-2.5 py-2">
+      <div className="flex items-center justify-between gap-1 text-2xs">
+        <span className="text-muted-foreground">{props.label}</span>
+        <span className="font-mono tabular-nums text-foreground">
+          {props.disabled ? "off" : pct !== null ? `${pct}%` : "-"}
+        </span>
+      </div>
+      <div className="h-1 w-full overflow-hidden rounded-full bg-foreground/10">
+        <div
+          className={
+            props.accent === "amber"
+              ? "h-full rounded-full bg-warning transition-[width] duration-150"
+              : "h-full rounded-full bg-foreground/55 transition-[width] duration-150"
+          }
+          style={{ width: `${props.disabled || pct === null ? 0 : pct}%` }}
+        />
+      </div>
+    </div>
   );
 }

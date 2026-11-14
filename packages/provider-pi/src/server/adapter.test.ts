@@ -4219,6 +4219,13 @@ describe("PiAdapterV2", () => {
       }
       yield* fake.emit({
         type: "extension_ui_request",
+        id: "ui-blackhole-info",
+        method: "notify",
+        message: "Observational memory: observer running on ~7,644-token chunk",
+        notifyType: "info",
+      });
+      yield* fake.emit({
+        type: "extension_ui_request",
         id: "ui-cmd",
         method: "notify",
         message: "Command finished\nwith details",

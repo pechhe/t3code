@@ -792,6 +792,16 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Owner:** #117 (open, reasoning-effort step paths), #129 (open, mobile Fast switch).
 - **Decision:** `adopt` (v0.1.9-nightly.20261109.4443, 2026-11-10): a message sends while its attachments upload (#33092): `prepareTurnAttachments` waits for each upload, a plain send no longer blocks on them, and a message that redirects pending approvals waits for them first, because declining cannot be undone. Adopted; the device composer, machine switch, Fast switch, reasoning dial, send motion and the fork's `useMultipleModelSend` and Away inheritance are unchanged. Source: apps/web/src/components/chat/ChatComposer.tsx, useComposerSend.ts, chatViewSend.ts. The composer suites named under Proof pass.
 
+### pi-blackhole-status
+
+- **Kind:** durable extension
+- **Why:** The pi-blackhole extension reports observational-memory work as a footer status (`setStatus("blackhole", ...)`) and as routine info toasts; shown raw, it filled the timeline with orange notices and the composer with a terminal-style banner.
+- **Requirements:** Pi `notify` messages of type `info` that start with `Observational memory:` never become timeline notices (warnings, errors and other extensions' info notices still do); the `blackhole` extension status never appears in the Pi status banner; the device context bar shows it as one quiet `obs` pill (observer fill, running stage, settled `+N`, or off) that opens a popover with observer, observation pool and compaction gauges and Pause/Resume memory and Compact actions (sent as `/blackhole om-off|om-on` and `/compact`; pi-blackhole has no observe-now command, and any other `/blackhole` argument compacts).
+- **Integration points:** `handleExtensionUiRequest` in `packages/provider-pi/src/server/adapter.ts`; `extensionStatuses` on the provider session (upstream contract, read unchanged); `extensionStatusBannerItem`; `parseBlackholeExtensionStatus`, which reads pi-blackhole's footer text format (`bh O▕█░▏ P▕…▏ X▕…▏` plus `[stage]` markers) and must follow it if the extension changes it; `DeviceContextBar`.
+- **Proof:** `apps/web/src/components/chat/device/blackholeStatus.logic.test.ts`; `packages/provider-pi/src/server/adapter.test.ts` ("leaves /compacted as an ordinary prompt" drops a blackhole info notice and keeps the next one).
+- **Upstream:** none; pi-blackhole is a third-party Pi extension.
+- **Retire when:** pi-blackhole publishes structured status T3 can read, or Henry stops using it.
+
 ### image-annotation
 
 - **Decision:** `retain` (v0.1.10-nightly.20261112.4580, 2026-11-12): Retain numbered image notes after checking upstream AnnotatableCodeView.tsx: it adds optional onScroll forwarding for code/diff views, separate from ImageAnnotator and composerContextLegacySend. The transcript re-import changes preserve message attachments and do not add an image-note editor. Proof: imageAnnotation.test.ts and composerContextLegacySend.test.ts.

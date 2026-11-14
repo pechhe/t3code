@@ -4100,6 +4100,15 @@ export default function ChatView(props: ChatViewProps) {
                                 resumeCompactionTokens={resumeCompactionTokens}
                                 resumeCompactionModelName={resumeCompactionModelName}
                                 contextWindow={activeContextWindow}
+                                extensionStatuses={deriveProviderExtensionStatuses(
+                                  serverProjection,
+                                )}
+                                onRunBlackholeCommand={(command) => {
+                                  void sendStandaloneCommand(
+                                    command,
+                                    "Failed to run Blackhole command.",
+                                  );
+                                }}
                                 keepFullHistory={keepFullHistory}
                                 onToggleKeepFullHistory={toggleKeepFullHistoryStable}
                                 sideChatAvailable={sideChat.available}

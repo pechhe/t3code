@@ -442,6 +442,8 @@ export interface ChatComposerProps {
   contextWindow?:
     | import("@t3tools/client-runtime/state/context-window").ContextWindowSnapshot
     | null;
+  extensionStatuses?: ReadonlyArray<{ readonly key: string; readonly text: string }> | undefined;
+  onRunBlackholeCommand?: ((command: string) => void) | undefined;
   activeThreadShell: ThreadShell | null;
   compactDisabledReason: string | null;
   keepFullHistory: boolean;
@@ -4033,6 +4035,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               {deviceComposer && !isComposerApprovalState ? (
                 <DeviceContextBar
                   usage={activeContextWindow}
+                  extensionStatuses={props.extensionStatuses}
+                  onRunBlackholeCommand={props.onRunBlackholeCommand}
                   threadCompactAt={props.activeThreadShell?.compactAt ?? null}
                   compactAtBounds={compactAtBounds}
                   onCompactAtChange={onCompactAtChange}

@@ -1652,7 +1652,10 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           const state = threadState;
           const turn = state?.activeTurn ?? null;
           const message = recordString(event, "message") ?? "";
+          const notifyType = recordString(event, "notifyType");
           if (turn === null || message.length === 0) return;
+          // Routine Blackhole info progress is surfaced in the context bar via setStatus.
+          if (notifyType === "info" && message.startsWith("Observational memory:")) return;
           yield* emitSystemNotice(
             turn,
             `notify:${turn.providerTurn.id}:${turn.nextItemOrdinal}`,
