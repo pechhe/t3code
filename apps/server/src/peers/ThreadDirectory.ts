@@ -237,9 +237,9 @@ const make = Effect.gen(function* () {
                   : { includeSubagents: input.includeSubagents }),
                 // A project ID is one environment's own, so only a single-environment query
                 // may carry one, and only to that environment.
-                ...(selector !== "all" && input.projectId !== undefined
+                ...(selector !== "all" && input.projectId !== undefined && !input.allProjects
                   ? { projectId: input.projectId }
-                  : {}),
+                  : { allProjects: true }),
                 ...(selector !== "all" && input.cursor !== undefined
                   ? { cursor: input.cursor }
                   : {}),

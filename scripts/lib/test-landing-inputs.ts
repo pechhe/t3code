@@ -105,6 +105,11 @@ const ACP_AGENT_SPAWNERS = [
 
 export const INPUT_RULES: ReadonlyArray<InputRule> = [
   {
+    when: /^apps\/web\/src\/.*\.(?:tsx?|css)$/,
+    select: ["apps/web/src/themeCssHooks.test.ts"],
+    reason: "test scans the web source tree for theme CSS hooks",
+  },
+  {
     when: /^apps\/mobile\/(?:plugins\/|app\.config\.ts$)/,
     select: ["apps/mobile/plugins/withAndroidWindowDisplayMetrics.test.mjs"],
     reason: "test loads the app config and its plugins from disk to prebuild MainActivity",

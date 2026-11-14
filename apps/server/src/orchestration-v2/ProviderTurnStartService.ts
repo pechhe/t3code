@@ -33,6 +33,7 @@ import {
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
+import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -569,12 +570,17 @@ export const layer: Layer.Layer<
           cause: `Run ${runId} is missing its execution projection state.`,
         });
       }
-      const settleRunBeforeStart = Effect.fn("orchestrationV2.providerTurnStart.settleBeforeStart")(
+      const settleRunStartup = Effect.fn("orchestrationV2.providerTurnStart.settleBeforeStart")(
         function* (input: {
           readonly signal: string;
           readonly status: "completed" | "failed";
           readonly now: DateTime.Utc;
           readonly startedAt?: DateTime.Utc;
+          readonly execution?: {
+            readonly run: OrchestrationV2Run;
+            readonly attempt: OrchestrationV2RunAttempt;
+            readonly node: OrchestrationV2ExecutionNode;
+          };
           readonly providerInstanceId: OrchestrationV2Run["providerInstanceId"];
           readonly itemProviderThreadId: OrchestrationV2ProviderThread["id"];
           readonly item:
@@ -630,14 +636,27 @@ export const layer: Layer.Layer<
             ...(input.handoff === undefined
               ? []
               : [{ type: "context-handoff.updated" as const, payload: input.handoff }]),
-            { type: "run.updated", payload: { ...run, status, ...started, completedAt: now } },
+            {
+              type: "run.updated",
+              payload: { ...(input.execution?.run ?? run), status, ...started, completedAt: now },
+            },
             {
               type: "run-attempt.updated",
-              payload: { ...attempt, status, ...started, completedAt: now },
+              payload: {
+                ...(input.execution?.attempt ?? attempt),
+                status,
+                ...started,
+                completedAt: now,
+              },
             },
             {
               type: "node.updated",
-              payload: { ...rootNode, status, ...started, completedAt: now },
+              payload: {
+                ...(input.execution?.node ?? rootNode),
+                status,
+                ...started,
+                completedAt: now,
+              },
             },
             ...(input.providerThreadUpdate === undefined
               ? []
@@ -665,7 +684,7 @@ export const layer: Layer.Layer<
             threadId: projection.thread.id,
             runId,
             activeAttemptId: attempt.id,
-            expectedStatus: "starting",
+            expectedStatus: input.execution === undefined ? "starting" : "running",
             events,
           });
           // A steering restart that cannot start still ends a run whose earlier turns counted.
@@ -686,7 +705,7 @@ export const layer: Layer.Layer<
           readonly error: Error;
           readonly message?: string;
         }) {
-          yield* settleRunBeforeStart({
+          yield* settleRunStartup({
             signal: failed.signal,
             status: "failed",
             now: yield* DateTime.now,
@@ -757,7 +776,7 @@ export const layer: Layer.Layer<
                 })
               : undefined;
           const status = failure === undefined ? "completed" : "failed";
-          yield* settleRunBeforeStart({
+          yield* settleRunStartup({
             signal: isEmptyCompaction ? "empty-compaction" : "provider-sign-out",
             status,
             now,
@@ -845,7 +864,7 @@ export const layer: Layer.Layer<
         );
         if (unresolved !== null) {
           const now = yield* DateTime.now;
-          yield* settleRunBeforeStart({
+          yield* settleRunStartup({
             signal: "workspace-missing",
             status: "failed",
             now,
@@ -903,7 +922,7 @@ export const layer: Layer.Layer<
       // else or fail without saying why. The run fails with the reason instead.
       if (worktreePath !== null && (workspaceMissing || invalidWorkspace)) {
         const now = yield* DateTime.now;
-        yield* settleRunBeforeStart({
+        yield* settleRunStartup({
           signal: "workspace-missing",
           status: "failed",
           now,
@@ -1051,7 +1070,7 @@ export const layer: Layer.Layer<
           );
         const settledAt = yield* DateTime.now;
         if (busy) {
-          yield* settleRunBeforeStart({
+          yield* settleRunStartup({
             signal: "compaction-session-busy",
             status: "failed",
             now: settledAt,
@@ -1151,7 +1170,7 @@ export const layer: Layer.Layer<
               : isTextGenerationError(summaryResult.failure)
                 ? summaryResult.failure.detail
                 : "The summary could not be written.");
-          yield* settleRunBeforeStart({
+          yield* settleRunStartup({
             signal: "compaction-summary-failed",
             status: "failed",
             now: settledAt,
@@ -1187,7 +1206,7 @@ export const layer: Layer.Layer<
                 subagent.providerThreadId === providerThread.id && subagent.status === "running",
             ) === true);
         if (threadMoved || threadBusy) {
-          yield* settleRunBeforeStart({
+          yield* settleRunStartup({
             signal: threadMoved ? "compaction-session-moved" : "compaction-session-busy",
             status: "failed",
             now: settledAt,
@@ -1223,7 +1242,7 @@ export const layer: Layer.Layer<
           summaryText: summary,
           createdAt: settledAt,
         });
-        yield* settleRunBeforeStart({
+        yield* settleRunStartup({
           signal: "compaction-on-another-account",
           status: "completed",
           now: settledAt,
@@ -2291,315 +2310,347 @@ export const layer: Layer.Layer<
       if (!runningWrite.committed) {
         return;
       }
-      // Delegated (app_owned) children run their own runs; routing them here ingests their items twice.
-      const routableSubagents = projection.subagents.filter(
-        (subagent) =>
-          subagent.origin === "provider_native" &&
-          RunExecutionService.canRouteRelatedSubagent(subagent.status),
-      );
-      const persistHandoff = Effect.fn("ProviderTurnStartService.persist")(function* (
-        handoff: OrchestrationV2ContextHandoff,
-      ) {
-        const updatedAt = yield* DateTime.now;
-        yield* eventSink.write({
-          events: [
-            {
-              id: yield* idAllocator.allocate.event({
-                threadId: projection.thread.id,
-              }),
-              type: "context-handoff.updated",
-              threadId: projection.thread.id,
-              runId: run.id,
-              providerInstanceId: run.providerInstanceId,
-              occurredAt: updatedAt,
-              payload: { ...handoff, updatedAt },
-            },
-          ],
+      const settleRunningStartupFailure = Effect.fn(
+        "ProviderTurnStartService.settleRunningStartupFailure",
+      )(function* <E>(cause: Cause.Cause<E>) {
+        if (Cause.hasInterruptsOnly(cause)) return yield* Effect.failCause(cause);
+        // Startup already committed running; retrying its outbox effect cannot start it again.
+        return yield* settleRunStartup({
+          signal: "provider-execution-start-failure",
+          status: "failed",
+          execution: { run: runningRun, attempt: runningAttempt, node: runningRootNode },
+          now: yield* DateTime.now,
+          providerInstanceId: run.providerInstanceId,
+          itemProviderThreadId: runningProviderThread.id,
+          item: {
+            type: "error",
+            title: "Provider startup failed",
+            failure: makeProviderFailure({
+              cause: Cause.squash(cause),
+              message: "Provider startup failed.",
+              class: "provider_error",
+            }),
+          },
         });
       });
-      // The notes this turn adds to the user's message. A turn with any of them goes through
-      // context delivery, which writes them.
-      const offersProjectSuggestion =
-        !isSideChatThread(projection.thread) &&
-        projection.thread.projectSuggestion == null &&
-        (yield* projects.getById(projection.thread.projectId).pipe(
-          Effect.map(
-            Option.exists(
-              (project) =>
-                path.resolve(project.workspaceRoot) ===
-                ManagedProjectFolders.scratchFolder(path, serverConfig.baseDir),
-            ),
-          ),
-          Effect.orElseSucceed(() => false),
-        ));
-      const scheduled = message.scheduledTaskId !== undefined;
-      const replaced = replacedWorkspace(
-        projection.thread,
-        projection.attempts,
-        projection.providerTurns,
-        run.id,
-      );
-      const projectFolder =
-        projection.thread.worktreePath === null
-          ? ""
-          : yield* Effect.gen(function* () {
-              const project = yield* projects.getById(projection.thread.projectId);
-              if (Option.isNone(project)) return "";
-              return (yield* checkoutOffset(projection.thread.worktreePath!)) === ""
-                ? yield* checkoutOffset(project.value.workspaceRoot)
-                : "";
-            }).pipe(
-              Effect.provideService(FileSystem.FileSystem, fileSystem),
-              Effect.provideService(Path.Path, path),
-              Effect.provideService(ProcessRunner.ProcessRunner, processes),
-              Effect.orElseSucceed(() => ""),
-            );
-      const attachments = projection.thread.workspaceAttachments ?? [];
-      const turnWorkspaces =
-        attachments.length === 0 && resolvedRuntimePolicy.managedAgent !== true
-          ? []
-          : yield* Effect.forEach(
-              [
-                {
-                  projectId: projection.thread.projectId,
-                  path: projection.thread.worktreePath,
-                  branch: projection.thread.branch,
-                  role: "primary" as const,
-                },
-                ...attachments.map((attachment) => ({
-                  projectId: attachment.projectId,
-                  path: attachment.workspacePath,
-                  branch: attachment.branch,
-                  role:
-                    attachment.releasedAt === null ? ("attached" as const) : ("released" as const),
-                })),
-              ],
-              (workspace) =>
-                Effect.gen(function* () {
-                  const project = Option.getOrUndefined(
-                    yield* projects
-                      .getById(workspace.projectId)
-                      .pipe(Effect.orElseSucceed(() => Option.none())),
-                  );
-                  const root = workspace.path ?? project?.workspaceRoot ?? "";
-                  const instructionFiles =
-                    workspace.role === "released"
-                      ? []
-                      : yield* Effect.filter(INSTRUCTION_FILES, (file) =>
-                          fileSystem
-                            .exists(path.join(root, file))
-                            .pipe(Effect.orElseSucceed(() => false)),
-                        );
-                  return {
-                    project: project?.title ?? workspace.projectId,
-                    path: root,
-                    branch: workspace.branch,
-                    role: workspace.role,
-                    instructionFiles,
-                  } satisfies TurnWorkspace;
+      return yield* Effect.gen(function* () {
+        // Delegated (app_owned) children run their own runs; routing them here ingests their items twice.
+        const routableSubagents = projection.subagents.filter(
+          (subagent) =>
+            subagent.origin === "provider_native" &&
+            RunExecutionService.canRouteRelatedSubagent(subagent.status),
+        );
+        const persistHandoff = Effect.fn("ProviderTurnStartService.persist")(function* (
+          handoff: OrchestrationV2ContextHandoff,
+        ) {
+          const updatedAt = yield* DateTime.now;
+          yield* eventSink.write({
+            events: [
+              {
+                id: yield* idAllocator.allocate.event({
+                  threadId: projection.thread.id,
                 }),
-            );
-      const arcRunNote =
-        projection.thread.arcRun === undefined ||
-        goalCommand ||
-        message.id.startsWith(ARC_RUN_WAKE_MESSAGE_PREFIX)
-          ? ""
-          : describeArcRun(projection.thread.arcRun);
-      const startWithHandoffs = Effect.fn("ProviderTurnStartService.startWithHandoffs")(
-        function* (turnInput: Parameters<typeof session.startTurn>[0], compact = false) {
-          const delivery = yield* deliverContextHandoffs({
-            handoffs: [...effectiveHandoffs, ...retryHandoff],
-            deferInline: compact || goalCommand,
-            providerThread: runningProviderThread,
-            budget,
-            alreadyDeliveredItemIds: deliveredItemIds,
-            ...(session.injectHistory === undefined
-              ? {}
-              : {
-                  inject: (history: ProviderAdapter.ProviderAdapterV2HistoricalContext) =>
-                    session.injectHistory!({
-                      providerThread: runningProviderThread,
-                      ...history,
-                    }),
-                }),
-            persist: persistHandoff,
-          });
-          if (!(yield* isCurrentAttemptInStatus("running"))) return;
-          const start = compact ? session.compactThread! : session.startTurn;
-          // Like history, the side chat context waits for a turn that sends a prompt.
-          const sideChatContext =
-            sideChatHandoff === undefined || compact || goalCommand
-              ? ""
-              : sideChatHandoff.summaryText;
-          const context = [
-            delivery.context,
-            sideChatContext,
-            restartNote,
-            compact ? "" : arcRunNote,
-            isSideChatThread(projection.thread) ? SIDE_CHAT_NOTE : "",
-            offersProjectSuggestion ? NO_PROJECT_NOTE : "",
-            projectFolder === "" ? "" : projectFolderNote(projectFolder),
-            turnWorkspaces.length === 0
-              ? ""
-              : workspacesNote(
-                  turnWorkspaces,
-                  resolvedRuntimePolicy.managedAgent === true && attachments.length === 0,
-                ),
-            replaced === null
-              ? ""
-              : replaced.worktreePath === null
-                ? unreplacedWorkspaceNote(
-                    resolvedRuntimePolicy.cwd ?? "",
-                    replaced.detail,
-                    replaced.forgeItem,
-                  )
-                : replacedWorkspaceNote(replaced.worktreePath, replaced.outcome, replaced.detail),
-            scheduled ? SCHEDULED_TASK_NOTE : "",
-          ]
-            .filter((part) => part !== "")
-            .join("\n\n");
-          const messageLabel = scheduled ? SCHEDULED_TASK_PROMPT_LABEL : "User message";
-          const { restartContinuationOfRunId: _resumedRunId, ...promptedInput } = turnInput;
-          const text =
-            goalCommand || context === ""
-              ? userText
-              : `${context}\n\n${messageLabel}:\n${userText}`;
-          yield* start({
-            ...(noteContinuation ? promptedInput : turnInput),
-            message: { ...turnInput.message, text },
-            ...(text === userText ? {} : { inlineContextLength: text.length - userText.length }),
-          }).pipe(
-            // Clear pending handoff markers for refused prompts so the next turn retains the native session.
-            Effect.tapError((error) =>
-              refusedBeforePrompt(error)
-                ? delivery.unsent.pipe(
-                    Effect.catchCause(() =>
-                      Effect.logWarning("Failed to restore unsent context handoffs", {
-                        runId: run.id,
-                      }),
-                    ),
-                  )
-                : Effect.void,
-            ),
-          );
-          // After provider acceptance, failed delivery bookkeeping must not stop live ingestion.
-          const nativeThreadId = runningProviderThread.nativeThreadRef?.nativeId;
-          yield* Effect.forEach(
-            [
-              delivery.delivered,
-              ...(sideChatContext === "" || sideChatHandoff === undefined || nativeThreadId == null
-                ? []
-                : [
-                    persistHandoff({
-                      ...sideChatHandoff,
-                      toProviderThreadId: runningProviderThread.id,
-                      delivery: { nativeThreadId, status: "inline" as const, itemIds: [] },
-                    }),
-                  ]),
-            ],
-            (record) =>
-              record.pipe(
-                Effect.catchCause(() =>
-                  Effect.logWarning("Failed to record accepted context handoff delivery", {
-                    runId: run.id,
-                    deliveryStatus: "pending",
-                  }),
-                ),
-              ),
-            { discard: true },
-          );
-        },
-        Effect.mapError((cause) =>
-          cause._tag === "ProviderAdapterTurnStartError"
-            ? cause
-            : new ProviderAdapter.ProviderAdapterTurnStartError({
-                driver: session.driver,
+                type: "context-handoff.updated",
                 threadId: projection.thread.id,
-                providerThreadId: providerThread.id,
                 runId: run.id,
-                cause,
-              }),
-        ),
+                providerInstanceId: run.providerInstanceId,
+                occurredAt: updatedAt,
+                payload: { ...handoff, updatedAt },
+              },
+            ],
+          });
+        });
+        // The notes this turn adds to the user's message. A turn with any of them goes through
+        // context delivery, which writes them.
+        const offersProjectSuggestion =
+          !isSideChatThread(projection.thread) &&
+          projection.thread.projectSuggestion == null &&
+          (yield* projects.getById(projection.thread.projectId).pipe(
+            Effect.map(
+              Option.exists(
+                (project) =>
+                  path.resolve(project.workspaceRoot) ===
+                  ManagedProjectFolders.scratchFolder(path, serverConfig.baseDir),
+              ),
+            ),
+            Effect.orElseSucceed(() => false),
+          ));
+        const scheduled = message.scheduledTaskId !== undefined;
+        const replaced = replacedWorkspace(
+          projection.thread,
+          projection.attempts,
+          projection.providerTurns,
+          run.id,
+        );
+        const projectFolder =
+          projection.thread.worktreePath === null
+            ? ""
+            : yield* Effect.gen(function* () {
+                const project = yield* projects.getById(projection.thread.projectId);
+                if (Option.isNone(project)) return "";
+                return (yield* checkoutOffset(projection.thread.worktreePath!)) === ""
+                  ? yield* checkoutOffset(project.value.workspaceRoot)
+                  : "";
+              }).pipe(
+                Effect.provideService(FileSystem.FileSystem, fileSystem),
+                Effect.provideService(Path.Path, path),
+                Effect.provideService(ProcessRunner.ProcessRunner, processes),
+                Effect.orElseSucceed(() => ""),
+              );
+        const attachments = projection.thread.workspaceAttachments ?? [];
+        const turnWorkspaces =
+          attachments.length === 0 && resolvedRuntimePolicy.managedAgent !== true
+            ? []
+            : yield* Effect.forEach(
+                [
+                  {
+                    projectId: projection.thread.projectId,
+                    path: projection.thread.worktreePath,
+                    branch: projection.thread.branch,
+                    role: "primary" as const,
+                  },
+                  ...attachments.map((attachment) => ({
+                    projectId: attachment.projectId,
+                    path: attachment.workspacePath,
+                    branch: attachment.branch,
+                    role:
+                      attachment.releasedAt === null
+                        ? ("attached" as const)
+                        : ("released" as const),
+                  })),
+                ],
+                (workspace) =>
+                  Effect.gen(function* () {
+                    const project = Option.getOrUndefined(
+                      yield* projects
+                        .getById(workspace.projectId)
+                        .pipe(Effect.orElseSucceed(() => Option.none())),
+                    );
+                    const root = workspace.path ?? project?.workspaceRoot ?? "";
+                    const instructionFiles =
+                      workspace.role === "released"
+                        ? []
+                        : yield* Effect.filter(INSTRUCTION_FILES, (file) =>
+                            fileSystem
+                              .exists(path.join(root, file))
+                              .pipe(Effect.orElseSucceed(() => false)),
+                          );
+                    return {
+                      project: project?.title ?? workspace.projectId,
+                      path: root,
+                      branch: workspace.branch,
+                      role: workspace.role,
+                      instructionFiles,
+                    } satisfies TurnWorkspace;
+                  }),
+              );
+        const arcRunNote =
+          projection.thread.arcRun === undefined ||
+          goalCommand ||
+          message.id.startsWith(ARC_RUN_WAKE_MESSAGE_PREFIX)
+            ? ""
+            : describeArcRun(projection.thread.arcRun);
+        const startWithHandoffs = Effect.fn("ProviderTurnStartService.startWithHandoffs")(
+          function* (turnInput: Parameters<typeof session.startTurn>[0], compact = false) {
+            const delivery = yield* deliverContextHandoffs({
+              handoffs: [...effectiveHandoffs, ...retryHandoff],
+              deferInline: compact || goalCommand,
+              providerThread: runningProviderThread,
+              budget,
+              alreadyDeliveredItemIds: deliveredItemIds,
+              ...(session.injectHistory === undefined
+                ? {}
+                : {
+                    inject: (history: ProviderAdapter.ProviderAdapterV2HistoricalContext) =>
+                      session.injectHistory!({
+                        providerThread: runningProviderThread,
+                        ...history,
+                      }),
+                  }),
+              persist: persistHandoff,
+            });
+            if (!(yield* isCurrentAttemptInStatus("running"))) return;
+            const start = compact ? session.compactThread! : session.startTurn;
+            // Like history, the side chat context waits for a turn that sends a prompt.
+            const sideChatContext =
+              sideChatHandoff === undefined || compact || goalCommand
+                ? ""
+                : sideChatHandoff.summaryText;
+            const context = [
+              delivery.context,
+              sideChatContext,
+              restartNote,
+              compact ? "" : arcRunNote,
+              isSideChatThread(projection.thread) ? SIDE_CHAT_NOTE : "",
+              offersProjectSuggestion ? NO_PROJECT_NOTE : "",
+              projectFolder === "" ? "" : projectFolderNote(projectFolder),
+              turnWorkspaces.length === 0
+                ? ""
+                : workspacesNote(
+                    turnWorkspaces,
+                    resolvedRuntimePolicy.managedAgent === true && attachments.length === 0,
+                  ),
+              replaced === null
+                ? ""
+                : replaced.worktreePath === null
+                  ? unreplacedWorkspaceNote(
+                      resolvedRuntimePolicy.cwd ?? "",
+                      replaced.detail,
+                      replaced.forgeItem,
+                    )
+                  : replacedWorkspaceNote(replaced.worktreePath, replaced.outcome, replaced.detail),
+              scheduled ? SCHEDULED_TASK_NOTE : "",
+            ]
+              .filter((part) => part !== "")
+              .join("\n\n");
+            const messageLabel = scheduled ? SCHEDULED_TASK_PROMPT_LABEL : "User message";
+            const { restartContinuationOfRunId: _resumedRunId, ...promptedInput } = turnInput;
+            const text =
+              goalCommand || context === ""
+                ? userText
+                : `${context}\n\n${messageLabel}:\n${userText}`;
+            yield* start({
+              ...(noteContinuation ? promptedInput : turnInput),
+              message: { ...turnInput.message, text },
+              ...(text === userText ? {} : { inlineContextLength: text.length - userText.length }),
+            }).pipe(
+              // Clear pending handoff markers for refused prompts so the next turn retains the native session.
+              Effect.tapError((error) =>
+                refusedBeforePrompt(error)
+                  ? delivery.unsent.pipe(
+                      Effect.catchCause(() =>
+                        Effect.logWarning("Failed to restore unsent context handoffs", {
+                          runId: run.id,
+                        }),
+                      ),
+                    )
+                  : Effect.void,
+              ),
+            );
+            // After provider acceptance, failed delivery bookkeeping must not stop live ingestion.
+            const nativeThreadId = runningProviderThread.nativeThreadRef?.nativeId;
+            yield* Effect.forEach(
+              [
+                delivery.delivered,
+                ...(sideChatContext === "" ||
+                sideChatHandoff === undefined ||
+                nativeThreadId == null
+                  ? []
+                  : [
+                      persistHandoff({
+                        ...sideChatHandoff,
+                        toProviderThreadId: runningProviderThread.id,
+                        delivery: { nativeThreadId, status: "inline" as const, itemIds: [] },
+                      }),
+                    ]),
+              ],
+              (record) =>
+                record.pipe(
+                  Effect.catchCause(() =>
+                    Effect.logWarning("Failed to record accepted context handoff delivery", {
+                      runId: run.id,
+                      deliveryStatus: "pending",
+                    }),
+                  ),
+                ),
+              { discard: true },
+            );
+          },
+          Effect.mapError((cause) =>
+            cause._tag === "ProviderAdapterTurnStartError"
+              ? cause
+              : new ProviderAdapter.ProviderAdapterTurnStartError({
+                  driver: session.driver,
+                  threadId: projection.thread.id,
+                  providerThreadId: providerThread.id,
+                  runId: run.id,
+                  cause,
+                }),
+          ),
+        );
+        const deliverySession =
+          effectiveHandoffs.length === 0 &&
+          retryHandoff.length === 0 &&
+          sideChatHandoff === undefined &&
+          restartNote === "" &&
+          arcRunNote === "" &&
+          !noteContinuation &&
+          !isSideChatThread(projection.thread) &&
+          !scheduled &&
+          !offersProjectSuggestion &&
+          projectFolder === "" &&
+          turnWorkspaces.length === 0 &&
+          replaced === null
+            ? session
+            : makeDeliverySession(session, startWithHandoffs);
+        const { frames: videoFrames, guide: videoGuide } =
+          yield* videoFramesService.framesForMessage(message.attachments);
+        const compaction =
+          compactionPlan.kind === "provider"
+            ? { modelSelection: compactionPlan.modelSelection }
+            : compactionPlan.kind === "windowTooSmall"
+              ? { windowTooSmall: true }
+              : undefined;
+        return runExecution
+          .startRootRun({
+            commandId: CommandId.make(`command:effect:provider-turn.start:${run.id}`),
+            appThread: projection.thread,
+            providerSessionId,
+            session: deliverySession,
+            run: runningRun,
+            rootNode: runningRootNode,
+            checkpointScope,
+            providerThread: runningProviderThread,
+            attempt: runningAttempt,
+            attemptId: attempt.id,
+            baseline,
+            loadInheritedBackgroundTurnItems: runControls.loadInheritedBackgroundTurnItems,
+            relatedThreadIds: routableSubagents.flatMap((subagent) =>
+              subagent.childThreadId === null ? [] : [subagent.childThreadId],
+            ),
+            relatedProviderThreadIds: routableSubagents.flatMap((subagent) =>
+              subagent.providerThreadId === null ? [] : [subagent.providerThreadId],
+            ),
+            providerTurnOrdinal:
+              Math.max(
+                0,
+                ...projection.providerTurns
+                  .filter((turn) => turn.providerThreadId === providerThread.id)
+                  .map((turn) => turn.ordinal),
+              ) + 1,
+            nativeThreadHasTurns:
+              nativeInputRunIds.size > 0 ||
+              (legacyInputRunIds.size > 0 &&
+                sameNativeThread &&
+                !acceptedAttempts.some((source) => source.nativeThreadId !== undefined)),
+            shouldStartProviderTurn: runControls.shouldStartProviderTurn,
+            shouldFinalizeRun: runControls.shouldFinalizeRun,
+            hasUnpairedRunInterruptRequest: runControls.hasUnpairedRunInterruptRequest,
+            movedTo: runControls.movedTo,
+            loadRunInterruptReason: runControls.loadRunInterruptReason,
+            hasWorkspaceMoved: runControls.hasWorkspaceMoved,
+            message: {
+              messageId: message.id,
+              text: videoGuide === "" ? userText : `${userText}\n\n${videoGuide}`,
+              attachments: message.attachments,
+              ...(videoFrames.length === 0 ? {} : { videoFrames }),
+              createdBy: message.createdBy,
+              creationSource: message.creationSource,
+              ...(message.scheduledTaskId === undefined
+                ? {}
+                : { scheduledTaskId: message.scheduledTaskId }),
+              ...(message.senderThreadId === undefined
+                ? {}
+                : { senderThreadId: message.senderThreadId }),
+            },
+            modelSelection: run.modelSelection,
+            ...(compaction === undefined ? {} : { compaction }),
+            runtimePolicy: resolvedRuntimePolicy,
+          })
+          .pipe(Effect.catchCause(settleRunningStartupFailure));
+      }).pipe(
+        Effect.catchCause((cause) => settleRunningStartupFailure(cause).pipe(Effect.as(undefined))),
       );
-      const deliverySession =
-        effectiveHandoffs.length === 0 &&
-        retryHandoff.length === 0 &&
-        sideChatHandoff === undefined &&
-        restartNote === "" &&
-        arcRunNote === "" &&
-        !noteContinuation &&
-        !isSideChatThread(projection.thread) &&
-        !scheduled &&
-        !offersProjectSuggestion &&
-        projectFolder === "" &&
-        turnWorkspaces.length === 0 &&
-        replaced === null
-          ? session
-          : makeDeliverySession(session, startWithHandoffs);
-      const { frames: videoFrames, guide: videoGuide } = yield* videoFramesService.framesForMessage(
-        message.attachments,
-      );
-      const compaction =
-        compactionPlan.kind === "provider"
-          ? { modelSelection: compactionPlan.modelSelection }
-          : compactionPlan.kind === "windowTooSmall"
-            ? { windowTooSmall: true }
-            : undefined;
-      return runExecution.startRootRun({
-        commandId: CommandId.make(`command:effect:provider-turn.start:${run.id}`),
-        appThread: projection.thread,
-        providerSessionId,
-        session: deliverySession,
-        run: runningRun,
-        rootNode: runningRootNode,
-        checkpointScope,
-        providerThread: runningProviderThread,
-        attempt: runningAttempt,
-        attemptId: attempt.id,
-        baseline,
-        loadInheritedBackgroundTurnItems: runControls.loadInheritedBackgroundTurnItems,
-        relatedThreadIds: routableSubagents.flatMap((subagent) =>
-          subagent.childThreadId === null ? [] : [subagent.childThreadId],
-        ),
-        relatedProviderThreadIds: routableSubagents.flatMap((subagent) =>
-          subagent.providerThreadId === null ? [] : [subagent.providerThreadId],
-        ),
-        providerTurnOrdinal:
-          Math.max(
-            0,
-            ...projection.providerTurns
-              .filter((turn) => turn.providerThreadId === providerThread.id)
-              .map((turn) => turn.ordinal),
-          ) + 1,
-        nativeThreadHasTurns:
-          nativeInputRunIds.size > 0 ||
-          (legacyInputRunIds.size > 0 &&
-            sameNativeThread &&
-            !acceptedAttempts.some((source) => source.nativeThreadId !== undefined)),
-        shouldStartProviderTurn: runControls.shouldStartProviderTurn,
-        shouldFinalizeRun: runControls.shouldFinalizeRun,
-        hasUnpairedRunInterruptRequest: runControls.hasUnpairedRunInterruptRequest,
-        movedTo: runControls.movedTo,
-        loadRunInterruptReason: runControls.loadRunInterruptReason,
-        hasWorkspaceMoved: runControls.hasWorkspaceMoved,
-        message: {
-          messageId: message.id,
-          text: videoGuide === "" ? userText : `${userText}\n\n${videoGuide}`,
-          attachments: message.attachments,
-          ...(videoFrames.length === 0 ? {} : { videoFrames }),
-          createdBy: message.createdBy,
-          creationSource: message.creationSource,
-          ...(message.scheduledTaskId === undefined
-            ? {}
-            : { scheduledTaskId: message.scheduledTaskId }),
-          ...(message.senderThreadId === undefined
-            ? {}
-            : { senderThreadId: message.senderThreadId }),
-        },
-        modelSelection: run.modelSelection,
-        ...(compaction === undefined ? {} : { compaction }),
-        runtimePolicy: resolvedRuntimePolicy,
-      });
     });
 
     return ProviderTurnStartServiceV2.of({

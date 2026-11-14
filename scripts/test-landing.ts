@@ -138,6 +138,7 @@ const GLOBAL = new RegExp(
     // The root Vite config reads the task cache's URL helper, as a Vitest config import.
     String.raw`^infra\/task-cache\/src\/remoteCache\.ts$`,
     String.raw`^scripts\/lib\/(?:public-config|cli-external-packages|desktop-external-packages|third-party-licenses)\.ts$`,
+    String.raw`^scripts\/lib\/tagged-source-version\.ts$`,
     // Manifests, TypeScript and Vitest configuration, and setup files in any workspace.
     String.raw`(?:^|\/)(?:package\.json|tsconfig[^/]*\.json|vite[^/]*\.config\.[cm]?[jt]s|vitest[^/]*\.[cm]?[jt]s|[^/]*\.setup\.[cm]?[jt]s)$`,
   ].join("|"),

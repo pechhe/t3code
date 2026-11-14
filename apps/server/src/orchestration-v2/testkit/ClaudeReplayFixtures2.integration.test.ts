@@ -1,3 +1,4 @@
+import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import {
@@ -47,8 +48,10 @@ describe("Claude Agent SDK replay fixtures", () => {
         driver: ProviderDriverKind.make("claudeAgent"),
         modelSelection: CLAUDE_MODEL_SELECTION,
       }).pipe(Effect.provide(IdAllocator.layer), provideDeterministicTestRuntime);
+      const workspace = yield* checkpointWorkspace("subagent-read-only-child");
       const scenario = {
         name: "subagent/claudeAgent:read-only-child",
+        runtimePolicyOverride: { cwd: workspace },
         transcript,
         commands: materialized.commands,
         steps: materialized.steps,
@@ -81,6 +84,19 @@ describe("Claude Agent SDK replay fixtures", () => {
           userFacingDispatchErrorMessage(refused),
           "This subagent is run by its provider and cannot take messages. Message the parent thread instead.",
         );
+        const refusedContinuation = yield* orchestrator
+          .dispatch({
+            type: "thread.metadata.update",
+            commandId: CommandId.make("command:subagent:continue-native-child"),
+            threadId: child.thread.id,
+            title: "Renamed",
+            continuation: {
+              messageId: MessageId.make("message:subagent:continue-native-child"),
+              text: "Also check the tests.",
+            },
+          })
+          .pipe(Effect.flip);
+        assert.equal(refusedContinuation._tag, "OrchestratorSubagentThreadReadOnlyError");
         assert.equal(yield* orchestrator.getThreadEventSequence(child.thread.id), before);
         const after = yield* orchestrator.getThreadProjection(child.thread.id);
         assert.lengthOf(after.runs, 0);

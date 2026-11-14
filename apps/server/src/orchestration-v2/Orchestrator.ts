@@ -6117,9 +6117,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       }
       let snoozedUntil: DateTime.Utc | null = null;
       if (command.type === "thread.snooze") {
-        const projection = yield* loadProjectionForCommand(command, ["runs", "runtimeRequests"], {
-          turnItemTypes: [],
-        });
+        const projection = yield* loadProjectionForCommand(
+          command,
+          ["runs", "runtimeRequests", "providerSessions", "turnItems"],
+          {
+            turnItemTypes: ["error"],
+          },
+        );
         const parsedSnoozedUntil = DateTime.make(command.snoozedUntil);
         if (
           Option.isNone(parsedSnoozedUntil) ||
@@ -6157,7 +6161,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             )
             .map((message) => message.id),
         );
-        if (queuedRuns.some((run) => !automaticMessageIds.has(run.userMessageId))) {
+        if (
+          queuedRuns.some((run) => {
+            if (automaticMessageIds.has(run.userMessageId)) return false;
+            const message = queuedMessages.find((candidate) => candidate.id === run.userMessageId);
+            const modelSelection = followsCurrentConversation(message)
+              ? projection.thread.modelSelection
+              : run.modelSelection;
+            return !usageLimitHoldsQueue(projection, modelSelection.instanceId);
+          })
+        ) {
           return yield* new OrchestratorDispatchError({
             commandId: command.commandId,
             commandType: command.type,

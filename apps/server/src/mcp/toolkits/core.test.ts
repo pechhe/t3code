@@ -1634,7 +1634,7 @@ it.effect(
     Effect.gen(function* () {
       const server = yield* McpServer.McpServer;
       const result = yield* server
-        .callTool({ name: "t3_thread_list", arguments: { limit: 50 } })
+        .callTool({ name: "t3_thread_list", arguments: { limit: 50, allProjects: true } })
         .pipe(
           Effect.provideService(
             McpInvocationContext.McpInvocationContext,
@@ -1662,8 +1662,8 @@ it.effect(
       expect(content.environments[0]?.page?.threads[0]?.environmentId).toBe(peerEnvironmentId);
       // Asked of every peer with a capped page, and without this environment's project IDs.
       expect(peerCalls.map((call) => call.arguments)).toEqual([
-        { limit: 20, environmentId: peerEnvironmentId },
-        { limit: 20, environmentId: goneEnvironmentId },
+        { allProjects: true, limit: 20, environmentId: peerEnvironmentId },
+        { allProjects: true, limit: 20, environmentId: goneEnvironmentId },
       ]);
 
       // One linked environment asked for: its page is the top level, with its cursor.
@@ -1701,7 +1701,7 @@ it.effect(
       // A linked environment's own agent sees only this one, so reads never chain.
       peerCalls.length = 0;
       const fromPeer = yield* server
-        .callTool({ name: "t3_thread_list", arguments: {} })
+        .callTool({ name: "t3_thread_list", arguments: { allProjects: true } })
         .pipe(
           Effect.provideService(
             McpInvocationContext.McpInvocationContext,

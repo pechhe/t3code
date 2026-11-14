@@ -2189,7 +2189,9 @@ it.effect("steers a promoted scheduled delivery with the thread's current select
         yield* worker.drain();
 
         const projection = yield* orchestrator.getThreadProjection(threadId);
-        assert.deepEqual(steered, ["scheduled"]);
+        assert.lengthOf(steered, 1);
+        assert.isTrue(steered[0]!.startsWith(SCHEDULED_TASK_NOTE));
+        assert.isTrue(steered[0]!.endsWith("Scheduled task prompt:\nscheduled"));
         assert.deepEqual(projection.thread.modelSelection, composerSelection);
       }).pipe(Effect.provide(layer));
     }),

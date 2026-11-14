@@ -1,4 +1,4 @@
-import { EnvironmentId, ThreadId, OrchestratorMcpPeerNotice } from "@t3tools/contracts";
+import { EnvironmentId, OrchestratorMcpPeerNotice, ProjectId, ThreadId } from "@t3tools/contracts";
 import { formatThreadLink } from "@t3tools/shared/threadLinks";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -112,13 +112,46 @@ it.effect("reports a thread read that cannot be had as a tool failure", () =>
   }),
 );
 
-it.effect("reports a peer whose answer this build cannot read as unsupported", () =>
+it.effect("targets peer thread lists and reports unreadable answers as unsupported", () =>
   Effect.gen(function* () {
-    const directory = yield* withPeer(() =>
-      Effect.succeed({ isError: false, text: "", structuredContent: { threads: "not a list" } }),
+    const calls: Array<{ environmentId: EnvironmentId; arguments: Record<string, unknown> }> = [];
+    const directory = yield* withPeer((input) =>
+      Effect.sync(() =>
+        calls.push({ environmentId: input.environmentId, arguments: input.arguments }),
+      ).pipe(Effect.as({ isError: false, text: "", structuredContent: { threads: "not a list" } })),
     );
     expect(yield* directory.list("all", {})).toMatchObject([
       { environmentId: peerId, status: "unsupported", page: null },
+    ]);
+    expect(
+      yield* directory.list(peerId, { projectId: ProjectId.make("peer-project") }),
+    ).toMatchObject([{ environmentId: peerId, status: "unsupported", page: null }]);
+    expect(
+      yield* directory.list(peerId, {
+        projectId: ProjectId.make("ignored"),
+        allProjects: true,
+      }),
+    ).toMatchObject([{ environmentId: peerId, status: "unsupported", page: null }]);
+    expect(
+      yield* directory.list("all", { projectId: ProjectId.make("local-project") }),
+    ).toMatchObject([{ environmentId: peerId, status: "unsupported", page: null }]);
+    expect(calls).toEqual([
+      {
+        environmentId: peerId,
+        arguments: { allProjects: true, limit: 20, environmentId: peerId },
+      },
+      {
+        environmentId: peerId,
+        arguments: { projectId: "peer-project", limit: 20, environmentId: peerId },
+      },
+      {
+        environmentId: peerId,
+        arguments: { allProjects: true, limit: 20, environmentId: peerId },
+      },
+      {
+        environmentId: peerId,
+        arguments: { allProjects: true, limit: 20, environmentId: peerId },
+      },
     ]);
     expect(yield* directory.search("all", { query: "rollover" })).toMatchObject([
       { status: "unsupported", page: null },

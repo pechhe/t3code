@@ -236,6 +236,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### slipjay-workspaces
 
+- **Startup failure guard (2026-11-14):** A failure during preparation or execution startup after its running transition must settle that exact attempt as failed; outbox replay must never silently strand it or resend a possibly accepted prompt. `ProviderTurnStartService` uses a guarded terminal write, preserving interruption and newer-attempt state. `ProviderTurnStartService.test.ts` covers preparation and execution failures, interruption and supersession plus replay. Upstream main lacks this guard; related PR #31933 covers acceptance/Stop races rather than this failure boundary. Retire the guard when upstream passes these cases. This focused service fix is suitable for upstream proposal.
+
 - **Decision:** `adapt` (v0.1.10-nightly.20261114.4669, 2026-11-14): Adopt upstream Git worktree fixes for fetched-commit checkpoint filtering (#36332), remote default-branch resolution (#36379, #36268) and refusing a folder that only contains worktrees as a project root (#36366). Preserve Jujutsu driver behavior and SlipJay allocation, ownership and recovery. The affected GitVcsDriver and CheckpointStore assertions also fail on the bare upstream target; their failures are recorded in this integration receipt. WorkspaceProvider tests pass.
 
 - **Decision:** `adapt` (2026-11-13): Keep upstream #29036's released-tool cleanup and its handoff regression, but await an interrupted run in `ProviderSwitch.integration.test.ts`: a deliberate workspace detach uses `ProviderSessionDetachedError` and settles without a provider error in the fork. The regression still requires the cut-off tool call to be interrupted with a completion timestamp and no pending background work, so a released session cannot leave the thread Waiting. `RunExecutionService.test.ts` also covers deliberate-detach settlement. Retire this test adaptation when upstream gives deliberate detaches the same outcome.
@@ -389,6 +391,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Owner:** Weave Build #4728 (T3-182).
 
 ### landing-test-parallelism
+
+- **Replay baseline repair (2026-11-14):** Remove the upstream unsuffixed Claude suite after carrying its continuation-refusal assertion into group 2; the six numbered groups retain every replay and custom check exactly once. The native-child refusal scenario uses a disposable checkpoint workspace like the shared replay runner. `ClaudeReplayFixtures1–6.integration.test.ts` prove the preserved coverage.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Keep the fork replay-file partition and fixture-count guard while adopting upstream replay synchronization changes. Evidence: ProviderReplayFixtures.ts; upstream replay fixture changes.
 
@@ -567,6 +571,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Owner:** T3-351; T3-375; T3-448; T3-444; T3-592; T3-593; T3-622.
 
 ### linked-environments
+
+- **Decision:** `retain` (2026-11-14): linked thread-list requests explicitly target all projects on the peer when no peer-owned `projectId` is supplied; a caller's project ID is forwarded only to that peer and never combined with `allProjects`. The local query stays unchanged. `ThreadDirectory.list` enforces this at the peer boundary, while `fromPeer` keeps a peer's reads from chaining. Proof: ThreadDirectory.test.ts (outbound target and project isolation), mcp/toolkits/core.test.ts (local and peer listing, peer failure best effort). Retire when upstream's peer thread-directory protocol supplies equivalent target semantics.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261114.4669, 2026-11-14): Adopt T3 Connect device approval (#36419) and rediscovery of newly connected machines (#29788), preserving peer-link scope, cross-environment thread access and machine presentation. Remap upstream migrations 090–091 to fork migrations 133–134 after released migration 132; retain existing ids and aliases. Evidence: EnvironmentAuth.test.ts, PeerLinks.test.ts, migration and preview-reconciliation tests.
 

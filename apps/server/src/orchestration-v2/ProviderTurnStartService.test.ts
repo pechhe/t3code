@@ -34,6 +34,7 @@ import {
   OrchestrationV2DomainEvent,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
+import * as Exit from "effect/Exit";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 
 import * as DateTime from "effect/DateTime";
@@ -462,6 +463,7 @@ function makeLocalCommandHarness(input: {
   readonly interruptRunBeforeOpenFailure?: boolean;
   readonly writeFailure?: unknown;
   readonly failReadsAfterRunning?: boolean;
+  readonly failFramePreparation?: boolean;
   /** The conversation already has a native session, which a compaction can replace. */
   readonly nativeSession?: boolean;
   readonly nativeResumeFails?: boolean;
@@ -1311,7 +1313,13 @@ function makeLocalCommandHarness(input: {
         }),
   );
   const layer = ProviderTurnStart.layer.pipe(
-    Layer.provide(VideoFrames.layerLive),
+    Layer.provide(
+      input.failFramePreparation === true
+        ? Layer.mock(VideoFrames.VideoFrames)({
+            framesForMessage: () => Effect.die(new Error("frame preparation unavailable")),
+          })
+        : VideoFrames.layerLive,
+    ),
     Layer.provide(
       Layer.mergeAll(
         input.sideChat?.nativeForkFrom !== undefined
@@ -2386,6 +2394,52 @@ effectIt.effect("terminalizes a starting run when its provider session cannot op
       },
     ]);
   }),
+);
+
+effectIt.effect.each(["failure", "preparation", "interruption", "stale"] as const)(
+  "settles a post-transition startup %s without resending the prompt",
+  (scenario) =>
+    Effect.gen(function* () {
+      const harness = makeLocalCommandHarness({
+        text: "Continue",
+        failReadsAfterRunning: true,
+        failFramePreparation: scenario === "preparation",
+      });
+      harness.startRootRun.mockImplementation(() =>
+        Effect.gen(function* () {
+          if (scenario === "interruption") return yield* Effect.interrupt;
+          if (scenario === "stale") {
+            const projection = harness.projection();
+            harness.setProjection({
+              ...projection,
+              runs: projection.runs.map((run) => ({ ...run, status: "interrupted" })),
+            });
+          }
+          return yield* Effect.die(new Error("execution subscription unavailable"));
+        }),
+      );
+      const result = yield* Effect.exit(harness.startWithRetry);
+      if (scenario === "interruption") {
+        expect(Exit.isFailure(result) && Cause.hasInterruptsOnly(result.cause)).toBe(true);
+        expect(harness.projection().runs.at(-1)?.status).toBe("running");
+        expect(harness.settledRuns).toEqual([]);
+        return;
+      }
+      expect(Exit.isSuccess(result)).toBe(true);
+      expect(harness.projection().runs.at(-1)?.status).toBe(
+        scenario === "stale" ? "interrupted" : "failed",
+      );
+      expect(harness.settledRuns).toEqual(scenario === "stale" ? [] : ["failed"]);
+      yield* harness.startWithRetry;
+      expect(harness.startRootRun).toHaveBeenCalledTimes(scenario === "preparation" ? 0 : 1);
+      if (scenario === "failure" || scenario === "preparation") {
+        const projection = harness.projection();
+        expect(projection.runs.at(-1)?.startedAt).not.toBeNull();
+        expect(projection.attempts[0]?.status).toBe("failed");
+        expect(projection.nodes[0]?.status).toBe("failed");
+        expect(projection.turnItems).toMatchObject([{ type: "error", status: "failed" }]);
+      }
+    }),
 );
 
 effectIt.effect("leaves the run starting when a session-open failure will be retried", () =>
