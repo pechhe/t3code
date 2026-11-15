@@ -2,6 +2,13 @@ import type { PreviewAutomationSnapshot, PreviewTaskBinding } from "@t3tools/con
 import { describe, expect, it } from "@effect/vitest";
 
 import {
+  registerSnapshotValueObservation,
+  TASK_SNAPSHOT_TEXT_LENGTH,
+  transferSnapshotValueObservation,
+} from "../preview/ServerBrowserPage.ts";
+import { redactDeep, REDACTED_LOGIN } from "../preview/secretRedaction.ts";
+
+import {
   bindingSatisfied,
   describeElement,
   evaluateChecks,
@@ -38,18 +45,22 @@ const TREE = String.raw`- main [ref=e2] [box=8,8,1264,63]:
     - textbox "Empty ph" [ref=e18] [box=528,50,185,21]:
       - /placeholder: Type here`;
 
-const snapshot = (tree: string): PreviewAutomationSnapshot => ({
-  url: "http://site.test/",
-  title: "Form",
-  loading: false,
-  visibleText: "",
-  interactiveElements: [],
-  accessibilityTree: tree,
-  consoleEntries: [],
-  networkEntries: [],
-  actionTimeline: [],
-  screenshot: { mimeType: "image/png", data: "", width: 1, height: 1 },
-});
+const snapshot = (tree: string): PreviewAutomationSnapshot => {
+  const result: PreviewAutomationSnapshot = {
+    url: "http://site.test/",
+    title: "Form",
+    loading: false,
+    visibleText: "",
+    interactiveElements: [],
+    accessibilityTree: tree,
+    consoleEntries: [],
+    networkEntries: [],
+    actionTimeline: [],
+    screenshot: { mimeType: "image/png", data: "", width: 1, height: 1 },
+  };
+  registerSnapshotValueObservation(result, new Set());
+  return result;
+};
 
 const model = pageModelFromSnapshot(snapshot(TREE));
 
@@ -96,6 +107,8 @@ describe("pageModelFromSnapshot", () => {
   it("reads an empty field with a placeholder as empty, not as its placeholder", () => {
     expect(field("Empty ph").value).toBeUndefined();
     expect(applied("Empty ph", "Type here")).toBe(false);
+    expect(applied("Empty ph", "")).toBe(true);
+    expect(valueCheck("Empty ph", "")).toBe("passed");
   });
 
   it("keeps a quoted name's colon and nests its children", () => {
@@ -131,6 +144,178 @@ describe("pageModelFromSnapshot", () => {
     const cut = pageModelFromSnapshot(snapshot(TREE.slice(0, TREE.indexOf("it's: fine") + 3)));
     expect(cut.nodes.some((node) => node.name === "Colon" && node.ref === "e6")).toBe(true);
     expect(cut.nodes.some((node) => node.name === "Note: today")).toBe(false);
+  });
+});
+
+describe("rich-text field values", () => {
+  const body =
+    'Account notes: Brookside Skip Hire Ltd Brookside Skip Hire Ltd is a prospect for a daily plan. Priya Contracts signs for the account. The quote should say "Operator", not "Basic".';
+  const tree = `- main [ref=main]:
+  - generic "Sidebar text" [ref=sidebar]
+  - textbox "Doc" [ref=doc]: ${JSON.stringify(body)}
+    - text: ${JSON.stringify(body)}
+    - 'heading "Account notes: Brookside Skip Hire Ltd" [ref=title]'
+    - paragraph [ref=p1]:
+      - link "Brookside Skip Hire Ltd" [ref=company]
+      - text: " is a prospect for a daily plan."
+    - paragraph [ref=p2]: Priya Contracts signs for the account.
+    - generic [ref=section]:
+      - text: Smith
+      - paragraph [ref=p3]: The quote should say "Operator", not "Basic".
+  - textbox "Other" [ref=other]: unrelated`;
+  const page = pageModelFromSnapshot(snapshot(tree));
+  const bodyCheck = (model: ReturnType<typeof pageModelFromSnapshot>, value: string) =>
+    evaluateChecks(model, [
+      {
+        id: "body",
+        kind: "target",
+        target: { role: "textbox", name: "Doc" },
+        expect: "present",
+        value,
+      },
+    ])[0]!.status;
+
+  it("uses the captured innerText instead of duplicate children and accessibility-only labels", () => {
+    const field = resolveTarget(page, { role: "textbox", name: "Doc" });
+    if (field._tag !== "unique") throw new Error(`Doc is ${field._tag}`);
+    expect(field.node.value).toBe(body);
+    expect(
+      bindingSatisfied(
+        page,
+        { id: "body", control: "text", target: { role: "textbox", name: "Doc" }, text: body },
+        field.node,
+      ),
+    ).toBe(true);
+    expect(bodyCheck(page, body)).toBe("passed");
+    expect(bodyCheck(page, `${body} Smith Sidebar text unrelated`)).toBe("failed");
+  });
+
+  it("does not infer missing rich-text values as empty from their descendants", () => {
+    for (const tree of [
+      `- textbox "Doc" [ref=doc]:\n  - text: fragment\n  - paragraph [ref=p]: remainder`,
+      `- textbox "Doc" [ref=doc]:\n  - text: ${"editor text ".repeat(100)}`,
+      `- textbox "Doc" [ref=doc]:\n  - paragraph [ref=p]: ${"editor text ".repeat(100)}`,
+    ]) {
+      const omitted = pageModelFromSnapshot(snapshot(tree));
+      expect(omitted.truncated).toBe(false);
+      const field = resolveTarget(omitted, { role: "textbox", name: "Doc" });
+      if (field._tag !== "unique") throw new Error(`Doc is ${field._tag}`);
+      expect(field.node.value).toBeUndefined();
+      expect(
+        bindingSatisfied(
+          omitted,
+          { id: "body", control: "text", target: { role: "textbox", name: "Doc" }, text: "" },
+          field.node,
+        ),
+      ).toBe(false);
+      expect(bodyCheck(omitted, "")).toBe("failed");
+    }
+  });
+
+  it("fails closed when a copy loses observation metadata, but preserves stable copies", () => {
+    const source = snapshot(
+      '- textbox "Native empty" [ref=t3-42-e1]\n- textbox "Editor empty" [ref=t3-42-e2]: ""',
+    );
+    const sourceTree = source.accessibilityTree;
+    if (typeof sourceTree !== "string")
+      throw new Error("The test snapshot has no accessibility tree.");
+    const checkStatuses = (value: PreviewAutomationSnapshot) => {
+      const model = pageModelFromSnapshot(value);
+      return ["Native empty", "Editor empty"].map(
+        (name) =>
+          evaluateChecks(model, [
+            {
+              id: name,
+              kind: "target",
+              target: { role: "textbox", name },
+              expect: "present",
+              value: "",
+            },
+          ])[0]?.status,
+      );
+    };
+    const loadErrorCopy = transferSnapshotValueObservation(source, {
+      ...source,
+      url: "chrome-error://chromewebdata/",
+      loadError: { url: "https://site.test/", code: -105, description: "ERR_NAME_NOT_RESOLVED" },
+    });
+    const networkRefusalCopy = transferSnapshotValueObservation(source, {
+      ...source,
+      networkRefusals: ["blocked address"],
+    });
+    const redactedValueCopy = transferSnapshotValueObservation(source, {
+      ...source,
+      accessibilityTree: sourceTree.replace(
+        'Editor empty" [ref=t3-42-e2]: ""',
+        'Editor empty" [ref=t3-42-e2]: "[saved login]"',
+      ),
+    });
+
+    expect(checkStatuses(source)).toEqual(["passed", "passed"]);
+    expect(checkStatuses(loadErrorCopy)).toEqual(["passed", "passed"]);
+    expect(checkStatuses(networkRefusalCopy)).toEqual(["passed", "passed"]);
+    expect(checkStatuses({ ...source })).toEqual(["failed", "passed"]);
+    expect(checkStatuses(redactedValueCopy)).toEqual(["failed", "failed"]);
+
+    const secret = "Synthetic held login";
+    const withSecret = snapshot(
+      sourceTree +
+        `\n- textbox "Doc" [ref=t3-42-e3]\n- button "${secret}" [ref=t3-42-e4]\n- textbox "Secret" [ref=t3-42-e5]: "${secret}"`,
+    );
+    registerSnapshotValueObservation(withSecret, new Set(["t3-42-e3"]));
+    const redacted = redactDeep(withSecret, [secret]);
+    expect(redacted.accessibilityTree).not.toContain(secret);
+    const transferred = transferSnapshotValueObservation(withSecret, redacted);
+    const copiedAgain = transferSnapshotValueObservation(transferred, { ...transferred });
+    const missingSourceMetadata = transferSnapshotValueObservation({ ...withSecret }, redacted);
+    for (const value of [transferred, copiedAgain, missingSourceMetadata]) {
+      expect(checkStatuses(value)).toEqual(["failed", "failed"]);
+      const model = pageModelFromSnapshot(value);
+      const doc = resolveTarget(model, { role: "textbox", name: "Doc" });
+      if (doc._tag !== "unique") throw new Error("Expected one Doc");
+      expect(
+        bindingSatisfied(
+          model,
+          { id: "empty", control: "text", target: { role: "textbox", name: "Doc" }, text: "" },
+          doc.node,
+        ),
+      ).toBe(false);
+      expect(
+        evaluateChecks(model, [
+          { id: "empty", kind: "target", target: { role: "textbox", name: "Doc" }, value: "" },
+          {
+            id: "masked",
+            kind: "target",
+            target: { role: "textbox", name: "Secret" },
+            value: REDACTED_LOGIN,
+          },
+        ]).map(({ status }) => status),
+      ).toEqual(["failed", "failed"]);
+    }
+  });
+
+  it("keeps a captured empty rich-text value distinct from omitted content", () => {
+    const capturedEmpty = pageModelFromSnapshot(
+      snapshot(`- textbox "Doc" [ref=doc]: ""\n  - paragraph [ref=p]: stale accessible text`),
+    );
+    const field = resolveTarget(capturedEmpty, { role: "textbox", name: "Doc" });
+    if (field._tag !== "unique") throw new Error(`Doc is ${field._tag}`);
+    expect(field.node.value).toBe("");
+    expect(
+      bindingSatisfied(
+        capturedEmpty,
+        { id: "body", control: "text", target: { role: "textbox", name: "Doc" }, text: "" },
+        field.node,
+      ),
+    ).toBe(true);
+    expect(bodyCheck(capturedEmpty, "")).toBe("passed");
+  });
+
+  it("does not pass a value check against a truncated snapshot", () => {
+    const truncated = pageModelFromSnapshot(
+      snapshot(`${tree}\n${" ".repeat(TASK_SNAPSHOT_TEXT_LENGTH - tree.length - 1)}`),
+    );
+    expect(bodyCheck(truncated, body)).toBe("not-evaluated");
   });
 });
 

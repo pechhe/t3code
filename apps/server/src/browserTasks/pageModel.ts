@@ -12,7 +12,10 @@ import type {
 import type { Mutable } from "effect/Types";
 import { parse as parseYaml } from "yaml";
 
-import { TASK_SNAPSHOT_TEXT_LENGTH } from "../preview/ServerBrowserPage.ts";
+import {
+  TASK_SNAPSHOT_TEXT_LENGTH,
+  valueObservationForSnapshot,
+} from "../preview/ServerBrowserPage.ts";
 
 export interface PageNode {
   readonly role: string;
@@ -22,6 +25,8 @@ export interface PageNode {
   readonly checked: boolean;
   /** The node's text, inline or from its `- text:` children: a field's current value. */
   readonly value: string | undefined;
+  /** No value was observed for this editable field, so an empty value cannot be inferred. */
+  readonly valueUnavailable: boolean;
   readonly selected: boolean;
   readonly disabled: boolean;
   /** The page gives it a pointer cursor: clickable, whatever its role. */
@@ -70,7 +75,11 @@ const itemOf = (content: string) => {
   if (typeof item !== "object" || item === null) return undefined;
   const [entry] = Object.entries(item);
   if (entry === undefined) return undefined;
-  return { key: entry[0], value: typeof entry[1] === "string" ? entry[1] : undefined };
+  const value = typeof entry[1] === "string" ? entry[1] : undefined;
+  return {
+    key: entry[0],
+    value: value === "" && !/:\s*(?:""|'')\s*$/.test(content) ? undefined : value,
+  };
 };
 
 const boxOf = (attributes: string): Box | undefined => {
@@ -110,22 +119,36 @@ const contentText = (nodes: ReadonlyArray<PageNode>, index: number): string => {
 
 export const pageModelFromSnapshot = (snapshot: PreviewAutomationSnapshot): PageModel => {
   const tree = typeof snapshot.accessibilityTree === "string" ? snapshot.accessibilityTree : "";
+  const valueObservation = valueObservationForSnapshot(snapshot);
   const nodes: Array<Mutable<PageNode>> = [];
+  const inlineValues = new Set<number>();
+  const textboxesWithChildren = new Set<number>();
+  const textboxesWithNonTextChildren = new Set<number>();
+  const textboxesWithPlaceholders = new Set<number>();
   const open: Array<{ readonly indent: number; readonly index: number }> = [];
   for (const line of tree.split("\n")) {
     const dash = /^(\s*)- (.*)$/.exec(line);
     if (dash === null) continue;
     const indent = dash[1]!.length;
     const item = itemOf(dash[2]!);
-    const parsed = item === undefined ? null : KEY.exec(item.key);
-    if (parsed === null) continue;
     while (open.length > 0 && open.at(-1)!.indent >= indent) open.pop();
     const parent = open.at(-1)?.index ?? null;
-    const value = item!.value || undefined;
+    const parsed = item === undefined ? null : KEY.exec(item.key);
+    if (parsed === null) {
+      if (item?.key === "/placeholder" && parent !== null && nodes[parent]!.role === "textbox")
+        textboxesWithPlaceholders.add(parent);
+      continue;
+    }
+    if (parent !== null && nodes[parent]!.role === "textbox") {
+      textboxesWithChildren.add(parent);
+      if (parsed[1] !== "text") textboxesWithNonTextChildren.add(parent);
+    }
+    const value = item!.value;
+    const ref = REF.exec(parsed[3] ?? "")?.[1];
     nodes.push({
       role: parsed[1]!,
       name: parsed[2] === undefined ? "" : (JSON.parse(parsed[2]) as string),
-      ref: REF.exec(parsed[3] ?? "")?.[1],
+      ref,
       parent,
       checked: /\[checked\]/.test(parsed[3] ?? ""),
       selected: /\[selected\]/.test(parsed[3] ?? ""),
@@ -133,15 +156,31 @@ export const pageModelFromSnapshot = (snapshot: PreviewAutomationSnapshot): Page
       pointer: /\[cursor=pointer\]/.test(parsed[3] ?? ""),
       active: /\[active\]/.test(parsed[3] ?? ""),
       value,
+      valueUnavailable:
+        parsed[1] === "textbox" &&
+        (valueObservation?.allTextboxValuesUnavailable === true ||
+          (valueObservation === undefined
+            ? value === undefined
+            : ref !== undefined && valueObservation.unavailableEditableRefs.has(ref))),
       box: boxOf(parsed[3] ?? ""),
     });
+    if (value !== undefined) inlineValues.add(nodes.length - 1);
     // Playwright moves a node's text to `- text:` children once the node has properties, such
     // as a textbox's differing `/placeholder`.
     if (parsed[1] === "text" && value !== undefined && parent !== null) {
       const owner = nodes[parent]!;
-      owner.value = (owner.value ?? "") + value;
+      if (owner.role !== "textbox" || !inlineValues.has(parent))
+        owner.value = (owner.value ?? "") + value;
     }
     open.push({ indent, index: nodes.length - 1 });
+  }
+  for (const index of textboxesWithChildren) {
+    const isPlaceholderValue =
+      textboxesWithPlaceholders.has(index) && !textboxesWithNonTextChildren.has(index);
+    if (!inlineValues.has(index) && !isPlaceholderValue) {
+      nodes[index]!.value = undefined;
+      nodes[index]!.valueUnavailable = true;
+    }
   }
   // Playwright 1.64 leaves out a control's name once its content holds a node of its own, such
   // as a `time`; the name is still that content, as the accessible name computes it.
@@ -334,7 +373,7 @@ export const bindingSatisfied = (
 ): boolean => {
   switch (binding.control) {
     case "text":
-      return normalized(node.value ?? "") === normalized(binding.text);
+      return !node.valueUnavailable && normalized(node.value ?? "") === normalized(binding.text);
     case "select":
       return fieldValue(model, node) === binding.option;
     case "checkbox":
@@ -397,7 +436,10 @@ const evaluateUnique = (
   if (check.value !== undefined) {
     if (!CONTROL_ROLES.text.includes(node.role) && !CONTROL_ROLES.select.includes(node.role))
       return { status: "unsupported", detail: `A ${node.role} has no field value.` };
-    if (normalized(fieldValue(model, node) ?? "") !== normalized(check.value))
+    if (
+      node.valueUnavailable ||
+      normalized(fieldValue(model, node) ?? "") !== normalized(check.value)
+    )
       return { status: "failed", detail: "The target's value differs." };
   }
   return { status: "passed" };

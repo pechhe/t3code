@@ -5,6 +5,7 @@ import type * as NodeNet from "node:net";
 
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { expect, it } from "@effect/vitest";
 import {
   type DecisionRoutingRequest,
@@ -25,11 +26,14 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
 import * as Stream from "effect/Stream";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import { chromium } from "playwright-core";
 
 import * as ServerConfig from "../config.ts";
+import { resolveBaseDir } from "../os-jank.ts";
 import * as DecisionRouter from "../decisionRouting/DecisionRouter.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import type { McpThreadInvocationScope } from "../mcp/McpInvocationContext.ts";
@@ -44,6 +48,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as BrowserTaskService from "./BrowserTaskService.ts";
 import * as BrowserLogins from "../secrets/BrowserLogins.ts";
 import { boundedBrowserScope } from "../mcp/ManagedBrowserAccess.ts";
+import { bindingSatisfied, pageModelFromSnapshot, resolveTarget } from "./pageModel.ts";
 
 const scope: McpThreadInvocationScope = {
   environmentId: EnvironmentId.make("browser-task"),
@@ -204,6 +209,19 @@ const SECURE = `<!doctype html><title>Secure</title><main>
   <h1>You logged into a secure area!</h1>
 </main>`;
 
+const PASSWORD = "Synthetic pass&word 7";
+const OVERSIZED = (
+  deniedPort: number,
+  secretLabel = false,
+) => `<!doctype html><title>Oversized</title><main>
+  <div role="textbox" aria-label="Doc" contenteditable="true">${PASSWORD}${"x".repeat(999_999 - PASSWORD.length)}</div>
+  <input aria-label="Native empty" value="">
+  <div role="textbox" aria-label="Editable empty" contenteditable="true"></div>
+  <img alt="blocked resource" src="http://127.0.0.1:${deniedPort}/blocked" onerror="document.getElementById('blocked-status').textContent = 'Blocked subresource refused'">
+  <p id="blocked-status"></p>
+  ${secretLabel ? `<button aria-label="${PASSWORD}"></button>` : ""}
+</main>`;
+
 const FRAME = `<!doctype html><title>Partner</title><label>Partner password <input type="password"></label>`;
 
 const UNNAMED = `<!doctype html><title>Dropdown</title><main>
@@ -288,10 +306,20 @@ const dependencies = Layer.mergeAll(
     getEnvironmentId: Effect.succeed(scope.environmentId),
     getDescriptor: Effect.die("unused"),
   }),
-  Layer.succeed(PreviewBrowser.PreviewBrowser, {
-    executable: Effect.succeed(chromium.executablePath()),
-    installed: Effect.succeedSome(chromium.executablePath()),
-  }),
+  Layer.effect(
+    PreviewBrowser.PreviewBrowser,
+    Effect.gen(function* () {
+      const environment = yield* HostProcess.Environment;
+      const baseDir = yield* resolveBaseDir(environment.T3CODE_HOME);
+      const managedBrowser = yield* PreviewBrowser.makePreviewBrowser({ baseDir });
+      const installed = yield* managedBrowser.installed;
+      const executable = Option.getOrElse(installed, () => chromium.executablePath());
+      return PreviewBrowser.PreviewBrowser.of({
+        executable: Effect.succeed(executable),
+        installed: Effect.succeed(installed),
+      });
+    }),
+  ),
   Layer.mock(DesktopChannel.DesktopBrowserChannel)({
     available: false,
     loadFailure: () => undefined,
@@ -301,12 +329,15 @@ const dependencies = Layer.mergeAll(
   }),
 ).pipe(
   Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "t3-browser-task-" })),
-  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, FetchHttpClient.layer)),
 );
 
 const withFixture = <A, E, R>(
   run: (fixture: {
     readonly origin: string;
+    readonly browserExecutable: string;
+    readonly managedBrowserExecutable: Option.Option<string>;
+    readonly deniedHits: () => number;
     readonly holds: () => number;
     readonly holding: Deferred.Deferred<void>;
     readonly releaseHold: () => void;
@@ -321,6 +352,24 @@ const withFixture = <A, E, R>(
 ) =>
   Effect.gen(function* () {
     let holds = 0;
+    let deniedHits = 0;
+    const deniedServer = NodeHttp.createServer((_incoming, response) => {
+      deniedHits += 1;
+      response.end("Managed browser should refuse this request before it reaches the fixture.");
+    });
+    yield* Effect.promise(
+      () => new Promise<void>((resolve) => void deniedServer.listen(0, "127.0.0.1", resolve)),
+    );
+    yield* Effect.addFinalizer(() =>
+      Effect.promise(
+        () =>
+          new Promise<void>((resolve) => {
+            deniedServer.closeAllConnections();
+            deniedServer.close(() => resolve());
+          }),
+      ),
+    );
+    const deniedPort = (deniedServer.address() as NodeNet.AddressInfo).port;
     const holding = yield* Deferred.make<void>();
     const held: Array<NodeHttp.ServerResponse> = [];
     let holdNext = true;
@@ -352,21 +401,23 @@ const withFixture = <A, E, R>(
           ? LOGIN((server.address() as NodeNet.AddressInfo).port)
           : path === "/secure"
             ? SECURE
-            : path === "/frame"
-              ? FRAME
-              : path === "/unnamed"
-                ? UNNAMED
-                : path === "/reach-ad"
-                  ? REACH_AD
-                  : path === "/deletes"
-                    ? DELETES
-                    : path === "/fence"
-                      ? FENCE((server.address() as NodeNet.AddressInfo).port)
-                      : path === "/many"
-                        ? MANY
-                        : path === "/later"
-                          ? LATER
-                          : undefined;
+            : path === "/oversized" || path === "/oversized-redacted-tree"
+              ? OVERSIZED(deniedPort, path === "/oversized-redacted-tree")
+              : path === "/frame"
+                ? FRAME
+                : path === "/unnamed"
+                  ? UNNAMED
+                  : path === "/reach-ad"
+                    ? REACH_AD
+                    : path === "/deletes"
+                      ? DELETES
+                      : path === "/fence"
+                        ? FENCE((server.address() as NodeNet.AddressInfo).port)
+                        : path === "/many"
+                          ? MANY
+                          : path === "/later"
+                            ? LATER
+                            : undefined;
       if (extra !== undefined) {
         response.end(extra);
         return;
@@ -454,18 +505,28 @@ const withFixture = <A, E, R>(
         }),
       ),
     );
-    return yield* run({
-      origin: `http://127.0.0.1:${port}`,
-      holds: () => holds,
-      holding,
-      releaseHold: () => {
-        holdNext = false;
-        for (const response of held.splice(0)) response.end("ok");
-      },
-      script,
-      hits,
-      decisions,
-      logins,
+    return yield* Effect.gen(function* () {
+      const previewBrowser = yield* PreviewBrowser.PreviewBrowser;
+      const [browserExecutable, managedBrowserExecutable] = yield* Effect.all([
+        previewBrowser.executable,
+        previewBrowser.installed,
+      ]);
+      return yield* run({
+        origin: `http://127.0.0.1:${port}`,
+        browserExecutable,
+        managedBrowserExecutable,
+        deniedHits: () => deniedHits,
+        holds: () => holds,
+        holding,
+        releaseHold: () => {
+          holdNext = false;
+          for (const response of held.splice(0)) response.end("ok");
+        },
+        script,
+        hits,
+        decisions,
+        logins,
+      });
     }).pipe(Effect.provide(runtime));
   }).pipe(
     Effect.scoped,
@@ -1486,7 +1547,6 @@ it.live("opens a desk row by part of its name after its age changed, and blocks 
   ),
 );
 
-const PASSWORD = "Synthetic pass&word 7";
 const leaks = (value: unknown) =>
   [
     PASSWORD,
@@ -1495,6 +1555,184 @@ const leaks = (value: unknown) =>
   ].some((form) => JSON.stringify(value).includes(form));
 const loginBinding = (target: PreviewTaskTarget) =>
   ({ id: "pw", control: "login", target, login: "BROWSER_LOGIN_FIXTURE" }) as const;
+
+it.live(
+  "keeps budget-omitted flat editor values unavailable through held-login snapshot copies",
+  () =>
+    withFixture((fixture) =>
+      Effect.gen(function* () {
+        if (Option.isSome(fixture.managedBrowserExecutable))
+          expect(fixture.browserExecutable).toBe(fixture.managedBrowserExecutable.value);
+        fixture.logins.set("BROWSER_LOGIN_FIXTURE", {
+          key: "BROWSER_LOGIN_FIXTURE",
+          value: PASSWORD,
+          origins: [fixture.origin],
+        });
+        const { broker, tabId } = yield* openTab(`${fixture.origin}/login`);
+        const tasks = yield* BrowserTaskService.BrowserTaskService;
+        fixture.script.push("go");
+        const login = yield* tasks.run({
+          scope,
+          authorize: Effect.void,
+          request: request({
+            requestId: "hold-login",
+            tabId,
+            bindings: [loginBinding({ role: "textbox", name: "Password" })],
+            submit: { id: "go", target: { role: "button", name: "Login" } },
+            checks: [
+              {
+                id: "secure",
+                kind: "text",
+                includes: "You logged into a secure area!",
+                expect: "present",
+              },
+            ],
+          }),
+        });
+        expect(login.status).toBe("passed");
+
+        yield* broker.invoke({
+          scope,
+          tabId,
+          operation: "navigate",
+          input: { url: `${fixture.origin}/oversized` },
+        });
+        yield* broker.invoke({
+          scope,
+          tabId,
+          operation: "waitFor",
+          input: { text: "Blocked subresource refused", timeoutMs: 5_000 },
+        });
+        const copied = yield* broker.invoke<
+          PreviewAutomationSnapshot & { readonly networkRefusals?: ReadonlyArray<string> }
+        >({
+          scope,
+          tabId,
+          operation: "snapshot",
+          input: {},
+        });
+        expect(fixture.deniedHits()).toBe(0);
+        expect(copied.networkRefusals?.length).toBeGreaterThan(0);
+        const accessibilityTree = copied.accessibilityTree;
+        if (typeof accessibilityTree !== "string")
+          throw new Error("The broker snapshot has no accessibility tree.");
+        expect(accessibilityTree.length).toBeLessThan(1_000_000);
+        const docLine = accessibilityTree
+          .split("\n")
+          .find((line) => line.includes('textbox "Doc"'));
+        expect(docLine).toContain("[ref=t3-");
+        expect(docLine).not.toContain(":");
+        expect(copied.visibleText).toContain("[saved login]");
+        expect(leaks(copied)).toBe(false);
+        const copiedModel = pageModelFromSnapshot(copied);
+        const doc = resolveTarget(copiedModel, { role: "textbox", name: "Doc" });
+        expect(doc._tag).toBe("unique");
+        if (doc._tag !== "unique") throw new Error("The oversized editor was not unique.");
+        expect(
+          bindingSatisfied(
+            copiedModel,
+            {
+              id: "doc-empty-binding",
+              control: "text",
+              target: { role: "textbox", name: "Doc" },
+              text: "",
+            },
+            doc.node,
+          ),
+        ).toBe(false);
+
+        const emptyProbe = (targetTabId: PreviewTabId, requestId: string) =>
+          tasks.run({
+            scope,
+            authorize: Effect.void,
+            request: request({
+              requestId,
+              tabId: targetTabId,
+              goal: "Check the observed values without changing the page",
+              checks: [
+                {
+                  id: "doc-empty",
+                  kind: "target",
+                  target: { role: "textbox", name: "Doc" },
+                  expect: "present",
+                  value: "",
+                },
+                {
+                  id: "native-empty",
+                  kind: "target",
+                  target: { role: "textbox", name: "Native empty" },
+                  expect: "present",
+                  value: "",
+                },
+                {
+                  id: "editable-empty",
+                  kind: "target",
+                  target: { role: "textbox", name: "Editable empty" },
+                  expect: "present",
+                  value: "",
+                },
+              ],
+            }),
+          });
+        fixture.script.push("DONE");
+        const sameTab = yield* emptyProbe(tabId, "same-tab-empty");
+        expect(sameTab.status).toBe("failed");
+        expect(sameTab.evidence.truncated).toBe(false);
+        expect(sameTab.actions).toEqual([]);
+        expect(sameTab.checks.map(({ id, status }) => [id, status])).toEqual([
+          ["doc-empty", "failed"],
+          ["native-empty", "passed"],
+          ["editable-empty", "passed"],
+        ]);
+        expect(leaks(sameTab)).toBe(false);
+
+        const openedOtherTab = yield* broker.invoke<PreviewAutomationStatus>({
+          scope,
+          operation: "open",
+          input: { url: `${fixture.origin}/oversized`, reuseExistingTab: false },
+        });
+        const otherTabId = PreviewTabId.make(openedOtherTab.tabId!);
+        fixture.script.push("DONE");
+        const otherTabResult = yield* emptyProbe(otherTabId, "other-tab-empty");
+        expect(otherTabResult.status).toBe("failed");
+        expect(otherTabResult.evidence.truncated).toBe(false);
+        expect(otherTabResult.actions).toEqual([]);
+        expect(otherTabResult.checks.map(({ id, status }) => [id, status])).toEqual([
+          ["doc-empty", "failed"],
+          ["native-empty", "passed"],
+          ["editable-empty", "passed"],
+        ]);
+        expect(leaks(otherTabResult)).toBe(false);
+
+        yield* broker.invoke({
+          scope,
+          tabId: otherTabId,
+          operation: "navigate",
+          input: { url: `${fixture.origin}/oversized-redacted-tree` },
+        });
+        const treeRedacted = yield* broker.invoke<PreviewAutomationSnapshot>({
+          scope,
+          tabId: otherTabId,
+          operation: "snapshot",
+          input: {},
+        });
+        expect(treeRedacted.accessibilityTree).toContain('button "[saved login]"');
+        expect(leaks(treeRedacted)).toBe(false);
+        fixture.script.push("DONE");
+        const redactedTreeResult = yield* emptyProbe(otherTabId, "redacted-tree-empty");
+        expect(redactedTreeResult.status).toBe("failed");
+        expect(redactedTreeResult.evidence.truncated).toBe(false);
+        expect(redactedTreeResult.actions).toEqual([]);
+        expect(redactedTreeResult.checks.map(({ id, status }) => [id, status])).toEqual([
+          ["doc-empty", "failed"],
+          ["native-empty", "failed"],
+          ["editable-empty", "failed"],
+        ]);
+        expect(leaks(redactedTreeResult)).toBe(false);
+        expect(leaks(fixture.decisions)).toBe(false);
+      }),
+    ),
+);
 
 it.live("logs in with a saved login the agent never sees, anywhere it could look", () =>
   withFixture((fixture) =>

@@ -18,6 +18,12 @@ import {
 
 import { PreviewAutomationEvaluateInput } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
+import {
+  bindingSatisfied,
+  evaluateChecks,
+  pageModelFromSnapshot,
+  resolveTarget,
+} from "../browserTasks/pageModel.ts";
 import * as ServerBrowserPage from "./ServerBrowserPage.ts";
 import { SessionControl } from "./SessionControl.ts";
 
@@ -355,6 +361,166 @@ describe("server browser element refs", () => {
       timeoutMs: 1_000,
     });
     expect(await page.getByRole("button", { name: "accepted" }).count()).toBe(1);
+  });
+
+  it("captures a contenteditable's innerText without replacing its tree or nearby field values", async () => {
+    await page.setContent(`
+      <style>.suggestion::before { content: "Smith"; }</style>
+      <nav>Sidebar text</nav>
+      <input aria-label="Name" value="Native value">
+      <div id="doc" role="textbox" aria-label="Doc" contenteditable="true">
+        <h2>Account notes</h2>
+        <p>Brookside <a href="#">Skip Hire Ltd</a> is a prospect.</p>
+        <p class="suggestion">The quote should say "Operator", not "Basic".</p>
+      </div>
+      <input aria-label="Other" value="Unrelated value">
+    `);
+    const body = await page.locator("#doc").innerText();
+    expect(body).not.toContain("Smith");
+    const whole = await takeSnapshot();
+    const wholeTree = String(whole.accessibilityTree);
+    const docLine = wholeTree.split("\n").find((line) => line.includes('textbox "Doc"'));
+    expect(wholeTree).toContain("Smith");
+    expect(docLine).toContain(`: ${JSON.stringify(body)}`);
+    expect(wholeTree).toContain('textbox "Name"');
+    expect(wholeTree).toContain("Native value");
+    expect(docLine).not.toContain("Unrelated value");
+    expect(wholeTree).toContain('link "Skip Hire Ltd"');
+
+    const docRef = /\[ref=([^\]]+)\]/.exec(docLine!)?.[1];
+    const scoped = await takeSnapshot(`aria-ref=${docRef}`);
+    expect(scoped.visibleText).toBe(body);
+    expect(String(scoped.accessibilityTree)).not.toContain("Sidebar text");
+    expect(
+      String(scoped.accessibilityTree)
+        .split("\n")
+        .find((line) => line.includes('textbox "Doc"')),
+    ).toContain(`: ${JSON.stringify(body)}`);
+  });
+
+  it("ignores reference-looking text in a textbox label when reading editable values", async () => {
+    await page.setContent(`
+      <input aria-label="Native [ref=e999999]" value="Native value">
+      <div role="textbox" aria-label="Doc" contenteditable="true">Editor value</div>
+    `);
+    const snapshot = await takeSnapshot();
+    const tree = String(snapshot.accessibilityTree);
+    const nativeLine = tree.split("\n").find((line) => line.includes('textbox "Native'));
+    const editorLine = tree.split("\n").find((line) => line.includes('textbox "Doc"'));
+    expect(nativeLine).toContain("Native value");
+    expect(editorLine).toContain(`: ${JSON.stringify("Editor value")}`);
+  });
+
+  it("does not use an editor's ref-looking label text to overwrite a native value", async () => {
+    await page.setContent(`
+      <div id="doc" role="textbox" aria-label="Doc" contenteditable="true">Editor value</div>
+      <input id="native" aria-label="Native" value="Native value">
+    `);
+    const initialTree = await page.ariaSnapshot({ mode: "ai", boxes: true });
+    const editorLine = initialTree.split("\n").find((line) => line.includes('textbox "Doc"'));
+    const editorRef = /\[ref=((?:f\d+)?e\d+)\]/.exec(editorLine!)?.[1];
+    expect(editorRef).toBeDefined();
+    await page.locator("#native").evaluate((element, ref) => {
+      element.setAttribute("aria-label", `Native [ref=${ref}]`);
+    }, editorRef);
+
+    const snapshot = await takeSnapshot();
+    const tree = String(snapshot.accessibilityTree);
+    const nativeLine = tree.split("\n").find((line) => line.includes('textbox "Native'));
+    const capturedEditorLine = tree.split("\n").find((line) => line.includes('textbox "Doc"'));
+    expect(nativeLine).toContain("Native value");
+    expect(capturedEditorLine).toContain(`: ${JSON.stringify("Editor value")}`);
+  });
+
+  it("does not pass empty checks when flat editor content is omitted by the task snapshot budget", async () => {
+    const textLength = ServerBrowserPage.TASK_SNAPSHOT_TEXT_LENGTH;
+    const body = "x".repeat(textLength - 1);
+    await page.setContent(
+      `<div role="textbox" aria-label="Doc" contenteditable="true">${body}</div>`,
+    );
+    const originalTree = await page.ariaSnapshot({ mode: "ai", boxes: true });
+    const originalDocLine = originalTree.split("\n").find((line) => line.includes('textbox "Doc"'));
+    expect(originalDocLine).toBeDefined();
+    expect(originalDocLine).not.toContain(":");
+    expect(originalTree).not.toContain("\n  - ");
+    const snapshot = await ServerBrowserPage.snapshot({
+      page,
+      cdp,
+      renderScale: 1,
+      consoleEntries: [],
+      networkEntries: [],
+      actionTimeline: [],
+      textLength,
+    });
+    const tree = String(snapshot.accessibilityTree);
+    const docLine = tree.split("\n").find((line) => line.includes('textbox "Doc"'));
+    expect(originalTree.length).toBeLessThan(textLength);
+    expect(snapshot.visibleText.length).toBeLessThan(textLength);
+    expect(tree.length).toBeLessThan(textLength);
+    expect(docLine).not.toContain(`: ${JSON.stringify(body)}`);
+
+    const model = pageModelFromSnapshot(snapshot);
+    expect(model.truncated).toBe(false);
+    const field = resolveTarget(model, { role: "textbox", name: "Doc" });
+    if (field._tag !== "unique") throw new Error(`Doc is ${field._tag}`);
+    const binding = bindingSatisfied(
+      model,
+      { id: "empty", control: "text", target: { role: "textbox", name: "Doc" }, text: "" },
+      field.node,
+    );
+    const valueCheck = evaluateChecks(model, [
+      {
+        id: "empty",
+        kind: "target",
+        target: { role: "textbox", name: "Doc" },
+        expect: "present",
+        value: "",
+      },
+    ])[0]?.status;
+    expect({ binding, valueCheck }).toEqual({ binding: false, valueCheck: "failed" });
+  });
+
+  it("does not compare a rich-text value omitted by the task snapshot budget", async () => {
+    const body = "x".repeat(600_000);
+    await page.setContent(
+      `<div id="doc" role="textbox" aria-label="Doc" contenteditable="true"><p>${body.slice(0, 300_000)}</p><p>${body.slice(300_000)}</p></div>`,
+    );
+    const editorText = await page.locator("#doc").innerText();
+    const originalTree = await page.ariaSnapshot({ mode: "ai", boxes: true });
+    const textLength = ServerBrowserPage.TASK_SNAPSHOT_TEXT_LENGTH;
+    expect(originalTree.length).toBeLessThan(textLength);
+    expect(originalTree.length + editorText.length).toBeGreaterThan(textLength);
+
+    const snapshot = await ServerBrowserPage.snapshot({
+      page,
+      cdp,
+      renderScale: 1,
+      consoleEntries: [],
+      networkEntries: [],
+      actionTimeline: [],
+      textLength,
+    });
+    const tree = String(snapshot.accessibilityTree);
+    const docLine = tree.split("\n").find((line) => line.includes('textbox "Doc"'));
+    expect(tree.length).toBeLessThan(textLength);
+    expect(snapshot.visibleText.length).toBeLessThan(textLength);
+    expect(docLine).not.toContain(`: ${JSON.stringify(editorText)}`);
+  });
+
+  it("rejects a contenteditable value that changes during the capture", async () => {
+    await page.setContent(
+      '<div id="doc" role="textbox" aria-label="Doc" contenteditable="true">draft</div>',
+    );
+    await page.locator("#doc").evaluate((element) => {
+      let reads = 0;
+      Object.defineProperty(element, "innerText", {
+        configurable: true,
+        get: () => `changed ${++reads}`,
+      });
+    });
+    await expect(takeSnapshot()).rejects.toMatchObject({
+      message: "The page changed while capturing its snapshot. Take another snapshot.",
+    });
   });
 
   it("waits for text and elements to go away, and names what still holds on timeout", async () => {
@@ -946,6 +1112,19 @@ describe("server browser saved logins", () => {
     const masked = await snapshotOf(`<input type="password" value="${SECRET}">`);
     expect(masked.screenshot).toBeDefined();
     expect(masked.screenshotRefused).toBeUndefined();
+  });
+
+  it("masks captured editable values protected by text security or a saved login", async () => {
+    for (const style of ['style="-webkit-text-security: disc"', ""]) {
+      const snapshot = await snapshotOf(
+        `<div role="textbox" aria-label="Doc" contenteditable="true" ${style}>${SECRET}</div>`,
+      );
+      const line = String(snapshot.accessibilityTree)
+        .split("\n")
+        .find((entry) => entry.includes('textbox "Doc"'));
+      expect(line).not.toContain(SECRET);
+      expect(line).toContain("••••••••");
+    }
   });
 
   it("types nothing through a field whose page navigated after the server's checks", async () => {

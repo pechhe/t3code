@@ -39,6 +39,53 @@ const MAX_EVALUATION_BYTES = 64_000;
 const MAX_VISIBLE_TEXT_LENGTH = 20_000;
 /** A bounded task reads this in process to prove targets unique; none of it reaches a model. */
 export const TASK_SNAPSHOT_TEXT_LENGTH = 1_000_000;
+interface SnapshotValueObservation {
+  readonly unavailableEditableRefs: ReadonlySet<string>;
+  readonly allTextboxValuesUnavailable: boolean;
+}
+
+const valueObservations = new WeakMap<PreviewAutomationSnapshot, SnapshotValueObservation>();
+
+type SnapshotWithAccessibilityTree = PreviewAutomationSnapshot & {
+  readonly accessibilityTree: string;
+};
+
+const snapshotOf = (value: unknown): SnapshotWithAccessibilityTree | undefined =>
+  typeof value === "object" &&
+  value !== null &&
+  "accessibilityTree" in value &&
+  typeof value.accessibilityTree === "string"
+    ? (value as SnapshotWithAccessibilityTree)
+    : undefined;
+
+export const registerSnapshotValueObservation = (
+  snapshot: PreviewAutomationSnapshot,
+  unavailableEditableRefs: ReadonlySet<string>,
+) => {
+  valueObservations.set(snapshot, {
+    unavailableEditableRefs: new Set(unavailableEditableRefs),
+    allTextboxValuesUnavailable: false,
+  });
+};
+
+export const valueObservationForSnapshot = (snapshot: PreviewAutomationSnapshot) =>
+  valueObservations.get(snapshot);
+
+export const transferSnapshotValueObservation = <A>(source: unknown, destination: A): A => {
+  const sourceSnapshot = snapshotOf(source);
+  const destinationSnapshot = snapshotOf(destination);
+  if (sourceSnapshot === undefined || destinationSnapshot === undefined) return destination;
+  const observation = valueObservations.get(sourceSnapshot);
+  const unchangedTree = sourceSnapshot.accessibilityTree === destinationSnapshot.accessibilityTree;
+  if (observation === undefined && unchangedTree) return destination;
+  valueObservations.set(
+    destinationSnapshot,
+    unchangedTree && observation !== undefined
+      ? observation
+      : { unavailableEditableRefs: new Set(), allTextboxValuesUnavailable: true },
+  );
+  return destination;
+};
 const MAX_SCREENSHOT_WIDTH = 1280;
 // Two attempts must fit in a snapshot's 10-second deadline.
 const SCREENSHOT_TIMEOUT_MS = 3_000;
@@ -523,6 +570,80 @@ const maskTree = (tree: string, dotted: RegExp) =>
     })
     .join("\n");
 
+const refOf = (node: RegExpExecArray | null) =>
+  /\[ref=((?:f\d+)?e\d+)\]/.exec(node?.[3] ?? "")?.[1];
+
+const textboxRefs = (tree: string) =>
+  tree.split("\n").flatMap((line) => {
+    const node = TREE_LINE.exec(line);
+    const role = node?.[1]?.replace(/^\s*-\s*'?/, "");
+    const ref = refOf(node);
+    return role === "textbox" && ref !== undefined ? [ref] : [];
+  });
+
+const readEditableValues = async (page: Page, tree: string, deadline: number) => {
+  const refs = [...new Set(textboxRefs(tree))];
+  const values = await Promise.all(
+    refs.map(async (ref) => {
+      try {
+        return await page.locator(`aria-ref=${ref}`).evaluate(
+          (element) => {
+            const control = element as unknown as {
+              readonly isContentEditable: boolean;
+              hasAttribute: (name: string) => boolean;
+              readonly innerText: string;
+            };
+            return control.isContentEditable && control.hasAttribute("contenteditable")
+              ? control.innerText
+              : undefined;
+          },
+          undefined,
+          { timeout: Math.max(1, deadline - Date.now()) },
+        );
+      } catch {
+        throw pageChanged();
+      }
+    }),
+  );
+  return new Map(
+    refs.flatMap((ref, index) => (values[index] === undefined ? [] : [[ref, values[index]!]])),
+  );
+};
+
+const sameEditableValues = (
+  before: ReadonlyMap<string, string>,
+  after: ReadonlyMap<string, string>,
+) => before.size === after.size && [...before].every(([ref, value]) => after.get(ref) === value);
+
+const treeWithEditableValues = (
+  tree: string,
+  values: ReadonlyMap<string, string>,
+  textLength: number,
+) => {
+  const unavailableRefs = new Set<string>();
+  if (values.size === 0) return { tree, unavailableRefs };
+  let length = tree.length;
+  const lines = tree.split("\n").map((line) => {
+    const node = TREE_LINE.exec(line);
+    const role = node?.[1]?.replace(/^\s*-\s*'?/, "");
+    const ref = refOf(node);
+    const value = ref === undefined ? undefined : values.get(ref);
+    if (role !== "textbox" || value === undefined || node === null) return line;
+    const suffix = node[4] ?? "";
+    const prefix = line.slice(0, line.length - suffix.length);
+    const replacement = `${prefix}: ${JSON.stringify(value)}`;
+    const nextLength = length + replacement.length - line.length;
+    if (nextLength > textLength) {
+      if (ref !== undefined) unavailableRefs.add(ref);
+      length += prefix.length - line.length;
+      return prefix;
+    }
+    length = nextLength;
+    return replacement;
+  });
+  return { tree: lines.join("\n"), unavailableRefs };
+};
+
 /** Chromium sizes the capture, so the reported size is read from the PNG header. */
 const pngSize = (base64: string) => {
   const header = Buffer.from(base64.slice(0, 32), "base64");
@@ -724,10 +845,13 @@ const capture = async (
     boxes: true,
     timeout: Math.max(1, deadline - Date.now() - 2_000),
   });
+  const editableBefore = await readEditableValues(input.page, tree, deadline);
   const after = await read(before);
   // A value that changed meanwhile may be in the tree under neither reading.
   if (after.some((values, i) => values && JSON.stringify(values) !== JSON.stringify(before[i])))
     throw pageChanged();
+  const editableAfter = await readEditableValues(input.page, tree, deadline);
+  if (!sameEditableValues(editableBefore, editableAfter)) throw pageChanged();
   const dotted = dottedPattern(after.flatMap((values) => values ?? []));
   // Unread frames can expose values only if their content appears in the tree.
   const unread = readers.flatMap((reader, i) => (after[i] ? [] : reader.frames));
@@ -749,10 +873,24 @@ const capture = async (
       : await scope.innerText({ timeout: Math.max(1, deadline - Date.now()) });
   if (state.generation !== generation) throw pageChanged();
   const mask = (text: string) => (dotted ? text.replace(dotted, MASKED_VALUE) : text);
-  // Redacted before the cut, so a payload crossing it can't leave its start showing, and before
-  // masking, which could hide the `data:` scheme behind a password value's dots.
-  const redacted = withoutTreeDataPayloads(tree);
+  // A saved login can be typed into an editable field even when it is not CSS-masked.
+  const secretForms = [
+    ...new Set(secrets.flatMap((secret) => [secret, secret.replace(/\s+/g, " ").trim()])),
+  ].filter((secret) => secret.length > 0);
+  const safeEditableValues = new Map(
+    [...editableAfter].map(([ref, value]) => [
+      ref,
+      secretForms.reduce((text, secret) => text.replaceAll(secret, MASKED_VALUE), value),
+    ]),
+  );
   const textLength = input.textLength ?? MAX_VISIBLE_TEXT_LENGTH;
+  // Redact URLs before the cut, so a payload crossing it cannot leave its start showing.
+  const { tree: editableTree, unavailableRefs } = treeWithEditableValues(
+    tree,
+    safeEditableValues,
+    textLength,
+  );
+  const redacted = withoutTreeDataPayloads(editableTree);
   const accessibilityTree = (dotted ? maskTree(redacted, dotted) : redacted)
     .slice(0, textLength)
     .replace(/\[ref=((?:f\d+)?e\d+)\]/g, (_match, nativeRef: string) => {
@@ -760,7 +898,7 @@ const capture = async (
       state.refs.set(ref, nativeRef);
       return `[ref=${ref}]`;
     });
-  return {
+  const snapshot: PreviewAutomationSnapshot = {
     ...page,
     url: withoutDataPayload(page.url),
     // Mask text before truncating so a value crossing the cut cannot leak its prefix.
@@ -799,6 +937,11 @@ const capture = async (
       : { screenshot: { mimeType: "image/png" as const, data, ...pngSize(data) } }),
     ...(shown || full === undefined ? {} : { fullScreenshot: { data: full, ...pngSize(full) } }),
   };
+  registerSnapshotValueObservation(
+    snapshot,
+    new Set([...unavailableRefs].map((ref) => `t3-${generation}-${ref}`)),
+  );
+  return snapshot;
 };
 
 /** Snapshots begun per page; observers' snapshots aren't queued, so two can overlap. */

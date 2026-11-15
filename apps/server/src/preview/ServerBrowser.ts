@@ -3217,7 +3217,13 @@ const make = Effect.gen(function* () {
           }),
         );
         const loadError = loadErrorOf(tab);
-        return loadError ? { ...snapshot, url: loadError.url, loadError } : snapshot;
+        return loadError
+          ? ServerBrowserPage.transferSnapshotValueObservation(snapshot, {
+              ...snapshot,
+              url: loadError.url,
+              loadError,
+            })
+          : snapshot;
       }
       case "click": {
         // Time spent queued behind other work on this tab counts against the broker's deadline.
@@ -3307,16 +3313,16 @@ const make = Effect.gen(function* () {
         try {
           const result = await runOperation(request, performance.now() + request.timeoutMs);
           const blocked = request.managedBrowser === undefined ? [] : refusals();
-          // Whatever a page did with a saved login, its value never leaves in a reply.
-          return redactDeep(
+          const withRefusals =
             blocked.length > 0
-              ? {
+              ? ServerBrowserPage.transferSnapshotValueObservation(result, {
                   ...asRecord(result),
                   networkRefusals: blocked.slice(-10).map((message) => message.slice(0, 500)),
-                }
-              : result,
-            heldLoginForms(),
-          );
+                })
+              : result;
+          // Whatever a page did with a saved login, its value never leaves in a reply.
+          const redacted = redactDeep(withRefusals, heldLoginForms());
+          return ServerBrowserPage.transferSnapshotValueObservation(withRefusals, redacted);
         } catch (error) {
           if (newlyBlocked().length > 0)
             throw new ServerBrowserPage.ServerBrowserOperationError({
