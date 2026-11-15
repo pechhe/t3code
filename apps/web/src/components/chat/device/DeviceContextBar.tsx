@@ -364,19 +364,39 @@ function CompactLine(props: {
 }
 
 function formatBlackholePillLabel(status: BlackholeStatusSnapshot): string {
-  if (status.worker?.kind === "running") {
-    return `${status.worker.phase}…`;
-  }
+  if (status.worker?.kind === "running") return `${status.worker.phase}…`;
   if (status.worker?.kind === "done") {
-    return status.worker.delta !== null
-      ? `✓ +${status.worker.delta} obs`
-      : `✓ ${status.worker.phase}`;
+    return status.worker.delta !== null ? `+${status.worker.delta}` : "✓";
   }
-  if (!status.memoryEnabled) return "obs off";
-  if (status.observerFraction !== null) {
-    return `obs ${Math.round(status.observerFraction * 100)}%`;
-  }
-  return "obs";
+  if (!status.memoryEnabled) return "off";
+  if (status.observerFraction !== null) return `${Math.round(status.observerFraction * 100)}%`;
+  return "";
+}
+
+/** A black hole seen edge-on: a dark core inside a tilted accretion ring. */
+function BlackholeGlyph() {
+  return (
+    <svg className="device-context__bh-glyph" viewBox="0 0 16 12" aria-hidden>
+      <ellipse
+        cx="8"
+        cy="6"
+        rx="7"
+        ry="2.6"
+        transform="rotate(-14 8 6)"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.3"
+      />
+      <circle cx="8" cy="6" r="3.4" className="device-context__bh-core" />
+      <path
+        d="M1 6 A7 2.6 0 0 0 15 6"
+        transform="rotate(-14 8 6)"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.3"
+      />
+    </svg>
+  );
 }
 
 function BlackholeStatusControl(props: {
@@ -409,8 +429,8 @@ function BlackholeStatusControl(props: {
         onPointerDown={(event) => event.preventDefault()}
         onClick={() => setOpen((current) => !current)}
       >
-        <span className="device-context__bh-dot" aria-hidden />
-        <span>{formatBlackholePillLabel(status)}</span>
+        <BlackholeGlyph />
+        {formatBlackholePillLabel(status) ? <span>{formatBlackholePillLabel(status)}</span> : null}
       </button>
       <PopoverPopup anchor={pillEl} side="top" align="end" width="md" padding="compact">
         <div className="flex flex-col gap-3">

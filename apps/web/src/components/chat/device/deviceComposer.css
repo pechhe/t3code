@@ -576,11 +576,16 @@
 .device-context__bh-pill[data-state="off"] {
   opacity: 0.65;
 }
-.device-context__bh-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 999px;
-  background: currentColor;
+.device-context__bh-glyph {
+  width: 19px;
+  height: 14px;
+  flex: none;
+  overflow: visible;
+}
+.device-context__bh-core {
+  fill: var(--cream-ink);
+  stroke: var(--cream-bg);
+  stroke-width: 0.9;
 }
 
 /* ---------------- Controls strip ---------------- */
