@@ -60,6 +60,17 @@ function cacheWith(entries: readonly [string, number, readonly UsageRecord[]][])
 }
 
 describe("scan cache round trip", () => {
+  it("preserves Pi slot attribution in cached transcript records", () => {
+    const original = cacheWith([
+      ["/pi.jsonl", 100, [record({ provider: "pi", accountKey: "anthropic-hfpetch" })]],
+    ]);
+    const restored = decodeScanCache(
+      JSON.parse(JSON.stringify(parse(makeScanCacheWriter()(original, {})))),
+      TEST_FORMAT_MAP,
+    );
+    expect(restored.get("/pi.jsonl")?.records[0]?.accountKey).toBe("anthropic-hfpetch");
+  });
+
   it("restores cached history unchanged except for Claude local placeholders", () => {
     const original = cacheWith([
       [

@@ -1,12 +1,6 @@
-import * as HostProcess from "@t3tools/shared/HostProcess";
-import * as Settings from "../serverSettings.ts";
-import {
-  conservationNeedsRefresh,
-  evaluateConservation,
-  type ConservationMemory,
-} from "./subagentConservation.ts";
-import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
-import * as Schema from "effect/Schema";
+// @effect-diagnostics globalDate:off
+// @effect-diagnostics globalDateInEffect:off
+// UTC day keys use native date conversion.
 import {
   defaultInstanceIdForDriver,
   isProviderWorkspaceSnapshotCurrent,
@@ -17,6 +11,7 @@ import {
   type ServerProvider,
   type SubagentConservationRule,
   type ServerProviderUpdateState,
+  type UsageSummary as UsageSummaryValue,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
@@ -37,8 +32,19 @@ import * as Ref from "effect/Ref";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as Semaphore from "effect/Semaphore";
+import * as Schema from "effect/Schema";
 
 import * as ProviderLatestVersions from "@t3tools/provider-core/server/ProviderLatestVersions";
+import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
+import * as UsageService from "../usage/UsageService.ts";
+import * as ServerSettingsService from "../serverSettings.ts";
+import * as HostProcess from "@t3tools/shared/HostProcess";
+import {
+  conservationNeedsRefresh,
+  evaluateConservation,
+  type ConservationMemory,
+} from "./subagentConservation.ts";
+import { makeUsageSlotBudgetWindow, usageCycleBounds } from "../usage/usageSlotBudget.ts";
 import * as ModelManifest from "./ModelManifest.ts";
 import { applyProviderCompatibility } from "./providerCompatibility.ts";
 import * as ServerConfig from "../config.ts";
@@ -74,6 +80,15 @@ export type ProviderMaintenanceActionKind = "update";
 
 /** Short so a turn waits little for a read that is only a refinement of the cached one. */
 export const USAGE_REFRESH_TIMEOUT = Duration.seconds(8);
+
+const SavedUsageCooldowns = Schema.fromJsonString(
+  Schema.Record(
+    Schema.String,
+    Schema.Struct({ untilMs: Schema.Number, markedAtMs: Schema.Number }),
+  ),
+);
+const decodeSavedUsageCooldowns = Schema.decodeUnknownEffect(SavedUsageCooldowns);
+const encodeSavedUsageCooldowns = Schema.encodeSync(SavedUsageCooldowns);
 
 export class ProviderRegistry extends Context.Service<
   ProviderRegistry,
@@ -124,8 +139,13 @@ export class ProviderRegistry extends Context.Service<
      */
     readonly rememberUsageLimit: (input: {
       readonly instanceId: ProviderInstanceId;
-      readonly resetAt: string;
+      readonly accountKey?: string;
+      readonly resetAt?: string;
     }) => Effect.Effect<void>;
+    readonly clearUsageLimit: (input: {
+      readonly instanceId: ProviderInstanceId;
+      readonly accountKey?: string;
+    }) => Effect.Effect<{ readonly outcome: "cleared" | "nothingToClear" }>;
 
     readonly refreshWorkspaceSnapshot: (input: {
       readonly instanceId: ProviderInstanceId;
@@ -472,6 +492,10 @@ export const layer = Layer.effect(
     const latestVersions = yield* ProviderLatestVersions.ProviderLatestVersions;
     const serviceScope = yield* Effect.scope;
     const config = yield* ServerConfig.ServerConfig;
+    const settingsService = yield* Effect.serviceOption(
+      ServerSettingsService.ServerSettingsService,
+    );
+    const usageService = yield* Effect.serviceOption(UsageService.UsageService);
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
 
@@ -591,7 +615,18 @@ export const layer = Layer.effect(
         { readonly update?: ServerProviderUpdateState; readonly targetVersion?: string | undefined }
       >
     >(new Map());
-    const rememberedLimitsRef = yield* Ref.make<ReadonlyMap<ProviderInstanceId, number>>(new Map());
+    const cooldownPath = path.join(config.providerStatusCacheDir, "usage-slot-cooldowns.json");
+    const savedCooldowns = yield* fileSystem.readFileString(cooldownPath).pipe(
+      Effect.flatMap(decodeSavedUsageCooldowns),
+      Effect.orElseSucceed(() => ({})),
+    );
+    const rememberedLimitsRef = yield* Ref.make<
+      ReadonlyMap<string, { readonly untilMs: number; readonly markedAtMs: number }>
+    >(new Map(Object.entries(savedCooldowns)));
+    const budgetSummaryRef = yield* Ref.make<
+      | { readonly key: string; readonly expiresAtMs: number; readonly summary: UsageSummaryValue }
+      | undefined
+    >(undefined);
     const poolsRef = yield* Ref.make<ReadonlyArray<ProviderPool>>(
       yield* instanceRegistry.listPools,
     );
@@ -1435,73 +1470,270 @@ export const layer = Layer.effect(
     // Untraced: every provider read runs it, so a span per read would swamp traces.
     const withPools = Effect.fnUntraced(function* (providers: ReadonlyArray<ServerProvider>) {
       const pools = yield* Ref.get(poolsRef);
-      const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
-      const limits = yield* Ref.get(rememberedLimitsRef);
-      const settingsService = yield* Effect.serviceOption(Settings.ServerSettingsService);
-      const settings = Option.isSome(settingsService)
-        ? yield* settingsService.value.getSettings.pipe(Effect.orElseSucceed(() => undefined))
+      const now = yield* DateTime.now;
+      const nowMs = DateTime.toEpochMillis(now);
+      let limits = yield* Ref.get(rememberedLimitsRef);
+      const cleared = new Map(limits);
+      for (const provider of providers) {
+        for (const slot of provider.usageSlots ?? []) {
+          const key = `${provider.instanceId}:${slot.accountKey}`;
+          const checkedAtMs = Date.parse(slot.usageLimits.checkedAt);
+          const cooldown = limits.get(key);
+          if (
+            cooldown !== undefined &&
+            checkedAtMs > cooldown.markedAtMs &&
+            nowMs - checkedAtMs <= USAGE_REFRESH_STALE_MS &&
+            slot.usageLimits.unavailable === undefined &&
+            slot.usageLimits.windows.some((window) => window.id !== "budget") &&
+            slot.usageLimits.windows
+              .filter((window) => window.id !== "budget")
+              .every(
+                (window) =>
+                  window.usedPercent < 100 ||
+                  (window.resetsAt !== undefined &&
+                    Number.isFinite(Date.parse(window.resetsAt)) &&
+                    Date.parse(window.resetsAt) <= nowMs),
+              )
+          ) {
+            cleared.delete(key);
+          }
+        }
+      }
+      if (cleared.size !== limits.size) {
+        limits = cleared;
+        yield* Ref.set(rememberedLimitsRef, cleared);
+        yield* persistCooldowns(cleared);
+      }
+      const currentSettingsService = yield* Effect.serviceOption(
+        ServerSettingsService.ServerSettingsService,
+      );
+      const settings = Option.isSome(currentSettingsService)
+        ? yield* currentSettingsService.value.getSettings.pipe(
+            Effect.orElseSucceed(() => undefined),
+          )
         : undefined;
       // An early caller without settings cannot revoke persisted rules or their memory.
-      if (settings === undefined)
-        return withPoolSnapshots(withRememberedLimits(providers, limits, nowMs), pools, nowMs);
-      const rules = settings.subagentConservation ?? {};
-      const decorated = yield* conservationLock.withPermits(1)(
-        Effect.gen(function* () {
-          const next: Record<string, ConservationMemory> = {};
-          const result = providers.map((provider) => {
-            const rule = rules[provider.instanceId];
-            if (!rule?.enabled) return provider;
-            const evaluated = evaluateConservation(
-              provider,
-              rule,
-              nowMs,
-              conservationMemory[provider.instanceId],
+      const decorated =
+        settings === undefined
+          ? providers
+          : yield* conservationLock.withPermits(1)(
+              Effect.gen(function* () {
+                const rules = settings.subagentConservation ?? {};
+                const next: Record<string, ConservationMemory> = {};
+                const result = providers.map((provider) => {
+                  const rule = rules[provider.instanceId];
+                  if (!rule?.enabled) return provider;
+                  const evaluated = evaluateConservation(
+                    provider,
+                    rule,
+                    nowMs,
+                    conservationMemory[provider.instanceId],
+                  );
+                  if (evaluated.memory) next[provider.instanceId] = evaluated.memory;
+                  else if (
+                    !provider.usageLimits?.credentialFingerprint &&
+                    conservationMemory[provider.instanceId]
+                  )
+                    next[provider.instanceId] = conservationMemory[provider.instanceId]!;
+                  return { ...provider, subagentConservation: evaluated.status };
+                });
+                const contents = yield* encodeConservation(next).pipe(Effect.orDie);
+                if (
+                  contents !== (yield* encodeConservation(conservationMemory).pipe(Effect.orDie))
+                ) {
+                  conservationMemory = next;
+                  yield* writeFileStringAtomically({ filePath: conservationPath, contents }).pipe(
+                    Effect.provideService(FileSystem.FileSystem, fileSystem),
+                    Effect.provideService(Path.Path, path),
+                    Effect.provideService(HostProcess.Platform, platform),
+                    Effect.ignoreCause({ log: true }),
+                  );
+                }
+                return result;
+              }),
             );
-            if (evaluated.memory) next[provider.instanceId] = evaluated.memory;
-            else if (
-              !provider.usageLimits?.credentialFingerprint &&
-              conservationMemory[provider.instanceId]
-            )
-              next[provider.instanceId] = conservationMemory[provider.instanceId]!;
-            return { ...provider, subagentConservation: evaluated.status };
-          });
-          const contents = yield* encodeConservation(next).pipe(Effect.orDie);
-          if (contents !== (yield* encodeConservation(conservationMemory).pipe(Effect.orDie))) {
-            conservationMemory = next;
-            yield* writeFileStringAtomically({ filePath: conservationPath, contents }).pipe(
-              Effect.provideService(FileSystem.FileSystem, fileSystem),
-              Effect.provideService(Path.Path, path),
-              Effect.provideService(HostProcess.Platform, platform),
-              Effect.ignoreCause({ log: true }),
-            );
-          }
-          return result;
-        }),
+      let current = withRememberedLimits(
+        decorated,
+        new Map([...limits].map(([key, value]) => [key, value.untilMs])),
+        nowMs,
       );
-      return withPoolSnapshots(withRememberedLimits(decorated, limits, nowMs), pools, nowMs);
+      if (settings !== undefined && Option.isSome(usageService)) {
+        {
+          const budgets = settings.usageSlotBudgets;
+          const piProviders = current.filter((provider) => provider.driver === "pi");
+          if (Object.keys(budgets).length > 0 && piProviders.length > 0) {
+            const earliestCycle = Math.min(
+              ...Object.values(budgets).map(
+                (budget) => usageCycleBounds(nowMs, budget.resetDayOfMonth).startMs,
+              ),
+            );
+            const asDay = (ms: number) =>
+              new Date(ms).toISOString().slice(0, 10) as Parameters<
+                typeof usageService.value.readSummary
+              >[0]["sinceDay"];
+            const cacheKey = [
+              asDay(earliestCycle),
+              ...Object.entries(budgets)
+                .sort(([left], [right]) => left.localeCompare(right))
+                .map(
+                  ([slotId, budget]) =>
+                    `${slotId}:${budget.monthlyBudgetUsd}:${budget.resetDayOfMonth}:${budget.cycleSpendUsd}:${budget.correctedAt ?? ""}`,
+                ),
+            ].join("|");
+            const cached = yield* Ref.get(budgetSummaryRef);
+            let summary =
+              cached !== undefined && cached.key === cacheKey && cached.expiresAtMs > nowMs
+                ? Option.some(cached.summary)
+                : Option.none<UsageSummaryValue>();
+            if (Option.isNone(summary)) {
+              summary = yield* usageService.value
+                .readSummary({
+                  sinceDay: asDay(earliestCycle),
+                  untilDay: asDay(nowMs),
+                  timeZone: "UTC",
+                  provisional: true,
+                })
+                .pipe(Effect.option);
+              if (Option.isSome(summary)) {
+                yield* Ref.set(budgetSummaryRef, {
+                  key: cacheKey,
+                  summary: summary.value,
+                  expiresAtMs: nowMs + USAGE_REFRESH_STALE_MS,
+                });
+              }
+            }
+            if (Option.isSome(summary)) {
+              const exactCorrectionSpend = new Map<string, number>();
+              for (const [slotId, budget] of Object.entries(budgets)) {
+                if (budget.correctedAt === undefined) continue;
+                const correctionMs = Date.parse(budget.correctedAt);
+                const cycleStartMs = usageCycleBounds(nowMs, budget.resetDayOfMonth).startMs;
+                if (correctionMs < cycleStartMs || correctionMs > nowMs) continue;
+                const correction = new Date(correctionMs);
+                const dayEndMs = Math.min(
+                  Date.UTC(
+                    correction.getUTCFullYear(),
+                    correction.getUTCMonth(),
+                    correction.getUTCDate() + 1,
+                  ),
+                  nowMs,
+                );
+                if (dayEndMs <= correctionMs) {
+                  exactCorrectionSpend.set(slotId, 0);
+                  continue;
+                }
+                const separator = slotId.indexOf(":");
+                if (separator < 0 || slotId.slice(0, separator) !== "pi") continue;
+                const accountKey = slotId.slice(separator + 1);
+                const correctionSummary = yield* usageService.value
+                  .readSummary({
+                    sinceDay: asDay(correctionMs),
+                    untilDay: asDay(dayEndMs),
+                    timeZone: "UTC",
+                    resolution: "hour",
+                    sinceTime: new Date(correctionMs).toISOString(),
+                    untilTime: new Date(dayEndMs).toISOString(),
+                    provisional: true,
+                  })
+                  .pipe(Effect.option);
+                if (Option.isSome(correctionSummary)) {
+                  exactCorrectionSpend.set(
+                    slotId,
+                    correctionSummary.value.buckets.reduce(
+                      (sum, bucket) =>
+                        bucket.provider === "pi" && bucket.accountKey === accountKey
+                          ? sum + bucket.costUsd
+                          : sum,
+                      0,
+                    ),
+                  );
+                }
+              }
+              current = current.map((provider) => {
+                if (provider.driver !== "pi" || provider.usageSlots === undefined) return provider;
+                return {
+                  ...provider,
+                  usageSlots: provider.usageSlots.map((slot) => {
+                    const slotId = `${provider.instanceId}:${slot.accountKey}`;
+                    const budget = budgets[slotId];
+                    if (budget === undefined) return slot;
+                    const { startMs } = usageCycleBounds(nowMs, budget.resetDayOfMonth);
+                    const correctionMs =
+                      budget.correctedAt === undefined ? undefined : Date.parse(budget.correctedAt);
+                    const correctedInCycle =
+                      correctionMs !== undefined &&
+                      correctionMs >= startMs &&
+                      correctionMs <= nowMs;
+                    let cycleUsd = 0;
+                    let sinceCorrectionUsd = 0;
+                    let correctionDayUsd = 0;
+                    const correctionDay =
+                      correctionMs === undefined
+                        ? Number.NaN
+                        : Date.parse(
+                            `${new Date(correctionMs).toISOString().slice(0, 10)}T00:00:00.000Z`,
+                          );
+                    for (const bucket of summary.value.buckets) {
+                      if (bucket.provider !== "pi" || bucket.accountKey !== slot.accountKey)
+                        continue;
+                      const bucketMs = Date.parse(`${bucket.day}T00:00:00.000Z`);
+                      if (bucketMs < startMs) continue;
+                      cycleUsd += bucket.costUsd;
+                      if (correctedInCycle) {
+                        if (bucketMs > correctionDay) sinceCorrectionUsd += bucket.costUsd;
+                        else if (bucketMs === correctionDay) correctionDayUsd += bucket.costUsd;
+                      }
+                    }
+                    if (correctedInCycle) {
+                      sinceCorrectionUsd += exactCorrectionSpend.get(slotId) ?? correctionDayUsd;
+                    }
+                    const window = makeUsageSlotBudgetWindow({
+                      budget,
+                      nowMs,
+                      spend: { cycleUsd, sinceCorrectionUsd },
+                    });
+                    const { unavailable: _unavailable, ...limitsWithoutUnavailable } =
+                      slot.usageLimits;
+                    return {
+                      ...slot,
+                      usageLimits: {
+                        ...limitsWithoutUnavailable,
+                        checkedAt: summary.value.readAt,
+                        windows: [
+                          ...slot.usageLimits.windows.filter((item) => item.id !== "budget"),
+                          window,
+                        ],
+                      },
+                    };
+                  }),
+                };
+              });
+            }
+          }
+        }
+      }
+      return withPoolSnapshots(current, pools, nowMs);
     });
 
-    const rememberUsageLimit = Effect.fn("ProviderRegistry.rememberUsageLimit")(function* (input: {
-      readonly instanceId: ProviderInstanceId;
-      readonly resetAt: string;
-    }) {
-      const resetMs = Date.parse(input.resetAt);
-      const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
-      if (!Number.isFinite(resetMs) || resetMs <= nowMs) return;
-      yield* Ref.update(rememberedLimitsRef, (limits) =>
-        new Map(
-          [...limits].filter(
-            ([instanceId, until]) => until > nowMs && instanceId !== input.instanceId,
-          ),
-        ).set(input.instanceId, Math.max(resetMs, limits.get(input.instanceId) ?? 0)),
+    const persistCooldowns = Effect.fn("ProviderRegistry.persistCooldowns")(function* (
+      limits: ReadonlyMap<string, { readonly untilMs: number; readonly markedAtMs: number }>,
+    ) {
+      yield* writeFileStringAtomically({
+        filePath: cooldownPath,
+        contents: `${encodeSavedUsageCooldowns(Object.fromEntries(limits))}\n`,
+      }).pipe(
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, path),
+        Effect.catchCause((cause) =>
+          Effect.logWarning("provider usage cooldown persistence failed", { cause }),
+        ),
       );
-      yield* PubSub.publish(changesPubSub, yield* Ref.get(providersRef));
     });
 
     const prepareConservation = Effect.fn("ProviderRegistry.prepareConservation")(function* (
       supplied: ReadonlyArray<ServerProvider>,
     ) {
-      const settings = yield* Effect.serviceOption(Settings.ServerSettingsService);
+      const settings = yield* Effect.serviceOption(ServerSettingsService.ServerSettingsService);
       if (Option.isNone(settings)) return supplied;
       const rules =
         (yield* settings.value.getSettings.pipe(Effect.orDie)).subagentConservation ?? {};
@@ -1575,7 +1807,7 @@ export const layer = Layer.effect(
       const latest = new Map(
         (yield* Ref.get(providersRef)).map((provider) => [provider.instanceId, provider]),
       );
-      const now = yield* Clock.currentTimeMillis;
+      const now = DateTime.toEpochMillis(yield* DateTime.now);
       const merged = supplied
         .filter((provider) => provider.poolMembers === undefined)
         .flatMap((provider) => {
@@ -1608,10 +1840,80 @@ export const layer = Layer.effect(
           ];
         });
       return withPoolSnapshots(
-        withRememberedLimits(merged, yield* Ref.get(rememberedLimitsRef), now),
+        withRememberedLimits(
+          merged,
+          new Map([...(yield* Ref.get(rememberedLimitsRef))].map(([k, v]) => [k, v.untilMs])),
+          now,
+        ),
         finalPools.filter((pool) => suppliedIds.has(pool.instanceId)),
         now,
       );
+    });
+
+    const clearUsageLimit = Effect.fn("ProviderRegistry.clearUsageLimit")(function* (input: {
+      readonly instanceId: ProviderInstanceId;
+      readonly accountKey?: string;
+    }) {
+      const key =
+        input.accountKey === undefined
+          ? input.instanceId
+          : `${input.instanceId}:${input.accountKey}`;
+      const [outcome, updated] = yield* Ref.modify(
+        rememberedLimitsRef,
+        (
+          limits,
+        ): readonly [
+          readonly [
+            "cleared" | "nothingToClear",
+            ReadonlyMap<string, { readonly untilMs: number; readonly markedAtMs: number }>,
+          ],
+          ReadonlyMap<string, { readonly untilMs: number; readonly markedAtMs: number }>,
+        ] => {
+          if (!limits.has(key)) {
+            return [["nothingToClear", limits], limits];
+          }
+          const next = new Map(limits);
+          next.delete(key);
+          return [["cleared", next], next];
+        },
+      );
+      if (outcome === "cleared") {
+        yield* persistCooldowns(updated);
+        yield* PubSub.publish(changesPubSub, yield* Ref.get(providersRef));
+      }
+      return { outcome };
+    });
+
+    const rememberUsageLimit = Effect.fn("ProviderRegistry.rememberUsageLimit")(function* (input: {
+      readonly instanceId: ProviderInstanceId;
+      readonly accountKey?: string;
+      readonly resetAt?: string;
+    }) {
+      const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
+      const key =
+        input.accountKey === undefined
+          ? input.instanceId
+          : `${input.instanceId}:${input.accountKey}`;
+      let resetMs = input.resetAt === undefined ? Number.NaN : Date.parse(input.resetAt);
+      if (!Number.isFinite(resetMs) || resetMs <= nowMs) {
+        if (input.accountKey !== undefined && Option.isSome(settingsService)) {
+          const settings = yield* settingsService.value.getSettings.pipe(Effect.option);
+          const budget = Option.isSome(settings) ? settings.value.usageSlotBudgets[key] : undefined;
+          if (budget !== undefined)
+            resetMs = usageCycleBounds(nowMs, budget.resetDayOfMonth).nextResetMs;
+        }
+        if (!Number.isFinite(resetMs) || resetMs <= nowMs) resetMs = nowMs + 60 * 60 * 1000;
+      }
+      const updated = yield* Ref.modify(rememberedLimitsRef, (limits) => {
+        const next = new Map([...limits].filter(([, cooldown]) => cooldown.untilMs > nowMs));
+        next.set(key, {
+          untilMs: Math.max(resetMs, limits.get(key)?.untilMs ?? 0),
+          markedAtMs: nowMs,
+        });
+        return [next, next] as const;
+      });
+      yield* persistCooldowns(updated);
+      yield* PubSub.publish(changesPubSub, yield* Ref.get(providersRef));
     });
 
     return {
@@ -1627,6 +1929,7 @@ export const layer = Layer.effect(
         refreshInstanceUsage(instanceId).pipe(Effect.flatMap(withPools)),
       prepareConservation,
       rememberUsageLimit,
+      clearUsageLimit,
       reloadSecretsAndRefresh: (instanceId?: ProviderInstanceId) =>
         reloadSecretsAndRefresh(instanceId).pipe(
           Effect.catchCause(recoverRefreshFailure),
@@ -1655,7 +1958,9 @@ export const layer = Layer.effect(
           Effect.gen(function* () {
             // Subscribe before merge forks its readers, so an update after Stream.toPull is retained.
             const subscription = yield* PubSub.subscribe(changesPubSub);
-            const settings = yield* Effect.serviceOption(Settings.ServerSettingsService);
+            const settings = yield* Effect.serviceOption(
+              ServerSettingsService.ServerSettingsService,
+            );
             const settingsChanges = Option.isSome(settings)
               ? yield* settings.value.subscribeChanges
               : Stream.empty;

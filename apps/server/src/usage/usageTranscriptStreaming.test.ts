@@ -180,6 +180,8 @@ describe("large usage records", () => {
     expect(result.records).toEqual([
       {
         provider: "pi",
+        // The sub-provider is what a monthly budget is attributed to.
+        accountKey: "anthropic",
         model: "anthropic/actual",
         rateModel: "actual",
         sessionId: "pi-session",

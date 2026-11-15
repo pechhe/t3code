@@ -580,6 +580,7 @@ export const WS_METHODS = {
   providerUploadFeedback: "provider.uploadFeedback",
   providerAuthStart: "provider.auth.start",
   providerConsumeResetCredit: "provider.consumeResetCredit",
+  providerClearUsageLimit: "provider.clearUsageLimit",
   providerAuthComplete: "provider.auth.complete",
   chatGptReconnectProfile: "provider.chatgpt.reconnect-profile",
   chatGptImportProfile: "provider.chatgpt.import-profile",
@@ -927,6 +928,23 @@ const WsProviderConsumeResetCreditRpc = Rpc.make(WS_METHODS.providerConsumeReset
   payload: ProviderConsumeResetCreditInput,
   success: ProviderConsumeResetCreditResult,
   error: Schema.Union([ProviderSetupError, UsageLimitSourceError, EnvironmentAuthorizationError]),
+});
+
+export const ProviderClearUsageLimitInput = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  accountKey: Schema.optional(Schema.String),
+});
+export type ProviderClearUsageLimitInput = typeof ProviderClearUsageLimitInput.Type;
+
+export const ProviderClearUsageLimitResult = Schema.Struct({
+  outcome: Schema.Literals(["cleared", "nothingToClear"]),
+});
+export type ProviderClearUsageLimitResult = typeof ProviderClearUsageLimitResult.Type;
+
+const WsProviderClearUsageLimitRpc = Rpc.make(WS_METHODS.providerClearUsageLimit, {
+  payload: ProviderClearUsageLimitInput,
+  success: ProviderClearUsageLimitResult,
+  error: Schema.Union([ProviderSetupError, EnvironmentAuthorizationError]),
 });
 
 const WsProviderAuthStartRpc = Rpc.make(WS_METHODS.providerAuthStart, {
@@ -3029,6 +3047,7 @@ export const WsServerOperationsRpcGroup = RpcGroup.make(
   WsServerRefreshProvidersRpc,
   WsServerUpdateProviderRpc,
   WsProviderConsumeResetCreditRpc,
+  WsProviderClearUsageLimitRpc,
   WsProviderAuthStartRpc,
   WsProviderAuthCompleteRpc,
   WsChatGptReconnectProfileRpc,

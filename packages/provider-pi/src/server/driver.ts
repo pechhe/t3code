@@ -4,6 +4,7 @@ import { PiSettings } from "../settings.ts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
+import * as Digest from "effect/crypto/Digest";
 import * as Schema from "effect/Schema";
 import * as HttpClient from "effect/http/HttpClient";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
@@ -11,6 +12,7 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as ProviderLatestVersions from "@t3tools/provider-core/server/ProviderLatestVersions";
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import { piUsageReader } from "./usage.ts";
+import { readPiUsageSlots } from "./usageSlots.ts";
 import { makePiTextGeneration } from "./textGeneration.ts";
 import { PiAdapterV2Driver, type PiAdapterV2DriverEnv } from "./adapter.ts";
 import { ProviderDriverError } from "@t3tools/provider-core/server/errors";
@@ -51,6 +53,7 @@ const UPDATE = makePackageManagedProviderMaintenanceResolver({
 
 export type PiDriverEnv =
   | PiAdapterV2DriverEnv
+  | Digest.Digest
   | ProviderHost.ProviderHost
   | ChildProcessSpawner.ChildProcessSpawner
   | FileSystem.FileSystem
@@ -94,6 +97,7 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const fileSystem = yield* FileSystem.FileSystem;
     const pathService = yield* Path.Path;
+    const digest = yield* Digest.Digest;
     const httpClient = yield* HttpClient.HttpClient;
     const latestVersions = yield* ProviderLatestVersions.ProviderLatestVersions;
     const host = yield* ProviderHost.ProviderHost;
@@ -146,6 +150,23 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
     );
 
+    const readUsageSlots = readPiUsageSlots({ environment: processEnv }).pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, pathService),
+      Effect.provideService(Digest.Digest, digest),
+      Effect.provideService(HttpClient.HttpClient, httpClient),
+    );
+
+    // Pi holds several accounts' credentials, so allowance is read per stored account. A probe
+    // answers about allowance only: an unreachable quota host must never fail provider status.
+    const attachUsageSlots = Effect.fn("PiDriver.attachUsageSlots")(function* (
+      snapshot: ServerProvider,
+    ) {
+      if (!effectiveConfig.enabled) return snapshot;
+      const usageSlots = yield* readUsageSlots.pipe(Effect.orElseSucceed(() => []));
+      return usageSlots.length === 0 ? snapshot : { ...snapshot, usageSlots };
+    });
+
     const snapshotSettings = yield* makeProviderSnapshotSettingsSource(effectiveConfig);
     const snapshot = yield* makeManagedServerProvider<ProviderSnapshotSettings<PiSettings>>({
       resolveMaintenance,
@@ -154,7 +175,7 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
       haveSettingsChanged: haveProviderSnapshotSettingsChanged,
       initialSnapshot: (settings) =>
         buildInitialPiProviderSnapshot(settings.provider).pipe(Effect.map(stampIdentity)),
-      checkProvider,
+      checkProvider: checkProvider.pipe(Effect.flatMap(attachUsageSlots)),
       enrichSnapshot: ({ settings, snapshot: currentSnapshot, publishSnapshot }) =>
         resolveMaintenance().pipe(
           Effect.flatMap((maintenanceCapabilities) =>

@@ -9,7 +9,9 @@ import {
 
 import {
   explainPoolPick,
+  isProviderSlotExhausted,
   isProviderUsageExhausted,
+  piAccountKeyOf,
   usableAgainMs,
   withRememberedLimits,
   needsUsageRefresh,
@@ -18,6 +20,7 @@ import {
   pickPoolMember,
   pickPoolSwitchMember,
   withPoolSnapshots,
+  REMEMBERED_LIMIT_WINDOW_ID,
   type ProviderPool,
 } from "./providerPools.ts";
 
@@ -515,5 +518,74 @@ describe("withRememberedLimits", () => {
     expect(usableAgainMs(remembered!, NOW)).toBe(NOW + 3_600_000);
     // Once the reset passes the remembered limit drops away.
     expect(withRememberedLimits([fresh], limits, NOW + 3_600_000)[0]).toBe(fresh);
+  });
+
+  it("keeps remembered Pi cooldowns on the matching account slot", () => {
+    const provider = account("pi", [], {
+      usageSlots: [
+        {
+          accountKey: "anthropic-a",
+          label: "A",
+          usageLimits: { checkedAt: at(0), windows: [] },
+        },
+        {
+          accountKey: "anthropic-b",
+          label: "B",
+          usageLimits: { checkedAt: at(0), windows: [] },
+        },
+      ],
+    });
+    const [remembered] = withRememberedLimits(
+      [provider],
+      new Map([["pi:anthropic-a", NOW + 3_600_000]]),
+      NOW,
+    );
+    expect(remembered?.usageLimits?.windows).toEqual([]);
+    expect(remembered?.usageSlots?.[0]?.usageLimits.windows[0]).toMatchObject({
+      id: REMEMBERED_LIMIT_WINDOW_ID,
+      usedPercent: 100,
+      resetsAt: at(1),
+    });
+    expect(remembered?.usageSlots?.[1]?.usageLimits.windows).toEqual([]);
+  });
+});
+
+describe("Pi slot refusals", () => {
+  const piSlot = (accountKey: string, cooled: boolean) => ({
+    accountKey,
+    label: accountKey,
+    usageLimits: {
+      checkedAt: at(0),
+      windows: cooled
+        ? [
+            {
+              id: REMEMBERED_LIMIT_WINDOW_ID,
+              kind: "other" as const,
+              label: "Usage limit reached",
+              usedPercent: 100,
+              resetsAt: at(2),
+            },
+          ]
+        : [],
+    },
+  });
+
+  it("blocks only the account that ran out, and only until its reset", () => {
+    const provider = account("pi", [], {
+      driver: ProviderDriverKind.make("pi"),
+      usageSlots: [piSlot("anthropic", true), piSlot("opencode-go", false)],
+    });
+    expect(isProviderSlotExhausted(provider, "anthropic", NOW)).toBe(true);
+    expect(isProviderSlotExhausted(provider, "opencode-go", NOW)).toBe(false);
+    expect(isProviderSlotExhausted(provider, "anthropic", NOW + 3 * 3_600_000)).toBe(false);
+    expect(isProviderSlotExhausted(provider, "unknown", NOW)).toBe(false);
+  });
+
+  it("reads the account key off the model slug", () => {
+    expect(piAccountKeyOf("claude-subscription-hfpetch/claude-fable-5-2")).toBe(
+      "claude-subscription-hfpetch",
+    );
+    expect(piAccountKeyOf("gpt-6-luna")).toBeUndefined();
+    expect(piAccountKeyOf("/leading-slash")).toBeUndefined();
   });
 });

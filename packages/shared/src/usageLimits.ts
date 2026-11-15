@@ -42,7 +42,12 @@ export function exhaustedUsageWindow(
   now: number,
   model?: string,
 ) {
-  const windows = provider?.usageLimits?.windows ?? [];
+  const slotKey = model?.split("/")[0];
+  const slot =
+    provider?.driver === "pi"
+      ? provider.usageSlots?.find((candidate) => candidate.accountKey === slotKey)
+      : undefined;
+  const windows = slot?.usageLimits.windows ?? provider?.usageLimits?.windows ?? [];
   const exhausted = windows.filter(
     (window) =>
       (window.usedPercent ?? 0) >= 100 &&
@@ -273,6 +278,14 @@ export interface LimitAccount {
   readonly email: string | undefined;
   readonly plan: string | undefined;
   readonly accentColor: string | undefined;
+  /**
+   * Set when the account is one credential inside a multi-account instance, as Pi's are.
+   * Slots group and sort on their own instead of sharing their instance's row.
+   */
+  readonly slot?: {
+    readonly instanceId: ProviderInstanceId;
+    readonly accountKey: string;
+  };
   readonly environments: ReadonlyArray<{
     readonly environmentId: EnvironmentId;
     readonly label: string;
@@ -385,6 +398,28 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
     }
   }
   const labelEnvironment = presentations.size > 1;
+  // One instance can hold several accounts' credentials, as Pi does; each is its own row.
+  for (const [environmentId, presentation] of presentations) {
+    const label = presentation.entry.target.label;
+    for (const provider of presentation.serverConfig?.providers ?? []) {
+      if (!provider.enabled || provider.usageSlots === undefined) continue;
+      for (const slot of provider.usageSlots) {
+        merge(`${environmentId}:${provider.instanceId}:${slot.accountKey}`, {
+          key: `${environmentId}:${provider.instanceId}:${slot.accountKey}`,
+          driver: provider.driver,
+          displayName: slot.label,
+          email: undefined,
+          plan: undefined,
+          accentColor: provider.accentColor,
+          slot: { instanceId: provider.instanceId, accountKey: slot.accountKey },
+          environments: [{ environmentId, label }],
+          sourceLabel: null,
+          redeem: null,
+          limits: slot.usageLimits,
+        });
+      }
+    }
+  }
   for (const [environmentId, presentation] of presentations) {
     for (const source of presentation.serverConfig?.usageLimitSources ?? []) {
       const sourceLabel = labelEnvironment
@@ -431,6 +466,13 @@ export function collectLimitNotices(presentations: LimitPresentations): readonly
       const notice = provider.usageLimits ? limitsNotice(provider.usageLimits) : null;
       const name = provider.displayName?.trim() || String(provider.driver);
       if (notice) notices.add(`${label(environmentLabel, name)}: ${notice}`);
+    }
+    for (const provider of presentation.serverConfig?.providers ?? []) {
+      if (!provider.enabled) continue;
+      for (const slot of provider.usageSlots ?? []) {
+        const notice = limitsNotice(slot.usageLimits);
+        if (notice) notices.add(`${label(environmentLabel, slot.label)}: ${notice}`);
+      }
     }
     for (const source of presentation.serverConfig?.usageLimitSources ?? []) {
       if (source.error) {
@@ -527,13 +569,24 @@ export function collectLimitPools(
   accounts: readonly LimitAccount[],
   now: number,
 ): readonly LimitPool[] {
+  // A slot's windows belong to its own account, so pooling them with its instance's
+  // driver-wide windows would average two different allowances into one figure.
   const byDriver = new Map<ServerProvider["driver"], LimitAccount[]>();
+  const slotPools: LimitPool[] = [];
   for (const account of accounts) {
+    if (account.slot !== undefined) {
+      slotPools.push({
+        driver: account.driver,
+        accounts: [account],
+        windows: poolWindows([account], now),
+      });
+      continue;
+    }
     const list = byDriver.get(account.driver);
     if (list) list.push(account);
     else byDriver.set(account.driver, [account]);
   }
-  return [...byDriver].map(([driver, members]) => {
+  const driverPools = [...byDriver].map(([driver, members]) => {
     const orderWindow = members
       .flatMap((account) => account.limits.windows)
       .sort((left, right) => WINDOW_KIND_ORDER[left.kind] - WINDOW_KIND_ORDER[right.kind])[0];
@@ -554,6 +607,7 @@ export function collectLimitPools(
     );
     return { driver, accounts: sorted, windows: poolWindows(sorted, now) };
   });
+  return [...driverPools, ...slotPools];
 }
 
 function accountSortName(account: LimitAccount): string {

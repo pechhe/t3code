@@ -67,17 +67,38 @@ import {
 // Pi relays the upstream body as text only, so its overload is recognised by that body,
 // which has said both `[overloaded]` and "service is overloaded".
 const PI_OVERLOADED_ERROR = /\b429\b[\s\S]*\boverloaded\b/iu;
+const PI_USAGE_LIMIT_ERROR =
+  /\b(?:insufficient\s+credits?|not enough credits?|usage limit|quota limit|rate limit|credit limit|allowance exhausted)\b/iu;
 
 /** A Pi model failure, coded as an overload when the upstream said it was overloaded. */
-const piModelFailure = (message: string, retryable?: boolean) =>
-  makeProviderFailure({
+const piModelFailure = Effect.fn("PiAdapter.modelFailure")(function* (
+  message: string,
+  retryable?: boolean,
+) {
+  const absoluteReset = message.match(
+    /\b(?:reset(?:At|_at)?|resets_at)\b[\s"'=:\-]{0,16}(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\b/iu,
+  )?.[1];
+  const retryAfterSeconds = Number(
+    message.match(/\bretry[_ -]?after\b[\s"'=:\-]{0,16}(\d+(?:\.\d+)?)/iu)?.[1],
+  );
+  const resetAt =
+    absoluteReset !== undefined
+      ? absoluteReset
+      : Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+        ? DateTime.formatIso(
+            DateTime.addDuration(yield* DateTime.now, Duration.seconds(retryAfterSeconds)),
+          )
+        : undefined;
+  return makeProviderFailure({
     message,
-    class: "provider_error",
+    class: PI_USAGE_LIMIT_ERROR.test(message) ? "usage_limit" : "provider_error",
+    ...(resetAt === undefined ? {} : { resetAt }),
     ...(retryable === undefined ? {} : { retryable }),
     ...(PI_OVERLOADED_ERROR.test(message)
       ? { code: ORCHESTRATION_V2_PROVIDER_OVERLOADED_FAILURE_CODE }
       : {}),
   });
+});
 import { turnScopedSelectionTransition } from "@t3tools/provider-core/server/selectionTransition";
 import {
   findReportedPiModel,
@@ -2200,7 +2221,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
               turn.reportedModel = `${reportedProvider}/${reportedModelId}`;
             }
             if (recordString(message, "stopReason") === "error" && turn.failure === null) {
-              turn.failure = piModelFailure(
+              turn.failure = yield* piModelFailure(
                 recordString(message, "errorMessage") ?? "Pi reported a model error.",
               );
             }
@@ -2296,7 +2317,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
               Math.trunc(recordNumber(event, "maxAttempts") ?? attempt),
             );
             const retryDelayMs = Math.max(0, Math.trunc(recordNumber(event, "delayMs") ?? 0));
-            const failure = piModelFailure(
+            const failure = yield* piModelFailure(
               recordString(event, "errorMessage") ?? "Pi provider request failed.",
               true,
             );
@@ -2335,7 +2356,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
               turn.failure = null;
               return;
             }
-            const failure = piModelFailure(
+            const failure = yield* piModelFailure(
               recordString(event, "finalError") ?? "Pi auto-retry failed.",
               false,
             );

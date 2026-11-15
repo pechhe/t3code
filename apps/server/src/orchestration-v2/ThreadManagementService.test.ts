@@ -257,6 +257,205 @@ const routePooledThread = (input: { readonly hasRun: boolean }) => {
   }).pipe(Effect.provide(layerTest));
 };
 
+/** Builds a command against one Pi account while another account of the same instance has allowance. */
+const dispatchToPiAccount = (input: {
+  readonly model: string;
+  readonly command?: (commandId: CommandId, threadId: ThreadId) => OrchestrationV2ServerCommand;
+  readonly run?: () => unknown;
+}) => {
+  const projectId = ProjectId.make("project:thread-management:pi-slot");
+  const threadId = ThreadId.make("thread:thread-management:pi-slot");
+  const pi = ProviderInstanceId.make("pi");
+  const resetsAt = "2026-10-15T04:00:00.000Z";
+  const piProvider: ServerProvider = {
+    instanceId: pi,
+    driver: ProviderDriverKind.make("pi"),
+    enabled: true,
+    installed: true,
+    version: "1.5.2",
+    status: "ready",
+    auth: { status: "authenticated" },
+    checkedAt: resetsAt,
+    models: [],
+    slashCommands: [],
+    skills: [],
+    usageSlots: [
+      {
+        accountKey: "claude-subscription-hfpetch",
+        label: "claude-subscription-hfpetch",
+        usageLimits: {
+          checkedAt: resetsAt,
+          windows: [
+            {
+              id: "t3-usage-limit",
+              kind: "other",
+              label: "Usage limit reached",
+              usedPercent: 100,
+              resetsAt: "2999-01-01T00:00:00.000Z",
+            },
+          ],
+        },
+      },
+      {
+        accountKey: "claude-subscription-yardsmith",
+        label: "claude-subscription-yardsmith",
+        usageLimits: { checkedAt: resetsAt, windows: [] },
+      },
+    ],
+  };
+  const dispatched: Array<OrchestrationV2ServerCommand> = [];
+  const layerTest = ThreadManagementService.layer.pipe(
+    Layer.provide(Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({})),
+    Layer.provide(
+      Layer.mock(Orchestrator.OrchestratorV2)({
+        getThreadRecords: () =>
+          Effect.succeed({
+            thread: {
+              id: threadId,
+              projectId,
+              deletedAt: null,
+              modelSelection: { instanceId: pi, model: input.model },
+            },
+            runs: input.run === undefined ? [] : [input.run()],
+          } as unknown as OrchestrationV2ThreadProjection),
+        dispatch: (command) =>
+          Effect.sync(() => {
+            dispatched.push(command);
+            return { sequence: 1, storedEvents: [] } as never;
+          }),
+      }),
+    ),
+    Layer.provide(ProviderRegistryMock.layer([piProvider])),
+    Layer.provide(
+      ServerSettings.layerTest({ providerInstances: { [pi]: { driver: "pi", enabled: true } } }),
+    ),
+    Layer.provide(layerReceiptsTest),
+  );
+
+  return Effect.gen(function* () {
+    const threads = yield* ThreadManagementService.ThreadManagementService;
+    const command = input.command?.(
+      CommandId.make("command:thread-management:pi-slot"),
+      threadId,
+    ) ?? {
+      type: "message.dispatch" as const,
+      commandId: CommandId.make("command:thread-management:pi-slot"),
+      threadId,
+      messageId: MessageId.make("message:thread-management:pi-slot"),
+      text: "Carry on.",
+      attachments: [],
+      modelSelection: { instanceId: pi, model: input.model },
+      dispatchMode: { type: "queue_after_active" as const },
+      createdBy: "user" as const,
+      creationSource: "web" as const,
+    };
+    const result = yield* Effect.result(threads.dispatch(command));
+    return { result, dispatched };
+  }).pipe(Effect.provide(layerTest));
+};
+
+it.effect("refuses a dispatch to a cooled Pi account even when it is named explicitly", () =>
+  Effect.gen(function* () {
+    const { result, dispatched } = yield* dispatchToPiAccount({
+      model: "claude-subscription-hfpetch/claude-fable-5-2",
+    });
+    // Another account of the same instance has allowance, but a different account is a
+    // different model, so the turn is refused rather than silently run elsewhere.
+    expect(result._tag).toBe("Failure");
+    expect(result._tag === "Failure" ? result.failure : undefined).toMatchObject({
+      cause: expect.stringContaining("claude-subscription-hfpetch"),
+    });
+    expect(dispatched).toEqual([]);
+  }),
+);
+
+it.effect("refuses a manual continuation that resolves to a cooled Pi account", () =>
+  Effect.gen(function* () {
+    // The source run is the one that just ran out, so excusing a continuation would hand
+    // that same account another turn.
+    const { result, dispatched } = yield* dispatchToPiAccount({
+      model: "claude-subscription-hfpetch/claude-fable-5-2",
+      command: (commandId, threadId) =>
+        ({
+          type: "message.dispatch",
+          commandId,
+          threadId,
+          messageId: MessageId.make("message:thread-management:pi-continue"),
+          text: "Carry on.",
+          attachments: [],
+          manualContinuationOfRunId: RunId.make("run:thread-management:pi-continue"),
+          dispatchMode: { type: "start_immediately" },
+          createdBy: "user",
+          creationSource: "web",
+        }) as unknown as OrchestrationV2ServerCommand,
+    });
+    expect(result._tag).toBe("Failure");
+    expect(dispatched).toEqual([]);
+  }),
+);
+
+it.effect("refuses a delegate that names a cooled Pi account", () =>
+  Effect.gen(function* () {
+    // The orchestrator starts the child thread itself, so delegation has to be checked here.
+    const { result, dispatched } = yield* dispatchToPiAccount({
+      model: "claude-subscription-hfpetch/claude-fable-5-2",
+      command: (commandId, threadId) =>
+        ({
+          type: "delegated_task.request",
+          commandId,
+          parentThreadId: threadId,
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("pi"),
+            model: "claude-subscription-hfpetch/claude-fable-5-2",
+          },
+          agentTask: { role: "implementer", taskClass: "non-ui" },
+          task: "Do the thing.",
+          dispatchMode: { type: "start_immediately" },
+          createdBy: "agent",
+          creationSource: "server",
+        }) as unknown as OrchestrationV2ServerCommand,
+    });
+    expect(result._tag).toBe("Failure");
+    expect(dispatched).toEqual([]);
+  }),
+);
+
+it.effect("refuses to release a prepared run whose Pi account has since cooled", () =>
+  Effect.gen(function* () {
+    // Prepared before the account cooled, released after: the reading is checked at release.
+    const { result, dispatched } = yield* dispatchToPiAccount({
+      model: "claude-subscription-hfpetch/claude-fable-5-2",
+      run: () => ({
+        id: RunId.make("run:thread-management:pi-slot"),
+        providerInstanceId: ProviderInstanceId.make("pi"),
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("pi"),
+          model: "claude-subscription-hfpetch/claude-fable-5-2",
+        },
+      }),
+      command: (commandId, threadId) =>
+        ({
+          type: "prepared-run.release",
+          commandId,
+          threadId,
+          runId: RunId.make("run:thread-management:pi-slot"),
+        }) as unknown as OrchestrationV2ServerCommand,
+    });
+    expect(result._tag).toBe("Failure");
+    expect(dispatched).toEqual([]);
+  }),
+);
+
+it.effect("reaches the orchestrator when the named Pi account has allowance", () =>
+  Effect.gen(function* () {
+    const { result, dispatched } = yield* dispatchToPiAccount({
+      model: "claude-subscription-yardsmith/claude-fable-5-2",
+    });
+    expect(result._tag).toBe("Success");
+    expect(dispatched).toHaveLength(1);
+  }),
+);
+
 it.effect("routes a pooled selection to a member account before the orchestrator sees it", () =>
   Effect.gen(function* () {
     // Both keep the thread on its member, which still has allowance.

@@ -142,6 +142,38 @@ describe("new thread model fallback", () => {
       ),
     ).toBeDefined();
   });
+  it("falls back when the selected Pi sub-provider slot is cooled", () => {
+    const pi = provider({
+      instanceId: ProviderInstanceId.make("pi"),
+      driver: ProviderDriverKind.make("pi"),
+      usageSlots: [
+        {
+          accountKey: "anthropic",
+          label: "Anthropic",
+          usageLimits: {
+            checkedAt: "2026-09-03T11:00:00.000Z",
+            windows: [
+              {
+                id: "t3-usage-limit",
+                kind: "other",
+                label: "Limited",
+                usedPercent: 100,
+                resetsAt: "2026-09-03T14:00:00.000Z",
+              },
+            ],
+          },
+        },
+      ],
+    });
+    const selected = { instanceId: pi.instanceId, model: "anthropic/claude-sonnet" };
+    expect(
+      resolveNewThreadModelSelection({
+        ...defaults,
+        defaultSelection: selected,
+        providers: [pi, available],
+      }).selection,
+    ).toEqual(fallback);
+  });
   it.each([
     ["cursor", ["autoPercentUsed"], "claude-opus-5-5", false, undefined, undefined],
     ["cursor", ["autoPercentUsed"], "composer-2.5", false, undefined, undefined],
@@ -1769,5 +1801,73 @@ describe("ChatGPT sharing presentation", () => {
         auth: { status: "unauthenticated", subscriptionSharing: true },
       }),
     ).toBe(false);
+  });
+});
+
+describe("collectLimitPools slot accounts", () => {
+  const checkedAt = "2026-08-01T10:00:00.000Z";
+  const now = Date.parse(checkedAt) + 60_000;
+  const pi = ProviderDriverKind.make("pi");
+  const window = (id: string, usedPercent: number) => ({
+    id,
+    kind: "session" as const,
+    label: id,
+    usedPercent,
+    resetsAt: "2026-08-01T15:00:00.000Z",
+  });
+  const slotAccount = (accountKey: string, usedPercent: number): LimitAccount => ({
+    key: `env:pi:${accountKey}`,
+    driver: pi,
+    displayName: accountKey,
+    email: undefined,
+    plan: undefined,
+    accentColor: undefined,
+    slot: { instanceId: ProviderInstanceId.make("pi"), accountKey },
+    environments: [{ environmentId: EnvironmentId.make("env"), label: "Mac" }],
+    sourceLabel: null,
+    redeem: null,
+    limits: { checkedAt, windows: [window("five_hour", usedPercent)] },
+  });
+
+  it("keeps each slot's windows apart instead of averaging them into its instance", () => {
+    const pools = collectLimitPools(
+      [slotAccount("antigravity", 10), slotAccount("claude-subscription-hfpetch", 90)],
+      now,
+    );
+    expect(pools).toHaveLength(2);
+    expect(pools.map((pool) => pool.accounts.length)).toEqual([1, 1]);
+    // Averaging these two would report 50% used and hide that one account is nearly out.
+    expect(pools.map((pool) => pool.windows[0]?.usedPercent).toSorted()).toEqual([10, 90]);
+  });
+
+  it("keeps an empty failed slot listed and shows its probe reason", () => {
+    const failed = provider({
+      driver: pi,
+      usageSlots: [
+        {
+          accountKey: "openai-codex",
+          label: "OpenAI Codex",
+          usageLimits: {
+            checkedAt,
+            windows: [],
+            unavailable: { reason: "probeFailed", message: "OpenAI Codex could not read usage." },
+          },
+        },
+      ],
+    });
+    const presentations = new Map([
+      [
+        EnvironmentId.make("env"),
+        {
+          entry: { target: { label: "Mac" } },
+          serverConfig: { providers: [failed] },
+        },
+      ],
+    ]);
+    const accounts = collectLimitAccounts(presentations);
+    expect(accounts.map((account) => account.displayName)).toEqual(["OpenAI Codex"]);
+    expect(collectLimitNotices(presentations)).toEqual([
+      "OpenAI Codex: OpenAI Codex could not read usage.",
+    ]);
   });
 });

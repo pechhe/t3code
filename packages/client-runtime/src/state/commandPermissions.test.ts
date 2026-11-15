@@ -195,6 +195,7 @@ describe("command permissions", () => {
     { method: WS_METHODS.secretsRemoveTemporary, scope: AuthSettingsWriteScope },
     { method: WS_METHODS.serverRunStorageCleanup, scope: AuthSettingsWriteScope },
     { method: WS_METHODS.serverReclaimDatabaseSpace, scope: AuthEnvironmentMaintainScope },
+    { method: WS_METHODS.providerClearUsageLimit, scope: AuthProvidersManageScope },
   ])("requires the destination $scope grant for $method", ({ method, scope }) =>
     Effect.gen(function* () {
       const registry = yield* setup;

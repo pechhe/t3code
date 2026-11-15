@@ -88,6 +88,18 @@ describe("UsageAggregator", () => {
     expect(bucket).not.toHaveProperty("ultrafastCostUsd");
   });
 
+  it("keeps Pi spend in separate account buckets", () => {
+    const buckets = aggregate([
+      record({ provider: "pi", accountKey: "anthropic-hfpetch", reportedCostUsd: 1 }),
+      record({ provider: "pi", accountKey: "anthropic-other", reportedCostUsd: 2 }),
+    ]).buckets;
+
+    expect(buckets.map(({ accountKey, costUsd }) => [accountKey, costUsd])).toEqual([
+      ["anthropic-hfpetch", 1],
+      ["anthropic-other", 2],
+    ]);
+  });
+
   it("merges partial copies of a key by channel maximum in the first copy's bucket", () => {
     const zeroTotals = {
       uncachedInputTokens: 0,

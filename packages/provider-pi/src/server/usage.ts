@@ -90,6 +90,7 @@ function parseRecord(parsed: unknown, state: typeof PiScanState.Type): readonly 
       provider: "pi",
       timestampMs,
       model,
+      ...("provider" in source ? { accountKey: model.split("/", 1)[0] } : {}),
       ...(rateModel === undefined ? {} : { rateModel }),
       sessionId: state.sessionId,
       totals,

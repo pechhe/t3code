@@ -21,6 +21,7 @@ import { createModelSelection } from "@t3tools/shared/model";
 import { assert, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -29,6 +30,7 @@ import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 import * as SchemaAST from "effect/SchemaAST";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
@@ -698,6 +700,57 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
         yield* serverSettings.updateSettings({ usagePriceOverrides: { "example-model": null } });
         const restored = yield* readPersisted;
         assert.deepStrictEqual(restored.usagePriceOverrides, {});
+      }),
+    ).pipe(Effect.provide(layerServerSettings())),
+  );
+
+  it.effect("anchors only an explicit spend correction and refuses an empty correction", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        const slotId = "pi:anthropic-hfpetch";
+        const created = yield* service.updateSettings({
+          usageSlotBudgets: {
+            [slotId]: { monthlyBudgetUsd: 100, resetDayOfMonth: 1, cycleSpendUsd: 100 },
+          },
+        });
+        assert.isUndefined(created.usageSlotBudgets[slotId]?.correctedAt);
+
+        const budgetEdit = yield* service.updateSettings({
+          usageSlotBudgets: { [slotId]: { monthlyBudgetUsd: 150, cycleSpendUsd: 100 } },
+        });
+        assert.isUndefined(budgetEdit.usageSlotBudgets[slotId]?.correctedAt);
+
+        const corrected = yield* service.updateSettings({
+          usageSlotBudgets: { [slotId]: { cycleSpendUsd: 100, correct: true } },
+        });
+        assert.isString(corrected.usageSlotBudgets[slotId]?.correctedAt);
+        yield* TestClock.adjust("1 hour");
+        const correctedAgain = yield* service.updateSettings({
+          usageSlotBudgets: { [slotId]: { cycleSpendUsd: 100, correct: true } },
+        });
+        assert.notEqual(
+          correctedAgain.usageSlotBudgets[slotId]?.correctedAt,
+          corrected.usageSlotBudgets[slotId]?.correctedAt,
+        );
+        const resetEdit = yield* service.updateSettings({
+          usageSlotBudgets: { [slotId]: { resetDayOfMonth: 5 } },
+        });
+        assert.equal(
+          resetEdit.usageSlotBudgets[slotId]?.correctedAt,
+          correctedAgain.usageSlotBudgets[slotId]?.correctedAt,
+        );
+
+        const invalidPatch = Schema.decodeOption(ServerSettingsPatch)({
+          usageSlotBudgets: { [slotId]: { correct: true } },
+        });
+        assert.isTrue(Option.isNone(invalidPatch));
+        const invalidUpdate = yield* Effect.exit(
+          service.updateSettings({ usageSlotBudgets: { [slotId]: { correct: true } } }),
+        );
+        assert.isTrue(Exit.isFailure(invalidUpdate));
+        const unchanged = yield* service.getSettings;
+        assert.deepEqual(unchanged.usageSlotBudgets, resetEdit.usageSlotBudgets);
       }),
     ).pipe(Effect.provide(layerServerSettings())),
   );

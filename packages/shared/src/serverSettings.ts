@@ -252,6 +252,30 @@ function mergeSettingsEntries<Value>(
   return Object.fromEntries(next);
 }
 
+function mergeUsageSlotBudgets(
+  current: ServerSettings["usageSlotBudgets"],
+  patch: NonNullable<ServerSettingsPatch["usageSlotBudgets"]>,
+): ServerSettings["usageSlotBudgets"] {
+  const next = new Map(Object.entries(current));
+  for (const [slotId, entry] of Object.entries(patch)) {
+    if (entry === null) {
+      next.delete(slotId);
+      continue;
+    }
+    const { correct: _correct, ...fields } = entry;
+    const merged = { ...next.get(slotId), ...fields };
+    if (
+      merged.monthlyBudgetUsd === undefined ||
+      merged.resetDayOfMonth === undefined ||
+      merged.cycleSpendUsd === undefined
+    ) {
+      throw new Error(`Usage slot budget '${slotId}' is missing required fields.`);
+    }
+    next.set(slotId, merged as ServerSettings["usageSlotBudgets"][string]);
+  }
+  return Object.fromEntries(next);
+}
+
 // Secret persistence keys tokens by trimmed, lowercased host, so merge on the same key.
 const byHost = (tokens: unknown) =>
   Object.fromEntries(
@@ -404,6 +428,7 @@ export function applyServerSettingsPatch(
     worktreeCleanup: worktreeCleanupPatch,
     // Merged per entry below; its `null` removals must not reach deepMerge.
     usageLimitSources: usageLimitSourcesPatch,
+    usageSlotBudgets: usageSlotBudgetsPatch,
     textGenerators: textGeneratorsPatch,
     secretProviders: secretProvidersPatch,
     sourceControlHosts: sourceControlHostsPatch,
@@ -624,6 +649,9 @@ export function applyServerSettingsPatch(
             usageLimitSourcesPatch,
           ),
         }
+      : {}),
+    ...(usageSlotBudgetsPatch !== undefined
+      ? { usageSlotBudgets: mergeUsageSlotBudgets(current.usageSlotBudgets, usageSlotBudgetsPatch) }
       : {}),
     ...(textGeneratorsPatch !== undefined
       ? { textGenerators: mergeSettingsEntries(current.textGenerators, textGeneratorsPatch) }

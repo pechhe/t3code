@@ -17,6 +17,7 @@ import {
   EnvironmentId,
   ForwardCompatibleNullable,
   ForwardCompatibleOptional,
+  IsoDateTime,
   OmittedWhenNull,
   ProjectId,
   ThreadId,
@@ -1550,6 +1551,25 @@ export const SharedProviderSetupState = Schema.Struct({
 });
 export type SharedProviderSetupState = typeof SharedProviderSetupState.Type;
 
+export const UsageSlotBudget = Schema.Struct({
+  monthlyBudgetUsd: Schema.Number.check(Schema.isGreaterThan(0)),
+  resetDayOfMonth: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 31 })),
+  cycleSpendUsd: Schema.Number.check(Schema.isGreaterThanOrEqualTo(0)),
+  correctedAt: Schema.optional(IsoDateTime),
+});
+export type UsageSlotBudget = typeof UsageSlotBudget.Type;
+export const UsageSlotBudgetWrite = Schema.Struct({
+  monthlyBudgetUsd: Schema.optional(Schema.Number.check(Schema.isGreaterThan(0))),
+  resetDayOfMonth: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 31 }))),
+  cycleSpendUsd: Schema.optional(Schema.Number.check(Schema.isGreaterThanOrEqualTo(0))),
+  /** Patch-only: explicitly re-anchor corrected spend; never stored in ServerSettings. */
+  correct: Schema.optional(Schema.Literal(true)),
+}).check(
+  Schema.makeFilter((entry) => entry.correct !== true || entry.cycleSpendUsd !== undefined, {
+    message: "A spend correction requires cycleSpendUsd.",
+  }),
+);
+
 export const ServerSettings = Schema.Struct({
   /** Away: every covered thread here keeps working without the owner. Set only through `server.setAway`. */
   away: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
@@ -1803,6 +1823,9 @@ export const ServerSettings = Schema.Struct({
   ),
   // User-chosen ids preserve rows across edits; undecodable entries round-trip untouched.
   usageLimitSources: Schema.Record(UsageLimitSourceId, UsageLimitSourceConfig).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
+  usageSlotBudgets: Schema.Record(TrimmedNonEmptyString, UsageSlotBudget).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
   textGenerators: Schema.Record(ProviderInstanceId, TextGeneratorConfig).pipe(
@@ -2347,6 +2370,10 @@ export const ServerSettingsPatch = Schema.Struct({
   usageLimitSources: Schema.optionalKey(
     Schema.Record(UsageLimitSourceId, Schema.NullOr(UsageLimitSourceConfig)),
   ),
+  // Merge per slot like usageLimitSources; null removes an entry.
+  usageSlotBudgets: Schema.optionalKey(
+    Schema.Record(TrimmedNonEmptyString, Schema.NullOr(UsageSlotBudgetWrite)),
+  ),
   // Merge per entry like usageLimitSources; null removes an entry.
   textGenerators: Schema.optionalKey(
     Schema.Record(ProviderInstanceId, Schema.NullOr(TextGeneratorConfig)),
@@ -2384,6 +2411,7 @@ export function requiredScopesForServerSettingsPatch(
       key === "providers" ||
       key === "providerInstances" ||
       key === "usageLimitSources" ||
+      key === "usageSlotBudgets" ||
       key === "textGenerators" ||
       key === "secretProviders"
     ) {

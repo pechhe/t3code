@@ -29,8 +29,18 @@ const accountSignal = (event: OrchestrationV2DomainEvent) => {
   const { failure, threadId, runId } = event.payload;
   if (isProviderOverloadedFailureCode(failure.code))
     return { kind: "overload" as const, threadId, runId };
-  if (failure.class === "usage_limit" && failure.resetAt != null)
-    return { kind: "usage-limit" as const, threadId, runId, resetAt: failure.resetAt };
+  if (
+    failure.class === "usage_limit" ||
+    /\b(?:insufficient\s+credits?|not enough credits?|rate limit|credit limit|usage limit|quota limit)\b/iu.test(
+      failure.message,
+    )
+  )
+    return {
+      kind: "usage-limit" as const,
+      threadId,
+      runId,
+      ...(failure.resetAt == null ? {} : { resetAt: failure.resetAt }),
+    };
   return undefined;
 };
 
@@ -60,7 +70,10 @@ export const layer = Layer.effectDiscard(
       if (Option.isSome(registry))
         yield* registry.value.rememberUsageLimit({
           instanceId: run.modelSelection.instanceId,
-          resetAt: signal.resetAt,
+          ...(signal.resetAt === undefined ? {} : { resetAt: signal.resetAt }),
+          ...(run.modelSelection.instanceId === "pi" || run.modelSelection.instanceId.startsWith("pi:")
+            ? { accountKey: run.modelSelection.model.split("/", 1)[0] }
+            : {}),
         });
     });
     yield* forkParked(

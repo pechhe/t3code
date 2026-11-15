@@ -42,6 +42,8 @@ import { OpenAI } from "../Icons";
 import { Alert, AlertTitle } from "../ui/alert";
 import { Popover, PopoverCreateHandle, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { PaceIcon, ResetCreditDialog, barColor, usePaceMark, useResetCredit } from "./UsageLimits";
+import { UsageSlotBudgetEditor } from "./UsageSlotBudgetEditor";
+import { UsageSlotClearCooldown } from "./UsageSlotClearCooldown";
 
 function accountInitials(email: string): string {
   const [local = "", domain = ""] = email.split("@");
@@ -596,32 +598,79 @@ function PoolSection({ pool, now }: { readonly pool: LimitPool; readonly now: nu
   const color = barColor(pool.driver);
   const label = providerClients.get(pool.driver)?.label ?? String(pool.driver);
   const windows = displayLimitWindows(pool);
+  // A slot is one account inside one instance, named by the account rather than the provider.
+  const heading =
+    pool.accounts.length === 1 && pool.accounts[0]?.slot !== undefined
+      ? (pool.accounts[0].displayName ?? label)
+      : label;
   return (
     <section className="flex flex-col gap-3">
       <h2 className="flex items-center gap-2 text-sm font-medium text-foreground">
         <ProviderInstanceIcon
           driverKind={pool.driver}
-          displayName={label}
+          displayName={heading}
           indicatorBackground="var(--background)"
           className="size-5"
           iconClassName="size-4 text-foreground/80"
         />
-        {label}
+        {heading}
       </h2>
       {windows.map((window) => {
         const details =
           pool.driver === "cursor" ? cursorUsageWindowDetails(window.id, pool) : undefined;
+        const dollars = window.members.flatMap((member) =>
+          member.window?.usedUsd === undefined || member.window.limitUsd === undefined
+            ? []
+            : [
+                {
+                  accountKey: member.account.key,
+                  slotId: member.account.slot
+                    ? `${member.account.slot.instanceId}:${member.account.slot.accountKey}`
+                    : undefined,
+                  usedUsd: member.window.usedUsd,
+                  limitUsd: member.window.limitUsd,
+                },
+              ],
+        );
         return (
-          <PoolWindowCard
-            key={`${window.kind}:${window.id}`}
-            pool={window}
-            color={color}
-            now={now}
-            label={details?.label}
-            description={details?.description}
-          />
+          <div key={`${window.kind}:${window.id}`} className="flex flex-col gap-2">
+            <PoolWindowCard
+              pool={window}
+              color={color}
+              now={now}
+              label={details?.label}
+              description={details?.description}
+            />
+            {dollars.map((entry) => (
+              <div key={entry.accountKey} className="flex flex-wrap items-center gap-3">
+                <UsageSlotBudgetEditor
+                  slotId={entry.slotId}
+                  usedUsd={entry.usedUsd}
+                  limitUsd={entry.limitUsd}
+                />
+                {entry.slotId === undefined ? null : (
+                  <UsageSlotClearCooldown slotId={entry.slotId} />
+                )}
+              </div>
+            ))}
+          </div>
         );
       })}
+      {pool.accounts
+        .filter(
+          (account) =>
+            account.slot !== undefined &&
+            !account.limits.windows.some((window) => window.id === "budget"),
+        )
+        .map((account) => {
+          const slotId = `${account.slot!.instanceId}:${account.slot!.accountKey}`;
+          return (
+            <div key={account.key} className="flex flex-wrap items-center gap-3">
+              <UsageSlotBudgetEditor slotId={slotId} />
+              <UsageSlotClearCooldown slotId={slotId} />
+            </div>
+          );
+        })}
     </section>
   );
 }
@@ -647,7 +696,7 @@ export function UsageLimitsPooled({
       ) : null}
       <SegmentPopoverContext value={segmentPopover}>
         {pools.map((pool) => (
-          <Fragment key={pool.driver}>
+          <Fragment key={pool.accounts.map((account) => account.key).join(":")}>
             <PoolSection pool={pool} now={now} />
           </Fragment>
         ))}

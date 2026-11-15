@@ -14,6 +14,7 @@ export const makeProviderRegistryMock = (
   prepareConservation: (rows) => Effect.succeed(rows),
   refreshInstanceUsage: () => Effect.succeed(providers),
   rememberUsageLimit: () => Effect.void,
+  clearUsageLimit: () => Effect.succeed({ outcome: "nothingToClear" }),
   reloadSecretsAndRefresh: () => Effect.succeed(providers),
   applySecretAndRefresh: () => Effect.succeed(providers),
   refreshAfterUpdate: () => Effect.succeed(providers),

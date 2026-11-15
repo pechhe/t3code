@@ -91,7 +91,8 @@ it.effect("remembers an account as out only for a usage limit that reports its r
     const events = yield* Queue.unbounded<OrchestrationV2DomainEvent>();
     const remembered = yield* Queue.unbounded<{
       readonly instanceId: string;
-      readonly resetAt: string;
+      readonly accountKey?: string;
+      readonly resetAt?: string;
     }>();
     yield* Layer.build(
       ProviderOverloadMarker.layer.pipe(
@@ -116,7 +117,7 @@ it.effect("remembers an account as out only for a usage limit that reports its r
         ),
       ),
     );
-    const limit = (resetAt: string | null) =>
+    const limit = (resetAt?: string, message = "Usage limit reached.", failureClass = "usage_limit") =>
       ({
         type: "turn-item.updated",
         payload: {
@@ -125,20 +126,26 @@ it.effect("remembers an account as out only for a usage limit that reports its r
           threadId,
           runId,
           failure: {
-            class: "usage_limit",
-            message: "Usage limit reached.",
+            class: failureClass,
+            message,
             code: null,
             retryable: true,
-            resetAt,
+            ...(resetAt === undefined ? {} : { resetAt }),
           },
         },
       }) as unknown as OrchestrationV2DomainEvent;
     const resetAt = "2026-10-15T17:30:00.000Z";
-    // Events are handled in order: the first remembered limit proves the earlier ones did nothing.
+    // A generic 429 is ordinary failure; a named rate limit cools its Pi sub-provider slot.
     yield* Queue.offer(events, errorEvent("api_error_429"));
-    yield* Queue.offer(events, limit(null));
+    yield* Queue.offer(events, limit(undefined, "Too many requests", "provider_error"));
+    yield* Queue.offer(events, limit(undefined, "Rate limit exceeded", "provider_error"));
     yield* Queue.offer(events, limit(resetAt));
-    assert.deepEqual(yield* Queue.take(remembered), { instanceId, resetAt });
+    assert.deepEqual(yield* Queue.take(remembered), { instanceId, accountKey: "opencode-go" });
+    assert.deepEqual(yield* Queue.take(remembered), {
+      instanceId,
+      accountKey: "opencode-go",
+      resetAt,
+    });
     assert.equal(yield* Queue.size(remembered), 0);
   }),
 );

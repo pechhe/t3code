@@ -1712,9 +1712,34 @@ const make = Effect.gen(function* () {
     getSettings: getMaterializedSettings,
     updateSettings: (patch) =>
       updateAndPersistSettings(patch, (current) =>
-        ensureSecretProviderWritesAllowed(patch, settingsPath).pipe(
-          Effect.as(applyServerSettingsPatch(current, asClientPatch(current, patch))),
-        ),
+        Effect.gen(function* () {
+          if (
+            Object.values(patch.usageSlotBudgets ?? {}).some(
+              (entry) => entry?.correct === true && entry.cycleSpendUsd === undefined,
+            )
+          ) {
+            return yield* new ServerSettingsError({ settingsPath, operation: "write-file" });
+          }
+          yield* ensureSecretProviderWritesAllowed(patch, settingsPath);
+          const next = applyServerSettingsPatch(current, asClientPatch(current, patch));
+          if (patch.usageSlotBudgets === undefined) return next;
+          const correctedAt = DateTime.formatIso(yield* DateTime.now);
+          const usageSlotBudgets = { ...next.usageSlotBudgets };
+          for (const [slotId, entry] of Object.entries(patch.usageSlotBudgets)) {
+            if (entry === null) continue;
+            const previous = current.usageSlotBudgets[slotId];
+            const value = { ...next.usageSlotBudgets[slotId]! };
+            if (entry.correct === true) {
+              value.correctedAt = correctedAt;
+            } else if (previous !== undefined && previous.correctedAt !== undefined) {
+              value.correctedAt = previous.correctedAt;
+            } else {
+              delete value.correctedAt;
+            }
+            usageSlotBudgets[slotId] = value;
+          }
+          return { ...next, usageSlotBudgets };
+        }),
       ),
     updateProviderInstance: (mutation, patch = {}) =>
       updateAndPersistSettings(patch, (current) =>

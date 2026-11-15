@@ -691,6 +691,31 @@ describe("serverSettings helpers", () => {
     expect(Object.keys(removed.usageLimitSources)).toEqual([hubB]);
   });
 
+  it("upserts and removes usageSlotBudgets per entry", () => {
+    const first = "pi:anthropic-hfpetch";
+    const second = "pi:anthropic-work";
+    const budget = (cycleSpendUsd: number) => ({
+      monthlyBudgetUsd: 100,
+      resetDayOfMonth: 1,
+      cycleSpendUsd,
+    });
+    const added = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      usageSlotBudgets: { [first]: budget(12), [second]: budget(4) },
+    });
+    const updated = applyServerSettingsPatch(added, {
+      usageSlotBudgets: { [first]: { cycleSpendUsd: 13, correct: true } },
+    });
+    expect(updated.usageSlotBudgets[first]?.cycleSpendUsd).toBe(13);
+    expect(updated.usageSlotBudgets[first]?.monthlyBudgetUsd).toBe(100);
+    expect(updated.usageSlotBudgets[first]).not.toHaveProperty("correct");
+    expect(updated.usageSlotBudgets[second]?.cycleSpendUsd).toBe(4);
+
+    const removed = applyServerSettingsPatch(updated, {
+      usageSlotBudgets: { [first]: null },
+    });
+    expect(Object.keys(removed.usageSlotBudgets)).toEqual([second]);
+  });
+
   it("upserts and removes secretProviders per entry so concurrent edits cannot clobber", () => {
     const personal = SecretProviderId.make("personal");
     const work = SecretProviderId.make("work");

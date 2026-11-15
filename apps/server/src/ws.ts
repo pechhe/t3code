@@ -3404,6 +3404,22 @@ export const layerWsRpc = (
             );
             return { outcome };
           }),
+        [WS_METHODS.providerClearUsageLimit]:
+          /* Request instrumentation already owns the span; keep this helper in that context. */
+          Effect.fnUntraced(function* (input) {
+            const instance = yield* providerInstances.getInstance(input.instanceId);
+            if (instance === undefined || !instance.enabled) {
+              return yield* new ProviderSetupError({
+                instanceId: input.instanceId,
+                operation: "clear-usage-limit",
+                detail: instance ? "This provider is disabled." : "Provider instance not found.",
+              });
+            }
+            return yield* providerRegistry.clearUsageLimit({
+              instanceId: input.instanceId,
+              ...(input.accountKey === undefined ? {} : { accountKey: input.accountKey }),
+            });
+          }),
         [WS_METHODS.providerAuthStart]: (input) => providerAuth.start(input, currentSessionId),
         [WS_METHODS.providerAuthRespond]: (input) =>
           Effect.annotateCurrentSpan({ instanceId: input.instanceId }).pipe(

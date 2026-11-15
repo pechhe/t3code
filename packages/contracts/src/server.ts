@@ -222,6 +222,17 @@ export const ServerProviderUpdateState = Schema.Struct({
 });
 export type ServerProviderUpdateState = typeof ServerProviderUpdateState.Type;
 
+/** One account inside a provider instance, such as a Pi sub-provider's stored credential. */
+export const ServerProviderUsageSlot = Schema.Struct({
+  /** Stable within the instance; for Pi it is the sub-provider that owns the credential. */
+  accountKey: TrimmedNonEmptyString,
+  label: TrimmedNonEmptyString,
+  /** Identifies the account behind the credential, never the credential itself. */
+  account: Schema.optional(TrimmedNonEmptyString),
+  usageLimits: ServerProviderUsageLimits,
+});
+export type ServerProviderUsageSlot = typeof ServerProviderUsageSlot.Type;
+
 export const ServerProvider = Schema.Struct({
   // Only instanceId is stable enough for provider routing.
   instanceId: ProviderInstanceId,
@@ -302,6 +313,8 @@ export const ServerProvider = Schema.Struct({
       reason: Schema.optional(TrimmedNonEmptyString),
     }),
   ),
+  // Additive: accounts inside one instance, when a single instance holds several credentials.
+  usageSlots: Schema.optionalKey(Schema.Array(ServerProviderUsageSlot)),
   // Set on an account pool: the instances a turn on it can be routed to.
   poolMembers: Schema.optionalKey(Schema.Array(ProviderInstanceId)),
   poolPolicy: Schema.optionalKey(ProviderPoolPolicy),

@@ -54,6 +54,8 @@ export const UsageBucket = Schema.Struct({
   day: UsageDay,
   hourStart: Schema.optional(TrimmedNonEmptyString),
   provider: UsageProviderKind,
+  /** Provider account key for per-credential usage, currently populated by Pi. */
+  accountKey: Schema.optional(TrimmedNonEmptyString),
   model: TrimmedNonEmptyString,
   sourcePath: Schema.optional(TrimmedNonEmptyString),
   totals: UsageTokenTotals,

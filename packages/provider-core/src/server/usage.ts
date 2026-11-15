@@ -15,6 +15,8 @@ export interface UsageRecord {
   readonly provider: UsageProviderKind;
   readonly timestampMs: number;
   readonly model: string;
+  /** Pi's sub-provider that owns this credential, used for per-slot spend. */
+  readonly accountKey?: string;
   readonly rateModel?: string;
   readonly sessionId: string;
   readonly totals: UsageTokenTotals;
