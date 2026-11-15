@@ -186,3 +186,35 @@ it.effect("a fresh command still retains an undelivered result after restart", (
     );
   }),
 );
+
+it.effect(
+  "an admission a failed dispatch left behind does not block the next command after restart",
+  () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      yield* Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* fs.realPath(yield* fs.makeTempDirectoryScoped());
+        const input = { runId: "never-started", projectRoot: root, workspacePath: root };
+        yield* RunCustody.RunWorkspaceCustody.use((custody) =>
+          custody.admit({ ...input, admissionId: "failed-dispatch" }),
+        ).pipe(Effect.provide(RunCustody.layer));
+        yield* Ref.set(f.controllerStart, "after-restart");
+        yield* RunCustody.RunWorkspaceCustody.use((custody) =>
+          custody.admit({ ...input, admissionId: "next-dispatch" }),
+        ).pipe(Effect.provide(RunCustody.layer));
+        const phases = (yield* (yield* Journal.WorkspaceCustody).list)
+          .map((epoch) => epoch.phase)
+          .toSorted();
+        assert.deepEqual(phases, ["open", "recovery-required"]);
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            f.layer,
+            NodeServices.layer,
+            Layer.mock(Workspaces.WorkspaceProvider)({ resolve: () => Effect.succeed("slipjay") }),
+          ),
+        ),
+      );
+    }),
+);

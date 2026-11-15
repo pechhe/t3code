@@ -121,13 +121,17 @@ const make = Effect.gen(function* () {
               );
         siblings = (yield* epochs(input.runId)).filter((epoch) => epoch.phase !== "released");
         const retained = siblings.filter((epoch) => epoch.phase !== "open");
-        // Work a lost server left unproved blocks the owner; an undelivered result does not, as this server delivers it.
+        // Work a lost server left unproved blocks the owner. An undelivered result does not, as this
+        // server delivers it, and neither does an admission no work ever started under.
         if (
           retained.length > 0 &&
           (input.admissionId === undefined ||
             retained.some((epoch) =>
               epoch.obligations.some(
-                (item) => item.acknowledgement === null && item.kind !== "delivery",
+                (item) =>
+                  item.acknowledgement === null &&
+                  item.kind !== "delivery" &&
+                  item.kind !== "allocation",
               ),
             ))
         )
