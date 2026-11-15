@@ -94,6 +94,7 @@ export interface PiRpcSpawnOptions {
 }
 
 export interface PiRpcConnection {
+  readonly processId?: number;
   readonly send: (record: PiRpcRecord) => Effect.Effect<void, PiRpcError>;
   readonly request: (
     record: PiRpcRecord,
@@ -453,6 +454,7 @@ export const makePiRpcConnection = Effect.fnUntraced(function* (options: PiRpcSp
   });
 
   return {
+    processId: Number(child.pid),
     send,
     request,
     events,

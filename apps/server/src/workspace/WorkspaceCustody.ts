@@ -103,7 +103,12 @@ export class WorkspaceCustody extends Context.Service<
     ) => Effect.Effect<string, WorkspaceCustodyError>;
     readonly register: (
       id: string,
-      obligation: Pick<Journal.CustodyObligation, "id" | "kind">,
+      obligation: Pick<
+        Journal.CustodyObligation,
+        "id" | "kind" | "stopProcesses" | "stopIdentityUnknown"
+      > & {
+        readonly processIds?: ReadonlyArray<{ readonly pid: number; readonly shared?: boolean }>;
+      },
     ) => Effect.Effect<void, WorkspaceCustodyError>;
     readonly acknowledge: (
       id: string,
@@ -390,11 +395,38 @@ const make = Effect.gen(function* () {
       });
       return yield* acquired(id, receipt, path);
     }),
-    register: Effect.fn("WorkspaceCustody.register")((id, obligation) =>
-      journal
-        .register(id, obligation)
-        .pipe(Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "journal", cause }))),
-    ),
+    register: Effect.fn("WorkspaceCustody.register")(function* (id, obligation) {
+      const epoch = yield* get(id);
+      const identities = yield* Effect.forEach(obligation.processIds ?? [], (process) =>
+        call({
+          projectRoot: epoch.projectRoot,
+          entry: epoch.producer.entry,
+          args: ["claims", "controller", String(process.pid)],
+        }).pipe(
+          Effect.flatMap(Schema.decodeUnknownEffect(Controller)),
+          Effect.map((reply) =>
+            reply.ok && reply.controller !== null && reply.controller.pid === process.pid
+              ? { ...reply.controller, shared: process.shared }
+              : null,
+          ),
+          Effect.orElseSucceed(() => null),
+        ),
+      );
+      yield* journal
+        .register(id, {
+          id: obligation.id,
+          kind: obligation.kind,
+          stopProcesses: [
+            ...(obligation.stopProcesses ?? []),
+            ...identities.filter((identity) => identity !== null),
+          ],
+          stopIdentityUnknown:
+            obligation.stopIdentityUnknown === true ||
+            (obligation.processIds !== undefined &&
+              (identities.length === 0 || identities.some((identity) => identity === null))),
+        })
+        .pipe(Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "journal", cause })));
+    }),
     acknowledge: Effect.fn("WorkspaceCustody.acknowledge")((id, obligationId, evidenceRef) =>
       journal
         .acknowledge(id, obligationId, evidenceRef)
@@ -410,16 +442,116 @@ const make = Effect.gen(function* () {
       const epochs = yield* journal.list.pipe(
         Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "journal", cause })),
       );
+      const identities = new Map<string, typeof Controller.Type>();
+      const observe = Effect.fn("WorkspaceCustody.observeController")(function* (
+        epoch: Journal.CustodyEpoch,
+        processPid: number,
+      ) {
+        const key = `${epoch.producer.entry}:${processPid}`;
+        const cached = identities.get(key);
+        if (cached !== undefined) return cached;
+        const observed = yield* call({
+          projectRoot: epoch.projectRoot,
+          entry: epoch.producer.entry,
+          args: ["claims", "controller", String(processPid)],
+        }).pipe(
+          Effect.flatMap(Schema.decodeUnknownEffect(Controller)),
+          Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "controller", cause })),
+        );
+        identities.set(key, observed);
+        return observed;
+      });
+      const same = (a: typeof Controller.Type.controller, b: typeof Controller.Type.controller) =>
+        a !== null &&
+        b !== null &&
+        a.pid === b.pid &&
+        a.platform === b.platform &&
+        a.boot === b.boot &&
+        a.start === b.start;
       for (const epoch of epochs) {
-        if (
-          epoch.phase !== "closing" ||
-          epoch.receipt === null ||
-          epoch.obligations.some((item) => item.acknowledgement === null)
-        )
-          continue;
-        yield* releaseSettled(epoch.id).pipe(
+        if (epoch.phase === "released" || epoch.receipt === null) continue;
+        yield* Effect.gen(function* () {
+          const current = yield* observe(epoch, pid);
+          // Without this server's own identity nothing is proved either way; never demote an epoch,
+          // which could be this server's live run, on a failed probe. SlipJay's claim keeps it retained.
+          if (!current.ok || current.controller === null) return;
+          if (epoch.producer.controller === null) {
+            yield* journal
+              .recover(epoch.id, "controller-identity-unrecorded")
+              .pipe(
+                Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "journal", cause })),
+              );
+            return;
+          }
+          if (!same(current.controller, epoch.producer.controller)) {
+            if (epoch.producer.controller !== null) {
+              const original = yield* observe(epoch, epoch.producer.controller.pid);
+              if (!original.ok || same(original.controller, epoch.producer.controller)) return;
+            }
+            let reason: string | null = null;
+            for (const obligation of epoch.obligations) {
+              if (obligation.acknowledgement !== null) continue;
+              if (obligation.stopIdentityUnknown || (obligation.stopProcesses ?? []).length === 0) {
+                reason = `stop-identity-unrecorded:${obligation.id}`;
+                continue;
+              }
+              let stopped = true;
+              for (const identity of obligation.stopProcesses ?? []) {
+                const observed = yield* observe(epoch, identity.pid);
+                if (!observed.ok || same(observed.controller, identity)) {
+                  stopped = false;
+                  reason = `process-stop-unproved:${obligation.id}:${identity.pid}`;
+                }
+              }
+              if (stopped)
+                yield* journal
+                  .acknowledge(
+                    epoch.id,
+                    obligation.id,
+                    `process-stop-proved:${(obligation.stopProcesses ?? []).map((identity) => `${identity.platform}:${identity.boot}:${identity.pid}:${identity.start}`).join(",")}`,
+                  )
+                  .pipe(
+                    Effect.mapError(
+                      (cause) => new WorkspaceCustodyError({ stage: "journal", cause }),
+                    ),
+                  );
+            }
+            if (reason !== null) {
+              // Every pass re-derives the reason; write only when it changes.
+              if (epoch.phase !== "recovery-required" || epoch.recoveryReason !== reason)
+                yield* journal
+                  .recover(epoch.id, reason)
+                  .pipe(
+                    Effect.mapError(
+                      (cause) => new WorkspaceCustodyError({ stage: "journal", cause }),
+                    ),
+                  );
+              return;
+            }
+            yield* journal
+              .close(epoch.id)
+              .pipe(
+                Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "journal", cause })),
+              );
+          }
+          const settled = yield* get(epoch.id);
+          if (
+            settled.phase === "closing" &&
+            settled.obligations.every((item) => item.acknowledgement !== null)
+          )
+            yield* releaseSettled(epoch.id).pipe(
+              Effect.catch((error) =>
+                Effect.logWarning("Workspace custody release publication remains pending", {
+                  epochId: epoch.id,
+                  stage: error.stage,
+                }),
+              ),
+            );
+        }).pipe(
+          // A failed probe or publication proves nothing and changes nothing: live epochs must stay
+          // open for registration, and lost ones stay retained by their SlipJay claim until a later pass.
           Effect.catch((error) =>
-            Effect.logWarning("Workspace custody release publication remains pending", {
+            Effect.logWarning("Workspace custody recovery remains pending", {
               epochId: epoch.id,
               stage: error.stage,
             }),

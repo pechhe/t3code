@@ -1119,6 +1119,7 @@ export class AcpSessionRuntime extends Context.Service<
     readonly handleExtRequest: EffectAcpClient.AcpClient["Service"]["handleExtRequest"];
     readonly handleExtNotification: EffectAcpClient.AcpClient["Service"]["handleExtNotification"];
     /** Reads capabilities without authentication, session creation, or MCP startup. */
+    readonly processId?: number;
     readonly initialize: () => Effect.Effect<
       EffectAcpSchema.InitializeResponse,
       EffectAcpErrors.AcpError
@@ -2450,6 +2451,7 @@ export const make = Effect.fn("AcpSessionRuntime.make")(function* (
   });
 
   return {
+    processId: Number(child.pid),
     handleRequestPermission: acp.handleRequestPermission,
     handleElicitation: acp.handleElicitation,
     handleMcpConnect: acp.handleMcpConnect,

@@ -119,14 +119,26 @@ const make = Effect.gen(function* () {
       );
     }
   });
-  const abandonCapture: RunFinalizationService["Service"]["abandonCapture"] = (input) =>
-    checkpointCapture
+  const abandonCapture: RunFinalizationService["Service"]["abandonCapture"] = Effect.fn(
+    "RunFinalizationService.abandonCapture",
+  )(function* (input) {
+    const abandoned = yield* checkpointCapture
       .abandon(input)
       .pipe(
         Effect.mapError(
           (cause) => new RunFinalizationError({ ...input, operation: "capture-checkpoint", cause }),
         ),
       );
+    if (!abandoned) return;
+    yield* custody
+      .acknowledge(input.runId, `checkpoint:${input.scopeId}`, `capture-abandoned:${input.scopeId}`)
+      .pipe(
+        Effect.mapError(
+          (cause) => new RunFinalizationError({ ...input, operation: "capture-checkpoint", cause }),
+        ),
+      );
+    yield* custody.settle(input.runId).pipe(Effect.ignore);
+  });
   return RunFinalizationService.of({ finalize, abandonCapture });
 });
 

@@ -193,7 +193,7 @@ it.effect("retries proved release publication across refusal, lost reply and res
         const custody = yield* WorkspaceCustody.WorkspaceCustody;
         yield* custody.reconcile;
         assert.equal((yield* journal.get(epochs.get("a-retry")!)).phase, "released");
-        assert.equal(yield* Ref.get(f.releases), 2);
+        assert.equal(yield* Ref.get(f.releases), 4);
         const requests = (yield* Ref.get(f.releaseRequests)).filter(
           (request) => request.claimId === `custody:${epochs.get("a-retry")!}`,
         );
@@ -202,13 +202,116 @@ it.effect("retries proved release publication across refusal, lost reply and res
           requests.every((request) => JSON.stringify(request) === JSON.stringify(requests[0])),
         );
         for (const [state, phase] of [
-          ["open", "open"],
-          ["unacknowledged", "closing"],
-          ["recovery", "recovery-required"],
+          ["open", "released"],
+          ["unacknowledged", "recovery-required"],
+          ["recovery", "released"],
           ["missing-receipt", "closing"],
         ] as const)
           assert.equal((yield* journal.get(epochs.get(state)!)).phase, phase);
       }).pipe(Effect.provide(WorkspaceCustody.layer));
     }).pipe(Effect.provide(f.dependencies));
   }),
+);
+
+it.effect(
+  "a failed probe of this server's own identity leaves a live epoch open for registration",
+  () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      yield* Effect.gen(function* () {
+        const custody = yield* WorkspaceCustody.WorkspaceCustody;
+        const journal = yield* Journal.WorkspaceCustody;
+        const epoch = yield* custody.prepare({ ownerRef: "live", projectRoot: "/source" });
+        yield* custody.acquireExisting(epoch.id, "/source/worktree");
+        yield* custody.register(epoch.id, {
+          id: "execution",
+          kind: "provider-turn",
+          processIds: [{ pid: 456 }],
+        });
+        yield* Ref.set(f.processStarts, new Map([[123, null]]));
+        yield* custody.reconcile;
+        assert.equal((yield* journal.get(epoch.id)).phase, "open");
+        yield* Ref.set(f.processStarts, new Map());
+        yield* custody.register(epoch.id, {
+          id: "execution",
+          kind: "provider-turn",
+          processIds: [{ pid: 789 }],
+        });
+        assert.equal((yield* journal.get(epoch.id)).phase, "open");
+        assert.equal(yield* Ref.get(f.releases), 0);
+      }).pipe(Effect.provide(f.layer));
+    }),
+);
+
+// Each scenario probes identities without signalling the provider, including shared runtimes.
+it.effect.each([
+  "absent",
+  "replaced",
+  "live",
+  "unknown",
+  "shared",
+  "replacement",
+  "capture-failed",
+  "partial",
+] as const)(
+  "recovers controller-lost custody only with complete process-stop proof: %s",
+  (scenario) =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      yield* Effect.gen(function* () {
+        const custody = yield* WorkspaceCustody.WorkspaceCustody;
+        const journal = yield* Journal.WorkspaceCustody;
+        const epoch = yield* custody.prepare({ ownerRef: scenario, projectRoot: "/source" });
+        yield* custody.acquireExisting(epoch.id, "/source/worktree");
+        if (scenario === "capture-failed" || scenario === "partial")
+          yield* Ref.set(f.processStarts, new Map([[456, null]]));
+        yield* custody.register(epoch.id, {
+          id: "execution",
+          kind: "provider-turn",
+          ...(scenario === "unknown"
+            ? {}
+            : { processIds: [{ pid: 456, shared: scenario === "shared" }] }),
+        });
+        if (scenario === "replacement" || scenario === "partial")
+          yield* custody.register(epoch.id, {
+            id: "execution",
+            kind: "provider-turn",
+            processIds: [{ pid: 789 }],
+          });
+        yield* Ref.set(f.controllerStart, "new-controller");
+        yield* Ref.set(
+          f.processStarts,
+          new Map([
+            [
+              456,
+              scenario === "live" || scenario === "shared"
+                ? "first-start"
+                : scenario === "replaced"
+                  ? "reused-pid"
+                  : null,
+            ],
+            [789, "first-start"],
+          ]),
+        );
+        yield* custody.reconcile;
+        const released = scenario === "absent" || scenario === "replaced";
+        assert.equal(
+          (yield* journal.get(epoch.id)).phase,
+          released ? "released" : "recovery-required",
+        );
+        assert.equal(yield* Ref.get(f.releases), released ? 1 : 0);
+        if (scenario === "replacement" || scenario === "shared") {
+          yield* Ref.set(
+            f.processStarts,
+            new Map([
+              [456, null],
+              [789, null],
+            ]),
+          );
+          yield* custody.reconcile;
+          assert.equal((yield* journal.get(epoch.id)).phase, "released");
+        }
+        assert.isFalse((yield* Ref.get(f.argumentsUsed)).some((arg) => /kill|terminate/.test(arg)));
+      }).pipe(Effect.provide(f.layer));
+    }),
 );

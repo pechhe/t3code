@@ -12,6 +12,13 @@ const Receipt = Schema.Struct({
   generation: Schema.String,
   claimId: Schema.String,
 });
+const ProcessIdentity = Schema.Struct({
+  platform: Schema.String,
+  pid: Schema.Number,
+  boot: Schema.String,
+  start: Schema.String,
+  shared: Schema.optional(Schema.Boolean),
+});
 const Producer = Schema.Struct({
   entry: Schema.String,
   activationId: Schema.String,
@@ -35,6 +42,8 @@ const Obligation = Schema.Struct({
     "delivery",
   ]),
   acknowledgement: Schema.NullOr(Schema.String),
+  stopProcesses: Schema.optional(Schema.Array(ProcessIdentity)),
+  stopIdentityUnknown: Schema.optional(Schema.Boolean),
 });
 const Document = Schema.Struct({
   id: Schema.String,
@@ -95,7 +104,7 @@ export class WorkspaceCustody extends Context.Service<
     readonly acquired: (id: string, receipt: CustodyReceipt) => Effect.Effect<void, Failure>;
     readonly register: (
       id: string,
-      obligation: Pick<CustodyObligation, "id" | "kind">,
+      obligation: Pick<CustodyObligation, "id" | "kind" | "stopProcesses" | "stopIdentityUnknown">,
     ) => Effect.Effect<void, Failure>;
     readonly acknowledge: (
       id: string,
@@ -238,7 +247,32 @@ const make = Effect.gen(function* () {
           return Effect.fail(new WorkspaceCustodyConflict({ epochId: id, reason: "identity" }));
         return Effect.succeed(
           prior
-            ? epoch
+            ? {
+                ...epoch,
+                obligations: epoch.obligations.map((item) =>
+                  item.id !== obligation.id
+                    ? item
+                    : {
+                        ...item,
+                        stopProcesses: [
+                          ...(item.stopProcesses ?? []),
+                          ...(obligation.stopProcesses ?? []).filter(
+                            (identity) =>
+                              !(item.stopProcesses ?? []).some(
+                                (previous) =>
+                                  previous.pid === identity.pid &&
+                                  previous.platform === identity.platform &&
+                                  previous.boot === identity.boot &&
+                                  previous.start === identity.start,
+                              ),
+                          ),
+                        ],
+                        stopIdentityUnknown:
+                          item.stopIdentityUnknown === true ||
+                          obligation.stopIdentityUnknown === true,
+                      },
+                ),
+              }
             : {
                 ...epoch,
                 obligations: [...epoch.obligations, { ...obligation, acknowledgement: null }],

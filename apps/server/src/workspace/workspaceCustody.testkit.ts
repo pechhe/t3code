@@ -26,6 +26,7 @@ const decodeRelease = Schema.decodeEffect(
 );
 export const fixture = Effect.gen(function* () {
   const controllerStart = yield* Ref.make("first-start");
+  const processStarts = yield* Ref.make<ReadonlyMap<number, string | null>>(new Map());
   const producerProtocol = yield* Ref.make(1);
   const workspaceRoot = yield* Ref.make<string | null>(null);
   const releases = yield* Ref.make(0);
@@ -73,12 +74,17 @@ export const fixture = Effect.gen(function* () {
         case "controller":
           reply = {
             ok: true,
-            controller: {
-              platform: "linux",
-              pid: 123,
-              boot: "boot-one",
-              start: yield* Ref.get(controllerStart),
-            },
+            controller:
+              (yield* Ref.get(processStarts)).get(Number(args[2])) === null
+                ? null
+                : {
+                    platform: "linux",
+                    pid: Number(args[2]),
+                    boot: "boot-one",
+                    start:
+                      (yield* Ref.get(processStarts)).get(Number(args[2])) ??
+                      (yield* Ref.get(controllerStart)),
+                  },
           };
           break;
         case "acquire": {
@@ -160,6 +166,7 @@ export const fixture = Effect.gen(function* () {
     releaseLostReplies,
     releaseRequests,
     controllerStart,
+    processStarts,
     producerProtocol,
     workspaceRoot,
     releases,

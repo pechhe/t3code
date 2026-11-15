@@ -8,6 +8,7 @@ import * as Ref from "effect/Ref";
 import * as Journal from "../persistence/WorkspaceCustody.ts";
 import * as Workspaces from "../project/WorkspaceProvider.ts";
 import { fixture } from "../workspace/workspaceCustody.testkit.ts";
+import * as WorkspaceCustody from "../workspace/WorkspaceCustody.ts";
 import * as RunCustody from "./RunWorkspaceCustody.ts";
 
 it.effect("keeps independent canonical claims through provider and checkpoint settlement", () =>
@@ -89,4 +90,52 @@ it.effect("keeps independent canonical claims through provider and checkpoint se
       assert.equal(yield* Ref.get(f.releases), 3);
     }).pipe(Effect.provide(layer));
   }),
+);
+
+it.effect(
+  "failed re-admission with a fresh command cannot leave a new active epoch after restart",
+  () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      yield* Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* fs.realPath(yield* fs.makeTempDirectoryScoped());
+        const input = { runId: "restarted", projectRoot: root, workspacePath: root };
+        yield* Effect.gen(function* () {
+          const custody = yield* RunCustody.RunWorkspaceCustody;
+          yield* custody.admit({ ...input, admissionId: "initial-command" });
+          yield* custody.register(input.runId, {
+            id: "execution",
+            kind: "provider-turn",
+            processIds: [{ pid: 456 }],
+          });
+          yield* custody.acknowledge(input.runId, "admission", "execution-started");
+          yield* fs.makeDirectory(`${root}/attached`);
+          yield* custody.admit({ ...input, workspacePath: `${root}/attached` });
+        }).pipe(Effect.provide(RunCustody.layer));
+        yield* Ref.set(f.controllerStart, "after-restart");
+        yield* Ref.set(f.processStarts, new Map([[456, "first-start"]]));
+        const journal = yield* Journal.WorkspaceCustody;
+        yield* Effect.gen(function* () {
+          const custody = yield* RunCustody.RunWorkspaceCustody;
+          const result = yield* custody
+            .admit({ ...input, admissionId: "restart-command" })
+            .pipe(Effect.result);
+          assert.equal(result._tag, "Failure");
+          assert.equal((yield* journal.list).length, 2);
+          assert.isTrue((yield* journal.list).some((epoch) => epoch.phase === "recovery-required"));
+        }).pipe(Effect.provide(RunCustody.layer));
+        yield* Ref.set(f.processStarts, new Map([[456, null]]));
+        yield* (yield* WorkspaceCustody.WorkspaceCustody).reconcile;
+        assert.isTrue((yield* journal.list).every((epoch) => epoch.phase === "released"));
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            f.layer,
+            NodeServices.layer,
+            Layer.mock(Workspaces.WorkspaceProvider)({ resolve: () => Effect.succeed("slipjay") }),
+          ),
+        ),
+      );
+    }),
 );

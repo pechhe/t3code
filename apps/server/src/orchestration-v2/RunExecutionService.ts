@@ -984,6 +984,14 @@ export const layer: Layer.Layer<
         } else {
           yield* eventSink.writeWithEffects(finalization);
         }
+        if (finalization.effects.length === 0) {
+          yield* custody.acknowledge(
+            input.run.id,
+            `checkpoint:${input.checkpointScope.id}`,
+            `capture-not-scheduled:${input.checkpointScope.id}`,
+          );
+          yield* custody.settle(input.run.id).pipe(Effect.ignore);
+        }
         yield* turnAnalytics.runSettled({
           runId: input.run.id,
           status: input.terminal.status,
@@ -1033,10 +1041,16 @@ export const layer: Layer.Layer<
           yield* custody.register(input.run.id, {
             id: `execution:${input.attemptId}`,
             kind: "provider-turn",
+            processIds: yield* (
+              input.session.getOwnedProcessIds?.(input.providerThread) ?? Effect.succeed([])
+            ),
           });
           yield* custody.register(input.run.id, {
             id: `checkpoint:${input.checkpointScope.id}`,
             kind: "checkpoint",
+            // Capture runs `git -C <checkout>`, which enters the checkout at once, so SlipJay's cwd-holder
+            // guard retains the checkout while any capture subprocess outlives this worker.
+            processIds: [{ pid: process.pid }],
           });
           yield* custody.acknowledge(
             input.run.id,
@@ -1840,6 +1854,17 @@ export const layer: Layer.Layer<
           yield* trackChildLifecycle(event, deliveredEvent !== null);
           yield* scheduleIdleFlush;
         });
+        const stopObservingProcesses = yield* (
+          input.session.observeOwnedProcesses?.((processIds) =>
+            custody
+              .register(input.run.id, {
+                id: `execution:${input.attemptId}`,
+                kind: "provider-turn",
+                processIds,
+              })
+              .pipe(Effect.orDie),
+          ) ?? Effect.succeed(Effect.void)
+        );
         const providerEventFiber = yield* eventSink
           .consumeProviderEvents(
             eventSubscription.events.pipe(
@@ -1859,6 +1884,7 @@ export const layer: Layer.Layer<
           )
           .pipe(
             Effect.ensuring(closeIdleFlush),
+            Effect.ensuring(stopObservingProcesses),
             Effect.mapError((cause) => new RunExecutionIngestError({ runId: input.run.id, cause })),
             Effect.flatMap(() =>
               Effect.gen(function* () {
@@ -2214,6 +2240,15 @@ export const layer: Layer.Layer<
               cause,
             }).pipe(
               Effect.andThen(Fiber.interrupt(providerEventFiber)),
+              Effect.andThen(
+                Exit.isFailure(shouldStart)
+                  ? custody.acknowledge(
+                      input.run.id,
+                      `execution:${input.attemptId}`,
+                      `provider-not-invoked:${input.attemptId}`,
+                    )
+                  : Effect.void,
+              ),
               Effect.andThen(Ref.get(latestProviderThread)),
               Effect.flatMap((providerThread) =>
                 Ref.get(latestTurnItemOrdinal).pipe(

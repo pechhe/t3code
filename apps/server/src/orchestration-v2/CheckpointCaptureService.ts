@@ -46,7 +46,7 @@ export interface CheckpointCaptureServiceV2Shape {
     readonly threadId: ThreadId;
     readonly runId: RunId;
     readonly scopeId: CheckpointScopeId;
-  }) => Effect.Effect<void, CheckpointCaptureExecutionError>;
+  }) => Effect.Effect<boolean, CheckpointCaptureExecutionError>;
 }
 
 export class CheckpointCaptureServiceV2 extends Context.Service<
@@ -253,7 +253,10 @@ export const layer: Layer.Layer<
         "nodes",
       ]);
       const run = runs.find((candidate) => candidate.id === input.runId);
-      if (run === undefined || run.status !== "waiting") return;
+      if (run === undefined) return false;
+      if (run.status === "completed") return true;
+      if (run.status !== "waiting" && run.status !== "cancelled" && run.status !== "interrupted")
+        return false;
       const rootNode = nodes.find((candidate) => candidate.id === run.rootNodeId);
       yield* Effect.logWarning("Completing a run without a checkpoint: capture failed for good", {
         threadId: input.threadId,
@@ -278,7 +281,11 @@ export const layer: Layer.Layer<
             ...(rootNode === undefined ? {} : { nodeId: rootNode.id }),
             providerInstanceId: run.providerInstanceId,
             occurredAt: completedAt,
-            payload: { ...runWithoutDelegatedCompletion, status: "completed", completedAt },
+            payload: {
+              ...runWithoutDelegatedCompletion,
+              status: run.status === "waiting" ? "completed" : run.status,
+              completedAt,
+            },
           },
           ...(rootNode === undefined
             ? []
@@ -291,11 +298,16 @@ export const layer: Layer.Layer<
                   nodeId: rootNode.id,
                   providerInstanceId: run.providerInstanceId,
                   occurredAt: completedAt,
-                  payload: { ...rootNode, status: "completed" as const, completedAt },
+                  payload: {
+                    ...rootNode,
+                    status: run.status === "waiting" ? ("completed" as const) : rootNode.status,
+                    completedAt,
+                  },
                 },
               ]),
         ],
       });
+      return true;
     });
 
     return CheckpointCaptureServiceV2.of({

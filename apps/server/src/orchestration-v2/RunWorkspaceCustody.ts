@@ -34,7 +34,7 @@ export class RunWorkspaceCustody extends Context.Service<
     }) => Effect.Effect<void, RunWorkspaceCustodyError>;
     readonly register: (
       runId: string,
-      obligation: Pick<Journal.CustodyObligation, "id" | "kind">,
+      obligation: Parameters<Custody.WorkspaceCustody["Service"]["register"]>[1],
     ) => Effect.Effect<void, RunWorkspaceCustodyError>;
     readonly acknowledge: (
       runId: string,

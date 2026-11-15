@@ -377,41 +377,51 @@ it.layer(layerProjectionStoreTest)("CheckpointCaptureServiceV2", (it) => {
       }),
   );
 
-  it.effect("completes a waiting run without a checkpoint when its capture is abandoned", () =>
-    Effect.gen(function* () {
-      const committed = yield* Ref.make<ReadonlyArray<OrchestrationV2DomainEvent>>([]);
-      const waitingRun = { id: runId, threadId, status: "waiting", rootNodeId } as never;
-      const waitingNode = { id: rootNodeId, runId, status: "waiting" } as never;
-      const layerCapture = CheckpointCaptureService.layer.pipe(
-        Layer.provide(
-          Layer.mergeAll(
-            IdAllocator.layer,
-            Layer.mock(CheckpointService.CheckpointServiceV2)({}),
-            Layer.mock(ProjectionStore.ProjectionStoreV2)({
-              getThreadRecords: () =>
-                Effect.succeed({ runs: [waitingRun], nodes: [waitingNode] } as never),
-            }),
-            Layer.mock(EventSink.EventSinkV2)({
-              commitCommand: (input) =>
-                Ref.set(committed, input.events).pipe(Effect.as({ committed: true } as never)),
-            }),
+  it.effect.each(["waiting", "cancelled", "interrupted"] as const)(
+    "records abandonment without changing the terminal outcome: %s",
+    (status) =>
+      Effect.gen(function* () {
+        const committed = yield* Ref.make<ReadonlyArray<OrchestrationV2DomainEvent>>([]);
+        const waitingRun = { id: runId, threadId, status, rootNodeId } as never;
+        const waitingNode = { id: rootNodeId, runId, status } as never;
+        const layerCapture = CheckpointCaptureService.layer.pipe(
+          Layer.provide(
+            Layer.mergeAll(
+              IdAllocator.layer,
+              Layer.mock(CheckpointService.CheckpointServiceV2)({}),
+              Layer.mock(ProjectionStore.ProjectionStoreV2)({
+                getThreadRecords: () =>
+                  Effect.succeed({ runs: [waitingRun], nodes: [waitingNode] } as never),
+              }),
+              Layer.mock(EventSink.EventSinkV2)({
+                commitCommand: (input) =>
+                  Ref.set(committed, input.events).pipe(Effect.as({ committed: true } as never)),
+              }),
+            ),
           ),
-        ),
-      );
-      yield* Effect.gen(function* () {
-        yield* (yield* CheckpointCaptureService.CheckpointCaptureServiceV2).abandon({
-          threadId,
-          runId,
-          scopeId,
-        });
-      }).pipe(Effect.provide(layerCapture));
-      const events = yield* Ref.get(committed);
-      const run = events.find((event) => event.type === "run.updated");
-      assert.equal(run?.type === "run.updated" ? run.payload.status : null, "completed");
-      assert.equal(run?.type === "run.updated" ? run.payload.checkpointId : "set", undefined);
-      const node = events.find((event) => event.type === "node.updated");
-      assert.equal(node?.type === "node.updated" ? node.payload.status : null, "completed");
-    }),
+        );
+        yield* Effect.gen(function* () {
+          const confirmed =
+            yield* (yield* CheckpointCaptureService.CheckpointCaptureServiceV2).abandon({
+              threadId,
+              runId,
+              scopeId,
+            });
+          assert.isTrue(confirmed);
+        }).pipe(Effect.provide(layerCapture));
+        const events = yield* Ref.get(committed);
+        const run = events.find((event) => event.type === "run.updated");
+        assert.equal(
+          run?.type === "run.updated" ? run.payload.status : null,
+          status === "waiting" ? "completed" : status,
+        );
+        assert.equal(run?.type === "run.updated" ? run.payload.checkpointId : "set", undefined);
+        const node = events.find((event) => event.type === "node.updated");
+        assert.equal(
+          node?.type === "node.updated" ? node.payload.status : null,
+          status === "waiting" ? "completed" : status,
+        );
+      }),
   );
 
   it.effect("does not capture a stopped run that a rollback already discarded", () =>

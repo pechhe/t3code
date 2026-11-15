@@ -2625,6 +2625,15 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             },
           };
         };
+        const processObservers = new Set<ProviderAdapter.ProviderStopObserver>();
+        const observeProcess = Effect.fn("AcpAdapter.observeProcess")(function* (
+          candidate: AcpSessionRuntime.AcpSessionRuntime["Service"],
+        ) {
+          for (const observer of processObservers)
+            yield* observer(
+              candidate.processId === undefined ? [] : [{ pid: candidate.processId }],
+            );
+        });
         let runtimeScope: Scope.Closeable | undefined;
         let runtime!: AcpSessionRuntime.AcpSessionRuntime["Service"];
         let runtimeMcpBridge: AcpMcpOverAcpBridge | undefined;
@@ -7163,6 +7172,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               Effect.provideService(AgentScope, agentScope),
               Effect.provideService(AgentScopeThreadId, threadId ?? undefined),
             );
+          yield* observeProcess(runtime);
         });
 
         const startAcpRuntime = Effect.fnUntraced(function* (
@@ -7244,6 +7254,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                 Effect.provideService(AgentScope, agentScope),
                 Effect.provideService(AgentScopeThreadId, threadId ?? undefined),
               );
+            yield* observeProcess(replacementRuntime);
             yield* replacementRuntime.handleSessionUpdate((notification) =>
               Effect.suspend(() => handleCandidateSessionUpdate(notification)),
             );
@@ -8962,6 +8973,17 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           providerSessionId: input.providerSessionId,
           providerSession,
           canResumeAfterRestart: canLoadSession || canResumeSession,
+          getOwnedProcessIds: () =>
+            Effect.sync(() =>
+              runtime.processId === undefined ? [] : [{ pid: runtime.processId }],
+            ),
+          observeOwnedProcesses: (observer) =>
+            Effect.sync(() => {
+              processObservers.add(observer);
+              return Effect.sync(() => {
+                processObservers.delete(observer);
+              });
+            }),
           events: Stream.fromEffectRepeat(Queue.take(events)),
           ...(flavor.getModelContextWindow === undefined
             ? {}

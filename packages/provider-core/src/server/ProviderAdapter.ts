@@ -733,6 +733,11 @@ export type ProviderAdapterV2SubagentOutcome = {
   readonly result: OrchestrationV2Subagent["result"];
 };
 
+export type ProviderStopProcess = { readonly pid: number; readonly shared?: boolean };
+export type ProviderStopObserver = (
+  processes: ReadonlyArray<ProviderStopProcess>,
+) => Effect.Effect<void>;
+
 export interface ProviderAdapterV2SessionRuntime {
   readonly instanceId: ProviderInstanceId;
   readonly driver: ProviderDriverKind;
@@ -740,6 +745,14 @@ export interface ProviderAdapterV2SessionRuntime {
   readonly providerSession: OrchestrationV2ProviderSession;
   /** False keeps conversations alive when the provider cannot restore them after a restart. */
   readonly canResumeAfterRestart?: boolean;
+  /** Absence of every returned process proves this thread's provider work stopped; never signal them. */
+  readonly getOwnedProcessIds?: (
+    thread: OrchestrationV2ProviderThread,
+  ) => Effect.Effect<ReadonlyArray<ProviderStopProcess>>;
+  /** Await observers before a replacement process receives work; returns an unsubscribe effect. */
+  readonly observeOwnedProcesses?: (
+    observer: ProviderStopObserver,
+  ) => Effect.Effect<Effect.Effect<void>>;
   readonly events: Stream.Stream<ProviderAdapterV2Event, ProviderAdapterV2Error>;
   /** Manager runtimes broadcast independent subscriptions; adapters may expose only a single-consumer stream. */
   readonly subscribeEvents?: Effect.Effect<ProviderAdapterV2EventSubscription>;

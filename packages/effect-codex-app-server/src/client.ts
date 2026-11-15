@@ -39,6 +39,7 @@ interface CodexAppServerClientRaw {
 export class CodexAppServerClient extends Context.Service<
   CodexAppServerClient,
   {
+    readonly processId?: number;
     readonly raw: CodexAppServerClientRaw;
     readonly awaitTermination: Effect.Effect<never, CodexError.CodexAppServerError>;
     readonly request: <M extends CodexRpc.ClientRequestMethod>(
@@ -313,9 +314,10 @@ const makeChildProcessClient = Effect.fn(
   "effect-codex-app-server/CodexAppServerClient.makeChildProcessClient",
 )(function* (handle: ChildProcessSpawner.ChildProcessHandle, options: CodexAppServerClientOptions) {
   const stderrTail = yield* makeStderrTail(handle.stderr);
-  return yield* make(
+  const client = yield* make(
     makeChildStdio(handle, stderrTail.awaitDrained),
     options,
     makeTerminationError(handle, stderrTail.read),
   );
+  return { ...client, processId: Number(handle.pid) };
 });

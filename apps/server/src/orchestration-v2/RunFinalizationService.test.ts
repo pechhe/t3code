@@ -1,3 +1,7 @@
+import * as RunCustody from "./RunWorkspaceCustody.ts";
+import * as Journal from "../persistence/WorkspaceCustody.ts";
+import * as Workspaces from "../project/WorkspaceProvider.ts";
+import { fixture as custodyFixture } from "../workspace/workspaceCustody.testkit.ts";
 import { layerNonSlipJay } from "./testkit/runWorkspaceCustody.ts";
 import * as FixtureManagedAgentService from "../agents/ManagedAgentService.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
@@ -489,3 +493,70 @@ it.effect("returns from the post-turn refresh while the identity resolver is sti
     assert.strictEqual(change.enrichment.repositoryIdentity?.canonicalKey, identity.canonicalKey);
   }).pipe(Effect.scoped, Effect.provide(layerIdentityRefresh(workspaceRoot, resolver)));
 });
+
+it.effect.each(["confirmed", "unconfirmed", "failed"] as const)(
+  "settles capture custody only after abandonment is confirmed: %s",
+  (result) =>
+    Effect.gen(function* () {
+      const f = yield* custodyFixture;
+      yield* Effect.gen(function* () {
+        const custody = yield* RunCustody.RunWorkspaceCustody;
+        const journal = yield* Journal.WorkspaceCustody;
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* fs.realPath(yield* fs.makeTempDirectoryScoped());
+        const input = {
+          threadId: ThreadId.make("capture-thread"),
+          runId: RunId.make("capture-run"),
+          scopeId: CheckpointScopeId.make("capture-scope"),
+        };
+        yield* custody.admit({ runId: input.runId, projectRoot: root, workspacePath: root });
+        yield* custody.register(input.runId, {
+          id: `checkpoint:${input.scopeId}`,
+          kind: "checkpoint",
+        });
+        yield* custody.acknowledge(input.runId, "admission", "started");
+        yield* Effect.gen(function* () {
+          const finalization = yield* RunFinalization.RunFinalizationService;
+          const settled = yield* finalization.abandonCapture(input).pipe(Effect.result);
+          assert.equal(settled._tag, result === "failed" ? "Failure" : "Success");
+        }).pipe(
+          Effect.provide(
+            RunFinalization.layer.pipe(
+              Layer.provide(
+                Layer.mergeAll(
+                  Layer.succeed(RunCustody.RunWorkspaceCustody, custody),
+                  Layer.mock(ProjectionStore.ProjectionStoreV2)({}),
+                  Layer.mock(CheckpointCapture.CheckpointCaptureServiceV2)({
+                    abandon: () =>
+                      result === "failed"
+                        ? Effect.fail(
+                            new CheckpointCapture.CheckpointCaptureExecutionError({
+                              ...input,
+                              cause: "not persisted",
+                            }),
+                          )
+                        : Effect.succeed(result === "confirmed"),
+                  }),
+                ),
+              ),
+            ),
+          ),
+        );
+        assert.equal((yield* journal.list)[0]!.phase, result === "confirmed" ? "released" : "open");
+      }).pipe(
+        Effect.provide(
+          RunCustody.layer.pipe(
+            Layer.provideMerge(
+              Layer.mergeAll(
+                f.layer,
+                NodeServices.layer,
+                Layer.mock(Workspaces.WorkspaceProvider)({
+                  resolve: () => Effect.succeed("slipjay"),
+                }),
+              ),
+            ),
+          ),
+        ),
+      );
+    }),
+);

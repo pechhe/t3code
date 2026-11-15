@@ -523,6 +523,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         readOnlyTools: ProviderAdapter.isManagedReadOnlyRuntimePolicy(input.runtimePolicy),
         runtimeMode: input.runtimePolicy.runtimeMode,
       });
+      const processObservers = new Set<ProviderAdapter.ProviderStopObserver>();
       const spawnConnection = Effect.fn("PiAdapterV2.spawnConnection")(function* () {
         const scopedLaunch = yield* agentScope.wrap({
           command: options.settings.binaryPath || "pi",
@@ -552,6 +553,8 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
               }),
           ),
         );
+        for (const observer of processObservers)
+          yield* observer(spawned.processId === undefined ? [] : [{ pid: spawned.processId }]);
         // Detached children can keep stdout open after Pi exits.
         if (scopeUnit !== undefined) {
           yield* spawned.exited.pipe(
@@ -2948,6 +2951,17 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           return sessionEntity;
         },
         events: Stream.fromQueue(events),
+        getOwnedProcessIds: () =>
+          Effect.sync(() =>
+            connection.processId === undefined ? [] : [{ pid: connection.processId }],
+          ),
+        observeOwnedProcesses: (observer) =>
+          Effect.sync(() => {
+            processObservers.add(observer);
+            return Effect.sync(() => {
+              processObservers.delete(observer);
+            });
+          }),
         hasPendingBackgroundWork: Effect.sync(() => pendingWake !== null),
         hasPendingBackgroundWorkForThread: (providerThread) =>
           Effect.sync(
