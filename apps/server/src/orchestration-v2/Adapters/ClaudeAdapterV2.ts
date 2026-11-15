@@ -293,8 +293,8 @@ const CLAUDE_MAX_COMPACT_WINDOW = 1_000_000;
 
 /** Where a session's auto-compact point comes from: the thread's own point, else the instance setting. */
 interface ClaudeCompactionSetting {
-  /** The instance's "Auto-compact after" size; blank leaves Claude Code's default. */
-  readonly instanceWindow?: string;
+  /** The instance's "Auto-compact after" size; blank leaves Claude Code's default, null means auto-compaction is off. */
+  readonly instanceWindow?: string | null;
   readonly compactAt?: number | null;
 }
 
@@ -326,6 +326,7 @@ function isClaudeEnvTruthy(value: string | undefined): boolean {
 }
 
 function claudeAutoCompactThreshold(setting: ClaudeCompactionSetting, maxTokens: number | null) {
+  if (setting.instanceWindow === null) return {};
   const window = claudeAutoCompactWindow(setting, maxTokens) ?? maxTokens;
   if (window === null) return {};
   const threshold = Math.floor(Math.min(window, maxTokens ?? window) - CLAUDE_COMPACT_RESERVE);
@@ -4975,7 +4976,8 @@ function formatClaudeUsageLimitWait(waitMs: number): string {
 interface ActiveClaudeTurnContext {
   readonly queryPolicy: ClaudeRuntimeQueryPolicy;
   readonly input: ProviderAdapter.ProviderAdapterV2TurnInput;
-  readonly autoCompactWindow: string;
+  /** Null when auto-compaction is off, so no compact point is reported. */
+  readonly autoCompactWindow: string | null;
   readonly nativeThreadId: string;
   readonly nativeTurnId: string;
   nativeMessageCursor: string | null;
@@ -5759,7 +5761,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
     // With auto-compaction off Claude never compacts, so there is no threshold to report.
     for (const name of ["DISABLE_COMPACT", "DISABLE_AUTO_COMPACT"]) {
       const value = yield* resolveClaudeEnv(cwd, launchArgSettings, name);
-      if (isClaudeEnvTruthy(value)) return "";
+      if (isClaudeEnvTruthy(value)) return null;
     }
     const launchEnabled = launchArgSettings?.autoCompactEnabled;
     let autoCompactEnabled = typeof launchEnabled === "boolean" ? launchEnabled : undefined;
@@ -5773,7 +5775,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
         autoCompactEnabled = settings.autoCompactEnabled;
       }
     }
-    if (autoCompactEnabled === false) return "";
+    if (autoCompactEnabled === false) return null;
     if (adapterOptions.settings.autoCompactWindow !== "")
       return adapterOptions.settings.autoCompactWindow;
     const validWindow = (value: unknown) => {
