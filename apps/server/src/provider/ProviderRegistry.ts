@@ -1557,10 +1557,6 @@ export const layer = Layer.effect(
           instanceRegistry.getInstance(id).pipe(Effect.map((instance) => [id, instance] as const)),
         { concurrency: "unbounded" },
       );
-      // All network refreshes finish before this snapshot and bounded credential pass.
-      const latest = new Map(
-        (yield* Ref.get(providersRef)).map((provider) => [provider.instanceId, provider]),
-      );
       const identities = new Map(
         yield* Effect.forEach(
           instances,
@@ -1574,6 +1570,10 @@ export const layer = Layer.effect(
             }),
           { concurrency: "unbounded" },
         ),
+      );
+      // Include usage updates that arrived while the bounded credential checks were pending.
+      const latest = new Map(
+        (yield* Ref.get(providersRef)).map((provider) => [provider.instanceId, provider]),
       );
       const now = yield* Clock.currentTimeMillis;
       const merged = supplied

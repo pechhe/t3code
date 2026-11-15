@@ -3509,7 +3509,14 @@ it.layer(
       }),
     );
 
-    it.effect.each(["usage", "credentials", "timeout"] as const)(
+    it.effect.each([
+      "usage",
+      "credentials",
+      "timeout",
+      "during-identity-usage",
+      "during-identity-account",
+      "during-identity-instance",
+    ] as const)(
       "batch conservation uses the final account and pool state after a delayed sibling refresh: %s",
       (change) =>
         Effect.gen(function* () {
@@ -3560,6 +3567,7 @@ it.layer(
           const startedB = yield* Deferred.make<void>();
           const releaseB = yield* Deferred.make<void>();
           const identityStarted = yield* Deferred.make<void>();
+          const releaseIdentity = yield* Deferred.make<void>();
           let identityReads = 0;
           const updates = yield* PubSub.unbounded<ServerProvider>();
           const instances: ProviderInstance[] = [a, b, c].map((id) => ({
@@ -3575,6 +3583,12 @@ it.layer(
                     if (change === "timeout" && identityReads > 1) {
                       yield* Deferred.succeed(identityStarted, undefined);
                       return yield* Effect.never;
+                    }
+                    if (change.startsWith("during-identity") && identityReads > 1) {
+                      const current = yield* Ref.get(aIdentity);
+                      yield* Deferred.succeed(identityStarted, undefined);
+                      yield* Deferred.await(releaseIdentity);
+                      return current;
                     }
                     return yield* Ref.get(aIdentity);
                   })
@@ -3680,10 +3694,44 @@ it.layer(
               yield* Deferred.await(identityStarted);
               yield* TestClock.adjust("1 second");
             }
+            if (change.startsWith("during-identity")) {
+              yield* Deferred.await(identityStarted);
+              if (change === "during-identity-instance") {
+                instances[0] = {
+                  ...instances[0]!,
+                  readUsageIdentity: Effect.succeed("replacement-A"),
+                };
+              } else {
+                const updated = row(a, 90);
+                const newer =
+                  change === "during-identity-account"
+                    ? {
+                        ...updated,
+                        usageLimits: {
+                          ...updated.usageLimits!,
+                          credentialFingerprint: "replacement-A",
+                        },
+                      }
+                    : updated;
+                const published = yield* Stream.toPull(
+                  registry.streamChanges.pipe(
+                    Stream.filter(
+                      (rows) =>
+                        rows.find((provider) => provider.instanceId === a)?.usageLimits?.windows[0]
+                          ?.usedPercent === 90,
+                    ),
+                  ),
+                );
+                yield* Ref.update(snapshots, (rows) => new Map(rows).set(a, newer));
+                yield* PubSub.publish(updates, newer);
+                yield* published;
+              }
+              yield* Deferred.succeed(releaseIdentity, undefined);
+            }
             const result = yield* Fiber.join(pending);
             assert.equal(
               result.find((provider) => provider.instanceId === a)?.subagentConservation?.state,
-              change === "usage" ? "active" : "unknown",
+              change === "usage" || change === "during-identity-usage" ? "active" : "unknown",
             );
             assert.equal(
               result.find((provider) => provider.instanceId === b)?.subagentConservation?.state,
