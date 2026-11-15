@@ -48,27 +48,30 @@ import {
 const sourceRevision = "fixture-source-commit";
 // What `jj log -r @` / `git rev-parse HEAD` reports; a test may stand in another working copy.
 const workingCopy = { output: sourceRevision };
-// The diff `git diff <from> <to>` prints, keyed "<from>..<to>"; an absent pair cannot be read.
+// The diff output is keyed "<from>..<to>"; Jujutsu keys are prefixed with "jj:".
 const diffs: Record<string, string> = {};
 const processes = Layer.succeed(ProcessRunner.ProcessRunner, {
-  run: (input) =>
-    Effect.succeed({
+  run: (input) => {
+    const diffKey =
+      input.command === "jj"
+        ? `jj:${input.args[input.args.indexOf("--from") + 1]}..${input.args[input.args.indexOf("--to") + 1]}`
+        : input.args.slice(-2).join("..");
+    return Effect.succeed({
       stdout:
         input.args[0] === "status"
           ? ""
           : input.args[0] === "diff"
-            ? (diffs[input.args.slice(-2).join("..")] ?? "")
+            ? (diffs[diffKey] ?? "")
             : workingCopy.output + "\n",
       stderr: "",
-      code: ChildProcessSpawner.ExitCode(
-        input.args[0] === "diff" && !(input.args.slice(-2).join("..") in diffs) ? 128 : 0,
-      ),
+      code: ChildProcessSpawner.ExitCode(input.args[0] === "diff" && !(diffKey in diffs) ? 128 : 0),
       timedOut: false,
       stdoutTruncated: false,
       stderrTruncated: false,
       stdoutInvalidUtf8: false,
       stderrInvalidUtf8: false,
-    }),
+    });
+  },
 });
 const dependencies = Layer.mergeAll(
   Sqlite.layerMemory,
@@ -1422,10 +1425,12 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         { model: claudeModel, effort: "medium", available: false },
         { model: codexModel, effort: "medium", note: "Careful coder", available: true },
       ]);
-      const omitted = yield* f.prepare({
-        requireExplicitSelection: true,
-        request: request({ role: "implementer", workspacePath: f.workspacePath }),
-      }).pipe(Effect.flip);
+      const omitted = yield* f
+        .prepare({
+          requireExplicitSelection: true,
+          request: request({ role: "implementer", workspacePath: f.workspacePath }),
+        })
+        .pipe(Effect.flip);
       expect(omitted.reason).toBe("selection");
       expect(omitted.message).toContain("choose a model");
       // A choice that must start now, such as a Champion replay, skips the exhausted account.
@@ -1879,6 +1884,49 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
       yield* f.prepare({ request: recording() });
       workingCopy.output = sourceRevision;
       for (const key of Object.keys(diffs)) delete diffs[key];
+    }),
+  );
+  it.effect("uses Jujutsu's Git-format diff for a non-colocated checkout", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      const source = "b7fb0000b7fb";
+      const base = "56520000565";
+      const prior = {
+        workId: "review-1",
+        sourceRevision: "42da00004242",
+        baseRevision: "bd7100001bd7",
+      };
+      const recording = request({
+        workspacePath: f.workspacePath,
+        role: "reviewer",
+        readOnly: true,
+        sourceRevision: source,
+        review: { ...changeReview, baseRevision: base, priorReview: prior },
+      });
+      const earlierKey = `jj:${prior.baseRevision}..${prior.sourceRevision}`;
+      const recordedKey = `jj:${base}..${source}`;
+      yield* f.fs.makeDirectory(`${f.workspacePath}/.jj`, { recursive: true });
+      try {
+        workingCopy.output = source;
+        for (const summary of ["Binary files differ", "Binary files a/file and b/file differ"]) {
+          diffs[earlierKey] = `diff --git a/file b/file\nindex old..old2 100644\n${summary}\n`;
+          diffs[recordedKey] = `diff --git a/file b/file\nindex new..new2 100644\n${summary}\n`;
+          const binaryError = yield* f.prepare({ request: recording }).pipe(
+            Effect.flip,
+            Effect.map((error) => error.message),
+          );
+          expect(binaryError).toContain("could not be read");
+        }
+        diffs[earlierKey] =
+          "diff --git a/file b/file\nindex old..old2 100644\n@@ -1,2 +1,2 @@\n+same\n";
+        diffs[recordedKey] =
+          "diff --git a/file b/file\nindex new..new2 100644\n@@ -9,2 +9,2 @@\n+same\n";
+        yield* f.prepare({ request: recording });
+      } finally {
+        workingCopy.output = sourceRevision;
+        delete diffs[earlierKey];
+        delete diffs[recordedKey];
+      }
     }),
   );
 });

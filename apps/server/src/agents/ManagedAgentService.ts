@@ -575,7 +575,7 @@ const make = Effect.gen(function* () {
   );
   /**
    * A review that records an earlier report's change against another base or source claims the
-   * two diffs are one change. Never trust the claim: both must resolve here and share a patch id.
+   * two diffs are one change. Never trust the claim: both must resolve here and match exactly.
    */
   const verifyRecordedReview = Effect.fn("ManagedAgentService.verifyRecordedReview")(function* (
     request: AgentTaskRequest,
@@ -599,9 +599,12 @@ const make = Effect.gen(function* () {
     // shifts: `git patch-id` also ignores whitespace, which changes behaviour in some files.
     const changeText = Effect.fn("ManagedAgentService.changeText")(
       function* (from: string, to: string) {
+        const jujutsu = yield* fs.exists(path.join(request.workspacePath, ".jj"));
         const diff = yield* processes.run({
-          command: "git",
-          args: ["diff", "--binary", "--no-color", "--no-ext-diff", from, to],
+          command: jujutsu ? "jj" : "git",
+          args: jujutsu
+            ? ["diff", "--from", from, "--to", to, "--git", "--color", "never"]
+            : ["diff", "--binary", "--no-color", "--no-ext-diff", from, to],
           cwd: request.workspacePath,
           timeout: "30 seconds",
           maxOutputBytes: 16 * 1024 * 1024,
@@ -610,6 +613,7 @@ const make = Effect.gen(function* () {
           diff.code !== 0 ||
           diff.stdoutInvalidUtf8 ||
           diff.stdoutTruncated ||
+          (jujutsu && /^Binary files(?: .*)? differ$/m.test(diff.stdout)) ||
           diff.stdout.trim() === ""
         )
           return undefined;
