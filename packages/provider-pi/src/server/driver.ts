@@ -5,6 +5,7 @@ import {
   type ServerProviderUsageSlot,
 } from "@t3tools/contracts";
 import { PiSettings } from "../settings.ts";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -17,7 +18,7 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as ProviderLatestVersions from "@t3tools/provider-core/server/ProviderLatestVersions";
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import { piUsageReader } from "./usage.ts";
-import { readPiUsageSlots, retainPriorUsageSlots } from "./usageSlots.ts";
+import { probePiUsageSlots, retainPriorUsageSlots } from "./usageSlots.ts";
 import { makePiTextGeneration } from "./textGeneration.ts";
 import { PiAdapterV2Driver, type PiAdapterV2DriverEnv } from "./adapter.ts";
 import { ProviderDriverError } from "@t3tools/provider-core/server/errors";
@@ -155,7 +156,7 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
     );
 
-    const readUsageSlots = readPiUsageSlots({ environment: processEnv }).pipe(
+    const readUsageSlots = probePiUsageSlots({ environment: processEnv }).pipe(
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(Path.Path, pathService),
       Effect.provideService(Digest.Digest, digest),
@@ -172,9 +173,10 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
         yield* Ref.set(lastUsageSlotsRef, []);
         return snapshot;
       }
-      const probed = yield* readUsageSlots.pipe(Effect.orElseSucceed(() => []));
+      const checkedAt = DateTime.formatIso(yield* DateTime.now);
+      const probed = yield* readUsageSlots.pipe(Effect.catchCause(() => Effect.succeed(null)));
       const usageSlots = yield* Ref.modify(lastUsageSlotsRef, (previous) => {
-        const merged = retainPriorUsageSlots(previous, probed);
+        const merged = retainPriorUsageSlots(previous, probed, checkedAt);
         return [merged, merged] as const;
       });
       return usageSlots.length === 0 ? snapshot : { ...snapshot, usageSlots };

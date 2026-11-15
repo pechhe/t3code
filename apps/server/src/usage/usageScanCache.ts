@@ -245,15 +245,12 @@ export function decodeScanCache(
       ) {
         return null;
       }
-      // Pre-v17 Pi records carry `<subProvider>/<model>` in `model` without a separate accountKey field.
-      if (
-        accountKey === undefined &&
-        provider === "pi" &&
-        version < 17 &&
-        model !== "Tools/summaries" &&
-        model.includes("/")
-      ) {
-        accountKey = model.split("/", 1)[0];
+      // Older caches (or v17 caches written before accountKey attribution) carry `<subProvider>/<model>` in `model`.
+      if (accountKey === undefined && provider === "pi" && model !== "Tools/summaries") {
+        const slash = model.indexOf("/");
+        if (slash > 0) {
+          accountKey = model.slice(0, slash);
+        }
       }
 
       // Unchanged and deleted transcripts may only exist in the cache, so the

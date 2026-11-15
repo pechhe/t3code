@@ -5,9 +5,12 @@ import * as Layer from "effect/Layer";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import { describe, expect, it } from "@effect/vitest";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as TestClock from "effect/testing/TestClock";
 
-import { readPiUsageSlots, retainPriorUsageSlots } from "./usageSlots.ts";
+import { probePiUsageSlots, readPiUsageSlots, retainPriorUsageSlots } from "./usageSlots.ts";
 
 /** A fixed epoch keeps the probe off the wall clock; every credential here is unexpired. */
 const FUTURE_MS = 1_800_000_000_000;
@@ -365,4 +368,82 @@ describe("readPiUsageSlots", () => {
     });
     expect(retained[1]?.usageLimits.windows).toEqual([]);
   });
+
+  it.effect("retains prior Antigravity windows when a quota request hangs past its timeout", () =>
+    Effect.gen(function* () {
+      const home = yield* writeAuth({
+        antigravity: {
+          type: "oauth",
+          access: "live-token",
+          refresh: "refresh",
+          expires: FUTURE_MS,
+          email: "henry@example.com",
+        },
+      });
+      const initial = yield* readPiUsageSlots({ environment: { HOME: home } }).pipe(
+        Effect.provideService(
+          HttpClient.HttpClient,
+          HttpClient.make((request) =>
+            Effect.succeed(HttpClientResponse.fromWeb(request, Response.json(antigravityAnswer))),
+          ),
+        ),
+      );
+      expect(initial).toHaveLength(1);
+      expect(initial[0]?.usageLimits.windows.length).toBeGreaterThan(0);
+
+      const requested = yield* Deferred.make<void>();
+      const fiber = yield* readPiUsageSlots({ environment: { HOME: home } }).pipe(
+        Effect.provideService(
+          HttpClient.HttpClient,
+          HttpClient.make(() =>
+            Deferred.succeed(requested, undefined).pipe(Effect.andThen(Effect.never)),
+          ),
+        ),
+        Effect.forkChild,
+      );
+      yield* Deferred.await(requested);
+      yield* TestClock.adjust("15 seconds");
+      const timedOut = yield* Fiber.join(fiber);
+
+      expect(timedOut).toHaveLength(1);
+      expect(timedOut[0]?.usageLimits.unavailable?.reason).toBe("probeFailed");
+      const retained = retainPriorUsageSlots(initial, timedOut);
+      expect(retained).toHaveLength(1);
+      expect(retained[0]?.usageLimits.windows).toEqual(initial[0]?.usageLimits.windows);
+      expect(retained[0]?.usageLimits.unavailable?.reason).toBe("probeFailed");
+    }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect("keeps prior slots stale when auth.json is unreadable or corrupt", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const home = yield* fs.makeTempDirectoryScoped();
+      yield* fs.makeDirectory(`${home}/.pi/agent`, { recursive: true });
+      yield* fs.writeFileString(`${home}/.pi/agent/auth.json`, "{not valid json");
+      const result = yield* probePiUsageSlots({ environment: { HOME: home } }).pipe(
+        Effect.provideService(
+          HttpClient.HttpClient,
+          HttpClient.make(() => Effect.die("No requests on corrupt auth.json")),
+        ),
+      );
+      expect(result).toBeNull();
+      const prior = [
+        {
+          accountKey: "antigravity",
+          label: "antigravity",
+          account: "cred-a",
+          usageLimits: {
+            checkedAt: "2026-11-15T10:00:00.000Z",
+            windows: [
+              { id: "five_hour", kind: "session" as const, label: "Session", usedPercent: 12 },
+            ],
+          },
+        },
+      ];
+      const retained = retainPriorUsageSlots(prior, result, "2026-11-15T11:00:00.000Z");
+      expect(retained).toHaveLength(1);
+      expect(retained[0]?.usageLimits.windows).toEqual(prior[0]?.usageLimits.windows);
+      expect(retained[0]?.usageLimits.unavailable?.reason).toBe("probeFailed");
+    }).pipe(Effect.provide(layerTest)),
+  );
 });

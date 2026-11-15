@@ -305,7 +305,7 @@ const withWindows = (
  * no quota endpoint keep an `unsupported` reading rather than a guessed figure, and a failed
  * call says so, so Usage can show the last known windows as stale.
  */
-export const readPiUsageSlots = Effect.fn("PiUsageSlots.readPiUsageSlots")(function* (input: {
+export const probePiUsageSlots = Effect.fn("PiUsageSlots.probePiUsageSlots")(function* (input: {
   readonly environment: NodeJS.ProcessEnv;
 }) {
   const fs = yield* FileSystem.FileSystem;
@@ -319,24 +319,25 @@ export const readPiUsageSlots = Effect.fn("PiUsageSlots.readPiUsageSlots")(funct
   const authPath = path.join(home, AUTH_DIRECTORY, AUTH_FILE);
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
   const nowMs = yield* Clock.currentTimeMillis;
-  const contents = yield* fs.readFileString(authPath).pipe(
+  const fileOption = yield* fs.readFileString(authPath).pipe(
+    Effect.flatMap((contents) => decodeAuthFile(contents)),
     Effect.catchTags({
       PlatformError: (error) =>
-        error.reason._tag === "NotFound" ? Effect.succeed("{}") : Effect.fail(error),
+        error.reason._tag === "NotFound" ? Effect.succeed({} as const) : Effect.fail(error),
     }),
+    Effect.asSome,
+    Effect.catchCause(() => Effect.succeedNone),
   );
-  const file = yield* decodeAuthFile(contents).pipe(Effect.orElseSucceed(() => ({}) as const));
+  if (Option.isNone(fileOption)) {
+    return null;
+  }
+  const file = fileOption.value;
 
-  const readSlot = Effect.fn("PiUsageSlots.readSlot")(function* (
-    accountKey: string,
+  const probeSlot = Effect.fn("PiUsageSlots.readSlot")(function* (
+    base: { readonly accountKey: string; readonly label: string; readonly account: string },
     credential: Credential,
   ) {
-    const base = {
-      accountKey,
-      label: slotLabel(accountKey, credential),
-      account: yield* accountFingerprint(accountKey, credential),
-    };
-
+    const { accountKey } = base;
     if (accountKey === "antigravity") {
       const access = credential.type === "oauth" ? usableAccess(credential, nowMs) : undefined;
       if (access === undefined || credential.type !== "oauth") {
@@ -363,6 +364,7 @@ export const readPiUsageSlots = Effect.fn("PiUsageSlots.readPiUsageSlots")(funct
             .pipe(
               Effect.flatMap(HttpClientResponse.schemaBodyJson(AntigravitySummary)),
               Effect.map(antigravityWindows),
+              Effect.timeout("10 seconds"),
               Effect.orElseSucceed((): ServerProviderUsageWindow[] => []),
             ),
         { concurrency: 2 },
@@ -471,36 +473,96 @@ export const readPiUsageSlots = Effect.fn("PiUsageSlots.readPiUsageSlots")(funct
   const entries = Object.entries(file).filter(
     ([accountKey]) => accountKey.trim().length > 0 && accountKey !== "agent",
   );
-  return yield* Effect.forEach(
-    entries,
-    ([accountKey, raw]) => {
+  const preparedEntries = yield* Effect.forEach(entries, ([accountKey, raw]) =>
+    Effect.gen(function* () {
       const credential = decodeCredential(raw);
-      return Option.isSome(credential)
-        ? readSlot(accountKey, credential.value)
-        : Effect.succeed(
+      if (Option.isNone(credential)) {
+        return {
+          base: { accountKey, label: accountKey, account: accountKey },
+          credential: null,
+        } as const;
+      }
+      return {
+        base: {
+          accountKey,
+          label: slotLabel(accountKey, credential.value),
+          account: yield* accountFingerprint(accountKey, credential.value),
+        },
+        credential: credential.value,
+      } as const;
+    }),
+  );
+
+  const timedOutSlots = (): ReadonlyArray<ServerProviderUsageSlot> =>
+    preparedEntries.map(({ base, credential }) =>
+      credential === null
+        ? unavailable(
+            { ...base, checkedAt },
+            "probeFailed",
+            "T3 cannot read this credential's format.",
+          )
+        : unavailable({ ...base, checkedAt }, "probeFailed", "Usage quota check timed out."),
+    );
+
+  return yield* Effect.forEach(
+    preparedEntries,
+    ({ base, credential }) =>
+      credential === null
+        ? Effect.succeed(
             unavailable(
-              { accountKey, label: accountKey, account: accountKey, checkedAt },
+              { ...base, checkedAt },
               "probeFailed",
               "T3 cannot read this credential's format.",
             ),
-          );
-    },
+          )
+        : probeSlot(base, credential).pipe(
+            Effect.timeout("12 seconds"),
+            Effect.catchCause(() =>
+              Effect.succeed(
+                unavailable({ ...base, checkedAt }, "probeFailed", "Usage quota check timed out."),
+              ),
+            ),
+          ),
     { concurrency: 4 },
   ).pipe(
     Effect.timeout("15 seconds"),
     // A quota reading is advisory: no defect, timeout or missing host may fail provider status.
-    Effect.catchCause(() => Effect.succeed([] as ReadonlyArray<ServerProviderUsageSlot>)),
+    Effect.catchCause(() => Effect.succeed(timedOutSlots())),
+  );
+});
+
+export const readPiUsageSlots = Effect.fn("PiUsageSlots.readPiUsageSlots")(function* (input: {
+  readonly environment: NodeJS.ProcessEnv;
+}) {
+  return (
+    (yield* probePiUsageSlots(input).pipe(Effect.catchCause(() => Effect.succeed(null)))) ?? []
   );
 });
 
 /**
  * Keeps a slot's last known quota windows visible as stale when a subsequent poll fails
  * for the same credential identity, while discarding them if the credential changed.
+ * Passing `null` means reading the credential store itself failed, so all prior slots stay
+ * visible with a `probeFailed` notice.
  */
 export function retainPriorUsageSlots(
   previous: ReadonlyArray<ServerProviderUsageSlot>,
-  probed: ReadonlyArray<ServerProviderUsageSlot>,
+  probed: ReadonlyArray<ServerProviderUsageSlot> | null,
+  checkedAt?: string,
 ): ReadonlyArray<ServerProviderUsageSlot> {
+  if (probed === null) {
+    return previous.map((slot) => ({
+      ...slot,
+      usageLimits: {
+        ...slot.usageLimits,
+        ...(checkedAt === undefined ? {} : { checkedAt }),
+        unavailable: {
+          reason: "probeFailed" as const,
+          message: "Could not read Pi credentials.",
+        },
+      },
+    }));
+  }
   if (previous.length === 0) return probed;
   const byKey = new Map(previous.map((slot) => [slot.accountKey, slot] as const));
   return probed.map((slot) => {

@@ -459,4 +459,30 @@ describe("scan cache round trip", () => {
     const restored = decodeScanCache(JSON.parse(JSON.stringify(poisoned)), TEST_FORMAT_MAP);
     expect(restored.has("/a.jsonl")).toBe(false);
   });
+
+  it("recovers Pi accountKey from v17 cache rows rewritten without attribution", () => {
+    const original: ScanCache = new Map([
+      [
+        "/pi-v17.jsonl",
+        {
+          size: 120,
+          mtimeMs: 100,
+          provider: "pi",
+          records: [
+            record({
+              provider: "pi",
+              model: "anthropic-hfpetch/claude-fable-5",
+              reportedCostUsd: 2,
+            }),
+          ],
+          tailRecords: [],
+          malformedRecords: 0,
+          position: position({ state: { sessionId: "session-a" } }),
+        },
+      ],
+    ]);
+    const encoded = parse(makeScanCacheWriter()(original, {}));
+    const restored = decodeScanCache(JSON.parse(JSON.stringify(encoded)), TEST_FORMAT_MAP);
+    expect(restored.get("/pi-v17.jsonl")?.records[0]?.accountKey).toBe("anthropic-hfpetch");
+  });
 });
