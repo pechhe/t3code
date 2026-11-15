@@ -106,7 +106,15 @@ export function UsageCorner({ overlay }: { readonly overlay: HTMLElement | null 
         >
           <div className="flex flex-col gap-1.5 px-1.5">
             {rows.map((row) => (
-              <UsageCornerLine key={row.pool.driver} row={row} now={now} />
+              <UsageCornerLine
+                key={
+                  row.pool.accounts[0]?.slot === undefined
+                    ? row.pool.driver
+                    : row.pool.accounts.map((account) => account.key).join(":")
+                }
+                row={row}
+                now={now}
+              />
             ))}
           </div>
         </ThreadDetailsSection>

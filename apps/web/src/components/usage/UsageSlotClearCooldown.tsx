@@ -1,4 +1,4 @@
-import type { ServerProvider } from "@t3tools/contracts";
+import type { EnvironmentId, ServerProvider } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { useState } from "react";
 
@@ -6,7 +6,7 @@ import { REMEMBERED_LIMIT_WINDOW_ID } from "@t3tools/shared/providerPools";
 
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { serverEnvironment } from "../../state/server";
-import { usePrimaryEnvironmentId, useEnvironmentProviders } from "../../state/environments";
+import { useEnvironmentProviders } from "../../state/environments";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
 
@@ -22,8 +22,13 @@ export function isSlotCooled(
   return cooldown?.resetsAt !== undefined && Date.parse(cooldown.resetsAt) > nowMs;
 }
 
-export function UsageSlotClearCooldown({ slotId }: { readonly slotId: string }) {
-  const environmentId = usePrimaryEnvironmentId();
+export function UsageSlotClearCooldown({
+  environmentId,
+  slotId,
+}: {
+  readonly environmentId: EnvironmentId | null;
+  readonly slotId: string;
+}) {
   const providersByEnvironment = useEnvironmentProviders();
   const providers = environmentId === null ? [] : (providersByEnvironment.get(environmentId) ?? []);
   const slot = providers.flatMap((provider) =>

@@ -1,7 +1,7 @@
+import type { EnvironmentId } from "@t3tools/contracts";
 import { useState } from "react";
 
-import { usePrimaryEnvironmentId } from "../../state/environments";
-import { usePrimarySettings, useUpdateEnvironmentSettings } from "../../hooks/useSettings";
+import { useEnvironmentSettings, useUpdateEnvironmentSettings } from "../../hooks/useSettings";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import {
@@ -16,25 +16,17 @@ import {
  * edit leaves the accumulated local spend alone.
  */
 export function UsageSlotBudgetEditor({
+  environmentId,
   slotId,
   usedUsd,
   limitUsd,
 }: {
+  readonly environmentId: EnvironmentId | null;
   readonly slotId: string | undefined;
-  readonly usedUsd?: number;
-  readonly limitUsd?: number;
+  readonly usedUsd?: number | undefined;
+  readonly limitUsd?: number | undefined;
 }) {
-  const environmentId = usePrimaryEnvironmentId();
-  const budget = usePrimarySettings((settings) =>
-    slotId === undefined ? undefined : settings.usageSlotBudgets?.[slotId],
-  );
-  const updateSettings = useUpdateEnvironmentSettings(environmentId);
-  const [form, setForm] = useState(() => usageSlotBudgetForm(budget));
-  const [editing, setEditing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-
-  if (slotId === undefined) {
+  if (slotId === undefined || environmentId === null) {
     return (
       <p className="text-xs text-muted-foreground tabular-nums">
         {usedUsd === undefined || limitUsd === undefined
@@ -43,6 +35,36 @@ export function UsageSlotBudgetEditor({
       </p>
     );
   }
+  return (
+    <UsageSlotBudgetEditorForm
+      environmentId={environmentId}
+      slotId={slotId}
+      usedUsd={usedUsd}
+      limitUsd={limitUsd}
+    />
+  );
+}
+
+function UsageSlotBudgetEditorForm({
+  environmentId,
+  slotId,
+  usedUsd,
+  limitUsd,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly slotId: string;
+  readonly usedUsd?: number | undefined;
+  readonly limitUsd?: number | undefined;
+}) {
+  const budget = useEnvironmentSettings(
+    environmentId,
+    (settings) => settings.usageSlotBudgets?.[slotId],
+  );
+  const updateSettings = useUpdateEnvironmentSettings(environmentId);
+  const [form, setForm] = useState(() => usageSlotBudgetForm(budget));
+  const [editing, setEditing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   if (!editing) {
     return (

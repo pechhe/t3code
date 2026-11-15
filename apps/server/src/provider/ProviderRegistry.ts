@@ -1622,9 +1622,11 @@ export const layer = Layer.effect(
                   exactCorrectionSpend.set(slotId, 0);
                   continue;
                 }
-                const separator = slotId.indexOf(":");
-                if (separator < 0 || slotId.slice(0, separator) !== "pi") continue;
-                const accountKey = slotId.slice(separator + 1);
+                const piProvider = piProviders.find((provider) =>
+                  slotId.startsWith(`${provider.instanceId}:`),
+                );
+                if (piProvider === undefined) continue;
+                const accountKey = slotId.slice(piProvider.instanceId.length + 1);
                 const correctionSummary = yield* usageService.value
                   .readSummary({
                     sinceDay: asDay(correctionMs),

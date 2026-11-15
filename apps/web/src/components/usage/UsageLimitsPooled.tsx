@@ -624,6 +624,7 @@ function PoolSection({ pool, now }: { readonly pool: LimitPool; readonly now: nu
             : [
                 {
                   accountKey: member.account.key,
+                  environmentId: member.account.environments[0]?.environmentId ?? null,
                   slotId: member.account.slot
                     ? `${member.account.slot.instanceId}:${member.account.slot.accountKey}`
                     : undefined,
@@ -644,12 +645,16 @@ function PoolSection({ pool, now }: { readonly pool: LimitPool; readonly now: nu
             {dollars.map((entry) => (
               <div key={entry.accountKey} className="flex flex-wrap items-center gap-3">
                 <UsageSlotBudgetEditor
+                  environmentId={entry.environmentId}
                   slotId={entry.slotId}
                   usedUsd={entry.usedUsd}
                   limitUsd={entry.limitUsd}
                 />
                 {entry.slotId === undefined ? null : (
-                  <UsageSlotClearCooldown slotId={entry.slotId} />
+                  <UsageSlotClearCooldown
+                    environmentId={entry.environmentId}
+                    slotId={entry.slotId}
+                  />
                 )}
               </div>
             ))}
@@ -664,10 +669,11 @@ function PoolSection({ pool, now }: { readonly pool: LimitPool; readonly now: nu
         )
         .map((account) => {
           const slotId = `${account.slot!.instanceId}:${account.slot!.accountKey}`;
+          const environmentId = account.environments[0]?.environmentId ?? null;
           return (
             <div key={account.key} className="flex flex-wrap items-center gap-3">
-              <UsageSlotBudgetEditor slotId={slotId} />
-              <UsageSlotClearCooldown slotId={slotId} />
+              <UsageSlotBudgetEditor environmentId={environmentId} slotId={slotId} />
+              <UsageSlotClearCooldown environmentId={environmentId} slotId={slotId} />
             </div>
           );
         })}

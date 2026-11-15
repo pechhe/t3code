@@ -227,7 +227,7 @@ export function decodeScanCache(
 
       const model = typeof modelIndex === "number" ? models[modelIndex] : undefined;
       const rateModel = typeof rateModelIndex === "number" ? models[rateModelIndex] : undefined;
-      const accountKey = typeof accountKeyIndex === "number" ? models[accountKeyIndex] : undefined;
+      let accountKey = typeof accountKeyIndex === "number" ? models[accountKeyIndex] : undefined;
       if (
         typeof timestampMs !== "number" ||
         !Number.isFinite(timestampMs) ||
@@ -244,6 +244,16 @@ export function decodeScanCache(
         speed === undefined
       ) {
         return null;
+      }
+      // Pre-v17 Pi records carry `<subProvider>/<model>` in `model` without a separate accountKey field.
+      if (
+        accountKey === undefined &&
+        provider === "pi" &&
+        version < 17 &&
+        model !== "Tools/summaries" &&
+        model.includes("/")
+      ) {
+        accountKey = model.split("/", 1)[0];
       }
 
       // Unchanged and deleted transcripts may only exist in the cache, so the

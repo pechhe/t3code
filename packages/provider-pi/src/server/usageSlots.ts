@@ -319,13 +319,12 @@ export const readPiUsageSlots = Effect.fn("PiUsageSlots.readPiUsageSlots")(funct
   const authPath = path.join(home, AUTH_DIRECTORY, AUTH_FILE);
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
   const nowMs = yield* Clock.currentTimeMillis;
-  const contents = yield* fs
-    .readFileString(authPath)
-    .pipe(
-      Effect.catchTag("PlatformError", (error) =>
+  const contents = yield* fs.readFileString(authPath).pipe(
+    Effect.catchTags({
+      PlatformError: (error) =>
         error.reason._tag === "NotFound" ? Effect.succeed("{}") : Effect.fail(error),
-      ),
-    );
+    }),
+  );
   const file = yield* decodeAuthFile(contents).pipe(Effect.orElseSucceed(() => ({}) as const));
 
   const readSlot = Effect.fn("PiUsageSlots.readSlot")(function* (
@@ -395,6 +394,7 @@ export const readPiUsageSlots = Effect.fn("PiUsageSlots.readPiUsageSlots")(funct
         .pipe(
           Effect.flatMap(HttpClientResponse.schemaBodyJson(OpenCodeUsage)),
           Effect.map((response) => withWindows(base, checkedAt, openCodeWindows(response.usage))),
+          Effect.timeout("10 seconds"),
           Effect.orElseSucceed(() =>
             unavailable({ ...base, checkedAt }, "probeFailed", "OpenCode Go could not read usage."),
           ),
@@ -420,6 +420,7 @@ export const readPiUsageSlots = Effect.fn("PiUsageSlots.readPiUsageSlots")(funct
         .pipe(
           Effect.flatMap(HttpClientResponse.schemaBodyJson(CodexUsage)),
           Effect.map((response) => withWindows(base, checkedAt, codexWindows(response, nowMs))),
+          Effect.timeout("10 seconds"),
           Effect.orElseSucceed(() =>
             unavailable(
               { ...base, checkedAt },
@@ -450,6 +451,7 @@ export const readPiUsageSlots = Effect.fn("PiUsageSlots.readPiUsageSlots")(funct
         .pipe(
           Effect.flatMap(HttpClientResponse.schemaBodyJson(AnthropicUsage)),
           Effect.map((response) => withWindows(base, checkedAt, anthropicWindows(response))),
+          Effect.timeout("10 seconds"),
           Effect.orElseSucceed(() =>
             unavailable({ ...base, checkedAt }, "probeFailed", "Claude could not read usage."),
           ),
@@ -490,5 +492,35 @@ export const readPiUsageSlots = Effect.fn("PiUsageSlots.readPiUsageSlots")(funct
     Effect.catchCause(() => Effect.succeed([] as ReadonlyArray<ServerProviderUsageSlot>)),
   );
 });
+
+/**
+ * Keeps a slot's last known quota windows visible as stale when a subsequent poll fails
+ * for the same credential identity, while discarding them if the credential changed.
+ */
+export function retainPriorUsageSlots(
+  previous: ReadonlyArray<ServerProviderUsageSlot>,
+  probed: ReadonlyArray<ServerProviderUsageSlot>,
+): ReadonlyArray<ServerProviderUsageSlot> {
+  if (previous.length === 0) return probed;
+  const byKey = new Map(previous.map((slot) => [slot.accountKey, slot] as const));
+  return probed.map((slot) => {
+    if (slot.usageLimits.unavailable?.reason !== "probeFailed") return slot;
+    const prior = byKey.get(slot.accountKey);
+    if (
+      prior === undefined ||
+      prior.account !== slot.account ||
+      prior.usageLimits.windows.length === 0
+    ) {
+      return slot;
+    }
+    return {
+      ...slot,
+      usageLimits: {
+        ...slot.usageLimits,
+        windows: prior.usageLimits.windows,
+      },
+    };
+  });
+}
 
 export type { ApiKeyCredential, OauthCredential };

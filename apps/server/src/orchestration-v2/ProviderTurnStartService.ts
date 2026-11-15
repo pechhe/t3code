@@ -738,31 +738,31 @@ export const layer: Layer.Layer<
       );
       // Every turn start passes here, including ones the orchestrator creates itself, so this
       // is the one place that can refuse a cooled Pi account for all of them.
-      if (Option.isSome(providerRegistry) && run.providerInstanceId === "pi") {
-        const accountKey = piAccountKeyOf(run.modelSelection.model);
-        const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
+      if (Option.isSome(providerRegistry)) {
         const providers = yield* providerRegistry.value.getProviders.pipe(
-          Effect.orElseSucceed(() => [] as ReadonlyArray<ServerProvider>),
+          Effect.catchCause(() => Effect.succeed([] as ReadonlyArray<ServerProvider>)),
         );
         const piProvider = providers.find(
-          (provider) => provider.instanceId === run.providerInstanceId,
+          (provider) => provider.instanceId === run.providerInstanceId && provider.driver === "pi",
         );
-        const cooled =
-          accountKey !== undefined &&
-          piProvider !== undefined &&
-          isProviderSlotExhausted(piProvider, accountKey, nowMs);
-        if (cooled && accountKey !== undefined && piProvider !== undefined) {
-          const resetAt = providerSlotCooledUntil(piProvider, accountKey, nowMs);
-          yield* settleStartFailure({
-            signal: "account-cooled",
-            title: `${accountKey} is out of allowance`,
-            error: new Error(
-              `Pi account "${accountKey}" is out of allowance until its reset. Pick another account's model, or clear the cooldown in Usage.`,
-            ),
-            message: `Pi account "${accountKey}" is out of allowance until its reset.`,
-            ...(resetAt === undefined ? {} : { usageLimitResetAt: resetAt }),
-          });
-          return;
+        const accountKey =
+          piProvider === undefined ? undefined : piAccountKeyOf(run.modelSelection.model);
+        if (piProvider !== undefined && accountKey !== undefined) {
+          const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
+          const cooled = isProviderSlotExhausted(piProvider, accountKey, nowMs);
+          if (cooled) {
+            const resetAt = providerSlotCooledUntil(piProvider, accountKey, nowMs);
+            yield* settleStartFailure({
+              signal: "account-cooled",
+              title: `${accountKey} is out of allowance`,
+              error: new Error(
+                `Pi account "${accountKey}" is out of allowance until its reset. Pick another account's model, or clear the cooldown in Usage.`,
+              ),
+              message: `Pi account "${accountKey}" is out of allowance until its reset.`,
+              ...(resetAt === undefined ? {} : { usageLimitResetAt: resetAt }),
+            });
+            return;
+          }
         }
       }
       if (message.attachments.length === 0 && message.text.trimStart().startsWith("/")) {

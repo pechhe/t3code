@@ -457,6 +457,8 @@ function makeLocalCommandHarness(input: {
   readonly historyReadFailureAfterFallback?: unknown;
   /** Runs the turn on Pi with this model slug, whose prefix names the account. */
   readonly piModel?: string;
+  /** Overrides the Pi instance ID so named Pi instances can be exercised. */
+  readonly piInstanceId?: string;
   /** A Pi account whose last refusal is still in force, as the registry would report it. */
   readonly cooledPiAccountKey?: string;
   /** The opened provider session, whose resume decides between native resume and a fallback. */
@@ -523,7 +525,7 @@ function makeLocalCommandHarness(input: {
   const oldInstanceId = ProviderInstanceId.make("antigravity-personal");
   const newInstanceId = ProviderInstanceId.make(
     input.piModel !== undefined
-      ? "pi"
+      ? (input.piInstanceId ?? "pi")
       : input.claude
         ? (input.claude.instanceId ?? "claudeAgent")
         : "codex-personal",
@@ -1454,7 +1456,7 @@ function makeLocalCommandHarness(input: {
               ? []
               : [
                   {
-                    instanceId: ProviderInstanceId.make("pi"),
+                    instanceId: ProviderInstanceId.make(input.piInstanceId ?? "pi"),
                     driver: ProviderDriverKind.make("pi"),
                     displayName: "Pi",
                     enabled: true,
@@ -1574,6 +1576,30 @@ effectIt.effect("refuses to start a turn on a Pi account that has run out", () =
     );
     // A cooldown waits on an allowance window, so it reports a usage limit with its reset
     // rather than an unexplained provider fault, and recovery and the client offer it.
+    const errorItem = harness.events.find(
+      (event): event is typeof event & { payload: { type: "error"; failure: unknown } } =>
+        event.type === "turn-item.updated" && event.payload.type === "error",
+    )?.payload;
+    expect(errorItem?.failure).toMatchObject({
+      class: "usage_limit",
+      resetAt: "2999-01-01T00:00:00.000Z",
+    });
+  }),
+);
+
+effectIt.effect("refuses to start a turn on a cooled slot of a named Pi instance", () =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({
+      text: "Carry on.",
+      piInstanceId: "pi_secondary",
+      piModel: "claude-subscription-hfpetch/claude-fable-5-2",
+      cooledPiAccountKey: "claude-subscription-hfpetch",
+    });
+
+    yield* harness.start;
+
+    expect(harness.startTurn).not.toHaveBeenCalled();
+    expect(harness.projection().runs.at(-1)?.status).toBe("failed");
     const errorItem = harness.events.find(
       (event): event is typeof event & { payload: { type: "error"; failure: unknown } } =>
         event.type === "turn-item.updated" && event.payload.type === "error",

@@ -1,9 +1,14 @@
 // User-wide ~/.pi/agent state makes continuation identity use default instance grouping.
-import { ProviderDriverKind, type ServerProvider } from "@t3tools/contracts";
+import {
+  ProviderDriverKind,
+  type ServerProvider,
+  type ServerProviderUsageSlot,
+} from "@t3tools/contracts";
 import { PiSettings } from "../settings.ts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
+import * as Ref from "effect/Ref";
 import * as Digest from "effect/crypto/Digest";
 import * as Schema from "effect/Schema";
 import * as HttpClient from "effect/http/HttpClient";
@@ -12,7 +17,7 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as ProviderLatestVersions from "@t3tools/provider-core/server/ProviderLatestVersions";
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import { piUsageReader } from "./usage.ts";
-import { readPiUsageSlots } from "./usageSlots.ts";
+import { readPiUsageSlots, retainPriorUsageSlots } from "./usageSlots.ts";
 import { makePiTextGeneration } from "./textGeneration.ts";
 import { PiAdapterV2Driver, type PiAdapterV2DriverEnv } from "./adapter.ts";
 import { ProviderDriverError } from "@t3tools/provider-core/server/errors";
@@ -159,11 +164,19 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
 
     // Pi holds several accounts' credentials, so allowance is read per stored account. A probe
     // answers about allowance only: an unreachable quota host must never fail provider status.
+    const lastUsageSlotsRef = yield* Ref.make<ReadonlyArray<ServerProviderUsageSlot>>([]);
     const attachUsageSlots = Effect.fn("PiDriver.attachUsageSlots")(function* (
       snapshot: ServerProvider,
     ) {
-      if (!effectiveConfig.enabled) return snapshot;
-      const usageSlots = yield* readUsageSlots.pipe(Effect.orElseSucceed(() => []));
+      if (!effectiveConfig.enabled) {
+        yield* Ref.set(lastUsageSlotsRef, []);
+        return snapshot;
+      }
+      const probed = yield* readUsageSlots.pipe(Effect.orElseSucceed(() => []));
+      const usageSlots = yield* Ref.modify(lastUsageSlotsRef, (previous) => {
+        const merged = retainPriorUsageSlots(previous, probed);
+        return [merged, merged] as const;
+      });
       return usageSlots.length === 0 ? snapshot : { ...snapshot, usageSlots };
     });
 

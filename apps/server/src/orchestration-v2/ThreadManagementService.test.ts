@@ -259,13 +259,14 @@ const routePooledThread = (input: { readonly hasRun: boolean }) => {
 
 /** Builds a command against one Pi account while another account of the same instance has allowance. */
 const dispatchToPiAccount = (input: {
+  readonly instanceId?: string;
   readonly model: string;
   readonly command?: (commandId: CommandId, threadId: ThreadId) => OrchestrationV2ServerCommand;
   readonly run?: () => unknown;
 }) => {
   const projectId = ProjectId.make("project:thread-management:pi-slot");
   const threadId = ThreadId.make("thread:thread-management:pi-slot");
-  const pi = ProviderInstanceId.make("pi");
+  const pi = ProviderInstanceId.make(input.instanceId ?? "pi");
   const resetsAt = "2026-10-15T04:00:00.000Z";
   const piProvider: ServerProvider = {
     instanceId: pi,
@@ -442,6 +443,20 @@ it.effect("refuses to release a prepared run whose Pi account has since cooled",
         }) as unknown as OrchestrationV2ServerCommand,
     });
     expect(result._tag).toBe("Failure");
+    expect(dispatched).toEqual([]);
+  }),
+);
+
+it.effect("refuses a dispatch to a cooled slot on a named Pi instance", () =>
+  Effect.gen(function* () {
+    const { result, dispatched } = yield* dispatchToPiAccount({
+      instanceId: "pi_secondary",
+      model: "claude-subscription-hfpetch/claude-fable-5-2",
+    });
+    expect(result._tag).toBe("Failure");
+    expect(result._tag === "Failure" ? result.failure : undefined).toMatchObject({
+      cause: expect.stringContaining("claude-subscription-hfpetch"),
+    });
     expect(dispatched).toEqual([]);
   }),
 );

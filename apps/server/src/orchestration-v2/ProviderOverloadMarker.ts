@@ -67,14 +67,24 @@ export const layer = Layer.effectDiscard(
         });
         return;
       }
-      if (Option.isSome(registry))
+      if (Option.isSome(registry)) {
+        const providers = yield* registry.value.getProviders.pipe(
+          Effect.catchCause(() => Effect.succeed([])),
+        );
+        const matched = providers.find(
+          (provider) => provider.instanceId === run.modelSelection.instanceId,
+        );
+        const isPi =
+          matched !== undefined
+            ? matched.driver === "pi"
+            : run.modelSelection.instanceId === "pi" ||
+              run.modelSelection.instanceId.startsWith("pi:");
         yield* registry.value.rememberUsageLimit({
           instanceId: run.modelSelection.instanceId,
           ...(signal.resetAt === undefined ? {} : { resetAt: signal.resetAt }),
-          ...(run.modelSelection.instanceId === "pi" || run.modelSelection.instanceId.startsWith("pi:")
-            ? { accountKey: run.modelSelection.model.split("/", 1)[0] }
-            : {}),
+          ...(isPi ? { accountKey: run.modelSelection.model.split("/", 1)[0] } : {}),
         });
+      }
     });
     yield* forkParked(
       Stream.runForEach(orchestrator.streamDomainEvents, (event) => {

@@ -117,7 +117,11 @@ it.effect("remembers an account as out only for a usage limit that reports its r
         ),
       ),
     );
-    const limit = (resetAt?: string, message = "Usage limit reached.", failureClass = "usage_limit") =>
+    const limit = (
+      resetAt?: string,
+      message = "Usage limit reached.",
+      failureClass = "usage_limit",
+    ) =>
       ({
         type: "turn-item.updated",
         payload: {
@@ -147,5 +151,65 @@ it.effect("remembers an account as out only for a usage limit that reports its r
       resetAt,
     });
     assert.equal(yield* Queue.size(remembered), 0);
+  }),
+);
+
+it.effect("attributes a usage limit on a named Pi instance via provider driver lookup", () =>
+  Effect.gen(function* () {
+    const namedId = ProviderInstanceId.make("my-pi");
+    const events = yield* Queue.unbounded<OrchestrationV2DomainEvent>();
+    const remembered = yield* Queue.unbounded<{
+      readonly instanceId: string;
+      readonly accountKey?: string;
+      readonly resetAt?: string;
+    }>();
+    yield* Layer.build(
+      ProviderOverloadMarker.layer.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            ProviderOverloads.layer,
+            Layer.mock(ProviderRegistry.ProviderRegistry)({
+              getProviders: Effect.succeed([{ instanceId: namedId, driver: "pi" } as never]),
+              rememberUsageLimit: (input) => Queue.offer(remembered, input).pipe(Effect.asVoid),
+            }),
+            Layer.mock(Orchestrator.OrchestratorV2)({
+              streamDomainEvents: Stream.fromQueue(events),
+            }),
+            Layer.mock(ThreadManagement.ThreadManagementService)({
+              getThreadRecords: () =>
+                Effect.succeed({
+                  runs: [
+                    {
+                      id: runId,
+                      modelSelection: { instanceId: namedId, model },
+                    } as OrchestrationV2Run,
+                  ],
+                } as never),
+            }),
+          ),
+        ),
+      ),
+    );
+    yield* Queue.offer(events, {
+      type: "turn-item.updated",
+      payload: {
+        type: "error",
+        status: "failed",
+        threadId,
+        runId,
+        failure: {
+          class: "usage_limit",
+          message: "Usage limit reached.",
+          code: null,
+          retryable: true,
+          resetAt: "2026-10-15T17:30:00.000Z",
+        },
+      },
+    } as unknown as OrchestrationV2DomainEvent);
+    assert.deepEqual(yield* Queue.take(remembered), {
+      instanceId: namedId,
+      accountKey: "opencode-go",
+      resetAt: "2026-10-15T17:30:00.000Z",
+    });
   }),
 );

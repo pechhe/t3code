@@ -71,6 +71,50 @@ describe("scan cache round trip", () => {
     expect(restored.get("/pi.jsonl")?.records[0]?.accountKey).toBe("anthropic-hfpetch");
   });
 
+  it("recovers Pi slot attribution when migrating a warm v16 cache", () => {
+    const legacyPi = new Map<string, CachedFile>([
+      [
+        "/pi-v16.jsonl",
+        {
+          size: 120,
+          mtimeMs: 100,
+          provider: "pi",
+          records: [
+            record({
+              provider: "pi",
+              model: "anthropic-hfpetch/claude-opus-5-5",
+              reportedCostUsd: 2,
+            }),
+            record({
+              provider: "pi",
+              model: "Tools/summaries",
+              reportedCostUsd: 0.5,
+              dedupeKey: "msg_2:",
+            }),
+          ],
+          tailRecords: [],
+          malformedRecords: 0,
+          position: position(),
+        },
+      ],
+    ]);
+    const serialized = parse(makeScanCacheWriter()(legacyPi, {}));
+    const v16 = {
+      ...serialized,
+      version: 16,
+      files: {
+        "/pi-v16.jsonl": {
+          ...serialized.files["/pi-v16.jsonl"],
+          r: serialized.files["/pi-v16.jsonl"].r.map((row: unknown[]) => row.slice(0, 14)),
+        },
+      },
+    };
+    const restored = decodeScanCache(JSON.parse(JSON.stringify(v16)), TEST_FORMAT_MAP);
+    expect(restored.get("/pi-v16.jsonl")?.size).toBe(120);
+    expect(restored.get("/pi-v16.jsonl")?.records[0]?.accountKey).toBe("anthropic-hfpetch");
+    expect(restored.get("/pi-v16.jsonl")?.records[1]?.accountKey).toBeUndefined();
+  });
+
   it("restores cached history unchanged except for Claude local placeholders", () => {
     const original = cacheWith([
       [
@@ -255,11 +299,15 @@ describe("scan cache round trip", () => {
         size: -1,
         position: { resumeOffset: 0, guardLength: 0, guardHash: 0, state: null },
       });
+      const expectedGonePi = {
+        ...original.get("/gone-pi.jsonl")!,
+        records: [{ ...original.get("/gone-pi.jsonl")!.records[0]!, accountKey: "anthropic" }],
+      };
       expect(restored.get("/gone-pi.jsonl")).toEqual(
         version >= 6
-          ? original.get("/gone-pi.jsonl")
+          ? expectedGonePi
           : {
-              ...original.get("/gone-pi.jsonl"),
+              ...expectedGonePi,
               size: -1,
               position: { resumeOffset: 0, guardLength: 0, guardHash: 0, state: null },
             },

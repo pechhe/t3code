@@ -7,7 +7,7 @@ import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
-import { readPiUsageSlots } from "./usageSlots.ts";
+import { readPiUsageSlots, retainPriorUsageSlots } from "./usageSlots.ts";
 
 /** A fixed epoch keeps the probe off the wall clock; every credential here is unexpired. */
 const FUTURE_MS = 1_800_000_000_000;
@@ -313,4 +313,56 @@ describe("readPiUsageSlots", () => {
       expect(slots).toEqual([]);
     }).pipe(Effect.provide(layerTest)),
   );
+
+  it("retains last known windows across a failed poll only for the same credential", () => {
+    const window = {
+      id: "five_hour",
+      kind: "session" as const,
+      label: "Session",
+      usedPercent: 42,
+    };
+    const prior = [
+      {
+        accountKey: "claude-subscription-hfpetch",
+        label: "claude-subscription-hfpetch",
+        account: "cred-a",
+        usageLimits: { checkedAt: "2026-11-15T10:00:00.000Z", windows: [window] },
+      },
+      {
+        accountKey: "openai-codex",
+        label: "openai-codex",
+        account: "codex-a",
+        usageLimits: { checkedAt: "2026-11-15T10:00:00.000Z", windows: [window] },
+      },
+    ];
+    const probed = [
+      {
+        accountKey: "claude-subscription-hfpetch",
+        label: "claude-subscription-hfpetch",
+        account: "cred-a",
+        usageLimits: {
+          checkedAt: "2026-11-15T11:00:00.000Z",
+          windows: [],
+          unavailable: { reason: "probeFailed" as const, message: "Network error." },
+        },
+      },
+      {
+        accountKey: "openai-codex",
+        label: "openai-codex",
+        account: "codex-b",
+        usageLimits: {
+          checkedAt: "2026-11-15T11:00:00.000Z",
+          windows: [],
+          unavailable: { reason: "probeFailed" as const, message: "Expired." },
+        },
+      },
+    ];
+    const retained = retainPriorUsageSlots(prior, probed);
+    expect(retained[0]?.usageLimits.windows).toEqual([window]);
+    expect(retained[0]?.usageLimits.unavailable).toEqual({
+      reason: "probeFailed",
+      message: "Network error.",
+    });
+    expect(retained[1]?.usageLimits.windows).toEqual([]);
+  });
 });

@@ -693,17 +693,18 @@ const make = Effect.gen(function* () {
     readonly instanceId: ProviderInstanceId;
     readonly model: string;
   }) =>
-    Option.isNone(providerRegistry) || input.instanceId !== "pi"
+    Option.isNone(providerRegistry)
       ? Effect.void
       : providerRegistry.value.getProviders.pipe(
-          Effect.orDie,
+          Effect.catchCause(() => Effect.succeed([])),
           Effect.flatMap((providers) =>
             DateTime.now.pipe(
               Effect.flatMap((now) => {
                 const provider = providers.find(
                   (candidate) => candidate.instanceId === input.instanceId,
                 );
-                const accountKey = piAccountKeyOf(input.model);
+                const accountKey =
+                  provider?.driver === "pi" ? piAccountKeyOf(input.model) : undefined;
                 const cooled =
                   provider !== undefined &&
                   accountKey !== undefined &&
