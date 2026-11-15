@@ -139,3 +139,50 @@ it.effect(
       );
     }),
 );
+
+it.effect("a fresh command still retains an undelivered result after restart", () =>
+  Effect.gen(function* () {
+    const f = yield* fixture;
+    yield* Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.realPath(yield* fs.makeTempDirectoryScoped());
+      yield* fs.makeDirectory(`${root}/attached`);
+      const owner = "delivery:task";
+      const retainDelivery = (admissionId: string) =>
+        Effect.gen(function* () {
+          const custody = yield* RunCustody.RunWorkspaceCustody;
+          for (const workspacePath of [root, `${root}/attached`])
+            yield* custody.admit({ runId: owner, projectRoot: root, workspacePath, admissionId });
+          yield* custody.register(owner, { id: "delivery", kind: "delivery" });
+          yield* custody.acknowledge(owner, "admission", "delivery-registered");
+        });
+      yield* retainDelivery("dispatch").pipe(Effect.provide(RunCustody.layer));
+      yield* Ref.set(f.controllerStart, "after-restart");
+      const journal = yield* Journal.WorkspaceCustody;
+      yield* Effect.gen(function* () {
+        const custody = yield* RunCustody.RunWorkspaceCustody;
+        const unadmitted = yield* custody
+          .admit({ runId: owner, projectRoot: root, workspacePath: root })
+          .pipe(Effect.result);
+        assert.equal(unadmitted._tag, "Failure");
+        yield* retainDelivery("dispatch");
+        yield* retainDelivery("restart-continuation");
+        const phases = (yield* journal.list).map((epoch) => epoch.phase).toSorted();
+        assert.deepEqual(phases, ["open", "open", "recovery-required", "recovery-required"]);
+        yield* (yield* WorkspaceCustody.WorkspaceCustody).reconcile;
+        assert.equal(yield* Ref.get(f.releases), 0);
+        yield* custody.acknowledge(owner, "delivery", "parent-consumed");
+        yield* custody.settle(owner);
+        assert.isTrue((yield* journal.list).every((epoch) => epoch.phase === "released"));
+      }).pipe(Effect.provide(RunCustody.layer));
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          f.layer,
+          NodeServices.layer,
+          Layer.mock(Workspaces.WorkspaceProvider)({ resolve: () => Effect.succeed("slipjay") }),
+        ),
+      ),
+    );
+  }),
+);

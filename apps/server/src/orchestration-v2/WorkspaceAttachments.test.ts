@@ -64,6 +64,12 @@ const layerFor = (
             Effect.succeed(
               (projectId === apiProject ? fixture.otherThreads : fixture.webThreads) ?? [],
             ),
+          getShellSnapshot: (options) =>
+            Effect.succeed({
+              threads: [...(fixture.otherThreads ?? []), ...(fixture.webThreads ?? [])].filter(
+                (thread) => options?.threadIds?.includes(thread.id) ?? true,
+              ),
+            } as never),
           dispatch: (command) =>
             Effect.sync(() => {
               recorded.dispatched.push(command as OrchestrationV2ServerCommand);

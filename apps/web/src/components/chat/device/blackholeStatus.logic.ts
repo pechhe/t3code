@@ -22,7 +22,7 @@ const GAUGE_RE = /\b([OPX])▕([█░]+)▏/g;
 const RUNNING_WORKER_RE = /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]\s+\[(observer|reflector|dropper|compact)\]/;
 const DONE_WORKER_RE = /✓\s+\[(observer|reflector|dropper|compact)\](?:\s+\+(\d+))?(?:\s+(.+))?$/;
 
-export function stripAnsi(text: string): string {
+function stripAnsi(text: string): string {
   return text.replace(ANSI_ESCAPE_RE, "");
 }
 

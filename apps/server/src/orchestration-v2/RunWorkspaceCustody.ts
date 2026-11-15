@@ -83,29 +83,66 @@ const make = Effect.gen(function* () {
       function* (input) {
         if ((yield* workspaces.resolve(input.projectRoot)) !== "slipjay") return;
         const canonical = yield* fs.realPath(path.resolve(input.workspacePath));
+        const closed = new RunWorkspaceCustodyError({
+          runId: input.runId,
+          operation: "admit",
+          cause: "Run custody admission is closed.",
+        });
         const previous = yield* epochs(input.runId);
-        const siblings = previous.filter((epoch) => epoch.phase !== "released");
+        let siblings = previous.filter((epoch) => epoch.phase !== "released");
+        if (siblings.some((epoch) => epoch.phase === "closing")) return yield* closed;
         // Only a new admitted command can start another epoch after held-queue settlement.
-        if (
-          siblings.some((epoch) => epoch.phase !== "open") ||
-          (previous.length > 0 && siblings.length === 0 && input.admissionId === undefined)
-        )
-          return yield* new RunWorkspaceCustodyError({
-            runId: input.runId,
-            operation: "admit",
-            cause: "Run custody admission is closed.",
-          });
+        if (previous.length > 0 && siblings.length === 0 && input.admissionId === undefined)
+          return yield* closed;
         const pathKey = `${prefix(input.runId)}${encodeURIComponent(canonical)}:epoch:`;
-        const matching = siblings.find((epoch) => epoch.ownerRef.startsWith(pathKey));
-        if (matching?.receipt !== null && matching !== undefined && validated.has(matching.id))
-          return;
-        if (siblings[0] !== undefined)
-          yield* custody.prepare({
-            ownerRef: siblings[0].ownerRef,
-            projectRoot: siblings[0].projectRoot,
-          });
+        const validatedMatch = siblings.find(
+          (epoch) =>
+            epoch.phase === "open" &&
+            epoch.ownerRef.startsWith(pathKey) &&
+            epoch.receipt !== null &&
+            validated.has(epoch.id),
+        );
+        if (validatedMatch !== undefined) return;
+        // prepare moves an epoch whose server process has gone to recovery-required; any other failure stands.
+        for (const sibling of siblings)
+          if (sibling.phase === "open")
+            yield* custody
+              .prepare({ ownerRef: sibling.ownerRef, projectRoot: sibling.projectRoot })
+              .pipe(
+                Effect.catch((error) =>
+                  journal
+                    .get(sibling.id)
+                    .pipe(
+                      Effect.flatMap((epoch) =>
+                        epoch.phase === "recovery-required" ? Effect.void : Effect.fail(error),
+                      ),
+                    ),
+                ),
+              );
+        siblings = (yield* epochs(input.runId)).filter((epoch) => epoch.phase !== "released");
+        const retained = siblings.filter((epoch) => epoch.phase !== "open");
+        // Work a lost server left unproved blocks the owner; an undelivered result does not, as this server delivers it.
+        if (
+          retained.length > 0 &&
+          (input.admissionId === undefined ||
+            retained.some((epoch) =>
+              epoch.obligations.some(
+                (item) => item.acknowledgement === null && item.kind !== "delivery",
+              ),
+            ))
+        )
+          return yield* closed;
+        const matching = siblings.find(
+          (epoch) => epoch.phase === "open" && epoch.ownerRef.startsWith(pathKey),
+        );
+        const fresh = `${pathKey}${input.admissionId ?? "initial"}`;
+        const taken = new Set(retained.map((epoch) => epoch.ownerRef));
+        let ownerRef = matching?.ownerRef ?? fresh;
+        // A retried command can find its own epoch already retained.
+        for (let retry = 2; matching === undefined && taken.has(ownerRef); retry++)
+          ownerRef = `${fresh}:${retry}`;
         const epoch = yield* custody.prepare({
-          ownerRef: matching?.ownerRef ?? `${pathKey}${input.admissionId ?? "initial"}`,
+          ownerRef,
           projectRoot: matching?.projectRoot ?? input.projectRoot,
         });
         const known = new Map(
@@ -134,11 +171,19 @@ const make = Effect.gen(function* () {
             operation: "register",
             cause: "Run custody admission is closed.",
           });
-        yield* Effect.forEach(
-          previous.filter((epoch) => epoch.phase !== "released"),
-          (epoch) => custody.register(epoch.id, obligation),
-          { discard: true },
+        // A retained epoch takes no new obligations; an open epoch beside it carries the owner's.
+        const targets = previous.filter(
+          (epoch) => epoch.phase !== "released" && epoch.phase !== "recovery-required",
         );
+        if (targets.length === 0 && previous.some((epoch) => epoch.phase === "recovery-required"))
+          return yield* new RunWorkspaceCustodyError({
+            runId,
+            operation: "register",
+            cause: "Run custody admission is closed.",
+          });
+        yield* Effect.forEach(targets, (epoch) => custody.register(epoch.id, obligation), {
+          discard: true,
+        });
       },
       (effect, runId) => locks.withLock(runId, effect).pipe(mapError(runId, "register")),
     ),
