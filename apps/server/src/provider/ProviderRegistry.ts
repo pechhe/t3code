@@ -1,3 +1,12 @@
+import * as HostProcess from "@t3tools/shared/HostProcess";
+import * as Settings from "../serverSettings.ts";
+import {
+  conservationNeedsRefresh,
+  evaluateConservation,
+  type ConservationMemory,
+} from "./subagentConservation.ts";
+import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
+import * as Schema from "effect/Schema";
 import {
   defaultInstanceIdForDriver,
   isProviderWorkspaceSnapshotCurrent,
@@ -6,6 +15,7 @@ import {
   type ProviderInstanceId,
   type SecretReference,
   type ServerProvider,
+  type SubagentConservationRule,
   type ServerProviderUpdateState,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
@@ -102,6 +112,10 @@ export class ProviderRegistry extends Context.Service<
      */
     readonly refreshInstanceUsage: (
       instanceId: ProviderInstanceId,
+    ) => Effect.Effect<ReadonlyArray<ServerProvider>>;
+
+    readonly prepareConservation: (
+      providers: ReadonlyArray<ServerProvider>,
     ) => Effect.Effect<ReadonlyArray<ServerProvider>>;
 
     /**
@@ -460,6 +474,28 @@ export const layer = Layer.effect(
     const config = yield* ServerConfig.ServerConfig;
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
+
+    const platform = yield* HostProcess.Platform;
+    const conservationPath = path.join(config.providerStatusCacheDir, "subagent-conservation.json");
+    const conservationSchema = Schema.fromJsonString(
+      Schema.Record(
+        Schema.String,
+        Schema.Struct({
+          fingerprint: Schema.String,
+          ruleKey: Schema.String,
+          state: Schema.Literals(["ready", "active"]),
+        }),
+      ),
+    );
+    const decodeConservation = Schema.decodeUnknownEffect(conservationSchema);
+    const encodeConservation = Schema.encodeEffect(conservationSchema);
+    let conservationMemory: Record<string, ConservationMemory> = yield* fileSystem
+      .readFileString(conservationPath)
+      .pipe(
+        Effect.flatMap(decodeConservation),
+        Effect.orElseSucceed(() => ({})),
+      );
+    const conservationLock = yield* Semaphore.make(1);
 
     const changesPubSub = yield* Effect.acquireRelease(
       PubSub.unbounded<ReadonlyArray<ServerProvider>>(),
@@ -929,18 +965,42 @@ export const layer = Layer.effect(
 
     // One state, so claiming a read and recording its attempt happen in a single step.
     const usageRefreshesRef = yield* Ref.make<{
-      readonly inFlight: ReadonlyMap<ProviderInstanceId, Deferred.Deferred<void>>;
-      readonly attemptedAt: ReadonlyMap<ProviderInstanceId, number>;
+      readonly inFlight: ReadonlyMap<
+        ProviderInstanceId,
+        { readonly instance: ProviderInstance; readonly completion: Deferred.Deferred<void> }
+      >;
+      readonly attemptedAt: ReadonlyMap<
+        ProviderInstanceId,
+        {
+          readonly instance: ProviderInstance;
+          readonly at: number;
+          readonly identity: string | undefined;
+        }
+      >;
     }>({ inFlight: new Map(), attemptedAt: new Map() });
 
     const refreshInstanceUsage = Effect.fn("refreshInstanceUsage")(function* (
       instanceId: ProviderInstanceId,
+      options?: { readonly conservation: SubagentConservationRule },
+      identity?: string,
     ) {
-      const instance = (yield* Ref.get(liveSubsRef)).get(instanceId);
-      if (instance?.refreshUsage === undefined) {
-        return yield* Ref.get(providersRef);
+      const instance = yield* instanceRegistry.getInstance(instanceId);
+      if (instance === undefined) return yield* Ref.get(providersRef);
+      if (options !== undefined) {
+        const current = (yield* Ref.get(providersRef)).find(
+          (provider) => provider.instanceId === instanceId,
+        );
+        const now = yield* Clock.currentTimeMillis;
+        if (
+          current &&
+          identity !== undefined &&
+          current.usageLimits?.credentialFingerprint === identity &&
+          !conservationNeedsRefresh(current, options.conservation, now)
+        )
+          return yield* Ref.get(providersRef);
       }
-      const refreshUsage = instance.refreshUsage;
+      const refreshUsage = instance.refreshUsage ?? instance.snapshot.refreshUsage;
+      if (refreshUsage === undefined) return yield* Ref.get(providersRef);
       // Detached so an interrupted first caller cannot cancel the read others await. The
       // driver publishes only a completed read, so timing out here leaves the snapshot as is.
       const read = (completion: Deferred.Deferred<void>) =>
@@ -948,12 +1008,16 @@ export const layer = Layer.effect(
           Effect.timeoutOption(USAGE_REFRESH_TIMEOUT),
           Effect.flatMap((completed) =>
             Option.isSome(completed)
-              ? buildSnapshotSource(instance).getSnapshot.pipe(
-                  Effect.flatMap((provider) =>
-                    correlateSnapshotWithSource(buildSnapshotSource(instance), provider),
-                  ),
-                  Effect.flatMap(syncProvider),
-                  Effect.asVoid,
+              ? syncSemaphore.withPermits(1)(
+                  Effect.gen(function* () {
+                    if (!(yield* isCurrentInstance(instance))) return;
+                    const source = buildSnapshotSource(instance);
+                    const provider = yield* source.getSnapshot;
+                    if (!(yield* isCurrentInstance(instance))) return;
+                    yield* correlateSnapshotWithSource(source, provider).pipe(
+                      Effect.flatMap(syncProvider),
+                    );
+                  }),
                 )
               : Effect.void,
           ),
@@ -961,7 +1025,7 @@ export const layer = Layer.effect(
           Effect.onExit((exit) =>
             Ref.update(usageRefreshesRef, (state) => {
               const inFlight = new Map(state.inFlight);
-              inFlight.delete(instanceId);
+              if (inFlight.get(instanceId)?.completion === completion) inFlight.delete(instanceId);
               return { ...state, inFlight };
             }).pipe(Effect.andThen(Deferred.done(completion, Exit.asVoid(exit)))),
           ),
@@ -974,19 +1038,39 @@ export const layer = Layer.effect(
       const completion = yield* Effect.uninterruptible(
         Effect.gen(function* () {
           const nowMs = yield* Clock.currentTimeMillis;
+          const reading = (yield* Ref.get(providersRef)).find(
+            (provider) => provider.instanceId === instanceId,
+          )?.usageLimits;
+          const resetTimes =
+            reading?.windows.flatMap((window) =>
+              window.resetsAt ? [Date.parse(window.resetsAt)] : [],
+            ) ?? [];
           const claimed = yield* Ref.modify(usageRefreshesRef, (state) => {
             const existing = state.inFlight.get(instanceId);
-            if (existing !== undefined) return [{ owner: false, completion: existing }, state];
-            const lastAttemptMs = state.attemptedAt.get(instanceId);
-            if (lastAttemptMs !== undefined && nowMs - lastAttemptMs < USAGE_REFRESH_STALE_MS) {
+            if (existing?.instance === instance)
+              return [{ owner: false, completion: existing.completion }, state];
+            const attempt = state.attemptedAt.get(instanceId);
+            const lastAttemptMs =
+              attempt?.instance === instance && attempt.identity === identity
+                ? attempt.at
+                : undefined;
+            if (
+              lastAttemptMs !== undefined &&
+              nowMs - lastAttemptMs < USAGE_REFRESH_STALE_MS &&
+              !resetTimes.some((resetAt) => resetAt > lastAttemptMs && resetAt <= nowMs)
+            ) {
               return [undefined, state];
             }
             const completion = Deferred.makeUnsafe<void>();
             return [
               { owner: true, completion },
               {
-                inFlight: new Map(state.inFlight).set(instanceId, completion),
-                attemptedAt: new Map(state.attemptedAt).set(instanceId, nowMs),
+                inFlight: new Map(state.inFlight).set(instanceId, { instance, completion }),
+                attemptedAt: new Map(state.attemptedAt).set(instanceId, {
+                  instance,
+                  at: nowMs,
+                  identity,
+                }),
               },
             ];
           });
@@ -1353,7 +1437,48 @@ export const layer = Layer.effect(
       const pools = yield* Ref.get(poolsRef);
       const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
       const limits = yield* Ref.get(rememberedLimitsRef);
-      return withPoolSnapshots(withRememberedLimits(providers, limits, nowMs), pools, nowMs);
+      const settingsService = yield* Effect.serviceOption(Settings.ServerSettingsService);
+      const settings = Option.isSome(settingsService)
+        ? yield* settingsService.value.getSettings.pipe(Effect.orElseSucceed(() => undefined))
+        : undefined;
+      // An early caller without settings cannot revoke persisted rules or their memory.
+      if (settings === undefined)
+        return withPoolSnapshots(withRememberedLimits(providers, limits, nowMs), pools, nowMs);
+      const rules = settings.subagentConservation ?? {};
+      const decorated = yield* conservationLock.withPermits(1)(
+        Effect.gen(function* () {
+          const next: Record<string, ConservationMemory> = {};
+          const result = providers.map((provider) => {
+            const rule = rules[provider.instanceId];
+            if (!rule?.enabled) return provider;
+            const evaluated = evaluateConservation(
+              provider,
+              rule,
+              nowMs,
+              conservationMemory[provider.instanceId],
+            );
+            if (evaluated.memory) next[provider.instanceId] = evaluated.memory;
+            else if (
+              !provider.usageLimits?.credentialFingerprint &&
+              conservationMemory[provider.instanceId]
+            )
+              next[provider.instanceId] = conservationMemory[provider.instanceId]!;
+            return { ...provider, subagentConservation: evaluated.status };
+          });
+          const contents = yield* encodeConservation(next).pipe(Effect.orDie);
+          if (contents !== (yield* encodeConservation(conservationMemory).pipe(Effect.orDie))) {
+            conservationMemory = next;
+            yield* writeFileStringAtomically({ filePath: conservationPath, contents }).pipe(
+              Effect.provideService(FileSystem.FileSystem, fileSystem),
+              Effect.provideService(Path.Path, path),
+              Effect.provideService(HostProcess.Platform, platform),
+              Effect.ignoreCause({ log: true }),
+            );
+          }
+          return result;
+        }),
+      );
+      return withPoolSnapshots(withRememberedLimits(decorated, limits, nowMs), pools, nowMs);
     });
 
     const rememberUsageLimit = Effect.fn("ProviderRegistry.rememberUsageLimit")(function* (input: {
@@ -1373,6 +1498,122 @@ export const layer = Layer.effect(
       yield* PubSub.publish(changesPubSub, yield* Ref.get(providersRef));
     });
 
+    const prepareConservation = Effect.fn("ProviderRegistry.prepareConservation")(function* (
+      supplied: ReadonlyArray<ServerProvider>,
+    ) {
+      const settings = yield* Effect.serviceOption(Settings.ServerSettingsService);
+      if (Option.isNone(settings)) return supplied;
+      const rules =
+        (yield* settings.value.getSettings.pipe(Effect.orDie)).subagentConservation ?? {};
+      const pools = yield* Ref.get(poolsRef);
+      const suppliedIds = new Set(supplied.map((provider) => provider.instanceId));
+      const accountIds = new Set(
+        supplied
+          .filter((provider) => provider.poolMembers === undefined)
+          .map((provider) => provider.instanceId),
+      );
+      for (const pool of pools)
+        if (suppliedIds.has(pool.instanceId))
+          for (const member of pool.members) accountIds.add(member);
+      const configured = [...accountIds].filter((id) => rules[id]?.enabled);
+      if (configured.length === 0) return supplied;
+      const unsupported = new Set(
+        (yield* Ref.get(providersRef))
+          .filter((provider) => provider.conservationScope?.providerIds.length === 0)
+          .map((provider) => provider.instanceId),
+      );
+      const ruled = configured.filter((id) => !unsupported.has(id));
+      const readIdentity = (instance: ProviderInstance | undefined) =>
+        (instance?.readUsageIdentity ?? Effect.undefined).pipe(
+          Effect.timeoutOption("1 second"),
+          Effect.map(Option.getOrUndefined),
+          Effect.orElseSucceed(() => undefined),
+        );
+      yield* Effect.forEach(
+        ruled,
+        (id) =>
+          Effect.gen(function* () {
+            const instance = yield* instanceRegistry.getInstance(id);
+            yield* refreshInstanceUsage(
+              id,
+              { conservation: rules[id]! },
+              yield* readIdentity(instance),
+            );
+          }),
+        { concurrency: "unbounded", discard: true },
+      );
+      yield* withPools(yield* Ref.get(providersRef));
+      const finalRules =
+        (yield* settings.value.getSettings.pipe(Effect.orDie)).subagentConservation ?? {};
+      const finalPools = yield* Ref.get(poolsRef);
+      const finalUnsupported = new Set(
+        (yield* Ref.get(providersRef))
+          .filter((provider) => provider.conservationScope?.providerIds.length === 0)
+          .map((provider) => provider.instanceId),
+      );
+      const instances = yield* Effect.forEach(
+        [...accountIds].filter((id) => finalRules[id]?.enabled && !finalUnsupported.has(id)),
+        (id) =>
+          instanceRegistry.getInstance(id).pipe(Effect.map((instance) => [id, instance] as const)),
+        { concurrency: "unbounded" },
+      );
+      // All network refreshes finish before this snapshot and bounded credential pass.
+      const latest = new Map(
+        (yield* Ref.get(providersRef)).map((provider) => [provider.instanceId, provider]),
+      );
+      const identities = new Map(
+        yield* Effect.forEach(
+          instances,
+          ([id, instance]) =>
+            Effect.gen(function* () {
+              const identity = yield* readIdentity(instance);
+              return [
+                id,
+                (yield* instanceRegistry.getInstance(id)) === instance ? identity : undefined,
+              ] as const;
+            }),
+          { concurrency: "unbounded" },
+        ),
+      );
+      const now = yield* Clock.currentTimeMillis;
+      const merged = supplied
+        .filter((provider) => provider.poolMembers === undefined)
+        .flatMap((provider) => {
+          const current = latest.get(provider.instanceId);
+          if (!current) return [];
+          const next = {
+            ...current,
+            models: provider.models,
+            slashCommands: provider.slashCommands,
+            skills: provider.skills,
+            ...(provider.workspaceSnapshots === undefined
+              ? {}
+              : { workspaceSnapshots: provider.workspaceSnapshots }),
+            ...(provider.runtimePaths === undefined ? {} : { runtimePaths: provider.runtimePaths }),
+          };
+          const rule = finalRules[provider.instanceId];
+          return [
+            rule?.enabled
+              ? {
+                  ...next,
+                  subagentConservation: evaluateConservation(
+                    next,
+                    rule,
+                    now,
+                    conservationMemory[provider.instanceId],
+                    { current: identities.get(provider.instanceId) },
+                  ).status,
+                }
+              : next,
+          ];
+        });
+      return withPoolSnapshots(
+        withRememberedLimits(merged, yield* Ref.get(rememberedLimitsRef), now),
+        finalPools.filter((pool) => suppliedIds.has(pool.instanceId)),
+        now,
+      );
+    });
+
     return {
       getProviders: Ref.get(providersRef).pipe(Effect.flatMap(withPools)),
       refresh: (provider?: ProviderDriverKind) =>
@@ -1382,8 +1623,9 @@ export const layer = Layer.effect(
           Effect.catchCause(recoverRefreshFailure),
           Effect.flatMap(withPools),
         ),
-      refreshInstanceUsage: (instanceId: ProviderInstanceId) =>
+      refreshInstanceUsage: (instanceId) =>
         refreshInstanceUsage(instanceId).pipe(Effect.flatMap(withPools)),
+      prepareConservation,
       rememberUsageLimit,
       reloadSecretsAndRefresh: (instanceId?: ProviderInstanceId) =>
         reloadSecretsAndRefresh(instanceId).pipe(
@@ -1409,7 +1651,20 @@ export const layer = Layer.effect(
       getProviderMaintenanceCapabilitiesForInstance,
       setProviderMaintenanceActionState,
       get streamChanges() {
-        return Stream.fromPubSub(changesPubSub).pipe(Stream.mapEffect(withPools));
+        return Stream.unwrap(
+          Effect.gen(function* () {
+            // Subscribe before merge forks its readers, so an update after Stream.toPull is retained.
+            const subscription = yield* PubSub.subscribe(changesPubSub);
+            const settings = yield* Effect.serviceOption(Settings.ServerSettingsService);
+            const settingsChanges = Option.isSome(settings)
+              ? yield* settings.value.subscribeChanges
+              : Stream.empty;
+            return Stream.merge(
+              Stream.fromSubscription(subscription),
+              settingsChanges.pipe(Stream.mapEffect(() => Ref.get(providersRef))),
+            ).pipe(Stream.mapEffect(withPools));
+          }),
+        );
       },
     } satisfies ProviderRegistry["Service"];
   }),

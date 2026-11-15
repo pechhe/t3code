@@ -28,8 +28,15 @@ function sortWindows(
 export function makeUsageLimits(input: {
   readonly checkedAt: string;
   readonly windows: Iterable<ServerProviderUsageWindow>;
+  readonly credentialFingerprint?: string;
 }): ServerProviderUsageLimits {
-  return { checkedAt: input.checkedAt, windows: sortWindows(input.windows) };
+  return {
+    checkedAt: input.checkedAt,
+    windows: sortWindows(input.windows),
+    ...(input.credentialFingerprint === undefined
+      ? {}
+      : { credentialFingerprint: input.credentialFingerprint }),
+  };
 }
 
 export function makeUnavailableUsageLimits(input: {
@@ -49,10 +56,14 @@ export function makeUnavailableUsageLimits(input: {
 
 export function applyUsageLimitsUpdate(input: {
   readonly previous: ServerProviderUsageLimits | undefined;
-  readonly update: ProviderUsageLimitsUpdate;
+  readonly update: ProviderUsageLimitsUpdate & { readonly credentialFingerprint?: string };
   readonly checkedAt: string;
 }): ServerProviderUsageLimits | undefined {
-  const { previous, update } = input;
+  const { update } = input;
+  const previous =
+    input.previous?.credentialFingerprint === update.credentialFingerprint
+      ? input.previous
+      : undefined;
   if (update.windows.length === 0 || previous?.unavailable?.reason === "unsupported") {
     return previous;
   }
@@ -82,7 +93,13 @@ export function applyUsageLimitsUpdate(input: {
   const unavailable =
     previous === undefined ? { reason: "probeFailed" as const } : previous.unavailable;
   return {
-    ...makeUsageLimits({ checkedAt: input.checkedAt, windows: merged.values() }),
+    ...makeUsageLimits({
+      checkedAt: input.checkedAt,
+      windows: merged.values(),
+      ...(update.credentialFingerprint === undefined
+        ? {}
+        : { credentialFingerprint: update.credentialFingerprint }),
+    }),
     ...(previous?.resetCredits !== undefined ? { resetCredits: previous.resetCredits } : {}),
     ...(previous?.zeroSpendCap ? { zeroSpendCap: true } : {}),
     ...(unavailable !== undefined ? { unavailable } : {}),
@@ -115,6 +132,12 @@ export function resolveUsageLimitsAfterProbe(input: {
   readonly probed: ServerProviderUsageLimits | undefined;
 }): ServerProviderUsageLimits | undefined {
   const { published, probed } = input;
+  // A failed reading must never carry allowance forward from different credentials.
+  if (
+    published?.credentialFingerprint !== undefined &&
+    published.credentialFingerprint !== probed?.credentialFingerprint
+  )
+    return probed;
   if (probed?.unavailable?.reason === "probeFailed" && published && !published.unavailable) {
     return published;
   }
@@ -123,6 +146,7 @@ export function resolveUsageLimitsAfterProbe(input: {
     probed &&
     !published.unavailable &&
     !probed.unavailable &&
+    published.credentialFingerprint === probed.credentialFingerprint &&
     Date.parse(published.checkedAt) > Date.parse(probed.checkedAt)
   ) {
     return { ...probed, checkedAt: published.checkedAt, windows: published.windows };

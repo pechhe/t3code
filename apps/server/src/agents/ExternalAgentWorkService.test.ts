@@ -1,3 +1,4 @@
+import { makeProviderRegistryMock } from "../provider/testUtils/providerRegistryMock.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
@@ -130,9 +131,7 @@ const makeTestLayer = (
   );
   const providers = Layer.succeed(
     Providers.ProviderRegistry,
-    Providers.ProviderRegistry.of({
-      getProviders: Effect.succeed([codex, claude]),
-    } as unknown as Providers.ProviderRegistry["Service"]),
+    makeProviderRegistryMock([codex, claude]),
   );
   const threads = Layer.succeed(
     Threads.ThreadManagementService,
@@ -244,21 +243,24 @@ const makeTestLayer = (
           > = [
             ...current.calls
               .filter((call) => current.activeThreads.has(call.threadId!))
-              .map((call) => ({
-                id: call.threadId!,
-                lineage: {
-                  rootThreadId: call.threadId!,
-                  parentThreadId: null,
-                  relationshipToParent: null,
-                },
-                agentTask: call.agentTask,
-                worktreePath:
-                  call.workspaceStrategy?.type === "existing_worktree"
-                    ? call.workspaceStrategy.worktreePath
-                    : null,
-                workspaceAttachments: [],
-                status: "running",
-              }) as never),
+              .map(
+                (call) =>
+                  ({
+                    id: call.threadId!,
+                    lineage: {
+                      rootThreadId: call.threadId!,
+                      parentThreadId: null,
+                      relationshipToParent: null,
+                    },
+                    agentTask: call.agentTask,
+                    worktreePath:
+                      call.workspaceStrategy?.type === "existing_worktree"
+                        ? call.workspaceStrategy.worktreePath
+                        : null,
+                    workspaceAttachments: [],
+                    status: "running",
+                  }) as never,
+              ),
             ...(current.otherProjectThreads ?? []),
           ];
           return {

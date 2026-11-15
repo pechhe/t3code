@@ -23,6 +23,7 @@ import {
   TrimmedNonEmptyString,
   TrimmedString,
 } from "./baseSchemas.ts";
+import { SubagentConservationRule } from "./providerUsageLimits.ts";
 import { UsageLimitSourceId } from "./usageLimitSourceId.ts";
 import { UsageModelFilter } from "./usage.ts";
 import { SecretProviderId, SecretProviderSlug } from "./secretReference.ts";
@@ -1821,6 +1822,9 @@ export const ServerSettings = Schema.Struct({
 
   /** Sent by the Usage tab with each summary request to this environment; edit in settings.json. Invalid values are ignored. */
   usageModelFilter: ForwardCompatibleOptional(UsageModelFilter),
+  subagentConservation: Schema.optionalKey(
+    Schema.Record(ProviderInstanceId, SubagentConservationRule),
+  ),
 });
 export type ServerSettings = typeof ServerSettings.Type;
 
@@ -2152,6 +2156,9 @@ const ModelSelectionPatch = Schema.Struct({
 });
 
 export const ServerSettingsPatch = Schema.Struct({
+  subagentConservation: Schema.optionalKey(
+    Schema.Record(ProviderInstanceId, SubagentConservationRule),
+  ),
   delegation: Schema.optionalKey(DelegationRuntimeSettingsPatch),
   setModelFavorites: Schema.optionalKey(
     Schema.Array(Schema.Struct({ ...ModelFavorite.fields, favorite: Schema.Boolean })),

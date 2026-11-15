@@ -286,12 +286,20 @@ export const OpenCodeDriver: ProviderDriver<
       driverKind: DRIVER_KIND,
       instanceId,
     });
-    const stampIdentity = withInstanceIdentity({
+    const bindIdentity = withInstanceIdentity({
       instanceId,
       driverKind: DRIVER_KIND,
       displayName,
       accentColor,
       continuationGroupKey: continuationIdentity.continuationKey,
+    });
+    const stampIdentity = (snapshot: Parameters<typeof bindIdentity>[0]) => ({
+      ...bindIdentity(snapshot),
+      conservationScope: {
+        providerIds: [],
+        reason:
+          "OpenCode cannot report which credential serves its models, so subscription conservation is unavailable.",
+      },
     });
     const effectiveConfig = {
       ...config,

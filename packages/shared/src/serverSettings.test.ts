@@ -28,6 +28,7 @@ import {
   resolveSpeechPostProcessingModelSelection,
 } from "./serverSettings.ts";
 
+const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
 const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 
@@ -1103,5 +1104,29 @@ describe("resolveSpeechPostProcessingModelSelection", () => {
       applyServerSettingsPatch(pinned, { speechPostProcessingModelSelection: null })
         .speechPostProcessingModelSelection,
     ).toBeNull();
+  });
+});
+
+it("saves account conservation rules and replaces cleared model selections", () => {
+  const instanceId = ProviderInstanceId.make("codex-main");
+  const rule = {
+    enabled: true,
+    remainingPercent: 20,
+    window: "any",
+    windowIds: ["session", "weekly"],
+    models: ["astra", "sol"],
+  };
+  const saved = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+    subagentConservation: { [instanceId]: rule },
+  });
+  const persisted = decodeServerSettings(JSON.parse(JSON.stringify(encodeServerSettings(saved))));
+  expect(persisted.subagentConservation?.[instanceId]).toEqual(rule);
+  const changed = applyServerSettingsPatch(persisted, {
+    subagentConservation: { [instanceId]: { ...rule, enabled: false, models: [] } },
+  });
+  expect(changed.subagentConservation?.[instanceId]).toEqual({
+    ...rule,
+    enabled: false,
+    models: [],
   });
 });

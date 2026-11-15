@@ -1,6 +1,13 @@
+import * as Settings from "../serverSettings.ts";
+import * as Option from "effect/Option";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, describe, it } from "@effect/vitest";
-import { ProviderDriverKind, ProviderInstanceId, type ServerProvider } from "@t3tools/contracts";
+import {
+  ProviderDriverKind,
+  ProviderInstanceId,
+  type ServerProvider,
+  type ServerSettings as ContractSettings,
+} from "@t3tools/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
@@ -231,102 +238,159 @@ describe("provider compatibility", () => {
   });
 });
 
-it.effect("a remote policy refresh preserves a newer health result on the registry stream", () =>
-  Effect.gen(function* () {
-    const started = yield* Deferred.make<void>();
-    const release = yield* Deferred.make<void>();
-    const health = yield* Ref.make<ServerProvider>({
-      ...provider,
-      status: "ready" as ServerProvider["status"],
-      message: "Healthy",
-    });
-    const manifest = yield* Ref.make<ModelManifest.ModelManifestData>({
-      version: 1,
-      currentModels: {},
-      compatibility: [policy],
-    });
-    const instance: ProviderInstance = {
-      instanceId: provider.instanceId,
-      driverKind: driver,
-      enabled: true,
-      displayName: undefined,
-      continuationIdentity: { driverKind: driver, continuationKey: "test-codex" },
-      snapshot: {
-        getSnapshot: Ref.get(health),
-        refresh: Ref.get(health),
-        streamChanges: Stream.empty,
-        applyUsageLimits: () => Effect.void,
-        replaceUsageLimits: () => Effect.void,
-        resolveMaintenance: () =>
-          Effect.succeed(
-            makeManualOnlyProviderMaintenanceCapabilities({ provider: driver, packageName: null }),
-          ),
-      },
-      orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
-      textGeneration: {} as ProviderInstance["textGeneration"],
-    };
-    const refresh = Deferred.succeed(started, undefined).pipe(
-      Effect.andThen(Deferred.await(release)),
-      Effect.andThen(
-        Ref.updateAndGet(manifest, (current) => ({
-          ...current,
-          compatibility: [
-            { ...policy, ranges: [{ range: ">=0.0.0", status: "supported" as const }] },
-          ],
-        })),
-      ),
-    );
-    const layerDependencies = Layer.mergeAll(
-      ProviderLatestVersions.layer,
-      Layer.succeed(ModelManifest.ModelManifest, {
-        current: Ref.get(manifest),
-        refresh,
-        forceRefresh: refresh,
-        refreshOnDemand: refresh,
-        refreshInBackground: Effect.void,
-      }),
-      Layer.succeed(ProviderInstanceRegistry.ProviderInstanceRegistry, {
-        getInstance: (id) => Effect.succeed(id === instance.instanceId ? instance : undefined),
-        listInstances: Effect.succeed([instance]),
-        listUnavailable: Effect.succeed([]),
-        listPools: Effect.succeed([]),
-        streamChanges: Stream.empty,
-        subscribeChanges: Effect.flatMap(PubSub.unbounded<void>(), PubSub.subscribe),
-      }),
-      ServerConfig.layerTest(process.cwd(), { prefix: "compatibility-registry-test" }).pipe(
-        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
-      ),
-    );
-    yield* Effect.gen(function* () {
-      const registry = yield* ProviderRegistry.ProviderRegistry;
-      yield* Deferred.await(started);
-      assert.strictEqual(
-        (yield* registry.getProviders)[0]?.compatibilityAdvisory?.status,
-        "broken",
+it.effect.each(["no-settings", "settings-present", "settings-event"] as const)(
+  "a remote policy refresh preserves a newer health result on the registry stream (%s)",
+  (mode) =>
+    Effect.gen(function* () {
+      const started = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
+      const settingsChanges = yield* Effect.acquireRelease(
+        PubSub.unbounded<ContractSettings>(),
+        PubSub.shutdown,
       );
-      yield* Ref.set(health, provider);
-      const latestHealth = yield* registry.refreshInstance(provider.instanceId);
-      assert.strictEqual(latestHealth[0]?.message, "Authentication failed");
-      const supported = yield* Stream.toPull(
-        registry.streamChanges.pipe(
-          Stream.filter((snapshots) => snapshots[0]?.compatibilityAdvisory?.status === "supported"),
+      const settingsLayer = Layer.effect(
+        Settings.ServerSettingsService,
+        Effect.gen(function* () {
+          const base = yield* Settings.ServerSettingsService;
+          return {
+            ...base,
+            updateSettings: (patch: Parameters<typeof base.updateSettings>[0]) =>
+              base
+                .updateSettings(patch)
+                .pipe(Effect.tap((next) => PubSub.publish(settingsChanges, next))),
+            streamChanges: Stream.fromPubSub(settingsChanges),
+            subscribeChanges: PubSub.subscribe(settingsChanges).pipe(
+              Effect.map(Stream.fromSubscription),
+            ),
+          };
+        }),
+      ).pipe(Layer.provide(Settings.layerTest()));
+      const health = yield* Ref.make<ServerProvider>({
+        ...provider,
+        status: "ready" as ServerProvider["status"],
+        message: "Healthy",
+      });
+      const manifest = yield* Ref.make<ModelManifest.ModelManifestData>({
+        version: 1,
+        currentModels: {},
+        compatibility: [policy],
+      });
+      const instance: ProviderInstance = {
+        instanceId: provider.instanceId,
+        driverKind: driver,
+        enabled: true,
+        displayName: undefined,
+        continuationIdentity: { driverKind: driver, continuationKey: "test-codex" },
+        snapshot: {
+          getSnapshot: Ref.get(health),
+          refresh: Ref.get(health),
+          streamChanges: Stream.empty,
+          applyUsageLimits: () => Effect.void,
+          replaceUsageLimits: () => Effect.void,
+          resolveMaintenance: () =>
+            Effect.succeed(
+              makeManualOnlyProviderMaintenanceCapabilities({
+                provider: driver,
+                packageName: null,
+              }),
+            ),
+        },
+        orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
+        textGeneration: {} as ProviderInstance["textGeneration"],
+      };
+      const refresh = Deferred.succeed(started, undefined).pipe(
+        Effect.andThen(Deferred.await(release)),
+        Effect.andThen(
+          Ref.updateAndGet(manifest, (current) => ({
+            ...current,
+            compatibility: [
+              { ...policy, ranges: [{ range: ">=0.0.0", status: "supported" as const }] },
+            ],
+          })),
         ),
       );
-      const subscribed = yield* supported.pipe(Effect.forkScoped({ startImmediately: true }));
-      yield* Deferred.succeed(release, undefined);
-      const updated = (yield* Fiber.join(subscribed))[0]?.[0];
-      assert.strictEqual(updated?.compatibilityAdvisory?.status, "supported");
-      assert.strictEqual(updated?.status, "error");
-      assert.strictEqual(updated?.message, "Authentication failed");
-    }).pipe(
-      Effect.provide(
-        ProviderRegistry.layer.pipe(
-          Layer.provide(layerDependencies),
-          Layer.provide(
-            Layer.mock(ProviderInstanceRegistryMutator.ProviderInstanceRegistryMutator)({}),
+      const layerDependencies = Layer.mergeAll(
+        ProviderLatestVersions.layer,
+        Layer.succeed(ModelManifest.ModelManifest, {
+          current: Ref.get(manifest),
+          refresh,
+          forceRefresh: refresh,
+          refreshOnDemand: refresh,
+          refreshInBackground: Effect.void,
+        }),
+        Layer.succeed(ProviderInstanceRegistry.ProviderInstanceRegistry, {
+          getInstance: (id) => Effect.succeed(id === instance.instanceId ? instance : undefined),
+          listInstances: Effect.succeed([instance]),
+          listUnavailable: Effect.succeed([]),
+          listPools: Effect.succeed([]),
+          streamChanges: Stream.empty,
+          subscribeChanges: Effect.flatMap(PubSub.unbounded<void>(), PubSub.subscribe),
+        }),
+        ServerConfig.layerTest(process.cwd(), { prefix: "compatibility-registry-test" }).pipe(
+          Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+        ),
+      );
+      yield* Effect.gen(function* () {
+        const registry = yield* ProviderRegistry.ProviderRegistry;
+        yield* Deferred.await(started);
+        assert.strictEqual(
+          (yield* registry.getProviders)[0]?.compatibilityAdvisory?.status,
+          "broken",
+        );
+        yield* Ref.set(health, provider);
+        const latestHealth = yield* registry.refreshInstance(provider.instanceId);
+        assert.strictEqual(latestHealth[0]?.message, "Authentication failed");
+        const supported = yield* Stream.toPull(
+          registry.streamChanges.pipe(
+            Stream.filter(
+              (snapshots) => snapshots[0]?.compatibilityAdvisory?.status === "supported",
+            ),
+          ),
+        );
+        const subscribed = yield* supported.pipe(Effect.forkScoped({ startImmediately: true }));
+        yield* Deferred.succeed(release, undefined);
+        const updated = (yield* Fiber.join(subscribed))[0]?.[0];
+        assert.strictEqual(updated?.compatibilityAdvisory?.status, "supported");
+        assert.strictEqual(updated?.status, "error");
+        assert.strictEqual(updated?.message, "Authentication failed");
+        if (mode === "settings-event") {
+          const changed = yield* Stream.toPull(
+            registry.streamChanges.pipe(
+              Stream.filter(
+                (rows) =>
+                  rows[0]?.subagentConservation?.models.includes("conserved-model") === true,
+              ),
+            ),
+          );
+          const pending = yield* changed.pipe(Effect.forkScoped({ startImmediately: true }));
+          const settings = yield* Effect.serviceOption(Settings.ServerSettingsService);
+          assert.isTrue(Option.isSome(settings));
+          if (Option.isNone(settings)) return;
+          yield* settings.value.updateSettings({
+            subagentConservation: {
+              [provider.instanceId]: {
+                enabled: true,
+                remainingPercent: 20,
+                window: "any",
+                windowIds: ["session"],
+                models: ["conserved-model"],
+              },
+            },
+          });
+          const result = (yield* Fiber.join(pending))[0]?.[0];
+          assert.deepStrictEqual(result?.subagentConservation?.models, ["conserved-model"]);
+          assert.strictEqual(result?.status, "error");
+        }
+      }).pipe(
+        Effect.provide(
+          ProviderRegistry.layer.pipe(
+            Layer.provide(layerDependencies),
+            Layer.provideMerge(mode === "no-settings" ? Layer.empty : settingsLayer),
+            Layer.provide(
+              Layer.mock(ProviderInstanceRegistryMutator.ProviderInstanceRegistryMutator)({}),
+            ),
           ),
         ),
-      ),
-    );
-  }),
+      );
+    }),
 );

@@ -57,6 +57,8 @@ export interface ProviderInstance {
   readonly refreshUsage?: Effect.Effect<void>;
   /** Moves a long-lived service onto a newly updated binary before its version is read back. */
   readonly afterUpdate?: Effect.Effect<void, ProviderDriverError>;
+  /** Fresh local identity in the same namespace as usageLimits.credentialFingerprint. */
+  readonly readUsageIdentity?: Effect.Effect<string | undefined>;
   readonly consumeResetCredit?: (
     creditId: string | undefined,
   ) => Effect.Effect<ProviderConsumeResetCreditOutcome, ProviderDriverError>;

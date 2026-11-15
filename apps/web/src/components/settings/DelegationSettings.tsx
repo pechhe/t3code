@@ -1,3 +1,4 @@
+import { SubagentConservationSettings } from "./SubagentConservationSettings";
 import { useAtomValue } from "@effect/atom-react";
 import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
 import * as Schema from "effect/Schema";
@@ -89,6 +90,15 @@ export function DelegationSettings() {
           representativeId={environment?.environmentId ?? null}
         />
       )}
+      {environments
+        .filter(({ connection }) => connection.phase === "connected")
+        .map(({ environmentId, label }) => (
+          <SubagentConservationSettings
+            key={environmentId}
+            environmentId={environmentId}
+            label={label}
+          />
+        ))}
       <PermissionsSection />
     </SettingsPageContainer>
   );

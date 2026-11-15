@@ -1,3 +1,4 @@
+import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as PhiBrowser from "../preview/PhiBrowser.ts";
 import * as Settings from "../serverSettings.ts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
@@ -269,6 +270,13 @@ const make = Effect.gen(function* () {
   const resolver = yield* Resolver.AgentRoleResolver;
   // Optional so a layer without overload tracking resolves as if nothing were overloaded.
   const overloadTracker = yield* Effect.serviceOption(ProviderOverloads.ProviderOverloads);
+  const conservationProviders = Effect.fn("ManagedAgentService.conservationProviders")(function* (
+    providers: ReadonlyArray<ServerProvider>,
+  ) {
+    const registry = yield* Effect.serviceOption(ProviderRegistry.ProviderRegistry);
+    if (Option.isNone(registry)) return providers;
+    return yield* registry.value.prepareConservation(providers);
+  });
   const currentOverloads = Option.match(overloadTracker, {
     onNone: () => Effect.succeed<ProviderOverloads.ProviderOverloadSnapshot>(new Map()),
     onSome: (tracker) => tracker.current,
@@ -670,7 +678,7 @@ const make = Effect.gen(function* () {
       snapshot,
       overloads: yield* currentOverloads,
       ...(browser === undefined ? {} : { browser }),
-      providers: input.providers,
+      providers: yield* conservationProviders(input.providers),
       ...(input.selection === undefined ? {} : { selection: input.selection }),
       requireExplicitSelection,
       ...(input.callerModel === undefined ? {} : { callerModel: input.callerModel }),
@@ -875,6 +883,7 @@ const make = Effect.gen(function* () {
           snapshot,
           overloads: yield* currentOverloads,
           providers: input.providers,
+          ignoreConservation: true,
         });
         // An overloaded or exhausted model is no model to pass to.
         return result.candidates.flatMap((candidate) => {
@@ -960,6 +969,11 @@ const make = Effect.gen(function* () {
           ...input,
           ...context,
           snapshot,
+          providers:
+            input.recordedBinding === undefined
+              ? yield* conservationProviders(input.providers)
+              : input.providers,
+          ignoreConservation: input.recordedBinding !== undefined,
           overloads: yield* currentOverloads,
           ...(browser === undefined ? {} : { browser }),
           ...(input.recordedBinding === undefined
@@ -1108,6 +1122,7 @@ const make = Effect.gen(function* () {
           ...input,
           ...context,
           snapshot,
+          ignoreConservation: true,
           ...(treatment === undefined ? {} : { treatment }),
           ...(browser === undefined ? {} : { browser }),
         })

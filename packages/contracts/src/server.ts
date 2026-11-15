@@ -1,3 +1,4 @@
+import { SubagentConservationStatus } from "./providerUsageLimits.ts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { AcpRegistryUrlAuthAction } from "./acpRegistry.ts";
@@ -293,6 +294,14 @@ export const ServerProvider = Schema.Struct({
   skills: Schema.Array(ServerProviderSkill).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   workspaceSnapshots: Schema.optionalKey(Schema.Array(ServerProviderWorkspaceSnapshot)),
   usageLimits: Schema.optional(ServerProviderUsageLimits),
+  subagentConservation: Schema.optionalKey(SubagentConservationStatus),
+  /** Only these model provider IDs use the account meter; absence covers the whole catalog. */
+  conservationScope: Schema.optional(
+    Schema.Struct({
+      providerIds: Schema.Array(TrimmedNonEmptyString),
+      reason: Schema.optional(TrimmedNonEmptyString),
+    }),
+  ),
   // Set on an account pool: the instances a turn on it can be routed to.
   poolMembers: Schema.optionalKey(Schema.Array(ProviderInstanceId)),
   poolPolicy: Schema.optionalKey(ProviderPoolPolicy),

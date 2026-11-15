@@ -9,6 +9,7 @@ import {
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  conservationModelsOf,
   type LimitAccount,
   displayLimitWindows,
   cursorUsageWindowDetails,
@@ -27,6 +28,21 @@ import {
   usesChatGptSharing,
   resolveNewThreadModelSelection,
 } from "./usageLimits.ts";
+
+it("an unsupported account offers no models while ordinary account catalogs remain available", () => {
+  const catalog = [{ slug: "opencode-go/a" }, { slug: "opencode/b" }];
+  const unsupported = {
+    conservationScope: { providerIds: [], reason: "Unverified model credential." },
+  };
+  expect(conservationModelsOf(unsupported, catalog)).toEqual([]);
+  expect(
+    conservationModelsOf(
+      unsupported,
+      catalog.map((model) => model.slug),
+    ),
+  ).toEqual([]);
+  expect(conservationModelsOf({}, catalog)).toBe(catalog);
+});
 
 const now = Date.parse("2026-09-03T12:00:00.000Z");
 

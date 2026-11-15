@@ -1,3 +1,4 @@
+import { SubagentConservationSettings } from "./SubagentConservationSettings";
 import { SettingsGroup } from "./SettingsGroup";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import {
@@ -1153,6 +1154,14 @@ export function EnvironmentProviderSettings({
                 {/* Flat sections run dividers edge to edge and inset text like the list beside them. */}
                 <div className="space-y-6 py-4">
                   {renderProviderInstance(selectedRow, "editor")}
+                  {selectedRow.explicitInstance?.pool === undefined && (
+                    <SubagentConservationSettings
+                      environmentId={environmentId}
+                      label={environmentLabel}
+                      instanceId={selectedRow.instanceId}
+                      readOnly={readOnly}
+                    />
+                  )}
                 </div>
               </ScrollArea>
             ) : (

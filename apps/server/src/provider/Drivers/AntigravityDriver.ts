@@ -552,6 +552,8 @@ export const AntigravityDriver: ProviderDriver<
       accentColor,
       enabled,
       snapshot: provider.snapshot,
+      readUsageIdentity: usage.readIdentity,
+      refreshUsage: provider.refreshUsage.pipe(Effect.ignoreCause({ log: true })),
       snapshotForCwd: (cwd) =>
         !enabled
           ? provider.snapshot.getSnapshot

@@ -251,6 +251,11 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
   const applyUsageLimits: ManagedServerProvider["applyUsageLimits"] = Effect.fnUntraced(
     function* (update) {
       const snapshotToPublish = yield* Ref.modify(snapshotStateRef, (state) => {
+        if (
+          state.snapshot.usageLimits?.credentialFingerprint !== undefined &&
+          update.credentialFingerprint === undefined
+        )
+          return [null, state] as const;
         const complete = update.complete && update.windows.length > 0;
         const usageLimits = complete
           ? makeUsageLimits(update)

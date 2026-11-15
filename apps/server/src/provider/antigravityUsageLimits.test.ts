@@ -561,10 +561,14 @@ describe("Antigravity subscription limits", () => {
 
   it.effect("re-reads changed credentials and clears cached access after sign-out", () =>
     Effect.gen(function* () {
-      const { probe, clear, requests, writeToken, tokenPath } = yield* fixture();
+      const { probe, clear, readIdentity, requests, writeToken, tokenPath } = yield* fixture();
+      expect(yield* readIdentity).toBeUndefined();
       const first = yield* probe;
+      expect(yield* readIdentity).toBe(first.credentialFingerprint);
       yield* writeToken("refresh-b");
+      expect(yield* readIdentity).toBeUndefined();
       const second = yield* probe;
+      expect(yield* readIdentity).toBe(second.credentialFingerprint);
       expect(second.credentialFingerprint).not.toBe(first.credentialFingerprint);
       expect(requests.filter((request) => request.url.endsWith("/token"))).toHaveLength(2);
       yield* (yield* FileSystem.FileSystem).remove(tokenPath);

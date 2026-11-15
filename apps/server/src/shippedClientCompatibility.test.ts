@@ -12,8 +12,8 @@ import {
   OrchestrationV2ThreadStanding,
   RunId,
   ProjectId,
-  ProviderDriverKind,
   ProviderInstanceId,
+  ProviderDriverKind,
   ServerSettings,
   ThreadId,
 } from "@t3tools/contracts";
@@ -98,6 +98,15 @@ const decodeAssignment = Schema.decodeUnknownSync(ExperimentAssignment);
 
 const forkSettings = {
   ...DEFAULT_SERVER_SETTINGS,
+  subagentConservation: {
+    [ProviderInstanceId.make("codex")]: {
+      enabled: true,
+      remainingPercent: 20,
+      window: "any",
+      windowIds: ["session"],
+      models: ["gpt-6-astra"],
+    },
+  },
   responseStreamingMode: "live" as const,
   projectSettingsOverrides: {
     [ProjectId.make("live")]: { responseStreamingMode: "live" as const },

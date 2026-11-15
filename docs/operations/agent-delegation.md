@@ -22,6 +22,12 @@ that need a policy fail with `policy`, and unmanaged delegation behaves as
 before. Running trials are unaffected either way, and installing the code starts
 no trial.
 
+## Conserve subscription allowance
+
+In Settings → Delegation → Subscription conservation, choose an account, a remaining-usage threshold, a reported window and the models to conserve, then save the rule. You can also edit that same rule in Settings → Providers → select an account → Subscription conservation; changes in either place apply to both views. At or below the threshold, those models are excluded from new managed subagents on that environment. Other eligible role models and pool accounts may still serve the task. Existing conversations and their follow-ups keep their models.
+
+Only connections with identified usage readings can be configured. Usage is refreshed before admission when stale or after a reset. If a reading fails, the last known state remains; a last-known ready state still permits starts and cannot guarantee a reserve. With no usable prior state, selected models are excluded until usage can be checked. Disable and save the rule to restore ordinary eligibility.
+
 ## Check a policy before pointing a server at it
 
 On web and desktop, **Settings → Delegation** edits the configured source

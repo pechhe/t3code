@@ -51,6 +51,7 @@ export class AgentRoleError extends Schema.TaggedError<AgentRoleError>()("AgentR
     "review-prior-invalid",
     "role-not-configured",
     "usage-limited",
+    "conservation",
   ]),
   candidates: Schema.optional(Schema.Array(AgentPolicyCandidate)),
   /** The offending field, option or account and how to correct the request. */
@@ -73,6 +74,7 @@ export type RequestedModel = {
 };
 
 type ResolutionInput = {
+  readonly ignoreConservation?: boolean;
   readonly snapshot: AgentPolicySnapshot;
   readonly request: AgentTaskRequest;
   /** Already intersected with the project's enabled and caller-authorized accounts. */
@@ -469,6 +471,7 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
     (typeof eligible)[number],
     | { readonly reason: "usage-limited"; readonly untilMs: number }
     | { readonly reason: "pool-disabled" }
+    | { readonly reason: "conservation" }
   >();
   for (const alias of new Set(eligible.map((candidate) => candidate.alias))) {
     const serving = eligible.filter((candidate) => candidate.alias === alias);
@@ -481,6 +484,16 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
       const index = ranked.indexOf(candidate.provider);
       if (index < 0) {
         excluded.set(candidate, { reason: "pool-disabled" });
+        continue;
+      }
+      const conservation = candidate.provider.subagentConservation;
+      if (
+        !input.ignoreConservation &&
+        conservation &&
+        conservation.state !== "ready" &&
+        conservation.models.includes(candidate.selection.model)
+      ) {
+        excluded.set(candidate, { reason: "conservation" });
         continue;
       }
       const pool = poolOf(pools, candidate.provider);
@@ -502,10 +515,13 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
       entry.reason === "usage-limited" && Number.isFinite(entry.untilMs) ? [entry.untilMs] : [],
     );
     const earliest = returns.length === 0 ? undefined : Math.min(...returns);
+    const conserved = [...excluded.entries()].filter(
+      ([, entry]) => entry.reason === "conservation",
+    );
     return new AgentRoleError({
-      reason: "usage-limited",
+      reason: conserved.length > 0 ? "conservation" : "usage-limited",
       candidates: finalDiagnostics(undefined),
-      detail: `${detail}${earliest === undefined ? "" : `; the earliest an account returns is ${DateTime.formatIso(DateTime.makeUnsafe(earliest))}`}`,
+      detail: `${conserved.length > 0 ? `Subscription conservation excludes ${conserved.map(([entry]) => `${entry.selection.model} on ${entry.provider.displayName ?? entry.provider.instanceId}: ${entry.provider.subagentConservation?.message}`).join("; ")}. Choose an eligible role model, wait for fresh usage above the threshold, or change Settings > Providers > Subscription conservation. ` : ""}${conserved.length > 0 ? "No eligible account remains for this role and requested model/options." : detail}${earliest === undefined ? "" : `; the earliest an account returns is ${DateTime.formatIso(DateTime.makeUnsafe(earliest))}`}`,
     });
   };
   let candidates = eligible.filter(serves);

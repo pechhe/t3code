@@ -543,14 +543,19 @@ export const layer = Layer.effect(
               : {}),
           },
         });
-        return result.roles.find((entry) => entry.role === role)?.selection ?? null;
+        const resolved = result.roles.find((entry) => entry.role === role);
+        if (resolved?.selection == null && resolved?.refusal?.startsWith("conservation:"))
+          return yield* taskError(resolved.refusal);
+        return resolved?.selection ?? null;
       },
       (effect, role) =>
         effect.pipe(
-          Effect.catch((cause) =>
-            Effect.logWarning("Subagent role did not resolve a model", { role, cause }).pipe(
-              Effect.as(null),
-            ),
+          Effect.catchIf(
+            (cause) => !isScheduledTaskError(cause),
+            (cause) =>
+              Effect.logWarning("Subagent role did not resolve a model", { role, cause }).pipe(
+                Effect.as(null),
+              ),
           ),
         ),
     );

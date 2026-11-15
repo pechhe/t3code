@@ -1,3 +1,4 @@
+import { evaluateConservation } from "../provider/subagentConservation.ts";
 import { expect, it } from "@effect/vitest";
 import {
   ProviderDriverKind,
@@ -39,6 +40,120 @@ const resolve = (value: Input) =>
 const refusal = (value: Input) => resolve(value).pipe(Effect.flip);
 
 it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
+  it.effect("an unsupported OpenCode binding leaves every catalog model eligible", () =>
+    Effect.gen(function* () {
+      const models = ["opencode-go/workspace-only", "opencode/console", "anthropic/claude"];
+      const account = {
+        ...provider("opencode", "scoped-go", models),
+        conservationScope: {
+          providerIds: [],
+          reason: "The serving credential cannot be verified.",
+        },
+      };
+      const status = evaluateConservation(
+        account,
+        { enabled: true, remainingPercent: 20, window: "any", windowIds: ["go_weekly"], models },
+        0,
+      ).status;
+      const original = snapshot();
+      const configured = {
+        ...original,
+        manifest: {
+          ...original.manifest,
+          models: {
+            ...original.manifest.models,
+            ...Object.fromEntries(
+              ["sol", "sonnet", "luna"].map((alias, index) => [
+                alias,
+                {
+                  driverKind: ProviderDriverKind.make("opencode"),
+                  model: models[index]!,
+                  effortOption: "effort",
+                },
+              ]),
+            ),
+          },
+          lists: {
+            ...original.manifest.lists,
+            workhorse: ["sol", "sonnet", "luna"].map((model) => ({ model, effort: "medium" })),
+          },
+        },
+      };
+      const value = input({
+        snapshot: configured,
+        providers: [{ ...account, subagentConservation: status }],
+      });
+      for (const model of models)
+        expect(
+          (yield* resolve({ ...value, selection: { instanceId: account.instanceId, model } }))
+            .model,
+        ).toBe(model);
+    }),
+  );
+
+  it.effect(
+    "conservation filters discovery and explicit starts while retaining existing conversations",
+    () =>
+      Effect.gen(function* () {
+        const resolver = yield* Resolver.AgentRoleResolver;
+        for (const state of ["active", "unknown"] as const) {
+          const limited = {
+            ...codex,
+            subagentConservation: {
+              state,
+              unavailable: state === "unknown",
+              models: [codexModel],
+              message: "Selected model conserved",
+            },
+          };
+          const value = input({
+            providers: [limited, claude],
+            selection: { instanceId: codex.instanceId, model: codexModel },
+          });
+          const sibling = { ...codex, instanceId: ProviderInstanceId.make("codex-spare") };
+          const pool = {
+            ...codex,
+            instanceId: ProviderInstanceId.make("codex-pool"),
+            poolMembers: [codex.instanceId, sibling.instanceId],
+          };
+          expect(
+            (yield* resolve({ ...value, providers: [limited, sibling, pool, claude] })).instanceId,
+          ).toBe(sibling.instanceId);
+          const preview = yield* resolver.preview(value);
+          expect(preview.selection).toBeNull();
+          expect(preview.refusal).toContain("conservation");
+          expect((yield* refusal(value)).reason).toBe("conservation");
+          expect((yield* resolve({ ...value, ignoreConservation: true })).model).toBe(codexModel);
+          expect(
+            (yield* resolve({
+              ...value,
+              providers: [
+                {
+                  ...limited,
+                  subagentConservation: { ...limited.subagentConservation, state: "ready" },
+                },
+                claude,
+              ],
+            })).model,
+          ).toBe(codexModel);
+          expect(
+            (yield* resolve({
+              ...value,
+              providers: [
+                {
+                  ...limited,
+                  subagentConservation: {
+                    ...limited.subagentConservation,
+                    models: ["another-model"],
+                  },
+                },
+                claude,
+              ],
+            })).model,
+          ).toBe(codexModel);
+        }
+      }),
+  );
   it.effect("uses separate ordered candidates for change and Spec reviews", () =>
     Effect.gen(function* () {
       const original = snapshot();
@@ -1008,41 +1123,48 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       }),
   );
 
-  it.effect("requires a caller choice for multi-model roles regardless of list order or outages", () =>
-    Effect.gen(function* () {
-      const resolver = yield* Resolver.AgentRoleResolver;
-      const original = snapshot();
-      const build = (models: string[], providers: ReadonlyArray<ServerProvider> = [codex, claude]) =>
-        input({
-          requireExplicitSelection: true,
-          snapshot: {
-            ...original,
-            manifest: {
-              ...original.manifest,
-              lists: {
-                ...original.manifest.lists,
-                workhorse: models.map((model) => ({ model, effort: "medium" })),
+  it.effect(
+    "requires a caller choice for multi-model roles regardless of list order or outages",
+    () =>
+      Effect.gen(function* () {
+        const resolver = yield* Resolver.AgentRoleResolver;
+        const original = snapshot();
+        const build = (
+          models: string[],
+          providers: ReadonlyArray<ServerProvider> = [codex, claude],
+        ) =>
+          input({
+            requireExplicitSelection: true,
+            snapshot: {
+              ...original,
+              manifest: {
+                ...original.manifest,
+                lists: {
+                  ...original.manifest.lists,
+                  workhorse: models.map((model) => ({ model, effort: "medium" })),
+                },
               },
             },
-          },
-          providers,
-        });
-      const omitted = yield* resolver.preview(build(["sonnet", "sol"]));
-      const permuted = yield* resolver.preview(build(["sol", "sonnet"]));
-      expect(omitted.selection).toBeNull();
-      expect(omitted.refusal).toContain("choose a model");
-      expect(omitted.candidates.map(({ model }) => model).sort()).toEqual(
-        permuted.candidates.map(({ model }) => model).sort(),
-      );
-      const offline = yield* refusal(
-        build(["sonnet", "sol"], [{ ...codex, availability: "unavailable" }, claude]),
-      );
-      expect(offline.detail).toContain("choose a model");
-      expect(
-        (yield* resolver.resolve({ ...build(["sonnet", "sol"]), selection: { model: codexModel } }))
-          .model,
-      ).toBe(codexModel);
-    }),
+            providers,
+          });
+        const omitted = yield* resolver.preview(build(["sonnet", "sol"]));
+        const permuted = yield* resolver.preview(build(["sol", "sonnet"]));
+        expect(omitted.selection).toBeNull();
+        expect(omitted.refusal).toContain("choose a model");
+        expect(omitted.candidates.map(({ model }) => model).sort()).toEqual(
+          permuted.candidates.map(({ model }) => model).sort(),
+        );
+        const offline = yield* refusal(
+          build(["sonnet", "sol"], [{ ...codex, availability: "unavailable" }, claude]),
+        );
+        expect(offline.detail).toContain("choose a model");
+        expect(
+          (yield* resolver.resolve({
+            ...build(["sonnet", "sol"]),
+            selection: { model: codexModel },
+          })).model,
+        ).toBe(codexModel);
+      }),
   );
 
   it.effect("counts one configured model once across aliases and accounts", () =>

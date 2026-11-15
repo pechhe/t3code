@@ -92,9 +92,14 @@ describe("applyUsageLimitsUpdate", () => {
   it("preserves reset credits and a $0 cap when a streamed window update changes usage", () => {
     const resetCredits = { availableCount: 2, nextExpiresAt: "2026-10-01T00:00:00.000Z" };
     const next = applyUsageLimitsUpdate({
-      previous: { ...published, resetCredits, zeroSpendCap: true },
+      previous: {
+        ...published,
+        resetCredits,
+        zeroSpendCap: true,
+        credentialFingerprint: "account-one",
+      },
       checkedAt: "2026-09-03T12:00:05.000Z",
-      update: { windows: [{ ...session, usedPercent: 55 }] },
+      update: { windows: [{ ...session, usedPercent: 55 }], credentialFingerprint: "account-one" },
     });
 
     expect(next).toEqual({
@@ -102,7 +107,16 @@ describe("applyUsageLimitsUpdate", () => {
       windows: [{ ...session, usedPercent: 55 }, weekly],
       resetCredits,
       zeroSpendCap: true,
+      credentialFingerprint: "account-one",
     });
+    const otherAccount = applyUsageLimitsUpdate({
+      previous: { ...published, resetCredits, credentialFingerprint: "account-one" },
+      checkedAt,
+      update: { windows: [session], credentialFingerprint: "account-two" },
+    });
+    expect(otherAccount?.windows).toEqual([session]);
+    expect(otherAccount?.credentialFingerprint).toBe("account-two");
+    expect(otherAccount?.resetCredits).toBeUndefined();
   });
 });
 
@@ -130,6 +144,12 @@ describe("resolveUsageLimitsAfterProbe", () => {
       windows: live.windows,
     });
 
+    expect(
+      resolveUsageLimitsAfterProbe({
+        published: live,
+        probed: { ...probed, credentialFingerprint: "new-account" },
+      }),
+    ).toEqual({ ...probed, credentialFingerprint: "new-account" });
     const sameTime = { ...probed, checkedAt: live.checkedAt };
     const newer = { ...probed, checkedAt: "2026-09-03T12:00:06.000Z" };
     expect(resolveUsageLimitsAfterProbe({ published: live, probed: sameTime })).toEqual(sameTime);
@@ -142,5 +162,18 @@ describe("resolveUsageLimitsAfterProbe", () => {
     expect(resolveUsageLimitsAfterProbe({ published, probed: failed })).toBe(published);
     expect(resolveUsageLimitsAfterProbe({ published, probed: unsupported })).toBe(unsupported);
     expect(resolveUsageLimitsAfterProbe({ published: undefined, probed: failed })).toBe(failed);
+    const identified = { ...published, credentialFingerprint: "first-credential" };
+    expect(
+      resolveUsageLimitsAfterProbe({
+        published: identified,
+        probed: { ...failed, credentialFingerprint: "first-credential" },
+      }),
+    ).toBe(identified);
+    for (const credentialFingerprint of ["second-credential", undefined]) {
+      const changed = { ...failed, credentialFingerprint };
+      expect(resolveUsageLimitsAfterProbe({ published: identified, probed: changed })).toBe(
+        changed,
+      );
+    }
   });
 });

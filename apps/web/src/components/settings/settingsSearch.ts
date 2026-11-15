@@ -243,7 +243,9 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "delegation",
     title: "Delegation",
     to: "/settings/delegation",
-    searchTerms: ["agent models notes roles jobs subagents reviewer advisor effort order policy"],
+    searchTerms: [
+      "agent models notes roles jobs subagents reviewer advisor effort order policy subscription conservation usage remaining threshold reserve",
+    ],
   },
   {
     id: "delegation-child-permissions",
@@ -1096,6 +1098,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Providers",
     to: "/settings/providers",
     searchTerms: [
+      "subscription conservation usage remaining threshold reserve",
       "agents cli codex claude cursor grok fx kiro opencode antigravity google sign in sign out install subscription instances authentication api key models configuration binary path config directory codex_home shadow home endpoint arguments environment variables display name accent color custom favorite hidden auto compact native sessions import resume",
     ],
   },

@@ -1948,7 +1948,7 @@ export const createCodexAdapterV2 = Effect.fn("CodexAdapterV2.createCodexAdapter
   { instanceId, environment, enabled, config }: ProviderAdapterDriverCreateInput<CodexSettings>,
   hooks: Pick<
     CodexAdapterV2Options,
-    "onUsageLimits" | "resolveRuntime" | "compatibility" | "models"
+    "onUsageLimits" | "readUsageIdentity" | "resolveRuntime" | "compatibility" | "models"
   > = {},
 ) {
   const clientFactory = yield* CodexAppServerClientFactory;
@@ -2001,6 +2001,7 @@ export interface CodexAdapterV2Options {
   readonly onUsageLimits?: ManagedServerProvider["applyUsageLimits"];
   /** The provider's published models, read per turn for catalog defaults. */
   readonly models?: Effect.Effect<ReadonlyArray<ServerProviderModel>>;
+  readonly readUsageIdentity?: Effect.Effect<string | undefined>;
   readonly resolveRuntime?: Effect.Effect<CodexEffectiveRuntime, ProviderSetupError, Scope.Scope>;
   readonly compatibility?: (
     version: string,
@@ -2107,6 +2108,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             return [Math.max(0, live), next] as const;
           });
         const environment = resolvedRuntime?.environment ?? adapterOptions.environment;
+        const usageIdentityBefore = yield* adapterOptions.readUsageIdentity ?? Effect.undefined;
         const client = yield* clientFactory.open({
           instanceId: adapterOptions.instanceId,
           threadId: input.threadId,
@@ -2115,6 +2117,11 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           settings: resolvedRuntime?.config ?? adapterOptions.settings,
           environment,
         });
+        const usageIdentityAfter = yield* adapterOptions.readUsageIdentity ?? Effect.undefined;
+        const sessionUsageIdentity =
+          usageIdentityBefore !== undefined && usageIdentityBefore === usageIdentityAfter
+            ? usageIdentityAfter
+            : undefined;
         const additionalContextByThread = yield* Ref.make(
           new Map<string, NonNullable<CodexTurnStartParams["additionalContext"]>>(),
         );
@@ -5137,7 +5144,13 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             const update = codexRateLimitsToUpdate(payload.rateLimits, previous);
             if (update && adapterOptions.onUsageLimits) {
               const checkedAt = DateTime.formatIso(yield* DateTime.now);
-              yield* adapterOptions.onUsageLimits({ ...update, checkedAt });
+              yield* adapterOptions.onUsageLimits({
+                ...update,
+                checkedAt,
+                ...(sessionUsageIdentity === undefined
+                  ? {}
+                  : { credentialFingerprint: sessionUsageIdentity }),
+              });
             }
           }).pipe(Effect.orDie),
         );

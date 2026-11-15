@@ -157,3 +157,22 @@ export const UsageLimitsReport = Schema.Struct({
   notices: Schema.Array(Schema.String),
 });
 export type UsageLimitsReport = typeof UsageLimitsReport.Type;
+
+/** Environment-local, opt-in protection for new managed subagents. */
+export const SubagentConservationRule = Schema.Struct({
+  enabled: Schema.Boolean,
+  remainingPercent: Schema.Number.check(Schema.isBetween({ minimum: 1, maximum: 99 })),
+  window: TrimmedNonEmptyString,
+  /** The windows known when “Any window” was selected, so missing data stays unavailable. */
+  windowIds: Schema.Array(TrimmedNonEmptyString),
+  models: Schema.Array(TrimmedNonEmptyString),
+});
+export type SubagentConservationRule = typeof SubagentConservationRule.Type;
+
+export const SubagentConservationStatus = Schema.Struct({
+  state: Schema.Literals(["ready", "active", "unknown"]),
+  unavailable: Schema.Boolean,
+  models: Schema.Array(TrimmedNonEmptyString),
+  message: Schema.String,
+});
+export type SubagentConservationStatus = typeof SubagentConservationStatus.Type;

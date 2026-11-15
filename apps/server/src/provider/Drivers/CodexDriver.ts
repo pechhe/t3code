@@ -1,4 +1,5 @@
 import { resolveProviderProbeTimeoutMs } from "@t3tools/provider-core/server/snapshotProbe";
+import { makeCodexUsageCredentialReader } from "./codexUsageIdentity.ts";
 import { CodexSettings, ProviderDriverKind } from "@t3tools/contracts";
 import * as Digest from "effect/crypto/Digest";
 import * as SecureRandom from "effect/crypto/SecureRandom";
@@ -238,6 +239,7 @@ export const CodexDriver: ProviderDriver<
         Effect.map((capabilities) => withCodexNativeLatestVersion(capabilities, httpClient)),
       );
 
+    const readUsageCredential = yield* makeCodexUsageCredentialReader(homeLayout);
     const orchestrationAdapter = yield* createCodexAdapterV2(
       {
         instanceId,
@@ -248,7 +250,19 @@ export const CodexDriver: ProviderDriver<
         config: homeConfig,
       },
       {
-        onUsageLimits: (update) => snapshot.applyUsageLimits(update),
+        readUsageIdentity: readUsageCredential,
+        onUsageLimits: Effect.fn("CodexDriver.onUsageLimits")(function* (
+          update: Parameters<typeof snapshot.applyUsageLimits>[0],
+        ) {
+          const current = yield* readUsageCredential;
+          if (current === undefined || update.credentialFingerprint !== current) {
+            const published = yield* snapshot.getSnapshot;
+            if (published.usageLimits?.credentialFingerprint !== current)
+              yield* snapshot.refreshUsage?.pipe(Effect.ignoreCause({ log: true })) ?? Effect.void;
+            return;
+          }
+          yield* snapshot.applyUsageLimits(update);
+        }),
         models: Effect.suspend(() => snapshot.getSnapshot).pipe(
           Effect.map((value) => value.models),
         ),
@@ -268,7 +282,7 @@ export const CodexDriver: ProviderDriver<
 
     // Kick the TTL-gated manifest refresh in the background and classify with the in-memory
     // manifest, so a slow or hung fetch never delays the provider check.
-    const checkProvider = modelCatalog.refreshInBackground.pipe(
+    const probeProvider = modelCatalog.refreshInBackground.pipe(
       Effect.andThen(
         Effect.zipWith(
           checkCodexProviderStatus(effectiveConfig, undefined, processEnv),
@@ -281,6 +295,29 @@ export const CodexDriver: ProviderDriver<
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(Path.Path, pathService),
     );
+    const checkProvider = Effect.gen(function* () {
+      const before = yield* readUsageCredential;
+      const provider = yield* probeProvider;
+      const after = yield* readUsageCredential;
+      const same = before !== undefined && before === after;
+      const limits = provider.usageLimits;
+      if (limits === undefined) return provider;
+      return {
+        ...provider,
+        usageLimits: {
+          ...limits,
+          ...(before !== after
+            ? {
+                unavailable: {
+                  reason: "probeFailed" as const,
+                  message: "Account credentials changed during the usage check.",
+                },
+              }
+            : {}),
+          credentialFingerprint: same ? after : undefined,
+        },
+      };
+    });
     const snapshotSettings = yield* makeProviderSnapshotSettingsSource(effectiveConfig);
     const snapshot = yield* makeManagedServerProvider<ProviderSnapshotSettings<CodexSettings>>({
       resolveMaintenance,
@@ -421,6 +458,7 @@ export const CodexDriver: ProviderDriver<
       accentColor,
       enabled,
       snapshot,
+      readUsageIdentity: readUsageCredential,
       snapshotForCwd,
       consumeResetCredit,
       orchestrationAdapter,

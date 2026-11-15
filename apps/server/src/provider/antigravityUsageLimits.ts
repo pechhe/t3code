@@ -230,6 +230,14 @@ export const makeAntigravityUsageProbe = Effect.fn("makeAntigravityUsageProbe")(
       Effect.flatMap((response) => response.json),
       Effect.timeout("10 seconds"),
     );
+  const currentCredential = fs.readFileString(tokenPath).pipe(
+    Effect.flatMap(decodeTokenFile),
+    Effect.flatMap((token) =>
+      sha256(`${token.client_id}\0${token.refresh_token}\0${token.project_id ?? ""}`),
+    ),
+    Effect.provideService(Digest.Digest, crypto),
+    Effect.orElseSucceed(() => undefined),
+  );
   const read = Effect.gen(function* () {
     const startedGeneration = generation;
     const checkedAt = DateTime.formatIso(yield* DateTime.now);
@@ -353,6 +361,13 @@ export const makeAntigravityUsageProbe = Effect.fn("makeAntigravityUsageProbe")(
   );
   return {
     probe,
+    readIdentity: currentCredential.pipe(
+      Effect.map((fingerprint) =>
+        fingerprint !== undefined && cached?.fingerprint === fingerprint
+          ? cached.account
+          : undefined,
+      ),
+    ),
     clear: Effect.sync(() => {
       cached = undefined;
       generation++;

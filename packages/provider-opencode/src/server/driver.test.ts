@@ -102,7 +102,17 @@ const create = (
         : environment.map((entry) => ({ ...entry, sensitive: false })),
     enabled: typeof environment === "boolean" ? environment : true,
     config: { ...OpenCodeDriver.defaultConfig(), ...config },
-  }).pipe(Effect.provideService(HttpClient.HttpClient, http));
+  }).pipe(
+    Effect.provideService(HttpClient.HttpClient, http),
+    Effect.tap((instance) =>
+      instance.snapshot.getSnapshot.pipe(
+        Effect.map((snapshot) => {
+          assert.deepEqual(snapshot.conservationScope?.providerIds, []);
+          assert.isString(snapshot.conservationScope?.reason);
+        }),
+      ),
+    ),
+  );
 
 const noHttp = HttpClient.make(() => Effect.die("A local binary must not be probed over HTTP"));
 

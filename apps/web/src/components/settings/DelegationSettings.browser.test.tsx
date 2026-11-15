@@ -12,6 +12,8 @@ import {
   type AgentPolicySettings,
 } from "@t3tools/contracts";
 
+vi.mock("./SubagentConservationSettings", () => ({ SubagentConservationSettings: () => null }));
+
 const state = vi.hoisted(() => ({
   data: null as AgentPolicySettings | null,
   // Other environments' policies, by id; each reads as `data` unless listed here.

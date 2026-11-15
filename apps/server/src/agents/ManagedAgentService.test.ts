@@ -1,3 +1,6 @@
+import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
+import { makeProviderRegistryMock } from "../provider/testUtils/providerRegistryMock.ts";
+import * as DateTime from "effect/DateTime";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
@@ -123,6 +126,92 @@ const fixture = Effect.gen(function* () {
 });
 
 it.layer(testLayer)("ManagedAgentService", (it) => {
+  it.effect.each([0, 120_000])(
+    "validates conservation before admission even with a reading aged %s ms",
+    (age) =>
+      Effect.gen(function* () {
+        const f = yield* fixture;
+        const now = DateTime.toEpochMillis(yield* DateTime.now);
+        let refreshes = 0;
+        const stale = {
+          ...codex,
+          usageLimits: {
+            checkedAt: DateTime.formatIso(DateTime.makeUnsafe(now - age)),
+            credentialFingerprint: "account",
+            windows: [
+              { id: "session", kind: "session" as const, label: "Session", usedPercent: 50 },
+            ],
+          },
+        };
+        const refreshed = {
+          ...stale,
+          subagentConservation: {
+            state: "active" as const,
+            unavailable: false,
+            models: [codexModel],
+            message: "Conservation active",
+          },
+        };
+        const registry = {
+          ...makeProviderRegistryMock([stale]),
+          prepareConservation: () =>
+            Effect.sync(() => {
+              refreshes++;
+              return [refreshed];
+            }),
+        };
+        const error = yield* f
+          .prepare({
+            providers: [stale],
+            selection: { instanceId: codex.instanceId, model: codexModel },
+          })
+          .pipe(
+            Effect.provideService(ProviderRegistry.ProviderRegistry, registry),
+            Effect.provide(
+              Settings.layerTest({
+                subagentConservation: {
+                  [codex.instanceId]: {
+                    enabled: true,
+                    remainingPercent: 60,
+                    window: "session",
+                    windowIds: ["session"],
+                    models: [codexModel],
+                  },
+                },
+              }),
+            ),
+            Effect.flip,
+          );
+        expect(refreshes).toBe(1);
+        expect(error.message).toContain("conservation");
+      }),
+  );
+
+  it.effect("conservation does not revoke a previously created managed conversation", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      const accepted = yield* f.prepare({ providers: [codex] });
+      const conserved = {
+        ...codex,
+        subagentConservation: {
+          state: "active" as const,
+          unavailable: false,
+          models: [codexModel],
+          message: "Conservation active",
+        },
+      };
+      yield* f.service
+        .validate({
+          workspacePath: f.workspacePath,
+          providers: [conserved],
+          ceiling: "full-access",
+          binding: accepted.binding,
+          selection: accepted.binding.effective,
+        })
+        .pipe(Effect.provideService(HostProcess.Environment, f.environment));
+    }),
+  );
+
   it.effect("refuses resume when the recorded read-only provider no longer enforces it", () =>
     Effect.gen(function* () {
       const f = yield* fixture;

@@ -2115,6 +2115,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
     promptSuggestions: Effect.Effect<boolean> = Effect.succeed(false),
     onNotification: (method: string) => Effect.Effect<void> = () => Effect.void,
     models?: CodexAdapterV2.CodexAdapterV2Options["models"],
+    readUsageIdentity?: CodexAdapterV2.CodexAdapterV2Options["readUsageIdentity"],
   ) =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -2178,6 +2179,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         clientFactory,
         ...(onUsageLimits ? { onUsageLimits } : {}),
         ...(models ? { models } : {}),
+        ...(readUsageIdentity ? { readUsageIdentity } : {}),
         digest: yield* Digest.Digest,
         fileSystem,
         idAllocator,
@@ -2311,6 +2313,90 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       assert.lengthOf(images, 1);
       assert.equal(images[0]?.viewedImagePath, imagePath);
       assert.equal(images[0]?.status, "completed");
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(
+          IdAllocator.layer,
+          McpProviderSessions.layer,
+          NodeServices.layer,
+          NodeCrypto.layer,
+        ),
+      ),
+    ),
+  );
+
+  it.effect.each([
+    { name: "original-account", before: "account-a", after: "account-a", expected: "account-a" },
+    { name: "new-account", before: "account-b", after: "account-b", expected: "account-b" },
+    { name: "changed-while-opening", before: "account-a", after: "account-b", expected: undefined },
+  ])("binds streamed usage to the account of each session: $name", (scenario) =>
+    Effect.gen(function* () {
+      const nativeThreadId = `usage-identity-${scenario.name}`;
+      const nativeTurnId = "usage-turn";
+      const transcript = makeCodexReplayTranscript({
+        scenario: nativeThreadId,
+        entries: [
+          ...codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt: "work" }),
+          {
+            type: "emit_inbound",
+            label: "account/rateLimits/updated",
+            frame: {
+              method: "account/rateLimits/updated",
+              params: {
+                rateLimits: {
+                  limitId: "codex",
+                  primary: { usedPercent: 85, resetsAt: 2000100000, windowDurationMins: 300 },
+                },
+              },
+            },
+          },
+          {
+            type: "emit_inbound",
+            label: "turn/completed",
+            frame: {
+              method: "turn/completed",
+              params: {
+                threadId: nativeThreadId,
+                turn: makeCodexReplayTurn({ id: nativeTurnId, status: "completed" }),
+              },
+            },
+          },
+        ],
+      });
+      const reads = yield* Ref.make(0);
+      const reported =
+        yield* Deferred.make<
+          Parameters<NonNullable<CodexAdapterV2.CodexAdapterV2Options["onUsageLimits"]>>[0]
+        >();
+      const identity = Ref.updateAndGet(reads, (n) => n + 1).pipe(
+        Effect.map((n) => (n === 1 ? scenario.before : scenario.after)),
+      );
+      const harness = yield* makeCodexReplayHarness(
+        transcript,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        (report) => Deferred.succeed(reported, report),
+        undefined,
+        undefined,
+        undefined,
+        identity,
+      );
+      yield* harness.runtime.startTurn(
+        makeCodexTestTurnInput({
+          threadId: harness.threadId,
+          providerThread: harness.providerThread,
+          now: yield* DateTime.now,
+          attemptId: RunAttemptId.make(`usage-${scenario.name}`),
+          text: "work",
+        }),
+      );
+      const report = yield* Deferred.await(reported);
+      assert.equal(report.credentialFingerprint, scenario.expected);
+      assert.equal(yield* Ref.get(reads), 2);
+      yield* harness.firstTerminal;
     }).pipe(
       Effect.scoped,
       Effect.provide(

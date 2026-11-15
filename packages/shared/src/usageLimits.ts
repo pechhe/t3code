@@ -19,6 +19,20 @@ import {
 
 import * as DateTime from "effect/DateTime";
 
+export function conservationModelsOf<A extends string | { readonly slug: string }>(
+  provider: Pick<ServerProvider, "conservationScope">,
+  models: ReadonlyArray<A>,
+): ReadonlyArray<A> {
+  const scope = provider.conservationScope;
+  return scope === undefined
+    ? models
+    : models.filter((model) =>
+        scope.providerIds.includes(
+          (typeof model === "string" ? model : model.slug).split("/")[0] ?? "",
+        ),
+      );
+}
+
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;

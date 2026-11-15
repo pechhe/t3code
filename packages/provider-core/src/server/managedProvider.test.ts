@@ -946,6 +946,7 @@ describe("makeManagedServerProvider", () => {
     Effect.scoped(
       Effect.gen(function* () {
         const usageLimits = {
+          credentialFingerprint: "verified-account",
           checkedAt: "2026-04-10T00:00:04.000Z",
           windows: [{ id: "session", kind: "session", label: "Session", usedPercent: 70 }],
         } as const;
@@ -959,10 +960,22 @@ describe("makeManagedServerProvider", () => {
           refreshOnInterval: false,
         });
         yield* Stream.take(provider.streamChanges, 1).pipe(Stream.runDrain);
+        for (const complete of [false, true]) {
+          yield* provider.applyUsageLimits({
+            checkedAt: "2026-04-10T00:00:05.000Z",
+            complete,
+            windows: [{ id: "session", kind: "session", label: "Session", usedPercent: 1 }],
+          });
+          assert.deepStrictEqual((yield* provider.getSnapshot).usageLimits, usageLimits);
+        }
         yield* provider.applyUsageLimits({ ...usageLimits, complete: true, authLabel: "tier-2" });
         assert.strictEqual((yield* provider.refresh).auth.label, "tier-2");
 
         yield* provider.applyUsageLimits({ ...usageLimits, complete: true });
+        assert.strictEqual(
+          (yield* provider.getSnapshot).usageLimits?.credentialFingerprint,
+          "verified-account",
+        );
         assert.strictEqual((yield* provider.getSnapshot).auth.label, undefined);
         const refreshed = yield* provider.refresh;
         assert.strictEqual(refreshed.auth.label, undefined);
