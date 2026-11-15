@@ -247,6 +247,7 @@ import { ComposerFooterPrimaryActions } from "./ComposerFooterControls";
 import { dialClicks, playDispatchCue, pressClick } from "~/lib/interfaceSounds";
 import { recordSendOrigin } from "~/lib/sendMotion";
 import { compactOnSendTokens } from "./compactOnSend.logic";
+import { type ThreadCompactionSavings } from "./device/blackholeStatus.logic";
 import { DeviceContextBar } from "./device/DeviceContextBar";
 import { type DeviceModelSliderHandle } from "./device/DeviceModelSlider";
 import { useComposerPoolAccount } from "./ComposerPoolAccount";
@@ -443,6 +444,7 @@ export interface ChatComposerProps {
     | import("@t3tools/client-runtime/state/context-window").ContextWindowSnapshot
     | null;
   extensionStatuses?: ReadonlyArray<{ readonly key: string; readonly text: string }> | undefined;
+  blackholeCompactionSavings?: ThreadCompactionSavings | undefined;
   onRunBlackholeCommand?: ((command: string) => void) | undefined;
   activeThreadShell: ThreadShell | null;
   compactDisabledReason: string | null;
@@ -4036,6 +4038,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 <DeviceContextBar
                   usage={activeContextWindow}
                   extensionStatuses={props.extensionStatuses}
+                  compactionSavings={props.blackholeCompactionSavings}
                   onRunBlackholeCommand={props.onRunBlackholeCommand}
                   threadCompactAt={props.activeThreadShell?.compactAt ?? null}
                   compactAtBounds={compactAtBounds}

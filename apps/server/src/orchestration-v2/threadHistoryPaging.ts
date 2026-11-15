@@ -770,6 +770,22 @@ export function buildBoundedThreadProjection(input: {
         : { ...handoff, summaryText: "", detailInTurnItem: true as const },
     );
 
+  let fallbackCompactionCount = 0;
+  let fallbackFreedTokens = 0;
+  if (input.projection.compactionSummary === undefined) {
+    for (const item of input.projection.turnItems) {
+      if (item.type !== "compaction" || item.status !== "completed") continue;
+      if (item.beforeTokenCount === undefined || item.afterTokenCount === undefined) continue;
+      fallbackCompactionCount += 1;
+      fallbackFreedTokens += Math.max(0, item.beforeTokenCount - item.afterTokenCount);
+    }
+  }
+  const compactionSummary =
+    input.projection.compactionSummary ??
+    (fallbackCompactionCount > 0
+      ? { compactionCount: fallbackCompactionCount, freedTokens: fallbackFreedTokens }
+      : undefined);
+
   const projection = {
     ...controlProjection,
     plans,
@@ -777,6 +793,7 @@ export function buildBoundedThreadProjection(input: {
     messages: messagesForBoundedProjection(controlProjection, turnItems),
     turnItems,
     visibleTurnItems,
+    ...(compactionSummary === undefined ? {} : { compactionSummary }),
   };
   return {
     projection,

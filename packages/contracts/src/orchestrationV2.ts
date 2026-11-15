@@ -2785,6 +2785,12 @@ export const OrchestrationV2ThreadProjection = Schema.Struct({
       item: ForwardCompatibleUnion(OrchestrationV2TurnItem.members, "type"),
     })),
   ),
+  compactionSummary: Schema.optional(
+    Schema.Struct({
+      compactionCount: NonNegativeInt,
+      freedTokens: NonNegativeInt,
+    }),
+  ),
   updatedAt: Schema.DateTimeUtc,
 });
 export type OrchestrationV2ThreadProjection = typeof OrchestrationV2ThreadProjection.Type;

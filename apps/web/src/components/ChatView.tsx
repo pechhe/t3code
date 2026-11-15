@@ -415,6 +415,7 @@ import {
   useDraftEnvironmentRouting,
 } from "./chat/useDraftEnvironmentRouting";
 import { branchMismatchBannerItem, extensionStatusBannerItem } from "./chat/ThreadActivityBanners";
+import { resolveThreadCompactionSavings } from "./chat/device/blackholeStatus.logic";
 import { ThreadNow } from "./chat/ThreadNow";
 import type { ThreadStructure } from "@t3tools/client-runtime/state/shell";
 import { useDelayedStatus } from "../hooks/useDelayedStatus";
@@ -4101,6 +4102,9 @@ export default function ChatView(props: ChatViewProps) {
                                 resumeCompactionModelName={resumeCompactionModelName}
                                 contextWindow={activeContextWindow}
                                 extensionStatuses={deriveProviderExtensionStatuses(
+                                  serverProjection,
+                                )}
+                                blackholeCompactionSavings={resolveThreadCompactionSavings(
                                   serverProjection,
                                 )}
                                 onRunBlackholeCommand={(command) => {

@@ -785,6 +785,42 @@ describe("PiAdapterV2", () => {
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 
+  it.effect("coalesces rotating braille spinner frames in blackhole extension status", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      const { runtime, takeEvent } = yield* openRuntime(fake);
+      for (const frame of ["⠋", "⠙", "⠹", "⠸"]) {
+        yield* fake.emit({
+          type: "extension_ui_request",
+          method: "setStatus",
+          statusKey: "blackhole",
+          statusText: `bh O▕████░░░░▏  P▕░░░░░░░░▏  X▕█░░░░░░░▏  ${frame} [observer]`,
+        });
+      }
+      yield* fake.emit({
+        type: "extension_ui_request",
+        id: "spinner-barrier",
+        method: "input",
+        title: "Continue?",
+      });
+      const observed: ProviderAdapter.ProviderAdapterV2Event[] = [];
+      yield* takeEvent((event) => {
+        observed.push(event);
+        return event.type === "runtime_request.updated";
+      });
+      const snapshots = observed.filter((event) => event.type === "provider_session.updated");
+      assert.lengthOf(snapshots, 1);
+      assert.deepInclude(runtime.providerSession, {
+        extensionStatuses: [
+          {
+            key: "blackhole",
+            text: "bh O▕████░░░░▏  P▕░░░░░░░░▏  X▕█░░░░░░░▏  • [observer]",
+          },
+        ],
+      });
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
   it.effect("publishes extension status while native work awaits adoption", () =>
     Effect.gen(function* () {
       const fake = yield* makeFakePi;

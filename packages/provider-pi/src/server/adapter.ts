@@ -748,15 +748,23 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           (rawText !== undefined && typeof rawText !== "string")
         )
           return;
-        const text =
+        const normalizedRaw =
           typeof rawText === "string"
             ? NodeUtil.stripVTControlCharacters(
                 rawText.slice(0, MAX_EXTENSION_STATUS_TEXT_LENGTH * 4),
               )
                 .replaceAll(/\p{Cc}/gu, " ")
                 .trim()
-                .slice(0, MAX_EXTENSION_STATUS_TEXT_LENGTH)
             : "";
+        // Coalesce pi-blackhole's 80ms braille spinner ticks so a running pass emits one session update.
+        const text = (
+          key === "blackhole"
+            ? normalizedRaw.replaceAll(
+                /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏](\s+\[(?:observer|reflector|dropper|compact)\])/g,
+                "•$1",
+              )
+            : normalizedRaw
+        ).slice(0, MAX_EXTENSION_STATUS_TEXT_LENGTH);
         const statuses = sessionEntity.extensionStatuses ?? [];
         if (extensionStatusReset?.previous.some((status) => status.key === key)) {
           extensionStatusReset.touched.add(key);

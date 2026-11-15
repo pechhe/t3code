@@ -19,8 +19,55 @@ export interface BlackholeStatusSnapshot {
 
 const ANSI_ESCAPE_RE = /\u001b\[[0-9;]*m/g;
 const GAUGE_RE = /\b([OPX])▕([█░]+)▏/g;
-const RUNNING_WORKER_RE = /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]\s+\[(observer|reflector|dropper|compact)\]/;
+const RUNNING_WORKER_RE = /[•⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]\s+\[(observer|reflector|dropper|compact)\]/;
 const DONE_WORKER_RE = /✓\s+\[(observer|reflector|dropper|compact)\](?:\s+\+(\d+))?(?:\s+(.+))?$/;
+
+export interface ThreadCompactionSavings {
+  readonly compactionCount: number;
+  readonly freedTokens: number;
+}
+
+export function resolveThreadCompactionSavings(
+  projection:
+    | {
+        readonly compactionSummary?: ThreadCompactionSavings | undefined;
+        readonly turnItems: ReadonlyArray<{
+          readonly type: string;
+          readonly status?: string | undefined;
+          readonly beforeTokenCount?: number | null | undefined;
+          readonly afterTokenCount?: number | null | undefined;
+        }>;
+      }
+    | null
+    | undefined,
+): ThreadCompactionSavings {
+  if (!projection) return { compactionCount: 0, freedTokens: 0 };
+  if (projection.compactionSummary !== undefined) {
+    return projection.compactionSummary;
+  }
+  return summarizeThreadCompactionSavings(projection.turnItems);
+}
+
+export function summarizeThreadCompactionSavings(
+  items: ReadonlyArray<{
+    readonly type: string;
+    readonly status?: string | undefined;
+    readonly beforeTokenCount?: number | null | undefined;
+    readonly afterTokenCount?: number | null | undefined;
+  }>,
+): ThreadCompactionSavings {
+  let compactionCount = 0;
+  let freedTokens = 0;
+  for (const item of items) {
+    if (item.type !== "compaction" || item.status !== "completed") continue;
+    if (typeof item.beforeTokenCount !== "number" || typeof item.afterTokenCount !== "number") {
+      continue;
+    }
+    compactionCount += 1;
+    freedTokens += Math.max(0, item.beforeTokenCount - item.afterTokenCount);
+  }
+  return { compactionCount, freedTokens };
+}
 
 function stripAnsi(text: string): string {
   return text.replace(ANSI_ESCAPE_RE, "");

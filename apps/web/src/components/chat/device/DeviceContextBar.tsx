@@ -14,6 +14,7 @@ import { Popover, PopoverPopup } from "../../ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
 import {
   type BlackholeStatusSnapshot,
+  type ThreadCompactionSavings,
   parseBlackholeExtensionStatus,
 } from "./blackholeStatus.logic";
 import {
@@ -37,6 +38,7 @@ function clampPercent(value: number): number {
 export function DeviceContextBar(props: {
   usage: ContextWindowSnapshot | null;
   extensionStatuses?: ReadonlyArray<{ readonly key: string; readonly text: string }> | undefined;
+  compactionSavings?: ThreadCompactionSavings | undefined;
   onRunBlackholeCommand?: ((command: string) => void) | undefined;
   /** This thread's own compact-at point; null follows the provider's setting. */
   threadCompactAt: number | null;
@@ -104,6 +106,7 @@ export function DeviceContextBar(props: {
         {blackhole ? (
           <BlackholeStatusControl
             status={blackhole}
+            compactionSavings={props.compactionSavings}
             canOperateThread={props.canOperateThread}
             compactDisabled={props.compactDisabled}
             onRunCommand={props.onRunBlackholeCommand}
@@ -364,10 +367,6 @@ function CompactLine(props: {
 }
 
 function formatBlackholePillLabel(status: BlackholeStatusSnapshot): string {
-  if (status.worker?.kind === "running") return `${status.worker.phase}…`;
-  if (status.worker?.kind === "done") {
-    return status.worker.delta !== null ? `+${status.worker.delta}` : "✓";
-  }
   if (!status.memoryEnabled) return "off";
   if (status.observerFraction !== null) return `${Math.round(status.observerFraction * 100)}%`;
   return "";
@@ -401,15 +400,17 @@ function BlackholeGlyph() {
 
 function BlackholeStatusControl(props: {
   status: BlackholeStatusSnapshot;
+  compactionSavings: ThreadCompactionSavings | undefined;
   canOperateThread: boolean;
   compactDisabled: boolean;
   onRunCommand: ((command: string) => void) | undefined;
   onCompact: (() => void) | undefined;
 }) {
   const [open, setOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
   const [pillEl, setPillEl] = useState<HTMLButtonElement | null>(null);
-  const { status } = props;
-  const pillState = status.worker?.kind ?? (status.memoryEnabled ? "idle" : "off");
+  const { status, compactionSavings } = props;
+  const pillState = status.memoryEnabled ? "idle" : "off";
 
   const runAndClose = (command: string) => {
     setOpen(false);
@@ -430,7 +431,9 @@ function BlackholeStatusControl(props: {
         onClick={() => setOpen((current) => !current)}
       >
         <BlackholeGlyph />
-        {formatBlackholePillLabel(status) ? <span>{formatBlackholePillLabel(status)}</span> : null}
+        {formatBlackholePillLabel(status) ? (
+          <span className="device-context__bh-label">{formatBlackholePillLabel(status)}</span>
+        ) : null}
       </button>
       <PopoverPopup anchor={pillEl} side="top" align="end" width="md" padding="compact">
         <div className="flex flex-col gap-3">
@@ -438,15 +441,26 @@ function BlackholeStatusControl(props: {
             <span className="text-xs font-semibold text-foreground">
               Blackhole Observational Memory
             </span>
-            <span className="font-mono text-2xs text-muted-foreground">
-              {status.worker?.kind === "running"
-                ? `Running ${status.worker.phase}…`
-                : status.worker?.kind === "done"
-                  ? `Settled${status.worker.delta !== null ? ` (+${status.worker.delta})` : ""}`
-                  : status.memoryEnabled
-                    ? "Active"
-                    : "Paused"}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-2xs text-muted-foreground">
+                {status.worker?.kind === "running"
+                  ? `Running ${status.worker.phase}…`
+                  : status.worker?.kind === "done"
+                    ? `Settled${status.worker.delta !== null ? ` (+${status.worker.delta})` : ""}`
+                    : status.memoryEnabled
+                      ? "Active"
+                      : "Paused"}
+              </span>
+              <Button
+                type="button"
+                size="xs"
+                variant="ghost"
+                aria-expanded={guideOpen}
+                onClick={() => setGuideOpen((current) => !current)}
+              >
+                {guideOpen ? "Hide guide" : "Guide"}
+              </Button>
+            </div>
           </div>
 
           <div className="grid grid-cols-3 gap-2">
@@ -470,22 +484,53 @@ function BlackholeStatusControl(props: {
             />
           </div>
 
+          {guideOpen ? (
+            <div className="flex flex-col gap-1.5 rounded-md border border-border/60 bg-muted/40 px-2.5 py-2 text-2xs leading-relaxed text-muted-foreground">
+              <p>
+                <span className="font-medium text-foreground">Observer %:</span> New tokens since
+                the last observer pass. At 100%, a background model records key facts and resets to
+                0%.
+              </p>
+              <p>
+                <span className="font-medium text-foreground">Obs Pool %:</span> Saved observation
+                buffer fill. As it fills, Reflector condenses older notes and Dropper trims stale
+                ones.
+              </p>
+              <p>
+                <span className="font-medium text-foreground">Compaction %:</span> Context fill
+                toward Blackhole's auto-compact point. At 100%, older turns fold into a structural
+                summary at zero LLM cost.
+              </p>
+            </div>
+          ) : null}
+
+          {compactionSavings ? (
+            <div className="flex items-center justify-between gap-2 rounded-md bg-muted/40 px-2.5 py-1.5 text-2xs">
+              <span className="text-muted-foreground">Context freed in thread</span>
+              <span className="font-mono tabular-nums text-foreground">
+                {compactionSavings.compactionCount > 0
+                  ? `${formatContextWindowTokens(compactionSavings.freedTokens)} (${compactionSavings.compactionCount} ${
+                      compactionSavings.compactionCount === 1 ? "compaction" : "compactions"
+                    })`
+                  : "0 (no compactions yet)"}
+              </span>
+            </div>
+          ) : null}
+
           {props.onRunCommand || props.onCompact ? (
             <div className="flex items-center justify-end gap-1.5 border-t border-border/60 pt-2">
               {props.onRunCommand ? (
-                <>
-                  <Button
-                    type="button"
-                    size="xs"
-                    variant="outline"
-                    disabled={!props.canOperateThread}
-                    onClick={() =>
-                      runAndClose(status.memoryEnabled ? "/blackhole om-off" : "/blackhole om-on")
-                    }
-                  >
-                    {status.memoryEnabled ? "Pause memory" : "Resume memory"}
-                  </Button>
-                </>
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="outline"
+                  disabled={!props.canOperateThread}
+                  onClick={() =>
+                    runAndClose(status.memoryEnabled ? "/blackhole om-off" : "/blackhole om-on")
+                  }
+                >
+                  {status.memoryEnabled ? "Pause memory" : "Resume memory"}
+                </Button>
               ) : null}
               {props.onCompact ? (
                 <Button

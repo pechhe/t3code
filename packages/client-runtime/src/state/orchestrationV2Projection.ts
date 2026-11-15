@@ -430,10 +430,49 @@ export function applyOrchestrationV2ProjectionEvent(
         itemIndex === -1
           ? [...projection.turnItems, payload]
           : replaceProjectionArrayItem(projection.turnItems, itemIndex, payload);
-      const next = { ...base, turnItems };
+      const previous = itemIndex === -1 ? undefined : projection.turnItems[itemIndex];
+      const wasCountedCompaction =
+        previous?.type === "compaction" &&
+        previous.status === "completed" &&
+        previous.beforeTokenCount !== undefined &&
+        previous.afterTokenCount !== undefined;
+      const compactionDelta =
+        !wasCountedCompaction &&
+        payload.type === "compaction" &&
+        payload.status === "completed" &&
+        payload.beforeTokenCount !== undefined &&
+        payload.afterTokenCount !== undefined
+          ? Math.max(0, payload.beforeTokenCount - payload.afterTokenCount)
+          : null;
+      const compactionSummary =
+        compactionDelta !== null
+          ? (() => {
+              if (projection.compactionSummary !== undefined) {
+                return {
+                  compactionCount: projection.compactionSummary.compactionCount + 1,
+                  freedTokens: projection.compactionSummary.freedTokens + compactionDelta,
+                };
+              }
+              let compactionCount = 0;
+              let freedTokens = 0;
+              for (const item of turnItems) {
+                if (item.type !== "compaction" || item.status !== "completed") continue;
+                if (item.beforeTokenCount === undefined || item.afterTokenCount === undefined) {
+                  continue;
+                }
+                compactionCount += 1;
+                freedTokens += Math.max(0, item.beforeTokenCount - item.afterTokenCount);
+              }
+              return { compactionCount, freedTokens };
+            })()
+          : projection.compactionSummary;
+      const next = {
+        ...base,
+        turnItems,
+        ...(compactionSummary === undefined ? {} : { compactionSummary }),
+      };
       // Only interrupt requests can change another item's visibility. Streaming
       // text/tool updates must not recheck every row against every run.
-      const previous = itemIndex === -1 ? undefined : projection.turnItems[itemIndex];
       const visible =
         payload.type === "run_interrupt_request" || previous?.type === "run_interrupt_request"
           ? { ...next, visibleTurnItems: activeVisibleTurnItems(next) }

@@ -9,6 +9,7 @@ import {
   EventId,
   MessageId,
   ProjectId,
+  ProviderDriverKind,
   ProviderInstanceId,
   NodeId,
   ProviderThreadId,
@@ -863,4 +864,63 @@ it("restores deduped bodies from the records it already holds, also in a partial
     event("subagent.updated", { ...subagent, prompt: "", promptOmitted: true, progress: "step 2" }),
   );
   expect(progressed?.subagents).toEqual([{ ...subagent, progress: "step 2" }]);
+});
+
+it("updates compactionSummary once when a compaction completes live", () => {
+  const compactionRunning = {
+    id: TurnItemId.make("compaction-live"),
+    threadId,
+    runId,
+    nodeId: null,
+    providerThreadId: null,
+    providerTurnId: null,
+    nativeItemRef: null,
+    parentItemId: null,
+    ordinal: 1,
+    title: null,
+    startedAt: now,
+    completedAt: null,
+    updatedAt: now,
+    type: "compaction" as const,
+    driver: ProviderDriverKind.make("pi"),
+    status: "running" as const,
+    beforeTokenCount: 150_000,
+  };
+  const base: OrchestrationV2ThreadProjection = {
+    ...emptyProjection,
+    compactionSummary: { compactionCount: 1, freedTokens: 100_000 },
+    turnItems: [],
+  };
+  const event = (payload: unknown) =>
+    ({
+      id: "event-compaction",
+      type: "turn-item.updated",
+      threadId,
+      runId,
+      occurredAt: now,
+      payload,
+    }) as OrchestrationV2DomainEvent;
+
+  const running = applyOrchestrationV2ProjectionEvent(base, event(compactionRunning));
+  expect(running?.compactionSummary).toEqual({ compactionCount: 1, freedTokens: 100_000 });
+
+  const completed = applyOrchestrationV2ProjectionEvent(running, {
+    ...event({
+      ...compactionRunning,
+      status: "completed",
+      completedAt: now,
+      afterTokenCount: 30_000,
+    }),
+  });
+  expect(completed?.compactionSummary).toEqual({ compactionCount: 2, freedTokens: 220_000 });
+
+  const repeated = applyOrchestrationV2ProjectionEvent(completed, {
+    ...event({
+      ...compactionRunning,
+      status: "completed",
+      completedAt: now,
+      afterTokenCount: 30_000,
+    }),
+  });
+  expect(repeated?.compactionSummary).toEqual({ compactionCount: 2, freedTokens: 220_000 });
 });

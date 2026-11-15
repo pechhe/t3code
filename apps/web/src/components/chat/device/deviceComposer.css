@@ -563,16 +563,6 @@
   border-color: color-mix(in oklch, var(--cream-ink) 38%, transparent);
   color: var(--cream-ink);
 }
-.device-context__bh-pill[data-state="running"] {
-  border-color: color-mix(in oklch, var(--crt-amber) 48%, transparent);
-  background: color-mix(in oklch, var(--crt-amber) 14%, transparent);
-  color: var(--crt-amber);
-}
-.device-context__bh-pill[data-state="done"] {
-  border-color: color-mix(in oklch, oklch(0.6 0.16 148) 42%, transparent);
-  background: color-mix(in oklch, oklch(0.6 0.16 148) 12%, transparent);
-  color: oklch(0.52 0.15 148);
-}
 .device-context__bh-pill[data-state="off"] {
   opacity: 0.65;
 }
@@ -581,6 +571,11 @@
   height: 14px;
   flex: none;
   overflow: visible;
+}
+.device-context__bh-label {
+  min-width: 4ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 .device-context__bh-core {
   fill: var(--cream-ink);

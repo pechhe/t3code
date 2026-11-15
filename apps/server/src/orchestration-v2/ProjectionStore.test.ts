@@ -3503,6 +3503,137 @@ it.effect("SQL snapshot windows leave handoff bodies in SQLite without changing 
   }).pipe(Effect.provide(layerTest)),
 );
 
+it.effect(
+  "getThreadSnapshotWindow keeps whole-thread compactionSummary when older compactions sit outside the window",
+  () =>
+    Effect.gen(function* () {
+      const store = yield* ProjectionStore.ProjectionStoreV2;
+      const now = yield* DateTime.now;
+      const threadId = ThreadId.make("thread-compaction-summary-window");
+      const runId = RunId.make("run-compaction-summary-window");
+      yield* store.apply({
+        id: EventId.make("event-thread"),
+        type: "thread.created",
+        threadId,
+        occurredAt: now,
+        payload: {
+          createdBy: "user",
+          creationSource: "web",
+          id: threadId,
+          projectId: ProjectId.make("project-1"),
+          title: "Compaction summary",
+          providerInstanceId,
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          activeProviderThreadId: null,
+          lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+          forkedFrom: null,
+          createdAt: now,
+          updatedAt: now,
+          archivedAt: null,
+          settledOverride: null,
+          settledAt: null,
+          lastVisitedAt: null,
+          deletedAt: null,
+        },
+      });
+      yield* store.apply({
+        id: EventId.make("event-run"),
+        type: "run.created",
+        threadId,
+        runId,
+        occurredAt: now,
+        payload: {
+          id: runId,
+          threadId,
+          ordinal: 1,
+          providerInstanceId,
+          modelSelection,
+          providerThreadId: null,
+          userMessageId: MessageId.make("msg-compaction-summary-trigger"),
+          rootNodeId: NodeId.make("node-root"),
+          activeAttemptId: null,
+          status: "completed",
+          requestedAt: now,
+          startedAt: now,
+          completedAt: now,
+          checkpointId: null,
+          contextHandoffId: null,
+        },
+      });
+      for (const [ordinal, before, after] of [
+        [1, 150_000, 30_000],
+        [2, 90_000, 20_000],
+      ] as const) {
+        yield* store.apply({
+          id: EventId.make(`event-comp-${ordinal}`),
+          type: "turn-item.updated",
+          threadId,
+          runId,
+          occurredAt: now,
+          payload: {
+            id: TurnItemId.make(`item-comp-${ordinal}`),
+            threadId,
+            runId,
+            nodeId: NodeId.make("node-root"),
+            providerThreadId: null,
+            providerTurnId: null,
+            nativeItemRef: null,
+            parentItemId: null,
+            ordinal,
+            status: "completed",
+            title: null,
+            startedAt: now,
+            completedAt: now,
+            updatedAt: now,
+            type: "compaction",
+            driver: ProviderDriverKind.make("pi"),
+            beforeTokenCount: before,
+            afterTokenCount: after,
+          },
+        });
+      }
+      for (let ordinal = 3; ordinal <= 8; ordinal += 1) {
+        yield* store.apply({
+          id: EventId.make(`event-msg-${ordinal}`),
+          type: "turn-item.updated",
+          threadId,
+          runId,
+          occurredAt: now,
+          payload: {
+            id: TurnItemId.make(`item-msg-${ordinal}`),
+            threadId,
+            runId,
+            nodeId: NodeId.make("node-root"),
+            providerThreadId: null,
+            providerTurnId: null,
+            nativeItemRef: null,
+            parentItemId: null,
+            ordinal,
+            status: "completed",
+            title: null,
+            startedAt: now,
+            completedAt: now,
+            updatedAt: now,
+            type: "assistant_message",
+            messageId: MessageId.make(`msg-${ordinal}`),
+            text: `Reply ${ordinal}`,
+            streaming: false,
+          },
+        });
+      }
+      const window = yield* store.getThreadSnapshotWindow(threadId, { rowLimit: 2 });
+      assert.isFalse(window.projection.turnItems.some((item) => item.type === "compaction"));
+      assert.deepEqual(window.projection.compactionSummary, {
+        compactionCount: 2,
+        freedTokens: 190_000,
+      });
+    }).pipe(Effect.provide(layerTest)),
+);
+
 it.effect("lists only active subagent IDs without loading shell data", () =>
   Effect.gen(function* () {
     const store = yield* ProjectionStore.ProjectionStoreV2;

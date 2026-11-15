@@ -4474,6 +4474,30 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           `,
         ]);
 
+        const compactionSummaryRows =
+          fields !== undefined
+            ? []
+            : yield* sql<{ readonly compaction_count: number; readonly freed_tokens: number }>`
+                SELECT
+                  COUNT(*) AS compaction_count,
+                  COALESCE(
+                    SUM(
+                      MAX(
+                        0,
+                        CAST(json_extract(payload_json, '$.beforeTokenCount') AS INTEGER) -
+                          CAST(json_extract(payload_json, '$.afterTokenCount') AS INTEGER)
+                      )
+                    ),
+                    0
+                  ) AS freed_tokens
+                FROM orchestration_v2_projection_turn_items
+                WHERE thread_id = ${threadId}
+                  AND type = 'compaction'
+                  AND status = 'completed'
+                  AND json_extract(payload_json, '$.beforeTokenCount') IS NOT NULL
+                  AND json_extract(payload_json, '$.afterTokenCount') IS NOT NULL
+              `;
+
         const messageOrdinals = new Map<string, number>();
         // The literal `type = 'user_message'` lets SQLite pick the partial user-message index.
         const userOnly = filter?.messageRoles?.length === 1 && filter.messageRoles[0] === "user";
@@ -4570,6 +4594,9 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             decodeRows(decodeContextTransferPayload, threadId)(contextTransferRows),
           ]);
           const orderedMessages = sortMessagesByTurnItemOrder(messages, turnItems, messageOrdinals);
+          const compactionRow = compactionSummaryRows[0];
+          const compactionCount = Math.max(0, compactionRow?.compaction_count ?? 0);
+          const freedTokens = Math.max(0, compactionRow?.freed_tokens ?? 0);
           const projection = {
             thread,
             runs,
@@ -4588,6 +4615,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             contextHandoffs,
             contextTransfers,
             visibleTurnItems: [],
+            ...(compactionCount > 0 ? { compactionSummary: { compactionCount, freedTokens } } : {}),
             updatedAt: thread.updatedAt,
           } satisfies OrchestrationV2ThreadProjection;
           return projection;
