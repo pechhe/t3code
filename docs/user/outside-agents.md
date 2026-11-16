@@ -201,15 +201,20 @@ Browser and visual-check roles remain unavailable through this route. See
 [trusted Claude writers](../operations/agent-delegation.md#trusted-claude-writers)
 for enablement and migration semantics.
 
-The session's workspace is the lead's own. To run a helper at the same time as
-the lead, allocate it a separate workspace of the same repository (with SlipJay,
-its own workspace) and submit with `"workspaceAssignment": "isolated"` and that
-path. T3 refuses the lead's own checkout, the project's main checkout, a
-subdirectory, another repository and a workspace another task is already writing
-in. The helper stays owned by the same session. When it finishes, `status`
-returns a `handoff` with the exact revision to adopt and whether the workspace
-was clean. Adopting it into the lead's candidate is the lead's job and is not a
-landing.
+The session's workspace is the lead's own. Helpers share it by default: leave
+`workspaceAssignment` unset and allocate no separate workspace. Settle shared
+parts first, split by responsibility, and have the lead commit the result.
+
+Allocate a separate workspace and submit with `"workspaceAssignment": "isolated"`
+only for an attempt you may discard, competing attempts, work needing its own
+server or database, or a worker fixing something outside the current work.
+An isolated submission refuses the lead's own checkout, the project's main
+checkout, a subdirectory, another repository and a workspace another task is
+already writing in. The helper stays owned by the same session. When it finishes,
+`status` returns a `handoff` with the exact revision to adopt and whether the
+workspace was clean. Adopting it into the lead's candidate is the lead's job and
+is not a landing. Helpers in another repository also need isolation, but require
+an in-app thread rather than this external-session route.
 
 A review task pins the candidate as `sourceRevision` and declares `review`:
 `"scope": "change"` for a candidate landing, with its `baseRevision` and the

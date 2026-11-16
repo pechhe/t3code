@@ -50,8 +50,8 @@ describe("Codex orchestration context", () => {
       .map(([, entry]) => entry.value)
       .join("\n");
 
-    NodeAssert.ok(orchestration.includes("Delegate by role, not by model"));
-    NodeAssert.ok(orchestration.includes("even if the user names a model"));
+    NodeAssert.ok(orchestration.includes("Delegate child work by role"));
+    NodeAssert.ok(orchestration.includes("Honour user-named models"));
     NodeAssert.ok(!orchestration.includes("use your native tool"));
     NodeAssert.ok(!orchestration.includes("run_in_background:false"));
     NodeAssert.ok(orchestration.includes("Send each later review round to the same reviewer"));
