@@ -29,7 +29,7 @@ import {
   RELEASE_PHASE_SHORT,
   advanceReleaseClock,
   releaseClockKey,
-  resolveFailedPromotions,
+  resolveReleaseAttention,
   resolveProductionAges,
   resolveReleasesInFlight,
   resolveProductionLine,
@@ -111,9 +111,12 @@ export function ReleaseButton({ environmentId }: { environmentId: EnvironmentId 
     deploy?.startedAt == null ? Number.POSITIVE_INFINITY : Date.parse(deploy.startedAt),
   );
   const elapsed = Number.isFinite(began) ? formatSlipJayDuration(now - began) : null;
-  const failed =
-    !deploying &&
-    (resolveFailedPromotions(overview, promotions).length > 0 || ages.some((age) => age.failed));
+  const attention = deploying
+    ? null
+    : ages.some((age) => age.failed)
+      ? "failed"
+      : resolveReleaseAttention(overview, promotions);
+  const failed = attention !== null;
   const unhealthy = !deploying && ages.some((age) => age.healthy === false);
   const ageLabel = (deployedAt: string) => formatElapsedDurationLabel(deployedAt, now);
   return (
@@ -162,15 +165,17 @@ export function ReleaseButton({ environmentId }: { environmentId: EnvironmentId 
                 (failed || unhealthy) && "text-destructive-foreground",
               )}
             >
-              {failed
+              {attention === "failed"
                 ? "Release failed"
-                : ages.length === 0
-                  ? "Production"
-                  : ages.length === 1
-                    ? `Released ${ageLabel(ages[0]!.deployedAt)} ago`
-                    : ages
-                        .map((age) => `${repositoryName(age.repo)} ${ageLabel(age.deployedAt)}`)
-                        .join(" · ")}
+                : attention === "held"
+                  ? "Release held"
+                  : ages.length === 0
+                    ? "Production"
+                    : ages.length === 1
+                      ? `Released ${ageLabel(ages[0]!.deployedAt)} ago`
+                      : ages
+                          .map((age) => `${repositoryName(age.repo)} ${ageLabel(age.deployedAt)}`)
+                          .join(" · ")}
             </span>
           </>
         )}

@@ -9,6 +9,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   advanceReleaseClock,
   resolveBoxFooter,
+  resolveReleaseAttention,
   resolveReleaseProgress,
   resolveReleaseStepTimes,
   createReleaseAnnouncementGate,
@@ -203,16 +204,63 @@ describe("the SlipJay box", () => {
       "Production deploy failed · rolled back",
     );
     expect(resolveReleaseWaiting(failed("failed", null)).text).toBe("Production deploy failed");
-    // Failed images, verification or withheld promotion are not a production deploy.
-    const held = resolveReleaseWaiting(failed(null, "images failed to build"));
-    expect(held.text).toBe("Release held: images failed to build");
-    expect(held.detail).toBeNull();
-    expect(resolveReleaseWaiting(failed(null, null))).toMatchObject({
-      text: "Release held",
-      detail: null,
+    // Failed images or verification are not a production deploy; the why stays its own line.
+    expect(resolveReleaseWaiting(failed(null, "images failed to build"))).toMatchObject({
+      tone: "bad",
+      text: "Release failed",
+      detail: "images failed to build",
     });
     // A detail the sentence does not carry stays as the quiet why-line.
     expect(resolveReleaseWaiting(failed("failed", "timed out")).detail).toBe("timed out");
+  });
+
+  it("tells a release held for a decision from the routine wait for the next slot (T3-700)", () => {
+    const reason =
+      "Not promoting ea1f92012b2b automatically: it carries non-additive migrations (0479.sql): the owner decides";
+    const held = release({ waitingOn: { kind: "withheld", detail: reason } });
+    expect(resolveReleaseWaiting(held)).toEqual({
+      tone: "bad",
+      text: "Release held",
+      detail: reason,
+    });
+    expect(resolveReleaseRow(held, null)).toMatchObject({
+      tone: "bad",
+      detail: reason,
+      action: "release",
+    });
+    expect(resolveReleaseProgress("o/r", held, overview()).state).toBe("waiting");
+
+    // 17:00 UTC in summer is 18:00 in London, whatever the viewer's own zone.
+    const scheduled = release({
+      waitingOn: {
+        kind: "scheduled",
+        detail: "Not promoting ea1f92012b2b automatically: waiting",
+        at: "2026-07-16T17:00:00Z",
+      },
+    });
+    expect(resolveReleaseWaiting(scheduled)).toEqual({
+      tone: "warn",
+      text: "Next release 18:00",
+      detail: null,
+    });
+    expect(resolveReleaseProgress("o/r", scheduled, overview()).state).toBe("waiting");
+
+    const resting = (kind: SlipJayRunnerRelease["waitingOn"]["kind"]) =>
+      overview({
+        repositories: [
+          {
+            repo: "o/r",
+            screeningLanes: 0,
+            today: { landed: 0, failedScreens: 0 },
+            release: release({ waitingOn: { kind, detail: null } }),
+          },
+        ],
+      });
+    expect(resolveReleaseAttention(resting("withheld"), [])).toBe("held");
+    expect(resolveReleaseAttention(resting("failed"), [])).toBe("failed");
+    expect(resolveReleaseAttention(resting("scheduled"), [])).toBeNull();
+    // Once the release goes out, nothing is left to dismiss.
+    expect(resolveReleaseAttention(resting("up_to_date"), [])).toBeNull();
   });
 
   it("reads production in a line, keeping the latest attempt a note and flagging ill health", () => {

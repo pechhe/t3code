@@ -396,7 +396,11 @@ export const SlipJayRunnerRelease = Schema.Struct({
       nextRunAt: Schema.NullOr(Schema.String),
     }),
   ),
-  /** What the candidate waits on before production carries it. */
+  /**
+   * What the candidate waits on before production carries it. `withheld`: a promotion refused
+   * until someone decides; `scheduled`: the routine wait for the next promotion slot, `at`;
+   * `failed`: a release step failed (T3-700).
+   */
   waitingOn: Schema.Struct({
     kind: Schema.Literals([
       "up_to_date",
@@ -406,10 +410,14 @@ export const SlipJayRunnerRelease = Schema.Struct({
       "verification",
       "deploy",
       "approval",
+      "withheld",
+      "scheduled",
       "failed",
     ]),
     /** SlipJay's own sentence on why, such as the audit hold reason. */
     detail: Schema.NullOr(Schema.String),
+    /** When a `scheduled` wait's slot falls due; absent from older runners and other kinds. */
+    at: Schema.optional(Schema.String),
   }),
 });
 export type SlipJayRunnerRelease = typeof SlipJayRunnerRelease.Type;

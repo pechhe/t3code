@@ -13,6 +13,21 @@ const formatClock = (iso: string): string => {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
 };
 
+/**
+ * A release slot's `HH:mm` in Europe/London, where the release schedules are kept, whatever the
+ * viewer's own zone (T3-700).
+ */
+const formatReleaseSlot = (iso: string): string => {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "Europe/London",
+  });
+};
+
 const sha7 = (commitId: string) => commitId.slice(0, 7);
 
 /**
@@ -75,7 +90,8 @@ export function resolveReleaseWaiting(release: SlipJayRunnerRelease): {
   detail: string | null;
 } {
   const sentence = releaseSentence(release);
-  const detail = release.waitingOn.detail;
+  // The routine wait for the next slot needs no why: its sentence says when.
+  const detail = release.waitingOn.kind === "scheduled" ? null : release.waitingOn.detail;
   return {
     ...sentence,
     detail: detail && !sentence.text.includes(detail) ? detail : null,
@@ -105,19 +121,23 @@ function releaseSentence(release: SlipJayRunnerRelease): { tone: SlipJayTone; te
       return { tone: "run", text: "Releasing to production" };
     case "approval":
       return { tone: "warn", text: "Waiting on approval" };
+    case "withheld":
+      return { tone: "bad", text: "Release held" };
+    case "scheduled": {
+      const at = release.waitingOn.at === undefined ? "" : formatReleaseSlot(release.waitingOn.at);
+      return {
+        tone: "warn",
+        text: at === "" ? "Waiting for the next release" : `Next release ${at}`,
+      };
+    }
     case "failed": {
-      // SlipJay also files failed images, verification and withheld promotion under `failed`.
+      // Failed images or verification, or a production deploy that failed.
       const attempt = release.production.latestAttempt?.status;
       return attempt === "rolled_back"
         ? { tone: "bad", text: "Production deploy failed · rolled back" }
         : attempt === "failed"
           ? { tone: "bad", text: "Production deploy failed" }
-          : {
-              tone: "bad",
-              text: release.waitingOn.detail
-                ? `Release held: ${release.waitingOn.detail}`
-                : "Release held",
-            };
+          : { tone: "bad", text: "Release failed" };
     }
   }
 }
@@ -168,6 +188,21 @@ export function resolveReleaseRow(
         ? null
         : "release",
   };
+}
+
+/**
+ * What the header's resting pill calls attention to (T3-700): a release that failed, else a
+ * release held for someone to decide. The routine wait for the next slot never does.
+ */
+export function resolveReleaseAttention(
+  overview: SlipJayRunnerOverview,
+  promotions: ReadonlyArray<VcsSlipJayPromotion> | null | undefined,
+): "failed" | "held" | null {
+  const kinds = overview.repositories.map((repository) => repository.release?.waitingOn.kind);
+  if (resolveFailedPromotions(overview, promotions).length > 0 || kinds.includes("failed")) {
+    return "failed";
+  }
+  return kinds.includes("withheld") ? "held" : null;
 }
 
 /** The releases that failed and still matter, which the box's tag calls attention to. */
@@ -243,7 +278,13 @@ export function resolveReleaseProgress(
     phase = "deploy";
   } else if (kind === "images" || kind === "audit" || kind === "verification") {
     phase = kind;
-  } else if (kind === "approval" || kind === "paused") {
+  } else if (
+    kind === "approval" ||
+    kind === "paused" ||
+    kind === "scheduled" ||
+    kind === "withheld"
+  ) {
+    // A hold is not a failure: the deploy step waits, and the row's sentence says why.
     phase = "deploy";
     state = "waiting";
   } else if (kind === "failed") {
