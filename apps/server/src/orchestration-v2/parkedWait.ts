@@ -4,11 +4,14 @@ import type {
   OrchestrationV2ParkedWait,
   OrchestrationV2ParkedWaitTarget,
 } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import type * as SqlClient from "effect/sql/SqlClient";
 
 import { watchTargetsEqual } from "./threadWatch.ts";
 
 const NOTE_LENGTH = 4000;
+/** What a wait expects when no time is named: it gives up and wakes its thread at twice this. */
+export const DEFAULT_WAIT_MS = 60 * 60 * 1_000;
 
 const RUN_ENDED = new Set(["completed", "failed", "cancelled", "interrupted", "rolled_back"]);
 
@@ -94,7 +97,7 @@ export function withParkedNote(
   const shown = trimmed.length > NOTE_LENGTH ? `${trimmed.slice(0, NOTE_LENGTH)}…` : trimmed;
   return {
     ...wake,
-    text: `${wake.text}\n\nYour note to yourself when you parked:\n\n${shown
+    text: `${wake.text}\n\nYour note to yourself when you started waiting:\n\n${shown
       .split("\n")
       .map((line) => `> ${line}`)
       .join("\n")}`,
@@ -129,7 +132,7 @@ export function timeWake(input: { readonly title: string; readonly at: string })
   readonly notification: OrchestrationV2Notification;
 } {
   return {
-    text: `It is ${input.at}, the time this thread was parked until.`,
+    text: `It is ${input.at}, the time this thread was waiting for.`,
     notification: {
       source: { kind: "system" },
       outcome: "completed",
@@ -166,7 +169,7 @@ export function gaveUpWake(
       shown.length === 0
         ? "T3 Code learnt nothing more about it while waiting."
         : `What T3 Code last knew: ${shown}`
-    }\n\nCheck it yourself, then park again or carry on.`,
+    }\n\nCheck it yourself, then wait again or carry on.`,
     notification: {
       source: gaveUpSource(wait.target),
       outcome: "unknown",
@@ -175,30 +178,75 @@ export function gaveUpWake(
   };
 }
 
+/** Ended thread waits kept for Lineage, newest first. */
+const ENDED_THREAD_WATCH_LIMIT = 50;
+
+/**
+ * The thread with `remaining` as its waits. A wait on another thread that ends is kept in
+ * `endedThreadWatches`, so the watched thread stays findable in Lineage.
+ */
 export function withParkedWaits(
   thread: OrchestrationV2AppThread,
   remaining: ReadonlyArray<OrchestrationV2ParkedWait>,
+  now: DateTime.Utc,
   gaveUp?: OrchestrationV2AppThread["parkedWaitGaveUp"] | null,
 ): OrchestrationV2AppThread {
-  const { parkedWaits: _waits, parkedWaitGaveUp: previous, ...rest } = thread;
+  const {
+    parkedWaits: previousWaits,
+    parkedWaitGaveUp: previous,
+    endedThreadWatches: previouslyEnded,
+    ...rest
+  } = thread;
   const kept = gaveUp === undefined ? previous : gaveUp === null ? undefined : gaveUp;
+  const threadKey = (entry: {
+    readonly threadId: string;
+    readonly environmentId?: string | undefined;
+  }) => `${entry.environmentId ?? ""}/${entry.threadId}`;
+  const stillWaiting = new Set(remaining.map((wait) => wait.id));
+  const watchedKeys = new Set(
+    remaining.flatMap((wait) => (wait.target.kind === "thread" ? [threadKey(wait.target)] : [])),
+  );
+  const endedAt = DateTime.formatIso(now);
+  const ended = [
+    ...(previousWaits ?? []).flatMap((wait) =>
+      wait.target.kind === "thread" && !stillWaiting.has(wait.id)
+        ? [
+            {
+              threadId: wait.target.threadId,
+              ...(wait.target.environmentId === undefined
+                ? {}
+                : { environmentId: wait.target.environmentId }),
+              title: wait.title,
+              endedAt,
+            },
+          ]
+        : [],
+    ),
+    ...(previouslyEnded ?? []),
+  ];
+  const history = ended
+    .filter(
+      (entry, index) =>
+        !watchedKeys.has(threadKey(entry)) &&
+        ended.findIndex((other) => threadKey(other) === threadKey(entry)) === index,
+    )
+    .slice(0, ENDED_THREAD_WATCH_LIMIT);
   return {
     ...rest,
     ...(remaining.length === 0 ? {} : { parkedWaits: remaining }),
     ...(kept === undefined ? {} : { parkedWaitGaveUp: kept }),
+    ...(history.length === 0 ? {} : { endedThreadWatches: history }),
   };
 }
 
-/**
- * Threads holding a held or parked wait; each select reads its partial index.
- */
+/** Threads holding a wait; the select reads its partial index. */
+export function withoutOwnerWait(thread: OrchestrationV2AppThread): OrchestrationV2AppThread {
+  const { ownerWait: _ownerWait, ...rest } = thread;
+  return rest;
+}
+
 export const threadsWithWaits = (sql: SqlClient.SqlClient) =>
   sql<{ thread_id: string }>`
-    SELECT thread_id FROM orchestration_v2_projection_threads
-      INDEXED BY orchestration_v2_projection_threads_watching_idx
-    WHERE deleted_at IS NULL
-      AND json_array_length(payload_json, '$.threadWatches') > 0
-    UNION
     SELECT thread_id FROM orchestration_v2_projection_threads
       INDEXED BY orchestration_v2_projection_threads_parked_idx
     WHERE deleted_at IS NULL

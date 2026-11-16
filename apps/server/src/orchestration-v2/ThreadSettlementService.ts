@@ -165,16 +165,14 @@ export function isAutoSettlementCandidate(
   if (thread.activityRunStatus != null) return false;
   // Settling ends the session and any dev server left in it, so any live work blocks it.
   if ((thread.pendingBackgroundTasks ?? []).length > 0) return false;
+  // A waiting thread is listed in Waiting, not done with; its wake brings it back.
+  if ((thread.parkedWaits?.length ?? 0) > 0 || thread.ownerWait !== undefined) return false;
   if (threadHasQueuedTurnStart(thread, nowMs)) return false;
   // Interrupted runs must keep the same snooze protection the sidebar shows.
   return !isSnoozed(thread, nowMs);
 }
 
-/**
- * Match client effectiveSnoozed's snooze timer so agents and sidebar agree. The client also shelves
- * a seen, parked thread as snoozed; that rule is left out on purpose, because a parked wait never
- * stops a thread being settled and survives settling.
- */
+/** Match client effectiveSnoozed's snooze timer so agents and sidebar agree. */
 export function isSnoozed(
   thread: Pick<
     ProjectionStore.ProjectionSettlementCandidate,
@@ -184,6 +182,7 @@ export function isSnoozed(
     | "status"
     | "pendingRuntimeRequest"
     | "pendingGuestMessageCount"
+    | "ownerWait"
   >,
   nowMs: number,
 ): boolean {
@@ -197,6 +196,13 @@ export function isSnoozed(
     (thread.pendingRuntimeRequest.kind !== "user_input" ||
       snoozedAtMs === null ||
       DateTime.toEpochMillis(thread.pendingRuntimeRequest.createdAt) > snoozedAtMs)
+  ) {
+    return false;
+  }
+  // A question to the owner asked since the snooze wakes it, as a question card does.
+  if (
+    thread.ownerWait !== undefined &&
+    (snoozedAtMs === null || Date.parse(thread.ownerWait.startedAt) > snoozedAtMs)
   ) {
     return false;
   }

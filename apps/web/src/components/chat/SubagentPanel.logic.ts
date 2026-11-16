@@ -3,7 +3,6 @@ import type {
   AgentRole,
   OrchestrationV2PendingBackgroundTask,
   OrchestrationV2ThreadStanding,
-  OrchestrationV2ThreadWatch,
   ThreadId,
 } from "@t3tools/contracts";
 
@@ -72,7 +71,7 @@ export function panelSummaryParts(counts: PanelSummaryCounts): ReadonlyArray<Pan
   if (counts.watches > 0)
     parts.push({ text: plural(counts.watches, "watch", "watches"), tone: "quiet" });
   if (counts.commands > 0) parts.push({ text: plural(counts.commands, "command"), tone: "quiet" });
-  if ((counts.parked ?? 0) > 0) parts.push({ text: `${counts.parked} parked`, tone: "parked" });
+  if ((counts.parked ?? 0) > 0) parts.push({ text: `${counts.parked} waiting`, tone: "parked" });
   return parts.map((part, index) =>
     index === 0 && part.tone === "quiet" ? { ...part, tone: "default" } : part,
   );
@@ -84,27 +83,13 @@ export interface PanelWaitsOnYou {
   readonly need: "acceptance";
 }
 
-/**
- * What waits on the person: the server's standing says so when it answers, and an older server's
- * Forge watch still carries the same fact on the watch itself.
- */
+/** The standing identifies the person-only acceptance wait. */
 export function panelWaitsOnYou(input: {
   readonly standing: OrchestrationV2ThreadStanding | undefined;
-  readonly threadWatches: ReadonlyArray<OrchestrationV2ThreadWatch> | undefined;
 }): PanelWaitsOnYou | null {
   const waits = input.standing?.waitsOnPerson;
   if (waits?.need === "acceptance") {
     return { number: waits.number, ref: waits.ref ?? `#${waits.number}`, need: waits.need };
-  }
-  if (input.standing !== undefined) return null;
-  for (const watch of input.threadWatches ?? []) {
-    if (watch.waitsOnPerson?.need === "acceptance" && watch.target.kind === "build_item") {
-      return {
-        number: watch.target.number,
-        ref: watch.waitsOnPerson.ref ?? `#${watch.target.number}`,
-        need: watch.waitsOnPerson.need,
-      };
-    }
   }
   return null;
 }

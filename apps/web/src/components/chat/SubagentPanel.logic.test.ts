@@ -47,10 +47,10 @@ describe("panel header", () => {
 
   it("counts parked waits quietly, never as the thread working", () => {
     expect(panelSummaryParts({ ...counts, parked: 2 })).toEqual([
-      { text: "2 parked", tone: "parked" },
+      { text: "2 waiting", tone: "parked" },
     ]);
     expect(words({ ...counts, subagents: 1, working: 1, commands: 1, parked: 1 })).toBe(
-      "1 subagent working · 1 command · 1 parked",
+      "1 subagent working · 1 command · 1 waiting",
     );
   });
 
@@ -62,28 +62,15 @@ describe("panel header", () => {
 });
 
 describe("what waits on the person", () => {
-  const watch = (waitsOnPerson?: { need: "acceptance" | "hold"; ref?: string }) =>
-    ({
-      id: "w",
-      title: "t",
-      startedAt: "2026-11-10T00:00:00.000Z",
-      target: { kind: "build_item", number: 949, until: "landed" },
-      ...(waitsOnPerson ? { waitsOnPerson } : {}),
-    }) as never;
-
-  it("reads the standing, and an older server's watch only when there is no standing", () => {
+  it("reads the standing without inferring a person wait on older servers", () => {
     const standing = {
       state: "needs_you",
       waitsOnPerson: { kind: "build_item", number: 949, ref: "YS-949", need: "acceptance" },
     } as const;
-    const you = panelWaitsOnYou({ standing, threadWatches: undefined });
+    const you = panelWaitsOnYou({ standing });
     expect(you && waitsOnYouText(you)).toBe("YS-949 awaits your acceptance");
-    expect(
-      panelWaitsOnYou({ standing: { state: "waiting" }, threadWatches: [watch({ need: "hold" })] }),
-    ).toBeNull();
-    expect(
-      panelWaitsOnYou({ standing: undefined, threadWatches: [watch({ need: "hold" })] }),
-    ).toBeNull();
+    expect(panelWaitsOnYou({ standing: { state: "waiting" } })).toBeNull();
+    expect(panelWaitsOnYou({ standing: undefined })).toBeNull();
   });
 });
 

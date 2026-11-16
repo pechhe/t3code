@@ -1,9 +1,6 @@
 import type { OrchestrationV2ThreadShell, OrchestrationV2ThreadStanding } from "@t3tools/contracts";
 
-import {
-  backgroundWorkHoldsCompletion,
-  threadWatchTaskId,
-} from "./orchestrationV2PendingBackgroundWork.ts";
+import { backgroundWorkHoldsCompletion } from "./orchestrationV2PendingBackgroundWork.ts";
 
 /** How long a delegated child's live run may go without a provider event before it is stalled. */
 export const THREAD_STALLED_AFTER_MS = 30 * 60 * 1000;
@@ -32,7 +29,8 @@ export type ThreadStandingInput = Pick<
       | "pendingGuestMessageCount"
       | "lastErrorClass"
       | "pendingBackgroundTasks"
-      | "threadWatches"
+      | "parkedWaits"
+      | "ownerWait"
     >
   > & {
     /** The `stalled` field of the app thread, which only the stalled reactor writes. */
@@ -41,11 +39,14 @@ export type ThreadStandingInput = Pick<
     readonly undeliveredDelegatedResult?: boolean;
     /** A delegated thread at any depth below this one waits on an approval only the owner gives. */
     readonly descendantApprovalPending?: boolean;
+    /** Delegated children of this thread whose turn has ended and that only wait now. */
+    readonly waitingChildThreadIds?: ReadonlySet<string>;
   };
 
 /**
  * The one rule for where a thread stands, evaluated in this order: needs_you, working, stalled,
- * needs_you (every wait is on a person), waiting, finished.
+ * working on its own background work, waiting, finished. Working is the thread's own turn, subagents and awaited work; waiting is a
+ * thread whose turn has ended and that waits only on things outside itself.
  */
 export function deriveThreadStanding(input: ThreadStandingInput): OrchestrationV2ThreadStanding {
   const ownRunActive = OWN_RUN_ACTIVE.has(input.status) || input.activeRunId !== null;
@@ -66,37 +67,41 @@ export function deriveThreadStanding(input: ThreadStandingInput): OrchestrationV
   ) {
     return { state: "needs_you" };
   }
+  if (input.ownerWait !== undefined) {
+    return { state: "needs_you", question: input.ownerWait.question };
+  }
+  const acceptance = (input.parkedWaits ?? []).find(
+    (wait) => wait.target.kind === "build_item" && wait.waitsOnPerson?.need === "acceptance",
+  );
+  if (acceptance !== undefined && acceptance.target.kind === "build_item") {
+    return {
+      state: "needs_you",
+      waitsOnPerson: {
+        kind: "build_item",
+        number: acceptance.target.number,
+        ...(acceptance.waitsOnPerson?.ref === undefined
+          ? {}
+          : { ref: acceptance.waitsOnPerson.ref }),
+        title: acceptance.waitsOnPerson?.title ?? acceptance.title,
+        need: "acceptance",
+      },
+    };
+  }
   const blocked = input.blockedOnThreadWait === true;
   if ((ownRunActive && !blocked) || input.undeliveredDelegatedResult === true) {
     return { state: "working" };
   }
   if (input.stalled !== undefined) return { state: "stalled", stalled: input.stalled };
-
-  const waits = (input.pendingBackgroundTasks ?? []).filter((task) =>
-    backgroundWorkHoldsCompletion([task]),
-  );
-  if (!blocked && waits.length === 0) return { state: "finished" };
-
-  if (!blocked) {
-    const people = waits.flatMap((task) => {
-      const watch = (input.threadWatches ?? []).find(
-        (candidate) => threadWatchTaskId(candidate.id) === task.taskId,
-      );
-      return watch?.waitsOnPerson?.need === "acceptance" && watch.target.kind === "build_item"
-        ? [
-            {
-              number: watch.target.number,
-              ...(watch.waitsOnPerson.ref === undefined ? {} : { ref: watch.waitsOnPerson.ref }),
-              title: watch.waitsOnPerson.title ?? watch.title,
-              need: watch.waitsOnPerson.need,
-            },
-          ]
-        : [];
-    });
-    const first = people[0];
-    if (first !== undefined && people.length === waits.length) {
-      return { state: "needs_you", waitsOnPerson: { kind: "build_item", ...first } };
-    }
+  const waitingChildren = input.waitingChildThreadIds ?? new Set<string>();
+  const childWaits = (task: NonNullable<ThreadStandingInput["pendingBackgroundTasks"]>[number]) =>
+    task.kind === "subagent" &&
+    task.childThreadId !== undefined &&
+    waitingChildren.has(task.childThreadId);
+  const tasks = input.pendingBackgroundTasks ?? [];
+  // A turn blocked in `t3_thread_wait` is still the thread's own turn.
+  if (blocked || tasks.some((task) => backgroundWorkHoldsCompletion([task]) && !childWaits(task))) {
+    return { state: "working" };
   }
-  return { state: "waiting" };
+  if ((input.parkedWaits?.length ?? 0) > 0 || tasks.some(childWaits)) return { state: "waiting" };
+  return { state: "finished" };
 }

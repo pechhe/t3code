@@ -9,7 +9,6 @@ import {
   type OrchestrationV2Subagent,
   type OrchestrationV2ThreadStanding,
   type OrchestrationV2ParkedWait,
-  type OrchestrationV2ThreadWatch,
   type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -55,6 +54,7 @@ import {
   StalledStatus,
   WaitRow,
   WaitsOnYouRow,
+  OwnerWaitRow,
   type PanelLinkHandlers,
 } from "./WaitingPanelRows";
 import { subagentSummaryLine } from "./V2LifecycleRow.logic";
@@ -458,7 +458,7 @@ export function SubagentPanel(props: {
   /** Watches, commands, monitors and agents with no row of their own. */
   readonly waits: ReadonlyArray<PanelWait>;
   readonly standing: OrchestrationV2ThreadStanding | undefined;
-  readonly threadWatches: ReadonlyArray<OrchestrationV2ThreadWatch> | undefined;
+
   readonly waitHandlers: PanelLinkHandlers;
   readonly turnItems: ThreadStructure["turnItems"];
   readonly canOperate: boolean;
@@ -477,7 +477,7 @@ export function SubagentPanel(props: {
     finished,
     waits,
     standing,
-    threadWatches,
+
     waitHandlers,
     turnItems,
     canOperate,
@@ -496,7 +496,7 @@ export function SubagentPanel(props: {
   );
   const watchWaits = waits.filter((wait) => panelWaitKind(wait.item.group) !== "agent");
   const watches = watchWaits.filter((wait) => panelWaitKind(wait.item.group) === "watch").length;
-  const waitsOnYou = panelWaitsOnYou({ standing, threadWatches });
+  const waitsOnYou = panelWaitsOnYou({ standing });
   const subagentRows =
     subagentIds.length + finished.length + agentWaits.length + (stalledRowless === null ? 0 : 1);
   // A stall always has its header, so a lone stalled child still ends it in the amber count.
@@ -651,7 +651,7 @@ export function SubagentPanel(props: {
             )}
           >
             <PanelSubheading parked count={parkedWaits.length}>
-              Parked
+              Waiting
             </PanelSubheading>
             <div className="grid max-h-[min(10rem,25dvh)] grid-cols-[minmax(0,1fr)] overflow-y-auto">
               {parkedWaits.map((wait) => (
@@ -667,6 +667,11 @@ export function SubagentPanel(props: {
           </div>
         ) : null}
       </Reveal>
+      {standing?.question === undefined ? null : (
+        <div className={cn((header || hasSubagentRows) && "border-t border-border/70")}>
+          <OwnerWaitRow question={standing.question} />
+        </div>
+      )}
       {waitsOnYou === null ? null : (
         <div className={cn((header || hasSubagentRows) && "border-t border-border/70")}>
           <WaitsOnYouRow threadRef={threadRef} waits={waitsOnYou} />

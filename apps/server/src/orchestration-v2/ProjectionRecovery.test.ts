@@ -529,9 +529,8 @@ it.effect("maintains delegated candidate indexes across legacy rows and payload 
   Effect.gen(function* () {
     const projections = yield* ProjectionStore.ProjectionStoreV2;
     const sql = yield* SqlClient.SqlClient;
-    // The shipped watch and Arc run indexes reject malformed payloads before the recovery indexes
+    // The shipped wait and Arc run indexes reject malformed payloads before the recovery indexes
     // can observe them.
-    yield* sql`DROP INDEX orchestration_v2_projection_threads_watching_idx`;
     yield* sql`DROP INDEX orchestration_v2_projection_threads_parked_idx`;
     yield* sql`DROP INDEX orchestration_v2_projection_threads_arc_run_idx`;
     const parent = yield* createThread("index-parent");

@@ -14,13 +14,20 @@ const run = RunId.make("run:standing");
 const child = "thread-child" as ThreadId;
 const stalled = { childThreadId: child, title: "Quiet", since: "2026-11-10T10:00:00.000Z" };
 const subagent = { taskId: "task-1", kind: "subagent" as const };
-const watch = {
+const childSubagent = { taskId: "task-2", kind: "subagent" as const, childThreadId: child };
+const wait = {
   id: "w1",
   title: "Build #7",
   startedAt: "2026-11-10T09:00:00.000Z",
   target: { kind: "build_item" as const, number: 7, until: "unblocked" as const },
 };
-const watchTask = { taskId: "thread-watch:w1", kind: "monitor" as const, awaited: true as const };
+const timeWait = {
+  id: "w2",
+  title: "check back",
+  startedAt: "2026-11-10T09:00:00.000Z",
+  target: { kind: "time" as const, at: "2026-11-10T12:00:00.000Z" },
+};
+const ownerWait = { question: "Which option?", startedAt: "2026-11-10T09:30:00.000Z" };
 const request = (kind: "command" | "user_input" | "auth_refresh") =>
   ({
     id: RuntimeRequestId.make("request-1"),
@@ -39,11 +46,35 @@ describe("deriveThreadStanding", () => {
       { undeliveredDelegatedResult: true },
       { state: "working" },
     ],
-    ["a live delegated task", { pendingBackgroundTasks: [subagent] }, { state: "waiting" }],
+    ["a live delegated task", { pendingBackgroundTasks: [subagent] }, { state: "working" }],
     [
       "a run blocked on a thread wait",
       { status: "running", activeRunId: run, blockedOnThreadWait: true },
+      { state: "working" },
+    ],
+    ["a wait on something outside", { parkedWaits: [timeWait] }, { state: "waiting" }],
+    [
+      "a delegated child that has itself ended its turn to wait",
+      { pendingBackgroundTasks: [childSubagent], waitingChildThreadIds: new Set([child]) },
       { state: "waiting" },
+    ],
+    [
+      "a waiting child beside one still working",
+      {
+        pendingBackgroundTasks: [childSubagent, subagent],
+        waitingChildThreadIds: new Set([child]),
+      },
+      { state: "working" },
+    ],
+    [
+      "a wait beside the thread's own subagent",
+      { parkedWaits: [timeWait], pendingBackgroundTasks: [subagent] },
+      { state: "working" },
+    ],
+    [
+      "a question to the owner beside another wait",
+      { ownerWait, parkedWaits: [timeWait] },
+      { state: "needs_you", question: "Which option?" },
     ],
     [
       "an unawaited command alone",
@@ -120,11 +151,11 @@ describe("deriveThreadStanding", () => {
       { state: "working" },
     ],
     [
-      "a Forge item held for the owner as the only wait",
+      "a Forge item that needs the owner's acceptance beside another wait",
       {
-        pendingBackgroundTasks: [watchTask],
-        threadWatches: [
-          { ...watch, waitsOnPerson: { need: "acceptance", ref: "T3-9", title: "Ship it" } },
+        parkedWaits: [
+          { ...wait, waitsOnPerson: { need: "acceptance", ref: "T3-9", title: "Ship it" } },
+          timeWait,
         ],
       },
       {
@@ -140,35 +171,19 @@ describe("deriveThreadStanding", () => {
     ],
     [
       "a persisted Forge hold does not ask the owner to act",
-      {
-        pendingBackgroundTasks: [watchTask],
-        threadWatches: [{ ...watch, waitsOnPerson: { need: "hold" } }],
-      },
+      { parkedWaits: [{ ...wait, waitsOnPerson: { need: "hold" } }] },
       { state: "waiting" },
     ],
-    [
-      "a Forge watch with no verdict",
-      { pendingBackgroundTasks: [watchTask], threadWatches: [watch] },
-      { state: "waiting" },
-    ],
-    [
-      "a Forge wait beside a machine wait",
-      {
-        pendingBackgroundTasks: [watchTask, subagent],
-        threadWatches: [{ ...watch, waitsOnPerson: { need: "hold" } }],
-      },
-      { state: "waiting" },
-    ],
+    ["a Forge wait with no verdict", { parkedWaits: [wait] }, { state: "waiting" }],
     [
       "a Forge wait beside a blocked run",
       {
         status: "running",
         activeRunId: run,
         blockedOnThreadWait: true,
-        pendingBackgroundTasks: [watchTask],
-        threadWatches: [{ ...watch, waitsOnPerson: { need: "hold" } }],
+        parkedWaits: [wait],
       },
-      { state: "waiting" },
+      { state: "working" },
     ],
   ] as ReadonlyArray<readonly [string, Partial<ThreadStandingInput>, unknown]>)(
     "reports %s",

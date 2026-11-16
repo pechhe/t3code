@@ -46,7 +46,7 @@ export function isThreadWorking(thread: WorkingThreadInput): boolean {
   if (thread.standing !== undefined) {
     // Standing cannot see a question below the thread, or any request in a linked environment.
     if (thread.pendingSubagentRequest != null) return false;
-    return thread.standing.state === "working" || thread.standing.state === "waiting";
+    return thread.standing.state === "working";
   }
   return threadRuntimeIsWorking(thread);
 }
@@ -278,7 +278,8 @@ export function createInboxReturnTracker() {
           thread.deletedAt != null ||
           thread.pinnedAt != null ||
           thread.settledOverride === "settled" ||
-          effectiveSnoozed(thread, { now: observedAt });
+          effectiveSnoozed(thread, { now: observedAt }) ||
+          thread.standing?.state === "waiting";
         // Only shelf placement is held: execution state and attention requests stay authoritative.
         const endedAt = toSortableTimestamp(thread.latestRun?.completedAt ?? undefined);
         const endedLongAgo = endedAt !== null && endedAt <= at - STALE_EXIT_MS;

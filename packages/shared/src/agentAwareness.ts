@@ -209,8 +209,9 @@ function phaseFromStanding(
         (thread.activityRunStatus ?? thread.status) === "starting"
         ? "starting"
         : "running";
+    // Nobody's move until something outside the thread happens, so nothing to announce.
     case "waiting":
-      return "running";
+      return null;
     case "stalled":
       return "waiting_for_input";
     case "needs_you":

@@ -29,6 +29,9 @@ import {
   sortScopedProjectsForSidebar,
   sortSidebarV2ProjectGroups,
   shouldNavigateAfterThreadPark,
+  resolveSidebarThreadSection,
+  threadQuestionSubtitle,
+  compareWaitingThreads,
   type SidebarListItem,
   type SidebarListMarker,
   type SidebarSection,
@@ -417,6 +420,45 @@ describe("resolveWorkingStartedAt", () => {
   );
 });
 
+describe("waiting placement", () => {
+  it("places waiting below owner snooze, settlement and pins", () => {
+    const base = { snoozed: false, settled: false, pinned: false, waiting: true };
+    expect(resolveSidebarThreadSection(base)).toBe("snoozed");
+    expect(
+      resolveSidebarThreadSection({ ...base, snoozed: true, settled: true, pinned: true }),
+    ).toBe("snoozed");
+    expect(resolveSidebarThreadSection({ ...base, settled: true, pinned: true })).toBe("settled");
+    expect(resolveSidebarThreadSection({ ...base, pinned: true })).toBe("pinned");
+  });
+
+  it("orders the earliest ending wait or owner snooze first, without an end last", () => {
+    const now = "2026-11-10T00:00:00.000Z";
+    const base = { hasPendingApprovals: false, hasPendingUserInput: false };
+    const wait = (target: unknown, givesUpAt?: string) =>
+      ({ id: "w", title: "Wait", startedAt: now, target, givesUpAt }) as never;
+    const noEnd = { ...base, parkedWaits: [wait({ kind: "production", commitId: "abc" })] };
+    const timed = {
+      ...base,
+      parkedWaits: [
+        wait({ kind: "time", at: "2026-11-10T02:00:00.000Z" }, "2026-11-10T03:00:00.000Z"),
+      ],
+    };
+    const snoozed = { ...timed, snoozedUntil: "2026-11-10T01:00:00.000Z" };
+    const givesUp = {
+      ...base,
+      parkedWaits: [
+        wait({ kind: "time", at: "2026-11-10T04:00:00.000Z" }, "2026-11-10T03:00:00.000Z"),
+      ],
+    };
+    expect(
+      [noEnd, givesUp, timed, snoozed].toSorted((a, b) => compareWaitingThreads(a, b, now)),
+    ).toEqual([snoozed, timed, givesUp, noEnd]);
+    expect(
+      compareWaitingThreads({ ...timed, snoozedUntil: "2026-11-09T00:00:00.000Z" }, givesUp, now),
+    ).toBeLessThan(0);
+  });
+});
+
 describe("resolveThreadStatusPill", () => {
   const baseThread = {
     hasActionableProposedPlan: false,
@@ -434,6 +476,20 @@ describe("resolveThreadStatusPill", () => {
       updatedAt: "2026-03-09T10:00:00.000Z",
     },
   };
+
+  it("shows a waiting standing and an owner's question consistently", () => {
+    const thread = { ...baseThread, runtime: null, standing: { state: "waiting" as const } };
+    expect(resolveThreadStatusPill({ thread })).toMatchObject({ label: "Waiting", pulse: false });
+    const asking = {
+      ...thread,
+      standing: { state: "needs_you" as const, question: "Which account?" },
+    };
+    expect(resolveThreadStatusPill({ thread: asking })).toMatchObject({ label: "Needs you" });
+    expect(threadQuestionSubtitle(asking)).toBe("Which account?");
+    expect(threadQuestionSubtitle({ ...asking, parkedWaits: [{ title: "Build" } as never] })).toBe(
+      "Which account? · Also waiting on Build",
+    );
+  });
 
   it("shows an active thread wait without a pulse and resumes Working when it ends", () => {
     const blocked = { ...baseThread, blockedOnThreadWait: true };
@@ -477,7 +533,7 @@ describe("resolveThreadStatusPill", () => {
   it("shows watching while only watches hold the thread, and waiting once work joins them", () => {
     const idle = { ...baseThread.runtime, status: "idle" as const, activeRunId: null };
     const watch = {
-      taskId: "thread-watch:1",
+      taskId: "pull-request-watch:1",
       description: "Watching thread Worker",
       kind: "monitor" as const,
       awaited: true as const,
@@ -508,7 +564,7 @@ describe("resolveThreadStatusPill", () => {
       resolveThreadStatusPill({
         thread: { ...baseThread, runtime: idle, parkedWaitGaveUp: gaveUp },
       }),
-    ).toMatchObject({ label: "Parked wait gave up", colorClass: "text-warning-foreground" });
+    ).toMatchObject({ label: "Wait gave up", colorClass: "text-warning-foreground" });
     // A request for the person is more specific than the give-up.
     expect(
       resolveThreadStatusPill({

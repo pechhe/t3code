@@ -238,9 +238,9 @@ const make = Effect.gen(function* () {
             pendingRequestCount,
             lastActivityAt: DateTime.formatIso(DateTime.makeUnsafe(Math.max(...times))),
             watches: [
-              ...(thread.threadWatches ?? []).map((watch) => ({
-                ...watch.target,
-                startedAt: watch.startedAt,
+              ...(thread.parkedWaits ?? []).map((wait) => ({
+                ...wait.target,
+                startedAt: wait.startedAt,
               })),
               ...prs
                 .filter((pr) => pr.watch !== undefined)

@@ -106,7 +106,7 @@ const remainingIds = Effect.gen(function* () {
   return rows.map((row) => row.task_id);
 });
 
-it.live("turns only the convertible one-off check-back into a time-parked wait", () => {
+it.live("turns only the convertible one-off check-back into a time wait", () => {
   const dispatched: unknown[] = [];
   return Effect.gen(function* () {
     const service = yield* ScheduledTaskService.ScheduledTaskService;
@@ -122,7 +122,7 @@ it.live("turns only the convertible one-off check-back into a time-parked wait",
         threadId: "thread:own",
         watching: true,
         target: { kind: "time", at: RUN_AT },
-        park: { note: "Prompt convertible" },
+        note: "Prompt convertible",
         title: "Title convertible",
       },
     ]);
@@ -149,9 +149,7 @@ it.live("keeps the task when the wait cannot be made, so nothing is lost", () =>
     }).pipe(
       Effect.provide(
         layerFor(() =>
-          Deferred.succeed(refused, undefined).pipe(
-            Effect.andThen(Effect.die("refused")),
-          ),
+          Deferred.succeed(refused, undefined).pipe(Effect.andThen(Effect.die("refused"))),
         ),
       ),
     );

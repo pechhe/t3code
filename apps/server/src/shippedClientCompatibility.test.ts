@@ -156,8 +156,8 @@ it.effect(
 );
 
 it("a client that predates endedThreadWatches still decodes a thread shell that carries it", () => {
-  const { id, title, threadWatches } = OrchestrationV2ThreadShell.fields;
-  const shippedShell = Schema.Struct({ id, title, threadWatches });
+  const { id, title, parkedWaits } = OrchestrationV2ThreadShell.fields;
+  const shippedShell = Schema.Struct({ id, title, parkedWaits });
   const decoded = Schema.decodeUnknownSync(shippedShell)({
     id: "thread-1",
     title: "Lead",
@@ -169,8 +169,8 @@ it("a client that predates endedThreadWatches still decodes a thread shell that 
 });
 
 it("a shipped client ignores additive Champion owner and approval origin metadata", () => {
-  const { id, title, threadWatches } = OrchestrationV2ThreadShell.fields;
-  const shippedShell = Schema.Struct({ id, title, threadWatches });
+  const { id, title, parkedWaits } = OrchestrationV2ThreadShell.fields;
+  const shippedShell = Schema.Struct({ id, title, parkedWaits });
   const decoded = Schema.decodeUnknownSync(shippedShell)({
     id: "thread-champion",
     title: "Quality",
@@ -311,7 +311,7 @@ const encodeForkShell = (extra: Record<string, unknown>) =>
   );
 
 it.effect(
-  "a shipped client decodes threads parked on Production and on a time as finished threads",
+  "a shipped client decodes threads waiting on Production, a time, a thread or the owner",
   () =>
     Effect.gen(function* () {
       const shipped = yield* loadShippedThreadShellSchema;
@@ -331,6 +331,14 @@ it.effect(
           startedAt: "2026-11-10T09:00:00.000Z",
           target: { kind: "time" as const, at: "2026-11-11T09:00:00.000Z" },
         },
+        {
+          id: "wait:thread",
+          title: "Worker",
+          startedAt: "2026-11-10T09:00:00.000Z",
+          target: { kind: "thread" as const, threadId: ThreadId.make("thread-worker") },
+          expectedAt: "2026-11-10T10:00:00.000Z",
+          givesUpAt: "2026-11-10T11:00:00.000Z",
+        },
       ];
       for (const wait of parked) {
         const sent = encodeForkShell({ parkedWaits: [wait] });
@@ -339,12 +347,19 @@ it.effect(
         // The fork's own decoding keeps the wait.
         assert.deepEqual(decodeForkShell(sent).parkedWaits, [wait]);
       }
-      // Upstream's shell has no threadWatches, so parked waits travel in their own field and the
-      // fork never puts a parked target in threadWatches.
-      assert.notProperty(shipped.properties ?? {}, "threadWatches");
+      // A question to the owner travels in its own field and in standing, both unknown upstream.
+      const ownerWait = { question: "Which option?", startedAt: "2026-11-10T09:30:00.000Z" };
+      const asking = encodeForkShell({
+        ownerWait,
+        parkedWaits: [parked[2]],
+        standing: { state: "needs_you", question: ownerWait.question },
+      });
+      assert.deepEqual(violations(asking, shipped, "owner"), []);
+      assert.deepEqual(decodeForkShell(asking).ownerWait, ownerWait);
       assert.notProperty(shipped.properties ?? {}, "parkedWaits");
+      assert.notProperty(shipped.properties ?? {}, "ownerWait");
+      assert.notProperty(shipped.properties ?? {}, "standing");
       const wire = encodeForkShell({ parkedWaits: [parked[0]] });
-      assert.notProperty(wire, "threadWatches");
       // The frozen schema still catches a shell a shipped client could not read.
       const { status: _status, ...withoutStatus } = wire;
       assert.notDeepEqual(violations(withoutStatus, shipped, "shell"), []);
@@ -378,27 +393,13 @@ const decodeStanding = Schema.decodeUnknownSync(OrchestrationV2ThreadStanding);
 it("a shipped client decodes a stalled thread and one that waits on the owner as threads it knows", () => {
   const { id, title, status, pendingBackgroundTasks, blockedOnThreadWait } =
     OrchestrationV2ThreadShell.fields;
-  // What a shipped client reads of a watch: the fork's waitsOnPerson is not among its fields.
-  const shippedWatch = Schema.Struct({
-    id: Schema.String,
-    title: Schema.String,
-    startedAt: Schema.String,
-    target: Schema.Unknown,
-  });
   const shippedShell = Schema.Struct({
     id,
     title,
     status,
     pendingBackgroundTasks,
     blockedOnThreadWait,
-    threadWatches: Schema.optional(Schema.Array(shippedWatch)),
   });
-  const watch = {
-    id: "thread-watch:1",
-    title: "Ship it",
-    startedAt: "2026-11-10T09:00:00.000Z",
-    target: { kind: "build_item", number: 7, until: "unblocked" },
-  };
   const stalledWire = {
     id: "thread-stalled",
     title: "Lead",
@@ -414,10 +415,15 @@ it("a shipped client decodes a stalled thread and one that waits on the owner as
     id: "thread-owner",
     title: "Lead",
     status: "completed",
-    pendingBackgroundTasks: [
-      { taskId: "thread-watch:1", kind: "monitor", awaited: true, watching: watch.target },
+    parkedWaits: [
+      {
+        id: "wait:1",
+        title: "Ship it",
+        startedAt: "2026-11-10T09:00:00.000Z",
+        target: { kind: "build_item", number: 7, until: "unblocked" },
+        waitsOnPerson: { need: "acceptance", title: "Ship it" },
+      },
     ],
-    threadWatches: [{ ...watch, waitsOnPerson: { need: "acceptance", title: "Ship it" } }],
     standing: {
       state: "needs_you",
       waitsOnPerson: { kind: "build_item", number: 7, title: "Ship it", need: "acceptance" },

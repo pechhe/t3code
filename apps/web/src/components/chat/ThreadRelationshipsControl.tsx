@@ -664,7 +664,7 @@ export function ThreadRelationshipsPanel(props: {
 
   const { watching, watchedBy, watched } = deriveThreadWatchRelationships({
     threadId: props.threadId,
-    threadWatches: currentThread?.threadWatches,
+    parkedWaits: currentThread?.parkedWaits,
     endedThreadWatches: currentThread?.endedThreadWatches,
     watcherThreadIds: watchers.map((watcher) => watcher.id),
   });
@@ -672,7 +672,7 @@ export function ThreadRelationshipsPanel(props: {
     ...watchers.map(
       (watcher) => [threadWatchRowKey({ threadId: watcher.id }), watcher.title] as const,
     ),
-    ...(currentThread?.threadWatches ?? []).flatMap((watch) =>
+    ...(currentThread?.parkedWaits ?? []).flatMap((watch) =>
       watch.target.kind === "thread"
         ? [[threadWatchRowKey(watch.target), watch.title] as const]
         : [],

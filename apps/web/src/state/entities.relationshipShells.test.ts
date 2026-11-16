@@ -67,7 +67,7 @@ describe("selectThreadRelationshipShells", () => {
 
   it("keeps the threads the thread watches and the live threads watching it", () => {
     const watching = (target: string) => ({
-      threadWatches: [{ target: { kind: "thread", threadId: target } }],
+      parkedWaits: [{ target: { kind: "thread", threadId: target } }],
     });
     const threads = [
       { ...shell("current"), ...watching("watched") },
@@ -100,14 +100,14 @@ describe("selectThreadRelationshipShells", () => {
     const threads = [
       {
         ...shell("current"),
-        threadWatches: [{ target: { kind: "thread", threadId: "same", environmentId: peer } }],
+        parkedWaits: [{ target: { kind: "thread", threadId: "same", environmentId: peer } }],
         endedThreadWatches: [{ threadId: "same-ended", environmentId: peer }],
       },
       shell("same"),
       shell("same-ended"),
       {
         ...shell("remote-watcher"),
-        threadWatches: [{ target: { kind: "thread", threadId: "current", environmentId: peer } }],
+        parkedWaits: [{ target: { kind: "thread", threadId: "current", environmentId: peer } }],
       },
     ] as unknown as OrchestrationV2ThreadShell[];
 

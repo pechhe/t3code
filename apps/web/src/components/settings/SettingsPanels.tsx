@@ -935,7 +935,7 @@ export function GeneralSettingsPanel() {
         />
         <SettingsRow
           {...setting("working-shelf")}
-          description="Fold working and monitoring threads into a Working section. They return to the top of the inbox when they need you. The boring sidebar in Labs has no Working section."
+          description="Fold threads an agent is running into a Working section. They return to the main list when they need you."
           resetAction={
             settings.sidebarWorkingShelfEnabled !==
             DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled ? (

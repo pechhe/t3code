@@ -279,7 +279,7 @@ it.effect("preserves pull request context without inheriting any watches", () =>
       pullRequests: watchedLinks,
       linkedPullRequest: legacyLink,
       branchPullRequest: legacyLink,
-      threadWatches: [
+      parkedWaits: [
         {
           id: "thread-watch:source",
           target: { kind: "thread" as const, threadId: ThreadId.make("thread:fork-watched") },
@@ -303,7 +303,7 @@ it.effect("preserves pull request context without inheriting any watches", () =>
     assert.deepEqual(result.targetThread.pullRequests, links);
     assert.deepEqual(result.targetThread.linkedPullRequest, legacyLink);
     assert.deepEqual(result.targetThread.branchPullRequest, legacyLink);
-    assert.isUndefined(result.targetThread.threadWatches);
+    assert.isUndefined(result.targetThread.parkedWaits);
     assert.isUndefined(result.targetThread.endedThreadWatches);
     assert.deepEqual(sourceThread.pullRequests, watchedLinks);
     assert.deepEqual(sourceThread.pullRequests[0]?.watch, watch);

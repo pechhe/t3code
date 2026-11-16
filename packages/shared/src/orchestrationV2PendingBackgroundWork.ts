@@ -3,7 +3,6 @@ import type {
   OrchestrationV2ProviderThread,
   OrchestrationV2Run,
   OrchestrationV2ThreadShell,
-  OrchestrationV2ThreadWatch,
   OrchestrationV2TurnItem,
   ThreadId,
   ThreadPullRequestLink,
@@ -55,17 +54,11 @@ export function turnItemUpdateCanEndBackgroundWork(
   return BACKGROUND_TURN_ITEM_TYPES.has(item.type) && !isOrchestrationV2WorkActive(item.status);
 }
 
-const THREAD_WATCH_TASK_PREFIX = "thread-watch:";
-
-/** The pending-task id a thread watch is listed under. */
-export function threadWatchTaskId(watchId: string): string {
-  return `${THREAD_WATCH_TASK_PREFIX}${watchId}`;
-}
 const PULL_REQUEST_WATCH_TASK_PREFIX = "pull-request-watch:";
 
 /**
- * The thread's own background work: the pending tasks that are not watches. Settling or stopping
- * a thread cuts this work short, while its watches just end.
+ * The thread's own background work: the pending tasks that are not pull request watches. Settling
+ * or stopping a thread cuts this work short, while its watches just end.
  */
 export function ownBackgroundWork<Task extends Pick<PendingBackgroundWorkTask, "taskId">>(
   tasks: ReadonlyArray<Task>,
@@ -74,12 +67,10 @@ export function ownBackgroundWork<Task extends Pick<PendingBackgroundWorkTask, "
 }
 
 function isWatchBackgroundTask(taskId: string): boolean {
-  return (
-    taskId.startsWith(THREAD_WATCH_TASK_PREFIX) || taskId.startsWith(PULL_REQUEST_WATCH_TASK_PREFIX)
-  );
+  return taskId.startsWith(PULL_REQUEST_WATCH_TASK_PREFIX);
 }
 
-/** A thread parked only on watches reads as Watching rather than Waiting. */
+/** A thread whose only background work is pull request watches reads as Watching. */
 export function backgroundWorkIsOnlyWatches(
   tasks: ReadonlyArray<Pick<PendingBackgroundWorkTask, "taskId">>,
 ): boolean {
@@ -146,7 +137,7 @@ export function backgroundWorkHoldsCompletion(
 
 /**
  * Whether a delegated task's result still waits for its background work. Work that will produce it
- * holds: its own subagents, opaque background tasks and watches, and a command or monitor the child
+ * holds: its own subagents, opaque background tasks and pull request watches, and a command or monitor the child
  * awaited, which wakes the child when it ends and so ends the wait with its own timeout. A command
  * the child did not await is a dev server or a watchdog and never holds.
  */
@@ -329,10 +320,6 @@ export function derivePendingBackgroundWork(input: {
   /** Excludes rolled-back runs; optional only when the caller already filtered them, as SQL shell reads do. */
   readonly runs?: ReadonlyArray<PendingBackgroundWorkRun>;
   readonly pullRequests?: ReadonlyArray<PendingBackgroundWorkPullRequest> | undefined;
-  /** Omitted by the finished rule: waiting on another thread is not this thread's own work. */
-  readonly threadWatches?:
-    | ReadonlyArray<Pick<OrchestrationV2ThreadWatch, "id" | "target" | "title">>
-    | undefined;
 }): ReadonlyArray<PendingBackgroundWorkTask> {
   const hasActiveRun =
     input.hasActiveRun ??
@@ -344,7 +331,7 @@ export function derivePendingBackgroundWork(input: {
     return [];
   }
   if (input.latestRun == null) {
-    return watchTasks(input);
+    return pullRequestWatchTasks(input.pullRequests);
   }
   if (!isLatestRunSettledForBackgroundWait(input.latestRun)) {
     return [];
@@ -383,32 +370,9 @@ export function derivePendingBackgroundWork(input: {
     byTaskId.set(taskId, pendingTaskFromTurnItem(taskId, item));
   }
 
-  for (const task of watchTasks(input)) byTaskId.set(task.taskId, task);
+  for (const task of pullRequestWatchTasks(input.pullRequests)) byTaskId.set(task.taskId, task);
 
   return Array.from(byTaskId.values());
-}
-
-function watchTasks(input: {
-  readonly pullRequests?: ReadonlyArray<PendingBackgroundWorkPullRequest> | undefined;
-  readonly threadWatches?:
-    | ReadonlyArray<Pick<OrchestrationV2ThreadWatch, "id" | "target" | "title">>
-    | undefined;
-}): Array<PendingBackgroundWorkTask> {
-  return [
-    ...pullRequestWatchTasks(input.pullRequests),
-    ...(input.threadWatches ?? []).map((watch) => ({
-      taskId: threadWatchTaskId(watch.id),
-      description:
-        watch.target.kind === "thread"
-          ? `Watching thread ${watch.title}`
-          : watch.target.kind === "landing"
-            ? `Watching landing ${watch.title}`
-            : `Watching Build #${watch.target.number} until ${watch.target.until}`,
-      kind: "monitor" as const,
-      watching: watch.target,
-      awaited: true as const,
-    })),
-  ];
 }
 
 function pullRequestWatchTasks(

@@ -91,7 +91,7 @@ work to finish instead.
 On web and desktop, drag a thread between sections to change its state. Drag a thread up into
 the pinned section to pin it at the spot you drop it; drag a pinned thread down into the active
 list to unpin it. Dragging a thread onto the **Settled** header settles it, and dragging a settled
-thread into the active list un-settles it. A snoozed thread can be dragged out of the snoozed
+thread into the active list un-settles it. A snoozed thread can be dragged out of the **Waiting**
 shelf, which wakes it, but threads cannot be dragged into the shelf because snoozing needs a wake
 time. Dragging a pinned thread out of the pinned section does not ask for unpin confirmation.
 Pinned and active boundary labels appear only while dragging, without moving the rows. The
@@ -155,7 +155,7 @@ While Away is on, T3 Code keeps your threads working without you:
   for itself. Approval requests and questions that only offer fixed choices still wait for you.
 - When a turn finishes, T3 Code asks the agent to continue. It stops after three continuations
   in a row, or sooner once a turn ends without the agent doing any work. It also waits while the
-  thread is snoozed or settled, or while the agent's own tasks, background commands or watches
+  thread is snoozed or settled, or while the agent's own tasks, background commands or waits
   will wake it.
 - Turning Away on answers questions threads were already waiting on, and continues threads that
   finished in the last few minutes. Older finished threads are left alone.
@@ -177,12 +177,21 @@ Settling or archiving the thread ends the run. What it still waits for you on st
 acceptance, releases, spending and permissions. Look-and-feel changes are the exception: during
 an Arc it decides those itself and lists them for you to review together afterwards.
 
+### Waiting threads
+
+On web and desktop, a thread whose agent ended its turn to wait for something outside it (another
+thread, a Build item, a landing, a release reaching Production, or a time) moves into the
+**Waiting** shelf below the active list, beside the threads you snoozed. The thread that will wake
+soonest is listed first, and each row says what wakes it. A wait the agent gave a rough time gives
+up at twice that time and wakes the thread to look again. When an agent asks you a question, its
+thread stays in the active list reading **Needs you** with the question, even while it also waits
+on something else. Open the thread to see its waits; **Cancel** ends one.
+
 ### Fold working threads (beta)
 
-Threads that are working or waiting on work they will resume from move into a collapsed
-**Working** section below the active list.
-That includes subagents, watched pull requests with checks still running, and background commands or monitors the agent
-says it is waiting on. A dev server or other process an agent leaves running does not keep a thread
+Threads that are working move into a collapsed **Working** section below the active list.
+That includes running turns and subagents, watched pull requests with checks still running, and
+background commands or monitors the agent says it is waiting on. A dev server or other process an agent leaves running does not keep a thread
 there. A thread returns to the top of the active list when it finishes, fails, or needs an approval or
 answer. The Working section lists the thread you last sent work to first. Pinned threads stay in
 the pinned section.
@@ -249,7 +258,8 @@ running, a dev server included, prevent automatic settlement. An open pull reque
 settlement unless you turn on **Keep threads with a PR** in **Settings → General**,
 but an old closed or merged pull request does not settle work you
 resumed after it closed. Only your own messages count as resuming. A turn that
-finished background work or a pull request watch starts on its own does not.
+finished background work or a pull request watch starts on its own does not. A thread waiting on
+something does not settle automatically; the wake brings it back.
 
 To keep one thread out of the settled shelf no matter how long it sits idle, open its menu,
 choose **Auto-settle behavior**, and pick **Never**. The current option is checked. Pick

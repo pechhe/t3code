@@ -203,7 +203,7 @@ export const threadWatchRowKey = (row: {
  */
 export function deriveThreadWatchRelationships(input: {
   readonly threadId: ThreadId;
-  readonly threadWatches: OrchestrationV2ThreadShell["threadWatches"];
+  readonly parkedWaits: OrchestrationV2ThreadShell["parkedWaits"];
   readonly endedThreadWatches: OrchestrationV2ThreadShell["endedThreadWatches"];
   readonly watcherThreadIds: ReadonlyArray<ThreadId>;
 }): {
@@ -224,7 +224,7 @@ export function deriveThreadWatchRelationships(input: {
   const isSelf = (threadId: ThreadId, environmentId: EnvironmentId | undefined) =>
     environmentId === undefined && threadId === input.threadId;
   const watching = new Map<string, ThreadWatchRelationshipRow>();
-  for (const watch of input.threadWatches ?? []) {
+  for (const watch of input.parkedWaits ?? []) {
     if (watch.target.kind !== "thread") continue;
     const { threadId, environmentId } = watch.target;
     if (isSelf(threadId, environmentId)) continue;

@@ -748,7 +748,7 @@ describe("thread watchers", () => {
       ...v2ThreadShell,
       id: ThreadId.make("watcher"),
       title: "Watcher",
-      threadWatches: [
+      parkedWaits: [
         {
           id: "thread-watch:watcher:0",
           target: { kind: "thread" as const, threadId: watched.id },
@@ -774,7 +774,7 @@ describe("thread watchers", () => {
 
     registry.set(snapshotAtom(environmentId), {
       ...v2ShellSnapshot,
-      threads: [watched, { ...watcher, threadWatches: [] }],
+      threads: [watched, { ...watcher, parkedWaits: [] }],
     });
     expect(registry.get(watchers)).toEqual([]);
     dispose();

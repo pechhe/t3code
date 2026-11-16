@@ -6,7 +6,6 @@ import {
   type OrchestrationV2DomainEvent,
   type OrchestrationV2ParkedWait,
   type OrchestrationV2ServerCommand,
-  type OrchestrationV2ThreadWatch,
   type SlipJayRunnerOverview,
   ThreadId,
   isLeafSubagentThread,
@@ -35,6 +34,7 @@ import { threadWatchRefusal } from "./threadWatch.ts";
 const SWEEP_MINUTES = 1;
 /** A watch whose landing the runner no longer tracks (superseded, or past its retained ledger) ends silently. */
 const STALE_WATCH_HOURS = 6;
+const LANDING_WAIT_ID = "server:landing-watch:";
 
 export class LandingWatchReactor extends Context.Service<
   LandingWatchReactor,
@@ -107,15 +107,21 @@ const make = Effect.gen(function* () {
     return undefined;
   });
 
+  // No expected time: T3's own landing wait lasts until the landing ends. A wait the thread made
+  // on the landing itself is left as it is.
   const watchFor = (landing: TrackedLanding, thread: OrchestrationV2AppThread) =>
-    engine.dispatch({
-      type: "thread.thread-watch",
-      commandId: CommandId.make(`server:landing-watch:${landing.operationId}:${thread.id}`),
-      threadId: thread.id,
-      target: { kind: "landing", operationId: landing.operationId },
-      title: landing.spec === undefined ? landing.repo : `Build #${landing.spec}`,
-      watching: true,
-    });
+    (thread.parkedWaits ?? []).some(
+      (wait) => wait.target.kind === "landing" && wait.target.operationId === landing.operationId,
+    )
+      ? Effect.void
+      : engine.dispatch({
+          type: "thread.thread-watch",
+          commandId: CommandId.make(`${LANDING_WAIT_ID}${landing.operationId}:${thread.id}`),
+          threadId: thread.id,
+          target: { kind: "landing", operationId: landing.operationId },
+          title: landing.spec === undefined ? landing.repo : `Build #${landing.spec}`,
+          watching: true,
+        });
 
   // The thread whose own `slipjay land` printed the operation, from whichever workspace it ran:
   // a subagent's command belongs to the thread that owns it. The first command to show the id
@@ -181,8 +187,13 @@ const make = Effect.gen(function* () {
     const threads = [];
     for (const row of rows) {
       const thread = yield* projections.getThread(ThreadId.make(row.thread_id));
-      // A landing a child submitted wakes the thread that owns the child, as it always has.
-      if (threadWatchRefusal(thread) === undefined && !isLeafSubagentThread(thread))
+      // A landing a child submitted wakes the thread that owns the child, as it always has. A
+      // settled thread sharing the checkout is not the one at work in it.
+      if (
+        threadWatchRefusal(thread) === undefined &&
+        !isLeafSubagentThread(thread) &&
+        thread.settledOverride !== "settled"
+      )
         threads.push(thread);
     }
     const [thread] = threads;
@@ -190,51 +201,7 @@ const make = Effect.gen(function* () {
     resolved.add(landing.operationId);
   });
 
-  const settleWatch = Effect.fn("LandingWatchReactor.settleWatch")(function* (
-    thread: OrchestrationV2AppThread,
-    watch: OrchestrationV2ThreadWatch,
-    landings: ReadonlyMap<string, TrackedLanding>,
-  ) {
-    if (watch.target.kind !== "landing") return;
-    const { operationId } = watch.target;
-    const landing = landings.get(operationId);
-    if (landing === undefined) {
-      const now = yield* DateTime.now;
-      const ageHours =
-        (DateTime.toEpochMillis(now) - Date.parse(watch.startedAt)) / (60 * 60 * 1000);
-      if (ageHours < STALE_WATCH_HOURS) return;
-      yield* engine.dispatch({
-        type: "thread.thread-watch",
-        commandId: CommandId.make(`server:landing-watch-end:${thread.id}:${watch.id}`),
-        threadId: thread.id,
-        target: watch.target,
-        watching: false,
-      });
-      return;
-    }
-    if (isActive(landing)) return;
-    // T3 arms landing watches only on non-leaf threads, so one on a leaf is a copy its parent's
-    // watch left there; waking the child would cost a turn whose reply returns to the parent.
-    if (isLeafSubagentThread(thread) && watch.id.startsWith("thread-watch:server:landing-watch:")) {
-      yield* engine.dispatch({
-        type: "thread.thread-watch",
-        commandId: CommandId.make(`server:landing-watch-end:${thread.id}:${watch.id}`),
-        threadId: thread.id,
-        target: watch.target,
-        watching: false,
-      });
-      return;
-    }
-    yield* engine.dispatch({
-      type: "thread.thread-watch.fire",
-      commandId: CommandId.make(`server:landing-watch-fire:${thread.id}:${watch.id}`),
-      threadId: thread.id,
-      watchId: watch.id,
-      landing: landingPayload(landing),
-    });
-  });
-
-  // A parked wait reports what T3 knows until it is met; it gives up on its own deadline.
+  // A wait reports what T3 knows until it is met; it gives up on its own deadline.
   const reportParked = Effect.fn("LandingWatchReactor.reportParked")(function* (
     thread: OrchestrationV2AppThread,
     wait: OrchestrationV2ParkedWait,
@@ -258,11 +225,26 @@ const make = Effect.gen(function* () {
     if (wait.target.kind !== "landing") return;
     const { operationId } = wait.target;
     const landing = landings.get(operationId);
+    const end = engine.dispatch({
+      type: "thread.thread-watch",
+      commandId: CommandId.make(`server:landing-watch-end:${thread.id}:${wait.id}`),
+      threadId: thread.id,
+      watchId: wait.id,
+      watching: false,
+    });
     if (landing === undefined) {
+      // T3's own landing wait has no give-up time, so one the runner forgot ends quietly.
+      const ageHours =
+        (DateTime.toEpochMillis(yield* DateTime.now) - Date.parse(wait.startedAt)) /
+        (60 * 60 * 1000);
+      if (wait.givesUpAt === undefined && ageHours >= STALE_WATCH_HOURS) return yield* end;
       return yield* reportParked(thread, wait, {
         lastKnown: `SlipJay's runner on this host does not track landing ${operationId}.`,
       });
     }
+    // T3 arms landing waits only on non-leaf threads, so one on a leaf is a copy its parent's
+    // wait left there; waking the child would cost a turn whose reply returns to the parent.
+    if (isLeafSubagentThread(thread) && wait.id.includes(LANDING_WAIT_ID)) return yield* end;
     if (isActive(landing)) {
       return yield* reportParked(thread, wait, {
         lastKnown: `Landing ${operationId} was still running, at ${landing.stage}.`,
@@ -399,7 +381,7 @@ const make = Effect.gen(function* () {
         }
       }).pipe(
         Effect.catchCause((cause) =>
-          Effect.logWarning("parked wait could not be checked", {
+          Effect.logWarning("wait could not be checked", {
             threadId: thread.id,
             watchId: wait.id,
             cause,
@@ -420,17 +402,6 @@ const make = Effect.gen(function* () {
     for (const row of rows) {
       const thread = yield* projections.getThread(ThreadId.make(row.thread_id));
       yield* settleParked(thread, landings, overview);
-      for (const watch of thread.threadWatches ?? []) {
-        yield* settleWatch(thread, watch, landings).pipe(
-          Effect.catchCause((cause) =>
-            Effect.logWarning("landing watch could not be settled", {
-              threadId: thread.id,
-              watchId: watch.id,
-              cause,
-            }),
-          ),
-        );
-      }
     }
   });
 

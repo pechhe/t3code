@@ -18,7 +18,7 @@ const shell = (
   id: ThreadId.make(id),
   archivedAt,
   deletedAt,
-  threadWatches: watches.map((watch, index) => ({
+  parkedWaits: watches.map((watch, index) => ({
     id: `thread-watch:${id}:${index}`,
     title: "Worker",
     target: {
@@ -36,7 +36,7 @@ describe("threadWatchers", () => {
       id: ThreadId.make("thread:build-watcher"),
       archivedAt: null,
       deletedAt: null,
-      threadWatches: [
+      parkedWaits: [
         {
           id: "build-watch",
           title: "Build #1000001",

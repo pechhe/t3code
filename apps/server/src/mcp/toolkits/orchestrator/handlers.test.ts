@@ -109,7 +109,7 @@ it.effect("schedule_task needs a label to create a task and leaves it alone on a
 
       // A look-again is a wait the thread parks on, not a scheduled task.
       expect(yield* call({ prompt: "Look again", schedule, purpose: "check_back" })).toContain(
-        "park this thread with `watch`",
+        "wait with `watch`",
       );
       expect(created).toEqual([]);
       yield* call({ prompt: "Weekly review", schedule, purpose: "long_running" });
@@ -119,7 +119,7 @@ it.effect("schedule_task needs a label to create a task and leaves it alone on a
       yield* call({ scheduledTaskId, enabled: false });
       yield* call({ scheduledTaskId, purpose: "long_running" });
       expect(yield* call({ scheduledTaskId, purpose: "check_back" })).toContain(
-        "park this thread with `watch`",
+        "wait with `watch`",
       );
       expect(updated).toEqual([
         { scheduledTaskId, enabled: false },

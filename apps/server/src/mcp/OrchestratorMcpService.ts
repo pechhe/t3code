@@ -161,7 +161,6 @@ import {
 import {
   decideThreadWatch,
   queuedThreadWatchWakes,
-  watchTargetsEqual,
   threadWatchRefusal,
   watchedThreadRecords,
 } from "../orchestration-v2/threadWatch.ts";
@@ -172,7 +171,7 @@ import { isSnoozed } from "../orchestration-v2/ThreadSettlementService.ts";
 import { userFacingDispatchErrorMessage } from "../orchestration-v2/UserFacingErrors.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as SlipJayLandings from "../project/SlipJayLandings.ts";
-import { parkedWaitTargetsEqual } from "../orchestration-v2/parkedWait.ts";
+import { DEFAULT_WAIT_MS, parkedWaitTargetsEqual } from "../orchestration-v2/parkedWait.ts";
 import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 import { followupBinding, followupPrompt } from "../agents/followup.ts";
 import { managedTaskTitle } from "../agents/taskTitle.ts";
@@ -5121,9 +5120,9 @@ const make = Effect.gen(function* () {
           }
         }
       }
-      // Reading the result a watch would wake the caller with ends the watch, so the wake cannot
+      // Reading the result a wait would wake the caller with ends the wait, so the wake cannot
       // arrive after the caller has moved on.
-      const callerWatches = parent?.thread.threadWatches ?? [];
+      const callerWatches = parent?.thread.parkedWaits ?? [];
       const callerWatchesTarget = callerWatches.some(
         (watch) => watch.target.kind === "thread" && watch.target.threadId === target.thread.id,
       );
@@ -5370,6 +5369,39 @@ const make = Effect.gen(function* () {
         if (watcher === null || watcher.deletedAt !== null) {
           return yield* failure("thread_not_found", `Thread ${thread.threadId} was not found.`);
         }
+        const watchCommandId = stableCommandId({
+          scope,
+          requestKey: yield* requestKey(undefined),
+          operation: watching ? "watch" : "unwatch",
+        });
+        const dispatchWatch = (command: Parameters<typeof threadManagement.dispatch>[0]) =>
+          threadManagement
+            .dispatch(command)
+            .pipe(
+              Effect.mapError((error) =>
+                isThreadManagementError(error)
+                  ? threadManagementFailure(error)
+                  : failure(
+                      "orchestration_error",
+                      `Unable to update watch: ${errorMessage(error)}`,
+                    ),
+              ),
+            );
+        if (input.target.kind === "owner") {
+          const question = input.target.question;
+          yield* dispatchWatch({
+            type: "thread.thread-watch",
+            commandId: watchCommandId,
+            threadId: watcher.id,
+            target: { kind: "owner", ...(question === undefined ? {} : { question }) },
+            watching,
+          });
+          return {
+            target: { kind: "owner" as const, ...(question === undefined ? {} : { question }) },
+            watching,
+            wasWatching: watcher.ownerWait !== undefined,
+          };
+        }
         // A watch keeps the canonical number, however the agent named the item.
         const named = input.target;
         const resolveNumber = (reference: string) =>
@@ -5382,7 +5414,7 @@ const make = Effect.gen(function* () {
         const unwatchNumber = Effect.fnUntraced(function* (reference: string) {
           const parsed = parseForgeReference(reference);
           if (parsed?.kind === "number") return parsed.number;
-          const watched = (watcher.threadWatches ?? []).flatMap((watch) =>
+          const watched = (watcher.parkedWaits ?? []).flatMap((watch) =>
             watch.target.kind === "build_item" ? [watch.target.number] : [],
           );
           if (parsed?.kind === "ref" && watched.length > 0) {
@@ -5396,7 +5428,6 @@ const make = Effect.gen(function* () {
           }
           return yield* resolveNumber(reference);
         });
-        const parking = watching && input.park !== undefined;
         const target: OrchestrationV2ParkedWaitTarget =
           named.kind === "thread"
             ? {
@@ -5419,34 +5450,17 @@ const make = Effect.gen(function* () {
                         ? yield* resolveNumber(named.number)
                         : yield* unwatchNumber(named.number),
                 };
-        const wasWatching =
-          (target.kind !== "production" &&
-            target.kind !== "time" &&
-            (watcher.threadWatches ?? []).some((watch) =>
-              watchTargetsEqual(watch.target, target),
-            )) ||
-          (watcher.parkedWaits ?? []).some((wait) => parkedWaitTargetsEqual(wait.target, target));
+        const wasWatching = (watcher.parkedWaits ?? []).some((wait) =>
+          parkedWaitTargetsEqual(wait.target, target),
+        );
         let title: string | undefined;
         let label: string | undefined;
         if (watching) {
-          if (!parking && (target.kind === "production" || target.kind === "time")) {
-            return yield* failure(
-              "invalid_request",
-              "A Production or time target must be parked: pass `park`.",
-            );
-          }
-          if (parking && target.kind !== "time" && input.park?.expectedMinutes === undefined) {
-            return yield* failure(
-              "invalid_request",
-              "Parking on an event needs `park.expectedMinutes`: when you expect it. T3 gives up and wakes you at twice that.",
-            );
-          }
           const refusal = threadWatchRefusal(
             watcher,
             target.kind === "thread" && target.environmentId === undefined
               ? target.threadId
               : undefined,
-            { parked: parking },
           );
           if (refusal !== undefined) return yield* failure("invalid_request", refusal);
           if (target.kind === "production") {
@@ -5495,47 +5509,31 @@ const make = Effect.gen(function* () {
                 `Build ${label} is not a Spec or Ticket T3's Weave can see.`,
               );
             title = view?.item?.title.trim() || `Build #${target.number}`;
-            // A parked wait's title is a subject clients set in "{title} is unblocked".
-            if (parking && view?.item?.ref != null) title = view.item.ref;
+            // A wait's title is a subject clients set in "{title} is unblocked".
+            if (view?.item?.ref != null) title = view.item.ref;
           }
         }
-        yield* threadManagement
-          .dispatch({
-            type: "thread.thread-watch",
-            commandId: stableCommandId({
-              scope,
-              requestKey: yield* requestKey(undefined),
-              operation: watching ? "watch" : "unwatch",
-            }),
-            threadId: watcher.id,
-            target,
-            ...(title === undefined ? {} : { title }),
-            watching,
-            ...(parking && input.park !== undefined
-              ? {
-                  park: {
-                    ...(target.kind === "time" || input.park.expectedMinutes === undefined
-                      ? {}
-                      : { expectedMs: input.park.expectedMinutes * 60_000 }),
-                    ...(input.park.note === undefined ? {} : { note: input.park.note }),
-                  },
-                }
-              : {}),
-          })
-          .pipe(
-            Effect.mapError((error) =>
-              isThreadManagementError(error)
-                ? threadManagementFailure(error)
-                : failure("orchestration_error", `Unable to update watch: ${errorMessage(error)}`),
-            ),
-          );
-        if (!parking) {
+        const expectedMinutes =
+          target.kind === "time" ? undefined : (input.expectedMinutes ?? DEFAULT_WAIT_MS / 60_000);
+        yield* dispatchWatch({
+          type: "thread.thread-watch",
+          commandId: watchCommandId,
+          threadId: watcher.id,
+          target,
+          ...(title === undefined ? {} : { title }),
+          watching,
+          ...(watching && expectedMinutes !== undefined
+            ? { expectedMs: expectedMinutes * 60_000 }
+            : {}),
+          ...(watching && input.note !== undefined ? { note: input.note } : {}),
+        });
+        if (!watching) {
           return { target, ...(label === undefined ? {} : { label }), watching, wasWatching };
         }
         const after = yield* threadManagement
           .getThreadShell(watcher.id)
           .pipe(Effect.mapError(threadManagementFailure));
-        const parked = after?.parkedWaits?.find((wait) =>
+        const started = after?.parkedWaits?.find((wait) =>
           parkedWaitTargetsEqual(wait.target, target),
         );
         return {
@@ -5543,8 +5541,7 @@ const make = Effect.gen(function* () {
           ...(label === undefined ? {} : { label }),
           watching,
           wasWatching,
-          parked: true,
-          ...(parked?.givesUpAt === undefined ? {} : { givesUpAt: parked.givesUpAt }),
+          ...(started?.givesUpAt === undefined ? {} : { givesUpAt: started.givesUpAt }),
         };
       },
     ),

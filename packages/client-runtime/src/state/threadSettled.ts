@@ -3,10 +3,6 @@ import * as DateTime from "effect/DateTime";
 import { DEFAULT_SNOOZE_PRESETS, type SnoozePresetSetting } from "@t3tools/contracts/settings";
 
 import type { OrchestrationV2ParkedWait } from "@t3tools/contracts";
-import {
-  backgroundWorkHoldsCompletion,
-  ownBackgroundWork,
-} from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 
 import type { EnvironmentThreadShell, PendingSubagentRequest } from "./models.ts";
 
@@ -75,7 +71,7 @@ export function hasQueuedTurnStart(
 }
 
 export interface ThreadSnoozeShell extends QueuedThreadShell {
-  readonly source?: Pick<EnvironmentThreadShell["source"], "pendingRuntimeRequest">;
+  readonly source?: Pick<EnvironmentThreadShell["source"], "pendingRuntimeRequest" | "ownerWait">;
   readonly snoozedUntil?: string | null;
   readonly snoozedAt?: string | null;
   readonly hasPendingApprovals: boolean;
@@ -83,7 +79,7 @@ export interface ThreadSnoozeShell extends QueuedThreadShell {
   readonly pendingUserInputAt?: string | null;
   readonly pendingSubagentRequest?: PendingSubagentRequest | null;
   readonly pendingGuestMessageCount?: number;
-  /** What the thread is parked on; a seen, parked thread sits in the Snoozed shelf. */
+  /** External conditions that wake the thread. */
   readonly parkedWaits?: ReadonlyArray<OrchestrationV2ParkedWait> | undefined;
   readonly pendingBackgroundTasks?: EnvironmentThreadShell["pendingBackgroundTasks"] | undefined;
   readonly lastVisitedAt?: string | null | undefined;
@@ -92,6 +88,7 @@ export interface ThreadSnoozeShell extends QueuedThreadShell {
 function pendingQuestionAt(shell: ThreadSnoozeShell): string | null {
   const request = shell.source?.pendingRuntimeRequest;
   return (
+    shell.source?.ownerWait?.startedAt ??
     shell.pendingUserInputAt ??
     (request?.kind === "user_input" ? DateTime.formatIso(request.createdAt) : null)
   );
@@ -109,7 +106,9 @@ export function threadRaisedHandWhileSnoozed(shell: ThreadSnoozeShell): boolean 
   // Snoozing an existing question means "ask me later". Only a new question
   // wakes it early; missing or invalid timestamps keep the request visible.
   if (
-    (shell.hasPendingUserInput || request?.kind === "user_input") &&
+    (shell.hasPendingUserInput ||
+      request?.kind === "user_input" ||
+      shell.source?.ownerWait !== undefined) &&
     (shell.snoozedAt == null ||
       questionAt == null ||
       !(Date.parse(questionAt) <= Date.parse(shell.snoozedAt)))
@@ -164,35 +163,10 @@ export function canSnooze(
   return true;
 }
 
-const ACTIVE_RUN_STATUSES = new Set(["preparing", "queued", "starting", "running", "waiting"]);
-
-/**
- * A parked thread reads Done until it is opened, then joins the Snoozed shelf until its wait ends.
- * Derived from the server's `parkedWaits`, never by writing `snoozedUntil`. A request for the
- * person, a fresh failure, a running turn or its own working subagents keep it where it is.
- */
-export function threadParkedOnShelf(shell: ThreadSnoozeShell): boolean {
-  if ((shell.parkedWaits?.length ?? 0) === 0) return false;
-  const runtime = shell.runtime ?? shell.session ?? null;
-  if (runtime !== null && ACTIVE_RUN_STATUSES.has(runtime.status)) return false;
-  // Watches are excluded: a park on another thread is listed as one.
-  if (backgroundWorkHoldsCompletion(ownBackgroundWork(shell.pendingBackgroundTasks ?? []))) {
-    return false;
-  }
-  if (shell.lastVisitedAt == null) return false;
-  const completedAt = Date.parse((shell.latestRun ?? shell.latestTurn)?.completedAt ?? "");
-  const visitedAt = Date.parse(shell.lastVisitedAt);
-  if (Number.isNaN(visitedAt) || (!Number.isNaN(completedAt) && completedAt > visitedAt)) {
-    return false;
-  }
-  return !threadRaisedHandWhileSnoozed(shell);
-}
-
 export function effectiveSnoozed(
   shell: ThreadSnoozeShell,
   options: { readonly now: string },
 ): boolean {
-  if (threadParkedOnShelf(shell)) return true;
   if (shell.snoozedUntil == null) return false;
   const wakeAtMs = Date.parse(shell.snoozedUntil);
   if (Number.isNaN(wakeAtMs)) return false;
@@ -235,7 +209,10 @@ const HOUR_MS = 60 * 60 * 1_000;
 
 /** When a parked wait ends by itself: it gives up, or a time wait wakes. */
 function parkedWaitEndsAt(wait: OrchestrationV2ParkedWait): string | null {
-  return wait.givesUpAt ?? (wait.target.kind === "time" ? wait.target.at : null);
+  const times = [wait.givesUpAt, wait.target.kind === "time" ? wait.target.at : undefined]
+    .filter((at): at is string => at !== undefined && Number.isFinite(Date.parse(at)))
+    .sort((left, right) => Date.parse(left) - Date.parse(right));
+  return times[0] ?? null;
 }
 
 /** The wait that ends first: what the shelf and the sort show for a thread parked on several. */
@@ -326,7 +303,7 @@ export function parkedWaitWakesOn(wait: OrchestrationV2ParkedWait, nowMs: number
 /** The panel's quiet facts: "Parked 2h", "expected within 1 day", "gives up Thu 14:00". */
 export function parkedWaitFacts(wait: OrchestrationV2ParkedWait, nowMs: number): string[] {
   const startedMs = Date.parse(wait.startedAt);
-  const facts = [`Parked ${formatParkedSpan(Math.max(0, nowMs - startedMs))}`];
+  const facts = [`Waiting ${formatParkedSpan(Math.max(0, nowMs - startedMs))}`];
   if (wait.target.kind === "time") {
     const atMs = Date.parse(wait.target.at);
     facts.push(atMs > nowMs ? `in ${formatParkedSpan(atMs - nowMs)}` : "waking now");
@@ -578,8 +555,13 @@ export function parkedThreadSubtitle(
   return wait === null ? null : parkedWaitWakesOn(wait, nowMs);
 }
 
-/** When a thread leaves the Snoozed shelf by itself: its snooze ends, or its parked wait does. */
-export function snoozeShelfEndsAt(shell: ThreadSnoozeShell): string | null {
-  const parked = nextParkedWait(shell.parkedWaits);
-  return parked === null ? (shell.snoozedUntil ?? null) : parkedWaitEndsAt(parked);
+/** The first outside condition that can wake a thread, with an owner snooze taking precedence. */
+export function snoozeShelfEndsAt(
+  shell: ThreadSnoozeShell,
+  options?: { readonly now: string },
+): string | null {
+  if (shell.snoozedUntil != null && (options === undefined || effectiveSnoozed(shell, options)))
+    return shell.snoozedUntil;
+  const wait = nextParkedWait(shell.parkedWaits);
+  return wait === null ? null : parkedWaitEndsAt(wait);
 }

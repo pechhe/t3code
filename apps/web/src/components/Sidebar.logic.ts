@@ -30,6 +30,7 @@ import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/c
 import type { AsyncResult } from "effect/reactivity";
 import {
   effectiveSnoozed,
+  snoozeShelfEndsAt,
   type ThreadSnoozeShell,
 } from "@t3tools/client-runtime/state/thread-settled";
 import {
@@ -197,10 +198,12 @@ export function resolveSidebarThreadSection(input: {
   readonly snoozed: boolean;
   readonly settled: boolean;
   readonly pinned: boolean;
+  readonly waiting?: boolean;
 }): SidebarSection {
   if (input.snoozed) return "snoozed";
   if (input.settled) return "settled";
   if (input.pinned) return "pinned";
+  if (input.waiting) return "snoozed";
   return "active";
 }
 
@@ -675,7 +678,7 @@ export interface ThreadStatusPill {
     | "Plan ready"
     | "Stalled"
     | "Needs you"
-    | "Parked wait gave up"
+    | "Wait gave up"
     | "Done";
   /** What a Needs you pill waits on, such as "accept T3-12". */
   detail?: string;
@@ -1105,17 +1108,6 @@ export type SidebarV2TopStatusKind =
   | "woke"
   | "working";
 
-export function firstValidTimestampMs(
-  ...candidates: ReadonlyArray<string | null | undefined>
-): number {
-  for (const candidate of candidates) {
-    if (candidate == null) continue;
-    const parsed = Date.parse(candidate);
-    if (!Number.isNaN(parsed)) return parsed;
-  }
-  return 0;
-}
-
 export { sortActiveThreadsByOrderKey as sortThreadsForSidebar } from "@t3tools/client-runtime/state/thread-sort";
 export {
   sortInboxThreadsByReturn,
@@ -1216,12 +1208,36 @@ export function resolveWorkingStartedAt(
   return resolveThreadWorkingStartedAt(thread);
 }
 
+export function compareWaitingThreads(
+  left: ThreadSnoozeShell,
+  right: ThreadSnoozeShell,
+  now: string,
+): number {
+  const endsAt = (thread: ThreadSnoozeShell) => {
+    const at = snoozeShelfEndsAt(thread, { now });
+    return at === null ? Infinity : Date.parse(at);
+  };
+  return endsAt(left) - endsAt(right);
+}
+
+export function threadQuestionSubtitle(
+  thread: Pick<SidebarThreadSummary, "standing" | "parkedWaits">,
+): string | null {
+  const question = thread.standing?.question;
+  if (question === undefined) return null;
+  const wait = thread.parkedWaits?.[0];
+  return question + (wait === undefined ? "" : ` · Also waiting on ${wait.title}`);
+}
+
 /** What the server's standing adds to a row whose own status is quiet: one rule for every row. */
 export function threadStandingAttention(
   standing: ThreadStatusInput["standing"],
   parkedWaitGaveUp?: ThreadStatusInput["parkedWaitGaveUp"],
 ): "needs_you" | "gave_up" | "stalled" | null {
-  if (standing?.state === "needs_you" && standing.waitsOnPerson?.need === "acceptance")
+  if (
+    standing?.state === "needs_you" &&
+    (standing.question !== undefined || standing.waitsOnPerson?.need === "acceptance")
+  )
     return "needs_you";
   // A wait that gave up is the owner's to look at, whatever the server's standing says.
   if (parkedWaitGaveUp !== undefined) return "gave_up";
@@ -1242,10 +1258,13 @@ export function resolveThreadStatusPill(input: {
     base.label === "Waiting" ||
     base.label === "Watching" ||
     (thread.parkedWaitGaveUp !== undefined && base.label === "Done");
-  const attention = quiet ? threadStandingAttention(standing, thread.parkedWaitGaveUp) : null;
+  const attention =
+    quiet || standing?.question !== undefined
+      ? threadStandingAttention(standing, thread.parkedWaitGaveUp)
+      : null;
   if (attention === "gave_up") {
     return {
-      label: "Parked wait gave up",
+      label: "Wait gave up",
       colorClass: "text-warning-foreground",
       dotClass: "border border-current",
       pulse: false,
@@ -1268,6 +1287,14 @@ export function resolveThreadStatusPill(input: {
       label: "Stalled",
       colorClass: "text-warning-foreground",
       dotClass: "border border-current",
+      pulse: false,
+    };
+  }
+  if (standing.state === "waiting") {
+    return {
+      label: "Waiting",
+      colorClass: "text-sidebar-muted-foreground",
+      dotClass: "bg-sidebar-muted-foreground",
       pulse: false,
     };
   }

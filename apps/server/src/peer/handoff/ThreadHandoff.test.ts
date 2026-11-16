@@ -641,7 +641,7 @@ const startWaiting = (laptopEnv: Effect.Success<ReturnType<typeof makeLaptop>>) 
       threadId,
       target: { kind: "time", at: "2099-01-01T00:00:00.000Z" },
       watching: true,
-      park: { note: "Check the nightly." },
+      note: "Check the nightly.",
     });
     yield* laptopEnv.orchestrator.dispatch({
       type: "thread.pull-request.watch",
@@ -680,25 +680,22 @@ it.live("a move carries the thread's waits, and ends them on the copy left behin
 
       // There: the same waits, the thread here now a thread in another environment.
       const there = yield* idle(b.orchestrator, moved.threadId);
-      expect(there.thread.threadWatches?.map((watch) => watch.target)).toEqual([
-        { kind: "thread", threadId: watched, environmentId: laptop.environmentId },
-      ]);
       expect(there.thread.parkedWaits?.map((wait) => wait.target)).toEqual([
+        { kind: "thread", threadId: watched, environmentId: laptop.environmentId },
         { kind: "time", at: "2099-01-01T00:00:00.000Z" },
       ]);
-      expect(there.thread.parkedWaits?.[0]?.note).toBe("Check the nightly.");
+      expect(there.thread.parkedWaits?.[1]?.note).toBe("Check the nightly.");
       expect(
         there.thread.pullRequests?.map((link) => [link.number, link.watch !== undefined]),
       ).toEqual([[12, true]]);
       const [firstTurn] = yield* Ref.get(boxTurns);
       expect(firstTurn?.text).toContain("Its waits moved with it");
-      expect(firstTurn?.text).toContain("watching Deploy the fix");
+      expect(firstTurn?.text).toContain("waiting on Deploy the fix");
       expect(firstTurn?.text).toContain("watching pull request #12");
 
       // Here: nothing left to wake the read-only copy.
       const here = yield* a.orchestrator.getThreadProjection(threadId);
       expect(here.thread.handoff).toMatchObject({ state: "departed" });
-      expect(here.thread.threadWatches ?? []).toEqual([]);
       expect(here.thread.parkedWaits ?? []).toEqual([]);
       expect(here.thread.pullRequests?.some((link) => link.watch !== undefined)).toBe(false);
     }),
@@ -745,9 +742,9 @@ it.live("a Build item wait moves with the thread and one the box cannot read end
         .pipe(Effect.flip);
       expect(refused.message).toContain("no Weave connection");
       expect(refused.message).toContain("Build #7");
-      expect(
-        (yield* a.orchestrator.getThreadProjection(threadId)).thread.threadWatches,
-      ).toHaveLength(1);
+      expect((yield* a.orchestrator.getThreadProjection(threadId)).thread.parkedWaits).toHaveLength(
+        1,
+      );
 
       // Connected, the same move carries it, once, and ends it here.
       yield* Ref.set(connected, true);
@@ -762,11 +759,11 @@ it.live("a Build item wait moves with the thread and one the box cannot read end
       expect(moved.state).toBe("departed");
       if (moved.state !== "departed") return;
       const there = yield* idle(b.orchestrator, moved.threadId);
-      expect(there.thread.threadWatches?.map((watch) => watch.target)).toEqual([
+      expect(there.thread.parkedWaits?.map((watch) => watch.target)).toEqual([
         { kind: "build_item", number: 7, until: "closed" },
       ]);
       expect(
-        (yield* a.orchestrator.getThreadProjection(threadId)).thread.threadWatches ?? [],
+        (yield* a.orchestrator.getThreadProjection(threadId)).thread.parkedWaits ?? [],
       ).toEqual([]);
     }),
   ).pipe(Effect.provide(layerTestHost)),
@@ -832,7 +829,7 @@ it.live("a wait on a third environment or on Production the box cannot follow en
         target: { kind: "production", commitId: "abc1234" },
         title: "commit abc1234",
         watching: true,
-        park: { expectedMs: 600_000 },
+        expectedMs: 600_000,
       });
       const productionRefused = yield* a.handoff
         .start({ threadId, environmentId: box.environmentId })
@@ -875,7 +872,7 @@ it.live("a wait the box could not recreate is named in the thread's first messag
       yield* idle(b.orchestrator, moved.threadId);
       const [firstTurn] = yield* Ref.get(boxTurns);
       expect(firstTurn?.text).toContain(
-        "could not move with the thread and need setting up again: watching Fix the login on the box",
+        "could not move with the thread and need setting up again: waiting on Fix the login on the box",
       );
     }),
   ).pipe(Effect.provide(layerTestHost)),
@@ -905,8 +902,7 @@ it.live("a wait the box cannot keep ends the move naming it, and the thread keep
       expect(failed.message).toContain("Deploy the fix");
       const here = yield* a.orchestrator.getThreadProjection(threadId);
       expect(here.thread.handoff).toMatchObject({ state: "failed" });
-      expect(here.thread.threadWatches).toHaveLength(1);
-      expect(here.thread.parkedWaits).toHaveLength(1);
+      expect(here.thread.parkedWaits).toHaveLength(2);
       // Nothing was created on the box.
       expect(
         (yield* b.orchestrator.getShellSnapshot()).threads.filter((shell) =>
@@ -1001,7 +997,7 @@ it.live("a thread wakes once when the thread it watches on the box finishes ther
         source: { kind: "thread", threadId: boxWorker, environmentId: box.environmentId },
         outcome: "completed",
       });
-      expect((yield* a.orchestrator.getThreadShell(threadId))?.threadWatches ?? []).toEqual([]);
+      expect((yield* a.orchestrator.getThreadShell(threadId))?.parkedWaits ?? []).toEqual([]);
       expect(yield* boxWakes(a)).toHaveLength(1);
     }),
   ).pipe(Effect.provide(layerTestHost)),
@@ -1074,7 +1070,7 @@ it.live("a dropped link never wakes early, and the watch carries on when it retu
       // It keeps trying while the box is down, and has woken nobody.
       yield* Deferred.await(failedThrice);
       expect(yield* boxWakes(a)).toEqual([]);
-      expect((yield* a.orchestrator.getThreadShell(threadId))?.threadWatches).toHaveLength(1);
+      expect((yield* a.orchestrator.getThreadShell(threadId))?.parkedWaits).toHaveLength(1);
 
       yield* Deferred.succeed(restored, undefined);
       yield* awaitBoxWake(a);
@@ -1439,7 +1435,7 @@ describe("moveBlocker", () => {
   const thread = {
     agentTask: undefined,
     lineage: { relationshipToParent: null },
-    threadWatches: [],
+    parkedWaits: [],
     pullRequests: [],
   } as unknown as Parameters<typeof ThreadHandoff.moveBlocker>[0];
 
@@ -1457,11 +1453,6 @@ describe("moveBlocker", () => {
   });
 
   it("moves with its waits, and names only the work that cannot follow it", () => {
-    const watchMirror = {
-      kind: "monitor",
-      taskId: "thread-watch:w1",
-      description: "Watching thread deploy",
-    };
     const prMirror = {
       kind: "monitor",
       taskId: "pull-request-watch:github.com/acme/app#12",
@@ -1469,26 +1460,28 @@ describe("moveBlocker", () => {
     };
     const waiting = {
       ...thread,
-      threadWatches: [{ title: "deploy", target: { kind: "thread", threadId: "t" } }],
-      parkedWaits: [{ title: "tonight", target: { kind: "time", at: "2026-11-12T22:00:00Z" } }],
+      parkedWaits: [
+        { title: "deploy", target: { kind: "thread", threadId: "t" } },
+        { title: "tonight", target: { kind: "time", at: "2026-11-12T22:00:00Z" } },
+      ],
     } as unknown as typeof thread;
     expect(
       ThreadHandoff.moveBlocker(waiting, {
-        pendingBackgroundTasks: [watchMirror, prMirror] as unknown as ReadonlyArray<never>,
+        pendingBackgroundTasks: [prMirror] as unknown as ReadonlyArray<never>,
       }),
     ).toBe(null);
 
     const blocked = ThreadHandoff.moveBlocker(
       {
         ...waiting,
-        threadWatches: [
-          ...(waiting.threadWatches ?? []),
+        parkedWaits: [
+          ...(waiting.parkedWaits ?? []),
           { title: "SlipJay landing", target: { kind: "landing", operationId: "op" } },
         ],
       } as unknown as typeof thread,
       {
         pendingBackgroundTasks: [
-          watchMirror,
+          prMirror,
           { kind: "command", taskId: "t1", description: "vp test" },
           { kind: "subagent", taskId: "t2", description: "review the diff" },
         ] as unknown as ReadonlyArray<never>,

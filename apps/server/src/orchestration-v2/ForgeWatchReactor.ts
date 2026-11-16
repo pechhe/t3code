@@ -13,7 +13,6 @@ import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import { forkParked } from "../serverActivation.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
-import { ARC_RUN_UNREADABLE_WATCH_MS } from "./arcRun.ts";
 import { threadsWithWaits } from "./parkedWait.ts";
 import {
   buildWatchWaitsOnPerson,
@@ -37,9 +36,6 @@ const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const crypto = yield* SecureRandom.SecureRandom;
   const serial = yield* Semaphore.make(1);
-  // In memory on purpose: a restart starts the clock again rather than blaming Forge for downtime.
-  const unreadableSince = new Map<string, number>();
-
   // Rebuild from durable watches every pass, including the first pass after a restart.
   // ForgeWorkItems shares its summary cache across all watchers and client reads.
   const sweep = serial.withPermits(1)(
@@ -48,16 +44,12 @@ const make = Effect.gen(function* () {
       for (const row of rows) {
         yield* Effect.gen(function* () {
           const thread = yield* projections.getThread(ThreadId.make(row.thread_id));
-          // A parked wait survives settling; a held watch does not.
-          const watches = [
-            ...(threadWatchRefusal(thread) === undefined ? (thread.threadWatches ?? []) : []),
-            ...(threadWatchRefusal(thread, undefined, { parked: true }) === undefined
-              ? (thread.parkedWaits ?? [])
-              : []),
-          ].filter((watch) => watch.target.kind === "build_item");
+          if (threadWatchRefusal(thread) !== undefined) return;
+          const watches = (thread.parkedWaits ?? []).filter(
+            (watch) => watch.target.kind === "build_item",
+          );
           if (watches.length === 0) return;
-          const parkedIds = new Set((thread.parkedWaits ?? []).map((wait) => wait.id));
-          // A parked wait never fires on an unreadable item: it records what it saw and gives up.
+          // A wait never fires on an unreadable item: it records what it saw and gives up.
           const recordLastKnown = Effect.fn("ForgeWatchReactor.recordLastKnown")(function* (
             watchId: string,
             lastKnown: string,
@@ -85,45 +77,10 @@ const make = Effect.gen(function* () {
             const number = watch.target.number;
             const cached = result.items.find((item) => item.number === number);
             if (cached === undefined || cached.unavailable || cached.item === null) {
-              if (parkedIds.has(watch.id)) {
-                yield* recordLastKnown(watch.id, `T3 could not read Build #${number} from Weave.`);
-                continue;
-              }
-              const since = unreadableSince.get(watch.id) ?? passStartedAt;
-              unreadableSince.set(watch.id, since);
-              // The thread counts this watch as a wait, and it may never fire.
-              if (passStartedAt - since > ARC_RUN_UNREADABLE_WATCH_MS) {
-                unreadableSince.delete(watch.id);
-                yield* engine.dispatch({
-                  type: "thread.thread-watch.fire",
-                  commandId: CommandId.make(`server:build-watch-fire:${yield* crypto.uuidV4()}`),
-                  threadId: thread.id,
-                  watchId: watch.id,
-                  build: {
-                    number,
-                    title: watch.title,
-                    url: `#${number}`,
-                    condition: "unreadable",
-                  },
-                });
-              }
+              yield* recordLastKnown(watch.id, `T3 could not read Build #${number} from Weave.`);
               continue;
             }
-            unreadableSince.delete(watch.id);
-            if (
-              parkedIds.has(watch.id) &&
-              decideBuildWatch(watch.target, cached.item) === undefined
-            ) {
-              const item = cached.item;
-              yield* recordLastKnown(
-                watch.id,
-                `Build ${item.ref ?? `#${number}`} was ${item.status}, with ${item.waits.length} dependency waits.`,
-              );
-              continue;
-            }
-            const held = thread.threadWatches?.find((candidate) => candidate.id === watch.id);
-            const need =
-              held === undefined ? undefined : buildWatchWaitsOnPerson(watch.target, cached.item);
+            const need = buildWatchWaitsOnPerson(watch.target, cached.item);
             const waitsOnPerson =
               need === undefined
                 ? undefined
@@ -132,7 +89,7 @@ const make = Effect.gen(function* () {
                     ...(cached.item.ref == null ? {} : { ref: cached.item.ref }),
                     ...(cached.item.title.trim() === "" ? {} : { title: cached.item.title.trim() }),
                   };
-            if (held !== undefined && !sameWaitsOnPerson(waitsOnPerson, held.waitsOnPerson)) {
+            if (!sameWaitsOnPerson(waitsOnPerson, watch.waitsOnPerson)) {
               yield* engine.dispatch({
                 type: "thread.thread-watch.waits-on-person",
                 commandId: CommandId.make(
@@ -143,7 +100,14 @@ const make = Effect.gen(function* () {
                 ...(waitsOnPerson === undefined ? {} : { waitsOnPerson }),
               });
             }
-            if (decideBuildWatch(watch.target, cached.item) === undefined) continue;
+            if (decideBuildWatch(watch.target, cached.item) === undefined) {
+              const item = cached.item;
+              yield* recordLastKnown(
+                watch.id,
+                `Build ${item.ref ?? `#${number}`} was ${item.status}, with ${item.waits.length} dependency waits.`,
+              );
+              continue;
+            }
             // A cached answer can predate a dependency added outside T3's own connection: wake only
             // on an answer read in this pass.
             const readThisPass =

@@ -701,7 +701,7 @@ describe("presentPendingBackgroundWork", () => {
   });
 
   it("summarises mixed work with threads first", () => {
-    const threadWatches = Array.from({ length: 6 }, (_, index) => ({
+    const threadWaitTasks = Array.from({ length: 6 }, (_, index) => ({
       taskId: `thread-watch:${index}`,
       kind: "monitor" as const,
       description: `Watching thread T${index}`,
@@ -711,7 +711,7 @@ describe("presentPendingBackgroundWork", () => {
     const presentation = presentPendingBackgroundWork([
       { taskId: "cmd", kind: "command", description: "vp dev" },
       { taskId: "sub", kind: "subagent", description: "Review" },
-      ...threadWatches,
+      ...threadWaitTasks,
     ]);
     expect(presentation?.title).toBe("Waiting on 8 · 6 threads · 1 subagent · 1 command");
     expect(presentation?.items.map((item) => item.group).slice(-2)).toEqual([

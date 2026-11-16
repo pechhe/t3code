@@ -14,7 +14,6 @@ import {
   parkedWaitTimeLeft,
   parkedWaitWakesOn,
   snoozeShelfEndsAt,
-  threadParkedOnShelf,
   pickSnoozePreset,
   resolveSnoozePresets,
   threadRaisedHandWhileSnoozed,
@@ -175,25 +174,45 @@ describe("effectiveSnoozed", () => {
       wokeAt: "2026-04-10T11:00:00.000Z",
     },
     {
+      reason: "existing owner question",
+      completedAt: "2026-04-10T08:00:00.000Z",
+      pending: undefined,
+      ownerWaitStartedAt: SNOOZED_AT,
+      wokeAt: null,
+    },
+    {
+      reason: "fresh owner question",
+      completedAt: "2026-04-10T08:00:00.000Z",
+      pending: undefined,
+      ownerWaitStartedAt: "2026-04-10T10:00:00.000Z",
+      wokeAt: "2026-04-10T10:00:00.000Z",
+    },
+    {
       reason: "input after a stale failure",
       completedAt: "2026-04-10T08:00:00.000Z",
       pending: "user-input",
       wokeAt: "2026-04-10T11:00:00.000Z",
     },
-  ] as const)(
-    "uses the wake event time for $reason despite newer metadata",
-    ({ completedAt, pending, wokeAt }) => {
-      const shell: ThreadSnoozeShell = {
-        ...makeShell({ snoozedUntil: FUTURE_WAKE }),
-        hasPendingApprovals: pending === "approval",
-        hasPendingUserInput: pending === "user-input",
-        runtime: { status: "failed", updatedAt: "2026-04-10T11:00:00.000Z" },
-        latestRun: { status: "failed", requestedAt: "2026-04-10T07:00:00.000Z", completedAt },
-      };
-      expect(effectiveSnoozed(shell, { now: NOW })).toBe(wokeAt === null);
-      expect(threadWokeAt(shell, { now: NOW })).toBe(wokeAt);
-    },
-  );
+  ] as const)("uses the wake event time for $reason despite newer metadata", (row) => {
+    const { completedAt, pending, wokeAt } = row;
+    const shell: ThreadSnoozeShell = {
+      ...makeShell({ snoozedUntil: FUTURE_WAKE }),
+      ...("ownerWaitStartedAt" in row
+        ? {
+            source: {
+              pendingRuntimeRequest: null,
+              ownerWait: { question: "Which account?", startedAt: row.ownerWaitStartedAt },
+            },
+          }
+        : {}),
+      hasPendingApprovals: pending === "approval",
+      hasPendingUserInput: pending === "user-input",
+      runtime: { status: "failed", updatedAt: "2026-04-10T11:00:00.000Z" },
+      latestRun: { status: "failed", requestedAt: "2026-04-10T07:00:00.000Z", completedAt },
+    };
+    expect(effectiveSnoozed(shell, { now: NOW })).toBe(wokeAt === null);
+    expect(threadWokeAt(shell, { now: NOW })).toBe(wokeAt);
+  });
 
   it("stays snoozed while the session keeps working — snooze never pauses the agent", () => {
     expect(
@@ -527,29 +546,10 @@ describe("parked waits", () => {
     lastVisitedAt: input.lastVisitedAt ?? null,
   });
 
-  it("reads Done until the thread is opened, then shelves it without a snooze time", () => {
-    expect(threadParkedOnShelf(parkedShell({}))).toBe(false);
-    expect(threadParkedOnShelf(parkedShell({ lastVisitedAt: "2026-04-10T09:00:00.000Z" }))).toBe(
-      false,
-    );
+  it("never snoozes a wait merely because the thread was seen", () => {
     const seen = parkedShell({ lastVisitedAt: "2026-04-10T10:05:00.000Z" });
-    expect(seen.snoozedUntil).toBeNull();
-    expect(effectiveSnoozed(seen, { now: NOW })).toBe(true);
-    expect(effectiveSnoozed({ ...seen, parkedWaits: [] }, { now: NOW })).toBe(false);
-  });
-
-  it("keeps a thread that is running or asking for you out of the shelf", () => {
-    const seen = { lastVisitedAt: "2026-04-10T10:05:00.000Z" };
-    expect(threadParkedOnShelf(parkedShell({ ...seen, sessionStatus: "running" }))).toBe(false);
-    expect(threadParkedOnShelf({ ...parkedShell(seen), hasPendingApprovals: true })).toBe(false);
-  });
-
-  it("keeps a parked thread whose subagents still work out of the shelf, but not one only watching", () => {
-    const seen = parkedShell({ lastVisitedAt: "2026-04-10T10:05:00.000Z" });
-    const subagent = { taskId: "child-1", kind: "subagent" as const };
-    const watch = { taskId: "thread-watch:w1", kind: "monitor" as const, awaited: true as const };
-    expect(threadParkedOnShelf({ ...seen, pendingBackgroundTasks: [subagent, watch] })).toBe(false);
-    expect(threadParkedOnShelf({ ...seen, pendingBackgroundTasks: [watch] })).toBe(true);
+    expect(effectiveSnoozed(seen, { now: NOW })).toBe(false);
+    expect(effectiveSnoozed({ ...seen, snoozedUntil: FUTURE_WAKE }, { now: NOW })).toBe(true);
   });
 
   it("names what it wakes on and how long is left", () => {
@@ -563,7 +563,7 @@ describe("parked waits", () => {
       "2026-04-11T06:00:00.000Z",
     );
     expect(parkedWaitFacts(production, Date.parse(NOW))).toEqual([
-      "Parked 2h",
+      "Waiting 2h",
       "expected within 12 hours",
       expect.stringMatching(/^gives up /),
     ]);

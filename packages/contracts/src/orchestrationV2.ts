@@ -624,10 +624,19 @@ export const OrchestrationV2WatchTarget = Schema.Union([
 ]);
 export type OrchestrationV2WatchTarget = typeof OrchestrationV2WatchTarget.Type;
 
-/**
- * What a parked wait may wake on. Wider than a watch's target; shipped clients decode watches
- * strictly, so the Production and time targets exist only here.
- */
+/** What only the owner can still do for a watch: accept a landed item, or clear its holds. */
+export const OrchestrationV2WatchNeed = Schema.Literals(["acceptance", "hold"]);
+export type OrchestrationV2WatchNeed = typeof OrchestrationV2WatchNeed.Type;
+
+/** `ref` and `title` name the Forge item, so a reader need not call Forge to say what it waits on. */
+export const OrchestrationV2WatchWaitsOnPerson = Schema.Struct({
+  need: OrchestrationV2WatchNeed,
+  ref: Schema.optional(TrimmedNonEmptyString),
+  title: Schema.optional(Schema.String),
+});
+export type OrchestrationV2WatchWaitsOnPerson = typeof OrchestrationV2WatchWaitsOnPerson.Type;
+
+/** What a wait may wake on: a watch's target, a commit reaching Production, or a time. */
 export const OrchestrationV2ParkedWaitTarget = Schema.Union([
   ...OrchestrationV2WatchTarget.members,
   /** The commit Production serves is `commitId` or a descendant of it. */
@@ -642,8 +651,8 @@ export const OrchestrationV2ParkedWaitTarget = Schema.Union([
 export type OrchestrationV2ParkedWaitTarget = typeof OrchestrationV2ParkedWaitTarget.Type;
 
 /**
- * A wait that does not hold its thread: the thread is finished for every reader until the wait
- * wakes it. It survives settling and holds back no delegated result.
+ * Something outside the thread that the thread waits on until it wakes. It survives a restart,
+ * Stop and settling; archiving or deleting the thread ends it.
  */
 export const OrchestrationV2ParkedWait = Schema.Struct({
   id: TrimmedNonEmptyString,
@@ -652,8 +661,13 @@ export const OrchestrationV2ParkedWait = Schema.Struct({
   target: OrchestrationV2ParkedWaitTarget,
   /** When the agent expects the event. Absent for a time target. */
   expectedAt: Schema.optional(IsoDateTime),
-  /** Twice the expected time: the wait ends then and wakes the thread once. Absent for a time target. */
+  /**
+   * Twice the expected time: the wait ends then and wakes the thread once. Absent for a time
+   * target and for a wait that lasts until its target ends, such as T3's own landing wait.
+   */
   givesUpAt: Schema.optional(IsoDateTime),
+  /** Written with each check of a Forge item: what is left is the owner's to do. */
+  waitsOnPerson: Schema.optional(OrchestrationV2WatchWaitsOnPerson),
   /** What the agent told itself to do on waking; the wake carries it. */
   note: Schema.optional(Schema.String),
   /** What T3 last knew about the target, for the give-up message. */
@@ -661,7 +675,17 @@ export const OrchestrationV2ParkedWait = Schema.Struct({
 });
 export type OrchestrationV2ParkedWait = typeof OrchestrationV2ParkedWait.Type;
 
-/** A parked wait that gave up; set until the owner next writes to the thread or it parks again. */
+/**
+ * The thread waits on its owner's answer to `question`. Only the owner's next message ends it, and
+ * its other waits still wake the thread meanwhile.
+ */
+export const OrchestrationV2OwnerWait = Schema.Struct({
+  question: TrimmedNonEmptyString.check(Schema.isMaxLength(500)),
+  startedAt: IsoDateTime,
+});
+export type OrchestrationV2OwnerWait = typeof OrchestrationV2OwnerWait.Type;
+
+/** A wait that gave up; set until the owner next writes to the thread or it waits again. */
 export const OrchestrationV2ParkedWaitGaveUp = Schema.Struct({
   title: TrimmedNonEmptyString,
   at: IsoDateTime,
@@ -716,18 +740,6 @@ export const OrchestrationV2ThreadArcRun = Schema.Struct({
 });
 export type OrchestrationV2ThreadArcRun = typeof OrchestrationV2ThreadArcRun.Type;
 
-/** What only the owner can still do for a watch: accept a landed item, or clear its holds. */
-export const OrchestrationV2WatchNeed = Schema.Literals(["acceptance", "hold"]);
-export type OrchestrationV2WatchNeed = typeof OrchestrationV2WatchNeed.Type;
-
-/** `ref` and `title` name the Forge item, so a reader need not call Forge to say what it waits on. */
-export const OrchestrationV2WatchWaitsOnPerson = Schema.Struct({
-  need: OrchestrationV2WatchNeed,
-  ref: Schema.optional(TrimmedNonEmptyString),
-  title: Schema.optional(Schema.String),
-});
-export type OrchestrationV2WatchWaitsOnPerson = typeof OrchestrationV2WatchWaitsOnPerson.Type;
-
 /**
  * How a watched thread in a linked environment ended, as that environment reported it, so the
  * watcher words its wake the way a local watch does. `unreachable` is the watcher's own: the link
@@ -759,40 +771,6 @@ export const OrchestrationV2RemoteThreadWatchOutcome = Schema.Struct({
 export type OrchestrationV2RemoteThreadWatchOutcome =
   typeof OrchestrationV2RemoteThreadWatchOutcome.Type;
 
-const ThreadWatchFields = {
-  id: TrimmedNonEmptyString,
-  title: TrimmedNonEmptyString,
-  startedAt: IsoDateTime,
-  /** Written with each check of a Forge item: the watch's remaining condition is the owner's to meet. */
-  waitsOnPerson: Schema.optional(OrchestrationV2WatchWaitsOnPerson),
-};
-const TargetedThreadWatch = Schema.Struct({
-  ...ThreadWatchFields,
-  target: OrchestrationV2WatchTarget,
-});
-export const OrchestrationV2ThreadWatch = Schema.Struct({
-  ...ThreadWatchFields,
-  target: Schema.optional(OrchestrationV2WatchTarget),
-  threadId: Schema.optional(ThreadId),
-})
-  .check(
-    Schema.makeFilter(
-      (watch) =>
-        watch.target !== undefined || watch.threadId !== undefined || "A watch target is required.",
-    ),
-  )
-  .pipe(
-    Schema.decodeTo(Schema.toType(TargetedThreadWatch), {
-      decode: SchemaGetter.transform(({ threadId, target, ...watch }) => ({
-        ...watch,
-        // The filter guarantees a legacy thread id when target is absent.
-        target: target ?? { kind: "thread" as const, threadId: threadId! },
-      })),
-      encode: SchemaGetter.transform((watch) => watch),
-    }),
-  );
-export type OrchestrationV2ThreadWatch = typeof OrchestrationV2ThreadWatch.Type;
-
 /** A watch of another thread that has ended, kept so the watched thread stays findable in Lineage. */
 export const OrchestrationV2EndedThreadWatch = Schema.Struct({
   threadId: ThreadId,
@@ -817,6 +795,8 @@ export type OrchestrationV2ThreadStalled = typeof OrchestrationV2ThreadStalled.T
 export const OrchestrationV2ThreadStanding = Schema.Struct({
   state: Schema.Literals(["working", "waiting", "stalled", "needs_you", "finished"]),
   stalled: Schema.optional(OrchestrationV2ThreadStalled),
+  /** `needs_you` because the thread's agent asked its owner this and waits on the answer. */
+  question: Schema.optional(Schema.String),
   waitsOnPerson: Schema.optional(
     Schema.Struct({
       kind: Schema.Literal("build_item"),
@@ -911,9 +891,9 @@ export const OrchestrationV2AppThread = Schema.Struct({
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   pullRequests: Schema.optional(Schema.Array(ThreadPullRequestLink)),
   arcRun: Schema.optional(OrchestrationV2ThreadArcRun),
-  threadWatches: Schema.optional(Schema.Array(OrchestrationV2ThreadWatch)),
   endedThreadWatches: Schema.optional(Schema.Array(OrchestrationV2EndedThreadWatch)),
   parkedWaits: Schema.optional(Schema.Array(OrchestrationV2ParkedWait)),
+  ownerWait: Schema.optional(OrchestrationV2OwnerWait),
   parkedWaitGaveUp: Schema.optional(OrchestrationV2ParkedWaitGaveUp),
   parkedWaitWoke: Schema.optional(OrchestrationV2ParkedWaitWoke),
   stalled: Schema.optional(OrchestrationV2ThreadStalled),
@@ -2874,9 +2854,9 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   pullRequests: Schema.optional(Schema.Array(ThreadPullRequestLink)),
-  threadWatches: Schema.optional(Schema.Array(OrchestrationV2ThreadWatch)),
   endedThreadWatches: Schema.optional(Schema.Array(OrchestrationV2EndedThreadWatch)),
   parkedWaits: Schema.optional(Schema.Array(OrchestrationV2ParkedWait)),
+  ownerWait: Schema.optional(OrchestrationV2OwnerWait),
   parkedWaitGaveUp: Schema.optional(OrchestrationV2ParkedWaitGaveUp),
   parkedWaitWoke: Schema.optional(OrchestrationV2ParkedWaitWoke),
   arcRun: Schema.optional(OrchestrationV2ThreadArcRun),
@@ -4019,26 +3999,30 @@ export const OrchestrationV2Command = Schema.Union([
     stack: Schema.NullOr(ThreadPullRequestStack),
   }),
   /**
-   * Starts or ends `threadId`'s watch on `watchedThreadId`. Starting a watch the thread already
-   * holds changes nothing.
+   * Starts or ends one of `threadId`'s waits. Starting a wait on a target the thread already waits
+   * on replaces that wait.
    */
   Schema.Struct({
     type: Schema.Literal("thread.thread-watch"),
     commandId: CommandId,
     threadId: ThreadId,
     watchedThreadId: Schema.optional(ThreadId),
-    target: Schema.optional(OrchestrationV2ParkedWaitTarget),
+    target: Schema.optional(
+      Schema.Union([
+        ...OrchestrationV2ParkedWaitTarget.members,
+        /** The owner's answer; `question` is required to start it. */
+        Schema.Struct({
+          kind: Schema.Literal("owner"),
+          question: Schema.optional(OrchestrationV2OwnerWait.fields.question),
+        }),
+      ]),
+    ),
     title: Schema.optional(TrimmedNonEmptyString),
     watching: Schema.Boolean,
-    /** Present: the wait is parked, not held. Required for a Production or time target. */
-    park: Schema.optional(
-      Schema.Struct({
-        /** How long the agent expects the event to take; the wait gives up at twice this. */
-        expectedMs: Schema.optional(PositiveInt),
-        note: Schema.optional(Schema.String),
-      }),
-    ),
-    /** With `watching: false`, ends this held or parked wait by id instead of by target. */
+    /** How long the event is expected to take; the wait gives up at twice this. Absent: it never does. */
+    expectedMs: Schema.optional(PositiveInt),
+    note: Schema.optional(Schema.String),
+    /** With `watching: false`, ends this wait by id instead of by target. */
     watchId: Schema.optional(TrimmedNonEmptyString),
   }),
   Schema.Struct({
@@ -4688,7 +4672,7 @@ const OrchestrationV2InternalCommand = Schema.Union([
         ref: Schema.optional(TrimmedNonEmptyString),
         title: TrimmedNonEmptyString,
         url: TrimmedNonEmptyString,
-        condition: Schema.Literals(["unblocked", "closed", "dropped", "unreadable"]),
+        condition: Schema.Literals(["unblocked", "closed", "dropped"]),
       }),
     ),
     landing: Schema.optional(

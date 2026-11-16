@@ -772,7 +772,7 @@ describe("AgentAwarenessRelay", () => {
           yield* relay.drain;
         });
         // Two children running, then the first finishes.
-        yield* tick({ standing: { state: "waiting" } });
+        yield* tick({ standing: { state: "working" } });
         // The second finishes and the parent's turn ends before its result is delivered.
         yield* tick({ standing: { state: "working" } });
         assert.deepEqual(

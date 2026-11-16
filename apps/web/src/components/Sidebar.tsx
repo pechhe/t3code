@@ -32,7 +32,6 @@ import {
   effectiveSnoozed,
   parkedThreadSubtitle,
   parkedWaitTimeLeft,
-  snoozeShelfEndsAt,
   threadWokeAt,
 } from "@t3tools/client-runtime/state/thread-settled";
 import {
@@ -195,7 +194,6 @@ import {
   buildBulkUnpinContextMenuItem,
   deleteSelectedThreadEntries,
   filterSidebarProjectScopeItems,
-  firstValidTimestampMs,
   isSidebarNestedLinkClick,
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
@@ -206,6 +204,8 @@ import {
   resolveSidebarDropTarget,
   resolveSidebarDropVerb,
   resolveSidebarThreadSection,
+  threadQuestionSubtitle,
+  compareWaitingThreads,
   resolveSidebarReorderableThreadKeys,
   searchSidebarThreads,
   shouldCreateNewThreadInCurrentProject,
@@ -679,6 +679,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
         snoozed: configLoaded && effectiveSnoozed(thread, { now: preciseNow }),
         settled: configLoaded && thread.settledOverride === "settled",
         pinned: thread.pinnedAt != null,
+        waiting: thread.standing?.state === "waiting",
       });
       (section === "snoozed"
         ? snoozed
@@ -717,10 +718,8 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
             getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
           }),
     workingThreads: sortWorkingThreadsBySend(working),
-    snoozedThreads: snoozed.toSorted(
-      (left, right) =>
-        firstValidTimestampMs(snoozeShelfEndsAt(left)) -
-        firstValidTimestampMs(snoozeShelfEndsAt(right)),
+    snoozedThreads: snoozed.toSorted((left, right) =>
+      compareWaitingThreads(left, right, preciseNow),
     ),
     settledThreads: sortSettledThreads(settled),
     visibleThreads: visible,
@@ -769,7 +768,9 @@ function isOptimisticDropReleased(input: {
       ? "settled"
       : thread.pinnedAt != null
         ? "pinned"
-        : "active";
+        : thread.standing?.state === "waiting"
+          ? "snoozed"
+          : "active";
   if (
     canonicalSection !== optimisticDrop.sourceSection &&
     canonicalSection !== optimisticDrop.section
@@ -2651,7 +2652,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             .threadAutoSettleOptOut === true;
         const isRegeneratingTitle = thread.titleRegeneration != null;
         const isSettled = settledThreadKeysRef.current.has(threadKey);
-        const isSnoozed = snoozedThreadKeysRef.current.has(threadKey);
+        const isSnoozed = effectiveSnoozed(thread, { now: new Date().toISOString() });
         const isPinned = thread.pinnedAt != null;
         const snoozePresets = resolveSnoozePresets(
           new Date(),
@@ -3481,7 +3482,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             snoozeWakeLabelText={
                               section !== "snoozed"
                                 ? null
-                                : (thread.parkedWaits?.length ?? 0) > 0
+                                : !effectiveSnoozed(thread, { now: snoozeNow }) &&
+                                    (thread.parkedWaits?.length ?? 0) > 0
                                   ? parkedWaitTimeLeft(thread.parkedWaits, Date.parse(snoozeNow))
                                   : thread.snoozedUntil != null
                                     ? snoozeWakeLabel(thread.snoozedUntil, {
@@ -3489,10 +3491,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                       })
                                     : null
                             }
-                            parkedSubtitle={parkedThreadSubtitle(
-                              thread.parkedWaits,
-                              Date.parse(snoozeNow),
-                            )}
+                            ownerSnoozed={effectiveSnoozed(thread, { now: snoozeNow })}
+                            parkedSubtitle={
+                              effectiveSnoozed(thread, { now: snoozeNow })
+                                ? "Snoozed by you"
+                                : (threadQuestionSubtitle(thread) ??
+                                  parkedThreadSubtitle(thread.parkedWaits, Date.parse(snoozeNow)))
+                            }
                             wokeAt={threadWokeAt(thread, { now: snoozeNow })}
                             isActive={routeRowThreadKey === threadKey}
                             revealRef={
@@ -3651,7 +3656,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 key="snoozed-shelf-header"
                                 marker="snoozed-header"
                                 className={cn(workingThreads.length === 0 && "mt-auto")}
-                                label="Snoozed"
+                                label="Waiting"
                                 count={snoozedThreads.length}
                                 toggle={{
                                   expanded: snoozedShelfExpanded,

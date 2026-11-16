@@ -38,7 +38,7 @@ function thread(id: string, working: boolean) {
 describe("isThreadWorking", () => {
   it.each([
     ["working", true],
-    ["waiting", true],
+    ["waiting", false],
     ["stalled", false],
     ["needs_you", false],
     ["finished", false],
@@ -167,6 +167,7 @@ describe("createInboxReturnTracker", () => {
     { snoozedUntil: "2026-06-02T00:00:00Z" },
     { activeOrderKey: "manual-order" },
     { standing: { state: "needs_you" as const } },
+    { standing: { state: "waiting" as const } },
   ])("ends a grace immediately for attention or manual placement: %j", (change) => {
     const tracker = createInboxReturnTracker();
     tracker.observe([thread("a", true)]);

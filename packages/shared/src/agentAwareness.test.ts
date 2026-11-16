@@ -213,9 +213,14 @@ describe("projectThreadAwarenessV2", () => {
 
   it.each([
     ["a finished child's result not yet delivered", "completed", { state: "working" }, "running"],
-    ["a wait on a machine", "completed", { state: "waiting" }, "running"],
+    ["a wait on something outside the thread", "completed", { state: "waiting" }, null],
     ["a stalled child", "running", { state: "stalled" }, "waiting_for_input"],
-    ["a wait on the owner", "completed", { state: "needs_you" }, "waiting_for_input"],
+    [
+      "a wait on the owner",
+      "completed",
+      { state: "needs_you", question: "Which option?" },
+      "waiting_for_input",
+    ],
     ["a failed run", "failed", { state: "needs_you" }, "failed"],
     ["nothing left", "completed", { state: "finished" }, "completed"],
     ["a stopped run with nothing left", "interrupted", { state: "finished" }, null],

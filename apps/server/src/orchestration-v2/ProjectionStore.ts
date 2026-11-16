@@ -234,6 +234,8 @@ export type ProjectionSettlementCandidate = Pick<
   | "pendingRuntimeRequest"
   | "pendingBackgroundTasks"
   | "pendingGuestMessageCount"
+  | "parkedWaits"
+  | "ownerWait"
 > &
   Pick<OrchestrationV2AppThread, "lastSnoozeWakeAt"> & {
     readonly latestUserAuthoredMessageAt: DateTime.Utc | null;
@@ -1180,6 +1182,7 @@ type ShellThreadRow = {
   readonly has_actionable_proposed_plan: number;
   readonly has_undelivered_delegated_result: number;
   readonly has_descendant_approval: number;
+  readonly waiting_child_thread_ids: string;
 };
 
 type ShellRunRow = {
@@ -1797,6 +1800,25 @@ const descendantApprovalExists = (
     )
 )`;
 
+/** Delegated children that ended their turn and only wait now, as a JSON array of thread ids. */
+const waitingChildThreadIds = (sql: SqlClient.SqlClient, threadId: Statement.Fragment) => sql`(
+  SELECT json_group_array(task.child_thread_id)
+  FROM orchestration_v2_projection_subagents task
+  JOIN orchestration_v2_projection_threads child ON child.thread_id = task.child_thread_id
+  WHERE task.thread_id = ${threadId} AND task.origin = 'app_owned'
+    AND json_array_length(child.payload_json, '$.parkedWaits') > 0
+    AND NOT EXISTS (
+      SELECT 1 FROM orchestration_v2_projection_runs run
+      WHERE run.thread_id = child.thread_id
+        AND run.status IN ('preparing', 'queued', 'starting', 'running', 'waiting')
+    )
+)`;
+
+const decodeChildThreadIds = (json: string): ReadonlyArray<string> => {
+  const parsed: unknown = JSON.parse(json);
+  return Array.isArray(parsed) ? parsed.filter((id) => typeof id === "string") : [];
+};
+
 /** The input `threadShellFromProjection` takes for descendants, read with the same SQL the shell snapshot uses. */
 export const hasDescendantApproval = Effect.fn("ProjectionStore.hasDescendantApproval")(function* (
   threadId: ThreadId,
@@ -1810,7 +1832,10 @@ export const hasDescendantApproval = Effect.fn("ProjectionStore.hasDescendantApp
 
 export function threadShellFromProjection(
   projection: OrchestrationV2ThreadProjection,
-  options: { readonly descendantApprovalPending?: boolean } = {},
+  options: {
+    readonly descendantApprovalPending?: boolean;
+    readonly waitingChildThreadIds?: ReadonlySet<string>;
+  } = {},
 ): OrchestrationV2ThreadShell {
   const providerSession =
     projection.providerSessions
@@ -1883,7 +1908,6 @@ export function threadShellFromProjection(
     activeProviderThreadId: projection.thread.activeProviderThreadId,
     runs,
     pullRequests: projection.thread.pullRequests,
-    threadWatches: projection.thread.threadWatches,
   });
   const blockedOnThreadWait = deriveBlockedOnThreadWait({
     activeRun,
@@ -1905,7 +1929,8 @@ export function threadShellFromProjection(
     ),
     pendingGuestMessageCount: pendingGuestMessageCount(projection.thread.guestShare),
     pendingBackgroundTasks,
-    threadWatches: projection.thread.threadWatches,
+    parkedWaits: projection.thread.parkedWaits,
+    ownerWait: projection.thread.ownerWait,
     stalled: projection.thread.stalled,
     undeliveredDelegatedResult: (projection.subagents ?? []).some(
       (task) =>
@@ -1915,6 +1940,9 @@ export function threadShellFromProjection(
           task.completionDelivery?.state === "claimed"),
     ),
     descendantApprovalPending: options.descendantApprovalPending === true,
+    ...(options.waitingChildThreadIds === undefined
+      ? {}
+      : { waitingChildThreadIds: options.waitingChildThreadIds }),
   });
   return {
     createdBy: projection.thread.createdBy,
@@ -1938,9 +1966,9 @@ export function threadShellFromProjection(
       : { agentTask: projection.thread.agentTask }),
     worktreePath: projection.thread.worktreePath,
     pullRequests: threadPullRequestsOf(projection.thread),
-    ...(projection.thread.threadWatches === undefined
+    ...(projection.thread.ownerWait === undefined
       ? {}
-      : { threadWatches: projection.thread.threadWatches }),
+      : { ownerWait: projection.thread.ownerWait }),
     ...(projection.thread.endedThreadWatches === undefined
       ? {}
       : { endedThreadWatches: projection.thread.endedThreadWatches }),
@@ -2155,6 +2183,7 @@ type ShellThreadState = {
   readonly hasActionableProposedPlan: boolean;
   readonly hasUndeliveredDelegatedResult: boolean;
   readonly hasDescendantApproval: boolean;
+  readonly waitingChildThreadIds: ReadonlySet<string>;
   readonly pendingBackgroundTasks: OrchestrationV2ThreadShell["pendingBackgroundTasks"];
   readonly providerInstanceHistory: OrchestrationV2ThreadShell["providerInstanceHistory"];
   readonly goal: OrchestrationV2ThreadShell["goal"];
@@ -2281,10 +2310,12 @@ function shellStateStanding(state: ShellThreadState) {
     pendingGuestMessageCount: pendingGuestMessageCount(state.thread.guestShare),
     lastErrorClass: state.lastErrorClass,
     pendingBackgroundTasks: state.pendingBackgroundTasks,
-    threadWatches: state.thread.threadWatches,
+    parkedWaits: state.thread.parkedWaits,
+    ownerWait: state.thread.ownerWait,
     stalled: state.thread.stalled,
     undeliveredDelegatedResult: state.hasUndeliveredDelegatedResult,
     descendantApprovalPending: state.hasDescendantApproval,
+    waitingChildThreadIds: state.waitingChildThreadIds,
   });
 }
 
@@ -2316,9 +2347,9 @@ function shellFromState(input: {
       : { agentTask: input.state.thread.agentTask }),
     worktreePath: input.state.thread.worktreePath,
     pullRequests: threadPullRequestsOf(input.state.thread),
-    ...(input.state.thread.threadWatches === undefined
+    ...(input.state.thread.ownerWait === undefined
       ? {}
-      : { threadWatches: input.state.thread.threadWatches }),
+      : { ownerWait: input.state.thread.ownerWait }),
     ...(input.state.thread.endedThreadWatches === undefined
       ? {}
       : { endedThreadWatches: input.state.thread.endedThreadWatches }),
@@ -8210,7 +8241,8 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                   AND task.completion_delivery_state IN ('pending', 'claimed')
                   AND task.origin = 'app_owned'
               ) AS has_undelivered_delegated_result,
-              ${descendantApprovalExists(sql, sql`t.thread_id`)} AS has_descendant_approval
+              ${descendantApprovalExists(sql, sql`t.thread_id`)} AS has_descendant_approval,
+              ${waitingChildThreadIds(sql, sql`t.thread_id`)} AS waiting_child_thread_ids
             FROM orchestration_v2_projection_threads t
             LEFT JOIN orchestration_v2_projection_runs active ON active.run_id = (
               SELECT r.run_id
@@ -8658,7 +8690,6 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                       activeProviderThreadId: thread.activeProviderThreadId,
                       hasActiveRun: false,
                       pullRequests: thread.pullRequests,
-                      threadWatches: thread.threadWatches,
                     }),
                   } satisfies ProjectionSettlementCandidate;
                 }),
@@ -8877,7 +8908,6 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             activeProviderThreadId: thread.activeProviderThreadId,
             hasActiveRun: row.active_run_id !== null,
             pullRequests: thread.pullRequests,
-            threadWatches: thread.threadWatches,
           }),
         ];
         return {
@@ -8922,6 +8952,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           hasActionableProposedPlan: row.has_actionable_proposed_plan === 1,
           hasUndeliveredDelegatedResult: row.has_undelivered_delegated_result === 1,
           hasDescendantApproval: row.has_descendant_approval === 1,
+          waitingChildThreadIds: new Set(decodeChildThreadIds(row.waiting_child_thread_ids)),
           pendingBackgroundTasks,
           providerInstanceHistory: providerInstanceHistoryForShell({
             threadId: thread.id,

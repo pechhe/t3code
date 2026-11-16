@@ -29,6 +29,12 @@ export const FleetWatch = Schema.Union([
     operationId: Schema.String,
     startedAt: Schema.String,
   }),
+  Schema.Struct({
+    kind: Schema.Literal("production"),
+    commitId: Schema.String,
+    startedAt: Schema.String,
+  }),
+  Schema.Struct({ kind: Schema.Literal("time"), at: Schema.String, startedAt: Schema.String }),
 ]);
 
 const ThreadFields = {

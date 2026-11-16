@@ -521,8 +521,16 @@ status and does not cancel work.
 
 ### `watch` and `unwatch`
 
-Both take `target: {kind: "thread", threadId}`, `target: {kind: "landing", operationId}` or
-`target: {kind: "build_item", number, until: "unblocked" | "closed"}`.
+A thread has one kind of wait. `watch` stores it in the thread's `parkedWaits` and the agent
+ends its turn; the wake starts a new turn. Both tools take `target: {kind: "thread", threadId}`,
+`target: {kind: "landing", operationId}`, `target: {kind: "build_item", number, until:
+"unblocked" | "closed"}`, `target: {kind: "production", commitId}`, `target: {kind: "time", at}`
+or `target: {kind: "owner", question}`. An event wait takes `expectedMinutes` (default 60) and
+gives up at twice that, waking once with what it last knew; a time wait and the wait T3 arms on
+its own landing never give up. An owner wait sets `ownerWait`, makes
+the thread's standing `needs_you` with its question, and ends when the owner writes; a delegated
+thread cannot make one. Waits on threads, Build items and landings hold a delegated task's result
+until they end; Production and time waits do not.
 Build targets use T3's Weave connection and are refused without one.
 `unblocked` means all waits and holds are clear; `closed` means Landed, Accepted
 or Dropped. An unblocked watch also wakes on Dropped. `BuildWatchReactor` polls
@@ -547,11 +555,11 @@ no longer tracks ends silently after six hours.
 
 With a thread target, `watch` wakes the calling thread once when another thread in its
 environment has finished, so a lead needs no timer, repeated wait or report-back
-brief. The watched thread does nothing special. A watch is event-sourced state
-of the watcher (`threadWatches`), so it survives restarts. A thread has finished
+brief. The watched thread does nothing special. A wait is event-sourced state
+of the waiting thread, so it survives restarts. A thread has finished
 when `delegatedTaskProgress` reports `result_available` and its pending
-background work is empty, apart from its own thread watches: a pull request
-watch is unfinished work, waiting on another thread is not.
+background work is empty: a pull request watch is unfinished work, waiting on
+another thread is not.
 
 A watch fires with the first outcome that applies: archived or deleted, needs
 input (a pending question or approval), failed, stopped, or finished. A run whose
@@ -568,13 +576,14 @@ picks the moment, from events and a periodic sweep of stored state. The
 the watch and queues the wake in one transaction, and derives the wake's message
 id from the watch, so a replay cannot wake twice.
 
-A watch ends without a wake on `unwatch`, when the user stops the
-watcher, or when the watcher is archived, settled or deleted. Reading the watched
+A wait ends without a wake on `unwatch`, or when the waiting thread is archived or
+deleted. Stop and settling keep it, and its wake unsettles the thread. Reading the watched
 thread's result with `t3_thread_read` also ends it, since the wake would only
 repeat that result. A wake that fired while the watcher was busy waits queued
 behind its run, so ending the watch, by `unwatch` or by that read,
 cancels a wake still queued. A thread cannot
-watch itself, and a settled or archived thread cannot start a watch.
+wait on itself, and an archived thread cannot start a wait. An open wait keeps the thread out of
+automatic settlement and Away's continuations.
 
 A thread target may name a linked environment, `target: {kind: "thread", threadId,
 environmentId}`. `ThreadWatchReactor` ignores it; `RemoteThreadWatches` follows it over

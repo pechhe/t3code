@@ -19,7 +19,8 @@ it.layer(NodeSqliteClient.layer({ filename: ":memory:" }))("095_ProjectionReadIn
       yield* insert("watching", '{"threadWatches":[{"id":"w"}]}');
       yield* insert("idle", '{"threadWatches":[]}');
       yield* insert("legacy", "{}");
-      yield* runMigrations();
+      // Migration 138 turns watches into waits and drops this index.
+      yield* runMigrations({ toMigrationInclusive: 137 });
       const watching = () =>
         sql<{ thread_id: string }>`
           SELECT thread_id FROM orchestration_v2_projection_threads

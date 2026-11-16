@@ -1156,7 +1156,8 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
         threadId,
         target: { kind: "build_item", number: 7497, until: "unblocked" },
         watching: true,
-        park: { expectedMs: 5_700 * 60_000, note: "Continue once #7497 unblocks." },
+        expectedMs: 5_700 * 60_000,
+        note: "Continue once #7497 unblocks.",
       });
 
       const finishEvent = yield* finish(run);
@@ -1181,7 +1182,7 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
         threadId,
         target: { kind: "time", at },
         watching: true,
-        park: { note: "Resume the Arc when this wait is due." },
+        note: "Resume the Arc when this wait is due.",
       });
       for (const stored of parked.storedEvents) {
         yield* threadWatchReactor.handle(stored.event);
@@ -1196,7 +1197,7 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
           (event) =>
             event.threadId === threadId &&
             event.type === "message.updated" &&
-            event.payload.id.startsWith(`message:${threadId}:parked-wait:`),
+            event.payload.id.startsWith(`message:${threadId}:wait:`),
         ),
         Stream.take(1),
         Stream.runCollect,
@@ -1206,7 +1207,7 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
       assert.lengthOf(yield* wakes(threadId), 0);
       assert.lengthOf(
         (yield* orchestrator.getThreadRecords(threadId, ["messages"])).messages.filter((message) =>
-          message.id.startsWith(`message:${threadId}:parked-wait:`),
+          message.id.startsWith(`message:${threadId}:wait:`),
         ),
         0,
       );
@@ -1216,13 +1217,13 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
       const messages = (yield* orchestrator.getThreadRecords(threadId, ["messages"])).messages;
       assert.lengthOf(yield* wakes(threadId), 0);
       assert.lengthOf(
-        messages.filter((message) => message.id.startsWith(`message:${threadId}:parked-wait:`)),
+        messages.filter((message) => message.id.startsWith(`message:${threadId}:wait:`)),
         1,
       );
       yield* threadWatchReactor.sweep;
       assert.lengthOf(
         (yield* orchestrator.getThreadRecords(threadId, ["messages"])).messages.filter((message) =>
-          message.id.startsWith(`message:${threadId}:parked-wait:`),
+          message.id.startsWith(`message:${threadId}:wait:`),
         ),
         1,
       );
@@ -1711,35 +1712,6 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
   );
 
   it.effect(
-    "a Forge watch that fired as unreadable wakes the lead instead of waiting forever",
-    () =>
-      Effect.gen(function* () {
-        const orchestrator = yield* Orchestrator.OrchestratorV2;
-        const projections = yield* ProjectionStore.ProjectionStoreV2;
-        const { threadId } = yield* setup("unreadable");
-        yield* orchestrator.dispatch({
-          type: "thread.thread-watch",
-          commandId: CommandId.make("watch:unreadable"),
-          threadId,
-          watching: true,
-          target: { kind: "build_item", number: 42, until: "unblocked" },
-        });
-        const watch = (yield* projections.getThread(threadId)).threadWatches![0]!;
-        yield* orchestrator.dispatch({
-          type: "thread.thread-watch.fire",
-          commandId: CommandId.make("fire:unreadable"),
-          threadId,
-          watchId: watch.id,
-          build: { number: 42, title: "Held", url: "#42", condition: "unreadable" },
-        });
-        const after = yield* projections.getThread(threadId);
-        assert.equal(after.threadWatches?.length ?? 0, 0);
-        const { messages } = yield* records(threadId);
-        assert.isTrue(messages.some((message) => message.text.includes("could not be read")));
-      }),
-  );
-
-  it.effect(
     "takes an Arc across two Specs, a failure, a restart and a dependency with no human",
     () =>
       Effect.gen(function* () {
@@ -1847,7 +1819,7 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
 
         yield* TestClock.adjust("29 minutes");
         yield* reactor.sweep;
-        assert.equal((yield* standing)?.standing?.state, "waiting");
+        assert.equal((yield* standing)?.standing?.state, "working");
 
         // The server's own bookkeeping on the child is not the provider speaking.
         yield* orchestrator.dispatch({
@@ -1891,7 +1863,7 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
         });
         yield* reactor.sweep;
         assert.isUndefined(yield* marks);
-        assert.equal((yield* standing)?.standing?.state, "waiting");
+        assert.equal((yield* standing)?.standing?.state, "working");
       }),
   );
 
@@ -1912,7 +1884,7 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
           ).standing?.state;
           return [sql, memory];
         });
-        assert.deepEqual(yield* standings, ["waiting", "waiting"]);
+        assert.deepEqual(yield* standings, ["working", "working"]);
 
         yield* settleTask(first, "completed", "pending");
         assert.deepEqual(yield* standings, ["working", "working"]);
@@ -1967,7 +1939,7 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
             },
           ],
         });
-        assert.deepEqual(yield* standings, ["waiting", "waiting"]);
+        assert.deepEqual(yield* standings, ["working", "working"]);
 
         const request = (status: "pending" | "resolved") =>
           sink.write({
@@ -1995,7 +1967,7 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
         yield* request("pending");
         assert.deepEqual(yield* standings, ["needs_you", "needs_you"]);
         yield* request("resolved");
-        assert.deepEqual(yield* standings, ["waiting", "waiting"]);
+        assert.deepEqual(yield* standings, ["working", "working"]);
       }),
   );
 
@@ -2055,44 +2027,6 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
       const reported = yield* stalls;
       assert.equal(reported.length, 1);
       assert.include(reported[0]!.text, "still open");
-    }),
-  );
-
-  it.effect("a Forge watch counts as unreadable only after an hour of failed reads", () =>
-    Effect.gen(function* () {
-      const { threadId, run } = yield* setup("unreadable-span");
-      const reads = { readable: false };
-      const forge = yield* forgeWatchReactor(() =>
-        reads.readable
-          ? {
-              waits: [
-                { number: 100, title: "Prerequisite", status: "in_progress", required: "landed" },
-              ],
-            }
-          : null,
-      );
-      yield* watchForgeItem(threadId, 77);
-      yield* finish(run);
-
-      // The watch is old, but this is the first failed read: Forge may just not be connected yet.
-      yield* TestClock.adjust("3 hours");
-      yield* forge.sweep;
-      assert.equal((yield* buildWakes(threadId)).length, 0);
-
-      // A good read starts the clock again.
-      yield* TestClock.adjust("50 minutes");
-      reads.readable = true;
-      yield* forge.sweep;
-      reads.readable = false;
-      yield* TestClock.adjust("50 minutes");
-      yield* forge.sweep;
-      assert.equal((yield* buildWakes(threadId)).length, 0);
-
-      yield* TestClock.adjust("61 minutes");
-      yield* forge.sweep;
-      const fired = yield* buildWakes(threadId);
-      assert.equal(fired.length, 1);
-      assert.include(fired[0]!.text, "could not be read");
     }),
   );
 

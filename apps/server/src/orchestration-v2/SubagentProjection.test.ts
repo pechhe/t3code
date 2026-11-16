@@ -1,10 +1,9 @@
 import { assert, it } from "@effect/vitest";
 import {
-  type AgentRole,
   type AgentTaskBinding,
   CommandId,
   type ModelSelection,
-  type OrchestrationV2ThreadWatch,
+  type OrchestrationV2ParkedWait,
   NodeId,
   RunId,
   RunAttemptId,
@@ -156,18 +155,19 @@ it("a subagent child does not inherit its parent's Arc run", () => {
   assert.isUndefined(childThread.arcRun);
 });
 
-it("a delegated child does not inherit its parent's thread watches or stalled mark", () => {
+it("a delegated child does not inherit its parent's waits or stalled mark", () => {
   const watchedThreadId = ThreadId.make("thread:subagent-watched-worker");
   const parentThread: OrchestrationV2AppThread = {
     ...makeParentThread(),
-    threadWatches: [
+    parkedWaits: [
       {
-        id: "thread-watch:parent",
+        id: "wait:parent",
         target: { kind: "thread", threadId: watchedThreadId },
         title: "Watched worker",
         startedAt: DateTime.formatIso(snoozedAt),
       },
     ],
+    ownerWait: { question: "Which option?", startedAt: DateTime.formatIso(snoozedAt) },
     endedThreadWatches: [
       {
         threadId: ThreadId.make("thread:subagent-earlier-worker"),
@@ -193,8 +193,9 @@ it("a delegated child does not inherit its parent's thread watches or stalled ma
     createdBy: "agent",
     creationSource: "provider",
   });
-  assert.lengthOf(parentThread.threadWatches ?? [], 1);
-  assert.isUndefined(childThread.threadWatches);
+  assert.lengthOf(parentThread.parkedWaits ?? [], 1);
+  assert.isUndefined(childThread.parkedWaits);
+  assert.isUndefined(childThread.ownerWait);
   assert.isUndefined(childThread.endedThreadWatches);
   assert.isUndefined(childThread.stalled);
 });
@@ -344,20 +345,38 @@ it("reports the run that ended last, not the highest ordinal", () => {
   assert.equal(progress.resultRun?.ordinal, 3);
 });
 
-it("holds any delegated task's result while it watches", () => {
+it.each([
+  ["another thread", [{ kind: "thread", threadId: "thread:other" }], "waiting_for_children"],
+  ["a Forge item", [{ kind: "build_item", number: 7, until: "closed" }], "waiting_for_children"],
+  ["a landing", [{ kind: "landing", operationId: "op_1" }], "waiting_for_children"],
+  ["Production", [{ kind: "production", commitId: "abc1234" }], "result_available"],
+  ["a time", [{ kind: "time", at: "2026-07-25T09:00:00.000Z" }], "result_available"],
+  [
+    "a time and a landing",
+    [
+      { kind: "time", at: "2026-07-25T09:00:00.000Z" },
+      { kind: "landing", operationId: "op_1" },
+    ],
+    "waiting_for_children",
+  ],
+] as const)("a delegated task waiting on %s gives its result: %s", (_name, targets, state) => {
   const { projection } = taskFixture();
-  const watching = (role: AgentRole) =>
-    progressOf({
+  for (const role of ["lead", "implementer", "scout"] as const) {
+    const progress = progressOf({
       ...projection,
       thread: {
         ...projection.thread,
         agentTask: { role } as AgentTaskBinding,
-        threadWatches: [{ id: "watch:landing" } as OrchestrationV2ThreadWatch],
+        parkedWaits: targets.map((target, index) => ({
+          id: `wait:${index}`,
+          title: "Wait",
+          startedAt: "2026-07-24T09:00:00.000Z",
+          target: target as OrchestrationV2ParkedWait["target"],
+        })),
       },
-    }).state;
-  assert.equal(watching("lead"), "waiting_for_children");
-  assert.equal(watching("implementer"), "waiting_for_children");
-  assert.equal(watching("scout"), "waiting_for_children");
+    });
+    assert.equal(progress.state, state, role);
+  }
 });
 
 it("waits for nested work and retains the report across monitor acknowledgements", () => {
@@ -548,9 +567,9 @@ it("holds the result for pending background work and pull request watches, not t
   const watcher: OrchestrationV2AppThread = {
     ...projection.thread,
     pullRequests: [pullRequest],
-    threadWatches: [
+    parkedWaits: [
       {
-        id: "thread-watch:a",
+        id: "wait:a",
         target: { kind: "thread", threadId: childThreadId },
         title: "Child",
         startedAt: "2026-07-24T09:00:00.000Z",

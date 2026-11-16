@@ -451,7 +451,7 @@ describe("thread watch relationships", () => {
   it("lists only thread watches, once each, and never the thread itself", () => {
     const result = deriveThreadWatchRelationships({
       threadId: self,
-      threadWatches: [
+      parkedWaits: [
         watch({ kind: "thread", threadId: other }),
         watch({ kind: "thread", threadId: other }),
         watch({ kind: "thread", threadId: self }),
@@ -469,7 +469,7 @@ describe("thread watch relationships", () => {
     const again = ThreadId.make("again");
     const result = deriveThreadWatchRelationships({
       threadId: self,
-      threadWatches: [watch({ kind: "thread", threadId: again })],
+      parkedWaits: [watch({ kind: "thread", threadId: again })],
       endedThreadWatches: [ended(other), ended(other), ended(self), ended(again)],
       watcherThreadIds: [],
     });
@@ -487,7 +487,7 @@ describe("thread watch relationships", () => {
       }) as never;
     const result = deriveThreadWatchRelationships({
       threadId: self,
-      threadWatches: [
+      parkedWaits: [
         watch({ kind: "thread", threadId: other }),
         watch({ kind: "thread", threadId: other, environmentId: peer }),
         watch({ kind: "thread", threadId: other, environmentId: peer }),
@@ -517,7 +517,7 @@ describe("thread watch relationships", () => {
     expect(
       deriveThreadWatchRelationships({
         threadId: self,
-        threadWatches: undefined,
+        parkedWaits: undefined,
         endedThreadWatches: undefined,
         watcherThreadIds: [],
       }),

@@ -1,7 +1,6 @@
 import type { EnvironmentServerConfig } from "@t3tools/client-runtime/connection";
 import type { EnvironmentThreadShell, ThreadStructure } from "@t3tools/client-runtime/state/shell";
 import { presentPendingBackgroundWork } from "@t3tools/client-runtime/state/thread-execution";
-import { threadWatchTaskId } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import * as DateTime from "effect/DateTime";
 import type { Dispatch } from "react";
 import type { ComposerThreadTarget } from "../../composerDraftStore";
@@ -31,7 +30,6 @@ import {
 } from "@t3tools/contracts";
 import {
   effectiveSnoozed,
-  threadParkedOnShelf,
   snoozeWakeLabel,
   threadWokeAt,
 } from "@t3tools/client-runtime/state/thread-settled";
@@ -227,9 +225,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
   const activeThreadSnoozed =
     activeThreadShell !== null &&
     serverConfigLoaded &&
-    effectiveSnoozed(activeThreadShell, { now: snoozeClock }) &&
-    // A parked thread is not woken from here: its panel row has Cancel.
-    !threadParkedOnShelf(activeThreadShell);
+    effectiveSnoozed(activeThreadShell, { now: snoozeClock });
   const activeThreadWokeAt =
     activeThreadShell !== null && serverConfigLoaded
       ? threadWokeAt(activeThreadShell, { now: snoozeClock })
@@ -649,9 +645,6 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
       const turnItem = turnItems.findLast(
         (candidate) => (candidate.nativeItemRef?.nativeId || candidate.id) === item.taskId,
       );
-      const watchStartedAt = activeThreadShell?.source.threadWatches?.find(
-        (watch) => threadWatchTaskId(watch.id) === item.taskId,
-      )?.startedAt;
       const subagentId = turnItem?.type === "subagent" ? turnItem.subagentId : item.taskId;
       const subagent = subagents.find((candidate) => candidate.id === subagentId);
       const role = subagent?.remoteChild?.agentTask?.role;
@@ -661,11 +654,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
         awaited: task?.awaited === true,
         ...(role === undefined ? {} : { role }),
         startedAtMs:
-          turnItem?.startedAt != null
-            ? DateTime.toEpochMillis(turnItem.startedAt)
-            : watchStartedAt != null
-              ? Date.parse(watchStartedAt)
-              : null,
+          turnItem?.startedAt != null ? DateTime.toEpochMillis(turnItem.startedAt) : null,
       };
     });
   })();
@@ -689,7 +678,6 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
     parentBusy: isWorking,
   });
   const panelStanding = activeThreadShell?.source.standing;
-  const panelThreadWatches = activeThreadShell?.source.threadWatches;
   const panelParkedWaits = activeThreadShell?.source.parkedWaits ?? NO_PARKED_WAITS;
   const renderSubagentPanel = (request: SubagentPanelRequest | null) =>
     activeThreadRef !== null &&
@@ -697,7 +685,8 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
       finishedSubagents.length > 0 ||
       panelWaits.length > 0 ||
       panelParkedWaits.length > 0 ||
-      panelStanding?.waitsOnPerson !== undefined) ? (
+      panelStanding?.waitsOnPerson !== undefined ||
+      panelStanding?.question !== undefined) ? (
       <SubagentPanel
         threadRef={activeThreadRef}
         subagentIds={liveSubagentIds}
@@ -705,7 +694,6 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
         finished={finishedSubagents}
         waits={panelWaits}
         standing={panelStanding}
-        threadWatches={panelThreadWatches}
         parkedWaits={panelParkedWaits}
         nowMs={Date.parse(`${nowMinute}:00.000Z`)}
         waitHandlers={{

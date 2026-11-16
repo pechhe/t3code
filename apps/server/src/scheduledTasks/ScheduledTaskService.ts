@@ -1489,7 +1489,7 @@ export const layer = Layer.effect(
       task.agentRole === DEFAULT_SCHEDULED_TASK_ROLE;
 
     /**
-     * Dispatches the time-parked wait under a command id fixed by the task, then removes the task.
+     * Dispatches the time wait under a command id fixed by the task, then removes the task.
      * A failed dispatch leaves the task untouched; a crash between the two repeats the same
      * command, which the engine answers from its receipt, so the wait is never made twice.
      */
@@ -1501,7 +1501,7 @@ export const layer = Layer.effect(
           threadId,
           watching: true,
           target: { kind: "time", at },
-          park: { note: task.prompt },
+          note: task.prompt,
           title: task.title,
         })
         .pipe(Effect.andThen(deleteRow(task.id)));

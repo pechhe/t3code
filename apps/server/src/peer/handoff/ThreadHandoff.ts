@@ -5,7 +5,6 @@ import {
   type OrchestrationV2AppThread,
   type OrchestrationV2ParkedWaitTarget,
   type OrchestrationV2ThreadShell,
-  type OrchestrationV2WatchTarget,
   type OrchestratorMcpFailure,
   ThreadHandoffError,
   type OrchestrationV2ThreadHandoff,
@@ -90,10 +89,7 @@ export const UnansweredMoveRecheck = Context.Reference<Duration.Duration>(
  * waiting on it.
  */
 export const moveBlocker = (
-  thread: Pick<
-    OrchestrationV2AppThread,
-    "agentTask" | "lineage" | "threadWatches" | "parkedWaits" | "arcRun"
-  >,
+  thread: Pick<OrchestrationV2AppThread, "agentTask" | "lineage" | "parkedWaits" | "arcRun">,
   shell: Pick<OrchestrationV2ThreadShell, "pendingBackgroundTasks"> | null,
 ): string | null => {
   if (isDelegatedTaskThread(thread)) {
@@ -103,13 +99,13 @@ export const moveBlocker = (
     return "This thread is running an Arc, which T3 wakes here. Stop it first, then move the thread.";
   }
   const staying = [
-    // The monitors that mirror a watch are not work: the watch itself moves.
+    // A pull request watch is not work: the watch itself moves.
     ...ownBackgroundWork(shell?.pendingBackgroundTasks ?? []).map((task) =>
       task.kind === "subagent"
         ? `delegated task ${task.description ?? task.taskId}`
         : `background ${task.kind} ${task.description ?? task.taskId}`,
     ),
-    ...[...(thread.threadWatches ?? []), ...(thread.parkedWaits ?? [])]
+    ...(thread.parkedWaits ?? [])
       .filter((wait) => wait.target.kind === "landing")
       .map((wait) => `landing "${wait.title}"`),
   ];
@@ -120,14 +116,12 @@ export const moveBlocker = (
 
 /** What a thread is waiting on, as it moves with it: the destination wakes the thread as this one did. */
 const carriedWaits = (
-  thread: Pick<OrchestrationV2AppThread, "threadWatches" | "parkedWaits" | "pullRequests">,
+  thread: Pick<OrchestrationV2AppThread, "parkedWaits" | "ownerWait" | "pullRequests">,
   here: EnvironmentId,
   destination: EnvironmentId,
 ) => {
   // A thread here is a remote one from there; one that lives there is local there.
-  const target = <T extends OrchestrationV2WatchTarget | OrchestrationV2ParkedWaitTarget>(
-    target: T,
-  ): T =>
+  const target = <T extends OrchestrationV2ParkedWaitTarget>(target: T): T =>
     target.kind !== "thread"
       ? target
       : ({
@@ -137,14 +131,6 @@ const carriedWaits = (
             ? {}
             : { environmentId: target.environmentId ?? here }),
         } as T);
-  const watches = (thread.threadWatches ?? [])
-    .filter((watch) => watch.target.kind !== "landing")
-    .map((watch) => ({
-      id: watch.id,
-      title: watch.title,
-      startedAt: watch.startedAt,
-      target: target(watch.target),
-    }));
   const parkedWaits = (thread.parkedWaits ?? [])
     .filter((wait) => wait.target.kind !== "landing")
     .map((wait) => ({ ...wait, target: target(wait.target) }));
@@ -162,12 +148,13 @@ const carriedWaits = (
       url: link.url,
       ...(link.repositoryWebUrl === undefined ? {} : { repositoryWebUrl: link.repositoryWebUrl }),
     }));
+  const ownerWait = thread.ownerWait;
   const names = [
-    ...watches.map((watch) => `watching ${watch.title}`),
-    ...parkedWaits.map((wait) => `parked on ${wait.title}`),
+    ...parkedWaits.map((wait) => `waiting on ${wait.title}`),
+    ...(ownerWait === undefined ? [] : ["waiting on the owner"]),
     ...pullRequestWatches.map((link) => `watching pull request #${link.number}`),
   ];
-  return { watches, parkedWaits, pullRequestWatches, names };
+  return { parkedWaits, ownerWait, pullRequestWatches, names };
 };
 
 /** Only a full-access link leaves a moved thread unfenced there. */
@@ -558,8 +545,8 @@ const make = Effect.gen(function* () {
             prompt: handoff.continuationPrompt,
             waits: waits.names,
           }),
-          ...(waits.watches.length === 0 ? {} : { watches: waits.watches }),
           ...(waits.parkedWaits.length === 0 ? {} : { parkedWaits: waits.parkedWaits }),
+          ...(waits.ownerWait === undefined ? {} : { ownerWait: waits.ownerWait }),
           ...(waits.pullRequestWatches.length === 0
             ? {}
             : { pullRequestWatches: waits.pullRequestWatches }),
@@ -633,8 +620,18 @@ const make = Effect.gen(function* () {
               Effect.logWarning("thread-handoff.end-wait-failed", { threadId, commandId, cause }),
             ),
           );
+      if (thread.ownerWait !== undefined) {
+        const commandId = `command:handoff:${threadId}:end-owner-wait`;
+        yield* end(commandId, {
+          type: "thread.thread-watch",
+          commandId: CommandId.make(commandId),
+          threadId,
+          target: { kind: "owner" },
+          watching: false,
+        });
+      }
       yield* Effect.forEach(
-        [...(thread.threadWatches ?? []), ...(thread.parkedWaits ?? [])],
+        thread.parkedWaits ?? [],
         (wait) => {
           const commandId = `command:handoff:${threadId}:end-wait:${wait.id}`;
           return end(commandId, {
@@ -952,7 +949,7 @@ const make = Effect.gen(function* () {
             shell.handoff?.state === "pending" ||
             shell.handoff?.state === "departing" ||
             (shell.handoff?.state === "departed" &&
-              ((shell.threadWatches?.length ?? 0) > 0 || (shell.parkedWaits?.length ?? 0) > 0)),
+              ((shell.parkedWaits?.length ?? 0) > 0 || shell.ownerWait !== undefined)),
         ),
         (shell) => settle(shell.id),
         { discard: true },

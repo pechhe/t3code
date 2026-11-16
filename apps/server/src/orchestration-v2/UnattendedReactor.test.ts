@@ -258,7 +258,7 @@ it.layer(layerTest)("UnattendedReactor", (it) => {
     }),
   );
 
-  it.effect("waits while a delegated task or a thread watch will wake the thread", () =>
+  it.effect("waits while a delegated task or any wait will wake the thread", () =>
     Effect.gen(function* () {
       const reactor = yield* UnattendedReactor.UnattendedReactor;
       const orchestrator = yield* Orchestrator.OrchestratorV2;
@@ -295,6 +295,23 @@ it.layer(layerTest)("UnattendedReactor", (it) => {
       });
       yield* reactor.handle(yield* finish(watching.run));
       assert.equal((yield* continuations(watching.threadId)).length, 0);
+
+      // Any wait is a promised wake: a time, or the owner's answer.
+      for (const target of [
+        { kind: "time", at: "2099-01-01T00:00:00.000Z" },
+        { kind: "owner", question: "Keep the old column?" },
+      ] as const) {
+        const waiting = yield* setup(`waiting-${target.kind}`);
+        yield* orchestrator.dispatch({
+          type: "thread.thread-watch",
+          commandId: CommandId.make(`watch:waiting-${target.kind}`),
+          threadId: waiting.threadId,
+          target,
+          watching: true,
+        });
+        yield* reactor.handle(yield* finish(waiting.run));
+        assert.equal((yield* continuations(waiting.threadId)).length, 0, target.kind);
+      }
     }),
   );
 

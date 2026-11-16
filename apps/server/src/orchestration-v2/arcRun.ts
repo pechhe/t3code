@@ -32,9 +32,6 @@ export const ARC_RUN_STALL_OPEN_WORK_MINUTES = 6 * 60;
 export const ARC_RUN_ANSWER =
   "This thread is running an Arc, so you decide this yourself from the evidence and the Arc's authority. When you are unsure about a consequential choice, consult the advisor role, then decide. Record anything that truly needs the owner (acceptance, promotion, spending, permission widening, an irreversible choice) as a Forge hold with a watch on it, and carry on with all other work.";
 
-/** How long a Forge watch must stay unreadable before an Arc run stops counting it as a wait. */
-export const ARC_RUN_UNREADABLE_WATCH_MS = 60 * 60 * 1000;
-
 export type ArcRunTrigger = "event" | "watchdog" | "startup";
 
 export type ArcRunWakeDecision =
@@ -136,7 +133,8 @@ export function latestArcRunTurn(
 function arcRunHasNextTrigger(state: ArcRunState): boolean {
   const { thread, runs } = state;
   if (runs.some((run) => LIVE_RUN.has(run.status))) return true;
-  if ((thread.parkedWaits?.length ?? 0) > 0) return true;
+  // The owner's answer brings back a lead waiting on its owner.
+  if ((thread.parkedWaits?.length ?? 0) > 0 || thread.ownerWait !== undefined) return true;
   if (
     state.subagents.some(
       (task) =>
@@ -155,7 +153,6 @@ function arcRunHasNextTrigger(state: ArcRunState): boolean {
       turnItems: state.turnItems,
       activeProviderThreadId: thread.activeProviderThreadId,
       pullRequests: thread.pullRequests,
-      threadWatches: thread.threadWatches,
     }).length > 0
   );
 }

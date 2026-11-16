@@ -403,7 +403,7 @@ it.effect(
       });
       const pinned = yield* createThread("pinned", { pinnedAt: old });
       yield* createThread("watcher", {
-        threadWatches: [
+        parkedWaits: [
           {
             id: "watch",
             target: { kind: "thread", threadId: due },

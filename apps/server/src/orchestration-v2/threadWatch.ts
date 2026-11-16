@@ -39,31 +39,17 @@ export type ThreadWatchDecision =
   | { readonly kind: "failed" | "stopped" | "finished"; readonly resultRun: OrchestrationV2Run };
 
 /**
- * Why `watcher` cannot start a watch on `watchedThreadId`, if it cannot. A subagent reports to its
- * parent thread, which owns what it waits on. A parked wait outlives settling, so only archiving
- * refuses one.
+ * Why `watcher` cannot start a wait on `watchedThreadId`, if it cannot. A wait outlives settling,
+ * so only archiving refuses one.
  */
 export function threadWatchRefusal(
-  watcher: Pick<
-    OrchestrationV2AppThread,
-    "id" | "lineage" | "agentTask" | "archivedAt" | "settledOverride" | "settledAt" | "deletedAt"
-  >,
+  watcher: Pick<OrchestrationV2AppThread, "id" | "archivedAt" | "deletedAt">,
   watchedThreadId?: string,
-  options?: { readonly parked?: boolean },
 ): string | undefined {
   if (watcher.deletedAt !== null) return `Thread ${watcher.id} is deleted.`;
   if (watchedThreadId === watcher.id) return "A thread cannot watch itself.";
-  if (options?.parked === true) {
-    return watcher.archivedAt === null
-      ? undefined
-      : `Thread ${watcher.id} is archived and cannot park. Unarchive it first.`;
-  }
-  if (
-    watcher.archivedAt !== null ||
-    watcher.settledOverride === "settled" ||
-    watcher.settledAt !== null
-  ) {
-    return `Thread ${watcher.id} is settled or archived and cannot watch targets. Unsettle it first.`;
+  if (watcher.archivedAt !== null) {
+    return `Thread ${watcher.id} is archived and cannot wait. Unarchive it first.`;
   }
   return undefined;
 }
@@ -370,18 +356,16 @@ export function buildWatchWake(input: {
   readonly ref?: string | undefined;
   readonly title: string;
   readonly url: string;
-  readonly condition: "unblocked" | "closed" | "dropped" | "unreadable";
+  readonly condition: "unblocked" | "closed" | "dropped";
 }): { readonly text: string; readonly notification: OrchestrationV2Notification } {
   const { target, condition } = input;
   const label = input.ref ?? `#${target.number}`;
   const met =
     condition === "dropped"
       ? "was Dropped"
-      : condition === "unreadable"
-        ? "could not be read for over an hour, so T3 cannot tell when it changes"
-        : condition === "unblocked"
-          ? "is unblocked: all dependency waits are clear"
-          : "is closed (Landed or Accepted)";
+      : condition === "unblocked"
+        ? "is unblocked: all dependency waits are clear"
+        : "is closed (Landed or Accepted)";
   return {
     text: `Build ${label} ${workName(input.title)} ${met}. ${input.url}\n\nT3 Code has stopped watching it. Call watch again to be woken again.`,
     notification: {

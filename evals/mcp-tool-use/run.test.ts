@@ -4827,7 +4827,7 @@ it("requires both payload questions in the single bundled consultation", () => {
 
 const decodeProductionWatchCase = Schema.decodeUnknownSync(McpToolUseCase);
 
-it("requires the fork production watch to park on the published commit without claiming it is live", () => {
+it("requires the fork production wait on the published commit without claiming it is live", () => {
   const testCase = NodeFS.readFileSync(
     new URL("./cases/pull-requests.ndjson", import.meta.url),
     "utf8",
@@ -4841,7 +4841,8 @@ it("requires the fork production watch to park on the published commit without c
     tool: "watch",
     input: {
       target: { kind: "production", commitId: "d41a8e6f0b27c9a3e15f7d8042b6c9e1a7f3d580" },
-      park: { expectedMinutes: 15, note: "Verify the price after production is ready." },
+      expectedMinutes: 15,
+      note: "Verify the price after production is ready.",
     },
     failed: false,
   };

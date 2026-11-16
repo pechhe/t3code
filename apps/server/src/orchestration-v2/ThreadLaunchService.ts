@@ -1,4 +1,5 @@
 import * as RunCustody from "./RunWorkspaceCustody.ts";
+import { DEFAULT_WAIT_MS } from "./parkedWait.ts";
 import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
 import * as ProjectCloneTracker from "../project/ProjectCloneTracker.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
@@ -1563,6 +1564,7 @@ const make = Effect.gen(function* () {
               threadId: input.watchedBy,
               watchedThreadId: threadId,
               watching: true,
+              expectedMs: DEFAULT_WAIT_MS,
             })
             .pipe(Effect.mapError(mapError(input, "watch-thread", threadId)));
         }

@@ -333,19 +333,27 @@ const make = Effect.gen(function* () {
       const commandId = `command:thread-import:${threadId}:parked:${wait.id}`;
       // The wait keeps the moment it gives up, not the time it was given.
       const remaining = wait.givesUpAt === undefined ? undefined : Date.parse(wait.givesUpAt) - now;
-      yield* dispatch(commandId, `parked on ${wait.title}`, {
+      yield* dispatch(commandId, `waiting on ${wait.title}`, {
         type: "thread.thread-watch",
         commandId: CommandId.make(commandId),
         threadId,
         target: wait.target,
         title: wait.title,
         watching: true,
-        park: {
-          ...(wait.target.kind === "time" || remaining === undefined
-            ? {}
-            : { expectedMs: Math.max(1_000, Math.floor(remaining / 2)) }),
-          ...(wait.note === undefined ? {} : { note: wait.note }),
-        },
+        ...(wait.target.kind === "time" || remaining === undefined
+          ? {}
+          : { expectedMs: Math.max(1_000, Math.floor(remaining / 2)) }),
+        ...(wait.note === undefined ? {} : { note: wait.note }),
+      });
+    }
+    if (input.ownerWait !== undefined) {
+      const commandId = `command:thread-import:${threadId}:owner`;
+      yield* dispatch(commandId, `waiting on the owner`, {
+        type: "thread.thread-watch",
+        commandId: CommandId.make(commandId),
+        threadId,
+        target: { kind: "owner", question: input.ownerWait.question },
+        watching: true,
       });
     }
     for (const link of input.pullRequestWatches ?? []) {

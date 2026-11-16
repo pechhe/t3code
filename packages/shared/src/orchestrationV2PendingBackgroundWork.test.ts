@@ -20,13 +20,6 @@ describe("ownBackgroundWork", () => {
         },
       ],
       turnItems: [],
-      threadWatches: [
-        {
-          id: "thread-watch:1" as never,
-          target: { kind: "thread", threadId: "thread:worker" as never },
-          title: "Worker",
-        },
-      ],
       pullRequests: [
         {
           host: "github.com",
@@ -38,7 +31,7 @@ describe("ownBackgroundWork", () => {
         } as never,
       ],
     });
-    expect(tasks).toHaveLength(3);
+    expect(tasks).toHaveLength(2);
     expect(ownBackgroundWork(tasks)).toEqual([
       { taskId: "b7", description: "vp dev", kind: "command" },
     ]);
@@ -84,7 +77,6 @@ describe("delegatedCompletionHold", () => {
     ["a subagent", true, [{ taskId: "review", kind: "subagent" }]],
     ["work the provider cannot name", true, [{ taskId: "opaque", kind: "background_task" }]],
     ["a pull request watch", true, [{ taskId: "pull-request-watch:a/b#1", kind: "monitor" }]],
-    ["a thread watch", true, [{ taskId: "thread-watch:1", kind: "monitor" }]],
   ] as const)("with %s pending, holds: %s", (_case, holds, tasks) => {
     expect(delegatedCompletionHold(tasks)).toBe(holds);
   });

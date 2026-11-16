@@ -37,7 +37,7 @@ interface Watching {
   readonly watchedThreadId: ThreadId;
 }
 
-/** When a parked wait must wake on its own: at its time, or when it gives up. */
+/** When a wait must wake on its own: at its time, or when it gives up. */
 interface Deadline {
   readonly threadId: ThreadId;
   readonly watchId: string;
@@ -45,7 +45,7 @@ interface Deadline {
 }
 
 function threadTargetsOf(watcher: OrchestrationV2AppThread): ReadonlyArray<Watching> {
-  return [...(watcher.threadWatches ?? []), ...(watcher.parkedWaits ?? [])].flatMap((watch) =>
+  return (watcher.parkedWaits ?? []).flatMap((watch) =>
     // A thread in a linked environment is followed over the link, not by this thread's events.
     watch.target.kind === "thread" && watch.target.environmentId === undefined
       ? [{ watcherId: watcher.id, watchId: watch.id, watchedThreadId: watch.target.threadId }]
@@ -181,7 +181,7 @@ const make = Effect.gen(function* () {
           });
         }).pipe(
           Effect.catchCause((cause) =>
-            Effect.logDebug("parked wait deadline check failed", { ...deadline, cause }),
+            Effect.logDebug("wait deadline check failed", { ...deadline, cause }),
           ),
         ),
       { discard: true },
@@ -197,7 +197,7 @@ const make = Effect.gen(function* () {
     }
   });
 
-  /** One timer for every parked deadline, restarted whenever the earliest may have moved. */
+  /** One timer for every wait deadline, restarted whenever the earliest may have moved. */
   const rearm = FiberHandle.run(timer, timerLoop).pipe(Effect.asVoid);
 
   // A cheap read of stored state picks the moment; the orchestrator decides again under the

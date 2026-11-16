@@ -171,9 +171,11 @@ const make = Effect.gen(function* () {
       )
     )
       return;
-    // Delegated tasks, watches and the provider's own background commands and monitors wake the
+    // Delegated tasks, waits and the provider's own background commands and monitors wake the
     // thread themselves; a nudge then only makes the agent poll them.
     if (
+      (thread.parkedWaits?.length ?? 0) > 0 ||
+      thread.ownerWait !== undefined ||
       records.subagents.some(
         (task) => task.origin === "app_owned" && !SUBAGENT_DONE.has(task.status),
       ) ||
@@ -184,7 +186,6 @@ const make = Effect.gen(function* () {
         turnItems: records.turnItems,
         activeProviderThreadId: thread.activeProviderThreadId,
         pullRequests: thread.pullRequests,
-        threadWatches: thread.threadWatches,
       }).length > 0
     )
       return;

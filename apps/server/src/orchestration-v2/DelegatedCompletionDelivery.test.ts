@@ -3845,7 +3845,7 @@ it.layer(Layer.merge(layerTest, ProviderContinuationRequests.layer))(
             threadId: child.childThreadId,
             target: { kind: "time", at: DateTime.formatIso(DateTime.add(now, { hours: 1 })) },
             watching: true,
-            park: { note: "Report the release." },
+            note: "Report the release.",
           });
           const [wait] =
             (yield* orchestrator.getThreadShell(child.childThreadId))?.parkedWaits ?? [];
@@ -6388,13 +6388,13 @@ it.layer(layerTest)("delegated tasks across a server restart", (it) => {
           now: parent.now,
         });
         const childThread = (yield* orchestrator.getThreadProjection(child.childThreadId)).thread;
-        const withWatches = (threadWatches: NonNullable<typeof childThread.threadWatches>) => ({
-          id: EventId.make(`event:watch-held-child:watches:${threadWatches.length}`),
+        const withWatches = (parkedWaits: NonNullable<typeof childThread.parkedWaits>) => ({
+          id: EventId.make(`event:watch-held-child:watches:${parkedWaits.length}`),
           type: "thread.metadata-updated" as const,
           threadId: child.childThreadId,
           providerInstanceId: modelSelection.instanceId,
           occurredAt: parent.now,
-          payload: { ...childThread, threadWatches },
+          payload: { ...childThread, parkedWaits },
         });
         // The run ended and the record was left open by writing events directly.
         yield* sink.write({
@@ -6450,7 +6450,7 @@ it.layer(layerTest)("delegated tasks across a server restart", (it) => {
             occurredAt: parent.now,
             payload: {
               ...childThread,
-              threadWatches: [
+              parkedWaits: [
                 {
                   id: "thread-watch:server:landing-watch:op_1:thread:parent",
                   target: { kind: "landing", operationId: "op_1" },

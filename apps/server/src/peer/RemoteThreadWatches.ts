@@ -40,13 +40,13 @@ type RemoteWatch = {
   readonly threadId: ThreadId;
 };
 
-/** The watches and parked waits of `thread` that name a thread in a linked environment. */
+/** The waits of `thread` that name a thread in a linked environment. */
 const remoteWatchesOf = (
-  thread: Pick<OrchestrationV2AppThread, "threadWatches" | "parkedWaits" | "deletedAt">,
+  thread: Pick<OrchestrationV2AppThread, "parkedWaits" | "deletedAt">,
 ): ReadonlyArray<RemoteWatch> =>
   thread.deletedAt !== null
     ? []
-    : [...(thread.threadWatches ?? []), ...(thread.parkedWaits ?? [])].flatMap((watch) =>
+    : (thread.parkedWaits ?? []).flatMap((watch) =>
         watch.target.kind === "thread" && watch.target.environmentId !== undefined
           ? [
               {

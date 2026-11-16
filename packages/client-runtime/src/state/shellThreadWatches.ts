@@ -1,7 +1,7 @@
 import type { OrchestrationV2ThreadShell, ThreadId } from "@t3tools/contracts";
 
 // The timestamps are strings on the client's shells and DateTimes on the contract's; only null matters.
-type WatcherShell = Pick<OrchestrationV2ThreadShell, "id" | "threadWatches"> & {
+type WatcherShell = Pick<OrchestrationV2ThreadShell, "id" | "parkedWaits"> & {
   readonly archivedAt: unknown;
   readonly deletedAt: unknown;
 };
@@ -19,7 +19,7 @@ export function threadWatchers<Shell extends WatcherShell>(
   const watchers: Array<{ readonly shell: Shell; readonly startedAt: string }> = [];
   for (const shell of shells) {
     if (shell.archivedAt !== null || shell.deletedAt !== null || shell.id === threadId) continue;
-    const watch = shell.threadWatches?.find(
+    const watch = shell.parkedWaits?.find(
       (candidate) =>
         candidate.target.kind === "thread" &&
         candidate.target.environmentId === undefined &&

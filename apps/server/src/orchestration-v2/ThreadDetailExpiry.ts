@@ -84,14 +84,14 @@ export const expireThreadDetail = Effect.fn("ProjectionMaintenance.expireThreadD
   const cutoff = DateTime.formatIso(DateTime.subtract(input.now, { days: input.afterDays }));
   const removed = { at: DateTime.formatIso(input.now), afterDays: input.afterDays };
 
-  // Anything still depending on a thread holds it: its own parked waits and watches, a parent
+  // Anything still depending on a thread holds it: its own waits, a parent
   // or delegator waiting on it, a scheduled task bound to it, or another thread waiting on it.
   const eligible = sql`
     candidate.deleted_at IS NULL
     AND json_extract(candidate.payload_json, '$.pinnedAt') IS NULL
     AND julianday(json_extract(candidate.payload_json, '$.settledAt')) <= julianday(${cutoff})
     AND IFNULL(json_array_length(candidate.payload_json, '$.parkedWaits'), 0) = 0
-    AND IFNULL(json_array_length(candidate.payload_json, '$.threadWatches'), 0) = 0
+    AND json_type(candidate.payload_json, '$.ownerWait') IS NULL
     AND ${settledWithoutActiveWorkOf(sql, "candidate.thread_id")}
     AND NOT EXISTS (
       SELECT 1 FROM orchestration_v2_projection_subagents AS link
@@ -103,17 +103,6 @@ export const expireThreadDetail = Effect.fn("ProjectionMaintenance.expireThreadD
     )
     AND NOT EXISTS (
       SELECT 1 FROM scheduled_tasks AS task WHERE task.thread_id = candidate.thread_id
-    )
-    AND NOT EXISTS (
-      SELECT 1 FROM orchestration_v2_projection_threads AS watcher
-        INDEXED BY orchestration_v2_projection_threads_watching_idx
-      CROSS JOIN json_each(watcher.payload_json, '$.threadWatches') AS watch
-      WHERE watcher.deleted_at IS NULL
-        AND json_array_length(watcher.payload_json, '$.threadWatches') > 0
-        AND COALESCE(
-          json_extract(watch.value, '$.target.threadId'),
-          json_extract(watch.value, '$.threadId')
-        ) = candidate.thread_id
     )
     AND NOT EXISTS (
       SELECT 1 FROM orchestration_v2_projection_threads AS parker

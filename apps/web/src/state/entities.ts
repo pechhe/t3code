@@ -547,7 +547,7 @@ export function selectThreadRelationshipShells(
   if (currentParentId !== null) named.add(currentParentId);
   // Watched and watching threads show a live status in Lineage, so their shells come along. A
   // thread in a linked environment has no shell among these, whatever its id.
-  for (const watch of current?.threadWatches ?? []) {
+  for (const watch of current?.parkedWaits ?? []) {
     if (watch.target.kind === "thread" && watch.target.environmentId === undefined) {
       named.add(watch.target.threadId);
     }
@@ -557,7 +557,7 @@ export function selectThreadRelationshipShells(
   }
   const isWatcher = (thread: OrchestrationV2ThreadShell) =>
     !thread.archivedAt &&
-    (thread.threadWatches ?? []).some(
+    (thread.parkedWaits ?? []).some(
       (watch) =>
         watch.target.kind === "thread" &&
         watch.target.environmentId === undefined &&

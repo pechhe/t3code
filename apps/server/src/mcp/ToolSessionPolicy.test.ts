@@ -99,11 +99,12 @@ const session = (
 // the Champion tools, the forwarded approval and cross-environment watches: 147,041.
 // T3-633 adds t3_champions_measurement (944 chars of description and schema): 148,014.
 // T3-660 adds the optional model pool id to every model selection a tool takes: 149,408.
+// T3-687 makes `watch` one wait with an owner target; a browser session lists it: 36,530.
 const budgets: ReadonlyArray<[string, SessionToolProfile | undefined, number]> = [
   ["editor", undefined, 150_000],
   ["editor worker", session("implementation", "implementer"), 150_000],
   ["reader", session("source-reader", "reviewer"), 43_000],
-  ["browser", session("phi", "browser"), 36_500],
+  ["browser", session("phi", "browser"), 37_000],
   ["researcher", session("web-research", "researcher"), 19_500],
 ];
 

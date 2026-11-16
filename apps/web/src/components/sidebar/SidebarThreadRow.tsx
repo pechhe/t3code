@@ -713,6 +713,7 @@ type SidebarThreadRowProps = {
   snoozeWakeLabelText: string | null;
   /** What a parked thread wakes on, or what just woke it; a quiet line under the title. */
   parkedSubtitle: string | null;
+  ownerSnoozed?: boolean;
   wokeAt: string | null;
   isActive: boolean;
   // Set on the active row only; scrolls it into view when a reveal is owed.
@@ -893,8 +894,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     (subagentActivity.status === "approval" || subagentActivity.status === "input")
       ? subagentActivityLabel(subagentActivity)
       : null;
-  // What a parked thread wakes on, under its title; it reads Done until opened, then shelves.
-  const isParked = (thread.parkedWaits?.length ?? 0) > 0;
+  const isParked = (thread.parkedWaits?.length ?? 0) > 0 && !props.ownerSnoozed;
   const parkedSubtitle = props.parkedSubtitle;
   const lastVisitedDate = lastVisitedAt === undefined ? null : parseTimestampDate(lastVisitedAt);
   const wokeAtDate = props.wokeAt === null ? null : parseTimestampDate(props.wokeAt);
@@ -907,7 +907,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   // Ready and action-required rows keep their unread and wake prominence.
   // Standing adds a stalled child and an owner-only wait; a more specific status still wins.
   const standingAttention =
-    status === "waiting" || status === "ready"
+    thread.standing?.question !== undefined || status === "waiting" || status === "ready"
       ? threadStandingAttention(thread.standing, thread.parkedWaitGaveUp)
       : null;
   const planReady = status === "ready" && hasPlanReadyPrompt(thread);
@@ -922,7 +922,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       isSelected,
     });
   const topStatus =
-    status === "preparing" || status === "working"
+    standingAttention !== "needs_you" && (status === "preparing" || status === "working")
       ? {
           label:
             status === "preparing"
@@ -935,13 +935,16 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         }
       : standingAttention === "needs_you"
         ? {
-            label: "Needs you",
+            label:
+              thread.standing?.waitsOnPerson?.need === "acceptance"
+                ? `Needs you · accept ${thread.standing.waitsOnPerson.ref ?? `#${thread.standing.waitsOnPerson.number}`}`
+                : "Needs you",
             icon: "input" as const,
             className: "text-indigo-600 dark:text-indigo-300",
           }
         : standingAttention === "gave_up"
           ? {
-              label: "Parked wait gave up",
+              label: "Wait gave up",
               icon: "waiting" as const,
               className: "text-warning-foreground",
             }
@@ -1010,7 +1013,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                                   icon: "woke" as const,
                                   className: "text-warning-foreground",
                                 }
-                              : isUnread
+                              : isUnread && variantAction !== "unsnooze"
                                 ? {
                                     label: "Done",
                                     icon: "done" as const,

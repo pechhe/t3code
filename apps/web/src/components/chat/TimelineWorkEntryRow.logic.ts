@@ -282,10 +282,10 @@ export function parkedWaitDivider(notification: {
 }): ParkedWaitDivider | null {
   const marker = "parked" in notification ? notification.parked : undefined;
   if (marker === "woke") {
-    return { label: "Woken by a parked wait", detail: notification.summary, tone: "neutral" };
+    return { label: "Woken by a wait", detail: notification.summary, tone: "neutral" };
   }
   if (marker === "gave_up") {
-    return { label: "Parked wait gave up", detail: notification.summary, tone: "warning" };
+    return { label: "Wait gave up", detail: notification.summary, tone: "warning" };
   }
   return null;
 }

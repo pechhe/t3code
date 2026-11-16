@@ -346,7 +346,7 @@ describe("OrchestratorMcpService", () => {
       const watcherId = ThreadId.make("thread:build-unwatch");
       const shell = {
         ...liveThreadShell(watcherId),
-        threadWatches: [
+        parkedWaits: [
           {
             id: "watch-1",
             target: { kind: "build_item", number: 1000001, until: "closed" },

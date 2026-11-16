@@ -422,10 +422,10 @@ You can also tell the agent to move it, for example "I need to wrap up, move
 this to my VPS". It finishes its reply first, then the thread moves and picks
 up where it said it would. Sending a message before then cancels the move.
 
-What the thread is waiting on moves with it: its watches on threads, Build items and
-pull requests, and its parked waits. They wake the thread on the new machine, once each,
+What the thread is waiting on moves with it: its waits on threads, Build items, Production,
+a time or your answer, and its pull request watches. They wake the thread on the new machine, once each,
 and the first message there lists them. A wait on a thread that stays behind becomes a
-watch across the link, so the new machine needs a link back to this one. A thread can't
+wait across the link, so the new machine needs a link back to this one. A thread can't
 move while a background command, a delegated task or a landing in progress is still
 running, because those can't follow it; let them finish or stop them first. A delegated
 task's own thread stays with the thread that started it.

@@ -172,7 +172,7 @@ export interface EnvironmentThreadShell {
   /** The server's answer to where the thread stands; absent from older servers. */
   readonly standing?: OrchestrationV2ThreadStanding;
   readonly blockedOnThreadWait?: boolean;
-  /** What the thread is parked on. Never part of the thread's working or waiting state. */
+  /** External conditions the thread waits on, distinct from its own running work. */
   readonly parkedWaits?: OrchestrationV2ThreadShell["parkedWaits"];
   /** The last parked wait that gave up, until the owner next writes to the thread. */
   readonly parkedWaitGaveUp?: OrchestrationV2ThreadShell["parkedWaitGaveUp"];

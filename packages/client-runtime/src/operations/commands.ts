@@ -1012,15 +1012,6 @@ export const interruptThreadTurn = Effect.fn("EnvironmentCommands.interruptThrea
           watching: false,
         });
       }
-      for (const watch of projection.thread.threadWatches ?? []) {
-        result = yield* dispatch({
-          type: "thread.thread-watch",
-          commandId: yield* allocateCommandId(result.sequence === 0 ? input : {}),
-          threadId: input.threadId,
-          target: watch.target,
-          watching: false,
-        });
-      }
       return result;
     }
   }

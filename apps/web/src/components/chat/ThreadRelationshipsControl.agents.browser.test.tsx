@@ -319,7 +319,7 @@ it("lists the threads it watches and the threads watching it beside the graph", 
     thread: {
       id: "parent",
       lineage: { relationshipToParent: null },
-      threadWatches: [{ target: { kind: "thread", threadId: "target" }, title: "Fix the login" }],
+      parkedWaits: [{ target: { kind: "thread", threadId: "target" }, title: "Fix the login" }],
     },
     runs: [],
     providerThreads: [],

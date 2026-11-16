@@ -62,6 +62,7 @@ import { secretRequestPageUrl } from "./secretRequest.ts";
 import { hasOnlyPairedSurrogates } from "./threadMetadataMcp.ts";
 import { LastThreadTitleRegeneration, ThreadTitleRegeneration } from "./threadTitle.ts";
 import {
+  OrchestrationV2OwnerWait,
   OrchestrationV2ParkedWait,
   OrchestrationV2ParkedWaitTarget,
   OrchestrationV2RemoteThreadWatchOutcome,
@@ -884,35 +885,37 @@ export const OrchestratorMcpThreadWatchInput = Schema.Struct({
     }),
     /** A SlipJay landing, by the operation id `slipjay land --no-wait` prints. */
     Schema.Struct({ kind: Schema.Literal("landing"), operationId: TrimmedNonEmptyString }),
-    /** A published commit reaching Production; parked only. */
+    /** A published commit reaching Production. */
     Schema.Struct({
       kind: Schema.Literal("production"),
       commitId: TrimmedNonEmptyString,
       projectId: Schema.optional(ProjectId),
     }),
-    /** A time; parked only. */
+    /** A time. */
     Schema.Struct({ kind: Schema.Literal("time"), at: IsoDateTime }),
-  ]),
-  park: Schema.optional(
+    /** Your owner's answer to the question you just asked them, in one line. */
     Schema.Struct({
-      /** When you expect the event; T3 gives up at twice this. Required except for a time. */
-      expectedMinutes: Schema.optional(PositiveInt),
-      /** What to do on waking; the wake quotes it back. */
-      note: Schema.optional(Schema.String.check(Schema.isMaxLength(4000))),
+      kind: Schema.Literal("owner"),
+      question: Schema.optional(OrchestrationV2OwnerWait.fields.question),
     }),
-  ),
+  ]),
+  /** When you expect the event; T3 gives up at twice this. Default 60; not for a time or owner. */
+  expectedMinutes: Schema.optional(PositiveInt),
+  /** What to do on waking; the wake quotes it back. */
+  note: Schema.optional(Schema.String.check(Schema.isMaxLength(4000))),
 });
 export type OrchestratorMcpThreadWatchInput = typeof OrchestratorMcpThreadWatchInput.Type;
 
 export const OrchestratorMcpThreadWatchResult = Schema.Struct({
-  target: OrchestrationV2ParkedWaitTarget,
+  target: Schema.Union([
+    OrchestrationV2ParkedWaitTarget,
+    Schema.Struct({ kind: Schema.Literal("owner"), question: Schema.optional(Schema.String) }),
+  ]),
   /** For a Build item, how to name it: its ref such as `YS-12` when known, else `#<number>`. */
   label: Schema.optional(Schema.String),
   watching: Schema.Boolean,
   wasWatching: Schema.Boolean,
-  /** The wait is parked: this thread is finished until it wakes. */
-  parked: Schema.optional(Schema.Boolean),
-  /** When a parked wait on an event gives up and wakes you. */
+  /** When the wait gives up and wakes you. */
   givesUpAt: Schema.optional(IsoDateTime),
 });
 export type OrchestratorMcpThreadWatchResult = typeof OrchestratorMcpThreadWatchResult.Type;
@@ -1046,7 +1049,8 @@ export const OrchestratorMcpThreadImportInput = Schema.Struct({
   /**
    * The thread's waits, recreated here under the ids they had, so a resent import adds none
    * twice. A thread target names its environment from here: the sender has already pointed one
-   * on its own side back at itself and cleared the environment on one that lives here.
+   * on its own side back at itself and cleared the environment on one that lives here. `watches`
+   * is what an older sender holds as watches; they arrive as waits.
    */
   watches: Schema.optional(
     Schema.Array(
@@ -1061,6 +1065,7 @@ export const OrchestratorMcpThreadImportInput = Schema.Struct({
   parkedWaits: Schema.optional(
     Schema.Array(OrchestrationV2ParkedWait).check(Schema.isMaxLength(200)),
   ),
+  ownerWait: Schema.optional(OrchestrationV2OwnerWait),
   /** Watched pull requests, to watch again from the thread here. */
   pullRequestWatches: Schema.optional(
     Schema.Array(

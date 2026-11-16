@@ -1061,7 +1061,7 @@ it.effect(
                     ...thread,
                     ...(watcher === "watcher"
                       ? {
-                          threadWatches: [
+                          parkedWaits: [
                             {
                               id: "watch:expiry",
                               title: "Watched",

@@ -160,6 +160,41 @@ describe("isAutoSettlementCandidate", () => {
     ).toBe(false);
   });
 
+  it("never settles a thread with an open wait; a fresh owner question ends its snooze", () => {
+    const startedAt = DateTime.formatIso(at(-30 * 60 * 1_000));
+    expect(ThreadSettlementService.isAutoSettlementCandidate(shell({}), NOW_MS)).toBe(true);
+    expect(
+      ThreadSettlementService.isAutoSettlementCandidate(
+        shell({
+          parkedWaits: [
+            {
+              id: "wait:1",
+              title: "Worker",
+              startedAt,
+              target: { kind: "thread", threadId: ThreadId.make("thread:worker") },
+            },
+          ],
+        }),
+        NOW_MS,
+      ),
+    ).toBe(false);
+    const ownerWait = { question: "Keep the column?", startedAt };
+    expect(ThreadSettlementService.isAutoSettlementCandidate(shell({ ownerWait }), NOW_MS)).toBe(
+      false,
+    );
+    const snoozed = { snoozedUntil: at(60 * 60 * 1_000), snoozedAt: at(-60 * 60 * 1_000) };
+    expect(ThreadSettlementService.isSnoozed(shell({ ...snoozed, ownerWait }), NOW_MS)).toBe(false);
+    expect(
+      ThreadSettlementService.isSnoozed(
+        shell({
+          ...snoozed,
+          ownerWait: { ...ownerWait, startedAt: DateTime.formatIso(at(-2 * 60 * 60 * 1_000)) },
+        }),
+        NOW_MS,
+      ),
+    ).toBe(true);
+  });
+
   it("never settles, or keeps snoozed, a thread whose guest is waiting on the owner", () => {
     expect(
       ThreadSettlementService.isAutoSettlementCandidate(

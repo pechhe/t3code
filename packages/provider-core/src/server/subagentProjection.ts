@@ -71,10 +71,11 @@ export function makeSubagentChildThread(input: {
   // the same finish, and its own result would wait on them too.
   const {
     arcRun: _parentArcRun,
-    threadWatches: _parentThreadWatches,
     endedThreadWatches: _parentEndedThreadWatches,
     parkedWaits: _parentParkedWaits,
     parkedWaitGaveUp: _parentParkedWaitGaveUp,
+    parkedWaitWoke: _parentParkedWaitWoke,
+    ownerWait: _parentOwnerWait,
     stalled: _parentStalled,
     ...parentThread
   } = input.parentThread;
@@ -285,7 +286,7 @@ export const delegatedTaskProgressTurnItems = {
 export type DelegatedTaskProjection = {
   readonly pendingBlockingAdvice?: boolean;
   readonly thread: Pick<OrchestrationV2AppThread, "pullRequests" | "activeProviderThreadId"> &
-    Partial<Pick<OrchestrationV2AppThread, "threadWatches" | "agentTask" | "lineage">>;
+    Partial<Pick<OrchestrationV2AppThread, "parkedWaits" | "agentTask" | "lineage">>;
   readonly runs: OrchestrationV2ThreadProjection["runs"];
   /** Active turn items are enough: only those can be pending background work. */
   readonly turnItems: Parameters<typeof derivePendingBackgroundWork>[0]["turnItems"];
@@ -317,9 +318,19 @@ export function subagentHoldsCompletion(
 }
 
 /**
+ * A delegated child waiting on another thread, a Forge item or a landing keeps its result until the
+ * wake, so its parent never acts on a partial answer; a wait on Production or a time does not.
+ */
+function waitHoldsDelegatedResult(
+  target: NonNullable<OrchestrationV2AppThread["parkedWaits"]>[number]["target"],
+): boolean {
+  return target.kind !== "production" && target.kind !== "time";
+}
+
+/**
  * How one result run stands: whether the thread's own work still holds it, and the commands and
  * monitors a publish would abandon. A managed task holds for an awaited command only through the
- * grace period; its own thread watches do not count, its pull request watches do.
+ * grace period; its pull request watches do, and so do the waits `waitHoldsDelegatedResult` names.
  */
 export function delegatedTaskRunHold(
   projection: DelegatedTaskProjection,
@@ -352,7 +363,9 @@ export function delegatedTaskRunHold(
   const held =
     (projection.pendingBlockingAdvice === true && resultRun.status === "completed") ||
     (projection.thread.agentTask !== undefined &&
-      (projection.thread.threadWatches?.length ?? 0) > 0) ||
+      (projection.thread.parkedWaits ?? []).some((wait) =>
+        waitHoldsDelegatedResult(wait.target),
+      )) ||
     projection.subagents.some(subagentHoldsCompletion) ||
     holdsWork;
   return {

@@ -1095,11 +1095,14 @@ it.effect("records its launcher's watch before the first message", () => {
     });
     const shell = yield* threads.getThreadShell(lead.threadId);
     assert.deepEqual(
-      shell?.threadWatches?.map((watch) =>
+      shell?.parkedWaits?.map((watch) =>
         watch.target.kind === "thread" ? watch.target.threadId : undefined,
       ),
       [worker.threadId],
     );
+    const [launchedWait] = shell?.parkedWaits ?? [];
+    assert.isDefined(launchedWait?.givesUpAt);
+    assert.isDefined(launchedWait?.expectedAt);
     assert.isTrue(worker.projection.runs.length > 0);
 
     // A launch whose first message is refused never runs, so it leaves no watch behind. The
@@ -1125,7 +1128,7 @@ it.effect("records its launcher's watch before the first message", () => {
         Effect.exit,
       );
     assert.isTrue(Exit.isFailure(refused));
-    assert.isEmpty((yield* threads.getThreadShell(limited.threadId))?.threadWatches ?? []);
+    assert.isEmpty((yield* threads.getThreadShell(limited.threadId))?.parkedWaits ?? []);
   }).pipe(Effect.provide(harness.layer));
 });
 

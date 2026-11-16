@@ -26,11 +26,11 @@ import * as ThreadMetadataMcpService from "../../ThreadMetadataMcpService.ts";
 import * as ThreadDirectory from "../../../peers/ThreadDirectory.ts";
 
 const decodeScheduledTaskSchedule = Schema.decodeUnknownEffect(OrchestratorMcpSchedule);
-/** A check-back is a wait the thread parks on, not a scheduled task (T3-567). */
+/** A check-back is a wait on the thread, not a scheduled task. */
 const refuseCheckBack = new OrchestratorMcpFailure({
   code: "invalid_request",
   message:
-    "Scheduled tasks can no longer be check-backs. To look again later, park this thread with `watch`: `watching: true`, a `target` of `{kind:'time', at}` (or the event itself, such as a Production release), and `park` (with `expectedMs` for an event, and a `note` to yourself). T3 wakes the thread then. Use `schedule_task` with purpose `long_running` only for work that repeats or runs without this thread.",
+    "Scheduled tasks can no longer be check-backs. To look again later, wait with `watch`: a `target` of `{kind:'time', at}` (or the event itself, such as a Production release), `expectedMinutes` for an event, and a `note` to yourself. T3 wakes the thread then. Use `schedule_task` with purpose `long_running` only for work that repeats or runs without this thread.",
 });
 const decodeAdvice = Schema.decodeUnknownEffect(OrchestratorMcpAskAdviceInput);
 const decodeAgentTask = Schema.decodeUnknownEffect(AgentTaskRequest);
