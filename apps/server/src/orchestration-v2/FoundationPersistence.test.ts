@@ -1590,40 +1590,97 @@ const commandOutputKept = (threadId: ThreadId) =>
     `,
   ).pipe(Effect.map((rows) => rows[0]?.kept === 1));
 
-it.effect("a thread that resumes while the pass runs keeps its items", () =>
-  Effect.gen(function* () {
-    const eventSink = yield* EventSink.EventSinkV2;
-    const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
-    const settledAt = DateTime.makeUnsafe("2026-10-01T09:00:00.000Z");
-    const threadId = ThreadId.make("thread:expiry:resumes");
-    const thread = yield* seedSettledCommand(threadId, settledAt);
-    // A message to a settled thread unsettles it; here it lands after discovery chose the thread.
-    let resumed = false;
-    const resume = Effect.suspend(() => {
-      if (resumed) return Effect.void;
-      resumed = true;
-      return eventSink
-        .write({
-          events: [
-            {
-              id: EventId.make("event:expiry:resumes:unsettle"),
-              type: "thread.unsettled",
+it.effect(
+  "a thread that resumes while the pass runs keeps what the pass has not yet stripped",
+  () =>
+    Effect.gen(function* () {
+      const eventSink = yield* EventSink.EventSinkV2;
+      const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
+      const sql = yield* SqlClient.SqlClient;
+      const settledAt = DateTime.makeUnsafe("2026-10-01T09:00:00.000Z");
+      // The pass paces once after discovery, then once after each bounded write. Two 3 MB outputs
+      // overflow one write's 4 MB budget, so resuming at the second pace falls between two writes.
+      for (const resumeAtPace of [1, 2] as const) {
+        const threadId = ThreadId.make(`thread:expiry:resumes:${resumeAtPace}`);
+        const thread = yield* seedSettledCommand(threadId, settledAt);
+        yield* eventSink.write({
+          events: [2, 3].map((ordinal) => ({
+            id: EventId.make(`event:${threadId}:large:${ordinal}`),
+            type: "turn-item.updated" as const,
+            threadId,
+            occurredAt: settledAt,
+            payload: {
+              id: TurnItemId.make(`item:${threadId}:large:${ordinal}`),
               threadId,
-              occurredAt: settledAt,
-              payload: { ...thread, settledOverride: "active", settledAt: null },
+              runId: null,
+              nodeId: null,
+              providerThreadId: null,
+              providerTurnId: null,
+              nativeItemRef: null,
+              parentItemId: null,
+              ordinal,
+              status: "completed" as const,
+              title: null,
+              startedAt: settledAt,
+              completedAt: settledAt,
+              updatedAt: settledAt,
+              type: "command_execution" as const,
+              input: `cat large-${ordinal}`,
+              output: `large ${ordinal} `.repeat(300_000),
             },
-          ],
-        })
-        .pipe(Effect.orDie);
-    });
-    const result = yield* maintenance.expireThreadDetail(
-      { now: DateTime.add(settledAt, { days: 15 }), afterDays: 14 },
-      resume,
-    );
-    assert.isTrue(resumed);
-    assert.equal(result.strippedItemCount, 0);
-    assert.isTrue(yield* commandOutputKept(threadId));
-  }).pipe(Effect.provide(Layer.fresh(layerTest))),
+          })),
+        });
+        const eventCount = () =>
+          sql<{ readonly count: number }>`
+          SELECT COUNT(*) AS count FROM orchestration_events WHERE stream_id = ${threadId}
+        `.pipe(Effect.map((rows) => rows[0]?.count ?? 0));
+        const outputsKept = sql<{ readonly turn_item_id: string }>`
+        SELECT turn_item_id FROM orchestration_v2_projection_turn_items
+        WHERE thread_id = ${threadId} AND json_extract(payload_json, '$.detailRemoved') IS NULL
+        ORDER BY turn_item_id
+      `.pipe(Effect.map((rows) => rows.map((row) => row.turn_item_id)));
+        const keptBefore = yield* outputsKept;
+        let paces = 0;
+        // A message to a settled thread unsettles it; here it lands at the chosen pace.
+        const resume = Effect.suspend(() => {
+          paces += 1;
+          if (paces !== resumeAtPace) return Effect.void;
+          return eventSink
+            .write({
+              events: [
+                {
+                  id: EventId.make(`event:${threadId}:unsettle`),
+                  type: "thread.unsettled",
+                  threadId,
+                  occurredAt: settledAt,
+                  payload: { ...thread, settledOverride: "active", settledAt: null },
+                },
+              ],
+            })
+            .pipe(Effect.orDie);
+        });
+        const eventsBefore = (yield* eventCount()) + 1;
+        const result = yield* maintenance.expireThreadDetail(
+          { now: DateTime.add(settledAt, { days: 15 }), afterDays: 14 },
+          resume,
+        );
+        assert.isAtLeast(paces, resumeAtPace);
+        const kept = yield* outputsKept;
+        if (resumeAtPace === 1) {
+          assert.equal(result.strippedItemCount, 0);
+          assert.deepStrictEqual(kept, keptBefore);
+        } else {
+          // The first write went before the message; nothing after it does.
+          assert.equal(result.strippedItemCount, 2);
+          assert.deepStrictEqual(kept, [`item:${threadId}:large:3`]);
+        }
+        assert.equal(yield* eventCount(), eventsBefore);
+        const expiry = yield* sql<{ readonly thread_id: string }>`
+        SELECT thread_id FROM orchestration_v2_thread_detail_expiry WHERE thread_id = ${threadId}
+      `;
+        assert.deepStrictEqual(expiry, []);
+      }
+    }).pipe(Effect.provide(Layer.fresh(layerTest))),
 );
 
 it.effect("the server's schedule expires a settled thread unless the window is off", () =>
