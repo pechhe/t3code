@@ -218,7 +218,8 @@ export const ModelListRow = memo(function ModelListRow(props: {
         <>
           <div className="flex min-w-0 flex-1 items-center gap-2 text-left">
             <div
-              className="min-w-0 truncate text-sm font-normal leading-snug"
+              // Keeps its full width; the provider label beside it gives way first.
+              className="max-w-full shrink-0 truncate text-sm font-normal leading-snug"
               // Names the row in full when renamed or when cut off on hover.
               onPointerEnter={(event) => {
                 const name = event.currentTarget;
@@ -237,8 +238,7 @@ export const ModelListRow = memo(function ModelListRow(props: {
               <CheckIcon className="size-3.5 shrink-0" aria-hidden="true" />
             ) : null}
             {props.subProvider ? (
-              // Gives way before the name does.
-              <span className="min-w-0 shrink-[100] truncate text-xs text-muted-foreground/70">
+              <span className="min-w-0 truncate text-xs text-muted-foreground/70">
                 {props.subProvider}
               </span>
             ) : null}
