@@ -242,7 +242,6 @@ import { isInSideChatPane, type SideChatParentPanel } from "~/lib/sideChatPane";
 import {
   NO_PROVIDER_MODEL_SELECTION,
   providerInstanceEntriesFor,
-  resolveProjectDefaultProviderModelSelection,
   shouldShowInstanceBadge,
   providerAnswersTo,
 } from "../providerInstances";
@@ -254,6 +253,7 @@ import {
 import { useNowMinute } from "../hooks/useNowMinute";
 import { usePanelAnimationSettings, usePanelPresence } from "../panelAnimations";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
+import { resolveAutomaticDefaultModelSelection } from "../modelSelection";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
 import { isPreviewFocused } from "../lib/previewFocus";
 import { getTerminalFocusOwner } from "../lib/terminalFocus";
@@ -862,22 +862,26 @@ export default function ChatView(props: ChatViewProps) {
     }
   }
   const nowMinute = useNowMinute();
-  const draftDefaultModelSelection = draftThread
+  const draftConfiguredDefaultModelSelection = draftThread
     ? resolveProjectSettings(
         settings,
         fallbackDraftProject?.id ?? null,
         fallbackDraftProject ?? undefined,
       ).settings.defaultModelSelection
     : null;
+  // A draft with nothing stored starts on the composer's first slot, as the new-thread handler does;
+  // this also covers a draft minted without that handler, such as a pull request's.
+  const draftDefaultModelSelection = draftThread
+    ? (draftConfiguredDefaultModelSelection ??
+      resolveAutomaticDefaultModelSelection(
+        providersByEnvironment.get(draftThread.environmentId) ?? [],
+        settings,
+        draftThread.projectId,
+      ))
+    : null;
   const draftModelResolution = draftThread
     ? resolveNewThreadModelSelection({
-        defaultSelection:
-          draftDefaultModelSelection ??
-          resolveProjectDefaultProviderModelSelection(
-            providersByEnvironment.get(draftThread.environmentId) ?? [],
-            settings,
-            draftThread.projectId,
-          ),
+        defaultSelection: draftDefaultModelSelection,
         fallbackSelection: settings.fallbackModelSelection,
         providers: providersByEnvironment.get(draftThread.environmentId) ?? [],
         settings,
@@ -1206,10 +1210,19 @@ export default function ChatView(props: ChatViewProps) {
   const activeProjectScripts = activeProject ? resolveProjectScripts(settings, activeProject) : [];
   const { projectCloneBannerItem, projectCloneSendBlockReason } =
     useProjectCloneBanner(activeProjectRef);
-  const activeProjectDefaultModelSelection =
-    !isServerThread && draftFallback
-      ? draftFallback.selection
-      : activeProjectSettings.settings.defaultModelSelection;
+  const activeProjectAutomaticModelSelection =
+    !isServerThread && activeProjectRef
+      ? resolveAutomaticDefaultModelSelection(
+          providersByEnvironment.get(activeProjectRef.environmentId) ?? [],
+          settings,
+          activeProjectRef.projectId,
+        )
+      : null;
+  const activeProjectDefaultModelSelection = !isServerThread
+    ? (draftFallback?.selection ??
+      activeProjectSettings.settings.defaultModelSelection ??
+      activeProjectAutomaticModelSelection)
+    : activeProjectSettings.settings.defaultModelSelection;
   const handleNewThreadInActiveProject = () => {
     startNewThreadForProject(activeProjectRef, handleNewThread);
   };
@@ -2791,7 +2804,7 @@ export default function ChatView(props: ChatViewProps) {
     const fallbackSelection = draftFallback?.selection;
     const defaultSelection =
       draftDefaultModelSelection ??
-      resolveProjectDefaultProviderModelSelection(
+      resolveAutomaticDefaultModelSelection(
         providerStatuses,
         settings,
         draftThread?.projectId ?? null,

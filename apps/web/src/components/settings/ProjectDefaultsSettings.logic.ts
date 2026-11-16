@@ -1,10 +1,12 @@
 import type { ModelSelection, ProjectId, ServerProvider } from "@t3tools/contracts";
 import type { UnifiedSettings } from "@t3tools/contracts/settings";
 
-import { resolveEffectiveDefaultModelSelection } from "../../modelSelection";
+import {
+  resolveAutomaticDefaultModelSelection,
+  resolveEffectiveDefaultModelSelection,
+} from "../../modelSelection";
 import {
   resolveDefaultProviderModelSelection,
-  resolveProjectDefaultProviderModelSelection,
   type ProviderInstanceEntry,
 } from "../../providerInstances";
 
@@ -22,7 +24,7 @@ export function resolveDefaultModelSettingsPresentation(input: {
 }): DefaultModelSettingsPresentation {
   const saved = input.settings.defaultModelSelection;
   if (saved === null) {
-    const automatic = resolveProjectDefaultProviderModelSelection(
+    const automatic = resolveAutomaticDefaultModelSelection(
       input.providers,
       input.settings,
       input.projectId,

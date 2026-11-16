@@ -46,7 +46,7 @@ import { environmentSummaries } from "../state/presentation";
 import { environmentServerConfigsAtom } from "../state/server";
 import { resolveThreadRouteTarget } from "../threadRoutes";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
-import { getClientSettings } from "./useSettings";
+import { getClientSettings, mergeEnvironmentSettings } from "./useSettings";
 import { getLocalStorageItem, useLocalStorage } from "./useLocalStorage";
 import * as Schema from "effect/Schema";
 import { useAtomValue } from "@effect/atom-react";
@@ -54,7 +54,7 @@ import { defaultProjectFallbackReadyAtom } from "../state/projects";
 import { useThreadRouteTarget } from "./useThreadRouteTarget";
 import { readUnloadedThreadCount } from "../state/olderSettledShelf";
 import { withModelDefaultOptions } from "../modelDefaultOptions";
-import { resolveProjectDefaultProviderModelSelection } from "../providerInstances";
+import { resolveAutomaticDefaultModelSelection } from "../modelSelection";
 import { resolveNewThreadModelSelection } from "@t3tools/shared/usageLimits";
 
 export const LAST_USED_PROJECT_STORAGE_KEY = "t3code:last-used-project:v1";
@@ -180,16 +180,17 @@ export function createNewThreadHandler(router: AnyRouter) {
       project,
     );
     const configuredDefaultModelSelection = projectSettings.settings.defaultModelSelection ?? null;
+    // The composer's first slot is where a thread starts; an explicit default, or a model carried
+    // from an open thread, still wins over it.
+    const automaticDefaultModelSelection = resolveAutomaticDefaultModelSelection(
+      environmentServerConfigs.get(projectRef.environmentId)?.providers ?? [],
+      mergeEnvironmentSettings(targetServerSettings, getClientSettings()),
+      projectRef.projectId,
+    );
     const fallbackResolution = resolveNewThreadModelSelection({
       defaultSelection:
         configuredDefaultModelSelection ??
-        (carryModelSelection || useComposerDraftStore.getState().stickyActiveProvider !== null
-          ? null
-          : resolveProjectDefaultProviderModelSelection(
-              environmentServerConfigs.get(projectRef.environmentId)?.providers ?? [],
-              targetServerSettings,
-              projectRef.projectId,
-            )),
+        (carryModelSelection ? null : automaticDefaultModelSelection),
       fallbackSelection: targetServerSettings.fallbackModelSelection ?? null,
       providers: environmentServerConfigs.get(projectRef.environmentId)?.providers ?? [],
       settings: targetServerSettings,
@@ -208,7 +209,10 @@ export function createNewThreadHandler(router: AnyRouter) {
         carrySourceDraftId:
           currentRouteTarget?.kind === "draft" ? currentRouteTarget.draftId : null,
         destinationDraftId,
-      });
+      }) ??
+      (automaticDefaultModelSelection === null
+        ? null
+        : startAtModelDefaults(automaticDefaultModelSelection));
     const resolveDefaultEnvMode = async (): Promise<DraftThreadEnvMode> => {
       // Environment queries wait for a connection, so reading the project file on an
       // offline machine would never settle and the draft would never open.

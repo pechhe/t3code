@@ -23,11 +23,8 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
 import { useClientSettings } from "~/hooks/useSettings";
 import { getCustomModelLabel, selectModelSlotLabels } from "./modelLabels";
-import {
-  ModelPickerContent,
-  type ModelPickerPool,
-  resolveModelPickerSelectedModel,
-} from "./ModelPickerContent";
+import { ModelPickerContent, type ModelPickerPool } from "./ModelPickerContent";
+import { resolveModelPickerSelectedModel } from "../../modelSelection";
 import { retainedModelWhileProviderLocked } from "./ProviderModelPicker.logic";
 import { ChatGptSharingControl } from "./ChatGptSharingControl";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";

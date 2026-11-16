@@ -1756,6 +1756,44 @@ describe("composerDraftStore modelSelection", () => {
     expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.modelSelectionByProvider).toEqual({});
   });
 
+  it("resolves a draft with no stored selection to the project's model, not the provider default", () => {
+    const effective = deriveEffectiveComposerModelState({
+      draft: { activeProvider: null, modelSelectionByProvider: {} },
+      providers: [
+        {
+          instanceId: CLAUDE_AGENT_INSTANCE,
+          driver: CLAUDE_AGENT_DRIVER,
+          enabled: true,
+          installed: true,
+          version: null,
+          status: "ready",
+          auth: { status: "authenticated" },
+          checkedAt: "2026-01-01T00:00:00.000Z",
+          models: [
+            {
+              slug: "claude-haiku-4",
+              name: "claude-haiku-4",
+              isCustom: false,
+              isDefault: true,
+              capabilities: {},
+            },
+            { slug: "claude-opus-5-5", name: "claude-opus-5-5", isCustom: false, capabilities: {} },
+          ],
+          slashCommands: [],
+          skills: [],
+        },
+      ],
+      selectedProvider: CLAUDE_AGENT_DRIVER,
+      selectedInstanceId: CLAUDE_AGENT_INSTANCE,
+      threadModelSelection: null,
+      // A new draft starts on the composer's first slot, which reaches the composer this way.
+      projectModelSelection: createModelSelection(CLAUDE_AGENT_INSTANCE, "claude-opus-5-5"),
+      settings: DEFAULT_UNIFIED_SETTINGS,
+    });
+
+    expect(effective.selectedModel).toBe("claude-opus-5-5");
+  });
+
   it("retains an unavailable provider pick through differing durable model updates", () => {
     const store = useComposerDraftStore.getState();
     const pick = createModelSelection(CODEX_SECONDARY_INSTANCE, "gpt-5.5", [

@@ -87,6 +87,7 @@ import {
   type ProviderInstanceEntry,
 } from "../../providerInstances";
 import { moveFavorite, providerModelKey, sortProviderModelItems } from "../../modelOrdering";
+import { resolveModelPickerSelectedModel } from "../../modelSelection";
 import { FAVORITE_SLOTS } from "./device/favoriteSlots.logic";
 
 /** A model pool offered as one entry: T3 picks the account when the turn runs. */
@@ -112,23 +113,6 @@ type ModelPickerItem = {
   isLegacy?: boolean | undefined;
   isUnavailable?: boolean | undefined;
 };
-
-export function resolveModelPickerSelectedModel(input: {
-  driverKind: ProviderDriverKind | undefined;
-  model: string;
-  options: ReadonlyArray<ModelEsque>;
-}) {
-  if (input.driverKind === "antigravity" && input.model === ANTIGRAVITY_DEFAULT_MODEL) {
-    const availableModels = input.options.filter(
-      (option) => option.slug !== ANTIGRAVITY_DEFAULT_MODEL && !option.isUnavailable,
-    );
-    return (
-      availableModels.find((option) => option.aliases?.includes(ANTIGRAVITY_DEFAULT_MODEL)) ??
-      availableModels.find((option) => option.isDefault)
-    );
-  }
-  return input.options.find((option) => option.slug === input.model);
-}
 
 function shouldIncludeModelPickerOption(input: {
   readonly entry: ProviderInstanceEntry;

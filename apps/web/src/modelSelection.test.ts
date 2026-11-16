@@ -29,7 +29,9 @@ import {
   getTextGenerationModelOptionsByInstance,
   resolveAppModelSelectionForInstance,
   resolveAppModelSelectionState,
+  resolveAutomaticDefaultModelSelection,
   resolveEffectiveDefaultModelSelection,
+  resolveFirstFavoriteModelSelection,
 } from "./modelSelection";
 import { withModelDefaultOptions } from "./modelDefaultOptions";
 
@@ -216,6 +218,80 @@ describe("scoped default model selections", () => {
         },
       ]),
     ).toBe(true);
+  });
+});
+
+describe("a new thread's automatic default", () => {
+  const claudeId = ProviderInstanceId.make("claudeAgent");
+  const codexId = ProviderInstanceId.make("codex");
+  const claude = provider({
+    instanceId: "claudeAgent",
+    provider: ProviderDriverKind.make("claudeAgent"),
+    models: ["claude-opus-5-5", "claude-fable-5-2"],
+  });
+  const codex = provider({ instanceId: "codex", models: ["gpt-6-astra", "gpt-6-sol"] });
+  const providers = [codex, claude];
+  const withFavorites = (
+    favorites: ReadonlyArray<{ provider: ProviderInstanceId; model: string }>,
+    overrides: Partial<UnifiedSettings> = {},
+  ): UnifiedSettings => ({ ...DEFAULT_UNIFIED_SETTINGS, favorites: [...favorites], ...overrides });
+
+  it("starts on the composer's first slot, not the first provider's own default", () => {
+    const settings = withFavorites([
+      { provider: claudeId, model: "claude-opus-5-5" },
+      { provider: codexId, model: "gpt-6-astra" },
+    ]);
+    const slotOne = createModelSelection(claudeId, "claude-opus-5-5");
+
+    expect(resolveFirstFavoriteModelSelection(providers, settings, null)).toEqual(slotOne);
+    expect(resolveAutomaticDefaultModelSelection(providers, settings, null)).toEqual(slotOne);
+  });
+
+  it("skips a favourite this project cannot run, and one its provider no longer supplies", () => {
+    const projectId = ProjectId.make("claude-off");
+    const claudeOff = withFavorites(
+      [
+        { provider: claudeId, model: "claude-opus-5-5" },
+        { provider: codexId, model: "gpt-6-sol" },
+      ],
+      {
+        projectSettingsOverrides: {
+          [projectId]: { providerInstances: { [claudeId]: { enabled: false } } },
+        },
+      },
+    );
+    const withdrawn = withFavorites([
+      { provider: claudeId, model: "claude-withdrawn" },
+      { provider: claudeId, model: "claude-fable-5-2" },
+    ]);
+    const hidden = withFavorites(
+      [
+        { provider: claudeId, model: "claude-opus-5-5" },
+        { provider: claudeId, model: "claude-fable-5-2" },
+      ],
+      {
+        providerModelPreferences: {
+          [claudeId]: { hiddenModels: ["claude-opus-5-5"], modelOrder: [] },
+        },
+      },
+    );
+
+    // A later favourite takes the slot; the provider's own default is not used while one resolves.
+    expect(resolveAutomaticDefaultModelSelection(providers, claudeOff, projectId)).toEqual(
+      createModelSelection(codexId, "gpt-6-sol"),
+    );
+    expect(resolveAutomaticDefaultModelSelection(providers, withdrawn, null)).toEqual(
+      createModelSelection(claudeId, "claude-fable-5-2"),
+    );
+    expect(resolveAutomaticDefaultModelSelection(providers, hidden, null)).toEqual(
+      createModelSelection(claudeId, "claude-fable-5-2"),
+    );
+  });
+
+  it("falls back to the first provider's own default with no favourite to take slot 1", () => {
+    expect(
+      resolveAutomaticDefaultModelSelection(providers, DEFAULT_UNIFIED_SETTINGS, null),
+    ).toEqual(createModelSelection(codexId, "gpt-6-astra"));
   });
 });
 

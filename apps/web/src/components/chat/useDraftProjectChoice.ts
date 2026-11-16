@@ -52,7 +52,6 @@ export function useDraftProjectChoice({
   );
   const getComposerDraft = useComposerDraftStore((store) => store.getComposerDraft);
   const getDraftSession = useComposerDraftStore((store) => store.getDraftSession);
-  const applyStickyState = useComposerDraftStore((store) => store.applyStickyState);
   const setModelSelection = useComposerDraftStore((store) => store.setModelSelection);
   const { scratchEnvironmentId, scratchWorkspaceRootFor, openScratchProject } = useScratchProject();
   const openProjectDraft = useNewThreadHandler();
@@ -171,20 +170,20 @@ export function useDraftProjectChoice({
       const environmentSettings = environments.find(
         (environment) => environment.environmentId === project.environmentId,
       )?.serverConfig?.settings;
-      applyStickyState(
-        draftId,
-        environmentSettings
-          ? (selection) => withModelDefaultOptions(selection, environmentSettings)
-          : undefined,
-      );
+      // The draft keeps the model it carries into the project; only the project's own default
+      // replaces it. A new draft already took the composer's first slot when it was made.
       const defaultModelSelection = environmentSettings
         ? resolveProjectSettings(environmentSettings, project.id, project).settings
             .defaultModelSelection
         : project.defaultModelSelection;
       if (defaultModelSelection) {
-        setModelSelection(draftId, defaultModelSelection, {
-          replaceOptions: true,
-        });
+        setModelSelection(
+          draftId,
+          environmentSettings
+            ? withModelDefaultOptions(defaultModelSelection, environmentSettings)
+            : defaultModelSelection,
+          { replaceOptions: true },
+        );
       }
     }
   };

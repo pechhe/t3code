@@ -9,7 +9,7 @@ const testState = vi.hoisted(() => {
   let targetSettings = {
     defaultThreadEnvMode: "local" as "local" | "worktree" | null,
     newWorktreesStartFromOrigin: false,
-    defaultModelSelection: null,
+    defaultModelSelection: null as { instanceId: string; model: string } | null,
     defaultRuntimeMode: "full-access" as RuntimeMode,
   };
   let storedDraft: {
@@ -18,6 +18,7 @@ const testState = vi.hoisted(() => {
     readonly promotedTo: null;
     readonly threadId: string;
   } | null = null;
+  let slotOneSelection: { instanceId: string; model: string } | null = null;
   let openDraftRoute: { readonly kind: "draft"; readonly draftId: string } | null = null;
   let draftsWithUserText = new Set<string>();
   const router = {
@@ -84,6 +85,12 @@ const testState = vi.hoisted(() => {
     get targetSettings() {
       return targetSettings;
     },
+    get slotOneSelection() {
+      return slotOneSelection;
+    },
+    setSlotOne(selection: { instanceId: string; model: string } | null) {
+      slotOneSelection = selection;
+    },
     reset(
       nextStoredDraft: typeof storedDraft,
       workspaceDefaults = {
@@ -106,6 +113,7 @@ const testState = vi.hoisted(() => {
             },
       );
       draftsWithUserText = new Set();
+      slotOneSelection = null;
       projectRemoved = false;
       connectedEnvironmentIds = ["environment-primary", "environment-ssh"];
       targetSettings = {
@@ -213,9 +221,11 @@ vi.mock("../composerDraftStore", () => {
 vi.mock("../lib/chatThreadActions", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../lib/chatThreadActions")>()),
   hasExplicitComposerModelSelection: () => false,
-  resolveNewThreadModelSelectionOverride: () => null,
 }));
 vi.mock("../providerInstances", () => ({ resolveDefaultProviderModelSelection: () => null }));
+vi.mock("../modelSelection", () => ({
+  resolveAutomaticDefaultModelSelection: () => testState.slotOneSelection,
+}));
 vi.mock("../lib/t3ProjectFileDefaults", () => ({
   readT3ProjectFile: () => testState.projectFileRead,
 }));
@@ -261,7 +271,10 @@ vi.mock("../uiStateStore", () => ({
   legacyProjectCwdPreferenceKey: () => "remote-project",
   useUiStateStore: () => [],
 }));
-vi.mock("./useSettings", () => ({ getClientSettings: () => ({ loadBalancingEnabled: true }) }));
+vi.mock("./useSettings", () => ({
+  getClientSettings: () => ({ loadBalancingEnabled: true }),
+  mergeEnvironmentSettings: (serverSettings: unknown) => serverSettings,
+}));
 
 import { resolveDefaultProjectRef, useNewThreadHandler } from "./useHandleNewThread";
 
@@ -326,6 +339,49 @@ describe.each([
     await expect(pendingOpen).resolves.toBeNull();
     expect(testState.router.navigate).not.toHaveBeenCalled();
     expect(testState.draftStore.setLogicalProjectDraftThreadId).not.toHaveBeenCalled();
+  });
+});
+
+describe("useNewThreadHandler's model default", () => {
+  const projectRef = { environmentId: "environment-ssh", projectId: "project-remote" } as never;
+  const slotOne = { instanceId: "claudeAgent", model: "claude-opus-5-5" };
+
+  it("sets the composer's first slot after the remembered model, so it wins", async () => {
+    testState.reset(null);
+    testState.setSlotOne(slotOne);
+
+    const pendingOpen = useNewThreadHandler()(projectRef);
+    testState.completeProjectFileRead(null);
+    const opened = await pendingOpen;
+
+    expect(testState.draftStore.applyStickyState).toHaveBeenCalledWith(
+      opened?.draftId,
+      expect.any(Function),
+    );
+    expect(testState.draftStore.setModelSelection).toHaveBeenCalledWith(
+      opened?.draftId,
+      expect.objectContaining(slotOne),
+      { replaceOptions: true },
+    );
+    expect(testState.draftStore.applyStickyState.mock.invocationCallOrder[0]).toBeLessThan(
+      testState.draftStore.setModelSelection.mock.invocationCallOrder[0] ?? 0,
+    );
+  });
+
+  it("keeps an explicitly configured default model over the first slot", async () => {
+    testState.reset(null);
+    testState.setSlotOne(slotOne);
+    testState.targetSettings.defaultModelSelection = { instanceId: "codex", model: "gpt-6-astra" };
+
+    const pendingOpen = useNewThreadHandler()(projectRef);
+    testState.completeProjectFileRead(null);
+    const opened = await pendingOpen;
+
+    expect(testState.draftStore.setModelSelection).toHaveBeenCalledWith(
+      opened?.draftId,
+      expect.objectContaining({ instanceId: "codex", model: "gpt-6-astra" }),
+      { replaceOptions: true },
+    );
   });
 });
 

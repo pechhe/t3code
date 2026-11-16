@@ -91,6 +91,15 @@ describe("resolveDefaultModelSettingsPresentation", () => {
     expect(present(claudeAndCodex)).toEqual({ selection: savedClaude, providerNote: null });
   });
 
+  it("shows the composer's first slot as the automatic default", () => {
+    const row = present(claudeAndCodex, {
+      defaultModelSelection: null,
+      favorites: [{ provider: claudeId, model: "claude-opus-4-8" }],
+    });
+    expect(row.providerNote).toBeNull();
+    expect(row.selection).toMatchObject({ instanceId: claudeId, model: "claude-opus-4-8" });
+  });
+
   it("still follows a hidden model on the same provider", () => {
     const row = present(
       [

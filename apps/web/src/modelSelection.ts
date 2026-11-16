@@ -33,6 +33,7 @@ import {
   type ProviderInstanceEntry,
   deriveProviderInstanceEntries,
   NO_PROVIDER_MODEL_SELECTION,
+  providerInstanceEntriesFor,
   resolveDefaultProviderModelSelection,
   resolveProjectDefaultProviderModelSelection,
   entryAnswersTo,
@@ -208,6 +209,23 @@ function getAppModelOptions(
   );
 }
 
+export function resolveModelPickerSelectedModel(input: {
+  driverKind: ProviderDriverKind | undefined;
+  model: string;
+  options: ReadonlyArray<ModelEsque>;
+}) {
+  if (input.driverKind === "antigravity" && input.model === ANTIGRAVITY_DEFAULT_MODEL) {
+    const availableModels = input.options.filter(
+      (option) => option.slug !== ANTIGRAVITY_DEFAULT_MODEL && !option.isUnavailable,
+    );
+    return (
+      availableModels.find((option) => option.aliases?.includes(ANTIGRAVITY_DEFAULT_MODEL)) ??
+      availableModels.find((option) => option.isDefault)
+    );
+  }
+  return input.options.find((option) => option.slug === input.model);
+}
+
 export function getAppModelOptionsForInstance(
   settings: UnifiedSettings,
   entry: ProviderInstanceEntry,
@@ -319,6 +337,42 @@ export function resolveEffectiveDefaultModelSelection(
   return model === null || model === selection.model ? selection : { ...selection, model };
 }
 
+/**
+ * The composer's first slot: the first favourite whose provider this project can still run and
+ * which still supplies that model. It is what a new thread starts on, so it deliberately skips a
+ * favourite the slider still shows as a detent under a provider that cannot run here.
+ */
+export function resolveFirstFavoriteModelSelection(
+  providers: ReadonlyArray<ServerProvider>,
+  settings: UnifiedSettings,
+  projectId: ProjectId | null,
+): ModelSelection | null {
+  const entries = providerInstanceEntriesFor(providers, settings, projectId);
+  for (const favorite of settings.favorites) {
+    const entry = entries.find((candidate) => candidate.instanceId === favorite.provider);
+    if (!entry?.enabled || !entry.isAvailable) continue;
+    const option = resolveModelPickerSelectedModel({
+      driverKind: entry.driverKind,
+      model: favorite.model,
+      options: getAppModelOptionsForInstance(settings, entry, null),
+    });
+    if (option !== undefined) return { instanceId: entry.instanceId, model: option.slug };
+  }
+  return null;
+}
+
+/** Where a new thread starts: the composer's first slot, else the first provider's own default. */
+export function resolveAutomaticDefaultModelSelection(
+  providers: ReadonlyArray<ServerProvider>,
+  settings: UnifiedSettings,
+  projectId: ProjectId | null,
+): ModelSelection | null {
+  return (
+    resolveFirstFavoriteModelSelection(providers, settings, projectId) ??
+    resolveProjectDefaultProviderModelSelection(providers, settings, projectId)
+  );
+}
+
 export function defaultModelSelectionsAreMixed(
   clientSettings: ClientSettings,
   targets: ReadonlyArray<{
@@ -329,22 +383,19 @@ export function defaultModelSelectionsAreMixed(
 ): boolean {
   const selections = targets.map(({ projectId, settings, providers }) => {
     const stored = settings.defaultModelSelection;
+    const merged = {
+      ...clientSettings,
+      ...settings,
+      ...resolveModelPreferences(settings, clientSettings),
+    };
     const selection =
       stored === null
-        ? resolveProjectDefaultProviderModelSelection(providers, settings, projectId)
+        ? resolveAutomaticDefaultModelSelection(providers, merged, projectId)
         : resolveDefaultProviderModelSelection(providers, stored);
     return {
       stored,
       effective: selection
-        ? resolveEffectiveDefaultModelSelection(
-            {
-              ...clientSettings,
-              ...settings,
-              ...resolveModelPreferences(settings, clientSettings),
-            },
-            providers,
-            selection,
-          )
+        ? resolveEffectiveDefaultModelSelection(merged, providers, selection)
         : null,
     };
   });
