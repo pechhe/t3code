@@ -3,7 +3,9 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import * as ProcessRunner from "../processRunner.ts";
 import * as Context from "effect/Context";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -31,6 +33,8 @@ export class WebResearchError extends Schema.TaggedError<WebResearchError>()("We
   }
 }
 
+const CREDENTIAL_TTL = Duration.seconds(30);
+
 export class ExecutorCredentialSource extends Context.Service<
   ExecutorCredentialSource,
   {
@@ -42,21 +46,23 @@ export const layerCredentials = Layer.effect(
   ExecutorCredentialSource,
   Effect.gen(function* () {
     const secrets = yield* BitwardenSecrets.BitwardenSecrets;
-    return ExecutorCredentialSource.of({
-      read: secrets.read("EXECUTOR_PAT").pipe(
-        Effect.mapError((cause) => new WebResearchError({ stage: "credentials", cause })),
-        Effect.flatMap(
-          Option.match({
-            onNone: () =>
-              new WebResearchError({
-                stage: "credentials",
-                cause: new Error("Missing EXECUTOR_PAT"),
-              }),
-            onSome: Effect.succeed,
-          }),
-        ),
+    // Bitwarden's API answers a burst of `bws secret list` calls with 429, and every web tool call
+    // reads EXECUTOR_PAT, so one read stands for the burst and a failure is retried by the next.
+    const read = yield* secrets.read("EXECUTOR_PAT").pipe(
+      Effect.mapError((cause) => new WebResearchError({ stage: "credentials", cause })),
+      Effect.flatMap(
+        Option.match({
+          onNone: () =>
+            new WebResearchError({
+              stage: "credentials",
+              cause: new Error("Missing EXECUTOR_PAT"),
+            }),
+          onSome: Effect.succeed,
+        }),
       ),
-    });
+      Effect.cachedWithTTL((exit) => (Exit.isSuccess(exit) ? CREDENTIAL_TTL : Duration.zero)),
+    );
+    return ExecutorCredentialSource.of({ read });
   }),
 );
 

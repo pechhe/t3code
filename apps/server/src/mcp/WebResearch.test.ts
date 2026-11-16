@@ -1,6 +1,7 @@
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as BitwardenSecrets from "../secrets/BitwardenSecrets.ts";
 import * as WebResearch from "./WebResearch.ts";
 
 const fixture = (responses: ReadonlyArray<unknown>) => {
@@ -113,6 +114,35 @@ it.effect.each([
     }).pipe(Effect.provide(f.layer));
   },
 );
+it.effect("a burst of web research calls shares one credential read", () => {
+  // Bitwarden's API answers a burst of `bws secret list` calls with 429, and every web tool call
+  // reads EXECUTOR_PAT, so only the sixth read of a burst may fail here.
+  let reads = 0;
+  const store = Layer.succeed(BitwardenSecrets.BitwardenSecrets, {
+    read: () =>
+      Effect.suspend(() => {
+        reads += 1;
+        return reads > 5
+          ? Effect.fail(
+              new BitwardenSecrets.BitwardenSecretsError({
+                reason: "failed",
+                cause: new Error("429 Too Many Requests"),
+              }),
+            )
+          : Effect.succeedSome("fixture-secret");
+      }),
+    select: (pick) => Effect.succeed(pick([])),
+  });
+  return Effect.gen(function* () {
+    const credentials = yield* WebResearch.ExecutorCredentialSource;
+    const tokens = yield* Effect.forEach(
+      Array.from({ length: 8 }, (_, index) => index),
+      () => credentials.read,
+      { concurrency: "unbounded" },
+    );
+    expect(tokens).toEqual(Array.from({ length: 8 }, () => "fixture-secret"));
+  }).pipe(Effect.provide(WebResearch.layerCredentials.pipe(Layer.provide(store))));
+});
 it.effect("does not keep accepting subsequent approval requests", () => {
   const f = fixture([approval("extract.postExtract"), approval("extract.postExtract")]);
   return Effect.gen(function* () {
