@@ -3202,7 +3202,7 @@ it.layer(layerTest)("parked waits", (it) => {
   );
 
   it.effect(
-    "a parked time wait due during an active idle-compaction run wakes once compaction finishes, while a paused Arc run stays held until the owner replies",
+    "a parked time wait due during an active idle-compaction run wakes once compaction finishes",
     () =>
       Effect.gen(function* () {
         const orchestrator = yield* Orchestrator.OrchestratorV2;
@@ -3286,46 +3286,94 @@ it.layer(layerTest)("parked waits", (it) => {
           (candidate) => candidate.id === queuedWakeRun.id,
         );
         assert.equal(wakeRunAfter?.status, "starting");
+      }),
+  );
 
-        // A paused Arc run keeps a due parked wait held until the owner's message resumes it.
-        const pausedThread = yield* createThread("park-compact-paused");
-        yield* seedRun(pausedThread, { status: "completed", text: "Turn 1." });
-        yield* orchestrator.dispatch({
-          type: "thread.arc-run",
-          commandId: CommandId.make("command:arc-paused-start"),
-          threadId: pausedThread,
-          op: "start",
-          arc: { number: 4, ref: "T3-ARC-04" },
-        });
-        yield* orchestrator.dispatch({
-          type: "thread.arc-run",
-          commandId: CommandId.make("command:arc-paused-pause"),
-          threadId: pausedThread,
-          op: "pause",
-        });
-        const pausedAt = DateTime.formatIso(DateTime.add(yield* DateTime.now, { minutes: 10 }));
-        yield* parkOn(pausedThread, { kind: "time", at: pausedAt }, {}, [reactor]);
-        yield* TestClock.adjust("10 minutes");
-        assert.lengthOf(yield* parkedWakes(pausedThread), 0);
-        assert.lengthOf(yield* parkedOf(pausedThread), 1);
+  it.effect(
+    "a parked wait wakes a paused or out-of-turns Arc run at its time, keeping its budget",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const reactor = yield* ThreadWatchReactor.ThreadWatchReactor;
+        const eventSink = yield* EventSink.EventSinkV2;
+        const runOf = (threadId: ThreadId, messageId: string) =>
+          Effect.map(orchestrator.getThreadRecords(threadId, ["runs"]), ({ runs }) =>
+            runs.find((candidate) => candidate.userMessageId === messageId)!,
+          );
+        let arcNumber = 40;
+        const heldArcRun = (name: string, held: "paused" | "attention") =>
+          Effect.gen(function* () {
+            const thread = yield* createThread(name);
+            yield* seedRun(thread, { status: "completed", text: "Turn 1." });
+            yield* orchestrator.dispatch({
+              type: "thread.arc-run",
+              commandId: CommandId.make(`command:${name}:arc-start`),
+              threadId: thread,
+              op: "start",
+              arc: { number: (arcNumber += 1) },
+            });
+            if (held === "paused") {
+              yield* orchestrator.dispatch({
+                type: "thread.arc-run",
+                commandId: CommandId.make(`command:${name}:arc-pause`),
+                threadId: thread,
+                op: "pause",
+              });
+            } else {
+              // Running out of turns is the reactor's decision; only its outcome matters here.
+              const { thread: shell } = yield* orchestrator.getThreadRecords(thread, []);
+              yield* eventSink.write({
+                commandId: CommandId.make(`command:${name}:arc-attention`),
+                events: [
+                  {
+                    id: EventId.make(`event:${name}:arc-attention`),
+                    type: "thread.metadata-updated",
+                    threadId: thread,
+                    occurredAt: yield* DateTime.now,
+                    payload: { ...shell, arcRun: { ...shell.arcRun!, state: "attention" } },
+                  },
+                ],
+              });
+            }
+            return thread;
+          });
 
-        yield* orchestrator.dispatch({
-          type: "message.dispatch",
-          commandId: CommandId.make("command:arc-paused-owner"),
-          threadId: pausedThread,
-          messageId: MessageId.make("message:arc-paused-owner"),
-          text: "Carry on.",
-          attachments: [],
-          dispatchMode: { type: "queue_after_active" },
-          createdBy: "user",
-          creationSource: "web",
-        });
-        const pausedWoken = yield* awaitParkedWake(pausedThread);
-        yield* Effect.yieldNow;
-        yield* reactor.sweep;
-        yield* Fiber.join(pausedWoken);
-        assert.lengthOf(yield* parkedWakes(pausedThread), 1);
-        assert.lengthOf(yield* parkedOf(pausedThread), 0);
+        for (const held of ["paused", "attention"] as const) {
+          const thread = yield* heldArcRun(`park-arc-${held}`, held);
+          const before = (yield* orchestrator.getThreadShell(thread))!.arcRun!;
+          assert.equal(before.state, held);
+
+          yield* TestClock.adjust("1 minute");
+          const at = DateTime.formatIso(DateTime.add(yield* DateTime.now, { minutes: 10 }));
+          yield* parkOn(thread, { kind: "time", at }, { note: "Check the reviewer." }, [reactor]);
+          const woken = yield* awaitParkedWake(thread);
+          yield* TestClock.adjust("10 minutes");
+          yield* Fiber.join(woken);
+
+          const [wake, ...more] = yield* parkedWakes(thread);
+          assert.lengthOf(more, 0);
+          assert.include(wake?.text, "> Check the reviewer.");
+          assert.lengthOf(yield* parkedOf(thread), 0);
+          const after = (yield* orchestrator.getThreadShell(thread))!.arcRun!;
+          assert.equal(after.state, "active");
+          assert.equal(after.progressAt, before.progressAt);
+          assert.equal(after.ceilingSince, before.ceilingSince);
+          assert.notEqual((yield* runOf(thread, wake!.id)).queueHeld, true);
+        }
+
+        // An event wait's give-up notice also comes at its time while the run is paused.
+        const watched = yield* createThread("park-arc-give-up-target");
+        yield* seedRun(watched, { status: "running" });
+        const giveUp = yield* heldArcRun("park-arc-give-up", "paused");
+        yield* parkOn(giveUp, { kind: "thread", threadId: watched }, { expectedMs: 60_000 }, [
+          reactor,
+        ]);
+        const gaveUp = yield* awaitParkedWake(giveUp);
+        yield* TestClock.adjust("2 minutes");
+        yield* Fiber.join(gaveUp);
+        const [notice] = yield* parkedWakes(giveUp);
+        assert.equal(notice?.notification?.parked, "gave_up");
+        assert.equal((yield* orchestrator.getThreadShell(giveUp))?.arcRun?.state, "active");
       }),
   );
 });

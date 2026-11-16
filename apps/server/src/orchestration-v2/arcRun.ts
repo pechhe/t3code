@@ -69,7 +69,7 @@ export interface ArcRunState {
 export const isDelegatedTaskDone = (status: OrchestrationV2Subagent["status"]) =>
   TASK_DONE.has(status);
 
-/** Stopped or out of budget: nothing but the owner's message may start a turn. */
+/** Stopped or out of budget: only the owner's message or the thread's own parked wait starts a turn. */
 export const isArcRunHeld = (arcRun: OrchestrationV2ThreadArcRun | undefined) =>
   arcRun?.state === "paused" || arcRun?.state === "attention";
 

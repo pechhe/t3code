@@ -4551,8 +4551,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         cause: "The thread watch has ended.",
       });
     }
-    // The watch stays, so its next check after the owner resumes the run still fires it.
-    if (isArcRunHeld(thread.arcRun)) return;
+    // A held watch stays until the owner resumes the run. A parked wait keeps its time and its
+    // wake resumes the run itself.
+    if (watch !== undefined && isArcRunHeld(thread.arcRun)) return;
     // A thread that is moving takes no wake here: its waits went with it, and a move that fails
     // releases it with them. The copy left behind ends them once the other side has the thread.
     if (thread.handoff?.state === "departing" || thread.handoff?.state === "departed") return;
@@ -9087,11 +9088,17 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       (command.creationSource === "web" || command.creationSource === "mobile") &&
       command.scheduledTaskId === undefined;
     const resumesThread = resumesStoppedThread(command);
-    // Whatever a held Arc run is sent waits for its owner's message, which releases the queue, so a
-    // question or a delegated result is neither a new turn nor lost. Compaction is not a turn.
+    // The thread's own parked wait resumes a held Arc run at its time, keeping the run's budget.
+    const parkedWakeResumesArcRun =
+      isArcRunHeld(projection.thread.arcRun) &&
+      command.creationSource === "server" &&
+      command.notification?.parked !== undefined;
+    // Whatever else a held Arc run is sent waits for its owner's message, which releases the queue,
+    // so a question or a delegated result is neither a new turn nor lost. Compaction is not a turn.
     const arcRunHoldsMessage =
       isArcRunHeld(projection.thread.arcRun) &&
       !resumesThread &&
+      !parkedWakeResumesArcRun &&
       command.idleCompaction === undefined &&
       !command.messageId.startsWith(ARC_RUN_WAKE_MESSAGE_PREFIX);
     const queueBehindRun =
@@ -9156,8 +9163,25 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         payload: thread,
       });
     }
+    if (parkedWakeResumesArcRun && startsOrQueuesRun && projection.thread.arcRun !== undefined) {
+      const thread: OrchestrationV2AppThread = {
+        ...projection.thread,
+        arcRun: { ...projection.thread.arcRun, state: "active" },
+      };
+      projection = { ...projection, thread };
+      yield* emit(
+        events,
+        command,
+      )({
+        type: "thread.metadata-updated",
+        threadId: command.threadId,
+        providerInstanceId: thread.providerInstanceId,
+        occurredAt: yield* DateTime.now,
+        payload: thread,
+      });
+    }
     const heldRunsToRelease =
-      resumesThread && startsOrQueuesRun && !worktreeSetupUnresolved
+      (resumesThread || parkedWakeResumesArcRun) && startsOrQueuesRun && !worktreeSetupUnresolved
         ? projection.runs.filter((run) => run.status === "queued" && run.queueHeld === true)
         : [];
     const releasedAt = yield* DateTime.now;

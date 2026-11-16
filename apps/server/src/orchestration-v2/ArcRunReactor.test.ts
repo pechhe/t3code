@@ -2096,23 +2096,59 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
     }),
   );
 
-  it.effect("a held run keeps what it is sent until the owner replies", () =>
-    Effect.gen(function* () {
-      for (const held of ["paused", "attention"] as const) {
-        const { threadId, run } = yield* setup(`held-${held}`);
-        yield* finish(run);
-        yield* writeArcRunState(threadId, held);
-        yield* send(threadId, "from-server", "server");
-        const heldRun = yield* latestRun(threadId);
-        assert.equal(heldRun.status, "queued");
-        assert.isTrue(heldRun.queueHeld);
+  it.effect(
+    "a held run keeps what it is sent until the owner replies or its parked wait wakes it",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        for (const held of ["paused", "attention"] as const) {
+          for (const resumer of ["owner", "parked-wake"] as const) {
+            const { threadId, run } = yield* setup(`held-${held}-${resumer}`);
+            yield* finish(run);
+            yield* writeArcRunState(threadId, held);
+            const before = (yield* arcRunOf(threadId))!;
+            yield* send(threadId, "from-server", "server");
+            const heldRun = yield* latestRun(threadId);
+            assert.equal(heldRun.status, "queued");
+            assert.isTrue(heldRun.queueHeld);
 
-        yield* send(threadId, "from-owner");
-        const after = (yield* records(threadId)).runs.find((item) => item.id === heldRun.id)!;
-        assert.notEqual(after.queueHeld, true);
-        assert.equal((yield* arcRunOf(threadId))?.state, "active");
-      }
-    }),
+            yield* TestClock.adjust("1 minute");
+            if (resumer === "owner") {
+              yield* send(threadId, "from-owner");
+            } else {
+              yield* orchestrator.dispatch({
+                type: "message.dispatch",
+                commandId: CommandId.make(`wake:${threadId}`),
+                threadId,
+                messageId: MessageId.make(`message:${threadId}:parked-wait:wake`),
+                text: "It is time.",
+                attachments: [],
+                dispatchMode: { type: "queue_after_active" },
+                createdBy: "agent",
+                creationSource: "server",
+                notification: {
+                  source: { kind: "system" },
+                  outcome: "completed",
+                  summary: "Woke to check",
+                  parked: "woke",
+                },
+              });
+            }
+            const after = (yield* records(threadId)).runs.find((item) => item.id === heldRun.id)!;
+            assert.notEqual(after.queueHeld, true);
+            const arcRun = (yield* arcRunOf(threadId))!;
+            assert.equal(arcRun.state, "active");
+            if (resumer === "parked-wake") {
+              // The parked wake is the thread's own, so the run's turn budget carries on.
+              assert.equal(arcRun.progressAt, before.progressAt);
+              assert.equal(arcRun.ceilingSince, before.ceilingSince);
+              assert.isUndefined(arcRun.resumed);
+              yield* send(threadId, "after-wake", "server");
+              assert.notEqual((yield* latestRun(threadId)).queueHeld, true);
+            }
+          }
+        }
+      }),
   );
 
   it.effect("reaching a limit still gets the one report to the owner", () =>
