@@ -577,9 +577,24 @@ export default defineConfig({
               allow: ["layout"],
               contracts: [
                 {
-                  // CollapsibleTrigger has no styled counterpart; other triggers use render={<Button …/>}.
-                  pattern: "^CollapsibleTrigger$",
-                  allow: ["layout", "color", "typography", "spacing", "shape", "effects", "motion"],
+                  // These triggers own no look: each forwards className to its Base UI part, so a class on
+                  // the trigger, or on the plain element it renders, is the caller's own. @shadcn/lint 0.2
+                  // otherwise judges that plain element as a restyle of the trigger. A trigger's contents
+                  // still use render={<Button …/>}, which is checked as Button.
+                  pattern: "^(Collapsible|Menu|Popover|Tooltip)Trigger$",
+                  allow: [
+                    "layout",
+                    "color",
+                    "typography",
+                    "spacing",
+                    "shape",
+                    "effects",
+                    "motion",
+                    // The device skin's own CSS classes, which style those plain elements.
+                    "device-*",
+                    "send-dial",
+                    "send-dial--stop",
+                  ],
                 },
               ],
             },
