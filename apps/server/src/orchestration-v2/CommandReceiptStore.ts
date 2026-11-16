@@ -48,6 +48,8 @@ export const CommandReceiptV2 = Schema.Struct({
   resultSequence: NonNegativeInt,
   status: CommandReceiptV2Status,
   error: Schema.NullOr(Schema.String),
+  /** Set on read when the thread's detail expired, taking the events a replay would return. */
+  replayExpiredAt: Schema.optionalKey(Schema.DateTimeUtc),
 });
 export type CommandReceiptV2 = typeof CommandReceiptV2.Type;
 
@@ -90,6 +92,7 @@ const decodeReceipt = Schema.decodeUnknownEffect(
   CommandReceiptV2.mapFields((fields) => ({
     ...fields,
     acceptedAt: Schema.DateTimeUtcFromString,
+    replayExpiredAt: Schema.optionalKey(Schema.DateTimeUtcFromString),
   })),
 );
 const decodeProjectReceipt = Schema.decodeUnknownEffect(
@@ -99,7 +102,9 @@ const decodeProjectReceipt = Schema.decodeUnknownEffect(
   })),
 );
 
-function fromApplicationReceipt(receipt: OrchestrationCommandReceipts.OrchestrationCommandReceipt) {
+function fromApplicationReceipt(
+  receipt: OrchestrationCommandReceipts.StoredOrchestrationCommandReceipt,
+) {
   return decodeReceipt({
     commandId: receipt.commandId,
     threadId: receipt.aggregateId,
@@ -108,6 +113,7 @@ function fromApplicationReceipt(receipt: OrchestrationCommandReceipts.Orchestrat
     resultSequence: receipt.resultSequence,
     status: receipt.status,
     error: receipt.error,
+    ...(receipt.replayExpiredAt === null ? {} : { replayExpiredAt: receipt.replayExpiredAt }),
   });
 }
 

@@ -1500,6 +1500,8 @@ export const StorageCleanupSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
   logsAfterDays: StorageRetentionDays.pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  /** Settings file only. A settled thread keeps its messages and tool-call lines after this; null keeps everything. */
+  threadDetailAfterDays: StorageRetentionDays.pipe(Schema.withDecodingDefault(Effect.succeed(14))),
 });
 export type StorageCleanupSettings = typeof StorageCleanupSettings.Type;
 

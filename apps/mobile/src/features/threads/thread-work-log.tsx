@@ -78,6 +78,7 @@ import {
   toolCallLines,
   turnItemOutputImages,
   turnItemOutputText,
+  turnItemRemovedDetailText,
 } from "@t3tools/client-runtime/work-log/item-detail";
 import { useTurnItemDetail } from "../../state/queries";
 import {
@@ -882,9 +883,11 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
 ) {
   const { row, expanded } = props;
   const openLinkedThread = useOpenLinkedThread();
+  const removedDetail = turnItemRemovedDetailText(row.projectedItem.item);
   const streamsOutput =
     useCommandOutputStreaming(props.environmentId) &&
-    row.projectedItem.item.type === "command_execution";
+    row.projectedItem.item.type === "command_execution" &&
+    removedDetail === null;
   const fetchedDetail = useTurnItemDetail(
     expanded && row.fetchesDetail && !streamsOutput
       ? { environmentId: props.environmentId, row: row.projectedItem }
@@ -999,18 +1002,20 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
   const fetchedOutput =
     !expanded || streamsOutput
       ? null
-      : shownItem.type === "file_search" || shownItem.type === "web_search"
-        ? turnItemOutputText(shownItem)
-        : fetchedItem
-          ? (turnItemOutputText(fetchedItem) ??
-            (outputImages.length > 0 || viewedImagePath ? null : "No output."))
-          : fetchedDetail.error
-            ? `Couldn't load output: ${fetchedDetail.error}`
-            : row.fetchesDetail
-              ? fetchedDetail.data
-                ? "Output is no longer available."
-                : "Loading output…"
-              : null;
+      : removedDetail !== null
+        ? removedDetail
+        : shownItem.type === "file_search" || shownItem.type === "web_search"
+          ? turnItemOutputText(shownItem)
+          : fetchedItem
+            ? (turnItemOutputText(fetchedItem) ??
+              (outputImages.length > 0 || viewedImagePath ? null : "No output."))
+            : fetchedDetail.error
+              ? `Couldn't load output: ${fetchedDetail.error}`
+              : row.fetchesDetail
+                ? fetchedDetail.data
+                  ? "Output is no longer available."
+                  : "Loading output…"
+                : null;
   const exitLine =
     failedExitCode === null ? null : (
       <Text className="mt-1.5 font-mono text-2xs leading-normal text-danger-foreground">
@@ -1208,7 +1213,7 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
             className="max-h-60"
             contentContainerStyle={{ paddingRight: 8 }}
           >
-            {reasoning ? (
+            {reasoning?.text ? (
               props.renderReasoning(reasoning.text)
             ) : call ? (
               [

@@ -5,6 +5,7 @@ import type {
   OrchestrationV2NativeChildWork,
   ThreadId,
 } from "@t3tools/contracts";
+import { removedDetailText } from "@t3tools/client-runtime/work-log/item-detail";
 import { ListTreeIcon } from "lucide-react";
 import { useState } from "react";
 
@@ -60,11 +61,14 @@ function NativeChildWorkContent(props: {
     }),
   );
   const children = query.data?.children;
+  const removed = removedDetailText(query.data?.detailRemoved);
   return (
     <>
       <DialogPanel>
         {query.error !== null ? (
           <p className="text-sm text-destructive-foreground">{query.error}</p>
+        ) : removed !== null ? (
+          <p className="text-sm text-muted-foreground">{removed}</p>
         ) : children === undefined ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : children.length === 0 ? (
@@ -75,11 +79,13 @@ function NativeChildWorkContent(props: {
           children.map((child) => <NativeChild key={child.conversationId} child={child} />)
         )}
       </DialogPanel>
-      <DialogFooter variant="bare">
-        <Button size="sm" variant="outline" disabled={query.isPending} onClick={query.refresh}>
-          Refresh
-        </Button>
-      </DialogFooter>
+      {removed !== null ? null : (
+        <DialogFooter variant="bare">
+          <Button size="sm" variant="outline" disabled={query.isPending} onClick={query.refresh}>
+            Refresh
+          </Button>
+        </DialogFooter>
+      )}
     </>
   );
 }

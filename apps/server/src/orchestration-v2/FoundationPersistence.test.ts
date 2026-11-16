@@ -7,6 +7,7 @@ import {
   CheckpointRef,
   CheckpointScopeId,
   CommandId,
+  ContextHandoffId,
   ContextTransferId,
   EventId,
   MessageId,
@@ -28,6 +29,7 @@ import {
   TurnItemId,
 } from "@t3tools/contracts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
+import { historicalMessage, renderHistory } from "@t3tools/provider-core/server/handoffBudget";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Queue from "effect/Queue";
@@ -296,6 +298,7 @@ it.effect("paces scheduled compaction while preserving retention state and fixed
     }).pipe(
       Effect.provide(
         DatabaseStorage.layer.pipe(
+          Layer.provide(ServerSettings.layerTest()),
           Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "compaction-" })),
           Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
         ),
@@ -940,6 +943,727 @@ it.effect("a settled thread's events leave the log while what a client loads sta
     assert.isTrue(Exit.isFailure(yield* Effect.exit(maintenance.rebuild)));
     assert.deepEqual(yield* loaded, loadedBefore);
   }).pipe(Effect.provide(Layer.fresh(layerTest))),
+);
+
+it.effect(
+  "fifteen days after settling a thread keeps its messages and one line per tool call",
+  () =>
+    Effect.gen(function* () {
+      const eventSink = yield* EventSink.EventSinkV2;
+      const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const sql = yield* SqlClient.SqlClient;
+      const settled = DateTime.makeUnsafe("2026-10-01T09:00:00.000Z");
+      const day = (days: number) => DateTime.add(settled, { days });
+      const kinds = [
+        "expired",
+        "recent",
+        "resettled",
+        "pinned",
+        "unsettled",
+        "working",
+        "watched",
+        "parked-on",
+        "holds-parked",
+        "child",
+        "scheduled",
+      ] as const;
+      type Kind = (typeof kinds)[number];
+      const threadIdOf = (kind: Kind | "watcher" | "parker" | "parent") =>
+        ThreadId.make(`thread:expiry:${kind}`);
+      const screenshot = "iVBORw0KGgo".repeat(64);
+      const recoveredCommand = (threadId: ThreadId) =>
+        historicalMessage({
+          id: TurnItemId.make(`${threadId.replace("thread:", "item:")}:command`),
+          threadId,
+          runId: null,
+          nodeId: null,
+          providerThreadId: null,
+          providerTurnId: null,
+          nativeItemRef: null,
+          parentItemId: null,
+          ordinal: 3,
+          status: "completed",
+          title: null,
+          startedAt: settled,
+          completedAt: settled,
+          updatedAt: settled,
+          type: "command_execution",
+          input: "pnpm build",
+          output: "build output ✓",
+          exitCode: 0,
+        })!;
+      const recoveredHistory = (threadId: ThreadId) =>
+        renderHistory([recoveredCommand(threadId)], "Runs 1-1");
+      const event = <Type extends OrchestrationV2DomainEvent["type"]>(
+        threadId: ThreadId,
+        id: string,
+        type: Type,
+        payload: Extract<OrchestrationV2DomainEvent, { type: Type }>["payload"],
+        at: DateTime.Utc = settled,
+      ) =>
+        ({
+          id: EventId.make(`event:expiry:${threadId}:${id}`),
+          type,
+          threadId,
+          providerInstanceId,
+          occurredAt: at,
+          payload,
+        }) as OrchestrationV2DomainEvent;
+      // Thread events share one payload schema across their types.
+      const threadEvent = (
+        id: string,
+        type: "thread.settled" | "thread.unsettled" | "thread.metadata-updated",
+        payload: OrchestrationV2AppThread,
+      ) =>
+        ({
+          id: EventId.make(`event:expiry:${payload.id}:${id}`),
+          type,
+          threadId: payload.id,
+          providerInstanceId,
+          occurredAt: settled,
+          payload,
+        }) as OrchestrationV2DomainEvent;
+      const settle = (thread: OrchestrationV2AppThread, at: DateTime.Utc, id = "settle") =>
+        threadEvent(id, "thread.settled", { ...thread, settledOverride: "settled", settledAt: at });
+
+      for (const watcher of ["watcher", "parker", "parent"] as const) {
+        const thread = makeThread(threadIdOf(watcher), settled);
+        yield* eventSink.write({
+          events: [
+            threadCreatedEvent({ id: `event:expiry:${watcher}:create`, thread, now: settled }),
+            ...(watcher === "parent"
+              ? [
+                  event(thread.id, "task", "subagent.updated", {
+                    id: NodeId.make("node:expiry:task"),
+                    threadId: thread.id,
+                    runId: null,
+                    parentNodeId: NodeId.make("node:expiry:task"),
+                    origin: "app_owned",
+                    createdBy: "agent",
+                    driver: providerDriver,
+                    providerInstanceId,
+                    providerThreadId: null,
+                    childThreadId: threadIdOf("child"),
+                    nativeTaskRef: null,
+                    prompt: "Check the adapters",
+                    title: null,
+                    model: null,
+                    status: "running",
+                    result: null,
+                    startedAt: settled,
+                    completedAt: null,
+                    updatedAt: settled,
+                  }),
+                ]
+              : [
+                  threadEvent("wait", "thread.metadata-updated", {
+                    ...thread,
+                    ...(watcher === "watcher"
+                      ? {
+                          threadWatches: [
+                            {
+                              id: "watch:expiry",
+                              title: "Watched",
+                              startedAt: DateTime.formatIso(settled),
+                              target: { kind: "thread" as const, threadId: threadIdOf("watched") },
+                            },
+                          ],
+                        }
+                      : {
+                          parkedWaits: [
+                            {
+                              id: "wait:expiry",
+                              title: "Parked on",
+                              startedAt: DateTime.formatIso(settled),
+                              target: {
+                                kind: "thread" as const,
+                                threadId: threadIdOf("parked-on"),
+                              },
+                            },
+                          ],
+                        }),
+                  }),
+                ]),
+          ],
+        });
+      }
+
+      for (const kind of kinds) {
+        const threadId = threadIdOf(kind);
+        const thread = makeThread(threadId, settled);
+        const runId = RunId.make(`run:expiry:${kind}`);
+        const attemptId = RunAttemptId.make(`attempt:expiry:${kind}`);
+        const rootNodeId = NodeId.make(`node:expiry:${kind}:root`);
+        const leafNodeId = NodeId.make(`node:expiry:${kind}:leaf`);
+        const providerThreadId = ProviderThreadId.make(`provider-thread:expiry:${kind}`);
+        const runPayload = (status: "running" | "completed") => ({
+          id: runId,
+          threadId,
+          ordinal: 1,
+          providerInstanceId,
+          modelSelection,
+          providerThreadId,
+          userMessageId: MessageId.make(`message:expiry:${kind}:user`),
+          rootNodeId,
+          activeAttemptId: attemptId,
+          status: kind === "working" ? ("running" as const) : status,
+          queuePosition: null,
+          requestedAt: settled,
+          startedAt: settled,
+          completedAt: status === "completed" && kind !== "working" ? settled : null,
+          checkpointId: null,
+          contextHandoffId: null,
+        });
+        const node = (id: NodeId, kindOfNode: "root_turn" | "tool_call") => ({
+          id,
+          threadId,
+          runId,
+          parentNodeId: id === rootNodeId ? null : rootNodeId,
+          rootNodeId,
+          kind: kindOfNode,
+          status: "completed" as const,
+          countsForRun: false,
+          providerThreadId: null,
+          providerTurnId: null,
+          nativeItemRef: null,
+          runtimeRequestId: null,
+          checkpointScopeId: null,
+          startedAt: settled,
+          completedAt: settled,
+        });
+        const base = (id: string, ordinal: number) => ({
+          id: TurnItemId.make(`item:expiry:${kind}:${id}`),
+          threadId,
+          runId,
+          nodeId: leafNodeId,
+          providerThreadId: null,
+          providerTurnId: null,
+          nativeItemRef: null,
+          parentItemId: null,
+          ordinal,
+          status: "completed" as const,
+          title: null,
+          startedAt: settled,
+          completedAt: settled,
+          updatedAt: settled,
+        });
+        const message = (role: "user" | "assistant", text: string) =>
+          event(threadId, `message-${role}`, "message.updated", {
+            createdBy: role === "user" ? "user" : "agent",
+            creationSource: role === "user" ? "web" : "provider",
+            id: MessageId.make(`message:expiry:${kind}:${role}`),
+            threadId,
+            runId,
+            nodeId: null,
+            role,
+            text,
+            attachments: [],
+            streaming: false,
+            createdAt: settled,
+            updatedAt: settled,
+          });
+        const items: ReadonlyArray<OrchestrationV2TurnItem> = [
+          {
+            ...base("user", 1),
+            type: "user_message",
+            createdBy: "user",
+            creationSource: "web",
+            messageId: MessageId.make(`message:expiry:${kind}:user`),
+            inputIntent: "turn_start",
+            text: "Fix the build",
+            attachments: [],
+          },
+          {
+            ...base("reasoning", 2),
+            type: "reasoning",
+            text: "Thinking it over",
+            streaming: false,
+          },
+          {
+            ...base("command", 3),
+            type: "command_execution",
+            input: "pnpm build",
+            output: "build output ✓",
+            exitCode: 0,
+          },
+          {
+            ...base("tool", 4),
+            type: "dynamic_tool",
+            toolName: "screenshot",
+            input: { url: "https://example.com" },
+            output: {
+              content: [{ type: "image", data: screenshot, mimeType: "image/png" }],
+            },
+          },
+          {
+            ...base("edit", 5),
+            type: "file_change",
+            fileName: "src/index.ts",
+            additions: 1,
+            deletions: 1,
+            diffStr: "-old\n+new",
+          },
+          {
+            ...base("search", 6),
+            type: "file_search",
+            pattern: "TODO",
+            results: [{ fileName: "src/index.ts", line: 3, preview: "// TODO search hit" }],
+          },
+          {
+            ...base("helper", 7),
+            type: "subagent",
+            subagentId: NodeId.make(`node:expiry:${kind}:helper`),
+            origin: "app_owned",
+            driver: providerDriver,
+            providerInstanceId,
+            childThreadId: ThreadId.make(`thread:expiry:${kind}:helper`),
+            prompt: "Audit the adapters in full",
+            progress: "Reading adapter seven",
+            result: `All adapters pass.\n\n${"Adapter detail. ".repeat(40)}`,
+          },
+          {
+            ...base("recovered", 8),
+            type: "handoff",
+            contextHandoffId: ContextHandoffId.make(`handoff:expiry:${kind}`),
+            fromProviderThreadIds: [providerThreadId],
+            toProviderThreadId: providerThreadId,
+            fromProviderInstanceIds: [providerInstanceId],
+            toProviderInstanceId: providerInstanceId,
+            strategy: "delta_since_target_last_seen",
+            summary: recoveredHistory(threadId),
+          },
+          {
+            ...base("answer", 9),
+            type: "assistant_message",
+            messageId: MessageId.make(`message:expiry:${kind}:assistant`),
+            text: "Fixed it",
+            streaming: false,
+          },
+        ];
+        yield* eventSink.write({
+          events: [
+            threadCreatedEvent({ id: `event:expiry:${kind}:create`, thread, now: settled }),
+            ...(kind === "holds-parked"
+              ? [
+                  threadEvent("parked", "thread.metadata-updated", {
+                    ...thread,
+                    parkedWaits: [
+                      {
+                        id: "wait:expiry:own",
+                        title: "Own wait",
+                        startedAt: DateTime.formatIso(settled),
+                        target: { kind: "time" as const, at: DateTime.formatIso(day(30)) },
+                      },
+                    ],
+                  }),
+                ]
+              : []),
+            event(threadId, "run", "run.created", runPayload("running")),
+            event(threadId, "attempt", "run-attempt.created", {
+              id: attemptId,
+              runId,
+              attemptOrdinal: 1,
+              rootNodeId,
+              providerInstanceId,
+              providerThreadId,
+              providerTurnId: null,
+              reason: "initial",
+              status: "completed",
+              startedAt: settled,
+              completedAt: settled,
+            }),
+            event(threadId, "run-running", "run.updated", runPayload("running")),
+            event(threadId, "root", "node.updated", node(rootNodeId, "root_turn")),
+            event(threadId, "leaf", "node.updated", node(leafNodeId, "tool_call")),
+            message("user", "Fix the build"),
+            message("assistant", "Fixed it"),
+            ...items.map((item) => event(threadId, `item-${item.id}`, "turn-item.updated", item)),
+            event(threadId, "handoff", "context-handoff.updated", {
+              id: ContextHandoffId.make(`handoff:expiry:${kind}`),
+              threadId,
+              targetRunId: runId,
+              fromProviderThreadIds: [providerThreadId],
+              toProviderThreadId: providerThreadId,
+              coveredRunOrdinals: { from: 1, to: 1 },
+              strategy: "delta_since_target_last_seen",
+              status: "ready",
+              summaryMessageId: null,
+              summaryText: recoveredHistory(threadId),
+              history: {
+                messages: [recoveredCommand(threadId)],
+                coverage: "Runs 1-1",
+                omittedItems: 0,
+              },
+              delivery: {
+                nativeThreadId: "native:expiry",
+                status: "inline",
+                contextText: recoveredHistory(threadId),
+                itemIds: [TurnItemId.make(`item:expiry:${kind}:command`)],
+              },
+              createdByProviderInstanceId: null,
+              createdAt: settled,
+              updatedAt: settled,
+            }),
+            ...(["helper", "owed", "remote"] as const).map((task) =>
+              event(threadId, `task-${task}`, "subagent.updated", {
+                id: NodeId.make(`node:expiry:${kind}:${task}`),
+                threadId,
+                runId,
+                parentNodeId: leafNodeId,
+                origin: "app_owned" as const,
+                createdBy: "agent" as const,
+                driver: providerDriver,
+                providerInstanceId,
+                providerThreadId: null,
+                // A child in another environment leaves its record as the only local answer.
+                childThreadId:
+                  task === "remote" ? null : ThreadId.make(`thread:expiry:${kind}:${task}`),
+                nativeTaskRef: null,
+                prompt: `Audit the adapters in full (${task})`,
+                title: "Adapter audit",
+                model: modelSelection.model,
+                status: "completed" as const,
+                progress: "Reading adapter seven",
+                totalTokens: 1234,
+                // A result its parent has not yet been given keeps everything.
+                ...(task === "owed"
+                  ? { completionDelivery: { state: "pending" as const, observedByRunId: null } }
+                  : {}),
+                result: `All adapters pass.\n\n${"Adapter detail. ".repeat(40)}`,
+                startedAt: settled,
+                completedAt: settled,
+                updatedAt: settled,
+              }),
+            ),
+            event(threadId, "run-done", "run.updated", runPayload("completed")),
+          ],
+        });
+        if (kind === "unsettled" || kind === "working") continue;
+        if (kind === "resettled") {
+          yield* eventSink.write({ events: [settle(thread, settled, "first-settle")] });
+          yield* eventSink.write({
+            events: [
+              threadEvent("unsettle", "thread.unsettled", {
+                ...thread,
+                settledOverride: "active",
+                settledAt: null,
+              }),
+            ],
+          });
+        }
+        yield* eventSink.write({
+          events: [
+            kind === "pinned"
+              ? threadEvent("settle", "thread.settled", {
+                  ...thread,
+                  settledOverride: "settled",
+                  settledAt: settled,
+                  pinnedAt: settled,
+                })
+              : settle(
+                  {
+                    ...thread,
+                    ...(kind === "holds-parked"
+                      ? {
+                          parkedWaits: [
+                            {
+                              id: "wait:expiry:own",
+                              title: "Own wait",
+                              startedAt: DateTime.formatIso(settled),
+                              target: { kind: "time" as const, at: DateTime.formatIso(day(30)) },
+                            },
+                          ],
+                        }
+                      : {}),
+                  },
+                  kind === "recent" ? day(2) : kind === "resettled" ? day(13) : settled,
+                ),
+          ],
+        });
+      }
+      yield* sql`
+        INSERT INTO scheduled_tasks (
+          task_id, title, prompt, enabled, schedule_json, project_id, thread_id,
+          workspace_strategy_json, model_selection_json, runtime_mode, interaction_mode,
+          created_by, creation_source, created_at, updated_at, last_run_status, run_count
+        ) VALUES (
+          'task:expiry', 'Weekly', 'Check in', 0, '{}', 'project', ${threadIdOf("scheduled")},
+          '{}', '{}', 'full-access', 'default', 'user', 'web', '2026-10-01', '2026-10-01', 'never', 0
+        )
+      `;
+
+      const loaded = (kind: Kind) => projections.getThreadProjection(threadIdOf(kind));
+      const before = new Map<Kind, OrchestrationV2ThreadProjection>();
+      for (const kind of kinds) before.set(kind, yield* loaded(kind));
+
+      const result = yield* maintenance.expireThreadDetail({ now: day(15), afterDays: 14 });
+      assert.equal(result.expiredThreadCount, 1);
+      assert.equal(
+        (yield* maintenance.expireThreadDetail({ now: day(15), afterDays: 14 })).expiredThreadCount,
+        0,
+      );
+      for (const kind of kinds.slice(1)) {
+        assert.deepStrictEqual(yield* loaded(kind), before.get(kind), kind);
+      }
+
+      const expired = yield* loaded("expired");
+      const original = before.get("expired")!;
+      assert.deepStrictEqual(expired.messages, original.messages);
+      assert.deepStrictEqual(
+        expired.turnItems.map((item) => [item.id, item.type, item.status, item.ordinal]),
+        original.turnItems.map((item) => [item.id, item.type, item.status, item.ordinal]),
+      );
+      const removed = { at: DateTime.formatIso(day(15)), afterDays: 14 };
+      const byType = new Map(expired.turnItems.map((item) => [item.type, item]));
+      assert.deepStrictEqual(byType.get("user_message"), original.turnItems[0]);
+      assert.deepStrictEqual(byType.get("assistant_message"), original.turnItems[8]);
+      assert.deepInclude(byType.get("reasoning"), { text: "", detailRemoved: removed });
+      const command = byType.get("command_execution");
+      assert.deepInclude(command, {
+        input: "pnpm build",
+        exitCode: 0,
+        outputOmitted: true,
+        detailRemoved: { ...removed, outputBytes: Buffer.byteLength("build output ✓") },
+      });
+      assert.notProperty(command, "output");
+      assert.deepInclude(byType.get("dynamic_tool"), {
+        toolName: "screenshot",
+        outputOmitted: true,
+        detailRemoved: removed,
+      });
+      assert.deepInclude(byType.get("file_change"), {
+        fileName: "src/index.ts",
+        additions: 1,
+        deletions: 1,
+        detailRemoved: removed,
+      });
+      assert.notProperty(byType.get("file_change"), "diffStr");
+      assert.deepInclude(byType.get("file_search"), { pattern: "TODO", detailRemoved: removed });
+      assert.notProperty(byType.get("file_search"), "results");
+      assert.deepInclude(byType.get("subagent"), {
+        childThreadId: ThreadId.make("thread:expiry:expired:helper"),
+        prompt: "",
+        result: `All adapters pass. ${"Adapter detail. ".repeat(13)}Adapter deta…`,
+        detailRemoved: removed,
+      });
+      assert.notProperty(byType.get("subagent"), "progress");
+      // Its record keeps what the item keeps; the child thread holds the prompt and the answer.
+      const records = new Map(expired.subagents.map((task) => [task.id, task]));
+      const helper = records.get(NodeId.make("node:expiry:expired:helper"));
+      const { progress: _progress, ...helperLine } = original.subagents.find(
+        (task) => task.id === helper?.id,
+      )!;
+      assert.deepStrictEqual(helper, {
+        ...helperLine,
+        prompt: "",
+        result: `All adapters pass. ${"Adapter detail. ".repeat(13)}Adapter deta…`,
+        detailRemoved: removed,
+      });
+      for (const kept of ["owed", "remote"]) {
+        assert.deepStrictEqual(
+          records.get(NodeId.make(`node:expiry:expired:${kept}`)),
+          original.subagents.find((task) => task.id === `node:expiry:expired:${kept}`),
+        );
+      }
+      const commandLine = "Command: pnpm build\nExit code: 0\n";
+      assert.include(byType.get("handoff"), {
+        summary: renderHistory(
+          [{ ...recoveredCommand(threadIdOf("expired")), text: commandLine }],
+          "Runs 1-1",
+        ),
+      });
+      const [handoff] = expired.contextHandoffs;
+      assert.deepInclude(handoff?.history, {
+        messages: [{ ...recoveredCommand(threadIdOf("expired")), text: commandLine }],
+        coverage: "Runs 1-1",
+        omittedItems: 0,
+      });
+      assert.deepInclude(handoff?.delivery, {
+        status: "inline",
+        itemIds: [TurnItemId.make("item:expiry:expired:command")],
+      });
+      assert.notProperty(handoff?.delivery, "contextText");
+      const stored = yield* sql<{ readonly payload_json: string }>`
+        SELECT payload_json FROM orchestration_v2_projection_turn_items
+        WHERE thread_id = ${threadIdOf("expired")}
+        UNION ALL
+        SELECT payload_json FROM orchestration_v2_projection_context_handoffs
+        WHERE thread_id = ${threadIdOf("expired")}
+        UNION ALL
+        SELECT payload_json FROM orchestration_v2_projection_subagents
+        WHERE thread_id = ${threadIdOf("expired")} AND subagent_id NOT IN ('node:expiry:expired:owed', 'node:expiry:expired:remote')
+      `;
+      for (const detail of [
+        "Thinking it over",
+        "build output",
+        screenshot,
+        "+new",
+        "search hit",
+        "Audit the adapters",
+        "adapter seven",
+        "Adapter detail. ".repeat(20),
+      ]) {
+        assert.isFalse(
+          stored.some((row) => row.payload_json.includes(detail)),
+          `stored items still hold ${detail}`,
+        );
+      }
+      assert.deepStrictEqual(
+        expired.nodes.map((node) => node.id),
+        [NodeId.make("node:expiry:expired:root")],
+      );
+      // The log keeps what verification, cursors and Codex usage history read.
+      assert.deepStrictEqual(
+        (yield* sql<{ readonly event_id: string }>`
+          SELECT event_id FROM orchestration_events
+          WHERE stream_id = ${threadIdOf("expired")} ORDER BY sequence
+        `).map((row) => row.event_id),
+        [
+          "event:expiry:create",
+          `event:expiry:${threadIdOf("expired")}:run-running`,
+          `event:expiry:${threadIdOf("expired")}:settle`,
+        ].map((id) => (id === "event:expiry:create" ? "event:expiry:expired:create" : id)),
+      );
+      assert.isTrue((yield* maintenance.verify).valid);
+
+      // Settled again on day 13, it keeps everything until 14 days after that.
+      yield* maintenance.expireThreadDetail({ now: day(26), afterDays: 14 });
+      assert.deepStrictEqual(yield* loaded("resettled"), before.get("resettled"));
+      yield* maintenance.expireThreadDetail({ now: day(27), afterDays: 14 });
+      assert.notDeepEqual(yield* loaded("resettled"), before.get("resettled"));
+    }).pipe(Effect.provide(Layer.fresh(layerTest))),
+);
+
+const seedSettledCommand = Effect.fnUntraced(function* (
+  threadId: ThreadId,
+  settledAt: DateTime.Utc,
+) {
+  const eventSink = yield* EventSink.EventSinkV2;
+  const thread = makeThread(threadId, settledAt);
+  yield* eventSink.write({
+    events: [
+      threadCreatedEvent({ id: `event:${threadId}:create`, thread, now: settledAt }),
+      {
+        id: EventId.make(`event:${threadId}:command`),
+        type: "turn-item.updated",
+        threadId,
+        occurredAt: settledAt,
+        payload: {
+          id: TurnItemId.make(`item:${threadId}:command`),
+          threadId,
+          runId: null,
+          nodeId: null,
+          providerThreadId: null,
+          providerTurnId: null,
+          nativeItemRef: null,
+          parentItemId: null,
+          ordinal: 1,
+          status: "completed",
+          title: null,
+          startedAt: settledAt,
+          completedAt: settledAt,
+          updatedAt: settledAt,
+          type: "command_execution",
+          input: "ls",
+          output: "kept output",
+        },
+      },
+      {
+        id: EventId.make(`event:${threadId}:settle`),
+        type: "thread.settled",
+        threadId,
+        occurredAt: settledAt,
+        payload: { ...thread, settledOverride: "settled", settledAt },
+      },
+    ],
+  });
+  return thread;
+});
+
+const commandOutputKept = (threadId: ThreadId) =>
+  Effect.flatMap(
+    SqlClient.SqlClient,
+    (sql) => sql<{ readonly kept: number }>`
+      SELECT COUNT(*) AS kept FROM orchestration_v2_projection_turn_items
+      WHERE thread_id = ${threadId} AND payload_json LIKE '%kept output%'
+    `,
+  ).pipe(Effect.map((rows) => rows[0]?.kept === 1));
+
+it.effect("a thread that resumes while the pass runs keeps its items", () =>
+  Effect.gen(function* () {
+    const eventSink = yield* EventSink.EventSinkV2;
+    const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
+    const settledAt = DateTime.makeUnsafe("2026-10-01T09:00:00.000Z");
+    const threadId = ThreadId.make("thread:expiry:resumes");
+    const thread = yield* seedSettledCommand(threadId, settledAt);
+    // A message to a settled thread unsettles it; here it lands after discovery chose the thread.
+    let resumed = false;
+    const resume = Effect.suspend(() => {
+      if (resumed) return Effect.void;
+      resumed = true;
+      return eventSink
+        .write({
+          events: [
+            {
+              id: EventId.make("event:expiry:resumes:unsettle"),
+              type: "thread.unsettled",
+              threadId,
+              occurredAt: settledAt,
+              payload: { ...thread, settledOverride: "active", settledAt: null },
+            },
+          ],
+        })
+        .pipe(Effect.orDie);
+    });
+    const result = yield* maintenance.expireThreadDetail(
+      { now: DateTime.add(settledAt, { days: 15 }), afterDays: 14 },
+      resume,
+    );
+    assert.isTrue(resumed);
+    assert.equal(result.strippedItemCount, 0);
+    assert.isTrue(yield* commandOutputKept(threadId));
+  }).pipe(Effect.provide(Layer.fresh(layerTest))),
+);
+
+it.effect("the server's schedule expires a settled thread unless the window is off", () =>
+  Effect.gen(function* () {
+    const clock = yield* Clock.Clock;
+    for (const afterDays of [null, 14] as const) {
+      yield* Effect.gen(function* () {
+        const settledAt = yield* DateTime.now;
+        const threadId = ThreadId.make(`thread:expiry:scheduled-${afterDays ?? "off"}`);
+        yield* seedSettledCommand(threadId, settledAt);
+        yield* TestClock.adjust("15 days");
+        const completed = yield* Deferred.make<void>();
+        yield* Effect.gen(function* () {
+          yield* DatabaseStorage.DatabaseStorage;
+          yield* TestClock.adjust("1 minute");
+          yield* Deferred.await(completed);
+        }).pipe(
+          Effect.provide(
+            DatabaseStorage.layer.pipe(
+              Layer.provide(
+                ServerSettings.layerTest({ storageCleanup: { threadDetailAfterDays: afterDays } }),
+              ),
+              Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "expiry-" })),
+              Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+            ),
+          ),
+          Effect.provideService(Clock.Clock, {
+            ...clock,
+            sleep: (duration) => {
+              if (Duration.toMillis(duration) === 6 * 60 * 60_000) {
+                Deferred.doneUnsafe(completed, Effect.void);
+              }
+              return clock.sleep(duration);
+            },
+          }),
+        );
+        assert.equal(yield* commandOutputKept(threadId), afterDays === null);
+      }).pipe(Effect.scoped, Effect.provide(Layer.fresh(layerTest)));
+    }
+  }),
 );
 
 it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {

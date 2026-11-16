@@ -4,9 +4,11 @@ import {
   Experiment,
   EnvironmentId,
   ExperimentAssignment,
+  NodeId,
   OrchestrationV2DelegatedCompletionTaskDeliveryState,
   OrchestrationV2Notification,
   OrchestrationV2Subagent,
+  OrchestrationV2TurnItem,
   type OrchestrationV2ThreadArcRun,
   OrchestrationV2ThreadShell,
   OrchestrationV2ThreadStanding,
@@ -17,6 +19,7 @@ import {
   ProviderDriverKind,
   ServerSettings,
   ThreadId,
+  TurnItemId,
 } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -29,6 +32,11 @@ import { REMEMBERED_LIMIT_WINDOW_ID, withRememberedLimits } from "@t3tools/share
 
 import { settingsForClient } from "./serverSettings.ts";
 import { rpcSerializationForClient } from "./clientRoleSerialization.ts";
+import {
+  expireSubagentRecordDetail,
+  expireTurnItemDetail,
+  projectTurnItemForWire,
+} from "./orchestration-v2/WireProjection.ts";
 
 // Frozen from the upstream release before the fork's first settings addition (fork/shipped-client).
 // To refresh it for a newer shipped client, extract that release's packages/contracts and write
@@ -186,10 +194,16 @@ const { sourceEnvironment: _source, ...shippedApprovalFields } = ChampionRelayed
 const decodeShippedApproval = Schema.decodeSync(Schema.Struct(shippedApprovalFields));
 
 const decodeSubagent = Schema.decodeSync(OrchestrationV2Subagent);
+const encodeSubagent = Schema.encodeSync(OrchestrationV2Subagent);
 
 it("a shipped client decodes a task its parent's Stop paused as an interrupted task", () => {
-  const { pausedByParentStop: _paused, ...fields } = OrchestrationV2Subagent.fields;
-  // What a shipped client knows of a task: no pause mark, and a delivery without its stop flag.
+  const {
+    pausedByParentStop: _paused,
+    detailRemoved: _removed,
+    ...fields
+  } = OrchestrationV2Subagent.fields;
+  // What a shipped client knows of a task: no pause or expiry mark, and a delivery without its
+  // stop flag.
   const shippedTask = Schema.Struct({
     ...fields,
     completionDelivery: Schema.optional(
@@ -226,6 +240,15 @@ it("a shipped client decodes a task its parent's Stop paused as an interrupted t
   const decoded = Schema.decodeSync(shippedTask)(wire);
   assert.equal(decoded.status, "interrupted");
   assert.notProperty(decoded, "pausedByParentStop");
+  // A task whose parent's detail expired keeps a string prompt and an optional marker.
+  const expired = expireSubagentRecordDetail(
+    { ...wire, status: "completed", pausedByParentStop: undefined },
+    { at: "2026-11-16T00:00:00.000Z", afterDays: 14 },
+  )!;
+  assert.property(expired, "detailRemoved");
+  const shippedExpired = Schema.decodeSync(shippedTask)(encodeSubagent(expired));
+  assert.equal(shippedExpired.prompt, "");
+  assert.equal(shippedExpired.result, "Stopped with its parent.");
 });
 
 // Frozen from upstream's thread shell (fork/shipped-client/thread-shell.schema.json, pingdotgg/t3code
@@ -711,3 +734,81 @@ it("a shipped client decodes the usage window that carries a remembered usage li
   assert.isDefined(window);
   Schema.decodeSync(shippedWindow)(window!);
 });
+
+const encodeTurnItem = Schema.encodeSync(Schema.toCodecJson(OrchestrationV2TurnItem));
+
+// Frozen from upstream's turn item (fork/shipped-client/turn-item.schema.json, pingdotgg/t3code
+// 20c3dd3689, v0.1.9-nightly.20261110.4478), which has no detailRemoved marker. To refresh it,
+// extract that release's packages/contracts and write
+// JSON.stringify(Schema.toJsonSchemaDocument(Schema.toEncoded(OrchestrationV2TurnItem))).
+it.effect("a shipped client decodes the items of a thread whose detail expired", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const shipped: JsonSchema = JSON.parse(
+      yield* fs.readFileString(
+        new URL("../../../fork/shipped-client/turn-item.schema.json", import.meta.url).pathname,
+      ),
+    ).schema;
+    const now = DateTime.makeUnsafe("2026-11-16T00:00:00.000Z");
+    const base = {
+      id: TurnItemId.make("item:expired"),
+      threadId: ThreadId.make("thread:expired"),
+      runId: RunId.make("run:expired"),
+      nodeId: null,
+      providerThreadId: null,
+      providerTurnId: null,
+      nativeItemRef: null,
+      parentItemId: null,
+      ordinal: 1,
+      status: "completed" as const,
+      title: null,
+      startedAt: now,
+      completedAt: now,
+      updatedAt: now,
+    };
+    const items: ReadonlyArray<OrchestrationV2TurnItem> = [
+      { ...base, type: "command_execution", input: "ls", output: "a\nb", exitCode: 0 },
+      { ...base, type: "reasoning", text: "Thinking", streaming: false },
+      {
+        ...base,
+        type: "dynamic_tool",
+        toolName: "screenshot",
+        input: { url: "https://example.com" },
+        output: { content: [{ type: "image", data: "iVBORw0KGgo", mimeType: "image/png" }] },
+      },
+      { ...base, type: "file_change", fileName: "src/a.ts", diffStr: "-a\n+b" },
+      { ...base, type: "file_search", pattern: "TODO", results: [{ fileName: "src/a.ts" }] },
+      { ...base, type: "web_search", patterns: ["effect"], results: [{ title: "Effect" }] },
+      {
+        ...base,
+        type: "subagent",
+        subagentId: NodeId.make("node:expired:helper"),
+        origin: "app_owned",
+        driver: ProviderDriverKind.make("codex"),
+        providerInstanceId: ProviderInstanceId.make("codex"),
+        childThreadId: ThreadId.make("thread:expired:helper"),
+        prompt: "Audit the adapters",
+        progress: "Reading",
+        result: "All adapters pass.\n\nDetail.",
+      },
+    ];
+    for (const item of items) {
+      const expired = expireTurnItemDetail(item, { at: "2026-11-16T00:00:00.000Z", afterDays: 14 });
+      assert.isDefined(expired, item.type);
+      // The wire carries the expired item in the shape every client already reads.
+      const sent = encodeTurnItem(projectTurnItemForWire(expired!));
+      assert.property(sent, "detailRemoved");
+      assert.deepEqual(violations(sent, shipped, item.type), []);
+    }
+    // Effect decodes an absent optional output but not a null one, which JSON Schema cannot tell
+    // apart; reasoning keeps its now empty text, which the frozen schema does require.
+    const command = encodeTurnItem(
+      projectTurnItemForWire(
+        expireTurnItemDetail(items[0]!, { at: "2026-11-16T00:00:00.000Z", afterDays: 14 })!,
+      ),
+    );
+    assert.notProperty(command, "output");
+    const { text: _text, ...reasoning } = encodeTurnItem(items[1]!) as Record<string, unknown>;
+    assert.notDeepEqual(violations(reasoning, shipped, "reasoning"), []);
+  }).pipe(Effect.provide(NodeServices.layer)),
+);

@@ -1,4 +1,8 @@
-import type { AssetResource, OrchestrationV2TurnItem } from "@t3tools/contracts";
+import type {
+  AssetResource,
+  OrchestrationV2TurnItem,
+  OrchestrationV2TurnItemDetailRemoved,
+} from "@t3tools/contracts";
 import { MCP_APP_OUTPUT_KEY } from "@t3tools/shared/mcpApp";
 import {
   mcpToolResultOutput,
@@ -160,6 +164,7 @@ export function turnItemDetailRevision(item: OrchestrationV2TurnItem): string {
 }
 
 export function turnItemNeedsDetailFetch(item: OrchestrationV2TurnItem): boolean {
+  if (item.detailRemoved !== undefined) return false;
   switch (item.type) {
     case "command_execution":
       return item.outputOmitted === true;
@@ -248,7 +253,34 @@ export function turnItemOutputImages(
   }));
 }
 
+const REMOVED_DETAIL_NOUNS: Partial<Record<OrchestrationV2TurnItem["type"], string>> = {
+  command_execution: "Output",
+  dynamic_tool: "Output",
+  reasoning: "Reasoning",
+  file_change: "Diff",
+  file_search: "Results",
+  web_search: "Results",
+};
+
+/**
+ * What an item, a subagent record or a read of either says in place of the detail retention
+ * removed; null while it is kept.
+ */
+export function removedDetailText(
+  removed: OrchestrationV2TurnItemDetailRemoved | undefined,
+  noun = "Detail",
+): string | null {
+  return removed === undefined
+    ? null
+    : `${noun} removed ${removed.afterDays} days after this thread settled.`;
+}
+
+export function turnItemRemovedDetailText(item: OrchestrationV2TurnItem): string | null {
+  return removedDetailText(item.detailRemoved, REMOVED_DETAIL_NOUNS[item.type]);
+}
+
 export function turnItemHasDetail(item: OrchestrationV2TurnItem): boolean {
+  if (item.detailRemoved !== undefined) return true;
   switch (item.type) {
     case "reasoning":
       return item.text.trim().length > 0;

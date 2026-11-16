@@ -2,7 +2,14 @@ import { describe, expect, it } from "vite-plus/test";
 import { ThreadId, TurnItemId, type OrchestrationV2TurnItem } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
-import { isJsonToolText, turnItemOutputImages, turnItemOutputText } from "./itemDetail.ts";
+import {
+  isJsonToolText,
+  turnItemHasDetail,
+  turnItemNeedsDetailFetch,
+  turnItemOutputImages,
+  turnItemOutputText,
+  turnItemRemovedDetailText,
+} from "./itemDetail.ts";
 
 describe("isJsonToolText", () => {
   it.each([
@@ -160,5 +167,50 @@ describe("MCP app tool output", () => {
       ],
     });
     expect(turnItemOutputText(bounded)).toBe("chart\n[image]");
+  });
+});
+
+describe("detail removed by retention", () => {
+  const base = {
+    id: TurnItemId.make("expired"),
+    threadId: ThreadId.make("thread"),
+    runId: null,
+    nodeId: null,
+    providerThreadId: null,
+    providerTurnId: null,
+    nativeItemRef: null,
+    parentItemId: null,
+    ordinal: 1,
+    status: "completed" as const,
+    title: null,
+    startedAt: null,
+    completedAt: null,
+    updatedAt: DateTime.makeUnsafe("2026-10-01T00:00:00Z"),
+  };
+  it("says so instead of offering to load it", () => {
+    const expired: OrchestrationV2TurnItem = {
+      ...base,
+      type: "command_execution",
+      input: "ls",
+      outputOmitted: true,
+      detailRemoved: { at: "2026-11-16T00:00:00.000Z", afterDays: 14, outputBytes: 12 },
+    };
+    expect(turnItemNeedsDetailFetch(expired)).toBe(false);
+    expect(turnItemHasDetail(expired)).toBe(true);
+    expect(turnItemRemovedDetailText(expired)).toBe(
+      "Output removed 14 days after this thread settled.",
+    );
+    const reasoning: OrchestrationV2TurnItem = {
+      ...base,
+      type: "reasoning",
+      text: "",
+      streaming: false,
+      detailRemoved: { at: "2026-11-16T00:00:00.000Z", afterDays: 14 },
+    };
+    expect(turnItemHasDetail(reasoning)).toBe(true);
+    expect(turnItemRemovedDetailText(reasoning)).toBe(
+      "Reasoning removed 14 days after this thread settled.",
+    );
+    expect(turnItemRemovedDetailText(toolItem({ text: "kept" }))).toBeNull();
   });
 });

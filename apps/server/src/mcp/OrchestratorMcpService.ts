@@ -2064,12 +2064,17 @@ const make = Effect.gen(function* () {
           : taskStatusForRun(taskResultRun ?? childRun) === "queued"
             ? "queued"
             : "running";
+    // Retention cut an expired parent's record to one line; the child's messages keep the answer.
+    const childResult =
+      taskResultRun !== undefined && isTerminalTaskStatus(status)
+        ? subagentResultForRun(childProjection, taskResultRun).text
+        : null;
     const derivedResult =
-      task.result !== null
-        ? task.result
-        : taskResultRun !== undefined && isTerminalTaskStatus(status)
-          ? subagentResultForRun(childProjection, taskResultRun).text
-          : null;
+      task.result === null
+        ? childResult
+        : task.detailRemoved !== undefined && childResult
+          ? childResult
+          : task.result;
     const resultTransfers = childControls.contextTransfers.filter(
       (transfer) =>
         transfer.type === "subagent_result" &&
@@ -3742,7 +3747,9 @@ const make = Effect.gen(function* () {
           );
           if (
             priorTask !== undefined &&
-            (priorTask.childThreadId !== current.childThreadId || priorTask.prompt !== text)
+            (priorTask.childThreadId !== current.childThreadId ||
+              // Retention emptied an expired parent's prompt; the child's message is checked below.
+              (priorTask.detailRemoved === undefined && priorTask.prompt !== text))
           )
             return yield* failure(
               "invalid_request",

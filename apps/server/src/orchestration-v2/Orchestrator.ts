@@ -431,6 +431,20 @@ export class OrchestratorCommandPreviouslyRejectedError extends Schema.TaggedErr
   }
 }
 
+export class OrchestratorCommandReplayExpiredError extends Schema.TaggedError<OrchestratorCommandReplayExpiredError>()(
+  "OrchestratorCommandReplayExpiredError",
+  {
+    commandId: CommandId,
+    commandType: Schema.String,
+    threadId: ThreadId,
+    expiredAt: Schema.DateTimeUtc,
+  },
+) {
+  override get message(): string {
+    return `Command ${this.commandId} already ran, but its original response was removed when thread ${this.threadId}'s detail expired on ${DateTime.formatIso(this.expiredAt)}.`;
+  }
+}
+
 export class OrchestratorCommandIdConflictError extends Schema.TaggedError<OrchestratorCommandIdConflictError>()(
   "OrchestratorCommandIdConflictError",
   {
@@ -453,6 +467,7 @@ export const OrchestratorV2Error = Schema.Union([
   OrchestratorDomainEventStreamError,
   OrchestratorProviderAdapterError,
   OrchestratorCommandPreviouslyRejectedError,
+  OrchestratorCommandReplayExpiredError,
   OrchestratorCommandIdConflictError,
   OrchestratorSubagentThreadReadOnlyError,
   OrchestratorThreadMovedError,
@@ -17801,6 +17816,15 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           }),
       ),
     );
+    // Expiry keeps some of a thread's events, so a partial response is still a lost one.
+    if (receipt.replayExpiredAt !== undefined) {
+      return yield* new OrchestratorCommandReplayExpiredError({
+        commandId: command.commandId,
+        commandType: command.type,
+        threadId: receipt.threadId,
+        expiredAt: receipt.replayExpiredAt,
+      });
+    }
     if (command.type === "queue.resume" || command.type === "queued-run.start") {
       yield* mapDispatchError(command)(
         startNextQueuedRun(command.threadId, {

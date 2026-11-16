@@ -16,6 +16,7 @@ import { useEnvironment } from "../../state/environments";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { useNavigate } from "@tanstack/react-router";
 import { isSubagentDoer } from "@t3tools/client-runtime/state/threads";
+import { removedDetailText } from "@t3tools/client-runtime/work-log/item-detail";
 import { SubagentModelMeta } from "./SubagentModelMeta";
 import {
   SUBAGENT_STATUS_PRESENTATION,
@@ -641,6 +642,7 @@ function SubagentTimelineLink(props: {
   const detail =
     rawDetail && !GENERIC_CHILD_END.test(rawDetail) ? subagentSummaryLine(rawDetail) || null : null;
   const failed = status === "failed";
+  const removed = removedDetailText(agent?.detailRemoved);
   const timing = {
     status: liveStatus,
     startedAt: isoOrNull(agent?.startedAt ?? props.startedAt),
@@ -712,6 +714,9 @@ function SubagentTimelineLink(props: {
         >
           {detail}
         </span>
+      ) : null}
+      {showDetail && removed !== null ? (
+        <span className="mt-0.5 block truncate text-muted-foreground">{removed}</span>
       ) : null}
     </>
   );

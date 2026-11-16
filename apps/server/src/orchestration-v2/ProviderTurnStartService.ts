@@ -86,7 +86,7 @@ import {
   handoffTokenCapConfig,
   handoffBudget,
   attachmentTokenAllowance,
-  estimateTextTokens,
+  historicalTokens,
   contextUsageForHandoff,
   historicalMessage,
   latestNativeContextUsage,
@@ -1616,16 +1616,11 @@ export const layer: Layer.Layer<
                       !legacyRecoveredRunIds.has(item.runId)));
                 if (item.runId === run.id || (!acceptedNatively && !deliveredItemIds.has(item.id)))
                   return sum;
-                const historical = historicalMessage(item);
                 const nativeAttachments =
                   item.type === "user_message" && acceptedNatively
                     ? attachmentTokenAllowance(item.attachments)
                     : 0;
-                return (
-                  sum +
-                  (historical === null ? 0 : estimateTextTokens(historical.text)) +
-                  nativeAttachments
-                );
+                return sum + historicalTokens(item) + nativeAttachments;
               }, 0)
             : 0;
         });

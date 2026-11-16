@@ -3,6 +3,7 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { ThreadStructure } from "@t3tools/client-runtime/state/shell";
 import { isSubagentPausedByParentStop } from "@t3tools/client-runtime/state/subagentRuntime";
 import { isSubagentDoer } from "@t3tools/client-runtime/state/threads";
+import { removedDetailText } from "@t3tools/client-runtime/work-log/item-detail";
 import {
   agentTaskTopic,
   type OrchestrationV2Subagent,
@@ -92,12 +93,18 @@ function subagentModel(
   return subagent?.model ?? selectedModel ?? null;
 }
 
-function SubagentSummaryCard({ text }: { readonly text: string }) {
+function SubagentSummaryCard(props: { readonly text: string; readonly removed?: string | null }) {
+  const { text, removed = null } = props;
   return (
     <ThreadHoverCardPopup side="top" align="start">
-      <p className="line-clamp-8 px-1 py-1.5 text-xs/4 text-foreground/85">
-        {text === "" ? "No update yet." : subagentSummaryLine(text)}
-      </p>
+      {text === "" && removed !== null ? null : (
+        <p className="line-clamp-8 px-1 py-1.5 text-xs/4 text-foreground/85">
+          {text === "" ? "No update yet." : subagentSummaryLine(text)}
+        </p>
+      )}
+      {removed === null ? null : (
+        <p className="px-1 py-1.5 text-xs/4 text-muted-foreground">{removed}</p>
+      )}
     </ThreadHoverCardPopup>
   );
 }
@@ -320,7 +327,10 @@ function FinishedSubagentRow(props: {
   const title = shell?.title ?? subagent.title ?? "";
   const role = shell?.source.agentTask?.role;
   const message = shell?.source.latestVisibleMessage;
-  const summary = message?.role === "assistant" ? message.text.trim() : (subagent.result ?? "");
+  const answer = message?.role === "assistant" ? message.text.trim() : "";
+  const summary = answer || (subagent.result ?? "");
+  // The child thread keeps its answer; only the record's copy was cut to one line.
+  const removed = answer ? null : removedDetailText(subagent.detailRemoved);
   const outcome = subagentFinishedOutcome(subagent.status, isSubagentPausedByParentStop(subagent));
   const OutcomeIcon = outcome.icon;
   const startedAt = subagent.startedAt === null ? null : DateTime.formatIso(subagent.startedAt);
@@ -345,7 +355,7 @@ function FinishedSubagentRow(props: {
               {role ? agentTaskTopic(title, role) : title}
             </span>
           </TooltipTrigger>
-          <SubagentSummaryCard text={summary} />
+          <SubagentSummaryCard text={summary} removed={removed} />
         </Tooltip>
         <SubagentModelMeta
           environmentId={threadRef.environmentId}

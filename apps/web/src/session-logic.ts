@@ -23,7 +23,10 @@ import {
   formatSearchToolLabel,
 } from "@t3tools/shared/toolActivity";
 import type { HtmlRenderReference } from "@t3tools/shared/htmlRender";
-import { turnItemDetailRevision } from "@t3tools/client-runtime/work-log/item-detail";
+import {
+  turnItemDetailRevision,
+  turnItemRemovedDetailText,
+} from "@t3tools/client-runtime/work-log/item-detail";
 import type { McpAppReference } from "@t3tools/shared/mcpApp";
 import {
   htmlRenderFromToolItem,
@@ -373,12 +376,15 @@ function projectedWorkEntry(row: OrchestrationV2ProjectedTurnItem): WorkLogEntry
         sourceActivityKind: "context-compaction",
         ...(item.summary ? { detail: item.summary } : {}),
       };
-    case "reasoning":
+    case "reasoning": {
+      // Retention leaves an expired reasoning item no text; its line says so instead of vanishing.
+      const detail = item.text || turnItemRemovedDetailText(item);
       return {
         ...common,
         label: title ?? "Thinking",
-        ...(item.text ? { detail: item.text } : {}),
+        ...(detail ? { detail } : {}),
       };
+    }
     case "command_execution":
       return {
         ...common,

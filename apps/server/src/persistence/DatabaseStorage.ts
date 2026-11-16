@@ -1,6 +1,7 @@
 import { DatabaseReclaimError, type DatabaseStorageStatus } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
@@ -16,6 +17,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 import { resolveHostCliCommand } from "../cli/invocation.ts";
 import * as ServerConfig from "../config.ts";
 import * as ProjectionMaintenance from "../orchestration-v2/ProjectionMaintenance.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as DatabaseMaintenance from "./DatabaseMaintenance.ts";
 import { forkParked } from "../serverActivation.ts";
 
@@ -46,6 +48,7 @@ const formatGiB = (bytes: number) => `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
+  const settings = yield* ServerSettings.ServerSettingsService;
   const config = yield* ServerConfig.ServerConfig;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -149,6 +152,17 @@ const make = Effect.gen(function* () {
       yield* Effect.sleep((Number(elapsed) / 1_000_000) * 9);
       sliceStarted = yield* Clock.monotonicTimeNanos;
     });
+    yield* Effect.gen(function* () {
+      const afterDays = (yield* settings.getSettings).storageCleanup.threadDetailAfterDays;
+      if (afterDays === null) return;
+      const expired = yield* maintenance.expireThreadDetail(
+        { now: yield* DateTime.now, afterDays },
+        betweenPages,
+      );
+      if (expired.expiredThreadCount > 0) {
+        yield* Effect.logInfo("Expired settled threads' detail", expired);
+      }
+    }).pipe(Effect.catch((cause) => Effect.logWarning("Thread detail expiry failed", { cause })));
     const result = yield* maintenance.pruneEventStore(betweenPages);
     const completedAt = yield* Clock.currentTimeMillis;
     yield* fs.writeFileString(compactedAtPath, String(completedAt)).pipe(Effect.ignore);

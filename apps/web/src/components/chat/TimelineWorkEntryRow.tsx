@@ -483,13 +483,15 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
             viewedImage ? viewedImagePath : null,
           )
       : null;
-  const plainOutputFetches =
+  // Output to fetch, or a note that retention removed it.
+  const plainOutputDetail =
     plainOutput !== undefined &&
     workEntry.projectedItem !== undefined &&
-    turnItemNeedsDetailFetch(workEntry.projectedItem.item);
+    (turnItemNeedsDetailFetch(workEntry.projectedItem.item) ||
+      workEntry.projectedItem.item.detailRemoved !== undefined);
   const canExpandProjectedItem =
     plainOutput !== undefined
-      ? Boolean(plainOutput || viewedImage || workEntry.questionAnswer || plainOutputFetches)
+      ? Boolean(plainOutput || viewedImage || workEntry.questionAnswer || plainOutputDetail)
       : workEntry.projectedItem === undefined
         ? canExpand
         : isReasoning
@@ -678,7 +680,7 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
       !workEntry.questionAnswer &&
       canExpandProjectedItem &&
       (expandedBody ||
-        plainOutputFetches ||
+        plainOutputDetail ||
         (workEntry.projectedItem && plainOutput === undefined)) ? (
         <WorkLogDetails kind="panel">
           {workEntry.projectedItem && plainOutput === undefined ? (
@@ -697,7 +699,7 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
               {expandedBody ? (
                 <pre className={toolCallExpandedBodyClassName}>{expandedBody}</pre>
               ) : null}
-              {plainOutputFetches && workEntry.projectedItem ? (
+              {plainOutputDetail && workEntry.projectedItem ? (
                 <FetchedToolOutput
                   onInitialOutputReady={onInitialOutputReady}
                   projectedItem={workEntry.projectedItem}

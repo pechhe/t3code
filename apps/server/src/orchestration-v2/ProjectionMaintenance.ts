@@ -10,11 +10,14 @@ import * as SqlClient from "effect/sql/SqlClient";
 
 import {
   compactableEventCondition,
+  pinnedThreadOf,
   READ_STATE_THREAD_EVENT_TYPES,
+  settledWithoutActiveWorkOf,
   SUPERSEDABLE_THREAD_EVENT_TYPES,
 } from "./compactionCandidates.ts";
 import * as EventStore from "./EventStore.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
+import * as ThreadDetailExpiry from "./ThreadDetailExpiry.ts";
 
 export interface ProjectionVerificationV2 {
   readonly valid: boolean;
@@ -53,6 +56,11 @@ export interface ProjectionMaintenanceV2Shape {
     },
     ProjectionMaintenanceError
   >;
+  /** Strips threads settled `afterDays` ago to messages and tool-call lines; paced like pruning. */
+  readonly expireThreadDetail: (
+    input: { readonly now: DateTime.Utc; readonly afterDays: number },
+    betweenPages?: Effect.Effect<void>,
+  ) => Effect.Effect<ThreadDetailExpiry.ThreadDetailExpiryResult, ProjectionMaintenanceError>;
 }
 
 export class ProjectionMaintenanceV2 extends Context.Service<
@@ -219,50 +227,9 @@ export const layer: Layer.Layer<ProjectionMaintenanceV2, never, SqlClient.SqlCli
     const readStateThreadEventTypes = new Set(READ_STATE_THREAD_EVENT_TYPES);
     // A thread still working keeps merged token usage; every thread keeps prompt anchors and the
     // command responses receipt retries read.
-    const settledWithoutActiveWork = sql.literal(`
-      EXISTS (
-        SELECT 1 FROM orchestration_v2_projection_threads AS thread
-        WHERE thread.thread_id = event.stream_id
-          AND json_extract(thread.payload_json, '$.settledOverride') IS NOT 'active'
-          AND (json_extract(thread.payload_json, '$.settledAt') IS NOT NULL
-            OR json_extract(thread.payload_json, '$.settledOverride') = 'settled')
-      )
-      AND NOT EXISTS (
-        SELECT 1 FROM orchestration_v2_projection_runs AS run
-        WHERE run.thread_id = event.stream_id AND run.status IN ('preparing', 'queued', 'starting', 'running', 'waiting')
-      )
-      AND NOT EXISTS (
-        SELECT 1 FROM orchestration_v2_projection_provider_turns AS turn
-          INDEXED BY orchestration_v2_provider_turns_active_thread_idx
-        WHERE turn.thread_id = event.stream_id AND turn.status IN ('pending', 'running')
-      )
-      AND NOT EXISTS (
-        SELECT 1 FROM orchestration_v2_projection_turn_items AS item
-          INDEXED BY orchestration_v2_turn_items_active_thread_idx
-        WHERE item.thread_id = event.stream_id AND item.status IN ('pending', 'running', 'waiting')
-      )
-      AND NOT EXISTS (
-        SELECT 1 FROM orchestration_v2_projection_runtime_requests AS request
-        WHERE request.thread_id = event.stream_id AND request.status = 'pending'
-      )
-      AND NOT EXISTS (
-        SELECT 1 FROM orchestration_v2_projection_subagents AS subagent
-        WHERE subagent.thread_id = event.stream_id AND subagent.status IN ('pending', 'running', 'waiting')
-      )
-      AND NOT EXISTS (
-        SELECT 1 FROM orchestration_v2_projection_provider_threads AS provider_thread
-        WHERE provider_thread.thread_id = event.stream_id
-          AND json_array_length(provider_thread.payload_json, '$.pendingBackgroundTasks') > 0
-      )
-    `);
+    const settledWithoutActiveWork = settledWithoutActiveWorkOf(sql, "event.stream_id");
     // Pinning unsettles a thread today; removal states the rule instead of leaning on that.
-    const pinned = sql.literal(`
-      EXISTS (
-        SELECT 1 FROM orchestration_v2_projection_threads AS pinned_thread
-        WHERE pinned_thread.thread_id = event.stream_id
-          AND json_extract(pinned_thread.payload_json, '$.pinnedAt') IS NOT NULL
-      )
-    `);
+    const pinned = pinnedThreadOf(sql, "event.stream_id");
     // Small indexed pages bound work on the reader worker and synchronous fallback.
     const COMPACTION_PAGE_SIZE = 50;
     // One page can hold megabyte payloads, and freeing their overflow pages holds the writer.
@@ -561,6 +528,14 @@ export const layer: Layer.Layer<ProjectionMaintenanceV2, never, SqlClient.SqlCli
       rebuild: mapError("rebuild")(rebuild),
       pruneEventStore: Effect.fn("ProjectionMaintenanceV2.pruneEventStore")((betweenPages) =>
         mapError("prune event store")(pruneEventStore(betweenPages)),
+      ),
+      expireThreadDetail: Effect.fn("ProjectionMaintenanceV2.expireThreadDetail")(
+        (input, betweenPages = Effect.void) =>
+          mapError("expire thread detail")(
+            ThreadDetailExpiry.expireThreadDetail(input, betweenPages).pipe(
+              Effect.provideService(SqlClient.SqlClient, sql),
+            ),
+          ),
       ),
     });
   }),

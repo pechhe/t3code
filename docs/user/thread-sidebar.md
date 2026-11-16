@@ -227,6 +227,15 @@ worktree settles, manually or automatically, even if a terminal there still runs
 command such as a dev server. Threads in the project's main checkout skip it. Its terminal
 closes when the command succeeds and stays open when it fails.
 
+Fourteen days after a thread settles, T3 Code keeps its messages and one line for each tool
+call, and removes the rest for good: tool and command output, reasoning, diffs, screenshots, and
+a subagent's full prompt and result, which its own thread still shows.
+Opening such an item says its output was removed. A thread that is pinned, not settled, still
+working, or that another thread or a scheduled task is waiting on keeps everything, and
+un-settling a thread starts the 14 days again the next time it settles. To change the window,
+set `storageCleanup.threadDetailAfterDays` in the environment's `settings.json` to a number of
+days, or to `null` to keep everything.
+
 On web and desktop, press a thread's **Settle** button and drag up or down to
 settle every thread in that section between it and the one you release on.
 The **Un-settle** and **Wake** buttons work the same way in their sections.

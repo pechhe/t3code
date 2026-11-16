@@ -15,6 +15,7 @@ import {
   turnItemDetailRevision,
   turnItemHasDetail,
   turnItemNeedsDetailFetch,
+  turnItemRemovedDetailText,
 } from "@t3tools/client-runtime/work-log/item-detail";
 import {
   commandDisplayText,
@@ -765,8 +766,11 @@ function toWorkLogEntry(
   } as const;
 
   switch (item.type) {
-    case "reasoning":
-      return { ...common, ...(item.text ? { detail: item.text } : {}) };
+    case "reasoning": {
+      // Retention leaves an expired reasoning item no text; its line says so instead of vanishing.
+      const detail = item.text || turnItemRemovedDetailText(item);
+      return { ...common, ...(detail ? { detail } : {}) };
+    }
     case "command_execution":
       return {
         ...common,

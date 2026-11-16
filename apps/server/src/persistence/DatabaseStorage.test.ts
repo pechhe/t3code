@@ -14,6 +14,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ServerConfig from "../config.ts";
 import * as ProjectionMaintenance from "../orchestration-v2/ProjectionMaintenance.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as DatabaseMaintenance from "./DatabaseMaintenance.ts";
 import * as DatabaseStorage from "./DatabaseStorage.ts";
 import * as Sqlite from "./Sqlite.ts";
@@ -31,6 +32,7 @@ const storageLayer = <E>(
 ) =>
   DatabaseStorage.layer.pipe(
     Layer.provide(ProjectionMaintenance.layer),
+    Layer.provide(ServerSettings.layerTest()),
     Layer.provideMerge(Sqlite.layerMemory),
     Layer.provideMerge(config),
     Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
@@ -82,8 +84,17 @@ const compactionLayer = (
     Layer.provide(
       Layer.mock(ProjectionMaintenance.ProjectionMaintenanceV2)({
         pruneEventStore,
+        expireThreadDetail: () =>
+          Effect.succeed({
+            expiredThreadCount: 0,
+            strippedItemCount: 0,
+            removedItemBytes: 0,
+            deletedNodeCount: 0,
+            deletedEventCount: 0,
+          }),
       }),
     ),
+    Layer.provide(ServerSettings.layerTest()),
     Layer.provide(Sqlite.layerMemory),
   );
 
@@ -146,6 +157,7 @@ const reclaimLayer = (
 ) =>
   DatabaseStorage.layer.pipe(
     Layer.provide(ProjectionMaintenance.layer),
+    Layer.provide(ServerSettings.layerTest()),
     Layer.provide(Layer.succeed(DatabaseStorage.ServerRestart, restart)),
     Layer.provide(
       Layer.effectDiscard(

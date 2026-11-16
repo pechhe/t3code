@@ -513,6 +513,7 @@ describe("OrchestratorMcpService", () => {
       } as unknown as OrchestrationV2ThreadProjection;
       let hasNestedWork = true;
       let settleAfterTaskRead = false;
+      let parentExpired = false;
       const layerDependencies = Layer.mergeAll(
         Layer.merge(
           Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
@@ -550,7 +551,16 @@ describe("OrchestratorMcpService", () => {
                 settleAfterTaskRead = false;
                 hasNestedWork = false;
               }
-              return snapshot;
+              return parentExpired
+                ? {
+                    ...snapshot,
+                    subagents: snapshot.subagents.map((task) => ({
+                      ...task,
+                      result: "terminal",
+                      detailRemoved: { at: "2026-11-16T00:00:00.000Z", afterDays: 14 },
+                    })),
+                  }
+                : snapshot;
             }),
           delegatedTaskResultPending: () => Effect.succeed(false),
           dispatch: (command) =>
@@ -614,6 +624,10 @@ describe("OrchestratorMcpService", () => {
         const commandIds = yield* Ref.get(acknowledgementCommandIds);
         assert.equal(commandIds.length, 2);
         assert.notEqual(commandIds[0], commandIds[1]);
+        // Retention cut the expired parent's record to one line; the child still has the answer.
+        parentExpired = true;
+        const expired = yield* service.taskStatus(scope, taskId);
+        assert.equal(expired.summary, "terminal result");
       }).pipe(Effect.provide(layerOrchestratorService.pipe(Layer.provide(layerDependencies))));
     }),
   );

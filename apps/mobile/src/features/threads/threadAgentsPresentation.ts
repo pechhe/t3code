@@ -10,6 +10,7 @@ import {
   type RuntimeSubagent,
   type SubagentWorkflowGroup,
 } from "@t3tools/client-runtime/state/subagentRuntime";
+import { removedDetailText } from "@t3tools/client-runtime/work-log/item-detail";
 import { REASONING_EFFORT_OPTION_IDS } from "@t3tools/client-runtime/state/thread-execution";
 import type {
   EnvironmentId,
@@ -28,6 +29,8 @@ export type SubagentRowTone = "working" | "completed" | "failed" | "stopped";
 export interface SubagentRowPresentation {
   readonly title: string;
   readonly detail: string | null;
+  /** Its parent's detail expired: the result shown is the one line retention kept. */
+  readonly removed: string | null;
   readonly statusLabel: string;
   readonly tone: SubagentRowTone;
   readonly live: boolean;
@@ -106,6 +109,7 @@ export function resolveSubagentRowPresentation(
     | "result"
     | "childThreadId"
     | "remoteChild"
+    | "detailRemoved"
   >,
   canOpenRemote = false,
 ): SubagentRowPresentation {
@@ -113,6 +117,7 @@ export function resolveSubagentRowPresentation(
   return {
     title: rowTitle(subagent),
     detail: subagentDetailPreview(subagent),
+    removed: removedDetailText(subagent.detailRemoved),
     statusLabel: rowStatusLabel(subagent.status, isSubagentPausedByParentStop(subagent)),
     tone: rowTone(subagent.status),
     live,

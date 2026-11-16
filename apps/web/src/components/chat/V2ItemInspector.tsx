@@ -7,6 +7,7 @@ import {
   turnItemNeedsDetailFetch,
   turnItemOutputImages,
   turnItemOutputText,
+  turnItemRemovedDetailText,
 } from "@t3tools/client-runtime/work-log/item-detail";
 import { formatDiffCount } from "@t3tools/client-runtime/diff-count";
 import { isJavaScriptReplTool } from "@t3tools/shared/toolActivity";
@@ -128,6 +129,7 @@ function useFetchedTurnItem(
             ? "Output is no longer available."
             : detail.error,
       empty: fetches && item !== wireItem,
+      removed: turnItemRemovedDetailText(wireItem),
     },
   };
 }
@@ -139,6 +141,8 @@ interface ToolOutputState {
   readonly pending: boolean;
   readonly error: string | null;
   readonly empty: boolean;
+  /** Replaces output that retention removed; nothing is left to load. */
+  readonly removed: string | null;
   readonly onImageExpand?: ((preview: ExpandedImagePreview) => void) | undefined;
 }
 
@@ -155,8 +159,14 @@ function ToolOutputImages(props: ToolOutputState) {
   ));
 }
 
+function RemovedDetail(props: { readonly text: string }) {
+  return <div className="text-muted-foreground italic">{props.text}</div>;
+}
+
 function ToolOutput(props: ToolOutputState) {
-  return props.output ? (
+  return props.removed ? (
+    <RemovedDetail text={props.removed} />
+  ) : props.output ? (
     <StructuredValue value={props.output} highlightJson />
   ) : props.pending ? (
     <div className="text-muted-foreground italic">Loading output…</div>
@@ -231,7 +241,8 @@ export const V2ItemInspector = memo(function V2ItemInspector(props: V2ItemInspec
   const environmentStreamsOutput = useCommandOutputStreaming(props.environmentId);
   const streamsOutput =
     (props.source !== undefined || environmentStreamsOutput) &&
-    props.projectedItem.item.type === "command_execution";
+    props.projectedItem.item.type === "command_execution" &&
+    props.projectedItem.item.detailRemoved === undefined;
   const fetched = useFetchedTurnItem(
     props.projectedItem,
     props.environmentId,
@@ -243,6 +254,9 @@ export const V2ItemInspector = memo(function V2ItemInspector(props: V2ItemInspec
   useInitialOutputReady(streamsOutput || outputState.pending, props.onInitialOutputReady);
   return (
     <div className="space-y-2 text-xs" data-v2-item-inspector={item.type}>
+      {item.type === "reasoning" && outputState.removed ? (
+        <RemovedDetail text={outputState.removed} />
+      ) : null}
       {item.type === "reasoning" && item.text ? (
         <div className="rounded-md border border-border/45 bg-muted/15 p-2 italic text-muted-foreground">
           <ChatMarkdown
@@ -290,7 +304,7 @@ export const V2ItemInspector = memo(function V2ItemInspector(props: V2ItemInspec
                 <span className="text-diff-deletion">-{formatDiffCount(item.deletions ?? 0)}</span>
               </span>
             ) : null}
-            {props.onOpenToolDiff ? (
+            {props.onOpenToolDiff && item.detailRemoved === undefined ? (
               <Button
                 size="xs"
                 variant="outline"
@@ -309,6 +323,7 @@ export const V2ItemInspector = memo(function V2ItemInspector(props: V2ItemInspec
           {item.status === "failed" && item.diffStr?.trim() ? (
             <StructuredValue value={item.diffStr} />
           ) : null}
+          {outputState.removed ? <RemovedDetail text={outputState.removed} /> : null}
           {item.changes !== undefined && item.changes.length > 0 ? (
             <ul className="space-y-1 font-mono text-muted-foreground">
               {item.changes.map((change) => (
@@ -331,6 +346,10 @@ export const V2ItemInspector = memo(function V2ItemInspector(props: V2ItemInspec
 
       {item.type === "web_search" && item.patterns?.length ? (
         <div className={cn("text-foreground/85", monoClassName)}>{item.patterns.join("\n")}</div>
+      ) : null}
+
+      {(item.type === "file_search" || item.type === "web_search") && outputState.removed ? (
+        <RemovedDetail text={outputState.removed} />
       ) : null}
 
       {item.type === "file_search" && item.results?.length ? (

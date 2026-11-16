@@ -10,11 +10,17 @@ import type {
   OrchestrationV2ThreadProjection,
   OrchestrationV2ThreadStreamItem,
   OrchestrationV2TurnItem,
+  OrchestrationV2TurnItemDetailRemoved,
 } from "@t3tools/contracts";
 import {
   dedupeSubagentBodies,
   dedupeTurnItemBodies,
 } from "@t3tools/shared/orchestrationV2DedupedBodies";
+import {
+  expireHistoricalMessage,
+  renderHistory,
+  renderedHistoryContext,
+} from "@t3tools/provider-core/server/handoffBudget";
 import { MCP_APP_OUTPUT_KEY, readMcpAppReference } from "@t3tools/shared/mcpApp";
 import {
   compactDynamicToolOutput,
@@ -207,6 +213,66 @@ export function projectTurnItemForWire(item: OrchestrationV2TurnItem): Orchestra
   }
 }
 
+/**
+ * The stored shape of an item whose thread's detail expired: its wire shape, minus the output,
+ * reasoning, diff or results the wire still carries. Undefined when there is nothing to remove.
+ */
+export function expireTurnItemDetail(
+  item: OrchestrationV2TurnItem,
+  removed: Omit<OrchestrationV2TurnItemDetailRemoved, "outputBytes">,
+): OrchestrationV2TurnItem | undefined {
+  if (item.detailRemoved !== undefined) return undefined;
+  let expired: OrchestrationV2TurnItem;
+  let outputBytes = 0;
+  switch (item.type) {
+    case "command_execution":
+      if (!item.output) return undefined;
+      outputBytes = Buffer.byteLength(item.output, "utf8");
+      expired = projectTurnItemForWire(item);
+      break;
+    case "dynamic_tool": {
+      const wire = projectTurnItemForWire(item);
+      if (wire.type !== "dynamic_tool") return undefined;
+      if (wire.outputOmitted !== true && wire.input === item.input) return undefined;
+      expired = wire;
+      break;
+    }
+    case "reasoning":
+      if (item.text === "") return undefined;
+      expired = { ...item, text: "" };
+      break;
+    case "file_change": {
+      if (item.diffStr === undefined && item.oldStr === undefined && item.newStr === undefined)
+        return undefined;
+      const { diffStr: _diff, oldStr: _old, newStr: _new, ...line } = item;
+      expired = line;
+      break;
+    }
+    case "file_search":
+    case "web_search": {
+      if (item.results === undefined) return undefined;
+      const { results: _results, ...line } = item;
+      expired = line;
+      break;
+    }
+    case "subagent": {
+      // The child thread keeps the conversation; the line keeps its one-line outcome.
+      const result = item.result === null ? null : subagentResultLine(item.result);
+      if (item.prompt === "" && item.progress === undefined && result === item.result)
+        return undefined;
+      const { progress: _progress, ...line } = item;
+      expired = { ...line, prompt: "", result };
+      break;
+    }
+    default:
+      return undefined;
+  }
+  return {
+    ...expired,
+    detailRemoved: outputBytes > 0 ? { ...removed, outputBytes } : removed,
+  };
+}
+
 function hasDynamicValue(value: unknown): boolean {
   if (value === undefined || value === null) return false;
   if (typeof value === "string") return value.trim().length > 0;
@@ -297,6 +363,87 @@ export function projectTurnItemForDetail(item: OrchestrationV2TurnItem): Orchest
     default:
       return item;
   }
+}
+
+const SUBAGENT_RESULT_LINE_CHARS = 240;
+// Clients title an untitled task by its prompt's first 80 characters.
+const SUBAGENT_TITLE_CHARS = 80;
+
+function subagentResultLine(result: string, chars = SUBAGENT_RESULT_LINE_CHARS): string {
+  const line = Array.from(
+    result
+      .slice(0, chars * 4)
+      .replace(/\s+/g, " ")
+      .trim(),
+  );
+  return line.length <= chars ? line.join("") : `${line.slice(0, chars - 1).join("")}…`;
+}
+
+/**
+ * A finished subagent record of an expired parent keeps what its item keeps: the child link, status,
+ * title, model, times, token total and one-line result. Its child thread keeps the prompt and the
+ * answer as messages. Undefined when nothing changes.
+ */
+export function expireSubagentRecordDetail(
+  subagent: OrchestrationV2Subagent,
+  removed: Omit<OrchestrationV2TurnItemDetailRemoved, "outputBytes">,
+): OrchestrationV2Subagent | undefined {
+  if (subagent.detailRemoved !== undefined) return undefined;
+  const { progress: _progress, workflow, ...line } = subagent;
+  return {
+    ...line,
+    title: subagent.title ?? (subagentResultLine(subagent.prompt, SUBAGENT_TITLE_CHARS) || null),
+    prompt: "",
+    result: subagent.result === null ? null : subagentResultLine(subagent.result),
+    ...(workflow === undefined
+      ? {}
+      : {
+          workflow: {
+            ...workflow,
+            agents: workflow.agents.map(({ prompt: _prompt, result, ...agent }) => ({
+              ...agent,
+              ...(result === undefined ? {} : { result: subagentResultLine(result) || "…" }),
+            })),
+          },
+        }),
+    detailRemoved: removed,
+  };
+}
+
+/**
+ * A handoff record of an expired thread: its history, and the summary rendered from it, keep each
+ * command's line without its output, rebuilt from the structured messages and each command's
+ * stored input (`commandInputs`, by item id). The delivered-text copy has no reader and goes.
+ * Undefined when nothing changes.
+ */
+export function expireContextHandoffDetail(
+  handoff: OrchestrationV2ContextHandoff,
+  commandInputs: ReadonlyMap<string, string>,
+): OrchestrationV2ContextHandoff | undefined {
+  const history = handoff.history;
+  const messages = history?.messages.map((message) =>
+    expireHistoricalMessage(message, commandInputs.get(message.itemId)),
+  );
+  const changed =
+    messages !== undefined &&
+    messages.some((message, index) => message !== history?.messages[index]);
+  const delivered = handoff.delivery;
+  if (!changed && delivered?.contextText === undefined) return undefined;
+  return {
+    ...handoff,
+    ...(history === undefined || messages === undefined || !changed
+      ? {}
+      : {
+          history: { ...history, messages },
+          summaryText: renderHistory(
+            messages,
+            renderedHistoryContext(handoff.summaryText, history.messages) ?? history.coverage,
+          ),
+        }),
+    ...(delivered?.contextText === undefined
+      ? {}
+      : { delivery: (({ contextText: _text, ...rest }) => rest)(delivered) }),
+  };
 }
 
 export function projectContextHandoffForWire(

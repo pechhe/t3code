@@ -52,6 +52,9 @@ const make = Effect.gen(function* () {
       const subagent = subagents.find(
         (candidate) => candidate.id === subagentId && candidate.childThreadId === thread.id,
       );
+      if (subagent?.detailRemoved !== undefined) {
+        return { children: [], detailRemoved: subagent.detailRemoved };
+      }
       const nativeTaskId = subagent?.nativeTaskRef?.nativeId;
       if (
         subagent?.driver !== "antigravity" ||

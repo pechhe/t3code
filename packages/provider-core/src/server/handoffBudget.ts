@@ -95,9 +95,14 @@ export function attachmentTokenAllowance(attachments: ReadonlyArray<ChatAttachme
   );
 }
 
-// Stored history is mostly prose and tool output, about four UTF-8 bytes per token.
-export function estimateTextTokens(text: string): number {
-  return Math.ceil(Buffer.byteLength(text) / 4);
+// Stored history is mostly prose and tool output, about four UTF-8 bytes per token. Output that
+// retention removed from a stored item still occupies the provider's native context.
+export function historicalTokens(item: OrchestrationV2TurnItem): number {
+  const historical = historicalMessage(item);
+  if (historical === null) return 0;
+  return Math.ceil(
+    (Buffer.byteLength(historical.text) + (item.detailRemoved?.outputBytes ?? 0)) / 4,
+  );
 }
 
 // One UTF-8 byte per token keeps the new turn and imported history pessimistic.
@@ -193,6 +198,39 @@ export function historyResponseItems(
       ],
     })),
   ];
+}
+
+/**
+ * A historical command once retention removed its output: the command and its exit code. The
+ * boundary comes from the command's stored input, since input and output may hold any text; without
+ * it, only the first line, which is the command's own, is kept.
+ */
+export function expireHistoricalMessage(
+  message: OrchestrationV2HistoricalMessage,
+  commandInput: string | undefined,
+): OrchestrationV2HistoricalMessage {
+  if (message.kind !== "command_execution") return message;
+  const prefix = `Command: ${commandInput}\nExit code: `;
+  const end =
+    commandInput !== undefined && message.text.startsWith(prefix)
+      ? message.text.indexOf("\n", prefix.length) + 1
+      : message.text.indexOf("\n");
+  return end <= 0 || end === message.text.length
+    ? message
+    : { ...message, text: message.text.slice(0, end) };
+}
+
+/**
+ * The context `renderHistory(messages, context)` was given, when `text` is exactly that rendering;
+ * undefined otherwise.
+ */
+export function renderedHistoryContext(
+  text: string,
+  messages: ReadonlyArray<OrchestrationV2HistoricalMessage>,
+): string | undefined {
+  if (messages.length === 0) return text;
+  const rendered = `\n\n${messages.map(renderHistoricalMessage).join("\n\n")}`;
+  return text.endsWith(rendered) ? text.slice(0, text.length - rendered.length) : undefined;
 }
 
 export function renderHistory(

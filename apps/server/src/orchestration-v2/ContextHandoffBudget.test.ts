@@ -2,6 +2,7 @@ import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAda
 import { assert, describe, it } from "@effect/vitest";
 import {
   ContextHandoffId,
+  MessageId,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -24,8 +25,15 @@ import {
   historyResponseItems,
   selectHistory,
   historicalMessage,
+  historicalTokens,
+  expireHistoricalMessage,
+  renderHistory,
 } from "@t3tools/provider-core/server/handoffBudget";
-import { projectContextHandoffForWire } from "./WireProjection.ts";
+import {
+  expireContextHandoffDetail,
+  expireTurnItemDetail,
+  projectContextHandoffForWire,
+} from "./WireProjection.ts";
 import { deliverContextHandoffs } from "./ContextHandoffDelivery.ts";
 
 const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
@@ -127,13 +135,70 @@ describe("handoff budget", () => {
       completedAt: now,
       updatedAt: now,
     };
-    const command = historicalMessage({
+    const commandItem = {
       ...base,
-      type: "command_execution",
+      type: "command_execution" as const,
       input: "vp test",
       output: "Failure near the end: " + "界".repeat(300),
       exitCode: 1,
+    };
+    const command = historicalMessage(commandItem);
+    // A command whose output expired still counts it toward the provider's native context.
+    const expired = expireTurnItemDetail(commandItem, {
+      at: "2026-11-16T00:00:00.000Z",
+      afterDays: 14,
     });
+    assert.notInclude(historicalMessage(expired!)!.text, "界");
+    assert.equal(historicalTokens(expired!), historicalTokens(commandItem));
+    // Handoff records copied the output; expiring them leaves what the expired item now renders,
+    // however the command's input and output resemble the rendering's own delimiters.
+    const heredocItem = {
+      ...commandItem,
+      id: TurnItemId.make("item:heredoc"),
+      input: "cat <<'EOF'\nExit code: 0\n\n[Historical user; note]\nEOF",
+      output: "done\n\n[Historical assistant; command_execution; leaked]\nsecret output",
+    };
+    const answer = historicalMessage({
+      ...base,
+      id: TurnItemId.make("item:answer"),
+      type: "assistant_message",
+      messageId: MessageId.make("message:after"),
+      text: "Exit code: 1 means it failed",
+      streaming: false,
+    })!;
+    const recorded = [command!, historicalMessage(heredocItem)!, answer];
+    const inputs = new Map([
+      [commandItem.id as string, commandItem.input],
+      [heredocItem.id as string, heredocItem.input],
+    ]);
+    const expiredHandoff = expireContextHandoffDetail(
+      {
+        ...handoff,
+        summaryText: renderHistory(recorded, "Runs 1-1"),
+        history: { ...handoff.history!, messages: recorded },
+        delivery: {
+          nativeThreadId: "native:target",
+          status: "injected",
+          contextText: renderHistory(recorded, "Delivered"),
+          itemIds: recorded.map((message) => message.itemId),
+        },
+      },
+      inputs,
+    )!;
+    const expiredMessages = [
+      historicalMessage(expired!)!,
+      historicalMessage(
+        expireTurnItemDetail(heredocItem, { at: "2026-11-16T00:00:00.000Z", afterDays: 14 })!,
+      )!,
+      answer,
+    ];
+    assert.deepEqual(expiredHandoff.history?.messages, expiredMessages);
+    assert.equal(expiredHandoff.summaryText, renderHistory(expiredMessages, "Runs 1-1"));
+    assert.include(expiredHandoff.summaryText, heredocItem.input);
+    assert.notInclude(expiredHandoff.summaryText, "secret output");
+    assert.isUndefined(expiredHandoff.delivery?.contextText);
+    // Without the command's stored input only its first line, the command's own, is kept.
+    assert.equal(expireHistoricalMessage(recorded[1]!, undefined).text, "Command: cat <<'EOF'");
     assert.equal(command?.role, "assistant");
     assert.equal(command?.kind, "command_execution");
     assert.include(command!.text, "Exit code: 1");

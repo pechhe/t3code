@@ -71,7 +71,11 @@ is below both its thread's newest event and that thread's recorded pruned-throug
 pruned events, so it resumes from a snapshot; an idle thread's cursor resumes without one. Resumes
 recheck that sequence after reading the replay, since a pass can prune during the read. V2 command
 receipts stay for idempotency: a retry older than the retained history is still deduplicated,
-but its replay comes back without the pruned events. Receipts of imported legacy commands are
+but its replay comes back without the pruned events. Fourteen days after it settles, a thread's
+projected items lose their output, reasoning and diffs too
+([ThreadDetailExpiry](../../apps/server/src/orchestration-v2/ThreadDetailExpiry.ts)): only its
+messages and item lines remain anywhere, handoff and subagent records included, and a retry of its earlier
+commands is refused rather than replayed in part. Receipts of imported legacy commands are
 removed once their threads are imported.
 
 Retained events must remain decodable on replay. Changing a schema affects old environments at

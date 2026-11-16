@@ -25,6 +25,13 @@ export const OrchestrationCommandReceipt = Schema.Struct({
 });
 export type OrchestrationCommandReceipt = typeof OrchestrationCommandReceipt.Type;
 
+const StoredOrchestrationCommandReceipt = Schema.Struct({
+  ...OrchestrationCommandReceipt.fields,
+  /** When the thread's detail expired, taking the events this receipt's replay would return. */
+  replayExpiredAt: Schema.NullOr(IsoDateTime),
+});
+export type StoredOrchestrationCommandReceipt = typeof StoredOrchestrationCommandReceipt.Type;
+
 export const GetByCommandIdInput = Schema.Struct({
   commandId: CommandId,
 });
@@ -44,7 +51,7 @@ export class OrchestrationCommandReceiptRepository extends Context.Service<
     readonly getByCommandId: (
       input: GetByCommandIdInput,
     ) => Effect.Effect<
-      Option.Option<OrchestrationCommandReceipt>,
+      Option.Option<StoredOrchestrationCommandReceipt>,
       OrchestrationCommandReceiptRepositoryError
     >;
   }
@@ -91,7 +98,7 @@ const makeOrchestrationCommandReceiptRepository = Effect.gen(function* () {
 
   const findReceiptByCommandId = SqlSchema.findOneOption({
     Request: GetByCommandIdInput,
-    Result: OrchestrationCommandReceipt,
+    Result: StoredOrchestrationCommandReceipt,
     execute: ({ commandId }) =>
       sql`
         SELECT
@@ -102,7 +109,13 @@ const makeOrchestrationCommandReceiptRepository = Effect.gen(function* () {
           accepted_at AS "acceptedAt",
           result_sequence AS "resultSequence",
           status,
-          error
+          error,
+          (
+            SELECT expiry.expired_at FROM orchestration_v2_thread_detail_expiry AS expiry
+            WHERE orchestration_command_receipts.aggregate_kind = 'thread'
+              AND expiry.thread_id = orchestration_command_receipts.aggregate_id
+              AND expiry.expired_through_sequence >= orchestration_command_receipts.result_sequence
+          ) AS "replayExpiredAt"
         FROM orchestration_command_receipts
         WHERE command_id = ${commandId}
       `,

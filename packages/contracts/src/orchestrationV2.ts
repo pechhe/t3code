@@ -1450,6 +1450,16 @@ export const OrchestrationV2RemoteTaskChild = Schema.Struct({
 });
 export type OrchestrationV2RemoteTaskChild = typeof OrchestrationV2RemoteTaskChild.Type;
 
+/** Set when retention removed an item's or a subagent record's detail, leaving its timeline line. */
+export const OrchestrationV2TurnItemDetailRemoved = Schema.Struct({
+  at: IsoDateTime,
+  /** Days the thread had been settled when its detail went. */
+  afterDays: PositiveInt,
+  /** UTF-8 bytes of the removed command output, which context estimates still count. */
+  outputBytes: Schema.optionalKey(NonNegativeInt),
+});
+export type OrchestrationV2TurnItemDetailRemoved = typeof OrchestrationV2TurnItemDetailRemoved.Type;
+
 export const OrchestrationV2Subagent = Schema.Struct({
   id: NodeId,
   threadId: ThreadId,
@@ -1501,6 +1511,8 @@ export const OrchestrationV2Subagent = Schema.Struct({
   startedAt: Schema.NullOr(Schema.DateTimeUtc),
   completedAt: Schema.NullOr(Schema.DateTimeUtc),
   updatedAt: Schema.DateTimeUtc,
+  /** Its parent's detail expired: the prompt and progress are gone and the result is one line. */
+  detailRemoved: Schema.optionalKey(OrchestrationV2TurnItemDetailRemoved),
   /** Same as this subagent's previous record on this stream: its snapshot or `subagent.updated`. */
   promptOmitted: DedupedBodyMarker,
   resultOmitted: DedupedBodyMarker,
@@ -2225,6 +2237,7 @@ const OrchestrationV2TurnItemBaseFields = {
   startedAt: Schema.NullOr(Schema.DateTimeUtc),
   completedAt: Schema.NullOr(Schema.DateTimeUtc),
   updatedAt: Schema.DateTimeUtc,
+  detailRemoved: Schema.optionalKey(OrchestrationV2TurnItemDetailRemoved),
 } as const;
 
 export const OrchestrationV2FileSearchResult = Schema.Struct({
@@ -5322,6 +5335,8 @@ export type OrchestrationV2NativeChildWork = typeof OrchestrationV2NativeChildWo
 /** Empty when the provider's records do not prove which children the subagent launched. */
 export const OrchestrationV2GetNativeChildWorkResult = Schema.Struct({
   children: Schema.Array(OrchestrationV2NativeChildWork),
+  /** The parent's detail expired, so the launch that identifies these children is gone. */
+  detailRemoved: Schema.optionalKey(OrchestrationV2TurnItemDetailRemoved),
 });
 export type OrchestrationV2GetNativeChildWorkResult =
   typeof OrchestrationV2GetNativeChildWorkResult.Type;

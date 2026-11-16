@@ -8,6 +8,7 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
+import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -16,6 +17,7 @@ import * as Ref from "effect/Ref";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as Orchestrator from "./Orchestrator.ts";
+import * as ProjectionMaintenance from "./ProjectionMaintenance.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ProviderReplayHarness from "./testkit/ProviderReplayHarness.ts";
@@ -37,6 +39,7 @@ const layerDatabase = SqlitePersistence.layerMemory;
 const layerTest = Layer.mergeAll(
   layerDatabase,
   ProjectionStore.layer.pipe(Layer.provide(layerDatabase)),
+  ProjectionMaintenance.layer.pipe(Layer.provide(layerDatabase)),
   ProviderReplayHarness.layerWithRegistry(
     { name: "receipt-race" },
     ProviderAdapterRegistry.layerFromAdapters([adapter]),
@@ -164,5 +167,74 @@ it.effect("a command id reused concurrently for two threads succeeds for only on
         winnerExit.value.storedEvents.map((stored) => stored.sequence),
       );
     }
+  }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect("a retry after its thread's detail expired is refused, not answered empty", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
+    const now = yield* DateTime.now;
+    const setTitle = (threadId: ThreadId) =>
+      orchestrator.dispatch({
+        type: "thread.metadata.update",
+        commandId: CommandId.make(`title:${threadId}`),
+        threadId,
+        title: "Renamed",
+      });
+    const original = new Map<ThreadId, ReadonlyArray<unknown>>();
+    // Settled 15 days before the pass, and 5 days before it.
+    for (const [threadId, settledDaysAgo] of [
+      [ThreadId.make("thread:retry-expired"), 15],
+      [ThreadId.make("thread:retry-kept"), 5],
+    ] as const) {
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make(`create:${threadId}`),
+        threadId,
+        projectId: ProjectId.make("project:receipt-race"),
+        title: threadId,
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        createdBy: "user",
+        creationSource: "web",
+      });
+      original.set(threadId, (yield* setTitle(threadId)).storedEvents);
+      yield* orchestrator.dispatch({
+        type: "thread.settle",
+        commandId: CommandId.make(`settle:${threadId}`),
+        threadId,
+        settledAt: DateTime.subtract(now, { days: settledDaysAgo }),
+      });
+    }
+    yield* maintenance.expireThreadDetail({ now, afterDays: 14 });
+
+    const kept = yield* setTitle(ThreadId.make("thread:retry-kept"));
+    assert.isTrue(kept.replayed);
+    assert.deepStrictEqual(kept.storedEvents, original.get(ThreadId.make("thread:retry-kept")));
+    const refused = yield* Effect.flip(setTitle(ThreadId.make("thread:retry-expired")));
+    assert.equal(refused._tag, "OrchestratorCommandReplayExpiredError");
+    assert.include(refused.message, "detail expired on");
+    // Expiry keeps `thread.created`, so a retried create would otherwise replay part of its answer.
+    const recreate = yield* Effect.flip(
+      orchestrator.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("create:thread:retry-expired"),
+        threadId: ThreadId.make("thread:retry-expired"),
+        projectId: ProjectId.make("project:receipt-race"),
+        title: "thread:retry-expired",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        createdBy: "user",
+        creationSource: "web",
+      }),
+    );
+    assert.equal(recreate._tag, "OrchestratorCommandReplayExpiredError");
   }).pipe(Effect.provide(layerTest)),
 );

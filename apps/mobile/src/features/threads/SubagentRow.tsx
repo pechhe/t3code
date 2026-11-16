@@ -35,6 +35,7 @@ type SubagentRowSubagent = Pick<
   | "progress"
   | "result"
   | "remoteChild"
+  | "detailRemoved"
 >;
 
 export function SubagentRow(props: {
@@ -97,6 +98,9 @@ export function SubagentRow(props: {
           >
             {detail}
           </Text>
+        ) : null}
+        {presentation.removed ? (
+          <Text className="text-xs text-foreground-muted">{presentation.removed}</Text>
         ) : null}
       </View>
     </View>
