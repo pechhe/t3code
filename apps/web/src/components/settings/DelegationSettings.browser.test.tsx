@@ -9,6 +9,7 @@ import {
   AgentPolicyManifest,
   AgentPolicySettingsError,
   EnvironmentId,
+  MODEL_NOTE_MAX_LENGTH,
   type AgentPolicySettings,
 } from "@t3tools/contracts";
 
@@ -260,6 +261,20 @@ it("saves a model note on Enter, and a later read keeps the editor mounted", asy
   expect(note()).toBe(field);
   expect(field.value).toBe("Careful coder");
   expect(state.save.mock.calls.at(-1)![0].input.expectedHash).toBe("a".repeat(64));
+});
+
+it("keeps a note pasted past the limit, says so, and does not save it", async () => {
+  reset();
+  await using _screen = await mount();
+  const field = container.querySelector<HTMLTextAreaElement>(
+    'textarea[aria-label="What gpt-test is good at"]',
+  )!;
+  const pasted = "Strong at balancing ".repeat(15);
+  await userEvent.fill(field, pasted);
+  expect(field.value).toBe(pasted);
+  expect(text()).toContain(`Notes can be up to ${MODEL_NOTE_MAX_LENGTH} characters`);
+  await userEvent.keyboard("{Enter}");
+  expect(state.save).not.toHaveBeenCalled();
 });
 
 const withUiVerifier = () => {

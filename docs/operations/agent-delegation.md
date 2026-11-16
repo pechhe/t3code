@@ -65,7 +65,8 @@ Briefs remain read-only.
 
 Each change in Settings → Delegation saves at once; an edit made while a save runs
 waits for it and saves against the revision it wrote. A list left with no model stays
-unsaved, with Discard, until it has one. A save validates the choices against the
+unsaved, with Discard, until it has one. A model note over 280 characters stays unsaved, with its text kept
+in the field, until it is shortened. A save validates the choices against the
 policy rules and installed model catalog, advances the revision, writes the policy file,
 then commits `roles/policy.json` alone in the agent-config git checkout and pushes it to
 `origin` `main`; other files' uncommitted changes there stay as they are. A checkout that

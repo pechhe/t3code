@@ -144,7 +144,7 @@ export const usesPhi = (profile: AgentToolProfile | undefined) => profile === "p
 /** The profile a role runs with when a task narrows it to read-only: it loses writing, not Phi. */
 export const readOnlyToolProfile = (profile: AgentToolProfile): AgentToolProfile =>
   profile === "implementation" ? "source-reader" : profile;
-export const MODEL_NOTE_MAX_LENGTH = 160;
+export const MODEL_NOTE_MAX_LENGTH = 280;
 const ModelBinding = Schema.Struct({
   driverKind: ProviderDriverKind,
   model: TrimmedNonEmptyString,

@@ -1,6 +1,6 @@
 import { SubagentConservationSettings } from "./SubagentConservationSettings";
 import { useAtomValue } from "@effect/atom-react";
-import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useId, useRef, useState, type ReactNode } from "react";
 import * as Schema from "effect/Schema";
 import {
   AgentPolicyManifest,
@@ -897,7 +897,10 @@ function NoteField({
     setShownNote(note);
     if (value.trim() === shownNote) setValue(note);
   }
-  const unsaved = value.trim() !== note;
+  // Text past the limit stays in the field so nothing is lost to a silent cut, and is not saved.
+  const tooLong = value.trim().length > MODEL_NOTE_MAX_LENGTH;
+  const messageId = useId();
+  const unsaved = !tooLong && value.trim() !== note;
   const save = useEffectEvent((text: string) => onSave(text));
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Debounces the save with a timer, so typing is not a policy write per key.
   useEffect(() => {
@@ -907,33 +910,44 @@ function NoteField({
   }, [unsaved, value]);
   return (
     <div className="flex min-w-0 flex-col gap-1">
-      <div className="relative">
-        <Textarea
-          size="sm"
-          rows={1}
-          maxLength={MODEL_NOTE_MAX_LENGTH}
-          value={value}
-          aria-label={`What ${name} is good at`}
-          placeholder="What is it good at? e.g. Cheap and fast; bounded code"
-          onFocus={() => setFocused(true)}
-          onChange={(event) => setValue(event.target.value.replace(/\n/g, " "))}
-          onBlur={() => {
-            setFocused(false);
-            if (unsaved) onSave(value);
-          }}
-          onKeyDown={(event) => {
-            if (event.key !== "Enter") return;
-            event.preventDefault();
-            event.currentTarget.blur();
-          }}
-        />
-        {focused ? (
-          <span className="pointer-events-none absolute end-2.5 top-0 flex h-8 items-center text-2xs text-muted-foreground tabular-nums">
-            {value.length}/{MODEL_NOTE_MAX_LENGTH}
+      <Textarea
+        size="sm"
+        rows={1}
+        value={value}
+        aria-invalid={tooLong || undefined}
+        aria-describedby={tooLong ? messageId : undefined}
+        aria-label={`What ${name} is good at`}
+        placeholder="What is it good at? e.g. Cheap and fast; bounded code"
+        onFocus={() => setFocused(true)}
+        onChange={(event) => setValue(event.target.value.replace(/\n/g, " "))}
+        onBlur={() => {
+          setFocused(false);
+          if (unsaved) onSave(value);
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          event.currentTarget.blur();
+        }}
+      />
+      {focused || tooLong ? (
+        <div className="flex items-baseline justify-between gap-2 text-xs">
+          <span id={messageId} className="text-destructive">
+            {tooLong
+              ? `Notes can be up to ${MODEL_NOTE_MAX_LENGTH} characters, so this one is not saved.`
+              : null}
           </span>
-        ) : null}
-      </div>
-      {note === "" && !unsaved ? (
+          <span
+            className={cn(
+              "shrink-0 text-2xs tabular-nums",
+              tooLong ? "text-destructive" : "text-muted-foreground",
+            )}
+          >
+            {value.trim().length}/{MODEL_NOTE_MAX_LENGTH}
+          </span>
+        </div>
+      ) : null}
+      {note === "" && !unsaved && !tooLong ? (
         <span className="text-xs text-warning-foreground">
           Add a note to help agents judge when to use {name}.
         </span>
