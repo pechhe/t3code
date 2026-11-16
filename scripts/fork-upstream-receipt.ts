@@ -2,9 +2,42 @@
 // @effect-diagnostics nodeBuiltinImport:off - Thin git/CLI gate with no Effect runtime so it runs under plain node in the landing gate.
 import * as NodeChildProcess from "node:child_process";
 import * as NodeCrypto from "node:crypto";
+import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 import * as NodeUtil from "node:util";
-import { requireRepositoryNode } from "./fork-reconcile.ts";
+
+// The build copies this verifier alone, so its Node guard must stay self-contained.
+export function requireRepositoryNode(repo: string, restart = false) {
+  const manifest = JSON.parse(NodeFS.readFileSync(NodePath.join(repo, "package.json"), "utf8")) as {
+    engines?: { node?: string };
+  };
+  const pin = manifest.engines?.node;
+  if (typeof pin === "string" && /^\d+\.\d+\.\d+$/.test(pin) && process.versions.node !== pin) {
+    const message = `These checks require Node ${pin}; running ${process.versions.node}. Run with vp env exec --node=${pin} node <command>.`;
+    if (restart && process.env.T3_FORK_PINNED_NODE === undefined) {
+      const child = NodeChildProcess.spawnSync(
+        "vp",
+        ["env", "exec", `--node=${pin}`, "node", ...process.argv.slice(1)],
+        {
+          stdio: "inherit",
+          env: {
+            ...process.env,
+            PATH: (process.env.PATH ?? "")
+              .split(NodePath.delimiter)
+              .filter((entry) => !/[\\/]node_modules[\\/]\.bin[\\/]?$/.test(entry))
+              .join(NodePath.delimiter),
+            T3_FORK_PINNED_NODE: "1",
+          },
+        },
+      );
+      if (!child.error) {
+        if (child.status !== 0) process.stderr.write(`${message}\n`);
+        process.exit(child.status ?? 1);
+      }
+    }
+    throw new Error(message);
+  }
+}
 
 const RECEIPT_PATH = "fork/upstream-receipt.json";
 const RECORD_PATH = "fork/differences.md";
@@ -468,7 +501,11 @@ function main(argv: ReadonlyArray<string>): number {
       },
       strict: true,
     });
-    requireRepositoryNode(NodePath.resolve(import.meta.dirname, ".."), true);
+    const scriptRoot = NodePath.resolve(import.meta.dirname, "..");
+    requireRepositoryNode(
+      NodeFS.existsSync(NodePath.join(scriptRoot, "package.json")) ? scriptRoot : values.repo,
+      true,
+    );
     if (command === "verify") {
       if (
         values.landed !== undefined &&

@@ -3649,6 +3649,29 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
   });
 
   describe("build selection", () => {
+    it("runs the receipt verifier as an isolated single-file copy", async () => {
+      await withFixture(async (f) => {
+        const head = await seedRepos(f);
+        const work = NodePath.join(f.root, "work");
+        await writeJson(NodePath.join(work, "package.json"), {
+          engines: { node: process.versions.node },
+        });
+        const checker = stateFile(f, "receipt-check.ts");
+        await NodeFSP.copyFile(
+          NodePath.join(import.meta.dirname, "fork-upstream-receipt.ts"),
+          checker,
+        );
+        const result = NodeChildProcess.spawnSync(
+          process.execPath,
+          [checker, "verify", "--repo", work, "--rev", head, "--json"],
+          { encoding: "utf8" },
+        );
+        expect(result.status, result.stderr).toBe(1);
+        expect(JSON.parse(result.stdout).reasons).toContainEqual(
+          expect.stringContaining("missing receipt"),
+        );
+      });
+    });
     it(
       "refuses source from before upstream receipts unless it is an explicit recovery target",
       async () => {

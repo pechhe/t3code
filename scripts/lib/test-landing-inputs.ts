@@ -222,6 +222,11 @@ export const INPUT_RULES: ReadonlyArray<InputRule> = [
     reason: "checker fixtures copy the fork CLIs and reconciliation tests spawn them",
   },
   {
+    when: /^scripts\/fork-upstream-receipt\.ts$/,
+    select: ["scripts/fork-nightly.test.ts"],
+    reason: "the build verifies receipts with an isolated single-file copy",
+  },
+  {
     when: /^scripts\/install\.(?:sh|ps1)$/,
     select: ["scripts/install.test.ts"],
     reason: "test runs the installer",

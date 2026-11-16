@@ -246,6 +246,7 @@ describe("tests the import graph cannot see", () => {
     assert.include(files("scripts/check-changed.ts"), "scripts/fork-reconcile.test.ts");
     assert.include(files("scripts/fork-reconcile.ts"), "scripts/check-changed.test.ts");
     assert.include(files("scripts/fork-upstream-receipt.ts"), "scripts/check-changed.test.ts");
+    assert.include(files("scripts/fork-upstream-receipt.ts"), "scripts/fork-nightly.test.ts");
     assert.include(files("packages/shared/src/git.ts"), "apps/server/src/processRunner.test.ts");
     assert.include(
       files("apps/server/scripts/acp-mock-agent.ts"),

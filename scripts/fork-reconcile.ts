@@ -4,38 +4,9 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
-export function requireRepositoryNode(repo: string, restart = false) {
-  const manifest = JSON.parse(NodeFS.readFileSync(NodePath.join(repo, "package.json"), "utf8")) as {
-    engines?: { node?: string };
-  };
-  const pin = manifest.engines?.node;
-  if (typeof pin === "string" && /^\d+\.\d+\.\d+$/.test(pin) && process.versions.node !== pin) {
-    const message = `These checks require Node ${pin}; running ${process.versions.node}. Run with vp env exec --node=${pin} node <command>.`;
-    if (restart && process.env.T3_FORK_PINNED_NODE === undefined) {
-      const child = NodeChildProcess.spawnSync(
-        "vp",
-        ["env", "exec", `--node=${pin}`, "node", ...process.argv.slice(1)],
-        {
-          stdio: "inherit",
-          env: {
-            ...process.env,
-            PATH: (process.env.PATH ?? "")
-              .split(NodePath.delimiter)
-              .filter((entry) => !/[\\/]node_modules[\\/]\.bin[\\/]?$/.test(entry))
-              .join(NodePath.delimiter),
-            T3_FORK_PINNED_NODE: "1",
-          },
-        },
-      );
-      if (!child.error) {
-        if (child.status !== 0) process.stderr.write(`${message}\n`);
-        process.exit(child.status ?? 1);
-      }
-    }
-    throw new Error(message);
-  }
-}
+import { requireRepositoryNode } from "./fork-upstream-receipt.ts";
 
+export { requireRepositoryNode };
 // A non-colocated jj workspace shares its integration checkout's Git object store.
 export function gitRepository(repo: string): string {
   if (NodeFS.existsSync(NodePath.join(repo, ".git"))) return repo;
