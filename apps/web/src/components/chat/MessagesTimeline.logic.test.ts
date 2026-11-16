@@ -5561,7 +5561,15 @@ describe("parent run waiting on foreground subagents", () => {
     result: null,
   });
 
-  const liveRow = (later: ReadonlyArray<OrchestrationV2TurnItem>, toolCallVisibility?: "hideAll") =>
+  const liveRow = (
+    later: ReadonlyArray<OrchestrationV2TurnItem>,
+    toolCallVisibility?: "hideAll",
+    children = [
+      child("a", 2),
+      { ...child("b", 3), status: "completed" as const, completedAt: at(3) },
+      child("c", 4),
+    ],
+  ) =>
     deriveMessagesTimelineRows({
       timelineEntries: deriveTimelineEntriesFromVisibleTurnItems({
         visibleTurnItems: (
@@ -5585,9 +5593,7 @@ describe("parent run waiting on foreground subagents", () => {
               text: "Dispatching three subagents.",
               streaming: false,
             },
-            child("a", 2),
-            { ...child("b", 3), status: "completed", completedAt: at(3) },
-            child("c", 4),
+            ...children,
             ...later,
           ] satisfies OrchestrationV2TurnItem[]
         ).map((item) => ({
@@ -5610,16 +5616,26 @@ describe("parent run waiting on foreground subagents", () => {
       turnDiffSummaries: [],
       supportsConversationRollback: false,
       ...(toolCallVisibility ? { toolCallVisibility } : {}),
-    }).find((row) => row.id === "live-activity-row");
+    }).filter((row) => row.kind === "working" || row.kind === "thinking");
   const thinking = {
-    kind: "thinking",
-    id: "live-activity-row",
+    kind: "working",
+    id: "working-indicator-row",
     createdAt: DateTime.formatIso(at(0)),
+    phase: "Thinking",
+    runningTasks: 2,
   };
 
   it("names the running children while the open run has done nothing since launching them", () => {
-    expect(liveRow([])).toEqual({ ...thinking, label: "Waiting on 2 subagents" });
-    expect(liveRow([], "hideAll")).toEqual({ ...thinking, label: "Waiting on 2 subagents" });
+    const waiting = {
+      ...thinking,
+      phase: "Waiting for agent",
+      label: "Waiting on 2 subagents",
+    };
+    expect(liveRow([])).toEqual([waiting]);
+    expect(liveRow([], "hideAll")).toEqual([waiting]);
+    expect(liveRow([], undefined, [child("a", 2)])).toEqual([
+      { ...waiting, runningTasks: 1, label: "Waiting on a subagent" },
+    ]);
   });
 
   it("keeps Thinking when a hidden newer parent command follows the children", () => {
@@ -5630,7 +5646,7 @@ describe("parent run waiting on foreground subagents", () => {
       type: "command_execution",
       input: "sleep 5",
     };
-    expect(liveRow([command], "hideAll")).toEqual(thinking);
+    expect(liveRow([command], "hideAll")).toEqual([thinking]);
   });
 });
 

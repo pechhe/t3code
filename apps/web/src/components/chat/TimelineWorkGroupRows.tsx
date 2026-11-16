@@ -364,6 +364,8 @@ function PlainWorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "w
     "Setting up worktree…"
   ) : compacting ? (
     <CompactingLabel createdAt={row.createdAt} />
+  ) : row.label ? (
+    row.label
   ) : row.createdAt ? (
     <>
       Working for <WorkingTimer createdAt={row.createdAt} />
@@ -396,7 +398,7 @@ function CalmWorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "wo
   ) : compacting !== undefined ? (
     <CompactingLabel createdAt={row.createdAt} />
   ) : (
-    `${row.phase}…`
+    (row.label ?? `${row.phase}…`)
   );
   return (
     <div className="flex h-6 min-w-0 items-center gap-2 px-1 text-sm text-muted-foreground tabular-nums">

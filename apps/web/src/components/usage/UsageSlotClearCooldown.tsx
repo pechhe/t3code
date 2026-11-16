@@ -61,17 +61,13 @@ export function UsageSlotClearCooldown({
       onClick={async () => {
         if (environmentId === null || clearing) return;
         setClearing(true);
-        try {
-          await clearUsageLimit({
-            environmentId,
-            input: {
-              instanceId: slot.provider.instanceId,
-              accountKey: slot.candidate.accountKey,
-            },
-          });
-        } finally {
-          setClearing(false);
-        }
+        await clearUsageLimit({
+          environmentId,
+          input: {
+            instanceId: slot.provider.instanceId,
+            accountKey: slot.candidate.accountKey,
+          },
+        }).finally(() => setClearing(false));
       }}
     >
       Clear cooldown

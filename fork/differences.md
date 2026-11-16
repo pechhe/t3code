@@ -1282,6 +1282,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### subagent-return-chip
 
+- **Decision:** `adapt` (2026-11-16): upstream #36334's foreground-subagent tail check and singular/plural waiting label now feed the fork's single closing `working` row in both plain and calm streaming. A newer parent command, even when hidden, keeps the default status instead of claiming the parent is waiting; the calm row counts only live children, not completed siblings kept visible in their card group. Removed the unreachable upstream thinking-row fallback. Proof: MessagesTimeline.logic.test.ts, "parent run waiting on foreground subagents".
+
 - **Decision:** `adapt` (v0.1.10-nightly.20261114.4669, 2026-11-14): Adopt upstream's duplicate delegated-thread-item prevention (#36473), keeping fork return chips, round anchors and one-card-per-task presentation. ProviderTurnStartService.test.ts passes; MessagesTimeline.logic.test.ts has two waiting-row failures also present on the bare target, recorded in the receipt.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Keep round-anchor navigation and return chips alongside upstream linked-environment sender navigation using the existing target string callback. Evidence: MessagesTimeline.logic.test.ts; web typecheck; useThreadLifecycle.tsx.

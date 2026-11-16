@@ -549,6 +549,7 @@ type MessagesTimelineRowContent =
       createdAt: string | null;
       /** What the agent is doing now, shown at the end of the status line. */
       phase: WorkingPhase;
+      label?: string;
       /** Subagents and tasks still working for this response. */
       runningTasks: number;
       /** A running compaction owns the working row, so its divider appears only once it ends. */
@@ -2006,12 +2007,17 @@ export function deriveMessagesTimelineRows(input: {
   const activeCompactionRunId = compactsOnReturn
     ? runningCompactionRunId
     : (resumeCompactionEntry?.entry.runId ?? null);
+  const waitingOn =
+    unsettledRunId === null ? 0 : runningSubagentsAtRunTail(input.timelineEntries, unsettledRunId);
+  const runningTasks = input.timelineEntries.filter(
+    (entry) => entry.kind === "event" && isLiveSubagentTurnItem(entry.projectedItem.item),
+  ).length;
   const workingPhase = (): WorkingPhase => {
     const last = nextRows.at(-1);
     if (last?.kind === "message" && last.message.role === "assistant" && last.message.streaming)
       return "Writing";
     if (hasActivityRow) return "Running tools";
-    if (liveSubagentEntryIds.size > 0) return "Waiting for agent";
+    if (waitingOn > 0) return "Waiting for agent";
     return "Thinking";
   };
   const endedRunId = input.latestRun?.turnEnded === true ? input.latestRun.runId : null;
@@ -2032,7 +2038,8 @@ export function deriveMessagesTimelineRows(input: {
         null,
       ...(activeCompactionRunId !== null ? { compacting: true as const } : {}),
       phase: workingPhase(),
-      runningTasks: liveSubagentEntryIds.size,
+      ...(waitingOn > 0 ? { label: waitingOnSubagentsLabel(waitingOn) } : {}),
+      runningTasks,
     });
   };
   let hasActivityRow = false;
@@ -2537,34 +2544,20 @@ export function deriveMessagesTimelineRows(input: {
     latestToolFailed &&
     activeWorkAnchor
   ) {
-    const failedGroupAnchor = latestToolFailed ? activeWorkAnchor : undefined;
-    if (failedGroupAnchor) {
-      const groupId = workGroupId(failedGroupAnchor.id);
-      const expanded = input.expandedWorkGroupIds?.has(groupId) ?? false;
-      const groupedEntries = visibleActiveToolEntries.map((entry) => entry.entry);
-      nextRows.push({
-        kind: "thinking",
-        id: LIVE_ACTIVITY_ROW_ID,
-        createdAt: input.activeTurnStartedAt ?? null,
-        groupId,
-        expanded,
-      });
-      if (expanded) {
-        nextRows.push(expandedWorkGroupRow(groupId, failedGroupAnchor.createdAt, groupedEntries));
-      }
-      nextRows.push(...viewedImagesRows(groupId, failedGroupAnchor.createdAt, groupedEntries));
-    } else {
-      const waitingOn =
-        unsettledRunId === null
-          ? 0
-          : runningSubagentsAtRunTail(input.timelineEntries, unsettledRunId);
-      nextRows.push({
-        kind: "thinking",
-        id: LIVE_ACTIVITY_ROW_ID,
-        createdAt: input.activeTurnStartedAt ?? null,
-        ...(waitingOn > 0 ? { label: waitingOnSubagentsLabel(waitingOn) } : {}),
-      });
+    const groupId = workGroupId(activeWorkAnchor.id);
+    const expanded = input.expandedWorkGroupIds?.has(groupId) ?? false;
+    const groupedEntries = visibleActiveToolEntries.map((entry) => entry.entry);
+    nextRows.push({
+      kind: "thinking",
+      id: LIVE_ACTIVITY_ROW_ID,
+      createdAt: input.activeTurnStartedAt ?? null,
+      groupId,
+      expanded,
+    });
+    if (expanded) {
+      nextRows.push(expandedWorkGroupRow(groupId, activeWorkAnchor.createdAt, groupedEntries));
     }
+    nextRows.push(...viewedImagesRows(groupId, activeWorkAnchor.createdAt, groupedEntries));
   }
   if (
     input.isWorking &&

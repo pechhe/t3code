@@ -99,12 +99,9 @@ function UsageSlotBudgetEditorForm({
     }
     setSaving(true);
     setError(null);
-    try {
-      await updateSettings({ usageSlotBudgets: { [slotId]: result.patch } });
-      setEditing(false);
-    } finally {
-      setSaving(false);
-    }
+    await Promise.resolve(updateSettings({ usageSlotBudgets: { [slotId]: result.patch } }))
+      .then(() => setEditing(false))
+      .finally(() => setSaving(false));
   };
 
   const field = (
