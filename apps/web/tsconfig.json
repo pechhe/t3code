@@ -2,6 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "composite": true,
+    "tsBuildInfoFile": "./node_modules/.cache/tsconfig.tsbuildinfo",
     "module": "Preserve",
     "moduleResolution": "Bundler",
     "erasableSyntaxOnly": false,
