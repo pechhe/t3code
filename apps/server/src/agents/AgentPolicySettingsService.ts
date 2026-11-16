@@ -3,6 +3,8 @@ import {
   type AgentPolicySettings,
   type AgentPolicySaveInput,
   type AgentPolicyManifest,
+  type ModelPoolConfig,
+  type ModelPoolId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -12,6 +14,8 @@ import { agentPolicyRoot } from "./agentPolicyRoot.ts";
 import * as Policy from "./AgentPolicyService.ts";
 import * as Providers from "../provider/ProviderRegistry.ts";
 import * as Processes from "../processRunner.ts";
+import * as ServerSettings from "../serverSettings.ts";
+import * as Option from "effect/Option";
 
 export class AgentPolicySettingsService extends Context.Service<
   AgentPolicySettingsService,
@@ -80,13 +84,37 @@ const make = Effect.gen(function* () {
   const validateModels = Effect.fn(function* (manifest: AgentPolicyManifest) {
     const catalog = yield* providers.getProviders;
     const current = yield* load();
-    for (const [alias, binding] of Object.entries(manifest.models)) {
-      const matching = catalog
-        .filter(
-          (provider) =>
-            provider.poolMembers === undefined && provider.driver === binding.driverKind,
+    const settingsService = yield* Effect.serviceOption(ServerSettings.ServerSettingsService);
+    const noPools: Readonly<Record<ModelPoolId, ModelPoolConfig>> = {};
+    const modelPools = Option.isSome(settingsService)
+      ? yield* settingsService.value.getSettings.pipe(
+          Effect.map((s) => s.modelPools),
+          Effect.orElseSucceed(() => noPools),
         )
-        .flatMap((provider) => provider.models.filter((model) => model.slug === binding.model));
+      : noPools;
+    for (const [alias, binding] of Object.entries(manifest.models)) {
+      const pool = binding.poolId === undefined ? undefined : modelPools[binding.poolId];
+      const matching =
+        pool !== undefined
+          ? pool.slots.flatMap((slot) =>
+              catalog
+                .filter(
+                  (provider) =>
+                    provider.poolMembers === undefined &&
+                    provider.instanceId === slot.providerInstanceId,
+                )
+                .flatMap((provider) =>
+                  provider.models.filter((model) => model.slug === slot.model),
+                ),
+            )
+          : catalog
+              .filter(
+                (provider) =>
+                  provider.poolMembers === undefined && provider.driver === binding.driverKind,
+              )
+              .flatMap((provider) =>
+                provider.models.filter((model) => model.slug === binding.model),
+              );
       const previous = current.manifest.models[alias];
       // Existing offline declarations remain editable; an unavailable account is not a
       // reason to erase its policy. New bindings must exist in the installed catalog.
@@ -94,6 +122,7 @@ const make = Effect.gen(function* () {
         matching.length === 0 &&
         (previous?.model !== binding.model ||
           previous.driverKind !== binding.driverKind ||
+          previous.poolId !== binding.poolId ||
           previous.effortOption !== binding.effortOption)
       )
         return yield* new AgentPolicySettingsError({ reason: "unsupported-model" });
@@ -102,7 +131,11 @@ const make = Effect.gen(function* () {
       const option = binding.effortOption;
       const options = matching
         .flatMap((model) => model.capabilities?.optionDescriptors ?? [])
-        .filter((candidate) => candidate.id === option);
+        .filter(
+          (candidate) =>
+            candidate.id === option ||
+            (pool !== undefined && candidate.type === "select" && candidate.role === "reasoning"),
+        );
       const efforts = Object.values(manifest.lists)
         .flat()
         .filter((entry) => entry.model === alias)

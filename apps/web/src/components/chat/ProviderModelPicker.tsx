@@ -23,7 +23,11 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
 import { useClientSettings } from "~/hooks/useSettings";
 import { getCustomModelLabel, selectModelSlotLabels } from "./modelLabels";
-import { ModelPickerContent, resolveModelPickerSelectedModel } from "./ModelPickerContent";
+import {
+  ModelPickerContent,
+  type ModelPickerPool,
+  resolveModelPickerSelectedModel,
+} from "./ModelPickerContent";
 import { retainedModelWhileProviderLocked } from "./ProviderModelPicker.logic";
 import { ChatGptSharingControl } from "./ChatGptSharingControl";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
@@ -135,6 +139,10 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
    */
   effortColumn?: ReactNode;
   footer?: ReactNode;
+  /** Model pools offered as single entries; the trigger names the active pool. */
+  pools?: ReadonlyArray<ModelPickerPool>;
+  activePoolId?: string | null;
+  onPoolSelect?: (poolId: string) => void;
 }) {
   const composerFloatingLayerProps = useComposerMenuProps();
   const [uncontrolledIsMenuOpen, setUncontrolledIsMenuOpen] = useState(false);
@@ -293,7 +301,11 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     .filter(Boolean)
     .join(" · ");
 
-  const triggerText = props.triggerLabel ?? multipleLabel ?? triggerTitle;
+  const activePool =
+    props.activePoolId && props.onPoolSelect
+      ? props.pools?.find((pool) => pool.id === props.activePoolId)
+      : undefined;
+  const triggerText = props.triggerLabel ?? multipleLabel ?? activePool?.name ?? triggerTitle;
   const triggerTextProps = {
     className: cn(
       "min-w-0 flex-1 overflow-hidden truncate",
@@ -332,6 +344,17 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
           : (props.getModelDisabledReason?.(instanceId, model) ?? null)
       }
       onInstanceModelChange={handleInstanceModelChange}
+      {...(props.onPoolSelect
+        ? {
+            pools: props.pools ?? [],
+            activePoolId: props.activePoolId ?? null,
+            onPoolSelect: (poolId: string) => {
+              if (props.disabled) return;
+              props.onPoolSelect?.(poolId);
+              setIsMenuOpen(false);
+            },
+          }
+        : {})}
       {...(docked
         ? {
             docked,

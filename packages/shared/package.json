@@ -591,6 +591,10 @@
       "types": "./src/providerPools.ts",
       "import": "./src/providerPools.ts"
     },
+    "./modelPools": {
+      "types": "./src/modelPools.ts",
+      "import": "./src/modelPools.ts"
+    },
     "./browserBackend": {
       "types": "./src/browserBackend.ts",
       "import": "./src/browserBackend.ts"

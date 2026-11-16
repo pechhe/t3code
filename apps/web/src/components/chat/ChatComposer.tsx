@@ -56,7 +56,10 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
+  isModelPoolSlotEnabled,
+  resolveModelPoolEnabled,
 } from "@t3tools/contracts";
+import { formatModelPoolSummary } from "@t3tools/shared/modelPools";
 import type { EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import * as Schema from "effect/Schema";
@@ -565,6 +568,7 @@ export interface ChatComposerProps {
     model: string,
     options?: { focusComposer?: boolean },
   ) => void;
+  onPoolSelect: (poolId: string) => void;
   onOpenProviderSetup: (instanceId: ProviderInstanceId) => void;
   getModelDisabledReason: (instanceId: ProviderInstanceId, model: string) => string | null;
   handleRuntimeModeChange: (mode: RuntimeMode) => void;
@@ -670,6 +674,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onPreviousActivePendingUserInputQuestion,
     onChangeActivePendingUserInputCustomAnswer,
     onProviderModelSelect,
+    onPoolSelect,
     onOpenProviderSetup,
     getModelDisabledReason,
     handleRuntimeModeChange,
@@ -1086,11 +1091,30 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
 
   const selectedPromptEffort = composerProviderState.promptEffort;
   const selectedModelOptionsForDispatch = composerProviderState.modelOptionsForDispatch;
-  const selectedModelSelection: ModelSelection = createModelSelection(
+  // A thread on a model pool keeps its pool until another model is picked by name.
+  const selectedPoolId = (() => {
+    const source =
+      composerDraft.modelSelectionByProvider[selectedInstanceId] ??
+      (activeThreadModelSelection?.instanceId === selectedInstanceId
+        ? activeThreadModelSelection
+        : undefined);
+    const poolId = source?.model === selectedModel ? source.poolId : undefined;
+    return poolId !== undefined && settings.modelPools[poolId] !== undefined ? poolId : undefined;
+  })();
+  const modelPickerPools = Object.entries(settings.modelPools).flatMap(([id, pool]) =>
+    resolveModelPoolEnabled(pool) && pool.slots.some(isModelPoolSlotEnabled)
+      ? [{ id, name: pool.displayName, summary: formatModelPoolSummary(pool, providerStatuses) }]
+      : [],
+  );
+  const baseModelSelection = createModelSelection(
     selectedInstanceId,
     selectedModel,
     selectedModelOptionsForDispatch,
   );
+  const selectedModelSelection: ModelSelection =
+    selectedPoolId === undefined
+      ? baseModelSelection
+      : { ...baseModelSelection, poolId: selectedPoolId };
   const selectedModelForPicker = selectedModel;
   const modelOptionsByInstance = new Map<ProviderInstanceId, ReadonlyArray<AppModelOption>>();
   for (const entry of providerInstanceEntries) {
@@ -2744,6 +2768,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       multipleModelSelections={multipleModelSelections}
       onMultipleModelSelectionsChange={setMultipleModelSelections}
       selectedModelSelection={selectedModelSelection}
+      modelPools={modelPickerPools}
+      activePoolId={selectedPoolId ?? null}
+      onPoolSelect={onPoolSelect}
       onProviderModelSelect={
         poolAccount === null
           ? onProviderModelSelect

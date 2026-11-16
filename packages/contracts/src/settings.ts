@@ -44,6 +44,7 @@ import {
   ProviderOptionSelections,
 } from "./model.ts";
 import { ModelSelection } from "./modelSelection.ts";
+import { ModelPoolConfig, ModelPoolId } from "./modelPool.ts";
 import { ProjectScript, type ProjectMutation } from "./project.ts";
 import { DEFAULT_RUNTIME_MODE, RuntimeMode } from "./providerPolicy.ts";
 import { BrowserProfile, BrowserProfileId, DEFAULT_BROWSER_PROFILE_ID } from "./browserProfile.ts";
@@ -1814,6 +1815,9 @@ export const ServerSettings = Schema.Struct({
   providerInstances: Schema.Record(ProviderInstanceId, ProviderInstanceConfig).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
+  modelPools: Schema.Record(ModelPoolId, ModelPoolConfig).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
   // Only the server writes these. Absent on a server that can't share its provider setup.
   sharedProviderSetup: Schema.optionalKey(SharedProviderSetupState),
   // Old ids that history still names, kept when sharing gave an account a new id on this machine.
@@ -2374,6 +2378,8 @@ export const ServerSettingsPatch = Schema.Struct({
   offeredSourceControlProviders: Schema.optionalKey(Schema.Record(Schema.String, Schema.Boolean)),
   // Replace whole maps to avoid half-merged driver configs.
   providerInstances: Schema.optionalKey(Schema.Record(ProviderInstanceId, ProviderInstanceConfig)),
+  // Merge per model pool like usageLimitSources; null removes an entry.
+  modelPools: Schema.optionalKey(Schema.Record(ModelPoolId, Schema.NullOr(ModelPoolConfig))),
   // Merge per source to avoid racing other edits; null removes an entry.
   usageLimitSources: Schema.optionalKey(
     Schema.Record(UsageLimitSourceId, Schema.NullOr(UsageLimitSourceConfig)),
@@ -2418,6 +2424,7 @@ export function requiredScopesForServerSettingsPatch(
     } else if (
       key === "providers" ||
       key === "providerInstances" ||
+      key === "modelPools" ||
       key === "usageLimitSources" ||
       key === "usageSlotBudgets" ||
       key === "textGenerators" ||

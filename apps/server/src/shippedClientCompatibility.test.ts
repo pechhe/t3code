@@ -12,6 +12,7 @@ import {
   OrchestrationV2ThreadStanding,
   RunId,
   ProjectId,
+  ModelPoolId,
   ProviderInstanceId,
   ProviderDriverKind,
   ServerSettings,
@@ -108,6 +109,20 @@ const forkSettings = {
     },
   },
   responseStreamingMode: "live" as const,
+  modelPools: {
+    [ModelPoolId.make("opus")]: {
+      displayName: "Opus",
+      slots: [
+        { providerInstanceId: ProviderInstanceId.make("pi"), model: "hf/opus" },
+        {
+          providerInstanceId: ProviderInstanceId.make("claudeAgent"),
+          model: "opus",
+          enabled: false,
+        },
+      ],
+      policy: { strategy: "order" as const, reservePercent: 90, switchOnLimit: true },
+    },
+  },
   projectSettingsOverrides: {
     [ProjectId.make("live")]: { responseStreamingMode: "live" as const },
   },

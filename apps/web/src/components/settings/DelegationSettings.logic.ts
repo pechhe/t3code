@@ -4,13 +4,62 @@ import {
   AgentRole,
   modelMaker,
   modelNote,
+  isModelPoolSlotEnabled,
+  resolveModelPoolEnabled,
   type AgentListEntry,
   type AgentPolicyManifest,
+  type ModelPoolConfig,
+  type ModelPoolId,
   type ProviderOptionSelection,
   type ServerProvider,
 } from "@t3tools/contracts";
 
 type Manifest = AgentPolicyManifest;
+type ModelPools = Readonly<Record<ModelPoolId, ModelPoolConfig>>;
+const NO_POOLS: ModelPools = {};
+
+const sameBinding = (
+  left: Pick<Binding, "driverKind" | "model" | "poolId">,
+  right: Pick<Binding, "driverKind" | "model" | "poolId">,
+) =>
+  left.driverKind === right.driverKind &&
+  left.model === right.model &&
+  left.poolId === right.poolId;
+
+/**
+ * The pool a binding belongs to: the one it names, else the only pool listing its model as a
+ * slot. A model several pools list keeps its own row, so one note never edits another pool's.
+ */
+function poolOfBinding(
+  binding: Pick<Binding, "model" | "poolId">,
+  modelPools: ModelPools,
+): ModelPoolId | undefined {
+  if (binding.poolId !== undefined && modelPools[binding.poolId] !== undefined)
+    return binding.poolId;
+  const listing = (Object.keys(modelPools) as ModelPoolId[]).filter((id) =>
+    modelPools[id]!.slots.some((slot) => slot.model === binding.model),
+  );
+  return listing.length === 1 ? listing[0] : undefined;
+}
+
+/** The bindings a pool's one note covers: the pool's own, and every member slot's. */
+const coveredByPool = (binding: Binding, poolId: ModelPoolId, modelPools: ModelPools) =>
+  poolOfBinding(binding, modelPools) === poolId;
+
+/** A pool's shared note: its own binding's, else the first a member slot already carries. */
+export function poolNote(
+  manifest: Manifest,
+  poolId: ModelPoolId,
+  modelPools: ModelPools,
+): string | undefined {
+  const covered = Object.values(manifest.models).filter((binding) =>
+    coveredByPool(binding, poolId, modelPools),
+  );
+  return (
+    covered.find((binding) => binding.poolId === poolId && binding.note)?.note ??
+    covered.find((binding) => binding.note)?.note
+  );
+}
 type Binding = Manifest["models"][string];
 export type RolePolicy = NonNullable<Manifest["roles"][AgentRole]>;
 
@@ -30,11 +79,7 @@ export function editableManifest(
   const discovered = new Map<string, CatalogModel>();
   const models = Object.fromEntries(
     Object.entries(manifest.models).map(([alias, binding]) => {
-      const model = catalog.find(
-        (candidate) =>
-          candidate.binding.driverKind === binding.driverKind &&
-          candidate.binding.model === binding.model,
-      );
+      const model = catalog.find((candidate) => sameBinding(candidate.binding, binding));
       if (binding.effortOption !== undefined || model?.binding.effortOption === undefined)
         return [alias, binding];
       discovered.set(alias, model);
@@ -120,9 +165,28 @@ export function roleGroups(manifest: Manifest): RoleGroup[] {
 export function unavailableReason(
   binding: Binding | undefined,
   providers: ReadonlyArray<ServerProvider>,
-  { now = Date.now() }: { now?: number } = {},
+  { now = Date.now(), modelPools = NO_POOLS }: { now?: number; modelPools?: ModelPools } = {},
 ): string | null {
   if (binding === undefined) return "not configured";
+  const pool = binding.poolId === undefined ? undefined : modelPools[binding.poolId];
+  if (pool !== undefined) {
+    if (!resolveModelPoolEnabled(pool)) return "pool switched off";
+    const reasons = pool.slots.filter(isModelPoolSlotEnabled).map((slot) => {
+      const provider = providers.find(
+        (candidate) => candidate.instanceId === slot.providerInstanceId,
+      );
+      return provider === undefined
+        ? "not installed"
+        : unavailableReason({ driverKind: provider.driver, model: slot.model }, [provider], {
+            now,
+          });
+    });
+    return reasons.length === 0
+      ? "no accounts switched on"
+      : reasons.includes(null)
+        ? null
+        : (reasons[0] ?? null);
+  }
   const accounts = providers.filter(
     (provider) => provider.poolMembers === undefined && provider.driver === binding.driverKind,
   );
@@ -148,8 +212,11 @@ export function modelLabel(
   binding: Binding | undefined,
   alias: string,
   providers: ReadonlyArray<ServerProvider>,
+  modelPools: ModelPools = NO_POOLS,
 ): string {
   if (binding === undefined) return alias;
+  if (binding.poolId !== undefined && modelPools[binding.poolId] !== undefined)
+    return modelPools[binding.poolId]!.displayName;
   return (
     providers
       .filter((provider) => provider.driver === binding.driverKind)
@@ -174,6 +241,8 @@ export interface CatalogModel {
   readonly label: string;
   readonly binding: Binding;
   readonly efforts: ReadonlyArray<string>;
+  /** Set for a model pool: delegation names the pool and T3 picks the slot with allowance. */
+  readonly poolId?: ModelPoolId;
 }
 
 /**
@@ -191,8 +260,52 @@ export function readOnlyUnenforcedProviders(providers: ReadonlyArray<ServerProvi
   return [...names].toSorted((left, right) => left.localeCompare(right));
 }
 
-/** Every model an installed account offers, with its effort settings when it has any. */
-export function catalogModels(providers: ReadonlyArray<ServerProvider>): CatalogModel[] {
+/**
+ * Every model an installed account offers, with its effort settings when it has any, then each
+ * model pool. A pool's binding names its first installed slot, so older readers still decode it.
+ */
+export function catalogModels(
+  providers: ReadonlyArray<ServerProvider>,
+  modelPools: ModelPools = NO_POOLS,
+): CatalogModel[] {
+  return [...accountCatalogModels(providers), ...poolCatalogModels(providers, modelPools)];
+}
+
+function poolCatalogModels(
+  providers: ReadonlyArray<ServerProvider>,
+  modelPools: ModelPools,
+): CatalogModel[] {
+  return (Object.entries(modelPools) as Array<[ModelPoolId, ModelPoolConfig]>).flatMap(
+    ([poolId, pool]) => {
+      if (!resolveModelPoolEnabled(pool)) return [];
+      const representative = pool.slots.filter(isModelPoolSlotEnabled).flatMap((slot) => {
+        const provider = providers.find(
+          (candidate) => candidate.instanceId === slot.providerInstanceId,
+        );
+        const model = provider?.models.find((candidate) => candidate.slug === slot.model);
+        return provider === undefined || model === undefined ? [] : [{ provider, model }];
+      })[0];
+      if (representative === undefined) return [];
+      const option = representative.model.capabilities?.optionDescriptors?.find(isReasoningSelect);
+      return [
+        {
+          key: `pool:${poolId}`,
+          label: pool.displayName,
+          poolId,
+          binding: {
+            driverKind: representative.provider.driver,
+            model: representative.model.slug,
+            poolId,
+            ...(option?.type === "select" ? { effortOption: option.id } : {}),
+          },
+          efforts: option?.type === "select" ? option.options.map((choice) => choice.id) : [],
+        },
+      ];
+    },
+  );
+}
+
+function accountCatalogModels(providers: ReadonlyArray<ServerProvider>): CatalogModel[] {
   const models = new Map<string, CatalogModel>();
   for (const provider of providers) {
     if (provider.poolMembers !== undefined) continue;
@@ -216,15 +329,24 @@ export function catalogModels(providers: ReadonlyArray<ServerProvider>): Catalog
 }
 
 /** The alias naming a catalog model, adding one derived from its slug when it has none. */
-export function ensureModel(manifest: Manifest, model: CatalogModel): [Manifest, string] {
-  const existing = Object.entries(manifest.models).find(
-    ([, binding]) =>
-      binding.driverKind === model.binding.driverKind && binding.model === model.binding.model,
+export function ensureModel(
+  manifest: Manifest,
+  model: CatalogModel,
+  modelPools: ModelPools = NO_POOLS,
+): [Manifest, string] {
+  const existing = Object.entries(manifest.models).find(([, binding]) =>
+    sameBinding(binding, model.binding),
   );
   if (existing) return [manifest, existing[0]];
-  const note = modelNote(manifest, model.binding.model);
+  // A pool carries forward a note its slots already have, and a slot joins its pool's note.
+  const pool = poolOfBinding(model.binding, modelPools);
+  const note =
+    pool === undefined
+      ? modelNote(manifest, model.binding.model)
+      : poolNote(manifest, pool, modelPools);
   const binding = note === undefined ? model.binding : { ...model.binding, note };
-  const base = `m-${model.binding.model.toLowerCase().replace(/[^a-z0-9-]+/g, "-")}`.slice(0, 60);
+  const slug = model.poolId === undefined ? model.binding.model : `pool-${model.poolId}`;
+  const base = `m-${slug.toLowerCase().replace(/[^a-z0-9-]+/g, "-")}`.slice(0, 60);
   let alias = base;
   for (let suffix = 2; manifest.models[alias] !== undefined; suffix++) alias = `${base}-${suffix}`;
   return [{ ...manifest, models: { ...manifest.models, [alias]: binding } }, alias];
@@ -321,12 +443,23 @@ export function setModelOptions(
   };
 }
 
-/** Sets what a model is good at on every alias binding it; an empty note removes it. */
-export function setModelNote(manifest: Manifest, model: string, note: string): Manifest {
+/**
+ * Sets what a model is good at on every alias binding it; an empty note removes it. A pool's
+ * note (`model` given as `pool:<id>`) covers the pool and every member slot's binding.
+ */
+export function setModelNote(
+  manifest: Manifest,
+  model: string,
+  note: string,
+  modelPools: ModelPools = NO_POOLS,
+): Manifest {
   const text = note.trim();
+  const poolId = model.startsWith("pool:") ? (model.slice(5) as ModelPoolId) : undefined;
+  const covers = (binding: Binding) =>
+    poolId === undefined ? binding.model === model : coveredByPool(binding, poolId, modelPools);
   const models = Object.fromEntries(
     Object.entries(manifest.models).map(([alias, binding]) => {
-      if (binding.model !== model) return [alias, binding];
+      if (!covers(binding)) return [alias, binding];
       const { note: _previous, ...rest } = binding;
       return [alias, text === "" ? rest : { ...rest, note: text }];
     }),
@@ -334,27 +467,47 @@ export function setModelNote(manifest: Manifest, model: string, note: string): M
   return { ...manifest, models };
 }
 
+interface ListedModel {
+  readonly alias: string;
+  /** The model slug, or `pool:<id>` for a pool row; it keys the row's note. */
+  readonly model: string;
+  readonly poolId?: ModelPoolId;
+  readonly roles: AgentRole[];
+}
+
 /**
  * Each listed model once, in the order the jobs list them, with the roles that use it. A model
- * served by several accounts is one model with one note.
+ * served by several accounts is one model with one note, and a model pool joins with every
+ * member slot listed anywhere into one row.
  */
 export function listedModels(
   manifest: Manifest,
   jobs: ReadonlyArray<Job>,
-): Array<{ alias: string; model: string; roles: AgentRole[] }> {
-  const models = new Map<string, { alias: string; model: string; roles: AgentRole[] }>();
+  modelPools: ModelPools = NO_POOLS,
+): ListedModel[] {
+  const models = new Map<string, ListedModel>();
   for (const job of jobs)
     for (const section of job.sections)
       for (const entry of manifest.lists[section.list] ?? []) {
         const binding = manifest.models[entry.model];
         if (binding === undefined) continue;
-        const listed = models.get(binding.model) ?? {
-          alias: entry.model,
-          model: binding.model,
-          roles: [],
-        };
+        const poolId = poolOfBinding(binding, modelPools);
+        const key = poolId === undefined ? binding.model : `pool:${poolId}`;
+        const existing = models.get(key);
+        const listed: ListedModel =
+          existing === undefined
+            ? {
+                alias: entry.model,
+                model: key,
+                ...(poolId === undefined ? {} : { poolId }),
+                roles: [],
+              }
+            : // The pool's own binding names the row, so it reads as the pool.
+              binding.poolId !== undefined && manifest.models[existing.alias]?.poolId === undefined
+              ? { ...existing, alias: entry.model }
+              : existing;
         for (const role of job.roles) if (!listed.roles.includes(role)) listed.roles.push(role);
-        models.set(binding.model, listed);
+        models.set(key, listed);
       }
   return [...models.values()];
 }
@@ -389,8 +542,9 @@ export function listModel(
   list: string,
   model: CatalogModel,
   effort: string | undefined,
+  modelPools: ModelPools = NO_POOLS,
 ): [Manifest, string] {
-  const [next, alias] = ensureModel(manifest, model);
+  const [next, alias] = ensureModel(manifest, model, modelPools);
   if ((next.lists[list] ?? []).some((entry) => entry.model === alias)) return [next, alias];
   return [
     addEntry(next, list, { model: alias, ...(effort === undefined ? {} : { effort }) }),
@@ -405,8 +559,9 @@ export function replaceEntry(
   from: string,
   model: CatalogModel,
   effort: string | undefined,
+  modelPools: ModelPools = NO_POOLS,
 ): Manifest {
-  const [withModel, alias] = ensureModel(manifest, model);
+  const [withModel, alias] = ensureModel(manifest, model, modelPools);
   const entries = withModel.lists[list] ?? [];
   if (alias === from || entries.some((entry) => entry.model === alias)) return manifest;
   let next = withList(

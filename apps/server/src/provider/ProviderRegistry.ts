@@ -203,6 +203,11 @@ export const chooseWithFreshUsage = Effect.fn("ProviderRegistry.chooseWithFreshU
   providers: ReadonlyArray<ServerProvider>,
   choose: (providers: ReadonlyArray<ServerProvider>) => Effect.Effect<A, E, R>,
   chosenInstance: (choice: A) => ProviderInstanceId | undefined,
+  shouldRefresh: (provider: ServerProvider, choice: A, nowMs: number) => boolean = (
+    provider,
+    _choice,
+    nowMs,
+  ) => needsUsageRefresh(provider, nowMs),
 ) {
   let candidates = providers;
   let choice = yield* choose(candidates);
@@ -213,7 +218,7 @@ export const chooseWithFreshUsage = Effect.fn("ProviderRegistry.chooseWithFreshU
     if (
       chosen === undefined ||
       refreshed.has(chosen.instanceId) ||
-      !needsUsageRefresh(chosen, DateTime.toEpochMillis(yield* DateTime.now))
+      !shouldRefresh(chosen, choice, DateTime.toEpochMillis(yield* DateTime.now))
     ) {
       return choice;
     }

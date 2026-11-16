@@ -46,6 +46,7 @@ import {
   setCouncil,
   setEntryEffort,
   setModelNote,
+  poolNote,
   setModelOptions,
   listedModels,
   offersFast,
@@ -238,7 +239,8 @@ function PolicyEditor({
   onError: (message: string) => void;
 }) {
   const saved = data.snapshot.manifest;
-  const catalog = catalogModels(data.providers);
+  const modelPools = useScopedSettings((settings) => settings.modelPools);
+  const catalog = catalogModels(data.providers, modelPools);
   const [draft, setDraft] = useState<Manifest>(() => editableManifest(saved, catalog));
   const [pending, setPending] = useState(false);
   // A policy read after a reload or another device's save replaces the draft once nothing is
@@ -475,7 +477,8 @@ function ListEditor({
   ordered?: boolean;
   children?: ReactNode;
 }) {
-  const label = (alias: string) => modelLabel(manifest.models[alias], alias, providers);
+  const modelPools = useScopedSettings((settings) => settings.modelPools);
+  const label = (alias: string) => modelLabel(manifest.models[alias], alias, providers, modelPools);
   const entries = [...(manifest.lists[list] ?? [])].sort((a, b) =>
     ordered ? 0 : label(a.model).localeCompare(label(b.model)),
   );
@@ -483,13 +486,15 @@ function ListEditor({
     entries.some((entry) => {
       const binding = manifest.models[entry.model];
       return (
-        binding?.driverKind === model.binding.driverKind && binding.model === model.binding.model
+        binding?.driverKind === model.binding.driverKind &&
+        binding.model === model.binding.model &&
+        binding.poolId === model.binding.poolId
       );
     })
       ? "Already in this job"
       : null;
   const add = (model: CatalogModel) => {
-    const [next, alias] = ensureModel(manifest, model);
+    const [next, alias] = ensureModel(manifest, model, modelPools);
     const effort = effortForModel(model);
     onChange(
       addEntry(next, list, {
@@ -503,7 +508,7 @@ function ListEditor({
       <ol className="flex flex-col divide-y divide-border/50 rounded-lg border border-border/60">
         {entries.map((entry, index) => {
           const binding = manifest.models[entry.model];
-          const reason = unavailableReason(binding, providers);
+          const reason = unavailableReason(binding, providers, { modelPools });
           return (
             <li key={entry.model} className="flex min-w-0 items-center gap-1.5 px-2 py-1">
               {ordered ? (
@@ -524,6 +529,7 @@ function ListEditor({
                       entry.model,
                       model,
                       effortForModel(model, entry.effort),
+                      modelPools,
                     ),
                   )
                 }
@@ -634,20 +640,22 @@ function JobRow({
 }) {
   const primary = job.sections[0]!;
   const sectioned = job.sections.length > 1;
+  const modelPools = useScopedSettings((settings) => settings.modelPools);
   const chip = (alias: string) => {
     const binding = manifest.models[alias];
     return binding ? (
-      <ModelLabel
+      <PolicyModelLabel
         variant="chip"
         environmentId={environmentId}
-        driverKind={binding.driverKind}
-        model={binding.model}
+        binding={binding}
+        modelPools={modelPools}
       />
     ) : (
       <Badge variant="outline">{alias}</Badge>
     );
   };
-  const labelFor = (alias: string) => modelLabel(manifest.models[alias], alias, providers);
+  const labelFor = (alias: string) =>
+    modelLabel(manifest.models[alias], alias, providers, modelPools);
   const council = job.roles.includes("reviewer") && councilOn(manifest);
   const councilSection = job.sections.at(-1)!;
   const chips = (section: JobSection) => {
@@ -657,7 +665,7 @@ function JobRow({
       ? configured
       : [...configured].sort((a, b) => labelFor(a.model).localeCompare(labelFor(b.model)));
     const reasons = entries.map((entry) =>
-      unavailableReason(manifest.models[entry.model], providers),
+      unavailableReason(manifest.models[entry.model], providers, { modelPools }),
     );
     const firstAvailable = reasons.findIndex((reason) => reason === null);
     return (
@@ -838,27 +846,38 @@ function ModelsSection({
   providers: ReadonlyArray<ServerProvider>;
   onChange: (manifest: Manifest) => void;
 }) {
+  const modelPools = useScopedSettings((settings) => settings.modelPools);
   return (
     <SettingsSection id="delegation-models" title="Models">
       <p className="px-3 py-2.5 text-xs text-muted-foreground sm:px-4">
         One note per model, saying what it is good at. Agents read these when they choose a model
         for a job.
       </p>
-      {listedModels(manifest, jobs).map(({ alias, model, roles }) => {
+      {listedModels(manifest, jobs, modelPools).map(({ alias, model, poolId, roles }) => {
         const binding = manifest.models[alias]!;
-        const name = modelLabel(binding, alias, providers);
+        const pool = poolId === undefined ? undefined : modelPools[poolId];
+        const name = pool?.displayName ?? modelLabel(binding, alias, providers, modelPools);
         return (
           <div
             key={model}
             className="grid grid-cols-1 items-center gap-x-4 gap-y-1.5 border-t border-border/60 px-3 py-2.5 sm:grid-cols-[minmax(0,13rem)_minmax(0,1fr)] sm:px-4"
           >
             <div className="flex min-w-0 flex-col gap-1.5">
-              <ModelLabel
-                environmentId={environmentId}
-                driverKind={binding.driverKind}
-                model={binding.model}
-                className="text-sm"
-              />
+              {pool ? (
+                <span className="inline-flex min-w-0 items-center gap-1.5 text-sm">
+                  <span className="truncate">{pool.displayName}</span>
+                  <Badge variant="outline" size="sm">
+                    Pool
+                  </Badge>
+                </span>
+              ) : (
+                <ModelLabel
+                  environmentId={environmentId}
+                  driverKind={binding.driverKind}
+                  model={binding.model}
+                  className="text-sm"
+                />
+              )}
               <div className="flex flex-wrap gap-1">
                 {roles.map((role) => (
                   <AgentRoleChip key={role} role={role} />
@@ -867,8 +886,12 @@ function ModelsSection({
             </div>
             <NoteField
               name={name}
-              note={modelNote(manifest, model) ?? ""}
-              onSave={(note) => onChange(setModelNote(manifest, model, note))}
+              note={
+                (poolId === undefined
+                  ? modelNote(manifest, model)
+                  : poolNote(manifest, poolId, modelPools)) ?? ""
+              }
+              onSave={(note) => onChange(setModelNote(manifest, model, note, modelPools))}
             />
           </div>
         );
@@ -1040,5 +1063,35 @@ function PermissionsSection() {
         }
       />
     </SettingsSection>
+  );
+}
+
+/** A delegation model's label: a model pool by its name with a Pool badge, else the model. */
+function PolicyModelLabel({
+  environmentId,
+  binding,
+  modelPools,
+  variant,
+}: {
+  environmentId: EnvironmentId;
+  binding: Manifest["models"][string];
+  modelPools: Readonly<Record<string, { readonly displayName: string }>>;
+  variant?: "full" | "chip";
+}) {
+  const pool = binding.poolId === undefined ? undefined : modelPools[binding.poolId];
+  if (pool === undefined) {
+    return (
+      <ModelLabel
+        variant={variant ?? "full"}
+        environmentId={environmentId}
+        driverKind={binding.driverKind}
+        model={binding.model}
+      />
+    );
+  }
+  return (
+    <Badge variant="outline" size={variant === "chip" ? "control" : "default"}>
+      {pool.displayName} · Pool
+    </Badge>
   );
 }

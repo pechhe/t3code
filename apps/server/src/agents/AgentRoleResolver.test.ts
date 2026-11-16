@@ -1,6 +1,7 @@
 import { evaluateConservation } from "../provider/subagentConservation.ts";
 import { expect, it } from "@effect/vitest";
 import {
+  ModelPoolId,
   ProviderDriverKind,
   type AgentPolicySnapshot,
   ProviderInstanceId,
@@ -432,6 +433,90 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
           }),
         })).model,
       ).toBe(effortless);
+    }),
+  );
+
+  it.effect("delegates a pooled model to the slot with allowance, skipping conserved slots", () =>
+    Effect.gen(function* () {
+      const poolId = ModelPoolId.make("sonnet-pool");
+      const pi = provider("pi", "pi", ["hf/sonnet", "ys/sonnet"]);
+      const usage = (usedPercent: number) => ({
+        checkedAt: "2026-01-01T00:00:00.000Z",
+        windows: [
+          {
+            id: "s",
+            kind: "session" as const,
+            label: "S",
+            usedPercent,
+            resetsAt: "2999-01-01T00:00:00.000Z",
+          },
+        ],
+      });
+      const piWithSlots = {
+        ...pi,
+        usageSlots: [
+          { accountKey: "hf", label: "hf", usageLimits: usage(100) },
+          { accountKey: "ys", label: "ys", usageLimits: usage(10) },
+        ],
+      };
+      const modelPools = {
+        [poolId]: {
+          displayName: "Sonnet",
+          policy: { strategy: "order" as const },
+          slots: [
+            { providerInstanceId: codex.instanceId, model: codexModel },
+            { providerInstanceId: pi.instanceId, model: "hf/sonnet" },
+            { providerInstanceId: pi.instanceId, model: "ys/sonnet" },
+          ],
+        },
+      };
+      const original = snapshot();
+      const pooled = {
+        ...original,
+        manifest: {
+          ...original.manifest,
+          models: {
+            ...original.manifest.models,
+            sol: { ...original.manifest.models.sol!, poolId },
+          },
+          lists: { ...original.manifest.lists, workhorse: [{ model: "sol", effort: "high" }] },
+        },
+      };
+      const conserved: ServerProvider = {
+        ...codex,
+        subagentConservation: {
+          state: "active",
+          unavailable: false,
+          models: [codexModel],
+          message: "Conserved",
+        },
+      };
+      // The first slot is conserved and the second is out, so the third takes the task.
+      expect(
+        yield* resolve(
+          input({ snapshot: pooled, providers: [conserved, piWithSlots], modelPools }),
+        ),
+      ).toEqual({
+        instanceId: pi.instanceId,
+        model: "ys/sonnet",
+        poolId,
+        options: [{ id: "effort", value: "high" }],
+      });
+      // Without conservation the first slot in order serves, still naming the pool.
+      expect(
+        yield* resolve(input({ snapshot: pooled, providers: [codex, piWithSlots], modelPools })),
+      ).toMatchObject({ instanceId: codex.instanceId, model: codexModel, poolId });
+      // A caller may name the pool by its id.
+      expect(
+        yield* resolve(
+          input({
+            snapshot: pooled,
+            providers: [conserved, piWithSlots],
+            modelPools,
+            selection: { model: poolId },
+          }),
+        ),
+      ).toMatchObject({ model: "ys/sonnet", poolId });
     }),
   );
 

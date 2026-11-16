@@ -18,6 +18,7 @@ import {
   type OrchestrationV2ThreadProjection,
   ProjectId,
   ProviderInstanceId,
+  ModelPoolId,
   RunId,
   type ServerProvider,
   ThreadId,
@@ -263,6 +264,9 @@ const dispatchToPiAccount = (input: {
   readonly model: string;
   readonly command?: (commandId: CommandId, threadId: ThreadId) => OrchestrationV2ServerCommand;
   readonly run?: () => unknown;
+  readonly modelPools?: Record<string, unknown>;
+  readonly conservedModels?: ReadonlyArray<string>;
+  readonly shell?: Record<string, unknown>;
 }) => {
   const projectId = ProjectId.make("project:thread-management:pi-slot");
   const threadId = ThreadId.make("thread:thread-management:pi-slot");
@@ -302,7 +306,22 @@ const dispatchToPiAccount = (input: {
         label: "claude-subscription-yardsmith",
         usageLimits: { checkedAt: resetsAt, windows: [] },
       },
+      {
+        accountKey: "opencode-go",
+        label: "opencode-go",
+        usageLimits: { checkedAt: resetsAt, windows: [] },
+      },
     ],
+    ...(input.conservedModels === undefined
+      ? {}
+      : {
+          subagentConservation: {
+            state: "active" as const,
+            unavailable: false,
+            models: input.conservedModels,
+            message: "Kept for your own work.",
+          },
+        }),
   };
   const dispatched: Array<OrchestrationV2ServerCommand> = [];
   const layerTest = ThreadManagementService.layer.pipe(
@@ -319,6 +338,12 @@ const dispatchToPiAccount = (input: {
             },
             runs: input.run === undefined ? [] : [input.run()],
           } as unknown as OrchestrationV2ThreadProjection),
+        getThreadShell: () =>
+          Effect.succeed({
+            latestRunId: null,
+            modelSelection: { instanceId: pi, model: input.model },
+            ...input.shell,
+          } as never),
         dispatch: (command) =>
           Effect.sync(() => {
             dispatched.push(command);
@@ -328,7 +353,10 @@ const dispatchToPiAccount = (input: {
     ),
     Layer.provide(ProviderRegistryMock.layer([piProvider])),
     Layer.provide(
-      ServerSettings.layerTest({ providerInstances: { [pi]: { driver: "pi", enabled: true } } }),
+      ServerSettings.layerTest({
+        providerInstances: { [pi]: { driver: "pi", enabled: true } },
+        ...(input.modelPools === undefined ? {} : { modelPools: input.modelPools as never }),
+      }),
     ),
     Layer.provide(layerReceiptsTest),
   );
@@ -365,6 +393,165 @@ it.effect("refuses a dispatch to a cooled Pi account even when it is named expli
     expect(result._tag).toBe("Failure");
     expect(result._tag === "Failure" ? result.failure : undefined).toMatchObject({
       cause: expect.stringContaining("claude-subscription-hfpetch"),
+    });
+    expect(dispatched).toEqual([]);
+  }),
+);
+
+it.effect("routes a pool selection to the slot with allowance, skipping a cooled Pi account", () =>
+  Effect.gen(function* () {
+    const pi = ProviderInstanceId.make("pi");
+    const poolId = ModelPoolId.make("fable");
+    const { result, dispatched } = yield* dispatchToPiAccount({
+      model: "claude-subscription-hfpetch/claude-fable-5-2",
+      modelPools: {
+        [poolId]: {
+          displayName: "Fable",
+          policy: { strategy: "order" },
+          slots: [
+            { providerInstanceId: pi, model: "claude-subscription-hfpetch/claude-fable-5-2" },
+            { providerInstanceId: pi, model: "claude-subscription-yardsmith/claude-fable-5-2" },
+          ],
+        },
+      },
+      command: (commandId, threadId) =>
+        ({
+          type: "message.dispatch",
+          commandId,
+          threadId,
+          messageId: MessageId.make("message:thread-management:pi-pool"),
+          text: "Carry on.",
+          attachments: [],
+          modelSelection: {
+            instanceId: pi,
+            model: "claude-subscription-hfpetch/claude-fable-5-2",
+            poolId,
+          },
+          dispatchMode: { type: "queue_after_active" },
+          createdBy: "user",
+          creationSource: "web",
+        }) as unknown as OrchestrationV2ServerCommand,
+    });
+    expect(result._tag).toBe("Success");
+    expect(dispatched).toHaveLength(1);
+    expect(dispatched[0]).toMatchObject({
+      modelSelection: {
+        instanceId: pi,
+        model: "claude-subscription-yardsmith/claude-fable-5-2",
+        poolId,
+      },
+    });
+  }),
+);
+
+it.effect("keeps a delegated task on the slot its role placed, never a conserved one", () =>
+  Effect.gen(function* () {
+    const pi = ProviderInstanceId.make("pi");
+    const poolId = ModelPoolId.make("fable");
+    const conserved = "claude-subscription-yardsmith/claude-fable-5-2";
+    const delegate = (model: string) =>
+      dispatchToPiAccount({
+        model,
+        conservedModels: [conserved],
+        modelPools: {
+          [poolId]: {
+            displayName: "Fable",
+            policy: { strategy: "order" },
+            slots: [
+              { providerInstanceId: pi, model: conserved },
+              { providerInstanceId: pi, model: "opencode-go/claude-fable-5-2" },
+            ],
+          },
+        },
+        command: (commandId, threadId) =>
+          ({
+            type: "delegated_task.request",
+            commandId,
+            parentThreadId: threadId,
+            modelSelection: { instanceId: pi, model, poolId },
+            agentTask: { role: "implementer", taskClass: "non-ui", sourceAccess: "scoped-write" },
+            task: "Do the thing.",
+            dispatchMode: { type: "start_immediately" },
+            createdBy: "agent",
+            creationSource: "server",
+          }) as unknown as OrchestrationV2ServerCommand,
+      });
+    // The first slot in order is conserved, so the resolver placed the task on the second.
+    const placed = yield* delegate("opencode-go/claude-fable-5-2");
+    expect(placed.dispatched[0]).toMatchObject({
+      modelSelection: { model: "opencode-go/claude-fable-5-2", poolId },
+    });
+    // A selection that lands on the conserved slot is moved off it.
+    const moved = yield* delegate(conserved);
+    expect(moved.dispatched[0]).toMatchObject({
+      modelSelection: { model: "opencode-go/claude-fable-5-2", poolId },
+    });
+    // A subagent already running on a slot keeps it when conservation starts holding it back.
+    const running = yield* dispatchToPiAccount({
+      model: conserved,
+      conservedModels: [conserved],
+      shell: {
+        latestRunId: RunId.make("run:thread-management:pi-pool-running"),
+        modelSelection: { instanceId: pi, model: conserved, poolId },
+        agentTask: { role: "implementer", taskClass: "non-ui", sourceAccess: "scoped-write" },
+      },
+      modelPools: {
+        [poolId]: {
+          displayName: "Fable",
+          policy: { strategy: "order" },
+          slots: [
+            { providerInstanceId: pi, model: conserved },
+            { providerInstanceId: pi, model: "opencode-go/claude-fable-5-2" },
+          ],
+        },
+      },
+      command: (commandId, threadId) =>
+        ({
+          type: "message.dispatch",
+          commandId,
+          threadId,
+          messageId: MessageId.make("message:thread-management:pi-pool-running"),
+          text: "Carry on.",
+          attachments: [],
+          modelSelection: { instanceId: pi, model: conserved, poolId },
+          dispatchMode: { type: "queue_after_active" },
+          createdBy: "agent",
+          creationSource: "server",
+        }) as unknown as OrchestrationV2ServerCommand,
+    });
+    expect(running.dispatched[0]).toMatchObject({ modelSelection: { model: conserved, poolId } });
+  }),
+);
+
+it.effect("refuses a pool with every account switched off", () =>
+  Effect.gen(function* () {
+    const pi = ProviderInstanceId.make("pi");
+    const poolId = ModelPoolId.make("fable");
+    const model = "claude-subscription-yardsmith/claude-fable-5-2";
+    const { result, dispatched } = yield* dispatchToPiAccount({
+      model,
+      modelPools: {
+        [poolId]: {
+          displayName: "Fable",
+          slots: [{ providerInstanceId: pi, model, enabled: false }],
+        },
+      },
+      command: (commandId, threadId) =>
+        ({
+          type: "message.dispatch",
+          commandId,
+          threadId,
+          messageId: MessageId.make("message:thread-management:pi-pool-off"),
+          text: "Carry on.",
+          attachments: [],
+          modelSelection: { instanceId: pi, model, poolId },
+          dispatchMode: { type: "queue_after_active" },
+          createdBy: "user",
+          creationSource: "web",
+        }) as unknown as OrchestrationV2ServerCommand,
+    });
+    expect(result._tag === "Failure" ? result.failure : undefined).toMatchObject({
+      cause: expect.stringContaining("no account switched on"),
     });
     expect(dispatched).toEqual([]);
   }),

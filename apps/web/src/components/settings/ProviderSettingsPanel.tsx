@@ -1,4 +1,5 @@
 import { SubagentConservationSettings } from "./SubagentConservationSettings";
+import { ModelPoolsSettings } from "./ModelPoolsSettings";
 import { SettingsGroup } from "./SettingsGroup";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import {
@@ -1174,6 +1175,14 @@ export function EnvironmentProviderSettings({
           </div>
         </SettingsGroup>
       </SettingsSection>
+
+      <ModelPoolsSettings
+        key={`model-pools:${environmentId}`}
+        environmentId={environmentId}
+        pools={settings.modelPools}
+        providers={serverProviders}
+        readOnly={readOnly}
+      />
 
       <UsageProviderSettings
         key={environmentId}

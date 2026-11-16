@@ -1,7 +1,10 @@
 import {
   CommandId,
   isProviderOverloadedFailureCode,
+  isReadOnlyTask,
   MessageId,
+  type ModelPoolConfig,
+  type ModelPoolId,
   type ModelSelection,
   type OrchestrationV2Command,
   type OrchestrationV2ProviderFailure,
@@ -12,6 +15,11 @@ import {
 } from "@t3tools/contracts";
 import { latestRootProviderFailure } from "@t3tools/shared/orchestrationV2ThreadError";
 import { accountStanding, pickPoolFailoverMember } from "@t3tools/shared/providerPools";
+import {
+  adaptModelSelectionForSlot,
+  isSlotUsageExhausted,
+  pickModelPoolFailoverSlot,
+} from "@t3tools/shared/modelPools";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -66,6 +74,8 @@ export const planDelegatedRecovery = Effect.fn("DelegatedTaskRecovery.plan")(fun
   /** Failed runs straight before this one in the thread. */
   readonly priorFailures: number;
   readonly providers: ReadonlyArray<ServerProvider>;
+  readonly modelPools?: Readonly<Record<ModelPoolId, ModelPoolConfig>> | undefined;
+  readonly readOnly?: boolean | undefined;
   readonly nowMs: number;
   /** The global setting, which a pool's own `switchOnLimit` overrides. */
   readonly switchOnLimit: boolean;
@@ -77,8 +87,35 @@ export const planDelegatedRecovery = Effect.fn("DelegatedTaskRecovery.plan")(fun
   // An upstream error on an account a usage read shows out is that account's limit.
   if (
     input.failure.class === "usage_limit" ||
-    (account !== undefined && accountStanding(account, input.nowMs) === "out")
+    (account !== undefined &&
+      (accountStanding(account, input.nowMs) === "out" ||
+        isSlotUsageExhausted(account, selection.model, input.nowMs)))
   ) {
+    if (selection.poolId !== undefined) {
+      const pool = input.modelPools?.[selection.poolId];
+      if (pool !== undefined && (pool.policy?.switchOnLimit ?? input.switchOnLimit)) {
+        const next = pickModelPoolFailoverSlot({
+          pool,
+          providers: input.providers,
+          nowMs: input.nowMs,
+          limited: { instanceId: selection.instanceId, model: selection.model },
+          readOnly: input.readOnly,
+          enforceConservation: true,
+        });
+        if (next !== undefined) {
+          return {
+            type: "failover",
+            selection: adaptModelSelectionForSlot({
+              poolId: selection.poolId,
+              slot: next.slot,
+              providers: input.providers,
+              baseOptions: selection.options,
+            }),
+          } as const;
+        }
+      }
+      return { type: "deliver" } as const;
+    }
     for (const pool of input.providers) {
       if (pool.poolMembers?.includes(selection.instanceId) !== true) continue;
       if (!(pool.poolPolicy?.switchOnLimit ?? input.switchOnLimit)) continue;
@@ -173,13 +210,16 @@ export const makeRecoverDelegatedRun = Effect.gen(function* () {
     const binding = records.thread.agentTask;
     const plan = Effect.gen(function* () {
       const providers = Option.isSome(registry) ? yield* registry.value.getProviders : [];
+      const currentSettings = yield* settings.getSettings;
       return yield* planDelegatedRecovery({
         run,
         failure,
         priorFailures: priorFailures(records.runs, run),
         providers,
+        modelPools: currentSettings.modelPools,
+        readOnly: isReadOnlyTask(binding),
         nowMs: DateTime.toEpochMillis(yield* DateTime.now),
-        switchOnLimit: (yield* settings.getSettings).switchPooledAccountOnLimit,
+        switchOnLimit: currentSettings.switchPooledAccountOnLimit,
         otherModelAvailable: () =>
           Option.isNone(managed) || binding === undefined
             ? Effect.succeed(false)

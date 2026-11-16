@@ -6,6 +6,7 @@ import type {
 } from "@t3tools/contracts";
 import type { ReactElement } from "react";
 
+import { formatModelPoolSummary } from "@t3tools/shared/modelPools";
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { TraitsPicker } from "../chat/TraitsPicker";
@@ -41,14 +42,35 @@ export function PolicyModelPicker(props: {
   const catalogModel = (pickedInstance: ProviderInstanceId, slug: string) => {
     const driver = entries.find((entry) => entry.instanceId === pickedInstance)?.driverKind;
     return props.catalog.find(
-      (candidate) => candidate.binding.driverKind === driver && candidate.binding.model === slug,
+      (candidate) =>
+        candidate.poolId === undefined &&
+        candidate.binding.driverKind === driver &&
+        candidate.binding.model === slug,
     );
   };
+  const pools = props.catalog.flatMap((candidate) =>
+    candidate.poolId === undefined
+      ? []
+      : [
+          {
+            id: candidate.poolId,
+            name: candidate.label,
+            summary: formatModelPoolSummary(settings.modelPools[candidate.poolId]!, providers),
+          },
+        ],
+  );
   return (
     <ProviderModelPicker
       environmentId={props.environmentId}
       activeInstanceId={instanceId}
       model={model}
+      pools={pools}
+      activePoolId={props.binding?.poolId ?? null}
+      onPoolSelect={(poolId) => {
+        const picked = props.catalog.find((candidate) => candidate.poolId === poolId);
+        if (picked !== undefined && props.pickDisabledReason?.(picked) == null)
+          props.onPick(picked);
+      }}
       lockedProvider={null}
       instanceEntries={entries}
       modelOptionsByInstance={options}

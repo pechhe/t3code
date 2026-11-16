@@ -4,7 +4,10 @@ import type { Dispatch } from "react";
 import type { ComposerThreadTarget, DraftSessionState } from "../../composerDraftStore";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { useApplyThreadModelPick } from "./useApplyThreadModelPick";
+import { adaptModelSelectionForSlot, pickModelPoolSlot } from "@t3tools/shared/modelPools";
 import {
+  isModelPoolId,
+  isModelPoolSlotEnabled,
   type EnvironmentId,
   type ModelSelection,
   ProviderInstanceId,
@@ -210,6 +213,47 @@ export function useComposerSelection(input: ComposerSelectionInput) {
     if (options?.focusComposer !== false) scheduleComposerFocus();
   };
   const onProviderModelSelectStable = useStableCallback(onProviderModelSelect);
+
+  // A pool pick names the pool; the server chooses the slot with allowance when each turn runs.
+  const onPoolSelect = (poolId: string) => {
+    if (!activeThread || !isModelPoolId(poolId)) return;
+    const pool = settings.modelPools[poolId];
+    if (pool === undefined) return;
+    const slot =
+      pickModelPoolSlot({ pool, providers: providerStatuses, nowMs: Date.now() })?.slot ??
+      pool.slots.find(isModelPoolSlotEnabled);
+    if (slot === undefined) return;
+    const nextModelSelection = adaptModelSelectionForSlot({
+      poolId,
+      slot,
+      providers: providerStatuses,
+    });
+    const modelChangeBlockReason = getStartedThreadModelChangeBlockReason({
+      hasStartedSession: activeRuntime !== null,
+      supportsProviderSwitchingViaHandoff,
+      currentModelSelection: activeThread.modelSelection,
+      currentProviderInstanceId: activeRuntime?.providerInstanceId ?? null,
+      nextModelSelection,
+    });
+    if (modelChangeBlockReason) {
+      toastManager.add({
+        type: "warning",
+        title: modelChangeBlockReason.title,
+        description: modelChangeBlockReason.description,
+      });
+      scheduleComposerFocus();
+      return;
+    }
+    const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
+    setComposerDraftModelSelection(threadRef, nextModelSelection, {
+      explicit: true,
+      replaceOptions: true,
+    });
+    setStickyComposerModelSelection(nextModelSelection);
+    if (!isLocalDraftThread) applyThreadModelPick(threadRef);
+    scheduleComposerFocus();
+  };
+  const onPoolSelectStable = useStableCallback(onPoolSelect);
   const onEnvModeChange = (mode: DraftThreadEnvMode) => {
     if (multipleModelSelections !== null) return;
     if (canOverrideServerThreadEnvMode) {
@@ -254,6 +298,7 @@ export function useComposerSelection(input: ComposerSelectionInput) {
     handleRuntimeModeChangeStable,
     onEnvModeChangeStable,
     onProviderModelSelectStable,
+    onPoolSelectStable,
     onStartFromOriginChange,
     openProviderSetupStable,
   };

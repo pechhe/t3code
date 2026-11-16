@@ -1105,6 +1105,15 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "model-pools",
+    title: "Model pools",
+    to: "/settings/providers",
+    searchTerms: [
+      "model pool pools accounts allowance order spend lapse reserve switch limit failover pi sub-provider",
+    ],
+    providerSettingsOnly: true,
+  },
+  {
     id: "usage-providers",
     title: "Usage providers",
     to: "/settings/providers",

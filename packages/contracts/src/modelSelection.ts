@@ -4,11 +4,13 @@ import * as SchemaTransformation from "effect/SchemaTransformation";
 
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { ProviderOptionSelections } from "./model.ts";
+import { ModelPoolId } from "./modelPool.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 
 const ModelSelectionWire = Schema.Struct({
   instanceId: ProviderInstanceId,
   model: TrimmedNonEmptyString,
+  poolId: Schema.optionalKey(ModelPoolId),
   options: Schema.optionalKey(ProviderOptionSelections),
 });
 
@@ -16,6 +18,7 @@ const ModelSelectionSource = Schema.Struct({
   provider: Schema.optional(Schema.Unknown),
   instanceId: Schema.optional(Schema.Unknown),
   model: Schema.Unknown,
+  poolId: Schema.optional(Schema.Unknown),
   options: Schema.optional(Schema.Unknown),
 });
 
@@ -34,6 +37,7 @@ export const ModelSelection = ModelSelectionSource.pipe(
           instanceId: instanceIdSource,
           model: raw.model,
         };
+        if (raw.poolId !== undefined) base.poolId = raw.poolId;
         if (raw.options !== undefined) base.options = raw.options;
         return Effect.succeed(base as typeof ModelSelectionWire.Encoded);
       },
@@ -42,6 +46,7 @@ export const ModelSelection = ModelSelectionSource.pipe(
           instanceId: value.instanceId,
           model: value.model,
         };
+        if (value.poolId !== undefined) base.poolId = value.poolId;
         if (value.options !== undefined) base.options = value.options;
         return Effect.succeed(base as typeof ModelSelectionSource.Encoded);
       },

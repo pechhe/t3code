@@ -427,6 +427,7 @@ export function applyServerSettingsPatch(
     backgroundActivity,
     worktreeCleanup: worktreeCleanupPatch,
     // Merged per entry below; its `null` removals must not reach deepMerge.
+    modelPools: modelPoolsPatch,
     usageLimitSources: usageLimitSourcesPatch,
     usageSlotBudgets: usageSlotBudgetsPatch,
     textGenerators: textGeneratorsPatch,
@@ -641,6 +642,9 @@ export function applyServerSettingsPatch(
       : {}),
     ...(patch.defaultProjectScripts !== undefined
       ? { defaultProjectScripts: patch.defaultProjectScripts }
+      : {}),
+    ...(modelPoolsPatch !== undefined
+      ? { modelPools: mergeSettingsEntries(current.modelPools, modelPoolsPatch) }
       : {}),
     ...(usageLimitSourcesPatch !== undefined
       ? {

@@ -10,6 +10,7 @@ import {
   DEFAULT_MODEL,
   DEFAULT_MODEL_BY_PROVIDER,
   defaultInstanceIdForDriver,
+  isModelPoolId,
   EnvironmentId,
   ModelSelection,
   ProjectId,
@@ -1161,6 +1162,17 @@ function normalizeProviderModelOptions(
 }
 
 function normalizeModelSelection(
+  value: unknown,
+  legacy?: Parameters<typeof normalizeModelSelectionFields>[1],
+): NormalizedModelSelection | null {
+  const normalized = normalizeModelSelectionFields(value, legacy);
+  const poolId =
+    value && typeof value === "object" ? (value as Record<string, unknown>).poolId : undefined;
+  // A pool pick keeps its pool, so the server routes the turn to whichever slot has allowance.
+  return normalized !== null && isModelPoolId(poolId) ? { ...normalized, poolId } : normalized;
+}
+
+function normalizeModelSelectionFields(
   value: unknown,
   legacy?: {
     provider?: unknown;
@@ -3384,11 +3396,15 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
 
             const nextMap = { ...base.modelSelectionByProvider };
             const currentForProvider = nextMap[instanceKey];
-            nextMap[instanceKey] = createModelSelection(
+            const nextSelection = createModelSelection(
               instanceKey,
               currentForProvider?.model ?? fallbackModel,
               providerOpts,
             );
+            nextMap[instanceKey] =
+              currentForProvider?.poolId === undefined
+                ? nextSelection
+                : { ...nextSelection, poolId: currentForProvider.poolId };
 
             let nextStickyMap = state.stickyModelSelectionByProvider;
             let nextOptionsByModel = state.stickyOptionsByModelByProvider;

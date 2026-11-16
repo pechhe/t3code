@@ -1,8 +1,17 @@
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
-import { AgentPolicyManifest, ProviderDriverKind, ServerProvider } from "@t3tools/contracts";
 import {
+  AgentPolicyManifest,
+  ModelPoolId,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  ServerProvider,
+} from "@t3tools/contracts";
+import {
+  addEntry,
   catalogModels,
+  listedModels,
+  poolNote,
   councilIssue,
   councilSeating,
   councilMembers,
@@ -309,6 +318,72 @@ describe("delegation settings", () => {
     expect(alias).not.toBe("opus");
     expect(listed.models[alias]!.note).toBe("Strongest; design work");
     expect(setModelNote(noted, "claude-opus", "").models.opus).toEqual(base.models.opus);
+  });
+
+  it("joins a model pool and its listed member slots into one row with one shared note", () => {
+    const poolId = ModelPoolId.make("opus");
+    const modelPools = {
+      [poolId]: {
+        displayName: "Opus 5.5",
+        slots: [
+          { providerInstanceId: ProviderInstanceId.make("pi"), model: "hf/claude-opus" },
+          { providerInstanceId: ProviderInstanceId.make("claude"), model: "claude-opus" },
+        ],
+      },
+    };
+    const base = manifest();
+    // A member slot listed on its own already carries a note; a Pi slot of the pool is listed too.
+    const listedSlot = {
+      ...setModelNote(base, "claude-opus", "Strongest; design work"),
+    };
+    const withPiSlot = addEntry(
+      {
+        ...listedSlot,
+        models: {
+          ...listedSlot.models,
+          "pi-opus": { driverKind: ProviderDriverKind.make("pi"), model: "hf/claude-opus" },
+        },
+      },
+      "workhorse",
+      { model: "pi-opus" },
+    );
+    const pool = catalogModels([provider()], modelPools).find(
+      (candidate) => candidate.poolId === poolId,
+    )!;
+    expect(pool.binding).toMatchObject({ driverKind: "claudeAgent", model: "claude-opus", poolId });
+    const [withPool, poolAlias] = listModel(withPiSlot, "readers", pool, "medium", modelPools);
+    // Forming the pool carries the slot's note forward.
+    expect(withPool.models[poolAlias]!.note).toBe("Strongest; design work");
+    expect(isValid(withPool)).toBe(true);
+
+    const rows = listedModels(withPool, jobsFor(withPool, roleGroups(withPool)), modelPools);
+    const poolRows = rows.filter((row) => row.poolId === poolId);
+    expect(poolRows).toHaveLength(1);
+    expect(poolRows[0]!.alias).toBe(poolAlias);
+    expect(poolRows[0]!.roles).toEqual(
+      expect.arrayContaining(["implementer", "advisor", "browser", "researcher", "scout"]),
+    );
+    expect(rows.some((row) => row.model === "claude-opus" || row.model === "hf/claude-opus")).toBe(
+      false,
+    );
+
+    const renoted = setModelNote(withPool, `pool:${poolId}`, "Use for hard design", modelPools);
+    expect(poolNote(renoted, poolId, modelPools)).toBe("Use for hard design");
+    for (const alias of [poolAlias, "opus", "pi-opus"])
+      expect(renoted.models[alias]!.note).toBe("Use for hard design");
+    expect(renoted.models.haiku!.note).toBeUndefined();
+
+    // Once a second pool also lists the Claude slot, that slot no longer belongs to either pool's note.
+    const twoPools = {
+      ...modelPools,
+      [ModelPoolId.make("claude-only")]: {
+        displayName: "Claude only",
+        slots: [{ providerInstanceId: ProviderInstanceId.make("claude"), model: "claude-opus" }],
+      },
+    };
+    const scoped = setModelNote(withPool, `pool:${poolId}`, "Pool note", twoPools);
+    expect(scoped.models.opus!.note).toBe("Strongest; design work");
+    expect(scoped.models["pi-opus"]!.note).toBe("Pool note");
   });
 
   it("turns fast on and off for a model without leaving an empty options map", () => {

@@ -1,6 +1,8 @@
 import {
   CommandId,
   MessageId,
+  type ModelPoolConfig,
+  type ModelPoolId,
   type OrchestrationV2Command,
   type RunId,
   type ServerProvider,
@@ -12,6 +14,7 @@ import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import { pickPoolFailoverMember } from "@t3tools/shared/providerPools";
+import { adaptModelSelectionForSlot, pickModelPoolFailoverSlot } from "@t3tools/shared/modelPools";
 import * as Stream from "effect/Stream";
 import type { OrchestrationV2DomainEvent } from "@t3tools/contracts";
 import * as DueHint from "../scheduling/DueHint.ts";
@@ -52,8 +55,43 @@ export function poolFailoverCommand(
   providers: ReadonlyArray<ServerProvider>,
   nowMs: number,
   switchOnLimit: boolean,
+  modelPools?: Readonly<Record<ModelPoolId, ModelPoolConfig>>,
 ): OrchestrationV2Command | null {
   if (!isLimitBlocked(thread) || Date.parse(thread.usageLimitResetAt) <= nowMs) return null;
+  if (thread.modelSelection.poolId !== undefined) {
+    const pool = modelPools?.[thread.modelSelection.poolId];
+    if (pool === undefined || pool.enabled === false) return null;
+    if (!(pool.policy?.switchOnLimit ?? switchOnLimit)) return null;
+    const next = pickModelPoolFailoverSlot({
+      pool,
+      providers,
+      nowMs,
+      limited: {
+        instanceId: thread.modelSelection.instanceId,
+        model: thread.modelSelection.model,
+      },
+    });
+    if (next === undefined) return null;
+    const identity = `limit-pool-switch:${thread.id}:${thread.latestRunId}`;
+    return {
+      type: "message.dispatch",
+      commandId: CommandId.make(identity),
+      messageId: MessageId.make(identity),
+      threadId: thread.id,
+      manualContinuationOfRunId: thread.latestRunId,
+      modelSelection: adaptModelSelectionForSlot({
+        poolId: thread.modelSelection.poolId,
+        slot: next.slot,
+        providers,
+        baseOptions: thread.modelSelection.options,
+      }),
+      text: CONTINUE_TEXT,
+      attachments: [],
+      dispatchMode: { type: "start_immediately" },
+      createdBy: "user",
+      creationSource: "server",
+    };
+  }
   const limited = thread.modelSelection.instanceId;
   for (const pool of providers) {
     if (pool.poolMembers?.includes(limited) !== true) continue;
@@ -152,8 +190,15 @@ export function limitRecoveryCommand(
 export function wantsPoolSwitch(
   globalSwitch: boolean,
   providers: ReadonlyArray<ServerProvider>,
+  modelPools?: Readonly<Record<ModelPoolId, ModelPoolConfig>>,
 ): boolean {
-  return globalSwitch || providers.some((provider) => provider.poolPolicy?.switchOnLimit === true);
+  return (
+    globalSwitch ||
+    providers.some((provider) => provider.poolPolicy?.switchOnLimit === true) ||
+    Object.values(modelPools ?? {}).some(
+      (pool) => pool.enabled !== false && pool.policy?.switchOnLimit === true,
+    )
+  );
 }
 
 /**
@@ -164,6 +209,7 @@ export function wantsPoolSwitch(
 export function nextRecoveryCommand(input: {
   readonly thread: ProjectionStore.ProjectionLimitRecoveryCandidate;
   readonly providers: ReadonlyArray<ServerProvider> | null;
+  readonly modelPools?: Readonly<Record<ModelPoolId, ModelPoolConfig>> | undefined;
   /** The global setting, which a pool's own `switchOnLimit` overrides. */
   readonly switchOnLimit: boolean;
   readonly nowMs: number;
@@ -174,7 +220,13 @@ export function nextRecoveryCommand(input: {
   const poolSwitch =
     input.providers === null
       ? null
-      : poolFailoverCommand(input.thread, input.providers, input.nowMs, input.switchOnLimit);
+      : poolFailoverCommand(
+          input.thread,
+          input.providers,
+          input.nowMs,
+          input.switchOnLimit,
+          input.modelPools,
+        );
   const command =
     poolSwitch !== null && !input.rejected.has(poolSwitch.commandId)
       ? poolSwitch
@@ -223,7 +275,7 @@ const makeSweep = Effect.gen(function* () {
       : [];
     const poolSwitch =
       Option.isSome(providerRegistry) &&
-      wantsPoolSwitch(preferences.switchPooledAccountOnLimit, registered);
+      wantsPoolSwitch(preferences.switchPooledAccountOnLimit, registered, preferences.modelPools);
     const candidates = yield* projections.getLimitRecoveryCandidates({
       now,
       autoResume: preferences.autoResumeLimitedThreads,
@@ -236,6 +288,7 @@ const makeSweep = Effect.gen(function* () {
       const command = nextRecoveryCommand({
         thread,
         providers,
+        modelPools: preferences.modelPools,
         switchOnLimit: preferences.switchPooledAccountOnLimit,
         nowMs,
         autoResume: preferences.autoResumeLimitedThreads,

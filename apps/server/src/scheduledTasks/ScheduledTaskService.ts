@@ -546,7 +546,11 @@ export const layer = Layer.effect(
         const resolved = result.roles.find((entry) => entry.role === role);
         if (resolved?.selection == null && resolved?.refusal?.startsWith("conservation:"))
           return yield* taskError(resolved.refusal);
-        return resolved?.selection ?? null;
+        if (resolved?.selection == null) return null;
+        // The role placed this run on a pool slot under conservation; a pool id would let
+        // thread creation place it again without that rule.
+        const { poolId: _placed, ...selection } = resolved.selection;
+        return selection;
       },
       (effect, role) =>
         effect.pipe(

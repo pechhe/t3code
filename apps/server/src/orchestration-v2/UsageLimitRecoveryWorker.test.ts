@@ -1,4 +1,9 @@
-import { ProviderDriverKind, ProviderInstanceId, type ServerProvider } from "@t3tools/contracts";
+import {
+  ModelPoolId,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  type ServerProvider,
+} from "@t3tools/contracts";
 import {
   nextRecoveryCommand,
   poolFailoverCommand,
@@ -236,6 +241,69 @@ describe("poolFailoverCommand", () => {
         NOW,
         true,
       ),
+    );
+  });
+});
+
+describe("poolFailoverCommand on a model pool", () => {
+  const poolId = ModelPoolId.make("opus");
+  const withModels = (provider: ServerProvider, models: ReadonlyArray<string>) =>
+    ({
+      ...provider,
+      models: models.map((slug) => ({ slug, name: slug, isCustom: false, capabilities: null })),
+    }) as ServerProvider;
+  const pi = withModels(
+    {
+      ...account("pi", 0, 1),
+      driver: ProviderDriverKind.make("pi"),
+      usageLimits: undefined,
+      usageSlots: [
+        {
+          accountKey: "hf",
+          label: "hf",
+          usageLimits: {
+            checkedAt: hoursFromNow(0),
+            windows: [
+              { id: "s", kind: "session", label: "S", usedPercent: 100, resetsAt: hoursFromNow(3) },
+            ],
+          },
+        },
+      ],
+    } as unknown as ServerProvider,
+    ["hf/opus", "ys/opus"],
+  );
+  const slots = [
+    { providerInstanceId: ProviderInstanceId.make("pi"), model: "hf/opus" },
+    { providerInstanceId: ProviderInstanceId.make("pi"), model: "ys/opus" },
+  ];
+  const opus = { displayName: "Opus", slots };
+  const modelPools = { [poolId]: opus };
+  const onPool = limitedThread({
+    modelSelection: { instanceId: ProviderInstanceId.make("pi"), model: "hf/opus", poolId },
+  });
+
+  it("continues on the next slot of the same instance, keeping the pool", () => {
+    const command = poolFailoverCommand(onPool, [pi], NOW, true, modelPools);
+    assert.equal(command?.type, "message.dispatch");
+    if (command?.type !== "message.dispatch") return;
+    assert.deepEqual(command.modelSelection, {
+      instanceId: ProviderInstanceId.make("pi"),
+      model: "ys/opus",
+      poolId,
+    });
+    assert.equal(command.manualContinuationOfRunId, "run-1");
+  });
+
+  it("waits for the reset when the pool does not switch or no slot has allowance", () => {
+    assert.isNull(
+      poolFailoverCommand(onPool, [pi], NOW, true, {
+        [poolId]: { ...opus, policy: { switchOnLimit: false } },
+      }),
+    );
+    assert.isNull(
+      poolFailoverCommand(onPool, [pi], NOW, true, {
+        [poolId]: { ...opus, slots: [slots[0]!] },
+      }),
     );
   });
 });

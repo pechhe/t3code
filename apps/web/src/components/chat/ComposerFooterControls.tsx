@@ -273,11 +273,13 @@ export function ComposerModelPicker({
   onMultipleModelSelectionsChange,
   selectedModelSelection,
   onProviderModelSelect,
+  onPoolSelect,
   ...pickerProps
 }: Omit<
   ComponentProps<typeof ProviderModelPicker>,
-  "selectedModels" | "onToggleModel" | "onInstanceModelChange"
+  "selectedModels" | "onToggleModel" | "onInstanceModelChange" | "onPoolSelect"
 > & {
+  readonly onPoolSelect?: ((poolId: string) => void) | undefined;
   readonly multipleModelsEnabled: boolean;
   readonly multipleModelSelections: ReadonlyArray<ModelSelection> | null;
   readonly onMultipleModelSelectionsChange: (
@@ -332,6 +334,14 @@ export function ComposerModelPicker({
         onMultipleModelSelectionsChange(null);
         onProviderModelSelect(instanceId, model);
       }}
+      {...(onPoolSelect
+        ? {
+            onPoolSelect: (poolId: string) => {
+              onMultipleModelSelectionsChange(null);
+              onPoolSelect(poolId);
+            },
+          }
+        : {})}
     />
   );
 }

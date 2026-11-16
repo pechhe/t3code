@@ -31,7 +31,7 @@ export const limitPercentOf = (pool: Pick<ProviderPool, "policy">): number =>
   pool.policy?.reservePercent ?? 100;
 
 /** Whether the provider can take a turn now, ignoring usage limits. */
-const isProviderRoutable = (provider: ServerProvider): boolean =>
+export const isProviderRoutable = (provider: ServerProvider): boolean =>
   provider.enabled &&
   provider.installed &&
   provider.availability !== "unavailable" &&
@@ -58,7 +58,7 @@ export const isProviderUsageExhausted = (
 export const USAGE_REFRESH_STALE_MS = 60_000;
 
 /** A window this used is close enough to its limit for a stale reading to hide exhaustion. */
-const USAGE_REFRESH_NEAR_LIMIT_PERCENT = 95;
+export const USAGE_REFRESH_NEAR_LIMIT_PERCENT = 95;
 
 /**
  * Whether a turn about to use this account should re-read its usage first:
@@ -102,11 +102,10 @@ const isBehindPace = (window: ServerProviderUsageWindow, nowMs: number): boolean
  * windows), by the soonest reset that loses it. Tier 1: every weekly window is on or ahead of
  * pace, so nothing lapses; the soonest weekly reset only says which refills first.
  */
-const spendUrgency = (
-  provider: ServerProvider,
+export const windowsSpendUrgency = (
+  windows: ReadonlyArray<ServerProviderUsageWindow>,
   nowMs: number,
 ): { readonly tier: number; readonly deadlineMs: number } => {
-  const windows = provider.usageLimits?.windows ?? [];
   if (windows.length === 0) return { tier: 1, deadlineMs: Number.POSITIVE_INFINITY };
   const banked = windows.filter((window) => window.kind !== "session");
   if (banked.length === 0) return { tier: 0, deadlineMs: soonestResetMs(windows, nowMs) };
@@ -116,14 +115,20 @@ const spendUrgency = (
   return { tier: 0, deadlineMs: soonestResetMs([...sessions, ...behind], nowMs) };
 };
 
-/** When an exhausted account can take a turn again: its last blocking window's reset. */
-export const usableAgainMs = (
+const spendUrgency = (
   provider: ServerProvider,
+  nowMs: number,
+): { readonly tier: number; readonly deadlineMs: number } =>
+  windowsSpendUrgency(provider.usageLimits?.windows ?? [], nowMs);
+
+/** When an exhausted window list can take a turn again: its last blocking window's reset. */
+export const windowsUsableAgainMs = (
+  windows: ReadonlyArray<ServerProviderUsageWindow>,
   nowMs: number,
   limitPercent = 100,
 ): number => {
   let latest = nowMs;
-  for (const window of provider.usageLimits?.windows ?? []) {
+  for (const window of windows) {
     if (window.usedPercent < limitPercent) continue;
     const resetMs =
       window.resetsAt === undefined ? Number.POSITIVE_INFINITY : Date.parse(window.resetsAt);
@@ -131,6 +136,13 @@ export const usableAgainMs = (
   }
   return latest;
 };
+
+/** When an exhausted account can take a turn again: its last blocking window's reset. */
+export const usableAgainMs = (
+  provider: ServerProvider,
+  nowMs: number,
+  limitPercent = 100,
+): number => windowsUsableAgainMs(provider.usageLimits?.windows ?? [], nowMs, limitPercent);
 
 /** Whether an account has any usage reading to rank it by. */
 const hasUsageReading = (provider: ServerProvider): boolean =>
