@@ -46,6 +46,7 @@ it.effect(
       for (const eventType of [
         "message.updated",
         "node.updated",
+        "provider-session.updated",
         "thread.pull-request-link-updated",
       ]) {
         yield* sql`
@@ -61,6 +62,13 @@ it.effect(
         FROM numbers
       `;
       }
+      yield* sql`
+        INSERT INTO orchestration_events (
+          event_id, aggregate_kind, stream_id, stream_version, event_type,
+          occurred_at, actor_kind, payload_json, metadata_json, application_event_version
+        ) VALUES ('other-session', 'thread', 'provider-session.updated', 56,
+          'provider-session.updated', 'now', 'server', '{"id":"other"}', '{}', 2)
+      `;
       yield* sql`
       INSERT INTO orchestration_v2_legacy_imports (
         thread_id, source_updated_at, shell_imported_at, transcript_imported_at,
@@ -93,7 +101,7 @@ it.effect(
         plan.map((row) => row.detail).join("\n"),
       );
       const result = yield* maintenance.pruneEventStore();
-      assert.equal(result.deletedEventCount, 161);
+      assert.equal(result.deletedEventCount, 214);
       const retained = yield* sql<{ event_id: string }>`SELECT event_id FROM orchestration_events`;
       assert.sameMembers(
         retained.map((row) => row.event_id),
@@ -103,6 +111,9 @@ it.effect(
           "message.updated-55",
           "node.updated-1",
           "node.updated-55",
+          "provider-session.updated-1",
+          "provider-session.updated-55",
+          "other-session",
           "thread.pull-request-link-updated-1",
           "thread.pull-request-link-updated-55",
           "pending",

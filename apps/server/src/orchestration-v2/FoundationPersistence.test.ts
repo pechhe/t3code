@@ -1315,7 +1315,7 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
     }),
   );
 
-  it.effect("replays shared provider-session payloads across every bound thread", () =>
+  it.effect("compacts and replays shared provider-session payloads across every bound thread", () =>
     Effect.gen(function* () {
       const eventSink = yield* EventSink.EventSinkV2;
       const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
@@ -1337,6 +1337,8 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
         lastError: null,
       };
       const secondSession = { ...firstSession, cwd: "/workspace/second" };
+      const compaction = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
+      const sql = yield* SqlClient.SqlClient;
 
       yield* eventSink.write({
         events: [
@@ -1371,12 +1373,64 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
         ],
       });
 
+      yield* eventSink.write({
+        events: Array.from({ length: 55 }, (_, index) => ({
+          id: EventId.make(`event:foundation-shared-session:update:${index}`),
+          type: "provider-session.updated" as const,
+          threadId: index % 2 === 0 ? firstThreadId : secondThreadId,
+          driver: providerDriver,
+          providerInstanceId,
+          occurredAt: now,
+          payload: { ...secondSession, cwd: `/workspace/update-${index}` },
+        })),
+      });
+      yield* eventSink.write({
+        events: [
+          {
+            id: EventId.make("event:foundation-shared-session:detach"),
+            type: "provider-session.detached",
+            threadId: secondThreadId,
+            occurredAt: now,
+            payload: { providerSessionId, detachedAt: now },
+          },
+        ],
+      });
+      yield* sql`
+        UPDATE orchestration_events
+        SET command_id = 'command:shared-session'
+        WHERE event_id = 'event:foundation-shared-session:update:25'
+      `;
+      const before = yield* Effect.all([
+        projectionStore.getThreadProjection(firstThreadId),
+        projectionStore.getThreadProjection(secondThreadId),
+      ]);
+      assert.equal(before[0].providerSessions[0]?.cwd, "/workspace/update-54");
+      assert.lengthOf(before[1].providerSessions, 0);
+      assert.isAtLeast((yield* compaction.pruneEventStore()).deletedEventCount, 50);
+      assert.equal((yield* compaction.pruneEventStore()).deletedEventCount, 0);
+      const retained = yield* sql<{ event_id: string }>`
+        SELECT event_id FROM orchestration_events
+        WHERE event_type = 'provider-session.updated'
+          AND stream_id IN (${firstThreadId}, ${secondThreadId})
+      `;
+      assert.sameMembers(
+        retained.map((row) => row.event_id),
+        [0, 1, 25, 53, 54].map((index) => `event:foundation-shared-session:update:${index}`),
+      );
       assert.equal(
-        (yield* projectionStore.getThreadProjection(firstThreadId)).providerSessions[0]?.cwd,
-        secondSession.cwd,
+        (yield* sql`SELECT 1 FROM orchestration_events WHERE command_id = 'command:shared-session'`)
+          .length,
+        1,
       );
       assert.isTrue((yield* maintenance.verify).valid);
       assert.isTrue((yield* maintenance.rebuild).valid);
+      assert.deepEqual(
+        yield* Effect.all([
+          projectionStore.getThreadProjection(firstThreadId),
+          projectionStore.getThreadProjection(secondThreadId),
+        ]),
+        before,
+      );
     }),
   );
 

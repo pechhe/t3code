@@ -115,6 +115,7 @@ describe("V2 preview upgrade", () => {
         [133, "AuthConnectDevices"],
         [134, "AuthConnectDeniedRequests"],
         [135, "WorkspaceCustodyStopIdentities"],
+        [136, "ProviderSessionEventCompaction"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -273,6 +274,7 @@ describe("V2 preview upgrade", () => {
         [133, "AuthConnectDevices"],
         [134, "AuthConnectDeniedRequests"],
         [135, "WorkspaceCustodyStopIdentities"],
+        [136, "ProviderSessionEventCompaction"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );

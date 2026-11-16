@@ -335,7 +335,7 @@ export const layer: Layer.Layer<ProjectionMaintenanceV2, never, SqlClient.SqlCli
             event.event_type,
             CASE
               WHEN event.application_event_version = 2
-                AND event.event_type IN ('message.updated', 'node.updated', 'turn-item.updated', 'provider-turn.updated')
+                AND event.event_type IN ('message.updated', 'node.updated', 'turn-item.updated', 'provider-turn.updated', 'provider-session.updated')
               THEN json_extract(event.payload_json, '$.id')
               WHEN event.application_event_version = 2
                 AND event.event_type = 'thread.pull-request-link-updated'
@@ -367,7 +367,7 @@ export const layer: Layer.Layer<ProjectionMaintenanceV2, never, SqlClient.SqlCli
             length(event.payload_json) AS payload_length,
             CASE
               WHEN event.command_id IS NOT NULL
-                AND event.event_type IN ('message.updated', 'turn-item.updated', 'provider-turn.updated') THEN 1
+                AND event.event_type IN ('message.updated', 'turn-item.updated', 'provider-turn.updated', 'provider-session.updated') THEN 1
               WHEN event.event_type = 'turn-item.updated'
                 AND json_extract(event.payload_json, '$.type') = 'subagent' THEN 1
               ELSE 0 END AS protected_intermediate,
@@ -434,7 +434,8 @@ export const layer: Layer.Layer<ProjectionMaintenanceV2, never, SqlClient.SqlCli
               row.event_type === "message.updated" ||
               row.event_type === "node.updated" ||
               row.event_type === "turn-item.updated" ||
-              row.event_type === "provider-turn.updated"
+              row.event_type === "provider-turn.updated" ||
+              row.event_type === "provider-session.updated"
             ) {
               const key = encodeEntityKey([row.event_type, row.stream_id, row.entity_id]);
               const keepUsage = row.has_provider_usage === 1 && !retainedProviderUsageKeys.has(key);
