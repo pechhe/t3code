@@ -211,6 +211,7 @@ it.effect(
         ProjectionStore.ProjectionStoreV2,
         ProjectionStore.ProjectionStoreV2.of({
           apply: () => Effect.void,
+          getSubagent: () => Effect.die("unused getSubagent"),
           hasPendingBlockingAdvice: () => Effect.succeed(false),
           getManagedChildContinuations: () => Effect.succeed([]),
           listArcRunThreads: () => Effect.die("unused listArcRunThreads"),

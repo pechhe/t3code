@@ -12,6 +12,7 @@ export const layerNonSlipJay = Layer.succeed(Custody.RunWorkspaceCustody, {
   settle: () => Effect.void,
   endAdmission: () => Effect.void,
   recover: () => Effect.void,
+  reconcileDeliveries: Effect.void,
 });
 
 /** Delivery and watch fixtures model named checkouts without creating host-level paths. */

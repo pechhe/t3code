@@ -1502,6 +1502,13 @@ export const OrchestrationV2Subagent = Schema.Struct({
 });
 export type OrchestrationV2Subagent = typeof OrchestrationV2Subagent.Type;
 
+export function isOrchestrationV2DeliverySettled(
+  task: Pick<OrchestrationV2Subagent, "completionDelivery">,
+): boolean {
+  const state = task.completionDelivery?.state;
+  return state === "delivered" || state === "acknowledged" || state === "disposed";
+}
+
 export function isOrchestrationV2WorkActive(
   status: OrchestrationV2ExecutionNode["status"],
 ): boolean {

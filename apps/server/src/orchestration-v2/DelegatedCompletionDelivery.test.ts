@@ -1,4 +1,11 @@
 import { layerNonSlipJay, layerSyntheticWorkspaces } from "./testkit/runWorkspaceCustody.ts";
+import * as RunCustody from "./RunWorkspaceCustody.ts";
+import * as CustodyJournal from "../persistence/WorkspaceCustody.ts";
+import * as WorkspaceCustody from "../workspace/WorkspaceCustody.ts";
+import * as Workspaces from "../project/WorkspaceProvider.ts";
+import { fixture as custodyFixture } from "../workspace/workspaceCustody.testkit.ts";
+import * as FileSystem from "effect/FileSystem";
+import * as Ref from "effect/Ref";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import * as Exit from "effect/Exit";
 import * as EffectOutbox from "./EffectOutbox.ts";
@@ -128,58 +135,62 @@ const layerTestProviderInstanceRegistry = Layer.succeed(
   },
 );
 
-const layerTest = Layer.mergeAll(
-  RuntimeLayer.layerWithCustody(layerNonSlipJay),
-  RuntimeLayer.layerEventSink,
-  EffectOutbox.layer,
-  ThreadCommandExecutor.layer,
-  EffectOutbox.layer,
-).pipe(
-  Layer.provideMerge(RuntimeLayer.layerProjectService),
-  Layer.provide(
-    Layer.mock(WorkspacePaths.WorkspacePaths)({
-      normalizeWorkspaceRoot: (workspaceRoot) => Effect.succeed(workspaceRoot),
-    }),
-  ),
-  Layer.provide(ProviderTurnStartServiceTestkit.layer),
-  Layer.provide(
-    Layer.succeed(ProjectEnrichmentService.ProjectEnrichmentService, {
-      peek: () =>
-        Effect.succeed({
-          repositoryIdentity: null,
-          faviconPath: null,
-          repositoryIdentityResolved: false,
-        }),
-      request: () => Effect.void,
-      readRepositoryIdentity: () => Effect.succeed(null),
-      getAvailable: () =>
-        Effect.succeed({
-          repositoryIdentity: null,
-          faviconPath: null,
-          repositoryIdentityResolved: false,
-        }),
-      invalidate: () => Effect.void,
-      refreshRepositoryIdentity: () => Effect.void,
-      subscribeChanges: Effect.never,
-    }),
-  ),
-  Layer.provide(McpSessionRegistryTestkit.layer),
-  Layer.provide(McpProviderSessions.layer),
-  Layer.provide(SqlitePersistence.layerMemory),
-  Layer.provide(layerCheckpointStoreTest),
-  Layer.provide(layerServerConfig),
-  Layer.provideMerge(
-    Layer.mock(ManagedAgent.ManagedAgentService)({
-      validate: (input) =>
-        Effect.sync(() => {
-          assert.equal(input.binding.sourceRevision, "revision-two");
-        }),
-    }),
-  ),
-  Layer.provideMerge(ServerSettings.layerTest()),
-  Layer.provide(layerTestProviderInstanceRegistry),
-  Layer.provide(layerPlatformTest),
-);
+const layerTestWithCustody = (custodyLayer: Parameters<typeof RuntimeLayer.layerWithCustody>[0]) =>
+  Layer.mergeAll(
+    RuntimeLayer.layerWithCustody(custodyLayer),
+    RuntimeLayer.layerEventSink,
+    EffectOutbox.layer,
+    ThreadCommandExecutor.layer,
+    EffectOutbox.layer,
+  ).pipe(
+    Layer.provideMerge(RuntimeLayer.layerProjectService),
+    Layer.provide(
+      Layer.mock(WorkspacePaths.WorkspacePaths)({
+        normalizeWorkspaceRoot: (workspaceRoot) => Effect.succeed(workspaceRoot),
+      }),
+    ),
+    Layer.provide(ProviderTurnStartServiceTestkit.layer),
+    Layer.provide(
+      Layer.succeed(ProjectEnrichmentService.ProjectEnrichmentService, {
+        peek: () =>
+          Effect.succeed({
+            repositoryIdentity: null,
+            faviconPath: null,
+            repositoryIdentityResolved: false,
+          }),
+        request: () => Effect.void,
+        readRepositoryIdentity: () => Effect.succeed(null),
+        getAvailable: () =>
+          Effect.succeed({
+            repositoryIdentity: null,
+            faviconPath: null,
+            repositoryIdentityResolved: false,
+          }),
+        invalidate: () => Effect.void,
+        refreshRepositoryIdentity: () => Effect.void,
+        subscribeChanges: Effect.never,
+      }),
+    ),
+    Layer.provide(McpSessionRegistryTestkit.layer),
+    Layer.provide(McpProviderSessions.layer),
+    Layer.provide(SqlitePersistence.layerMemory),
+    Layer.provide(layerCheckpointStoreTest),
+    Layer.provide(layerServerConfig),
+    Layer.provideMerge(
+      Layer.mock(ManagedAgent.ManagedAgentService)({
+        repositoryRoots: () => Effect.succeed([]),
+        validate: (input) =>
+          Effect.sync(() => {
+            assert.equal(input.binding.sourceRevision, "revision-two");
+          }),
+      }),
+    ),
+    Layer.provideMerge(ServerSettings.layerTest()),
+    Layer.provide(layerTestProviderInstanceRegistry),
+    Layer.provide(layerPlatformTest),
+  );
+
+const layerTest = layerTestWithCustody(layerNonSlipJay);
 
 // ProviderContinuationService consumes the orchestrator's continuation queue, as in production.
 const layerContinuationWorkerTest = ProviderContinuationService.layer.pipe(
@@ -194,6 +205,7 @@ const seedParentWithTerminalTask = (input: {
   readonly rootNodeId: NodeId;
   readonly taskId: NodeId;
   readonly deliveryState: "pending" | "delivered" | "claimed" | "acknowledged" | "disposed";
+  readonly workspaceRoot?: string;
   readonly completionWake?: "always" | "settled_only";
   readonly deliveryTaskIds?: ReadonlyArray<NodeId>;
   readonly parentRunStatus?: "running" | "completed";
@@ -215,7 +227,7 @@ const seedParentWithTerminalTask = (input: {
       commandId: CommandId.make(`command:seed-project:${input.threadId}`),
       projectId: input.projectId,
       title: "Delegated completion delivery",
-      workspaceRoot: `/workspace/${input.projectId}`,
+      workspaceRoot: input.workspaceRoot ?? `/workspace/${input.projectId}`,
     });
 
     yield* orchestrator.dispatch({
@@ -1641,6 +1653,227 @@ const seedDelegatedChild = (input: {
     });
     return { taskId, childThreadId, run: run.payload };
   });
+
+it.effect.each(["accept", "finalize", "cancelled", "restart"] as const)(
+  "settles only consumed delegated delivery custody through %s and restart",
+  (route) =>
+    Effect.gen(function* () {
+      const f = yield* custodyFixture;
+      const custodyLayer = RunCustody.layer.pipe(
+        Layer.provide(f.layer),
+        Layer.provide(
+          Layer.mock(Workspaces.WorkspaceProvider)({ resolve: () => Effect.succeed("slipjay") }),
+        ),
+        Layer.provide(NodeServices.layer),
+        Layer.orDie,
+      );
+      yield* Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const sink = yield* EventSink.EventSinkV2;
+        const custody = yield* RunCustody.RunWorkspaceCustody;
+        const journal = yield* CustodyJournal.WorkspaceCustody;
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* fs.realPath(yield* fs.makeTempDirectoryScoped());
+        const now = yield* DateTime.now;
+        const threadId = ThreadId.make(`custody-${route}`);
+        const runId = RunId.make(`custody-parent-${route}`);
+        const taskId = NodeId.make(`node:custody-task-${route}`);
+        const owner = `delivery:${taskId}`;
+        yield* seedParentWithTerminalTask({
+          threadId,
+          runId,
+          taskId: NodeId.make(`custody-earlier-task-${route}`),
+          now,
+          projectId: ProjectId.make(`custody-project-${route}`),
+          rootNodeId: NodeId.make(`custody-root-${route}`),
+          workspaceRoot: root,
+          deliveryState: "delivered",
+          parentRunStatus: "completed",
+        });
+        const child = yield* seedDelegatedChild({
+          parentThreadId: threadId,
+          projectId: ProjectId.make(`custody-project-${route}`),
+          parentRunId: runId,
+          parentNodeId: NodeId.make(`custody-root-${route}`),
+          name: `custody-task-${route}`,
+          now,
+        });
+        yield* custody.admit({
+          runId: owner,
+          projectRoot: root,
+          workspacePath: root,
+          admissionId: "child-start",
+        });
+        yield* custody.register(owner, { id: "delivery", kind: "delivery" });
+        yield* custody.acknowledge(owner, "admission", `delivery-registered:${taskId}`);
+        yield* sink.write({
+          events: [
+            {
+              id: EventId.make(`custody-child-ended-${route}`),
+              type: "run.updated",
+              threadId: child.childThreadId,
+              runId: child.run.id,
+              occurredAt: now,
+              payload: { ...child.run, status: "completed", completedAt: now },
+            },
+          ],
+        });
+        yield* orchestrator.recoverDelegatedTasks;
+        const projection = yield* orchestrator.getThreadProjection(threadId);
+        const task = projection.subagents.find((task) => task.id === taskId)!;
+        assert.equal(task.status, "completed");
+        assert.equal(task.completionDelivery?.state, "claimed");
+        const delivery = projection.runs.find((run) => run.id === runId)!.delegatedCompletion!
+          .delivery!;
+        const messageId = delivery.messageId;
+        const wakeId = route === "accept" ? runId : RunId.make(`custody-wake-${route}`);
+        yield* sink.write({
+          events: [
+            {
+              id: EventId.make(`custody-message-${route}`),
+              type: "message.updated",
+              threadId,
+              runId: wakeId,
+              occurredAt: now,
+              payload: {
+                id: messageId,
+                threadId,
+                runId: wakeId,
+                nodeId: null,
+                role: "user",
+                text: "Child finished",
+                attachments: [],
+                streaming: false,
+                createdBy: "agent",
+                creationSource: "server",
+                createdAt: now,
+                updatedAt: now,
+                delegatedCompletion: {
+                  parentRunId: runId,
+                  generation: delivery.generation,
+                  taskIds: [taskId],
+                },
+              },
+            },
+            ...(route === "accept"
+              ? []
+              : [
+                  runEvent({
+                    threadId,
+                    runId: wakeId,
+                    ordinal: 2,
+                    status: route === "cancelled" ? "cancelled" : "completed",
+                    now,
+                    userMessageId: messageId,
+                  }),
+                ]),
+          ],
+        });
+        if (route === "accept") {
+          yield* orchestrator.dispatch({
+            type: "notification.delivery.accept",
+            commandId: CommandId.make("custody-accept"),
+            threadId,
+            messageId,
+          });
+        } else if (route === "restart") {
+          // The delivery committed, but the server died before publishing custody settlement.
+          yield* sink.write({
+            events: [
+              {
+                id: EventId.make("custody-missed-settlement"),
+                type: "subagent.updated",
+                threadId,
+                occurredAt: now,
+                payload: {
+                  ...task,
+                  completionDelivery: { state: "delivered", observedByRunId: null },
+                },
+              },
+            ],
+          });
+        } else {
+          if (route === "cancelled") {
+            const parent = projection.runs[0]!;
+            yield* sink.write({
+              events: [
+                {
+                  id: EventId.make("custody-stopped-cohort"),
+                  type: "run.updated",
+                  threadId,
+                  runId,
+                  occurredAt: now,
+                  payload: {
+                    ...parent,
+                    delegatedCompletion: { ...parent.delegatedCompletion!, disposition: "stopped" },
+                  },
+                },
+              ],
+            });
+          }
+          yield* orchestrator.recoverDelegatedTasks;
+        }
+        if (route !== "restart") {
+          assert.equal(
+            (yield* journal.list)[0]!.phase,
+            route === "cancelled" ? "open" : "released",
+          );
+        }
+        yield* Ref.set(f.controllerStart, "after-restart");
+        yield* orchestrator.recoverDelegatedTasks;
+        if (route === "restart") {
+          assert.equal((yield* journal.list)[0]!.phase, "closing");
+          assert.equal(yield* Ref.get(f.releases), 0);
+        }
+        yield* (yield* WorkspaceCustody.WorkspaceCustody).reconcile;
+        const remaining = (yield* journal.list)[0]!;
+        assert.equal(remaining.phase, route === "cancelled" ? "recovery-required" : "released");
+        assert.equal(yield* Ref.get(f.releases), route === "cancelled" ? 0 : 1);
+        const after = yield* orchestrator.getThreadProjection(threadId);
+        assert.equal(
+          after.subagents.find((task) => task.id === taskId)!.completionDelivery?.state,
+          route === "cancelled" ? "pending" : "delivered",
+        );
+        if (route === "accept") {
+          const followupMessageId = MessageId.make("custody-followup");
+          yield* orchestrator.dispatch({
+            type: "message.dispatch",
+            createdBy: "agent",
+            creationSource: "mcp",
+            commandId: CommandId.make("custody-followup"),
+            threadId: child.childThreadId,
+            senderThreadId: threadId,
+            messageId: followupMessageId,
+            text: "Continue the task.",
+            attachments: [],
+            dispatchMode: { type: "queue_after_active" },
+            followupSourceRevision: "revision-two",
+          });
+          const followup = (yield* orchestrator.getThreadProjection(child.childThreadId)).runs.find(
+            (run) => run.userMessageId === followupMessageId,
+          )!;
+          assert.notEqual(followup.delegatedTaskId, taskId);
+          const claims = yield* journal.list;
+          assert.isTrue(
+            claims.some(
+              (epoch) =>
+                epoch.phase === "open" &&
+                epoch.ownerRef.startsWith(`run:${followup.id}:workspace:`),
+            ),
+          );
+          assert.isTrue(
+            claims.some(
+              (epoch) =>
+                epoch.phase === "open" &&
+                epoch.ownerRef.startsWith(`run:delivery:${followup.delegatedTaskId}:workspace:`),
+            ),
+          );
+        }
+      }).pipe(
+        Effect.provide(Layer.mergeAll(layerTestWithCustody(custodyLayer), custodyLayer, f.layer)),
+      );
+    }),
+);
 
 const rosterEvent = (input: {
   readonly childThreadId: ThreadId;

@@ -36,6 +36,7 @@ import {
   type GuestMessageId,
   isCompactionCommandMessage,
   isOrchestrationV2WorkActive,
+  isOrchestrationV2DeliverySettled,
   isProviderNativeSubagentThread,
   MessageId,
   type NodeId,
@@ -2056,6 +2057,15 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       } as Event;
     });
 
+  // Runs for every stored subagent update; the custody calls it makes carry their own spans.
+  const settleDeliveryCustody = Effect.fnUntraced(function* (task: OrchestrationV2Subagent) {
+    if (task.origin !== "app_owned" || !isOrchestrationV2DeliverySettled(task)) return;
+    const owner = `delivery:${task.id}`;
+    yield* custody
+      .acknowledge(owner, "delivery", `delivery-settled:${task.id}`)
+      .pipe(Effect.andThen(custody.settle(owner)), Effect.ignoreCause({ log: true }));
+  });
+
   const writeSystemEvents =
     /* This helper runs for individual orchestration events; the enclosing operation owns the span. */
     Effect.fnUntraced(function* (
@@ -2067,7 +2077,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       } = {},
     ) {
       const withIds = yield* Effect.forEach(events, (event) => makeSystemEvent(event));
-      return yield* eventSink.writeWithEffects({ events: withIds, effects, ...options });
+      const stored = yield* eventSink.writeWithEffects({ events: withIds, effects, ...options });
+      for (const { event } of stored)
+        if (event.type === "subagent.updated") yield* settleDeliveryCustody(event.payload);
+      return stored;
     });
 
   const completionDeliveryRun = (
@@ -17820,8 +17833,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       if (
         task.origin !== "app_owned" ||
         task.status === "idle" ||
-        task.completionDelivery?.state === "acknowledged" ||
-        task.completionDelivery?.state === "disposed"
+        isOrchestrationV2DeliverySettled(task)
       )
         return;
       const owner = `delivery:${task.id}`;
@@ -18038,17 +18050,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     }
     for (const stored of committed.storedEvents) {
       const event = stored.event;
-      if (
-        event.type === "subagent.updated" &&
-        event.payload.origin === "app_owned" &&
-        (event.payload.completionDelivery?.state === "acknowledged" ||
-          event.payload.completionDelivery?.state === "disposed")
-      ) {
-        const owner = `delivery:${event.payload.id}`;
-        yield* custody
-          .acknowledge(owner, "delivery", `delivery-settled:${event.payload.id}`)
-          .pipe(Effect.andThen(custody.settle(owner)), Effect.ignoreCause({ log: true }));
-      }
+      if (event.type === "subagent.updated") yield* settleDeliveryCustody(event.payload);
       if (
         (event.type === "run.created" || event.type === "run.updated") &&
         ((event.payload.status === "queued" && event.payload.queueHeld === true) ||
@@ -18411,6 +18413,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   );
 
   const recoverDelegatedTasks = Effect.gen(function* () {
+    yield* custody.reconcileDeliveries.pipe(Effect.ignoreCause({ log: true }));
     yield* sweepDelegatedTaskResults;
     yield* projectionStore.getRecoveryThreadIds("delegated-completions").pipe(
       Effect.tap((threadIds) =>

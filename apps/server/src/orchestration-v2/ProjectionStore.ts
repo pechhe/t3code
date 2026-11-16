@@ -740,6 +740,9 @@ not yet due: no branch or pull request, and inactive since `inactiveBefore` or l
     OrchestrationV2ThreadProjection["runtimeRequests"][number] | undefined,
     ProjectionStoreV2Error
   >;
+  readonly getSubagent: (
+    taskId: NodeId,
+  ) => Effect.Effect<OrchestrationV2Subagent | undefined, ProjectionStoreV2Error>;
   /** The subagent record that owns this child thread, if any. */
   readonly getSubagentByChildThread: (
     childThreadId: ThreadId,
@@ -6020,6 +6023,19 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         )
         .pipe(Effect.mapError(controlReadError(threadId)));
 
+    const getSubagent = Effect.fn("ProjectionStore.getSubagent")(
+      function* (taskId: NodeId) {
+        const rows = yield* sql<PayloadRow>`
+        SELECT payload_json FROM orchestration_v2_projection_subagents
+        WHERE subagent_id = ${taskId}
+      `;
+        return rows[0] === undefined
+          ? undefined
+          : yield* decodeSubagentPayload(rows[0].payload_json);
+      },
+      (effect) => effect.pipe(readOnly, Effect.mapError(shellSnapshotReadError)),
+    );
+
     const getSubagentByChildThread: ProjectionStoreV2Shape["getSubagentByChildThread"] = Effect.fn(
       "ProjectionStore.getSubagentByChildThread",
     )(
@@ -9595,6 +9611,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       getThreadRecords: (threadId, fields, filter) =>
         getThreadRecords(threadId, fields, filter).pipe(NodeSqliteClient.readOnly),
       getRuntimeRequest: readOnReader(getRuntimeRequest),
+      getSubagent: readOnReader(getSubagent),
       getSubagentByChildThread: readOnReader(getSubagentByChildThread),
       getSubagentsByChildThread: readOnReader(getSubagentsByChildThread),
       getPlan: readOnReader(getPlan),

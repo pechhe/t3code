@@ -154,7 +154,7 @@ it.effect("a fresh command still retains an undelivered result after restart", (
           for (const workspacePath of [root, `${root}/attached`])
             yield* custody.admit({ runId: owner, projectRoot: root, workspacePath, admissionId });
           yield* custody.register(owner, { id: "delivery", kind: "delivery" });
-          yield* custody.acknowledge(owner, "admission", "delivery-registered");
+          yield* custody.acknowledge(owner, "admission", "delivery-registered:task");
         });
       yield* retainDelivery("dispatch").pipe(Effect.provide(RunCustody.layer));
       yield* Ref.set(f.controllerStart, "after-restart");
@@ -170,6 +170,7 @@ it.effect("a fresh command still retains an undelivered result after restart", (
         const phases = (yield* journal.list).map((epoch) => epoch.phase).toSorted();
         assert.deepEqual(phases, ["open", "open", "recovery-required", "recovery-required"]);
         yield* (yield* WorkspaceCustody.WorkspaceCustody).reconcile;
+        yield* custody.reconcileDeliveries;
         assert.equal(yield* Ref.get(f.releases), 0);
         yield* custody.acknowledge(owner, "delivery", "parent-consumed");
         yield* custody.settle(owner);

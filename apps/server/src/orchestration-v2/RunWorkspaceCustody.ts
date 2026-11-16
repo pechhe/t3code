@@ -6,6 +6,8 @@ import * as Path from "effect/Path";
 import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
 
+import { isOrchestrationV2DeliverySettled, NodeId } from "@t3tools/contracts";
+import * as ProjectionStore from "./ProjectionStore.ts";
 import * as Journal from "../persistence/WorkspaceCustody.ts";
 import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 import * as Custody from "../workspace/WorkspaceCustody.ts";
@@ -46,6 +48,7 @@ export class RunWorkspaceCustody extends Context.Service<
       runId: string,
       evidenceRef: string,
     ) => Effect.Effect<void, RunWorkspaceCustodyError>;
+    readonly reconcileDeliveries: Effect.Effect<void, RunWorkspaceCustodyError>;
     readonly recover: (
       runId: string,
       reason: string,
@@ -56,6 +59,7 @@ export class RunWorkspaceCustody extends Context.Service<
 const make = Effect.gen(function* () {
   const custody = yield* Custody.WorkspaceCustody;
   const journal = yield* Journal.WorkspaceCustody;
+  const projections = yield* ProjectionStore.ProjectionStoreV2;
   const workspaces = yield* WorkspaceProvider.WorkspaceProvider;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -67,7 +71,7 @@ const make = Effect.gen(function* () {
   );
   const mapError = (runId: string, operation: RunWorkspaceCustodyError["operation"]) =>
     Effect.mapError((cause: unknown) => new RunWorkspaceCustodyError({ runId, operation, cause }));
-  const finish = Effect.fn("RunWorkspaceCustody.finish")(function* (runId: string) {
+  const closeSettled = Effect.fn("RunWorkspaceCustody.closeSettled")(function* (runId: string) {
     const claims = (yield* epochs(runId)).filter((epoch) => epoch.phase !== "released");
     if (claims.some((epoch) => epoch.obligations.some((item) => item.acknowledgement === null)))
       return yield* new RunWorkspaceCustodyError({
@@ -76,6 +80,10 @@ const make = Effect.gen(function* () {
         cause: "Registered workspace obligations still require acknowledgement.",
       });
     yield* Effect.forEach(claims, (epoch) => custody.close(epoch.id), { discard: true });
+    return claims;
+  });
+  const finish = Effect.fn("RunWorkspaceCustody.finish")(function* (runId: string) {
+    const claims = yield* closeSettled(runId);
     yield* Effect.forEach(claims, (epoch) => custody.releaseSettled(epoch.id), { discard: true });
   });
   return RunWorkspaceCustody.of({
@@ -235,6 +243,60 @@ const make = Effect.gen(function* () {
       },
       (effect, runId) => locks.withLock(runId, effect).pipe(mapError(runId, "settle")),
     ),
+    reconcileDeliveries: Effect.gen(function* () {
+      const pending = yield* journal.forScope("run:delivery:");
+      const taskIds = new Set<string>();
+      for (const epoch of pending) {
+        if (epoch.phase === "released") continue;
+        const admission = epoch.obligations.find((item) => item.id === "admission");
+        const acknowledgement = admission?.acknowledgement;
+        if (!acknowledgement?.startsWith("delivery-registered:")) continue;
+        const taskId = acknowledgement.slice("delivery-registered:".length);
+        if (
+          epoch.ownerRef.startsWith(prefix(`delivery:${taskId}`)) &&
+          epoch.obligations.some((item) => item.id === "delivery" && item.kind === "delivery")
+        )
+          taskIds.add(taskId);
+      }
+      for (const taskId of taskIds) {
+        const owner = `delivery:${taskId}`;
+        yield* locks
+          .withLock(
+            owner,
+            Effect.gen(function* () {
+              const task = yield* projections.getSubagent(NodeId.make(taskId));
+              if (task?.origin !== "app_owned" || !isOrchestrationV2DeliverySettled(task)) return;
+              for (const epoch of yield* epochs(owner))
+                for (const obligation of epoch.obligations)
+                  if (
+                    epoch.phase !== "released" &&
+                    obligation.id === "delivery" &&
+                    obligation.kind === "delivery" &&
+                    obligation.acknowledgement === null
+                  )
+                    yield* custody.acknowledge(
+                      epoch.id,
+                      obligation.id,
+                      `delivery-settled:${taskId}`,
+                    );
+              // The existing background reconciler publishes releases without delaying command readiness.
+              yield* closeSettled(owner);
+            }),
+          )
+          .pipe(
+            mapError(owner, "settle"),
+            Effect.catch((error) =>
+              Effect.logWarning("Delegated delivery custody settlement remains pending", {
+                runId: owner,
+                operation: error.operation,
+              }),
+            ),
+          );
+      }
+    }).pipe(
+      mapError("delivery-recovery", "settle"),
+      Effect.withSpan("RunWorkspaceCustody.reconcileDeliveries"),
+    ),
     recover: Effect.fn("RunWorkspaceCustody.recover")(
       function* (runId, reason) {
         yield* Effect.forEach(
@@ -248,4 +310,6 @@ const make = Effect.gen(function* () {
   });
 });
 
-export const layer = Layer.effect(RunWorkspaceCustody, make);
+export const layer = Layer.effect(RunWorkspaceCustody, make).pipe(
+  Layer.provide(ProjectionStore.layer),
+);
