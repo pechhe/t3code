@@ -558,8 +558,19 @@ describe("agentTaskTopic", () => {
     expect(agentTaskTopic("Reviewer · Smoke edit", "reviewer")).toBe("Smoke edit");
   });
 
+  it("drops a role the caller named itself, even under T3's own prefix", () => {
+    expect(agentTaskTopic("Scout: Map the preview path", "scout")).toBe("Map the preview path");
+    expect(agentTaskTopic("Scout · Scout: Map the preview path", "scout")).toBe(
+      "Map the preview path",
+    );
+    expect(agentTaskTopic("Reviewer · Reviewer · YS-1503 Spec review · solo", "reviewer")).toBe(
+      "YS-1503 Spec review · solo",
+    );
+  });
+
   it("keeps a title that does not start with the role's label", () => {
     expect(agentTaskTopic("Advisor · Smoke edit", "implementer")).toBe("Advisor · Smoke edit");
+    expect(agentTaskTopic("Scout-led migration", "scout")).toBe("Scout-led migration");
   });
 });
 

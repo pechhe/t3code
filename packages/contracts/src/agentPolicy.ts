@@ -42,20 +42,50 @@ export const AGENT_ROLE_TITLE_LABEL = {
   lead: "Spec lead",
 } as const satisfies Record<AgentRole, string>;
 /**
- * A managed task's title without its role prefix, for places that already show the role as
+ * Every word a title may name a role with: the labels above, the reviewer variants, and the
+ * caller words titles carry from before T3 named the role itself.
+ */
+export const AGENT_TASK_TITLE_LABELS: ReadonlyArray<string> = [
+  ...Object.values(AGENT_ROLE_TITLE_LABEL),
+  "Ticket reviewer",
+  "Spec reviewer",
+  "Lead",
+  "Worker",
+  "Solo",
+  "Chat",
+];
+/** What a caller writes after the role word when it names the task itself: `Scout · x`, `Scout: x`. */
+const ROLE_LABEL_SEPARATOR = /^\s*(?:·|:|–|—|-)\s+/;
+const startsWithLabel = (title: string, label: string): boolean =>
+  title.length >= label.length &&
+  title.slice(0, label.length).toLowerCase() === label.toLowerCase();
+/**
+ * A title without the role labels it repeats, for places that show the role themselves. Empty when
+ * the title names only a role; unchanged when it starts with none. A title may name the role twice,
+ * as when a caller wrote `Scout: x` into a title T3 then labelled.
+ */
+export const withoutAgentRolePrefix = (title: string, labels: ReadonlyArray<string>): string => {
+  let topic = title;
+  for (;;) {
+    const label = labels.find((candidate) => startsWithLabel(topic, candidate));
+    if (label === undefined) return topic;
+    if (topic.length === label.length) return "";
+    const separator = ROLE_LABEL_SEPARATOR.exec(topic.slice(label.length));
+    if (separator === null) return topic;
+    topic = topic.slice(label.length + separator[0].length);
+  }
+};
+/**
+ * A managed task's title without its own role prefix, for places that already show the role as
  * a chip. Empty when the title names only the role; unchanged when it lacks the prefix.
  */
-export const agentTaskTopic = (title: string, role: AgentRole): string => {
-  const labels =
+export const agentTaskTopic = (title: string, role: AgentRole): string =>
+  withoutAgentRolePrefix(
+    title,
     role === "reviewer"
       ? [AGENT_ROLE_TITLE_LABEL[role], "Ticket reviewer", "Spec reviewer"]
-      : [AGENT_ROLE_TITLE_LABEL[role]];
-  for (const label of labels) {
-    if (title === label) return "";
-    if (title.startsWith(`${label} · `)) return title.slice(label.length + 3);
-  }
-  return title;
-};
+      : [AGENT_ROLE_TITLE_LABEL[role]],
+  );
 /**
  * A `lead` task runs one Spec under a top-level thread's runtime policy; every other role is a leaf
  * under its task's policy. This is lifecycle only: what a task may call comes from

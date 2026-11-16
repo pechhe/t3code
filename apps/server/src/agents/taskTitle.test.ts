@@ -13,6 +13,14 @@ it("a managed task is named by its role and the caller's topic", () => {
   expect(managedTaskTitle("advisor", "Advise", "Worker-safe parsing review")).toBe(
     "Advisor · Worker-safe parsing review",
   );
+  // A caller that names the role itself, with a colon or after T3's own label, leaves no repeat.
+  expect(
+    managedTaskTitle("scout", "Map the preview path", "Scout: combined preview serving path"),
+  ).toBe("Scout · combined preview serving path");
+  expect(managedTaskTitle("reviewer", "Review", "Reviewer · YS-1503 Spec review")).toBe(
+    "Reviewer · YS-1503 Spec review",
+  );
+  expect(managedTaskTitle("scout", "Map it", "Scout")).toBe("Scout · Map it");
 });
 
 it("an untitled managed task is named by its role and the first line of its task", () => {

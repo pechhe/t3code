@@ -1,11 +1,14 @@
-import { AGENT_ROLE_TITLE_LABEL, type AgentRole } from "@t3tools/contracts";
-
-/** Thread-title prefixes callers used before T3 named the role itself. */
-const callerPrefix = /^(?:lead|worker|solo|chat)\s*[·:\-–—]\s+/i;
+import {
+  AGENT_ROLE_TITLE_LABEL,
+  AGENT_TASK_TITLE_LABELS,
+  type AgentRole,
+  withoutAgentRolePrefix,
+} from "@t3tools/contracts";
 
 /**
- * The title of a managed task: its role, then the caller's topic or else the first line
- * of the task, so every sub-agent row says which job it is doing.
+ * The title of a managed task: its role, then the caller's topic or else the first line of the
+ * task, so every sub-agent row says which job it is doing. The caller's own role word is dropped
+ * so the row's role chip is the only place the role appears.
  */
 export const managedTaskTitle = (
   role: AgentRole,
@@ -13,7 +16,7 @@ export const managedTaskTitle = (
   title: string | undefined,
 ): string => {
   const topic = (
-    title?.trim().replace(callerPrefix, "") ||
+    withoutAgentRolePrefix(title?.trim() ?? "", AGENT_TASK_TITLE_LABELS) ||
     task.split("\n").find((line) => line.trim().length > 0) ||
     ""
   ).trim();
