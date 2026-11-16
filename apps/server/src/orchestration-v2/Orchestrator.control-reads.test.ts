@@ -1,4 +1,5 @@
 import * as AdviceService from "../agents/AdviceService.ts";
+import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import * as Threads from "./ThreadManagementService.ts";
 import type { McpInvocationScope } from "../mcp/McpInvocationContext.ts";
 import { assert, it } from "@effect/vitest";
@@ -61,6 +62,41 @@ const adapter = {
   planSelectionTransition: () => Effect.succeed({ type: "apply_on_next_turn" as const }),
   openSession: () => Effect.die("No provider process needed for metadata controls"),
 } as ProviderAdapter.ProviderAdapterV2["Service"];
+const adviceAdapter = {
+  ...adapter,
+  openSession: (input: ProviderAdapter.ProviderAdapterV2OpenSessionInput) =>
+    Effect.gen(function* () {
+      const now = yield* DateTime.now;
+      return {
+        instanceId,
+        driver: adapter.driver,
+        providerSessionId: input.providerSessionId,
+        providerSession: {
+          id: input.providerSessionId,
+          driver: adapter.driver,
+          providerInstanceId: instanceId,
+          status: "ready",
+          cwd: "/source",
+          model: modelSelection.model,
+          capabilities: CodexProviderCapabilitiesV2,
+          extensionStatuses: [],
+          createdAt: now,
+          updatedAt: now,
+          lastError: null,
+        },
+        events: Stream.never,
+        ensureThread: () => Effect.die("No provider process needed for advice controls"),
+        resumeThread: () => Effect.die("No provider process needed for advice controls"),
+        startTurn: () => Effect.die("No provider process needed for advice controls"),
+        steerTurn: () => Effect.die("No provider process needed for advice controls"),
+        interruptTurn: () => Effect.die("No provider process needed for advice controls"),
+        respondToRuntimeRequest: () => Effect.die("No provider process needed for advice controls"),
+        readThreadSnapshot: () => Effect.die("No provider process needed for advice controls"),
+        rollbackThread: () => Effect.die("No provider process needed for advice controls"),
+        forkThread: () => Effect.die("No provider process needed for advice controls"),
+      } satisfies ProviderAdapter.ProviderAdapterV2SessionRuntime;
+    }),
+};
 const layerDatabase = SqlitePersistence.layerMemory;
 const layerTest = Layer.mergeAll(
   layerDatabase,
@@ -69,6 +105,17 @@ const layerTest = Layer.mergeAll(
   ProviderReplayHarness.layerWithRegistry(
     { name: "control-reads" },
     ProviderAdapterRegistry.layerFromAdapters([adapter]),
+    { databaseLayer: layerDatabase, runEffectWorker: false },
+  ),
+);
+
+const layerAdviceTest = Layer.mergeAll(
+  layerDatabase,
+  ProjectionStore.layer.pipe(Layer.provide(layerDatabase)),
+  EffectOutbox.layer.pipe(Layer.provide(layerDatabase)),
+  ProviderReplayHarness.layerWithRegistry(
+    { name: "advice-controls" },
+    ProviderAdapterRegistry.layerFromAdapters([adviceAdapter]),
     { databaseLayer: layerDatabase, runEffectWorker: false },
   ),
 );
@@ -2389,7 +2436,7 @@ it.effect("dispatch records the command outcome and its duration", () =>
 );
 
 it.effect(
-  "parent advice queues behind active work and starts idle parents without human requests",
+  "parent advice steers running turns for blocking and nonblocking requests, queues before a turn, and starts idle parents",
   () =>
     Effect.gen(function* () {
       const engine = yield* Orchestrator.OrchestratorV2;
@@ -2422,6 +2469,8 @@ it.effect(
         },
       });
       for (const scenario of [
+        { status: "running", blocking: true },
+        { status: "running", blocking: false },
         { status: "preparing", blocking: true },
         { status: "waiting", blocking: true },
         { status: "completed", blocking: true },
@@ -2488,6 +2537,55 @@ it.effect(
             },
           ],
         });
+        if (parentState === "running") {
+          const providerThread = (yield* projections.getThreadProjection(
+            parentId,
+          )).providerThreads.find((thread) => thread.id === parentRun.providerThreadId)!;
+          const sessionId = ProviderSessionId.make(`advice-session:${state}`);
+          yield* (yield* ProviderSessionManager.ProviderSessionManagerV2).open({
+            threadId: parentId,
+            providerSessionId: sessionId,
+            modelSelection,
+            runtimePolicy: { runtimeMode: "full-access", interactionMode: "default", cwd: null },
+          });
+          yield* sink.write({
+            events: [
+              {
+                id: EventId.make(`advice-provider-thread:${state}`),
+                type: "provider-thread.updated",
+                threadId: parentId,
+                occurredAt: now,
+                payload: { ...providerThread, providerSessionId: sessionId },
+              },
+            ],
+          });
+          yield* sink.write({
+            events: [
+              {
+                id: EventId.make(`advice-parent-turn:${state}`),
+                type: "provider-turn.updated",
+                threadId: parentId,
+                runId: parentRun.id,
+                occurredAt: now,
+                payload: {
+                  id: ProviderTurnId.make(`advice-parent-turn:${state}`),
+                  providerThreadId: parentRun.providerThreadId!,
+                  nodeId: parentRun.rootNodeId!,
+                  runAttemptId: parentRun.activeAttemptId!,
+                  nativeTurnRef: {
+                    driver: ProviderDriverKind.make("codex"),
+                    nativeId: state,
+                    strength: "strong",
+                  },
+                  ordinal: 1,
+                  status: "running",
+                  startedAt: now,
+                  completedAt: null,
+                },
+              },
+            ],
+          });
+        }
         yield* Effect.gen(function* () {
           const advice = yield* AdviceService.AdviceService;
           const request = {
@@ -2496,8 +2594,29 @@ it.effect(
             recommendation: "Keep v1.",
             blocking,
           };
+          const accepted = yield* advice.ask(scope(task.childThreadId!), "contract", request);
           yield* advice.ask(scope(task.childThreadId!), "contract", request);
-          yield* advice.ask(scope(task.childThreadId!), "contract", request);
+          const requestedParent = yield* projections.getThreadProjection(parentId);
+          const requestMessage = requestedParent.messages.find(
+            (message) => message.senderThreadId === task.childThreadId,
+          )!;
+          if (parentState === "running") {
+            assert.equal(accepted.delivery, "delivered");
+            assert.isFalse(
+              requestedParent.runs.some((run) => run.userMessageId === requestMessage.id),
+            );
+            assert.equal(
+              requestedParent.runs.find((run) => run.id === parentRun.id)!.status,
+              "running",
+            );
+            const outbox = yield* EffectOutbox.EffectOutboxV2;
+            const effects = yield* outbox.listByCommandId(
+              CommandId.make(`command:${requestMessage.id.slice("message:".length)}`),
+            );
+            assert.isTrue(effects.some((effect) => effect.request.type === "provider-turn.steer"));
+          } else if (parentState !== "completed") {
+            assert.equal(accepted.delivery, "pending");
+          }
           const yielded = (yield* projections.getThreadRecords(task.childThreadId!, [
             "runs",
           ])).runs.find((run) => run.status !== "queued")!;
@@ -2561,6 +2680,16 @@ it.effect(
               .pipe(Effect.flip);
             assert.equal(late._tag, "OrchestratorDispatchError");
             yield* advice.recover();
+            const disposedParent = yield* projections.getThreadProjection(parentId);
+            const disposedWakes = disposedParent.messages.filter(
+              (message) => message.senderThreadId === task.childThreadId,
+            );
+            assert.equal(disposedWakes.length, 1);
+            assert.isFalse(
+              disposedParent.runs.some(
+                (run) => run.status === "queued" && run.userMessageId === disposedWakes[0]!.id,
+              ),
+            );
             assert.equal(
               (yield* advice.read(scope(task.childThreadId!), task.childThreadId!, "contract"))
                 .status,
@@ -2586,12 +2715,18 @@ it.effect(
             (yield* projections.getThreadRecords(task.childThreadId!, ["runtimeRequests"]))
               .runtimeRequests,
           );
-          const wakeRun = parent.runs.find((run) => run.userMessageId === wakes[0]!.id)!;
-          if (parentState === "completed")
-            assert.include(["preparing", "starting", "running"], wakeRun.status);
-          else assert.equal(wakeRun.status, "queued");
+          const wakeRun = parent.runs.find((run) => run.userMessageId === wakes[0]!.id);
+          if (parentState === "running") assert.isUndefined(wakeRun);
+          else if (parentState === "completed")
+            assert.include(["preparing", "starting", "running"], wakeRun!.status);
+          else assert.equal(wakeRun!.status, "queued");
           yield* advice.answer(scope(parentId), task.childThreadId!, "contract", "Keep v1.");
           yield* advice.answer(scope(parentId), task.childThreadId!, "contract", "Keep v1.");
+          assert.isFalse(
+            (yield* projections.getThreadRecords(parentId, ["runs"])).runs.some(
+              (run) => run.userMessageId === wakes[0]!.id && run.status === "queued",
+            ),
+          );
           const child = yield* projections.getThreadProjection(task.childThreadId!);
           assert.equal(
             child.messages.filter((message) =>
@@ -2670,6 +2805,18 @@ it.effect(
             )!.result,
           );
           yield* advice.cancel(scope(parentId), task.childThreadId!, "cancel-hold");
+          yield* advice.recover();
+          const afterCancel = yield* projections.getThreadProjection(parentId);
+          const cancelWakes = afterCancel.messages.filter(
+            (message) =>
+              message.senderThreadId === task.childThreadId && message.id.includes("cancel-hold"),
+          );
+          assert.equal(cancelWakes.length, 1);
+          assert.isFalse(
+            afterCancel.runs.some(
+              (run) => run.userMessageId === cancelWakes[0]!.id && run.status === "queued",
+            ),
+          );
           assert.isNotNull(
             (yield* projections.getThreadRecords(parentId, ["subagents"])).subagents.find(
               (candidate) => candidate.id === task.id,
@@ -2717,7 +2864,7 @@ it.effect(
           ),
         );
       }
-    }).pipe(Effect.provide(layerTest)),
+    }).pipe(Effect.provide(layerAdviceTest)),
 );
 it("only advice answers addressed to their managed child use the follow-up lock", () => {
   const parentThreadId = ThreadId.make("thread:advice-lock-parent");

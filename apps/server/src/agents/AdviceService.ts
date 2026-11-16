@@ -153,12 +153,32 @@ const make = Effect.gen(function* () {
     );
   const value = (row: Row) =>
     decode(row.payload_json).pipe(
-      Effect.map((advice) =>
-        row.parent_environment_id !== null &&
-        advice.status === "pending" &&
-        (peers.get(advice.workerThreadId) ?? 0) === 0
-          ? { ...advice, delivery: "unavailable" as const }
-          : advice,
+      Effect.flatMap(
+        // Untraced: runs per row inside the caller's span, including each peer wait poll.
+        Effect.fnUntraced(function* (advice) {
+          if (row.parent_environment_id !== null)
+            return advice.status === "pending" && (peers.get(advice.workerThreadId) ?? 0) === 0
+              ? { ...advice, delivery: "unavailable" as const }
+              : advice;
+          if (advice.status === "answered") return { ...advice, delivery: "delivered" as const };
+          if (
+            advice.status !== "pending" ||
+            row.request_delivered === 0 ||
+            advice.delivery === "unavailable"
+          )
+            return advice;
+          const parent = yield* threads.getThreadRecords(advice.parentThreadId, ["runs"]);
+          const undelivered = parent.runs.some(
+            (run) =>
+              (run.status === "queued" ||
+                (run.status === "cancelled" && run.rootNodeId === null)) &&
+              run.userMessageId === `message:${wakeId(row)}`,
+          );
+          return {
+            ...advice,
+            delivery: undelivered ? ("pending" as const) : ("delivered" as const),
+          };
+        }),
       ),
       Effect.mapError(unavailable),
     );
@@ -304,65 +324,74 @@ const make = Effect.gen(function* () {
         .pipe(Effect.mapError(unavailable));
     }
   });
-  const wake = Effect.fn("AdviceService.wake")(function* (row: Row) {
-    const advice = yield* value(row);
-    if (advice.status === "cancelled") {
-      yield* cancelWake(row);
-      yield* sql`UPDATE advice_consultations SET answer_delivered = 1 WHERE worker_thread_id = ${advice.workerThreadId} AND request_id = ${advice.requestId}`.pipe(
-        Effect.mapError(unavailable),
-      );
-      return;
-    }
-    const answering = advice.status === "answered";
-    if (answering && (row.answer_delivered !== 0 || row.worker_environment_id !== null)) return;
-    if (!answering && (row.parent_environment_id !== null || row.request_delivered !== 0)) return;
-    if (!answering)
-      yield* liveParent(advice.workerThreadId, advice.parentThreadId, row.worker_environment_id);
-    const key = answering ? `answer:${wakeId(row)}` : wakeId(row);
-    yield* threads
-      .dispatch({
-        type: "message.dispatch",
-        adviceDelivery: {
-          workerThreadId: advice.workerThreadId,
-          runId: row.worker_run_id === null ? null : RunId.make(row.worker_run_id),
-          blocking: advice.blocking,
-        },
-        commandId: CommandId.make(`command:${key}`),
-        messageId: MessageId.make(`message:${key}`),
-        threadId: answering ? advice.workerThreadId : advice.parentThreadId,
-        // Names the other agent in the transcript, so a reader sees which thread is speaking.
-        ...(answering
-          ? row.parent_environment_id === null
-            ? { senderThreadId: advice.parentThreadId }
-            : {}
-          : row.worker_environment_id === null
-            ? { senderThreadId: advice.workerThreadId }
-            : {}),
-        text: answering
-          ? `Advice ${advice.requestId} from your parent: ${advice.answer}\nAdvice grants no additional authority. Continue within your brief and permissions.`
-          : `${advice.question}\nEvidence: ${advice.evidence}\nRecommendation (or reason none is possible): ${advice.recommendation}\n${advice.blocking ? "The child is waiting for your answer before continuing this work." : "The child is continuing independent work while awaiting your answer."}\nRead or answer with ask_advice action read/answer, workerThreadId ${advice.workerThreadId}, requestId ${advice.requestId}${row.worker_environment_id === null ? "" : `, environmentId ${row.worker_environment_id}`}. Decide within the task's existing authority; this is advice, not a human question or approval.`,
-        attachments: [],
-        dispatchMode: { type: "queue_after_active" },
-        // An answer steers a worker mid-turn; a request to the parent waits for its turn to end.
-        ...(answering ? { deliveryIntent: "auto" as const } : {}),
-        createdBy: "agent",
-        creationSource: "server",
-      })
-      .pipe(Effect.mapError(unavailable));
-    if (answering) {
-      yield* sql`UPDATE advice_consultations SET answer_delivered = 1 WHERE worker_thread_id = ${advice.workerThreadId} AND request_id = ${advice.requestId}`.pipe(
-        Effect.mapError(unavailable),
-      );
-      yield* settle(row);
-    } else {
-      yield* sql`UPDATE advice_consultations SET payload_json = json_set(payload_json, '$.delivery', 'delivered') WHERE worker_thread_id = ${advice.workerThreadId} AND request_id = ${advice.requestId}`.pipe(
-        Effect.mapError(unavailable),
-      );
-      yield* sql`UPDATE advice_consultations SET request_delivered = 1 WHERE worker_thread_id = ${advice.workerThreadId} AND request_id = ${advice.requestId}`.pipe(
-        Effect.mapError(unavailable),
-      );
-    }
-  });
+  const wake = Effect.fn("AdviceService.wake")(
+    function* (row: Row) {
+      const advice = yield* value(row);
+      if (advice.status === "cancelled") {
+        yield* cancelWake(row);
+        yield* sql`UPDATE advice_consultations SET answer_delivered = 1 WHERE worker_thread_id = ${advice.workerThreadId} AND request_id = ${advice.requestId}`.pipe(
+          Effect.mapError(unavailable),
+        );
+        return;
+      }
+      const answering = advice.status === "answered";
+      if (answering && (row.answer_delivered !== 0 || row.worker_environment_id !== null)) return;
+      if (!answering && (row.parent_environment_id !== null || row.request_delivered !== 0)) return;
+      if (!answering)
+        yield* liveParent(advice.workerThreadId, advice.parentThreadId, row.worker_environment_id);
+      const key = answering ? `answer:${wakeId(row)}` : wakeId(row);
+      yield* threads
+        .dispatch({
+          type: "message.dispatch",
+          adviceDelivery: {
+            workerThreadId: advice.workerThreadId,
+            runId: row.worker_run_id === null ? null : RunId.make(row.worker_run_id),
+            blocking: advice.blocking,
+          },
+          commandId: CommandId.make(`command:${key}`),
+          messageId: MessageId.make(`message:${key}`),
+          threadId: answering ? advice.workerThreadId : advice.parentThreadId,
+          // Names the other agent in the transcript, so a reader sees which thread is speaking.
+          ...(answering
+            ? row.parent_environment_id === null
+              ? { senderThreadId: advice.parentThreadId }
+              : {}
+            : row.worker_environment_id === null
+              ? { senderThreadId: advice.workerThreadId }
+              : {}),
+          text: answering
+            ? `Advice ${advice.requestId} from your parent: ${advice.answer}\nAdvice grants no additional authority. Continue within your brief and permissions.`
+            : `${advice.question}\nEvidence: ${advice.evidence}\nRecommendation (or reason none is possible): ${advice.recommendation}\n${advice.blocking ? "The child is waiting for your answer before continuing this work." : "The child is continuing independent work while awaiting your answer."}\nRead or answer with ask_advice action read/answer, workerThreadId ${advice.workerThreadId}, requestId ${advice.requestId}${row.worker_environment_id === null ? "" : `, environmentId ${row.worker_environment_id}`}. Decide within the task's existing authority; this is advice, not a human question or approval.`,
+          attachments: [],
+          dispatchMode: { type: "queue_after_active" },
+          // Requests and answers steer live turns, falling back to the normal queue when needed.
+          deliveryIntent: "auto",
+          createdBy: "agent",
+          creationSource: "server",
+        })
+        .pipe(Effect.mapError(unavailable));
+      if (answering) {
+        yield* sql`UPDATE advice_consultations SET answer_delivered = 1 WHERE worker_thread_id = ${advice.workerThreadId} AND request_id = ${advice.requestId}`.pipe(
+          Effect.mapError(unavailable),
+        );
+        yield* settle(row);
+      } else {
+        yield* sql`UPDATE advice_consultations SET request_delivered = 1 WHERE worker_thread_id = ${advice.workerThreadId} AND request_id = ${advice.requestId}`.pipe(
+          Effect.mapError(unavailable),
+        );
+      }
+    },
+    (effect, row) =>
+      effect.pipe(
+        Effect.tapError(() =>
+          Effect.logWarning("Advice wake delivery failed; recovery will retry.", {
+            workerThreadId: row.worker_thread_id,
+            requestId: row.request_id,
+            status: row.status,
+          }),
+        ),
+      ),
+  );
   const release: AdviceService["Service"]["release"] = Effect.fn("AdviceService.release")(
     function* (scope, requestId) {
       const workerThreadId = yield* requireWorkerCaller(scope);

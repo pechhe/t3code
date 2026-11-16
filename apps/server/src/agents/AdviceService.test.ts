@@ -14,9 +14,12 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Fiber from "effect/Fiber";
 import * as Ref from "effect/Ref";
+import * as Logger from "effect/Logger";
+import * as References from "effect/References";
 import * as Stream from "effect/Stream";
 
 import * as Advice from "./AdviceService.ts";
+import { OrchestratorDispatchError } from "../orchestration-v2/Orchestrator.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as Threads from "../orchestration-v2/ThreadManagementService.ts";
 import { idleThreadProjection, liveThreadShell } from "../mcp/McpToolAccess.testkit.ts";
@@ -64,7 +67,9 @@ const fixture = Effect.gen(function* () {
   const child = yield* Ref.make(worker());
   const taskStatus = yield* Ref.make("running");
   const remote = yield* Ref.make<OrchestrationV2RemoteTaskChild | undefined>(undefined);
+  const failDispatch = yield* Ref.make(false);
   const cancelledRuns = new Set<string>();
+  const startedMessages = new Set<string>();
   const messages = new Map<
     string,
     Extract<OrchestrationV2ServerCommand, { type: "message.dispatch" }>
@@ -89,7 +94,7 @@ const fixture = Effect.gen(function* () {
                 ({
                   id: RunId.make(`queue:${message.messageId}`),
                   userMessageId: message.messageId,
-                  status: "queued",
+                  status: startedMessages.has(message.messageId) ? "running" : "queued",
                 }) as never,
             ),
           subagents:
@@ -109,7 +114,13 @@ const fixture = Effect.gen(function* () {
         };
       }),
     dispatch: (command) =>
-      Effect.sync(() => {
+      Effect.gen(function* () {
+        if (command.type === "message.dispatch" && (yield* Ref.get(failDispatch)))
+          return yield* new OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause: "Delivery unavailable",
+          });
         commands.push(command);
         if (command.type === "queued-run.cancel") cancelledRuns.add(command.runId);
         if (command.type === "message.dispatch") messages.set(command.messageId, command);
@@ -124,7 +135,18 @@ const fixture = Effect.gen(function* () {
     Layer.provideMerge(Sqlite.layerMemory),
     Layer.provide(NodeServices.layer),
   );
-  return { layer, threadsLayer, child, remote, cancelledRuns, taskStatus, messages, commands };
+  return {
+    layer,
+    threadsLayer,
+    child,
+    remote,
+    cancelledRuns,
+    taskStatus,
+    messages,
+    commands,
+    failDispatch,
+    startedMessages,
+  };
 });
 
 it.effect(
@@ -139,7 +161,7 @@ it.effect(
           parentThreadId: parentId,
           workerThreadId: workerId,
           status: "pending",
-          delivery: "delivered",
+          delivery: "pending",
         });
         expect(yield* service.ask(scope(workerId), "shared-contract", question)).toEqual(first);
         expect(f.messages.size).toBe(1);
@@ -148,11 +170,15 @@ it.effect(
           senderThreadId: workerId,
           adviceDelivery: { workerThreadId: workerId, blocking: true },
           dispatchMode: { type: "queue_after_active" },
+          deliveryIntent: "auto",
         });
         expect(
           yield* service.answer(scope(parentId), workerId, "shared-contract", "Keep v1."),
         ).toMatchObject({ status: "answered", answer: "Keep v1." });
         yield* service.answer(scope(parentId), workerId, "shared-contract", "Keep v1.");
+        expect(f.messages.size).toBe(2);
+        expect(f.cancelledRuns.size).toBe(1);
+        yield* service.recover();
         expect(f.messages.size).toBe(2);
         expect([...f.messages.values()].find((m) => m.threadId === workerId)).toMatchObject({
           deliveryIntent: "auto",
@@ -160,12 +186,81 @@ it.effect(
         expect(yield* service.read(scope(workerId), workerId, "shared-contract")).toMatchObject({
           status: "answered",
           answer: "Keep v1.",
+          delivery: "delivered",
         });
         expect(yield* service.ask(scope(workerId), "shared-contract", question)).toMatchObject({
           status: "answered",
           answer: "Keep v1.",
         });
       }).pipe(Effect.provide(f.layer));
+    }),
+);
+
+it.effect("queued advice becomes delivered when its parent run starts without another wake", () =>
+  Effect.gen(function* () {
+    const f = yield* fixture;
+    yield* Effect.gen(function* () {
+      const service = yield* Advice.AdviceService;
+      expect(yield* service.ask(scope(workerId), "queued", question)).toMatchObject({
+        delivery: "pending",
+      });
+      const message = [...f.messages.values()][0]!;
+      f.startedMessages.add(message.messageId);
+      yield* service.recover();
+      expect(yield* service.read(scope(workerId), workerId, "queued")).toMatchObject({
+        delivery: "delivered",
+      });
+      yield* service.suppressWake(scope(parentId), workerId);
+      yield* service.cancel(scope(workerId), workerId, "queued");
+      yield* service.recover();
+      expect(f.cancelledRuns.size).toBe(0);
+      expect(f.messages.size).toBe(1);
+    }).pipe(Effect.provide(f.layer));
+  }),
+);
+
+it.effect(
+  "failed request and answer wakes remain durable and recover without duplicate delivery",
+  () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      const warnings: unknown[] = [];
+      const logger = Logger.make((options) => {
+        if (options.logLevel === "Warn") warnings.push(options.message);
+      });
+      yield* Effect.gen(function* () {
+        const service = yield* Advice.AdviceService;
+        yield* Ref.set(f.failDispatch, true);
+        expect(yield* service.ask(scope(workerId), "retry", question)).toMatchObject({
+          status: "pending",
+          delivery: "pending",
+        });
+        expect(f.messages.size).toBe(0);
+        yield* Ref.set(f.failDispatch, false);
+        yield* service.recover();
+        expect(f.messages.size).toBe(1);
+        yield* Ref.set(f.failDispatch, true);
+        expect(yield* service.answer(scope(parentId), workerId, "retry", "Keep v1.")).toMatchObject(
+          { status: "answered" },
+        );
+        expect(f.messages.size).toBe(1);
+        yield* Ref.set(f.failDispatch, false);
+        yield* service.recover();
+        yield* service.recover();
+        expect(f.messages.size).toBe(2);
+        expect(f.cancelledRuns.size).toBe(1);
+        expect(warnings).toHaveLength(2);
+        for (const status of ["pending", "answered"]) {
+          expect(warnings).toContainEqual(
+            expect.arrayContaining([{ workerThreadId: workerId, requestId: "retry", status }]),
+          );
+        }
+        expect(JSON.stringify(warnings)).not.toContain(question.question);
+        expect(JSON.stringify(warnings)).not.toContain("Keep v1.");
+      }).pipe(
+        Effect.provide(Layer.merge(f.layer, Logger.layer([logger]))),
+        Effect.provideService(References.MinimumLogLevel, "Warn"),
+      );
     }),
 );
 
