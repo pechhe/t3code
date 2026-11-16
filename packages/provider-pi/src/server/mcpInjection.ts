@@ -206,13 +206,12 @@ const PI_MUTATING_BUILTIN_TOOLS = [
   "edit",
   "write",
   "powershell",
-  "codemode",
   "list_mcp_resources",
   "list_mcp_resource_templates",
   "read_mcp_resource",
 ] as const;
 /** Plain names form an explicit --tools allowlist so user extensions cannot add tools. */
-const PI_READ_ONLY_TOOLS = ["read", "grep", "find", "ls", "tool_search"] as const;
+const PI_READ_ONLY_TOOLS = ["read", "grep", "find", "ls", "tool_search", "codemode"] as const;
 
 function mcpToolPatternsForServer(name: string): ReadonlyArray<string> {
   const canonical = name.replaceAll("-", "_");

@@ -630,6 +630,7 @@ describe("Pi tool discovery permissions", () => {
     const bridge = await loadMcpBridge({
       modern: true,
       toolSearchAvailable: true,
+      codemodeAvailable: true,
       runtimeMode: "full-access",
       environment: {
         T3_MCP_URL: "http://fixture.invalid/mcp",
@@ -667,6 +668,8 @@ describe("Pi tool discovery permissions", () => {
       "find",
       "ls",
       "tool_search",
+      // Each call a codemode script makes reaches this hook under its own name.
+      "codemode",
       "mcp__t3-code__orchestrator_capabilities",
       "mcp__weave__weave_forge_read",
     ]) {
@@ -678,7 +681,6 @@ describe("Pi tool discovery permissions", () => {
       "edit",
       "write",
       "powershell",
-      "codemode",
       "evil_exec",
       "mcp__other__tool",
     ]) {
@@ -713,14 +715,16 @@ describe("Pi tool discovery permissions", () => {
         getAllTools: () => [
           { name: "read", sourceInfo: { path: "/user/extensions/evil-read.ts" } },
           { name: "tool_search", sourceInfo: { path: "/user/extensions/evil-search.ts" } },
+          { name: "codemode", sourceInfo: { path: "/user/extensions/evil-codemode.ts" } },
         ],
       },
     });
     assert.equal((await shadowedHook!({ toolName: "read", input: {} }, ctx))?.block, true);
     assert.equal((await shadowedHook!({ toolName: "tool_search", input: {} }, ctx))?.block, true);
+    assert.equal((await shadowedHook!({ toolName: "codemode", input: {} }, ctx))?.block, true);
   });
 
-  it("allows discovery without confirmation and still gates the discovered tool", async () => {
+  it("allows discovery and codemode without confirmation and still gates the discovered tool", async () => {
     type ToolCallHook = (
       event: { toolName: string; input: unknown },
       ctx: {
@@ -736,6 +740,7 @@ describe("Pi tool discovery permissions", () => {
     ) => Promise<{ block: true; reason: string } | undefined>;
     let toolCall: ToolCallHook | undefined;
     let searchPath = "builtin:tool-search";
+    let codemodePath = "builtin:codemode";
     const source = NodeModule.stripTypeScriptTypes(
       PI_T3_MCP_EXTENSION_SOURCE.replace(/^import .*;$/gm, "").replace(
         "export default async function",
@@ -749,7 +754,10 @@ describe("Pi tool discovery permissions", () => {
           if (name === "tool_call") toolCall = handler;
         },
         registerCommand: () => {},
-        getAllTools: () => [{ name: "tool_search", sourceInfo: { path: searchPath } }],
+        getAllTools: () => [
+          { name: "tool_search", sourceInfo: { path: searchPath } },
+          { name: "codemode", sourceInfo: { path: codemodePath } },
+        ],
       },
     });
     assert.isDefined(toolCall);
@@ -768,6 +776,7 @@ describe("Pi tool discovery permissions", () => {
     assert.isUndefined(
       await toolCall!({ toolName: "tool_search", input: { query: "preview_snapshot" } }, ctx),
     );
+    assert.isUndefined(await toolCall!({ toolName: "codemode", input: { code: "return 1" } }, ctx));
     assert.equal(confirmations.length, 0);
     const result = await toolCall!({ toolName: "mcp__t3-code__preview_snapshot", input: {} }, ctx);
     assert.equal(result?.block, true);
@@ -777,6 +786,10 @@ describe("Pi tool discovery permissions", () => {
     const replaced = await toolCall!({ toolName: "tool_search", input: {} }, ctx);
     assert.equal(replaced?.block, true);
     assert.equal(confirmations.at(-1), "Allow tool_search?");
+
+    codemodePath = "/extensions/custom-codemode.ts";
+    assert.equal((await toolCall!({ toolName: "codemode", input: {} }, ctx))?.block, true);
+    assert.equal(confirmations.at(-1), "Allow codemode?");
   });
 
   it("gives long inputs that differ past the shown text different confirmation details", async () => {

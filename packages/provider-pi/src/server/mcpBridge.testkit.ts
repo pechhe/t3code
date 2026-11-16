@@ -47,6 +47,7 @@ export async function loadMcpBridge(
     readonly result?: unknown;
     readonly toolSearchAvailable?: boolean;
     readonly toolSearchDisabled?: boolean;
+    readonly codemodeAvailable?: boolean;
     readonly allowsTool?: (name: string) => boolean;
     readonly runtimeMode?: string;
     readonly environment?: NodeJS.ProcessEnv;
@@ -194,6 +195,9 @@ export async function loadMcpBridge(
         !options.toolSearchDisabled &&
         (options.allowsTool?.("tool_search") ?? true)
           ? [{ name: "tool_search", sourceInfo: { path: "builtin:tool-search" } }]
+          : []),
+        ...(options.codemodeAvailable === true
+          ? [{ name: "codemode", sourceInfo: { path: "builtin:codemode" } }]
           : []),
       ],
       ...(options.modern

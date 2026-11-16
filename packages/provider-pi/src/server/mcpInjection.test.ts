@@ -210,12 +210,12 @@ describe("pi T3 MCP injection", () => {
     const excluded = launch.args.indexOf("--exclude-tools");
     assert.deepEqual(launch.args.slice(excluded, excluded + 2), [
       "--exclude-tools",
-      "bash,edit,write,powershell,codemode,list_mcp_resources,list_mcp_resource_templates,read_mcp_resource",
+      "bash,edit,write,powershell,list_mcp_resources,list_mcp_resource_templates,read_mcp_resource",
     ]);
     const added = launch.args.indexOf("--tools");
     assert.deepEqual(launch.args.slice(added, added + 2), [
       "--tools",
-      "read,grep,find,ls,tool_search,mcp__t3-code__*,mcp__t3_code__*,mcp__weave__*",
+      "read,grep,find,ls,tool_search,codemode,mcp__t3-code__*,mcp__t3_code__*,mcp__weave__*",
     ]);
     assert.include(launch.args, "anthropic");
     assert.equal(launch.env[T3_MCP_URL_ENV], mcpSession.endpoint);
@@ -233,7 +233,7 @@ describe("pi T3 MCP injection", () => {
         withoutMcp.args.indexOf("--tools"),
         withoutMcp.args.indexOf("--tools") + 2,
       ),
-      ["--tools", "read,grep,find,ls,tool_search"],
+      ["--tools", "read,grep,find,ls,tool_search,codemode"],
     );
     assert.deepEqual(
       withoutMcp.args.slice(
@@ -242,7 +242,7 @@ describe("pi T3 MCP injection", () => {
       ),
       [
         "--exclude-tools",
-        "bash,edit,write,powershell,codemode,list_mcp_resources,list_mcp_resource_templates,read_mcp_resource,mcp__*",
+        "bash,edit,write,powershell,list_mcp_resources,list_mcp_resource_templates,read_mcp_resource,mcp__*",
       ],
     );
 

@@ -615,6 +615,14 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
     typeof pi.getAllTools === "function" &&
     pi.getAllTools().some((tool) => tool.name === "tool_search" && tool.sourceInfo?.path === "builtin:tool-search");
 
+  // A codemode script's own tool calls reach this hook under their own names, so the
+  // container needs no allowance of its own. Its model calls reach no tool: they
+  // answer from provider models and write nothing to the workspace.
+  const isCodemodeContainer = (name: string) =>
+    name === "codemode" &&
+    typeof pi.getAllTools === "function" &&
+    pi.getAllTools().some((tool) => tool.name === "codemode" && tool.sourceInfo?.path === "builtin:codemode");
+
   const isBuiltinReadOnlyTool = (name: string) => {
     if (!READ_ONLY_TOOLS.has(name)) return false;
     if (typeof pi.getAllTools !== "function") return true;
@@ -686,6 +694,7 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
     if (env(READ_ONLY_ENV) === "1") {
       if (
         isBuiltinReadOnlyTool(event.toolName) ||
+        isCodemodeContainer(event.toolName) ||
         (event.toolName === "tool_search" && hasBuiltinToolSearch()) ||
         isApprovedMcpTool(event.toolName)
       ) {
@@ -698,7 +707,11 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
     }
     const mode = runtimeMode();
     if (mode === "full-access") return;
-    if ((event.toolName === "tool_search" ? hasBuiltinToolSearch() : READ_ONLY_TOOLS.has(event.toolName)) || isApprovedMcpTool(event.toolName)) {
+    if (
+      isCodemodeContainer(event.toolName) ||
+      (event.toolName === "tool_search" ? hasBuiltinToolSearch() : READ_ONLY_TOOLS.has(event.toolName)) ||
+      isApprovedMcpTool(event.toolName)
+    ) {
       return;
     }
     if (mode === "auto-accept-edits" && FILE_CHANGE_TOOLS.has(event.toolName)) {

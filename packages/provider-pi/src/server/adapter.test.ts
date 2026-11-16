@@ -2319,7 +2319,7 @@ describe("PiAdapterV2", () => {
         assert.include(readOnly, "--no-mcp");
         assert.deepEqual(
           readOnly.slice(readOnly.indexOf("--tools"), readOnly.indexOf("--tools") + 2),
-          ["--tools", "read,grep,find,ls,tool_search"],
+          ["--tools", "read,grep,find,ls,tool_search,codemode"],
         );
         assert.deepEqual(
           readOnly.slice(
@@ -2328,7 +2328,7 @@ describe("PiAdapterV2", () => {
           ),
           [
             "--exclude-tools",
-            "bash,edit,write,powershell,codemode,list_mcp_resources,list_mcp_resource_templates,read_mcp_resource,mcp__*",
+            "bash,edit,write,powershell,list_mcp_resources,list_mcp_resource_templates,read_mcp_resource,mcp__*",
           ],
         );
         assert.notInclude(readOnly, "--no-extensions");

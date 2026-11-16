@@ -112,9 +112,9 @@ its revision and the role names, or the reason the policy is refused.
   Grok, Pi, Muse and Antigravity currently declare it; Pi keeps configured
   extensions loaded so extension-registered models still start, while restricting
   tools to a closed read-only allowlist (`read`, `grep`, `find`, `ls`,
-  `tool_search`, and T3's read-only MCP tools) with mutating built-ins,
-  `codemode`, and external MCP servers excluded, and its injected extension refusing
-  any other tool call. For Pi, read-only means no write or exec tool reaches the
+  `tool_search`, `codemode`, and T3's read-only MCP tools) with mutating built-ins
+  and external MCP servers excluded, and its injected extension refusing
+  any other tool call, including each tool a codemode script calls. For Pi, read-only means no write or exec tool reaches the
   model; the user's own installed extensions still run with the user's
   permissions, as in any Pi session. Muse runs the task with its
   shell and write tools disabled, and
