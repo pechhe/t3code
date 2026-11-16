@@ -333,6 +333,34 @@ captures before releasing it. Per-item briefs, ADRs and drafts belong in `.t3/<i
 output in `.t3/review/` and spec drafts in `.plans/`; a scratch file outside those pins the
 workspace.
 
+### Shared jj fetch footprint
+
+Every jj operation records its complete view, including remote bookmarks. Importing thousands of
+upstream contributor branches multiplies their size by every workspace operation. The fork updater
+fetches only the integration branch from origin, upstream main and `v*` release tags.
+
+For an existing shared repository, first inspect the read-only plan from a checkout containing this script:
+
+```sh
+python3 scripts/jj-fetch-hygiene.py --repo ~/Engineering/t3code
+# After checking the keep list, run the same command with --apply.
+python3 scripts/jj-fetch-hygiene.py --repo ~/Engineering/t3code --apply
+```
+
+Pause fetchers while applying it. Add `--keep-origin <branch>` or `--keep-upstream <branch>` for
+any other remote branch you need; each option can be repeated. It also keeps symbolic remote HEAD
+targets. The apply step narrows Git and jj fetch settings and removes only unused origin/upstream
+remote branch refs, comparing their recorded tips in one transaction. It untracks those remote
+bookmarks before import so matching local bookmarks survive, and disables abandonment during import
+so existing heads and workspace commits stay untouched. Existing tags (including remote tags),
+checkpoint refs, jj keep refs and operation history remain intact. Future origin fetches import no
+tags; upstream fetches `v*` tags. An explicit broad fetch can still override these defaults.
+
+This reduces future view writes, not the old operation store. Never automate `jj op abandon` in a
+shared store: it rewrites retained operation IDs that other workspaces still use. Checkpoint refs
+under `refs/t3/` and jj's own `refs/jj/keep/` do not enter the view; deleting them is not a view-size
+fix and can destroy restore or history reachability.
+
 ### Unused code
 
 `vp run knip:check` checks unused files and dependencies across the repo and, at the same time,

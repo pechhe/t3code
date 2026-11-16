@@ -93,9 +93,17 @@ export PATH="/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH"
 
 mkdir -p "$STATE/attempts"
 
+fetch_origin() {
+  git -C "$REPO" fetch --quiet --no-tags origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
+}
+
+fetch_upstream() {
+  git -C "$REPO" fetch --quiet --no-tags upstream '+refs/heads/main:refs/remotes/upstream/main' '+refs/tags/v*:refs/tags/v*'
+}
+
 ensure_clone() {
   if [ ! -d "$REPO/.git" ]; then
-    git clone --quiet --branch "$BRANCH" "$ORIGIN_URL" "$REPO"
+    git clone --quiet --single-branch --no-tags --branch "$BRANCH" "$ORIGIN_URL" "$REPO"
   fi
   git -C "$REPO" remote get-url upstream >/dev/null 2>&1 ||
     git -C "$REPO" remote add upstream "$UPSTREAM_URL"
@@ -880,7 +888,7 @@ attempt_command() {
       # owner decision, and a superseded tag stays superseded. A landed attempt's
       # build claim is not an update and passes.
       ensure_clone
-      git -C "$REPO" fetch --quiet origin || true
+      fetch_origin || true
       if ! git -C "$REPO" merge-base --is-ancestor "$(json_get "$file" .sha)" "origin/$BRANCH" 2>/dev/null; then
         if [ "$phase" = superseded ]; then
           echo "attempt $(json_get "$file" .attempt) was superseded by $(json_get "$file" .supersededBy); claim that tag instead" >&2
@@ -917,7 +925,7 @@ attempt_command() {
         exit 3
       fi
       ensure_clone
-      git -C "$REPO" fetch --quiet origin || true
+      fetch_origin || true
       # A recorded landing counts, through later build blocks, even when the fetch above failed and the cached ref is stale.
       if [ -n "$(json_get "$file" .landing.commit)" ] || git -C "$REPO" merge-base --is-ancestor "$(json_get "$file" .sha)" "origin/$BRANCH" 2>/dev/null; then
         case "$kind" in
@@ -960,7 +968,7 @@ attempt_command() {
       fi
       # Retry releases this attempt's own hold; it must not jump another tag's.
       ensure_clone
-      git -C "$REPO" fetch --quiet origin || true
+      fetch_origin || true
       local holder_file
       holder_file="$(other_holder "$file")"
       if [ -n "$holder_file" ] && ! git -C "$REPO" merge-base --is-ancestor "$(json_get "$file" .sha)" "origin/$BRANCH" 2>/dev/null; then
@@ -1372,7 +1380,7 @@ build() {
   local rev="$BUILD_REV" recovery="$BUILD_RECOVERY"
   ensure_clone
   cd "$REPO"
-  git fetch --quiet origin || return 1
+  fetch_origin || return 1
   local source
   source="$(git rev-parse --verify "${rev:-origin/$BRANCH}^{commit}")" || return 1
   if ! git merge-base --is-ancestor "$source" "origin/$BRANCH"; then
@@ -1404,7 +1412,7 @@ build() {
     tag="$(jq -r .upstream.target.tag fork/upstream-receipt.json)"
     upstream="$(jq -r .upstream.target.sha fork/upstream-receipt.json)"
   elif [ -n "$recovery" ]; then
-    git fetch --quiet upstream --tags || true
+    fetch_upstream || true
     upstream="$(git rev-parse --verify --quiet "$(integration_of "$source")^2" || true)"
     tag="$(git tag --points-at "${upstream:-HEAD}" --list 'v*-nightly.*' | tail -1)"
     if [ -z "$upstream" ] || [ -z "$tag" ]; then
@@ -1598,7 +1606,7 @@ hourly() {
     return 0
   fi
   cd "$REPO"
-  if ! { git fetch --quiet origin && git fetch --quiet upstream --tags; }; then
+  if ! { fetch_origin && fetch_upstream; }; then
     log "fetch failed; trying again next hour"
     return 0
   fi

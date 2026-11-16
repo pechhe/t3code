@@ -484,6 +484,24 @@ const INCOMING_DIR = (f: Fixture) => NodePath.join(f.apps, `.${APP}.installing`)
 const REPLACED_DIR = (f: Fixture) => NodePath.join(f.apps, `.${APP}.replaced`);
 
 describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly updater", () => {
+  it("fetches only fork integration, upstream main and release tags", async () => {
+    await withFixture(async (f) => {
+      await seedRepos(f);
+      const work = NodePath.join(f.root, "work");
+      await git(work, ["push", "-q", f.origin, "main:refs/heads/unrelated"]);
+      await git(work, ["push", "-q", f.upstream, "main:refs/heads/unrelated"]);
+      await git(work, ["tag", "unrelated-tag"]);
+      await git(work, ["push", "-q", f.upstream, "unrelated-tag"]);
+      await publishUpstreamTag(f, NEW_TAG, "2026-01-05T00:00:00Z");
+      expect((await run(f, [])).code).toBe(0);
+      const refs = await git(f.env.T3FORK_REPO!, ["for-each-ref", "--format=%(refname)"]);
+      expect(refs).toContain("refs/remotes/origin/t3peach");
+      expect(refs).toContain("refs/remotes/upstream/main");
+      expect(refs).toContain(`refs/tags/${NEW_TAG}`);
+      expect(refs).not.toContain("unrelated");
+    });
+  });
+
   describe.concurrent("desktop install", () => {
     it(
       "installs the selected staged build and keeps the old app as the previous build",
