@@ -1945,6 +1945,9 @@ export function threadShellFromProjection(
       : { waitingChildThreadIds: options.waitingChildThreadIds }),
   });
   return {
+    ...(projection.thread.stanceChoice === undefined
+      ? {}
+      : { stanceChoice: projection.thread.stanceChoice }),
     createdBy: projection.thread.createdBy,
     creationSource: projection.thread.creationSource,
     id: projection.thread.id,
@@ -2326,6 +2329,9 @@ function shellFromState(input: {
   const { state } = input;
   const standing = shellStateStanding(state);
   return {
+    ...(input.state.thread.stanceChoice === undefined
+      ? {}
+      : { stanceChoice: input.state.thread.stanceChoice }),
     createdBy: input.state.thread.createdBy,
     creationSource: input.state.thread.creationSource,
     id: input.state.thread.id,

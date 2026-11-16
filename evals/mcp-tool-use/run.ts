@@ -15,6 +15,7 @@ import * as PlatformNodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   ComposerContextRecord,
+  DelegationStance,
   DeviceOperationError,
   DeviceSummary,
   OrchestratorMcpTaskRole,
@@ -22,6 +23,7 @@ import {
   PreviewAutomationUnavailableError,
   ProviderInstanceId,
 } from "@t3tools/contracts";
+import { delegationStanceNote } from "../../apps/server/src/agents/delegationStanceNote.ts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Config from "effect/Config";
@@ -329,6 +331,7 @@ export const McpToolUseCase = Schema.Struct({
     /** delegate_task `role` for a delegated child. T3 builds the child's first message from it. */
     delegateRole: Schema.optional(OrchestratorMcpTaskRole),
     context: Schema.optional(Schema.String),
+    delegationStance: Schema.optional(DelegationStance),
     /** ACP runtimes whose callable MCP declarations stay fixed after startup. */
     staticMcpTools: Schema.optional(Schema.Array(Schema.String)),
     priorTurns: Schema.optional(
@@ -1168,6 +1171,9 @@ export const buildMessages = (sample: Sample) => {
       ? "You are a subagent started by the parent agent's Agent tool. Your final message goes to the parent agent, not to the user."
       : undefined,
     context,
+    testCase.setup.delegationStance === undefined
+      ? undefined
+      : delegationStanceNote(testCase.setup.delegationStance),
     testCase.setup.champions === true ? CHAMPION_MEASUREMENT_GUIDANCE : undefined,
   ];
   const reminders = base.reminders.toSpliced(base.gitStatusAt, 0, reminder(gitStatus(testCase)));

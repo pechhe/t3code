@@ -1,4 +1,5 @@
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
+import * as Projections from "../orchestration-v2/ProjectionStore.ts";
 import * as PhiBrowser from "../preview/PhiBrowser.ts";
 import * as Settings from "../serverSettings.ts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
@@ -10,6 +11,10 @@ import * as Option from "effect/Option";
 import * as DateTime from "effect/DateTime";
 import {
   type AgentTaskRequest,
+  type OrchestrationV2AppThread,
+  type ResolvedDelegationStance,
+  DEFAULT_DELEGATION_STANCE,
+  OrchestrationV2GetThreadProjectionError,
   type AgentRolesInput,
   type AgentRolesResult,
   AgentExternalSession,
@@ -81,7 +86,15 @@ const refusalDetail = (cause: unknown, detail: string | undefined): string => {
 export class ManagedAgentError extends Schema.TaggedError<ManagedAgentError>()(
   "ManagedAgentError",
   {
-    reason: Schema.Literals(["policy", "workspace", "source", "selection", "revoked", "hard-link"]),
+    reason: Schema.Literals([
+      "policy",
+      "workspace",
+      "source",
+      "selection",
+      "revoked",
+      "hard-link",
+      "stance",
+    ]),
     path: Schema.optional(Schema.String),
     /** Which workspace rule refused, so the caller can correct the request. */
     detail: Schema.optional(Schema.String),
@@ -89,6 +102,8 @@ export class ManagedAgentError extends Schema.TaggedError<ManagedAgentError>()(
   },
 ) {
   override get message(): string {
+    if (this.reason === "stance")
+      return "Delegation stance is implement: do the work yourself, or ask the owner to move the lever before starting an implementer or lead task.";
     if (this.reason === "hard-link")
       return `Managed writer refused: regular file has multiple hard links: ${this.path}.`;
     const refusal = `Managed agent dispatch refused (${this.reason}${refusalDetail(this.cause, this.detail)}).`;
@@ -159,6 +174,20 @@ export class ManagedAgentService extends Context.Service<
   ManagedAgentService,
   {
     readonly snapshot: () => Effect.Effect<AgentPolicySnapshot, ManagedAgentError>;
+    readonly resolveStance: (input: {
+      readonly threadId?: ThreadId | undefined;
+      readonly thread?:
+        | Pick<OrchestrationV2AppThread, "stanceChoice" | "agentTask" | "arcRun" | "modelSelection">
+        | undefined;
+      readonly modelSelection?: ModelSelection | undefined;
+    }) => Effect.Effect<ResolvedDelegationStance, OrchestrationV2GetThreadProjectionError>;
+    readonly assertDelegationAllowed: (input: {
+      readonly thread: Pick<
+        OrchestrationV2AppThread,
+        "stanceChoice" | "agentTask" | "arcRun" | "modelSelection"
+      >;
+      readonly request: AgentTaskRequest;
+    }) => Effect.Effect<void, ManagedAgentError>;
     readonly roles: (
       input: Omit<Authority, "workspacePath"> & {
         readonly request: AgentRolesInput;
@@ -266,6 +295,7 @@ export class ManagedAgentService extends Context.Service<
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const policy = yield* Policy.AgentPolicyService;
+  const projections = yield* Projections.ProjectionStoreV2;
   const store = yield* Store.AgentPolicyStore;
   const resolver = yield* Resolver.AgentRoleResolver;
   // Optional so a layer without overload tracking resolves as if nothing were overloaded.
@@ -776,6 +806,42 @@ const make = Effect.gen(function* () {
     );
     return { entry, ranked };
   });
+  const resolveStance: ManagedAgentService["Service"]["resolveStance"] = Effect.fn(
+    "ManagedAgentService.resolveStance",
+  )(function* (input) {
+    const thread =
+      input.thread ??
+      (input.threadId === undefined
+        ? undefined
+        : yield* projections.getThread(input.threadId).pipe(
+            Effect.mapError(
+              (cause) =>
+                new OrchestrationV2GetThreadProjectionError({
+                  threadId: input.threadId!,
+                  message: "Unable to resolve the thread's delegation stance.",
+                  cause,
+                }),
+            ),
+          ));
+    if (thread?.stanceChoice !== undefined)
+      return { stance: thread.stanceChoice.stance, source: thread.stanceChoice.chosenBy };
+    if (thread?.agentTask?.sourceAccess === "scoped-write") {
+      if (thread.agentTask.role === "lead") return { stance: "flexible", source: "role" };
+      return { stance: "implement", source: "role" };
+    }
+    if (thread?.arcRun !== undefined) return { stance: "orchestrate", source: "arc" };
+    const model = (input.modelSelection ?? thread?.modelSelection)?.model;
+    if (model !== undefined) {
+      const snapshot = yield* currentPolicy.pipe(Effect.option);
+      if (Option.isSome(snapshot)) {
+        const stance = Object.values(snapshot.value.manifest.models).find(
+          (binding) => binding.model === model && binding.defaultStance !== undefined,
+        )?.defaultStance;
+        if (stance !== undefined) return { stance, source: "model" };
+      }
+    }
+    return { stance: DEFAULT_DELEGATION_STANCE, source: "fallback" };
+  });
   return ManagedAgentService.of({
     targetProject: Effect.fn("ManagedAgentService.targetProject")(function* ({
       request,
@@ -865,6 +931,16 @@ const make = Effect.gen(function* () {
           revisions.includes(binding.sourceRevision) ? undefined : revisions.at(-1),
         ),
       ),
+    ),
+    resolveStance,
+    assertDelegationAllowed: Effect.fn("ManagedAgentService.assertDelegationAllowed")(
+      function* (input) {
+        const stance = yield* resolveStance({ thread: input.thread }).pipe(Effect.orDie);
+        if (stance.stance !== "implement") return;
+        const snapshot = yield* currentPolicy;
+        if (snapshot.manifest.roles[input.request.role]?.sourceAccess === "scoped-write")
+          return yield* new ManagedAgentError({ reason: "stance" });
+      },
     ),
     snapshot: Effect.fn("ManagedAgentService.snapshot")(() =>
       currentPolicy.pipe(
@@ -1189,6 +1265,7 @@ const make = Effect.gen(function* () {
 });
 export const layer = Layer.effect(ManagedAgentService, make).pipe(
   Layer.provide(Policy.layer),
+  Layer.provide(Projections.layer),
   Layer.provide(Store.layer),
   Layer.provide(Resolver.layer),
 );

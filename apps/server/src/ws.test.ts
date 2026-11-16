@@ -197,6 +197,7 @@ it("treats a client draft's root as the project's default checkout", () => {
   // project must still give it a workspace.
   const launch = clientThreadLaunchInput({
     commandId: CommandId.make("command:client-draft"),
+    stanceChoice: { stance: "implement", chosenBy: "owner" },
     projectId: ProjectId.make("project:client-draft"),
     title: "Draft",
     modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
@@ -206,6 +207,7 @@ it("treats a client draft's root as the project's default checkout", () => {
   });
   assert.deepEqual(launch.workspaceStrategy, { type: "root", branch: "main" });
   assert.isTrue(launch.rootIsDefault);
+  assert.deepEqual(launch.stanceChoice, { stance: "implement", chosenBy: "owner" });
 });
 
 const snapshotConfig = (fields: Partial<ServerConfig>) =>

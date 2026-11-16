@@ -235,7 +235,7 @@ describe("what a draft sends", () => {
     });
   });
 
-  it("sends a delegation approach with no controls and both policies", () => {
+  it("keeps historical delegation approach variants readable but blocks creating one", () => {
     const definition = definitionOf(
       draft({
         kind: "approach",
@@ -245,6 +245,19 @@ describe("what a draft sends", () => {
         ],
       }),
     );
+    const issues = trialDraftIssues(
+      trialDraftFromExperiment({
+        ...definition,
+        revision: 1,
+        status: "paused",
+        createdAt: "2026-11-05T12:00:00Z",
+        startedAt: null,
+        updatedAt: "2026-11-05T12:00:00Z",
+      }),
+      context(),
+    );
+    expect(issues.blocked).toBe(true);
+    expect(issues.work.some((issue) => issue.text.includes("retired"))).toBe(true);
     expect(definition.lever).toBe("orchestration-policy");
     expect(definition.orchestrationControls).toBeUndefined();
     expect(definition.variants.map((variant) => variant.allocationPolicy)).toEqual([

@@ -66,6 +66,7 @@ import { layerRealGit } from "./ProviderTurnStartService.testkit.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
+import { delegationStanceNote } from "../agents/delegationStanceNote.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -1491,6 +1492,11 @@ function makeLocalCommandHarness(input: {
           ),
         }),
         Layer.mock(ManagedAgent.ManagedAgentService)({
+          resolveStance: ({ thread }) =>
+            Effect.succeed({
+              stance: thread?.stanceChoice?.stance ?? "flexible",
+              source: thread?.stanceChoice?.chosenBy ?? "fallback",
+            }),
           rankedTextModels: () =>
             Effect.succeed(
               input.fallbackSummariser === undefined
@@ -1542,6 +1548,37 @@ function makeLocalCommandHarness(input: {
     }).pipe(Effect.provide(layer)),
   };
 }
+
+effectIt.effect("uses the current stance on each turn of a thread with native history", () =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({
+      text: "Continue",
+      previousNativeSession: true,
+      previousMessages: ["Earlier work"],
+      deliverTurn: true,
+    });
+    const initial = harness.projection();
+    harness.setProjection({
+      ...initial,
+      thread: { ...initial.thread, stanceChoice: { stance: "orchestrate", chosenBy: "owner" } },
+    });
+    yield* harness.start;
+    expect(harness.startTurn.mock.calls[0]?.[0].message.text).toContain(
+      "Delegation stance: orchestrate",
+    );
+    harness.setProjection({
+      ...initial,
+      thread: { ...initial.thread, stanceChoice: { stance: "implement", chosenBy: "owner" } },
+    });
+    yield* harness.start;
+    expect(harness.startTurn.mock.calls[1]?.[0].message.text).toContain(
+      "Delegation stance: implement",
+    );
+    expect(harness.startTurn.mock.calls[1]?.[0].message.text).not.toContain(
+      "Delegation stance: orchestrate",
+    );
+  }),
+);
 
 effectIt.effect("refuses to start a turn on a Pi account that has run out", () =>
   Effect.gen(function* () {
@@ -1913,7 +1950,9 @@ effectIt.effect.each([
       );
       expect(harness.startTurn.mock.calls.map(([turn]) => turn.message.text)).toEqual([
         withInlineContext(
-          [context, ProviderTurnStart.SIDE_CHAT_NOTE].filter(Boolean).join("\n\n"),
+          [delegationStanceNote("flexible"), context, ProviderTurnStart.SIDE_CHAT_NOTE]
+            .filter(Boolean)
+            .join("\n\n"),
           "What is the main thread doing?",
         ),
       ]);
@@ -1978,6 +2017,7 @@ effectIt.effect.each([
       });
       harness.tryHandlePromptCommand.mockReturnValue(Effect.succeed(false));
       yield* harness.start;
+      expect(harness.startTurn.mock.calls[0]?.[0].message.text).not.toContain("Delegation stance");
       expect(harness.startTurn.mock.calls[0]?.[0].message.text.includes("SIDE_CHAT_CONTEXT")).toBe(
         !nativeGoals,
       );
@@ -2456,7 +2496,7 @@ effectIt.effect.each([
         }
         expect(text.includes("land each repository")).toBe(attached);
       } else {
-        expect(text).toBe("Continue");
+        expect(text).toBe(`${delegationStanceNote("flexible")}\n\nUser message:\nContinue`);
       }
     }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
@@ -3014,7 +3054,8 @@ effectIt.effect.each([
     yield* harness.start;
 
     const text = harness.startTurn.mock.calls[0]![0].message.text;
-    if (folder === null) expect(text).toBe("Continue");
+    if (folder === null)
+      expect(text).toBe(`${delegationStanceNote("flexible")}\n\nUser message:\nContinue`);
     else expect(text).toContain(`\`${folder}\``);
   }).pipe(
     Effect.scoped,

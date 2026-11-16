@@ -63,6 +63,7 @@ import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import * as ServerConfig from "../config.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
+import { delegationStanceNote } from "../agents/delegationStanceNote.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
@@ -2481,6 +2482,18 @@ export const layer: Layer.Layer<
                     } satisfies TurnWorkspace;
                   }),
               );
+        // Native slash commands must remain at the start of the prompt, so they carry no note.
+        const slashCommand =
+          message.attachments.length === 0 && message.text.trimStart().startsWith("/");
+        const stanceNote =
+          slashCommand || Option.isNone(managedAgents)
+            ? ""
+            : delegationStanceNote(
+                (yield* managedAgents.value
+                  .resolveStance({ thread: projection.thread, modelSelection: run.modelSelection })
+                  .pipe(Effect.orDie)).stance,
+                projection.thread.agentTask?.sourceAccess === "read-only",
+              );
         const arcRunNote =
           projection.thread.arcRun === undefined ||
           goalCommand ||
@@ -2514,6 +2527,7 @@ export const layer: Layer.Layer<
                 ? ""
                 : sideChatHandoff.summaryText;
             const context = [
+              compact ? "" : stanceNote,
               delivery.context,
               sideChatContext,
               restartNote,
@@ -2606,6 +2620,7 @@ export const layer: Layer.Layer<
           ),
         );
         const deliverySession =
+          stanceNote === "" &&
           effectiveHandoffs.length === 0 &&
           retryHandoff.length === 0 &&
           sideChatHandoff === undefined &&

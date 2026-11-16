@@ -518,24 +518,14 @@ it("starts variant A from Delegation and refuses a variant identical to it", asy
   expect(input.stopConditions).toEqual([]);
 });
 
-it("refuses two identical approach variants with the design's message", async () => {
+it("offers supported trial kinds but not the retired delegation approach", async () => {
   setup([]);
   await using _screen = await render(<ExperimentsSettings />);
   await vi.waitFor(() => expect(hasButton("New trial")).toBe(true));
   await click("New trial");
-  await click("Delegation approachDo it inline first, or delegate earlier.");
-  await vi.waitFor(() => expect(pageText()).toContain("fresh threads linked to a Forge item"));
-  expect(pageText()).toContain("the report shows what leads actually delegated");
-  const column = document.querySelector('[data-variant="B"]');
-  const inline = [...(column?.querySelectorAll("button") ?? [])].find(
-    (button) => button.textContent === "Inline first",
-  );
-  await userEvent.click(inline!);
-  await vi.waitFor(() =>
-    expect(pageText()).toContain("Same as A, so there is nothing to compare. Change one of them."),
-  );
-  await click("T3 Peach");
-  expect((byText("Start trial") as HTMLButtonElement).disabled).toBe(true);
+  expect(pageText()).toContain("Model and effort for a job");
+  expect(pageText()).toContain("Added instructions");
+  expect(pageText()).not.toContain("Delegation approach");
 });
 
 it("says where added text reaches, hashes it in the browser and saves it", async () => {
@@ -570,7 +560,11 @@ it("does not create a draft twice when only starting it failed", async () => {
   await using _screen = await render(<ExperimentsSettings />);
   await vi.waitFor(() => expect(hasButton("New trial")).toBe(true));
   await click("New trial");
-  await click("Delegation approachDo it inline first, or delegate earlier.");
+  await click("Added instructionsToday's instructions, or the same with text you add.");
+  await userEvent.fill(
+    document.querySelector('[data-variant="B"] textarea')!,
+    "Keep replies concise.",
+  );
   await click("T3 Peach");
   await vi.waitFor(() => expect((byText("Start trial") as HTMLButtonElement).disabled).toBe(false));
   await click("Start trial");

@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFS from "node:fs";
+import { delegationStanceNote } from "../../apps/server/src/agents/delegationStanceNote.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Layer from "effect/Layer";
@@ -663,6 +664,14 @@ it("rebuilds the template from this checkout and sends a child T3's task prompt"
   const prompt = buildMessages(makeSample(childCase, base)).at(-1)?.content.at(-1);
   assert.equal(prompt?.text, taskPrompt({ task: childCase.prompt, role: "implementation" }));
   assert.notEqual(prompt?.text, childCase.prompt);
+  for (const delegationStance of ["orchestrate", "flexible", "implement"] as const) {
+    const testCase = { ...childCase, setup: { ...childCase.setup, delegationStance } };
+    const notes = buildMessages(makeSample(testCase, base))
+      .flatMap((message) => message.content)
+      .map((block) => block.text)
+      .join("\n");
+    assert.include(notes, delegationStanceNote(delegationStance));
+  }
 });
 
 it("lists link tools only while a case turns the beta on, and sends chips as T3 projects them", () => {

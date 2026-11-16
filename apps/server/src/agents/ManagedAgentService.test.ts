@@ -8,7 +8,7 @@ import {
   ProjectId,
   type AgentPolicyManifest,
   AgentTaskBinding,
-  type AgentTaskRequest,
+  AgentTaskRequest,
   type ModelSelection,
   type OrchestrationV2AppThread,
   RunId,
@@ -83,6 +83,7 @@ const testLayer = Layer.mergeAll(Managed.layer, Store.layer, Policy.layer).pipe(
 );
 const decodeBinding = Schema.decodeUnknownEffect(AgentTaskBinding);
 const encodeBinding = Schema.encodeEffect(AgentTaskBinding);
+const decodeTaskRequest = Schema.decodeUnknownEffect(AgentTaskRequest);
 const fixture = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const temporary = yield* fs.makeTempDirectoryScoped({ prefix: "managed-agent-test-" });
@@ -129,6 +130,168 @@ const fixture = Effect.gen(function* () {
 });
 
 it.layer(testLayer)("ManagedAgentService", (it) => {
+  it.effect("resolves a thread's stance from choices, role, Arc and the selected model", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      yield* f.writeManifest({
+        ...f.manifest,
+        models: {
+          ...f.manifest.models,
+          "stance-alias": {
+            driverKind: codex.driver,
+            model: "stance-model",
+            defaultStance: "orchestrate",
+          },
+          "other-alias": { driverKind: codex.driver, model: "stance-model" },
+          "concrete-alias": {
+            driverKind: codex.driver,
+            model: "concrete-model",
+            defaultStance: "implement",
+          },
+        },
+      });
+      const { binding } = yield* f.prepare();
+      const selection = { instanceId: codex.instanceId, model: "unknown-model" };
+      const model = { ...selection, model: "stance-model" };
+      const arcRun: NonNullable<OrchestrationV2AppThread["arcRun"]> = {
+        arc: { number: 12, ref: "T3-ARC-12" },
+        specs: [1],
+        plan: [1],
+        current: 1,
+        state: "active",
+        startedAt: "2026-11-13T09:00:00.000Z",
+        progressAt: "2026-11-13T09:00:00.000Z",
+        ceilingSince: "2026-11-13T09:00:00.000Z",
+      };
+      type Input = Parameters<typeof f.service.resolveStance>[0];
+      const cases: ReadonlyArray<{
+        name: string;
+        input: Input;
+        expected: { stance: string; source: string };
+      }> = [
+        {
+          name: "ordinary",
+          input: { thread: { modelSelection: selection } },
+          expected: { stance: "flexible", source: "fallback" },
+        },
+        {
+          name: "lead",
+          input: {
+            thread: { modelSelection: model, agentTask: { ...binding, role: "lead" }, arcRun },
+          },
+          expected: { stance: "flexible", source: "role" },
+        },
+        {
+          name: "implementer",
+          input: { thread: { modelSelection: model, agentTask: binding, arcRun } },
+          expected: { stance: "implement", source: "role" },
+        },
+        {
+          name: "Arc",
+          input: { thread: { modelSelection: selection, arcRun } },
+          expected: { stance: "orchestrate", source: "arc" },
+        },
+        {
+          name: "model default on another alias",
+          input: { thread: { modelSelection: model } },
+          expected: { stance: "orchestrate", source: "model" },
+        },
+        {
+          name: "new thread preview",
+          input: { modelSelection: selection },
+          expected: { stance: "flexible", source: "fallback" },
+        },
+        {
+          name: "pool preview selected slug",
+          input: { modelSelection: model },
+          expected: { stance: "orchestrate", source: "model" },
+        },
+        {
+          name: "pool turn concrete slug",
+          input: {
+            thread: { modelSelection: model },
+            modelSelection: { ...model, model: "concrete-model" },
+          },
+          expected: { stance: "implement", source: "model" },
+        },
+        {
+          name: "parent choice",
+          input: {
+            thread: {
+              modelSelection: model,
+              agentTask: binding,
+              arcRun,
+              stanceChoice: { stance: "flexible", chosenBy: "parent" },
+            },
+          },
+          expected: { stance: "flexible", source: "parent" },
+        },
+      ];
+      for (const row of cases) {
+        expect(
+          yield* f.service
+            .resolveStance(row.input)
+            .pipe(Effect.provideService(HostProcess.Environment, f.environment)),
+          row.name,
+        ).toEqual(row.expected);
+        for (const stance of ["orchestrate", "flexible", "implement"] as const) {
+          const input = {
+            ...row.input,
+            thread: {
+              modelSelection: selection,
+              ...row.input.thread,
+              stanceChoice: { stance, chosenBy: "owner" as const },
+            },
+          };
+          expect(
+            yield* f.service
+              .resolveStance(input)
+              .pipe(Effect.provideService(HostProcess.Environment, f.environment)),
+            `${row.name}: owner ${stance}`,
+          ).toEqual({ stance, source: "owner" });
+        }
+      }
+    }),
+  );
+  it.effect(
+    "Implement refuses writing roles, including retired workers, and admits reading roles",
+    () =>
+      Effect.gen(function* () {
+        const f = yield* fixture;
+        const thread = {
+          modelSelection: { instanceId: codex.instanceId, model: codexModel },
+          stanceChoice: { stance: "implement", chosenBy: "owner" },
+        } as const;
+        for (const role of [
+          "implementer",
+          "lead",
+          "chore-worker",
+          "implementation-worker",
+          "ui-worker",
+          "scout",
+          "researcher",
+          "browser",
+          "ui-verifier",
+          "reviewer",
+          "advisor",
+          "ticket-reviewer",
+          "spec-reviewer",
+        ]) {
+          const task = yield* decodeTaskRequest({ ...request(), role });
+          const check = f.service
+            .assertDelegationAllowed({ thread, request: task })
+            .pipe(Effect.provideService(HostProcess.Environment, f.environment));
+          const access = f.manifest.roles[task.role]?.sourceAccess;
+          if (access === "scoped-write") {
+            const error = yield* check.pipe(Effect.flip);
+            expect(error.reason, role).toBe("stance");
+            expect(error.message).toContain("stance is implement");
+            expect(error.message).toContain("do the work yourself");
+            expect(error.message).toContain("ask the owner");
+          } else yield* check;
+        }
+      }),
+  );
   it.effect.each([0, 120_000])(
     "validates conservation before admission even with a reading aged %s ms",
     (age) =>

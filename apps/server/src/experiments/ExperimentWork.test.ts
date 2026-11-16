@@ -15,7 +15,9 @@ import {
   type ExperimentDefinition,
   type ExperimentWorkOwner,
   type ExperimentWorkEvidenceInput,
-  type ExperimentWorkUnit,
+  ExperimentWorkUnit,
+  Experiment,
+  ExperimentAssignment,
   type ModelSelection,
   type OrchestrationV2Run,
   type TurnTokenUsage,
@@ -24,6 +26,8 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as TestClock from "effect/testing/TestClock";
+import * as Schema from "effect/Schema";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as AgentPolicyStore from "../agents/AgentPolicyStore.ts";
@@ -50,6 +54,12 @@ const projectId = ProjectId.make("project:work-experiment");
 const environmentId = EnvironmentId.make("environment:work-experiment");
 const parentThreadId = ThreadId.make("thread:work-experiment-parent");
 const workspacePath = "/fixture/work-experiment";
+
+const encodeExperimentJson = Schema.encodeEffect(Schema.fromJsonString(Experiment));
+const encodeExperimentAssignmentJson = Schema.encodeEffect(
+  Schema.fromJsonString(ExperimentAssignment),
+);
+const encodeExperimentWorkUnitJson = Schema.encodeEffect(Schema.fromJsonString(ExperimentWorkUnit));
 
 const policyDefinition = (id = "orchestration-policy"): ExperimentDefinition => {
   const policy = policySnapshot();
@@ -129,27 +139,82 @@ const enroll = (
   overrides: Partial<Parameters<Experiments.ExperimentService["Service"]["enrollWork"]>[0]> = {},
 ) => {
   const policy = policySnapshot();
-  return service.enrollWork({
-    request: {
-      workId,
-      description: `Coherent work ${workId}`,
-      taskCategory: "implementer",
-      sourceRevision: "revision:source",
-    },
-    owner,
-    orchestratorSelection: selection,
-    modelSource: "run-selection",
-    policyHash: policy.hash,
-    policyRevision: policy.sourceRevision,
-    alreadyStarted: false,
-    ...overrides,
+  return Effect.gen(function* () {
+    const unit = yield* service.enrollWork({
+      request: {
+        workId,
+        description: `Coherent work ${workId}`,
+        taskCategory: "implementer",
+        sourceRevision: "revision:source",
+      },
+      owner,
+      orchestratorSelection: selection,
+      modelSource: "run-selection",
+      policyHash: policy.hash,
+      policyRevision: policy.sourceRevision,
+      alreadyStarted: false,
+      ...overrides,
+    });
+    if (unit.assignmentIds.length > 0) return unit;
+    return yield* Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const prior = yield* service.assignments({ experimentId: "orchestration-policy" });
+      const definition = policyDefinition();
+      const variant = definition.variants[prior.length % 2]!;
+      const id = `historical-assignment:${unit.id}`;
+      const historical: ExperimentWorkUnit = {
+        ...unit,
+        assignmentIds: [id],
+        assignedPolicies: [
+          {
+            experimentId: definition.id,
+            allocationPolicy: variant.allocationPolicy!,
+            controls: definition.orchestrationControls!,
+          },
+        ],
+      };
+      const assignment: ExperimentAssignment = {
+        id,
+        experimentId: definition.id,
+        revision: 1,
+        lever: definition.lever,
+        work: historical,
+        unitKind: "work",
+        unitId: unit.id,
+        threadId: owner.parentThreadId,
+        projectId: owner.projectId,
+        taskCategory: unit.taskCategory,
+        boundaryRunId: null,
+        variant,
+        assignedModelSelection: selection,
+        enrollment: "new",
+        assignmentMethod: "randomized",
+        assignedAt: unit.createdAt,
+        codeRevision: definition.codeRevision,
+        briefRevision: definition.briefRevision,
+        provenance: null,
+      };
+      yield* sql`INSERT INTO experiment_assignments(id,experiment_id,unit_kind,unit_id,thread_id,stratum,variant_id,assignment_method,payload_json) VALUES (${id},${definition.id},${"work"},${unit.id},${owner.parentThreadId ?? ""},${"historical"},${variant.id},${"randomized"},${yield* encodeExperimentAssignmentJson(assignment)})`;
+      yield* sql`UPDATE experiment_work_units SET payload_json = ${yield* encodeExperimentWorkUnitJson(historical)} WHERE id = ${unit.id}`;
+      return historical;
+    }).pipe(Effect.orDie);
   });
 };
 
 const startPolicyExperiment = (service: Experiments.ExperimentService["Service"]) =>
   Effect.gen(function* () {
-    yield* service.create(policyDefinition());
-    yield* service.transition({ experimentId: "orchestration-policy", status: "running" });
+    const sql = yield* SqlClient.SqlClient;
+    const now = DateTime.formatIso(yield* DateTime.now);
+    const historical: Experiment = {
+      ...policyDefinition(),
+      revision: 1,
+      status: "paused",
+      createdAt: now,
+      startedAt: now,
+      updatedAt: now,
+    };
+    yield* sql`INSERT INTO experiments(id,definition_json,status,created_at,updated_at) VALUES (${historical.id},${yield* encodeExperimentJson(historical)},${historical.status},${now},${now})`;
+    expect((yield* service.list())[0]?.status).toBe("paused");
   });
 
 const savePolicySnapshot = Effect.gen(function* () {
@@ -414,78 +479,76 @@ it.effect("keeps a thread's instruction assignment through a policy save and a l
   }).pipe(Effect.provide(layer)),
 );
 
-it.effect(
-  "enrolls stable work before allocation and pins its policy assignment through retries",
-  () =>
-    Effect.gen(function* () {
-      yield* savePolicySnapshot;
-      const service = yield* Experiments.ExperimentService;
-      yield* startPolicyExperiment(service);
-      const owner = externalOwner();
-      const first = yield* enroll(service, owner, "work:stable");
-      const assignments = yield* service.assignments(
-        { experimentId: "orchestration-policy" },
-        ownerReader(owner),
-      );
-      expect(first.assignmentIds).toHaveLength(1);
-      expect(assignments).toHaveLength(1);
-      expect(assignments[0]).toMatchObject({
-        id: first.assignmentIds[0],
-        unitKind: "work",
-        unitId: first.id,
-        threadId: null,
-        variant: { allocationPolicy: expect.any(String) },
-      });
-      const experiment = (yield* service.list()).find(
-        (candidate) => candidate.id === "orchestration-policy",
-      )!;
-      expect(experiment.orchestrationControls).toEqual(policyDefinition().orchestrationControls);
-      expect(assignments[0]?.revision).toBe(experiment.revision);
+it.effect("keeps a historical work assignment pinned through retries and policy changes", () =>
+  Effect.gen(function* () {
+    yield* savePolicySnapshot;
+    const service = yield* Experiments.ExperimentService;
+    yield* startPolicyExperiment(service);
+    const owner = externalOwner();
+    const first = yield* enroll(service, owner, "work:stable");
+    const assignments = yield* service.assignments(
+      { experimentId: "orchestration-policy" },
+      ownerReader(owner),
+    );
+    expect(first.assignmentIds).toHaveLength(1);
+    expect(assignments).toHaveLength(1);
+    expect(assignments[0]).toMatchObject({
+      id: first.assignmentIds[0],
+      unitKind: "work",
+      unitId: first.id,
+      threadId: null,
+      variant: { allocationPolicy: expect.any(String) },
+    });
+    const experiment = (yield* service.list()).find(
+      (candidate) => candidate.id === "orchestration-policy",
+    )!;
+    expect(experiment.orchestrationControls).toEqual(policyDefinition().orchestrationControls);
+    expect(assignments[0]?.revision).toBe(experiment.revision);
 
-      yield* service.transition({ experimentId: "orchestration-policy", status: "paused" });
-      const policyStore = yield* AgentPolicyStore.AgentPolicyStore;
-      const changedPolicy = {
-        ...policySnapshot(),
-        hash: "f".repeat(64),
-        sourceRevision: "policy-newer",
-      };
-      yield* policyStore.save(changedPolicy);
-      const retry = yield* enroll(service, owner, "work:stable", {
-        request: {
-          workId: "work:stable",
-          description: "Coherent work work:stable",
-          taskCategory: "implementer",
-          sourceRevision: "revision:source",
-        },
-        orchestratorSelection: changedSelection,
-        modelSource: "self-report",
-        policyHash: changedPolicy.hash,
-        policyRevision: changedPolicy.sourceRevision,
-        alreadyStarted: true,
-      });
-      expect(retry).toEqual(first);
-      expect(retry).toMatchObject({
-        policyHash: policySnapshot().hash,
-        policyRevision: policySnapshot().sourceRevision,
-        orchestratorSelection: selection,
-        assignmentIds: first.assignmentIds,
-      });
-      expect(
-        (yield* Effect.flip(
-          enroll(service, owner, "work:stable", {
-            request: {
-              workId: "work:stable",
-              description: "Different work request",
-              taskCategory: "implementer",
-              sourceRevision: "revision:source",
-            },
-          }),
-        )).reason,
-      ).toBe("conflict");
-    }).pipe(Effect.provide(layer)),
+    yield* service.transition({ experimentId: "orchestration-policy", status: "paused" });
+    const policyStore = yield* AgentPolicyStore.AgentPolicyStore;
+    const changedPolicy = {
+      ...policySnapshot(),
+      hash: "f".repeat(64),
+      sourceRevision: "policy-newer",
+    };
+    yield* policyStore.save(changedPolicy);
+    const retry = yield* enroll(service, owner, "work:stable", {
+      request: {
+        workId: "work:stable",
+        description: "Coherent work work:stable",
+        taskCategory: "implementer",
+        sourceRevision: "revision:source",
+      },
+      orchestratorSelection: changedSelection,
+      modelSource: "self-report",
+      policyHash: changedPolicy.hash,
+      policyRevision: changedPolicy.sourceRevision,
+      alreadyStarted: true,
+    });
+    expect(retry).toEqual(first);
+    expect(retry).toMatchObject({
+      policyHash: policySnapshot().hash,
+      policyRevision: policySnapshot().sourceRevision,
+      orchestratorSelection: selection,
+      assignmentIds: first.assignmentIds,
+    });
+    expect(
+      (yield* Effect.flip(
+        enroll(service, owner, "work:stable", {
+          request: {
+            workId: "work:stable",
+            description: "Different work request",
+            taskCategory: "implementer",
+            sourceRevision: "revision:source",
+          },
+        }),
+      )).reason,
+    ).toBe("conflict");
+  }).pipe(Effect.provide(layer)),
 );
 
-it.effect("records balanced policy arms and requires evidence for inline deviations", () =>
+it.effect("reports historical policy arms and requires evidence for inline deviations", () =>
   Effect.gen(function* () {
     yield* savePolicySnapshot;
     const service = yield* Experiments.ExperimentService;
@@ -741,35 +804,49 @@ it.effect(
     }).pipe(Effect.provide(layer)),
 );
 
-it.effect("refuses overlapping policy/delegation arms and historical policy assignments", () =>
-  Effect.gen(function* () {
-    yield* savePolicySnapshot;
-    const service = yield* Experiments.ExperimentService;
-    yield* service.create(policyDefinition());
-    yield* service.transition({ experimentId: "orchestration-policy", status: "running" });
-    yield* service.create(delegationDefinition());
-    expect(
-      (yield* Effect.flip(
-        service.transition({ experimentId: "delegation-overlap", status: "running" }),
-      )).reason,
-    ).toBe("conflict");
-    const historical = yield* Effect.flip(
-      service.importHistorical({
-        experimentId: "orchestration-policy",
-        variantId: "inline-first",
-        unitId: "historic-work",
-        threadId: parentThreadId,
-        projectId,
-        taskCategory: "implementer",
-        assignedModelSelection: selection,
-        assignedAt: "2026-10-01T00:00:00Z",
-        codeRevision: "commit:old",
-        briefRevision: null,
-        provenance: "legacy trial import",
-      }),
-    );
-    expect(historical.reason).toBe("invalid-evidence");
-  }).pipe(Effect.provide(layer)),
+it.effect(
+  "refuses retired policy creation, activation and work enrollment while keeping history readable",
+  () =>
+    Effect.gen(function* () {
+      yield* savePolicySnapshot;
+      const service = yield* Experiments.ExperimentService;
+      expect((yield* service.create(policyDefinition()).pipe(Effect.flip)).message).toContain(
+        "lever is retired",
+      );
+      yield* startPolicyExperiment(service);
+      expect(
+        (yield* service
+          .transition({ experimentId: "orchestration-policy", status: "running" })
+          .pipe(Effect.flip)).message,
+      ).toContain("lever is retired");
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`UPDATE experiments SET status = 'running' WHERE id = 'orchestration-policy'`;
+      expect(
+        (yield* enroll(service, internalOwner(), "retired").pipe(Effect.flip)).message,
+      ).toContain("lever is retired");
+      yield* sql`UPDATE experiments SET status = 'paused' WHERE id = 'orchestration-policy'`;
+      yield* service.create(delegationDefinition());
+      expect(
+        (yield* service.transition({ experimentId: "delegation-overlap", status: "running" }))
+          .status,
+      ).toBe("running");
+      const historical = yield* Effect.flip(
+        service.importHistorical({
+          experimentId: "orchestration-policy",
+          variantId: "inline-first",
+          unitId: "historic-work",
+          threadId: parentThreadId,
+          projectId,
+          taskCategory: "implementer",
+          assignedModelSelection: selection,
+          assignedAt: "2026-10-01T00:00:00Z",
+          codeRevision: "commit:old",
+          briefRevision: null,
+          provenance: "legacy trial import",
+        }),
+      );
+      expect(historical.reason).toBe("invalid-evidence");
+    }).pipe(Effect.provide(layer)),
 );
 
 it.effect(

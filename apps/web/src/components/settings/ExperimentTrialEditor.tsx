@@ -19,6 +19,7 @@ import {
   trialDraftSentence,
   TRIAL_JOBS,
   TRIAL_KINDS,
+  CREATABLE_TRIAL_KINDS,
   trialUnit,
   VARIANT_LETTERS,
   type DraftVariant,
@@ -252,7 +253,7 @@ export function TrialEditor({
               if (next !== kind) setDraft(reset({ ...draft, kind: next }));
             }}
           >
-            {(Object.keys(TRIAL_KINDS) as TrialKind[]).map((id) => (
+            {CREATABLE_TRIAL_KINDS.map((id) => (
               <div key={id} className="flex flex-col gap-1.5">
                 <label className="flex cursor-pointer items-start gap-2">
                   <Radio value={id} />

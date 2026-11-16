@@ -845,6 +845,7 @@ export function clientThreadLaunchInput(
 ): ThreadLaunchService.ThreadLaunchInput {
   return {
     commandId: input.commandId,
+    ...(input.stanceChoice === undefined ? {} : { stanceChoice: input.stanceChoice }),
     ...(input.threadId === undefined ? {} : { threadId: input.threadId }),
     ...(input.reuseExistingThread === undefined
       ? {}
@@ -3546,6 +3547,11 @@ export const layerWsRpc = (
         [WS_METHODS.serverGetResourceTelemetryHistory]: (input) =>
           resourceTelemetry.readHistory(input),
         [WS_METHODS.experimentsCreate]: (input) => experiments.create(input),
+        [WS_METHODS.delegationStanceResolve]: (input) =>
+          Option.match(compactionManagedAgents, {
+            onNone: () => Effect.die("Delegation service unavailable"),
+            onSome: (managedAgents) => managedAgents.resolveStance(input),
+          }),
         [WS_METHODS.agentPolicyRead]: () => agentPolicySettings.read(),
         [WS_METHODS.agentPolicyCompactionModel]: () =>
           Option.match(compactionManagedAgents, {

@@ -524,6 +524,13 @@ const make = Effect.gen(function* () {
           ),
     ).pipe(Effect.map((matches) => matches.every(Boolean)));
   const create = Effect.fn("ExperimentService.create")(function* (input: ExperimentDefinition) {
+    if (input.lever === "orchestration-policy")
+      return yield* fail(
+        "create",
+        input.id,
+        "invalid-definition",
+        "The orchestration-policy lever is retired because a thread's delegation stance now decides this",
+      );
     const now = yield* nowIso;
     if ((yield* list()).length >= 1000)
       return yield* fail("create", input.id, "invalid-definition");
@@ -555,6 +562,13 @@ const make = Effect.gen(function* () {
       sql.withTransaction(
         Effect.gen(function* () {
           const experiment = yield* get(input.experimentId);
+          if (input.status === "running" && experiment.lever === "orchestration-policy")
+            return yield* fail(
+              "transition",
+              experiment.id,
+              "invalid-transition",
+              "The orchestration-policy lever is retired because a thread's delegation stance now decides this",
+            );
           if (input.status === experiment.status) return experiment;
           if (
             experiment.status === "stopped" ||
@@ -633,12 +647,14 @@ const make = Effect.gen(function* () {
       input.unitId,
       sql.withTransaction(
         Effect.gen(function* () {
-          // A delivery item is one sample whichever of its threads starts first.
-          if (
-            input.unitKind === "thread" &&
-            input.unitId !== input.threadId &&
-            input.threadLever !== "orchestration-policy"
-          )
+          if (input.threadLever === "orchestration-policy")
+            return yield* fail(
+              "assign",
+              input.unitId,
+              "invalid-definition",
+              "The orchestration-policy lever is retired because a thread's delegation stance now decides this",
+            );
+          if (input.unitKind === "thread" && input.unitId !== input.threadId)
             return yield* fail("assign", input.unitId, "invalid-definition");
           if (input.enrollment === "existing-boundary" && input.boundaryRunId === undefined)
             return yield* fail("assign", input.unitId, "invalid-definition");
@@ -654,6 +670,7 @@ const make = Effect.gen(function* () {
               a.unitKind === input.unitKind &&
               a.unitId === input.unitId &&
               a.assignmentMethod === "randomized" &&
+              a.lever !== "orchestration-policy" &&
               (input.threadLever === undefined || a.lever === input.threadLever),
           );
           const experiments = yield* list();
@@ -672,6 +689,7 @@ const make = Effect.gen(function* () {
               experiment.status !== "running" ||
               // A running rollover experiment keeps its evidence but assigns no new threads.
               experiment.lever === "rollover" ||
+              experiment.lever === "orchestration-policy" ||
               Date.parse(experiment.endsAt) <= Date.parse(now)
             )
               continue;
@@ -783,6 +801,18 @@ const make = Effect.gen(function* () {
         input.request.workId,
         sql.withTransaction(
           Effect.gen(function* () {
+            if (
+              (yield* list()).some(
+                (experiment) =>
+                  experiment.lever === "orchestration-policy" && experiment.status === "running",
+              )
+            )
+              return yield* fail(
+                "enroll",
+                input.request.workId,
+                "invalid-definition",
+                "The orchestration-policy lever is retired because a thread's delegation stance now decides this",
+              );
             const key = ownerKey(input.owner);
             const fingerprint = encodeKey([
               input.request.workId,

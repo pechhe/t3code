@@ -107,6 +107,7 @@ const INSTRUCTION_REVISION = "added-text";
 const TODAYS_INSTRUCTIONS = "Today's instructions";
 
 export type TrialKind = "model" | "text" | "approach";
+export const CREATABLE_TRIAL_KINDS: ReadonlyArray<TrialKind> = ["model", "text"];
 export type TrialJob = "reviewer-change" | "reviewer-spec" | "implementer" | "scout" | "researcher";
 
 export const TRIAL_KINDS: Readonly<Record<TrialKind, { name: string; description: string }>> = {
@@ -561,6 +562,13 @@ function variantIssues(
 }
 
 function workIssues(draft: TrialDraft, context: TrialContext): TrialIssue[] {
+  if (draft.kind === "approach")
+    return [
+      {
+        block: true,
+        text: "Delegation approach trials are retired; a thread's delegation stance now decides this.",
+      },
+    ];
   if (draft.projectIds.length === 0) {
     return [{ block: true, text: "Tick at least one project, or nothing can enrol." }];
   }

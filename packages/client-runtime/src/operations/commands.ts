@@ -20,6 +20,8 @@ import {
   type ProviderApprovalDecision,
   type ProviderInteractionMode,
   type ProviderUserInputAnswers,
+  type DelegationStance,
+  type DelegationStanceChoice,
   type RunId,
   type RuntimeMode,
   type RuntimeRequestId,
@@ -89,6 +91,7 @@ export interface CreateThreadInput extends CommandMetadata {
   readonly modelSelection: ModelSelection;
   readonly runtimeMode: RuntimeMode;
   readonly interactionMode: ProviderInteractionMode;
+  readonly stanceChoice?: DelegationStanceChoice;
   readonly branch: string | null;
   readonly worktreePath: string | null;
 }
@@ -165,6 +168,10 @@ export interface SetThreadInteractionModeInput extends ThreadCommandInput {
   readonly interactionMode: ProviderInteractionMode;
 }
 
+export interface SetThreadStanceInput extends ThreadCommandInput {
+  readonly stance: DelegationStance;
+}
+
 interface StartThreadBootstrap {
   readonly createThread?: {
     readonly projectId: ProjectId;
@@ -172,6 +179,7 @@ interface StartThreadBootstrap {
     readonly modelSelection: ModelSelection;
     readonly runtimeMode: RuntimeMode;
     readonly interactionMode: ProviderInteractionMode;
+    readonly stanceChoice?: DelegationStanceChoice;
     readonly branch: string | null;
     readonly worktreePath: string | null;
     readonly createdAt: string;
@@ -512,6 +520,7 @@ export const createThread = Effect.fn("EnvironmentCommands.createThread")(functi
     modelSelection: input.modelSelection,
     runtimeMode: input.runtimeMode,
     interactionMode: input.interactionMode,
+    ...(input.stanceChoice === undefined ? {} : { stanceChoice: input.stanceChoice }),
     branch: input.branch,
     worktreePath: input.worktreePath,
   });
@@ -804,6 +813,17 @@ export const setThreadInteractionMode = Effect.fn("EnvironmentCommands.setThread
   },
 );
 
+export const setThreadStance = Effect.fn("EnvironmentCommands.setThreadStance")(function* (
+  input: SetThreadStanceInput,
+) {
+  return yield* dispatch({
+    type: "thread.stance.set",
+    commandId: yield* allocateCommandId(input),
+    threadId: input.threadId,
+    stance: input.stance,
+  });
+});
+
 export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(function* (
   input: StartThreadTurnInput,
 ) {
@@ -857,6 +877,7 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
       modelSelection: input.modelSelection ?? thread.modelSelection,
       runtimeMode: input.runtimeMode,
       interactionMode: input.interactionMode,
+      ...(bootstrap?.stanceChoice === undefined ? {} : { stanceChoice: bootstrap.stanceChoice }),
       workspaceStrategy,
       ...(bootstrap?.workflow === undefined ? {} : { workflow: bootstrap.workflow }),
       initialMessage: {

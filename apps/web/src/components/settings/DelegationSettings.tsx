@@ -4,6 +4,7 @@ import { useEffect, useEffectEvent, useId, useRef, useState, type ReactNode } fr
 import * as Schema from "effect/Schema";
 import {
   AgentPolicyManifest,
+  type DelegationStance,
   isReviewerRole,
   modelMaker,
   MODEL_NOTE_MAX_LENGTH,
@@ -45,7 +46,10 @@ import {
   roleGroups,
   setCouncil,
   setEntryEffort,
+  setModelDefaultStance,
   setModelNote,
+  modelDefaultStance,
+  poolDefaultStance,
   poolNote,
   setModelOptions,
   listedModels,
@@ -908,17 +912,21 @@ function ModelsSection({
   return (
     <SettingsSection id="delegation-models" title="Models">
       <p className="px-3 py-2.5 text-xs text-muted-foreground sm:px-4">
-        One note per model, saying what it is good at. Agents read these when they choose a model
-        for a job.
+        One note and one default stance per model. Agents read the note when choosing a model. A new
+        thread starts on its model&apos;s default stance, or Flexible when it has none.
       </p>
       {listedModels(manifest, jobs, modelPools).map(({ alias, model, poolId, roles }) => {
         const binding = manifest.models[alias]!;
         const pool = poolId === undefined ? undefined : modelPools[poolId];
         const name = pool?.displayName ?? modelLabel(binding, alias, providers, modelPools);
+        const defaultStance =
+          (poolId === undefined
+            ? modelDefaultStance(manifest, model)
+            : poolDefaultStance(manifest, poolId, modelPools)) ?? "unset";
         return (
           <div
             key={model}
-            className="grid grid-cols-1 items-center gap-x-4 gap-y-1.5 border-t border-border/60 px-3 py-2.5 sm:grid-cols-[minmax(0,13rem)_minmax(0,1fr)] sm:px-4"
+            className="grid grid-cols-1 items-start gap-x-4 gap-y-1.5 border-t border-border/60 px-3 py-2.5 sm:grid-cols-[minmax(0,13rem)_minmax(0,1fr)] sm:px-4"
           >
             <div className="flex min-w-0 flex-col gap-1.5">
               {pool ? (
@@ -942,15 +950,41 @@ function ModelsSection({
                 ))}
               </div>
             </div>
-            <NoteField
-              name={name}
-              note={
-                (poolId === undefined
-                  ? modelNote(manifest, model)
-                  : poolNote(manifest, poolId, modelPools)) ?? ""
-              }
-              onSave={(note) => onChange(setModelNote(manifest, model, note, modelPools))}
-            />
+            <div className="flex min-w-0 flex-wrap items-start gap-2 sm:flex-nowrap">
+              <div className="min-w-0 flex-1">
+                <NoteField
+                  name={name}
+                  note={
+                    (poolId === undefined
+                      ? modelNote(manifest, model)
+                      : poolNote(manifest, poolId, modelPools)) ?? ""
+                  }
+                  onSave={(note) => onChange(setModelNote(manifest, model, note, modelPools))}
+                />
+              </div>
+              <div className="shrink-0">
+                <Choice
+                  label={`Default stance for ${name}`}
+                  value={defaultStance}
+                  values={[
+                    { value: "unset", label: "No default (Flexible)" },
+                    { value: "orchestrate", label: "Orchestrate" },
+                    { value: "flexible", label: "Flexible" },
+                    { value: "implement", label: "Implement" },
+                  ]}
+                  onChange={(value) =>
+                    onChange(
+                      setModelDefaultStance(
+                        manifest,
+                        model,
+                        value === "unset" ? undefined : (value as DelegationStance),
+                        modelPools,
+                      ),
+                    )
+                  }
+                />
+              </div>
+            </div>
           </div>
         );
       })}

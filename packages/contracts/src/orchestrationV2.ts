@@ -81,6 +81,8 @@ import {
   ProviderApprovalFullAccessOverride,
   ProviderApprovalOption,
   ProviderInteractionMode,
+  DelegationStance,
+  DelegationStanceChoice,
   ProviderRequestKind,
   ProviderUserInputAnswers,
   UserInputAttachments,
@@ -874,6 +876,7 @@ const OrchestrationV2LastTitleRegeneration = Schema.Struct({
 });
 
 export const OrchestrationV2AppThread = Schema.Struct({
+  stanceChoice: Schema.optional(DelegationStanceChoice),
   advisorClosedAt: Schema.optional(Schema.DateTimeUtc),
   advisorResultObserved: Schema.optional(Schema.Struct({ runId: RunId, at: Schema.DateTimeUtc })),
   followupSourceRevision: Schema.optional(TrimmedNonEmptyString),
@@ -2838,6 +2841,7 @@ export type OrchestrationV2LatestVisibleMessageSummary =
   typeof OrchestrationV2LatestVisibleMessageSummary.Type;
 
 export const OrchestrationV2ThreadShell = Schema.Struct({
+  stanceChoice: Schema.optional(DelegationStanceChoice),
   champion: Schema.optional(Schema.Struct({ id: Schema.String, attention: Schema.Boolean })),
   followupSourceRevision: Schema.optional(TrimmedNonEmptyString),
   advisorClosedAt: Schema.optional(Schema.DateTimeUtc),
@@ -3780,6 +3784,7 @@ export const OrchestrationV2Command = Schema.Union([
   }),
   Schema.Struct({
     type: Schema.Literal("thread.create"),
+    stanceChoice: Schema.optional(DelegationStanceChoice),
     agentTask: Schema.optional(AgentTaskBinding),
     ...OrchestrationV2CreationFields,
     commandId: CommandId,
@@ -4070,6 +4075,12 @@ export const OrchestrationV2Command = Schema.Union([
     runtimeMode: RuntimeMode,
   }),
   Schema.Struct({
+    type: Schema.Literal("thread.stance.set"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    stance: DelegationStance,
+  }),
+  Schema.Struct({
     type: Schema.Literal("thread.interaction-mode.set"),
     commandId: CommandId,
     threadId: ThreadId,
@@ -4293,6 +4304,7 @@ export const OrchestrationV2Command = Schema.Union([
   }),
   Schema.Struct({
     type: Schema.Literal("delegated_task.request"),
+    stanceChoice: Schema.optional(DelegationStanceChoice),
     agentTask: Schema.optional(AgentTaskBinding),
     ...OrchestrationV2CreationFields,
     commandId: CommandId,
@@ -4851,6 +4863,7 @@ export const OrchestrationV2ArchivedShellSnapshot = Schema.Struct({
 export type OrchestrationV2ArchivedShellSnapshot = typeof OrchestrationV2ArchivedShellSnapshot.Type;
 
 export const OrchestrationV2ThreadLaunchInput = Schema.Struct({
+  stanceChoice: Schema.optional(DelegationStanceChoice),
   commandId: CommandId,
   creationSource: Schema.optional(OrchestrationV2CreationSource),
   threadId: Schema.optional(ThreadId),

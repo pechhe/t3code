@@ -9,6 +9,8 @@ import {
   TemporarySecretMetadata,
 } from "./secretManagement.ts";
 import { BackgroundPolicySnapshot, HostPowerSnapshot } from "./background.ts";
+import { ModelSelection } from "./modelSelection.ts";
+import { ResolvedDelegationStance } from "./providerPolicy.ts";
 import { DecisionStatus, DecisionTestResult } from "./decisionRouting.ts";
 import {
   ChampionClassChoicesInput,
@@ -671,6 +673,7 @@ export const WS_METHODS = {
   serverGetStorageCleanupReport: "server.getStorageCleanupReport",
   serverGetDatabaseStorage: "server.getDatabaseStorage",
   serverGetSettings: "server.getSettings",
+  delegationStanceResolve: "delegationStance.resolve",
   agentPolicyRead: "agentPolicy.read",
   agentPolicySave: "agentPolicy.save",
   agentPolicyCompactionModel: "agentPolicy.compactionModel",
@@ -1140,6 +1143,14 @@ const WsPeerLinksAnswerRequestRpc = Rpc.make(WS_METHODS.peerLinksAnswerRequest, 
   error: Schema.Union([PeerLinkRequestError, EnvironmentAuthorizationError]),
 });
 
+const WsDelegationStanceResolveRpc = Rpc.make(WS_METHODS.delegationStanceResolve, {
+  payload: Schema.Struct({
+    threadId: Schema.optional(ThreadId),
+    modelSelection: Schema.optional(ModelSelection),
+  }),
+  success: ResolvedDelegationStance,
+  error: Schema.Union([EnvironmentAuthorizationError, OrchestrationV2GetThreadProjectionError]),
+});
 const WsAgentPolicyReadRpc = Rpc.make(WS_METHODS.agentPolicyRead, {
   payload: Schema.Struct({}),
   success: AgentPolicySettings,
@@ -3092,6 +3103,7 @@ export const WsServerOperationsRpcGroup = RpcGroup.make(
   WsServerGetDatabaseStorageRpc,
   WsServerReclaimDatabaseSpaceRpc,
   WsServerGetSettingsRpc,
+  WsDelegationStanceResolveRpc,
   WsAgentPolicyReadRpc,
   WsAgentPolicyCompactionModelRpc,
   WsAgentPolicySaveRpc,

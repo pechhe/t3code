@@ -6,6 +6,7 @@ import * as TerminalManager from "../terminal/Manager.ts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import {
   type AgentTaskBinding,
+  type DelegationStanceChoice,
   CommandId,
   type GitCommandError,
   type ChatAttachment,
@@ -101,6 +102,7 @@ export interface ThreadLaunchInitialMessage {
 }
 
 export interface ThreadLaunchInput {
+  readonly stanceChoice?: DelegationStanceChoice;
   readonly agentTask?: AgentTaskBinding;
   readonly commandId: CommandId;
   readonly threadId?: ThreadId;
@@ -1518,6 +1520,7 @@ const make = Effect.gen(function* () {
             : threads.dispatch(
                 {
                   type: "thread.create",
+                  ...(input.stanceChoice === undefined ? {} : { stanceChoice: input.stanceChoice }),
                   ...(agentTask === undefined ? {} : { agentTask }),
                   commandId: input.commandId,
                   threadId: candidateThreadId,

@@ -110,6 +110,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.experimentsAssignments]: "experiments",
   [WS_METHODS.experimentsReport]: "experiments",
   [WS_METHODS.experimentsResults]: "experiments",
+  [WS_METHODS.delegationStanceResolve]: "agents",
   [WS_METHODS.experimentsAdopt]: "experiments",
   [WS_METHODS.experimentsRecordOutcome]: "experiments",
   [WS_METHODS.experimentsImportHistorical]: "experiments",

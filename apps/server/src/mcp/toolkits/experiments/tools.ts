@@ -54,7 +54,8 @@ const workShared = {
 };
 const create = Tool.make("t3_experiments_create", {
   ...shared,
-  description: "Create an immutable experiment draft. Does not start it or spend model allowance.",
+  description:
+    "Create an immutable experiment draft. Does not start it or spend model allowance. The orchestration-policy lever is retired and refused.",
   parameters: ExperimentDefinition,
   success: Experiment,
 })

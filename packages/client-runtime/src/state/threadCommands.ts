@@ -4,11 +4,13 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom, type AtomRegistry } from "effect/reactivity";
 import {
+  ORCHESTRATION_V2_WS_METHODS,
   WS_METHODS,
   type EnvironmentId,
   type OrchestrationV2ShellSnapshot,
 } from "@t3tools/contracts";
 
+import { createCommandPermissions } from "./commandPermissions.ts";
 import { createOptimisticThreadLifecycle } from "./threadLifecycle.ts";
 import * as DateTime from "effect/DateTime";
 
@@ -57,6 +59,7 @@ import {
   revertThreadCheckpoint,
   setThreadInteractionMode,
   setThreadRuntimeMode,
+  setThreadStance,
   pinThread,
   reorderPinnedThread,
   reorderActiveThread,
@@ -110,6 +113,7 @@ export type {
   RevertThreadCheckpointInput,
   SetThreadInteractionModeInput,
   SetThreadRuntimeModeInput,
+  SetThreadStanceInput,
   PinThreadInput,
   ReorderPinnedThreadInput,
   ReorderActiveThreadInput,
@@ -380,6 +384,16 @@ export function createThreadEnvironmentAtoms<R, E>(
       scheduler,
       concurrency,
     }),
+    setStance: {
+      ...createEnvironmentCommand(runtime, {
+        label: "environment-data:commands:thread:set-stance",
+        execute: setThreadStance,
+        scheduler,
+        concurrency,
+      }),
+      permissionAtom: createCommandPermissions(runtime, ORCHESTRATION_V2_WS_METHODS.dispatchCommand)
+        .permissionAtom,
+    },
     startTurn: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:start-turn",
       execute: startThreadTurn,

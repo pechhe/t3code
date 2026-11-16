@@ -328,6 +328,7 @@ import { ComposerControlsBar } from "./ComposerControlsBar";
 import { composerCommandKeyHandler } from "./composerCommandKey";
 import { usePromptSuggestion } from "./usePromptSuggestion";
 import { useFreshSessionArmed } from "./freshSessionArms";
+import { useThreadStance } from "./useThreadStance";
 
 function consumePasteAsTextShortcut(deadline: { current: number }): boolean {
   const armed = Date.now() <= deadline.current;
@@ -1111,10 +1112,21 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     selectedModel,
     selectedModelOptionsForDispatch,
   );
+  const setComposerDraftStanceChoice = useComposerDraftStore((store) => store.setStanceChoice);
   const selectedModelSelection: ModelSelection =
     selectedPoolId === undefined
       ? baseModelSelection
       : { ...baseModelSelection, poolId: selectedPoolId };
+  const threadStance = useThreadStance({
+    environmentId,
+    isServerThread: routeKind === "server",
+    threadId: activeThreadId,
+    threadShell: props.activeThreadShell ?? activeThread,
+    selectedModelSelection,
+    draftStanceChoice: composerDraft.stanceChoice,
+    onDraftStanceChange: (choice) => setComposerDraftStanceChoice(composerDraftTarget, choice),
+    canOperateThread,
+  });
   const selectedModelForPicker = selectedModel;
   const modelOptionsByInstance = new Map<ProviderInstanceId, ReadonlyArray<AppModelOption>>();
   for (const entry of providerInstanceEntries) {
@@ -2747,6 +2759,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       defaultRuntimeMode={props.defaultRuntimeMode}
       compatibleRuntimeModeOptions={compatibleRuntimeModeOptions}
       handleRuntimeModeChange={handleRuntimeModeChange}
+      delegationStance={threadStance.stance}
+      delegationStanceDisabled={threadStance.disabled}
+      onDelegationStanceChange={threadStance.onChange}
       composerControlsCollapsed={composerControlsCollapsed}
       effortDisplay={settings.effortDisplay}
       permissionsShownInStrip={props.permissionsShownInStrip}

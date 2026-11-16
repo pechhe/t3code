@@ -89,6 +89,10 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("policy settings"
           const first = yield* settings.read();
           const manifest = {
             ...f.manifest,
+            models: {
+              ...f.manifest.models,
+              sol: { ...f.manifest.models.sol!, defaultStance: "orchestrate" as const },
+            },
             lists: {
               ...f.manifest.lists,
               workhorse: [
@@ -98,10 +102,13 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("policy settings"
             },
           };
           const saved = yield* settings.save({ expectedHash: first.snapshot.hash, manifest });
-          return { first, saved };
+          const reread = yield* settings.read();
+          return { first, saved, reread };
         }),
       );
       expect(result.saved.snapshot.hash).not.toBe(result.first.snapshot.hash);
+      expect(result.saved.snapshot.manifest.models.sol?.defaultStance).toBe("orchestrate");
+      expect(result.reread.snapshot.manifest.models.sol?.defaultStance).toBe("orchestrate");
       // The result also says whether the file reached the shared checkout's remote.
       expect(result.saved.publish).toEqual({ pushed: false, detail: "not a git checkout" });
       expect(result.saved.snapshot.manifest.lists["workhorse"]?.map((e) => e.model)).toEqual([

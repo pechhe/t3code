@@ -153,6 +153,7 @@ export interface EnvironmentThreadShell {
   readonly modelSelection: OrchestrationV2ThreadShell["modelSelection"];
   readonly runtimeMode: OrchestrationV2ThreadShell["runtimeMode"];
   readonly interactionMode: OrchestrationV2ThreadShell["interactionMode"];
+  readonly stanceChoice?: OrchestrationV2ThreadShell["stanceChoice"];
   readonly branch: string | null;
   readonly worktreePath: string | null;
   /** Workspaces in other projects this thread holds beside its primary one. */
@@ -331,6 +332,7 @@ export function presentThreadShell(
     modelSelection: thread.modelSelection,
     runtimeMode: thread.runtimeMode,
     interactionMode: thread.interactionMode,
+    ...(thread.stanceChoice === undefined ? {} : { stanceChoice: thread.stanceChoice }),
     branch: thread.branch,
     worktreePath: thread.worktreePath,
     ...(thread.workspaceAttachments === undefined

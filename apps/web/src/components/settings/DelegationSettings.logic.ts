@@ -2,6 +2,7 @@ import { isReasoningSelect } from "@t3tools/client-runtime/model-traits";
 import {
   AGENT_ROLE_TITLE_LABEL,
   AgentRole,
+  type DelegationStance,
   modelMaker,
   modelNote,
   isModelPoolSlotEnabled,
@@ -58,6 +59,31 @@ export function poolNote(
   return (
     covered.find((binding) => binding.poolId === poolId && binding.note)?.note ??
     covered.find((binding) => binding.note)?.note
+  );
+}
+
+/** A model's default delegation stance, shared across every alias binding it. */
+export function modelDefaultStance(
+  manifest: Manifest,
+  model: string,
+): DelegationStance | undefined {
+  return Object.values(manifest.models).find(
+    (binding) => binding.model === model && binding.defaultStance !== undefined,
+  )?.defaultStance;
+}
+
+/** A pool's shared default stance: its own binding's, else the first a member slot carries. */
+export function poolDefaultStance(
+  manifest: Manifest,
+  poolId: ModelPoolId,
+  modelPools: ModelPools,
+): DelegationStance | undefined {
+  const covered = Object.values(manifest.models).filter((binding) =>
+    coveredByPool(binding, poolId, modelPools),
+  );
+  return (
+    covered.find((binding) => binding.poolId === poolId && binding.defaultStance)?.defaultStance ??
+    covered.find((binding) => binding.defaultStance)?.defaultStance
   );
 }
 type Binding = Manifest["models"][string];
@@ -344,7 +370,15 @@ export function ensureModel(
     pool === undefined
       ? modelNote(manifest, model.binding.model)
       : poolNote(manifest, pool, modelPools);
-  const binding = note === undefined ? model.binding : { ...model.binding, note };
+  const defaultStance =
+    pool === undefined
+      ? modelDefaultStance(manifest, model.binding.model)
+      : poolDefaultStance(manifest, pool, modelPools);
+  const binding = {
+    ...model.binding,
+    ...(note === undefined ? {} : { note }),
+    ...(defaultStance === undefined ? {} : { defaultStance }),
+  };
   const slug = model.poolId === undefined ? model.binding.model : `pool-${model.poolId}`;
   const base = `m-${slug.toLowerCase().replace(/[^a-z0-9-]+/g, "-")}`.slice(0, 60);
   let alias = base;
@@ -462,6 +496,29 @@ export function setModelNote(
       if (!covers(binding)) return [alias, binding];
       const { note: _previous, ...rest } = binding;
       return [alias, text === "" ? rest : { ...rest, note: text }];
+    }),
+  );
+  return { ...manifest, models };
+}
+
+/**
+ * Sets a model's default delegation stance on every alias binding it; `undefined` unsets it
+ * so new threads fall back to Flexible unless overridden.
+ */
+export function setModelDefaultStance(
+  manifest: Manifest,
+  model: string,
+  defaultStance: DelegationStance | undefined,
+  modelPools: ModelPools = NO_POOLS,
+): Manifest {
+  const poolId = model.startsWith("pool:") ? (model.slice(5) as ModelPoolId) : undefined;
+  const covers = (binding: Binding) =>
+    poolId === undefined ? binding.model === model : coveredByPool(binding, poolId, modelPools);
+  const models = Object.fromEntries(
+    Object.entries(manifest.models).map(([alias, binding]) => {
+      if (!covers(binding)) return [alias, binding];
+      const { defaultStance: _previous, ...rest } = binding;
+      return [alias, defaultStance === undefined ? rest : { ...rest, defaultStance }];
     }),
   );
   return { ...manifest, models };

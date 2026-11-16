@@ -1735,45 +1735,38 @@ describe("what one sample of a trial is", () => {
     }).pipe(Effect.provide(layer)),
   );
 
-  it.effect("enrols a thread in a delivery-approach trial, which excludes an added text", () =>
-    Effect.gen(function* () {
-      const service = yield* Experiments.ExperimentService;
-      yield* service.create({
-        ...definition("approach"),
-        lever: "orchestration-policy",
-        variants: [
-          { id: "inline", label: "Inline", allocationPolicy: "inline-first" },
-          { id: "earlier", label: "Earlier", allocationPolicy: "delegate-earlier" },
-        ],
-      });
-      yield* service.transition({ experimentId: "approach", status: "running" });
-      const enrol = (thread: string) =>
-        service.assign({
-          ...assignInput(thread),
-          unitId: "delivery:7",
-          threadLever: "orchestration-policy",
-          agentRole: "lead",
-        });
-      const [assigned] = yield* enrol("lead");
-      assert.strictEqual(assigned?.experimentId, "approach");
-      assert.isDefined(assigned?.variant.allocationPolicy);
-      // A fresh thread for the same item joins the same sample and keeps its approach.
-      const [again] = yield* enrol("replacement-lead");
-      assert.strictEqual(again?.id, assigned?.id);
-      const [seen] = yield* service.assignments({ threadId: ThreadId.make("replacement-lead") });
-      assert.strictEqual(seen?.id, assigned?.id);
-      const report = yield* service.report({ experimentId: "approach" });
-      assert.lengthOf(report.assignments, 1);
-      assert.deepStrictEqual(report.assignments[0]?.rootThreadIds, [
-        ThreadId.make("lead"),
-        ThreadId.make("replacement-lead"),
-      ]);
-      yield* service.create(instructionDefinition("text"));
-      const refused = yield* Effect.flip(
-        service.transition({ experimentId: "text", status: "running" }),
-      );
-      assert.strictEqual(refused.reason, "conflict");
-    }).pipe(Effect.provide(layer)),
+  it.effect(
+    "retires delivery-approach creation, activation and enrollment without losing history",
+    () =>
+      Effect.gen(function* () {
+        const service = yield* Experiments.ExperimentService;
+        const sql = yield* SqlClient.SqlClient;
+        const old = { ...definition("approach"), lever: "orchestration-policy" as const };
+        const creation = yield* service.create(old).pipe(Effect.flip);
+        assert.include(creation.message, "retired because a thread's delegation stance");
+        const stored = {
+          ...old,
+          revision: 1,
+          status: "paused" as const,
+          createdAt: "2998-01-01T00:00:00Z",
+          startedAt: null,
+          updatedAt: "2998-01-01T00:00:00Z",
+        };
+        yield* sql`INSERT INTO experiments(id, definition_json, status, created_at, updated_at) VALUES (${old.id}, ${encodeExperiment(stored)}, ${stored.status}, ${stored.createdAt}, ${stored.updatedAt})`;
+        const activation = yield* service
+          .transition({ experimentId: old.id, status: "running" })
+          .pipe(Effect.flip);
+        assert.include(activation.message, "retired because a thread's delegation stance");
+        const enrollment = yield* service
+          .assign({ ...assignInput("lead"), threadLever: "orchestration-policy" })
+          .pipe(Effect.flip);
+        assert.include(enrollment.message, "retired because a thread's delegation stance");
+        assert.strictEqual(
+          (yield* service.list()).find((value) => value.id === old.id)?.lever,
+          "orchestration-policy",
+        );
+        assert.strictEqual((yield* service.report({ experimentId: old.id })).experiment.id, old.id);
+      }).pipe(Effect.provide(layer)),
   );
 
   it.effect("stops a trial and records the variant a person made the default", () =>

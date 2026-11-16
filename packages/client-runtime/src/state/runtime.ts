@@ -997,7 +997,7 @@ export function createEnvironmentRpcQueryAtomFamily<
 }
 
 // Only metadata reads belong here; mutations and revealed values remain commands.
-type GuardedQueryRpcTag = typeof WS_METHODS.secretsList;
+type GuardedQueryRpcTag = typeof WS_METHODS.secretsList | typeof WS_METHODS.delegationStanceResolve;
 
 export function createEnvironmentGuardedRpcQueryAtomFamily<R, ER, TTag extends GuardedQueryRpcTag>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry.EnvironmentRegistry | R, ER>,

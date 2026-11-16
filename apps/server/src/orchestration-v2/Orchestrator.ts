@@ -790,6 +790,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.title.regeneration.complete":
     case "thread.project.adopt-folder":
     case "thread.runtime-mode.set":
+    case "thread.stance.set":
     case "thread.interaction-mode.set":
     case "thread.model-selection.set":
     case "provider-session.detach":
@@ -3957,6 +3958,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const now = yield* DateTime.now;
     const emitEvent = emit(events, command);
     const thread: OrchestrationV2AppThread = {
+      ...(command.stanceChoice !== undefined
+        ? { stanceChoice: command.stanceChoice }
+        : command.agentTask?.stance === undefined
+          ? {}
+          : { stanceChoice: { stance: command.agentTask.stance, chosenBy: "parent" as const } }),
       ...(command.agentTask === undefined ? {} : { agentTask: command.agentTask }),
       createdBy: command.createdBy,
       creationSource: command.creationSource,
@@ -5412,6 +5418,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             | "thread.title.regeneration.complete"
             | "thread.runtime-mode.set"
             | "thread.interaction-mode.set"
+            | "thread.stance.set"
             | "thread.model-selection.set"
             | "provider.switch";
         }
@@ -6540,6 +6547,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               : thread;
           case "thread.runtime-mode.set":
             return { ...thread, runtimeMode: command.runtimeMode, updatedAt: now };
+          case "thread.stance.set":
+            return {
+              ...thread,
+              stanceChoice: { stance: command.stance, chosenBy: "owner" },
+              updatedAt: now,
+            };
           case "thread.interaction-mode.set":
             return { ...thread, interactionMode: command.interactionMode, updatedAt: now };
           case "thread.model-selection.set":
@@ -6622,6 +6635,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           case "thread.metadata.update":
           case "thread.project-move.record":
           case "thread.title.regeneration.complete":
+          case "thread.stance.set":
             return "thread.metadata-updated" as const;
           case "thread.pull-request.link":
           case "thread.pull-request.unlink":
@@ -10967,6 +10981,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           creationSource: command.creationSource,
         }),
         ...(command.agentTask === undefined ? {} : { agentTask: command.agentTask }),
+        stanceChoice:
+          command.stanceChoice ??
+          (command.agentTask?.stance === undefined
+            ? undefined
+            : { stance: command.agentTask.stance, chosenBy: "parent" }),
         // A task sent to another registered project belongs to it, so that project's
         // occupancy, settings and workspace preparation see it.
         ...(command.agentTask?.projectId === undefined
@@ -17151,6 +17170,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.pull-request.sync":
       case "thread.title.regeneration.complete":
       case "thread.runtime-mode.set":
+      case "thread.stance.set":
       case "thread.interaction-mode.set":
       case "thread.model-selection.set":
       case "provider.switch":

@@ -126,6 +126,7 @@ const dependencies = (input: {
   const managedLayer = Layer.mock(ManagedAgent.ManagedAgentService)({
     snapshot: () => Effect.succeed(agentPolicySnapshot()),
     targetProject: ({ callerProjectId }) => Effect.succeed(callerProjectId),
+    assertDelegationAllowed: () => Effect.void,
     ...input.managed,
   });
   const externalLayer = Layer.mock(ExternalAgentWork.ExternalAgentWorkService)({

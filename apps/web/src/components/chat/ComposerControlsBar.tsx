@@ -10,12 +10,15 @@ import { ComposerControl } from "./ComposerControl";
 import { ComposerPoolAccount, type useComposerPoolAccount } from "./ComposerPoolAccount";
 import { DeviceModelSlider, type DeviceModelSliderHandle } from "./device/DeviceModelSlider";
 import { DeviceReasoningDial, type DeviceReasoningDialHandle } from "./device/DeviceReasoningDial";
+import { DeviceStanceSwitch } from "./device/DeviceStanceSwitch";
+import { ComposerStanceControl } from "./ComposerStanceControl";
 import {
   ComposerFooterModeControls,
   ComposerModelPicker,
   type RuntimeModeOption,
 } from "./ComposerFooterControls";
 import {
+  type DelegationStance,
   type EnvironmentId,
   type ModelSelection,
   type ProviderDriverKind,
@@ -65,6 +68,9 @@ export function ComposerControlsBar(props: {
   defaultRuntimeMode: RuntimeMode | undefined;
   compatibleRuntimeModeOptions: ReadonlyArray<RuntimeModeOption>;
   handleRuntimeModeChange: (mode: RuntimeMode) => void;
+  delegationStance: DelegationStance;
+  delegationStanceDisabled: boolean;
+  onDelegationStanceChange: (stance: DelegationStance) => void;
   composerControlsCollapsed: boolean;
   composerControlsHidden: boolean;
   restingHiddenBlockCount: number;
@@ -163,6 +169,7 @@ export function ComposerControlsBar(props: {
     hiddenBlockCount: restingHiddenBlockCount,
     hiddenBlockIds: hiddenRestingBlockIds,
     overflowShowsPermissions,
+    overflowShowsStance,
     pickerOwnsModeShortcut,
   } = resolveComposerControlsOwnership({
     matchesDefault: accessMatchesDefault || props.permissionsShownInStrip,
@@ -187,24 +194,38 @@ export function ComposerControlsBar(props: {
     onPromptEdit,
   });
   const effort = describeComposerEffort(traitsInput, props.effortDisplay, controlSize);
-  const restingBlockDefs = showModeBlock
-    ? [
-        {
-          id: "mode",
-          content: (
-            <ComposerFooterModeControls
-              runtimeMode={compatibleRuntimeMode}
-              runtimeModeOptions={compatibleRuntimeModeOptions}
-              size={controlSize}
-              hidden={composerControlsHidden || restingHiddenBlockCount > 0}
-              accessDisplay={accessDisplay}
-              emphasized={!accessMatchesDefault}
-              onRuntimeModeChange={handleRuntimeModeChange}
-            />
-          ),
-        },
-      ]
-    : [];
+  const restingBlockDefs = [
+    {
+      id: "stance",
+      content: (
+        <ComposerStanceControl
+          stance={props.delegationStance}
+          disabled={props.delegationStanceDisabled}
+          size={controlSize}
+          hidden={composerControlsHidden || overflowShowsStance}
+          onChange={props.onDelegationStanceChange}
+        />
+      ),
+    },
+    ...(showModeBlock
+      ? [
+          {
+            id: "mode",
+            content: (
+              <ComposerFooterModeControls
+                runtimeMode={compatibleRuntimeMode}
+                runtimeModeOptions={compatibleRuntimeModeOptions}
+                size={controlSize}
+                hidden={composerControlsHidden || overflowShowsPermissions}
+                accessDisplay={accessDisplay}
+                emphasized={!accessMatchesDefault}
+                onRuntimeModeChange={handleRuntimeModeChange}
+              />
+            ),
+          },
+        ]
+      : []),
+  ];
   // Its own element, so typing (which rebuilds the controls around it) leaves it cached.
   const providerTraitsPickerInput = traitsInput;
   const fastActive =
@@ -307,6 +328,11 @@ export function ComposerControlsBar(props: {
   ) : deviceComposer ? (
     <>
       {deviceEnvironmentSwitch}
+      <DeviceStanceSwitch
+        stance={props.delegationStance}
+        disabled={props.delegationStanceDisabled}
+        onChange={props.onDelegationStanceChange}
+      />
       <DeviceModelSlider
         ref={modelSliderRef}
         environmentId={environmentId}
@@ -371,6 +397,10 @@ export function ComposerControlsBar(props: {
           )}
         >
           <CompactComposerControlsMenu
+            stance={props.delegationStance}
+            stanceDisabled={props.delegationStanceDisabled}
+            showStance={overflowShowsStance}
+            onStanceChange={props.onDelegationStanceChange}
             runtimeMode={compatibleRuntimeMode}
             runtimeModeOptions={compatibleRuntimeModeOptions}
             size={controlSize}

@@ -1190,6 +1190,10 @@ export function useComposerSend(input: ComposerSendInput) {
     const sentDraftThreadRef = isLocalDraftThread
       ? scopeThreadRef(environmentId, threadIdForSend)
       : null;
+    const draftStanceChoice = isLocalDraftThread
+      ? (useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)?.stanceChoice ??
+        null)
+      : null;
     // Keep new-thread flows from reusing this draft while attachments and worktree setup settle.
     if (sentDraftThreadRef) markPromotedDraftThreadByRef(sentDraftThreadRef);
     promptRef.current = "";
@@ -1272,6 +1276,7 @@ export function useComposerSend(input: ComposerSendInput) {
                       modelSelection: threadCreateModelSelection,
                       runtimeMode,
                       interactionMode: DEFAULT_INTERACTION_MODE,
+                      ...(draftStanceChoice ? { stanceChoice: draftStanceChoice } : {}),
                       branch: activeThreadBranch,
                       worktreePath: activeThread.worktreePath,
                       createdAt: activeThread.createdAt,

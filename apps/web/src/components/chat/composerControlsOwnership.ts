@@ -16,16 +16,20 @@ export function resolveComposerControlsOwnership(input: {
       ? ("icon" as const)
       : ("label" as const);
   const showModeBlock = accessDisplay !== "hidden";
-  const modeHidden = showModeBlock && input.measuredHiddenBlockCount > 0;
-  const hiddenBlockIds = modeHidden ? (["mode"] as const) : ([] as const);
-  const overflowShowsPermissions = modeHidden;
+  const blockIds = showModeBlock ? (["stance", "mode"] as const) : (["stance"] as const);
+  const clampedHiddenCount = Math.max(0, Math.min(blockIds.length, input.measuredHiddenBlockCount));
+  const hiddenBlockIds = blockIds.slice(blockIds.length - clampedHiddenCount);
+  const overflowShowsPermissions = hiddenBlockIds.includes("mode");
+  const overflowShowsStance = hiddenBlockIds.includes("stance");
   return {
     accessDisplay,
     showModeBlock,
     hiddenBlockCount: hiddenBlockIds.length,
     hiddenBlockIds,
     overflowShowsPermissions,
+    overflowShowsStance,
     /** Without a visible chip or an overflow menu holding it, the model picker answers composer.mode. */
-    pickerOwnsModeShortcut: !overflowShowsPermissions && (accessDisplay === "hidden" || modeHidden),
+    pickerOwnsModeShortcut:
+      !overflowShowsPermissions && (accessDisplay === "hidden" || !showModeBlock),
   };
 }

@@ -3431,7 +3431,17 @@ const make = Effect.gen(function* () {
               }),
         })
         .pipe(Effect.mapError((error) => failure("capability_denied", error.message)));
-      return { ...result, environmentId: scope.environmentId };
+      const stance =
+        parent === undefined
+          ? undefined
+          : yield* managed.value
+              .resolveStance({ thread: parent.thread })
+              .pipe(Effect.mapError(threadManagementFailure));
+      return {
+        ...result,
+        ...(stance === undefined ? {} : { stance }),
+        environmentId: scope.environmentId,
+      };
     }),
     delegateTask: Effect.fn("OrchestratorMcpService.delegateTask")(
       function* (callerScope, input) {
@@ -3548,6 +3558,13 @@ const make = Effect.gen(function* () {
             ...(input.followup === undefined ? [] : [input.followup.taskId]),
           ]),
         };
+        if (input.followup === undefined && input.agentTask !== undefined) {
+          const managed = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
+          if (Option.isSome(managed))
+            yield* managed.value
+              .assertDelegationAllowed({ thread: parent.thread, request: input.agentTask })
+              .pipe(Effect.mapError((error) => failure("capability_denied", error.message)));
+        }
         let championManagedLaunch = false;
         if (Option.isSome(champions)) {
           let request = input.agentTask;

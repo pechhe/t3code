@@ -380,7 +380,10 @@ it.effect("a shipped client decodes a shell carrying an Arc run plan and current
       progressAt: "2026-11-13T09:00:00.000Z",
       ceilingSince: "2026-11-13T09:00:00.000Z",
     };
-    const sent = encodeForkShell({ arcRun });
+    const stanceChoice = { stance: "implement", chosenBy: "owner" };
+    const sent = encodeForkShell({ arcRun, stanceChoice });
+    assert.deepEqual(sent.stanceChoice, stanceChoice);
+    assert.deepEqual(decodeForkShell(sent).stanceChoice, stanceChoice);
     assert.deepEqual(sent.arcRun, arcRun);
     assert.deepEqual(violations(sent, shipped, "shell"), []);
     assert.deepEqual(decodeForkShell(sent).arcRun, arcRun);

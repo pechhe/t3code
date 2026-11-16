@@ -15,6 +15,7 @@ describe("resolveComposerControlsOwnership", () => {
       accessDisplay: "hidden",
       showModeBlock: false,
       hiddenBlockIds: [],
+      overflowShowsStance: false,
       pickerOwnsModeShortcut: true,
     });
   });
@@ -28,7 +29,7 @@ describe("resolveComposerControlsOwnership", () => {
     });
   });
 
-  it("gives an overflowed chip's Permissions to the overflow menu", () => {
+  it("gives an overflowed chip's Permissions to the overflow menu before stance", () => {
     const result = resolveComposerControlsOwnership({
       ...base,
       matchesDefault: false,
@@ -36,7 +37,19 @@ describe("resolveComposerControlsOwnership", () => {
     });
     expect(result.hiddenBlockIds).toEqual(["mode"]);
     expect(result.overflowShowsPermissions).toBe(true);
+    expect(result.overflowShowsStance).toBe(false);
     expect(result.pickerOwnsModeShortcut).toBe(false);
+  });
+
+  it("moves stance into the overflow menu when all trailing blocks overflow", () => {
+    const result = resolveComposerControlsOwnership({
+      ...base,
+      matchesDefault: false,
+      measuredHiddenBlockCount: 2,
+    });
+    expect(result.hiddenBlockIds).toEqual(["stance", "mode"]);
+    expect(result.overflowShowsPermissions).toBe(true);
+    expect(result.overflowShowsStance).toBe(true);
   });
 
   it("shows the non-default chip as an icon in the compacted row", () => {

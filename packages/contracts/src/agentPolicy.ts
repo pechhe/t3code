@@ -1,7 +1,7 @@
 import * as Schema from "effect/Schema";
 import * as SchemaGetter from "effect/SchemaGetter";
 import { EnvironmentId, IsoDateTime, ProjectId, TrimmedNonEmptyString } from "./baseSchemas.ts";
-import { RuntimeMode } from "./providerPolicy.ts";
+import { DelegationStance, ResolvedDelegationStance, RuntimeMode } from "./providerPolicy.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
 import { BrowserBackend, PhiBrowserLane } from "./browserBackend.ts";
 import { ModelSelection } from "./modelSelection.ts";
@@ -157,6 +157,7 @@ const ModelBinding = Schema.Struct({
   options: Schema.optional(Schema.Record(TrimmedNonEmptyString, TrimmedNonEmptyString)),
   /** What the model is good at, which a delegating agent reads to choose it for a task. */
   note: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(MODEL_NOTE_MAX_LENGTH))),
+  defaultStance: Schema.optional(DelegationStance),
 });
 
 const MAKER_FAMILIES: ReadonlyArray<readonly [string, string]> = [
@@ -701,6 +702,7 @@ export const AgentTaskBrowser = Schema.Struct({
 export type AgentTaskBrowser = typeof AgentTaskBrowser.Type;
 
 const agentTaskRequestFields = {
+  stance: Schema.optional(DelegationStance),
   browser: Schema.optional(AgentTaskBrowser),
   executionRequirement: Schema.optional(AgentExecutionRequirement),
   workUnitId: Schema.optional(TrimmedNonEmptyString),
@@ -768,6 +770,7 @@ export type AgentTaskRequest = typeof AgentTaskRequest.Type;
  * policy, and refuses an off-list `selection.model` unless `offPolicyReason` is set.
  */
 export const AgentTaskLinkedRequest = Schema.Struct({
+  stance: agentTaskRequestFields.stance,
   browser: agentTaskRequestFields.browser,
   executionRequirement: agentTaskRequestFields.executionRequirement,
   // A linked environment from before T3-563 may still name a retired writer.
@@ -909,6 +912,7 @@ export const AgentPolicyCandidate = Schema.Struct({
 });
 export type AgentPolicyCandidate = typeof AgentPolicyCandidate.Type;
 export const AgentRolesResult = Schema.Struct({
+  stance: Schema.optional(ResolvedDelegationStance),
   environmentId: EnvironmentId,
   policyHash: Sha256,
   policyRevision: TrimmedNonEmptyString,

@@ -3642,13 +3642,19 @@ it.effect("replays a server-allocated launch", () =>
     yield* Effect.gen(function* () {
       const launches = yield* ThreadLaunch.ThreadLaunchService;
       const threads = yield* ThreadManagement.ThreadManagementService;
-      const { threadId: _unusedThreadId, ...rest } = launchInput({
-        command: "command:launch:allocated-retry",
-        thread: "unused",
-        message: "Only once",
-        workspace: { type: "worktree", baseRef: "main" },
-      });
+      const stanceChoice = { stance: "implement", chosenBy: "owner" } as const;
+      const { threadId: _unusedThreadId, ...rest } = {
+        ...launchInput({
+          command: "command:launch:allocated-retry",
+          thread: "unused",
+          message: "Only once",
+          workspace: { type: "worktree", baseRef: "main" },
+        }),
+        stanceChoice,
+      };
       const first = yield* launches.launch(rest);
+      assert.deepEqual(first.projection.thread.stanceChoice, stanceChoice);
+      assert.deepEqual((yield* threads.getThreadShell(first.threadId))?.stanceChoice, stanceChoice);
       yield* Deferred.await(setupEntered);
       const retry = yield* launches.launch(rest);
       assert.equal(first.threadId, retry.threadId);

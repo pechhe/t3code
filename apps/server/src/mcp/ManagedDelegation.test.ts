@@ -26,6 +26,7 @@ import {
   type OrchestrationV2ThreadProjection,
   type OrchestrationV2ThreadShell,
   type AgentTaskBinding,
+  type DelegationStanceChoice,
   type ModelSelection,
   type ProviderInstanceId,
   type ServerProvider,
@@ -328,6 +329,8 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         };
       }>;
       readonly readOnlyCaller?: boolean;
+      /** The stance someone chose for the lead's thread. */
+      readonly parentStance?: DelegationStanceChoice;
       /** The repository Forge says a Forge item belongs to, when a lead names one. */
       readonly itemProject?: string | null;
       /** Each accepted command yields a running child task, so a delegation succeeds. */
@@ -399,6 +402,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           interactionMode: "default",
           worktreePath: options.scratch ? scratchFolder : bound ? lead : null,
           ...(options.parentTask === undefined ? {} : { agentTask: options.parentTask }),
+          ...(options.parentStance === undefined ? {} : { stanceChoice: options.parentStance }),
           modelSelection: options.parent ?? {
             instanceId: codex.instanceId,
             model: codex.models[0]!.slug,
@@ -1962,6 +1966,31 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         agentTask: request({ role: "scout", workspacePath: reader.lead }),
       });
       expect(scout.message ?? "").not.toContain("read-only agent");
+
+      // A thread on Implement starts no writing role, read-only request or not, and still starts a reader.
+      const implementing = yield* harness(undefined, true, {
+        parentStance: { stance: "implement", chosenBy: "owner" },
+      });
+      for (const readOnly of [false, true]) {
+        const denied = yield* implementing.delegate({
+          task: "Implement",
+          clientRequestId: `implement-writer-${readOnly}`,
+          target: { model: codexModel },
+          agentTask: request({
+            workspacePath: implementing.lead,
+            ...(readOnly ? { readOnly } : {}),
+          }),
+        });
+        expect(denied.code).toBe("capability_denied");
+        expect(denied.message).toContain("Delegation stance is implement");
+      }
+      expect(implementing.dispatched).toHaveLength(0);
+      const implementScout = yield* implementing.delegate({
+        task: "Find it",
+        clientRequestId: "implement-scout",
+        agentTask: request({ role: "scout", workspacePath: implementing.lead }),
+      });
+      expect(implementScout.message ?? "").not.toContain("Delegation stance");
     }).pipe(
       Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
     ),

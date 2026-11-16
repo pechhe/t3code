@@ -45,9 +45,11 @@ import type { WsRpcProtocolClient } from "../rpc/protocol.ts";
 import { v2Now, v2Projection, v2ThreadId } from "../state/orchestrationV2TestFixtures.ts";
 import {
   archiveThread,
+  createThread,
   interruptThreadTurn,
   revertThreadCheckpoint,
   resumeThreadQueue,
+  setThreadStance,
   startThreadTurn,
 } from "./commands.ts";
 
@@ -936,6 +938,79 @@ describe("V2 environment commands", () => {
           commandId: "stop-outside-history-window",
           threadId: v2ThreadId,
         },
+      ]);
+    }).pipe(Effect.provide(layerTestRandom)),
+  );
+
+  it.effect("forwards stanceChoice on thread creation and thread.stance.set", () =>
+    Effect.gen(function* () {
+      const commands: OrchestrationV2Command[] = [];
+      const launches: OrchestrationV2ThreadLaunchInput[] = [];
+      const supervisor = yield* makeSupervisor({ commands, projects: [], launches });
+
+      yield* createThread({
+        commandId: CommandId.make("create-with-stance"),
+        threadId: v2ThreadId,
+        projectId: ProjectId.make("project-1"),
+        title: "Stance thread",
+        modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        stanceChoice: { stance: "orchestrate", chosenBy: "owner" },
+        branch: null,
+        worktreePath: null,
+      }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
+
+      yield* startThreadTurn({
+        commandId: CommandId.make("launch-with-stance"),
+        threadId: v2ThreadId,
+        message: {
+          messageId: MessageId.make("msg-stance"),
+          role: "user",
+          text: "hello",
+          attachments: [],
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        bootstrap: {
+          createThread: {
+            projectId: ProjectId.make("project-1"),
+            title: "Stance launch",
+            modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            stanceChoice: { stance: "implement", chosenBy: "owner" },
+            branch: null,
+            worktreePath: null,
+            createdAt: "2026-06-06T00:00:00.000Z",
+          },
+        },
+      }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
+
+      yield* setThreadStance({
+        commandId: CommandId.make("set-stance"),
+        threadId: v2ThreadId,
+        stance: "flexible",
+      }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
+
+      expect(commands).toEqual([
+        expect.objectContaining({
+          type: "thread.create",
+          commandId: "create-with-stance",
+          stanceChoice: { stance: "orchestrate", chosenBy: "owner" },
+        }),
+        {
+          type: "thread.stance.set",
+          commandId: "set-stance",
+          threadId: v2ThreadId,
+          stance: "flexible",
+        },
+      ]);
+      expect(launches).toEqual([
+        expect.objectContaining({
+          commandId: "launch-with-stance",
+          stanceChoice: { stance: "implement", chosenBy: "owner" },
+        }),
       ]);
     }).pipe(Effect.provide(layerTestRandom)),
   );

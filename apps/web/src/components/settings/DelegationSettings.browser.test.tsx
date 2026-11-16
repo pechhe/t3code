@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { userEvent } from "vite-plus/test/browser";
+import { page, userEvent } from "vite-plus/test/browser";
 import { expect, it, vi } from "vite-plus/test";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
@@ -126,13 +126,6 @@ vi.mock("./PolicyModelPicker", () => ({
   PolicyModelPicker: () => null,
   PolicyEffortPicker: () => null,
 }));
-vi.mock("../ui/select", () => ({
-  Select: () => null,
-  SelectTrigger: passthrough,
-  SelectValue: passthrough,
-  SelectPopup: passthrough,
-  SelectItem: passthrough,
-}));
 
 import { act, render } from "../../../test/render";
 import { DelegationSettings, describeCheckout } from "./DelegationSettings";
@@ -235,6 +228,30 @@ it("shows ordinary models as candidates without ordering controls", async () => 
   expect(
     container.querySelector('textarea[aria-label="What claude-test is good at"]'),
   ).not.toBeNull();
+  const stanceSelect = container.querySelector<HTMLElement>(
+    '[aria-label="Default stance for gpt-test"]',
+  )!;
+  expect(stanceSelect).not.toBeNull();
+  expect(stanceSelect.textContent).toContain("No default");
+});
+
+it("saves a model default stance and supports unsetting it back to no default", async () => {
+  reset();
+  await using _screen = await mount();
+  const trigger = container.querySelector<HTMLElement>(
+    '[aria-label="Default stance for gpt-test"]',
+  )!;
+  await userEvent.click(trigger);
+  await userEvent.click(page.getByRole("option", { name: "Orchestrate" }));
+  expect(state.save.mock.calls.at(-1)![0].input.manifest.models.sol.defaultStance).toBe(
+    "orchestrate",
+  );
+  await vi.waitFor(() => expect(text()).not.toContain("Saving…"));
+
+  await userEvent.click(trigger);
+  await userEvent.click(page.getByRole("option", { name: "No default (Flexible)" }));
+  const cleared = state.save.mock.calls.at(-1)![0].input.manifest;
+  expect("defaultStance" in cleared.models.sol).toBe(false);
 });
 
 it("saves a model note on Enter, and a later read keeps the editor mounted", async () => {

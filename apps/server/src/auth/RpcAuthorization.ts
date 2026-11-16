@@ -99,6 +99,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.serverGetSettings]: AuthOrchestrationReadScope,
   [WS_METHODS.agentPolicyRead]: AuthSettingsWriteScope,
   [WS_METHODS.agentPolicyCompactionModel]: AuthOrchestrationReadScope,
+  [WS_METHODS.delegationStanceResolve]: AuthOrchestrationReadScope,
   [WS_METHODS.peerLinksList]: AuthAccessReadScope,
   // Moving a thread drives the linked environment through this one's link.
   [WS_METHODS.threadHandoffOptions]: AuthOrchestrationReadScope,

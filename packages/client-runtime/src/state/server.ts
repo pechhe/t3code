@@ -869,6 +869,21 @@ export function createServerEnvironmentAtoms<R, E>(
     registry: AtomRegistry.AtomRegistry,
   ) =>
     Effect.sync(() => registry.update(secretInventoryVersion(environmentId), (value) => value + 1));
+  const delegationStanceVersion = Atom.family((_environmentId: EnvironmentId) =>
+    Atom.make(0).pipe(Atom.keepAlive),
+  );
+  const delegationStanceResolve = createEnvironmentGuardedRpcQueryAtomFamily(runtime, {
+    label: "environment-data:server:delegation-stance:resolve",
+    tag: WS_METHODS.delegationStanceResolve,
+    refreshTrigger: ({ environmentId }) => delegationStanceVersion(environmentId),
+  });
+  const invalidateDelegationStance = (
+    { environmentId }: { readonly environmentId: EnvironmentId },
+    registry: AtomRegistry.AtomRegistry,
+  ) =>
+    Effect.sync(() =>
+      registry.update(delegationStanceVersion(environmentId), (value) => value + 1),
+    );
   const configConcurrency = {
     mode: "serial" as const,
     key: ({ environmentId }: { readonly environmentId: string }) => environmentId,
@@ -1840,6 +1855,7 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:experiments:list",
       tag: WS_METHODS.experimentsList,
     }),
+    delegationStanceResolve,
     agentPolicyRead: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:agent-policy:read",
       tag: WS_METHODS.agentPolicyRead,
@@ -1853,6 +1869,7 @@ export function createServerEnvironmentAtoms<R, E>(
       tag: WS_METHODS.agentPolicySave,
       scheduler: configScheduler,
       concurrency: configConcurrency,
+      onSuccess: invalidateDelegationStance,
     }),
     experimentsAssignments: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:experiments:assignments",

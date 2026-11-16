@@ -1082,31 +1082,6 @@ it.effect(
           instanceId: ProviderInstanceId.make("codex-test"),
           model: "gpt-sol-test",
         };
-        yield* experiments.create({
-          id: "external-policy",
-          title: "Allocation",
-          question: "Inline or delegated?",
-          lever: "orchestration-policy",
-          primaryOutcome: "Independent acceptance",
-          orchestrationControls: {
-            orchestratorSelection: selection,
-            policyHash: pinned.hash,
-            reviewerPolicyRevision: "review-r1",
-            verificationRevision: "checks-r1",
-            concurrency: 2,
-          },
-          variants: [
-            { id: "inline", label: "Inline", allocationPolicy: "inline-first" },
-            { id: "delegated", label: "Delegated", allocationPolicy: "delegate-earlier" },
-          ],
-          eligibility: { projectIds: [projectId], models: [], taskCategories: [] },
-          maxAssignments: 20,
-          endsAt: "2999-01-01T00:00:00Z",
-          stopConditions: [],
-          codeRevision: null,
-          briefRevision: null,
-        });
-        yield* experiments.transition({ experimentId: "external-policy", status: "running" });
         const owner = {
           environmentId,
           projectId,
@@ -1128,7 +1103,7 @@ it.effect(
           policyRevision: pinned.sourceRevision,
           alreadyStarted: false,
         });
-        expect(unit.assignedPolicies).toHaveLength(1);
+        expect(unit.assignedPolicies).toHaveLength(0);
         expect(unit.owner.parentThreadId).toBeNull();
         const task = { ...request({ workspacePath: session.workspacePath }), workUnitId: unit.id };
         const before = yield* f
@@ -1163,34 +1138,6 @@ it.effect(
         expect(report.childCoverage).toBe("unavailable");
         expect(report.parentCoverage).toBe("unavailable");
         expect(report.usage.inputTokens).toBeNull();
-        const external = yield* External.ExternalAgentWorkService;
-        const outcome = yield* external.recordOutcome(f.scope(client), {
-          taskId: launched.taskId,
-          outcome: {
-            id: "external-unit-claim",
-            assignmentId: unit.assignmentIds[0]!,
-            runId: null,
-            kind: "verified-completion",
-            source: "independent-evidence",
-            evidence: ["claimed-check"],
-            note: "Parent claim",
-            actualModelSelection: null,
-            fallbackReason: null,
-          },
-        });
-        expect(outcome.source).toBe("self-report");
-        expect(
-          (yield* experiments.readWork(
-            { workUnitId: unit.id },
-            { environmentId, clientSessionId: client },
-          )).independentlySupportedAcceptance,
-        ).toBe(false);
-        yield* f.cancel(client, launched.taskId);
-        const afterCancel = yield* experiments.report(
-          { experimentId: "external-policy" },
-          { environmentId, clientSessionId: client },
-        );
-        expect(afterCancel.policySummary?.reduce((n, arm) => n + arm.cancellationCount, 0)).toBe(1);
         const foreignClient = yield* f.issueSession("mcp-client:work-policy-foreign");
         const foreignSession = yield* f.attach(foreignClient);
         const foreign = yield* f
@@ -1215,31 +1162,6 @@ it.effect(
           instanceId: ProviderInstanceId.make("codex-test"),
           model: "gpt-sol-test",
         };
-        yield* experiments.create({
-          id: "external-refusal",
-          title: "Allocation",
-          question: "Inline or delegated?",
-          lever: "orchestration-policy",
-          primaryOutcome: "Independent acceptance",
-          orchestrationControls: {
-            orchestratorSelection: selection,
-            policyHash: pinned.hash,
-            reviewerPolicyRevision: "review-r1",
-            verificationRevision: "checks-r1",
-            concurrency: 2,
-          },
-          variants: [
-            { id: "inline", label: "Inline", allocationPolicy: "inline-first" },
-            { id: "delegated", label: "Delegated", allocationPolicy: "delegate-earlier" },
-          ],
-          eligibility: { projectIds: [projectId], models: [], taskCategories: [] },
-          maxAssignments: 20,
-          endsAt: "2999-01-01T00:00:00Z",
-          stopConditions: [],
-          codeRevision: null,
-          briefRevision: null,
-        });
-        yield* experiments.transition({ experimentId: "external-refusal", status: "running" });
         const owner = {
           environmentId,
           projectId,
@@ -1261,7 +1183,7 @@ it.effect(
           policyRevision: pinned.sourceRevision,
           alreadyStarted: false,
         });
-        expect(unit.assignedPolicies).toHaveLength(1);
+        expect(unit.assignedPolicies).toHaveLength(0);
         expect(unit.owner.parentThreadId).toBeNull();
         const task = { ...request({ workspacePath: session.workspacePath }), workUnitId: unit.id };
         const before = yield* f
@@ -1283,12 +1205,12 @@ it.effect(
         const refused = yield* f.submit(client, f.submitInput(session, { agentTask: task }));
         expect(refused.launchState).toBe("refused");
         expect((yield* Ref.get(f.state)).calls).toHaveLength(0);
-        const report = yield* experiments.report(
-          { experimentId: "external-refusal" },
+        const report = yield* experiments.readWork(
+          { workUnitId: unit.id },
           { environmentId, clientSessionId: client },
         );
-        const outcomes = report.assignments.flatMap((entry) => entry.outcomes);
-        expect(outcomes.filter((outcome) => outcome.kind === "failure")).toHaveLength(0);
+        expect(report.tasks.map((task) => task.launchState)).toEqual(["refused"]);
+        expect(report.outcomes.filter((outcome) => outcome.kind === "failure")).toHaveLength(0);
       }),
     ),
 );

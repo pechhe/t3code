@@ -21,8 +21,10 @@ import {
   ensureModel,
   jobsFor,
   listModel,
+  modelDefaultStance,
   moveEntry,
   offersFast,
+  poolDefaultStance,
   readOnlyUnenforcedProviders,
   removeEntry,
   replaceEntry,
@@ -32,6 +34,7 @@ import {
   setCaller,
   setEntryEffort,
   setCouncil,
+  setModelDefaultStance,
   setModelFast,
   setModelNote,
   setModelOptions,
@@ -318,6 +321,15 @@ describe("delegation settings", () => {
     expect(alias).not.toBe("opus");
     expect(listed.models[alias]!.note).toBe("Strongest; design work");
     expect(setModelNote(noted, "claude-opus", "").models.opus).toEqual(base.models.opus);
+
+    const stanced = setModelDefaultStance(twin, "claude-opus", "orchestrate");
+    expect(modelDefaultStance(stanced, "claude-opus")).toBe("orchestrate");
+    expect(stanced.models.opus!.defaultStance).toBe("orchestrate");
+    expect(stanced.models["opus-pi"]!.defaultStance).toBe("orchestrate");
+    expect(ensureModel(stanced, elsewhere)[0].models[alias]!.defaultStance).toBe("orchestrate");
+    const unset = setModelDefaultStance(stanced, "claude-opus", undefined);
+    expect(modelDefaultStance(unset, "claude-opus")).toBeUndefined();
+    expect(unset.models.opus).toEqual(base.models.opus);
   });
 
   it("joins a model pool and its listed member slots into one row with one shared note", () => {
@@ -372,6 +384,12 @@ describe("delegation settings", () => {
     for (const alias of [poolAlias, "opus", "pi-opus"])
       expect(renoted.models[alias]!.note).toBe("Use for hard design");
     expect(renoted.models.haiku!.note).toBeUndefined();
+
+    const poolStanced = setModelDefaultStance(renoted, `pool:${poolId}`, "implement", modelPools);
+    expect(poolDefaultStance(poolStanced, poolId, modelPools)).toBe("implement");
+    for (const alias of [poolAlias, "opus", "pi-opus"])
+      expect(poolStanced.models[alias]!.defaultStance).toBe("implement");
+    expect(poolStanced.models.haiku!.defaultStance).toBeUndefined();
 
     // Once a second pool also lists the Claude slot, that slot no longer belongs to either pool's note.
     const twoPools = {

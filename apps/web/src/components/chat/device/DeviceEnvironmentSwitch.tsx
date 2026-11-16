@@ -6,6 +6,7 @@ import { cn } from "~/lib/utils";
 import type { EnvironmentOption } from "../../BranchToolbar.logic";
 import { EnvironmentMachineIcon } from "../../EnvironmentMachineIcon";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
+import { DeviceLeverTrack } from "./DeviceLever";
 
 interface DeviceEnvironmentSwitchProps {
   /** Exactly two machines: the upper position, then the lower one. */
@@ -102,25 +103,26 @@ export function DeviceEnvironmentSwitch({
             className={cn("device-switch", atLower && "device-switch--lower")}
           >
             <SwitchLabel environment={upper} position="upper" />
-            <span className="device-switch__track" aria-hidden="true">
-              <span className="device-switch__thumb">
-                {locked ? (
-                  <LockIcon className="device-switch__lock" />
-                ) : balanceState ? (
-                  <span className={`device-switch__badge device-switch__badge--${balanceState}`}>
-                    {balanceState === "auto" ? (
-                      <SparkleIcon />
-                    ) : balanceState === "override" ? (
-                      <HandIcon />
-                    ) : balanceState === "checking" ? (
-                      <EllipsisIcon />
-                    ) : (
-                      <MinusIcon />
-                    )}
-                  </span>
-                ) : null}
-              </span>
-            </span>
+            <DeviceLeverTrack
+              trackClassName="device-switch__track"
+              thumbClassName="device-switch__thumb"
+            >
+              {locked ? (
+                <LockIcon className="device-switch__lock" />
+              ) : balanceState ? (
+                <span className={`device-switch__badge device-switch__badge--${balanceState}`}>
+                  {balanceState === "auto" ? (
+                    <SparkleIcon />
+                  ) : balanceState === "override" ? (
+                    <HandIcon />
+                  ) : balanceState === "checking" ? (
+                    <EllipsisIcon />
+                  ) : (
+                    <MinusIcon />
+                  )}
+                </span>
+              ) : null}
+            </DeviceLeverTrack>
             <SwitchLabel environment={lower} position="lower" />
           </button>
         }

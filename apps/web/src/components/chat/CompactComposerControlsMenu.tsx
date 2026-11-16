@@ -1,13 +1,18 @@
-import type { RuntimeMode } from "@t3tools/contracts";
+import type { DelegationStance, RuntimeMode } from "@t3tools/contracts";
 import { memo, useRef } from "react";
 import { EllipsisIcon } from "lucide-react";
-import { Menu, MenuPopup, MenuTrigger } from "../ui/menu";
+import { Menu, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
 import { ComposerControl, ComposerControlIcon } from "./ComposerControl";
 import { focusRequestedPermission, useComposerMenuProps } from "./composerEventScope";
 import { useComposerMenuState } from "./useComposerMenuState";
 import { ComposerPermissionsSection, type RuntimeModeOption } from "./ComposerFooterControls";
+import { ComposerStanceSection } from "./ComposerStanceControl";
 
 export const CompactComposerControlsMenu = memo(function CompactComposerControlsMenu(props: {
+  stance: DelegationStance;
+  stanceDisabled?: boolean;
+  showStance: boolean;
+  onStanceChange: (stance: DelegationStance) => void;
   runtimeMode: RuntimeMode;
   runtimeModeOptions: ReadonlyArray<RuntimeModeOption>;
   showPermissions: boolean;
@@ -41,6 +46,14 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
         <ComposerControlIcon icon={EllipsisIcon} size={size} />
       </MenuTrigger>
       <MenuPopup align="start" {...composerFloatingLayerProps}>
+        {props.showStance ? (
+          <ComposerStanceSection
+            stance={props.stance}
+            disabled={props.stanceDisabled ?? false}
+            onChange={props.onStanceChange}
+          />
+        ) : null}
+        {props.showStance && props.showPermissions ? <MenuSeparator /> : null}
         {props.showPermissions ? (
           <ComposerPermissionsSection
             runtimeMode={props.runtimeMode}

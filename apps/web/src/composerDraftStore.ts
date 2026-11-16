@@ -9,6 +9,7 @@ import {
   ElementContextDetails,
   DEFAULT_MODEL,
   DEFAULT_MODEL_BY_PROVIDER,
+  DelegationStanceChoice,
   defaultInstanceIdForDriver,
   isModelPoolId,
   EnvironmentId,
@@ -406,6 +407,7 @@ const PersistedComposerThreadDraftState = Schema.Struct({
   modelSelectionExplicit: Schema.optionalKey(Schema.Boolean),
   runtimeMode: Schema.optionalKey(RuntimeMode),
   interactionMode: Schema.optionalKey(ProviderInteractionMode),
+  stanceChoice: Schema.optionalKey(DelegationStanceChoice),
 });
 type PersistedComposerThreadDraftState = typeof PersistedComposerThreadDraftState.Type;
 
@@ -535,6 +537,7 @@ export interface ComposerThreadDraftState {
   modelSelectionExplicit?: boolean;
   runtimeMode: RuntimeMode | null;
   interactionMode: ProviderInteractionMode | null;
+  stanceChoice: DelegationStanceChoice | null;
 }
 
 export function composerDraftHasUserContent(
@@ -725,6 +728,10 @@ interface ComposerDraftStoreState {
   setInteractionMode: (
     threadRef: ComposerThreadTarget,
     interactionMode: ProviderInteractionMode | null | undefined,
+  ) => void;
+  setStanceChoice: (
+    threadRef: ComposerThreadTarget,
+    stanceChoice: DelegationStanceChoice | null | undefined,
   ) => void;
   addImage: (threadRef: ComposerThreadTarget, image: ComposerImageAttachment) => boolean;
   addImages: (
@@ -959,6 +966,7 @@ const EMPTY_THREAD_DRAFT = Object.freeze<ComposerThreadDraftState>({
   activeProvider: null,
   runtimeMode: null,
   interactionMode: null,
+  stanceChoice: null,
 });
 
 function createEmptyThreadDraft(): ComposerThreadDraftState {
@@ -978,6 +986,7 @@ function createEmptyThreadDraft(): ComposerThreadDraftState {
     activeProvider: null,
     runtimeMode: null,
     interactionMode: null,
+    stanceChoice: null,
   };
 }
 
@@ -1079,7 +1088,8 @@ function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
     Object.keys(draft.modelSelectionByProvider).length === 0 &&
     draft.activeProvider === null &&
     draft.runtimeMode === null &&
-    draft.interactionMode === null
+    draft.interactionMode === null &&
+    draft.stanceChoice === null
   );
 }
 
@@ -1848,7 +1858,13 @@ function removeDraftThreadReferences(
     state.draftThreadsByThreadKey;
   const { [threadKey]: removedComposerDraft, ...restDraftsByThreadKey } = state.draftsByThreadKey;
   if (composerDestination && removedComposerDraft) {
-    restDraftsByThreadKey[composerTargetKey(composerDestination)] = removedComposerDraft;
+    const promotedDraft: ComposerThreadDraftState = {
+      ...removedComposerDraft,
+      stanceChoice: null,
+    };
+    if (!shouldRemoveDraft(promotedDraft)) {
+      restDraftsByThreadKey[composerTargetKey(composerDestination)] = promotedDraft;
+    }
   } else {
     revokeDraftThreadPreviewUrls(removedComposerDraft);
   }
@@ -2166,6 +2182,9 @@ function normalizePersistedDraftsByThreadId(
       draftCandidate.interactionMode === "plan" || draftCandidate.interactionMode === "default"
         ? draftCandidate.interactionMode
         : null;
+    const decodeStanceChoice = Schema.decodeUnknownOption(DelegationStanceChoice);
+    const stanceChoiceOption = decodeStanceChoice(draftCandidate.stanceChoice);
+    const stanceChoice = stanceChoiceOption._tag === "Some" ? stanceChoiceOption.value : null;
     const contextIds = new Map<string, string>();
     for (const [kind, entries] of [
       ["image", attachments],
@@ -2292,6 +2311,7 @@ function normalizePersistedDraftsByThreadId(
         : {}),
       ...(runtimeMode ? { runtimeMode } : {}),
       ...(interactionMode ? { interactionMode } : {}),
+      ...(stanceChoice ? { stanceChoice } : {}),
     };
   }
 
@@ -2332,7 +2352,9 @@ function stripLegacyModelSeedsFromEmptyDraftSessions(
         modelSelectionExplicit: _modelSelectionExplicit,
         ...retained
       } = draft;
-      return retained.runtimeMode || retained.interactionMode ? [[threadKey, retained]] : [];
+      return retained.runtimeMode || retained.interactionMode || retained.stanceChoice
+        ? [[threadKey, retained]]
+        : [];
     }),
   );
 }
@@ -2391,7 +2413,8 @@ export function partializeComposerDraftStoreState(
       draft.replyTo === null &&
       !hasModelData &&
       draft.runtimeMode === null &&
-      draft.interactionMode === null
+      draft.interactionMode === null &&
+      draft.stanceChoice === null
     ) {
       continue;
     }
@@ -2461,6 +2484,7 @@ export function partializeComposerDraftStoreState(
         : {}),
       ...(draft.runtimeMode ? { runtimeMode: draft.runtimeMode } : {}),
       ...(draft.interactionMode ? { interactionMode: draft.interactionMode } : {}),
+      ...(draft.stanceChoice ? { stanceChoice: draft.stanceChoice } : {}),
     };
     persistedDraftsByThreadKey[threadKey] = persistedDraft;
   }
@@ -2734,6 +2758,7 @@ function toHydratedThreadDraft(
     ...(persistedDraft.modelSelectionExplicit ? { modelSelectionExplicit: true } : {}),
     runtimeMode: persistedDraft.runtimeMode ?? null,
     interactionMode: persistedDraft.interactionMode ?? null,
+    stanceChoice: persistedDraft.stanceChoice ?? null,
   };
 }
 
@@ -3532,6 +3557,44 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             const nextDraft: ComposerThreadDraftState = {
               ...base,
               interactionMode: nextInteractionMode,
+            };
+            const nextDraftsByThreadKey = { ...state.draftsByThreadKey };
+            if (shouldRemoveDraft(nextDraft)) {
+              delete nextDraftsByThreadKey[threadKey];
+            } else {
+              nextDraftsByThreadKey[threadKey] = nextDraft;
+            }
+            return { draftsByThreadKey: nextDraftsByThreadKey };
+          });
+        },
+        setStanceChoice: (threadRef, stanceChoice) => {
+          const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
+          if (threadKey.length === 0) {
+            return;
+          }
+          const nextStanceChoice =
+            stanceChoice &&
+            (stanceChoice.stance === "orchestrate" ||
+              stanceChoice.stance === "flexible" ||
+              stanceChoice.stance === "implement") &&
+            (stanceChoice.chosenBy === "owner" || stanceChoice.chosenBy === "parent")
+              ? stanceChoice
+              : null;
+          set((state) => {
+            const existing = state.draftsByThreadKey[threadKey];
+            if (!existing && nextStanceChoice === null) {
+              return state;
+            }
+            const base = existing ?? createEmptyThreadDraft();
+            if (
+              base.stanceChoice?.stance === nextStanceChoice?.stance &&
+              base.stanceChoice?.chosenBy === nextStanceChoice?.chosenBy
+            ) {
+              return state;
+            }
+            const nextDraft: ComposerThreadDraftState = {
+              ...base,
+              stanceChoice: nextStanceChoice,
             };
             const nextDraftsByThreadKey = { ...state.draftsByThreadKey };
             if (shouldRemoveDraft(nextDraft)) {

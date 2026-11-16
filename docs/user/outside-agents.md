@@ -263,20 +263,19 @@ A new sign-in has a new owner and cannot adopt the old sign-in's tasks.
 
 ## Enroll work before choosing how to execute it
 
-An explicitly authorised orchestration-policy experiment with recorded controls compares
-`inline-first` with `delegate-earlier` on work you enroll yourself. Creating a draft or installing this code does not start
-one. Both arms retain the same parent selection and effort, central agent policy,
-review and verification revisions, and concurrency limit. Running worker-model
-trials cannot overlap this treatment in the same eligible project scope; historical
-reviewer trials and observational imports keep their original route and provenance.
+Trials that assigned a delivery approach (`inline-first` or `delegate-earlier`) are
+retired: a thread's [delegation stance](composer.md#delegation-stance) now decides how
+much it hands off. T3 refuses to create or start one, and refuses enrollment while an
+old one is still running. Earlier trials and their results stay readable. Enrolling
+work still records how it was executed, with no assigned approach.
 
 Use `t3 agent work-enroll --endpoint <server> --request-file <json>` before choosing
 inline or delegated execution. Supply `workId`, `description`, `taskCategory`,
 the attached `externalSessionKey`, and `reportedOrchestratorSelection` (including
 its effort option). Set `alreadyStarted` for work that has begun: it is excluded
 from prospective assignment. `sourceRevision` can pin the source for child work.
-The returned unit includes its `assignedPolicies` and controls, immutable policy
-snapshot and assignment IDs. Repeating the same request returns that original
+The returned unit includes its immutable policy snapshot; `assignedPolicies` is
+empty now that no approach trial can run. Repeating the same request returns that original
 assignment across reconnects or retries; changing its work description or source
 under the same identity is refused.
 

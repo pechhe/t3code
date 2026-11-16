@@ -141,6 +141,9 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
         .getState()
         .getComposerDraft(composerDraftTarget);
       const submittedSelections = appAtomRegistry.get(fanoutSelectionsAtom);
+      const draftStanceChoice =
+        useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)?.stanceChoice ??
+        null;
       canRestoreDraft = () =>
         currentRouteThreadKeyRef.current === routeThreadKey &&
         isCurrentSend() &&
@@ -183,6 +186,7 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
                       modelSelection: target.selection,
                       runtimeMode,
                       interactionMode: DEFAULT_INTERACTION_MODE,
+                      ...(draftStanceChoice ? { stanceChoice: draftStanceChoice } : {}),
                       branch,
                       worktreePath: null,
                       createdAt: createdAt,
