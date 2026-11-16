@@ -142,6 +142,9 @@ provider shows one figure: what is left in its tightest window (5-hour or weekly
 its accounts, so two Claude accounts can show up to 200%. With more than one account, each
 account's own figure sits beside it, marked with its accent colour or, without one, its initial. The figure turns amber when you are spending faster than an even rate to the
 reset, and reads **out** with a countdown when nothing is left. Click **Usage left** to open this page.
+Each account inside Pi gets its own row, named after it and marked with the model family or
+service it belongs to; one signed in on several machines shows once. To hide a row, click the
+sliders button on the card and untick it; tick it again to bring it back.
 Filter with the environment dropdown to see what a single machine has.
 
 When a Claude or Codex account has no overall weekly quota left, its pooled session contribution

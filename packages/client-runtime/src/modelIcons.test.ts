@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { MODEL_MAKER_ICONS, resolveModelIconMaker } from "./modelIcons.ts";
+import {
+  MODEL_MAKER_ICONS,
+  resolveModelIconMaker,
+  resolveSubProviderServiceDriver,
+} from "./modelIcons.ts";
 
 describe("resolveModelIconMaker", () => {
   it("resolves model makers for pi, opencode, and openrouter models", () => {
@@ -50,17 +54,29 @@ describe("resolveModelIconMaker", () => {
     expect(resolveModelIconMaker({ driverKind: "pi", model: "minimax/minimax-m2" })).toBe(
       "minimax",
     );
+    // A Pi account has no model, so its sub-provider names the lab.
+    expect(
+      resolveModelIconMaker({ driverKind: "pi", subProvider: "claude-subscription-yardsmith" }),
+    ).toBe("anthropic");
+    expect(resolveModelIconMaker({ driverKind: "pi", subProvider: "openai-codex" })).toBe("openai");
   });
 
   it("returns null for Pi default, unknown slugs, and single-brand drivers", () => {
     expect(resolveModelIconMaker({ driverKind: "pi", model: "default" })).toBeNull();
     expect(resolveModelIconMaker({ driverKind: "pi", model: "opencode/custom-model" })).toBeNull();
     expect(resolveModelIconMaker({ driverKind: "pi", model: undefined })).toBeNull();
+    expect(resolveModelIconMaker({ driverKind: "pi", subProvider: "commandcode" })).toBeNull();
     expect(resolveModelIconMaker({ driverKind: "codex", model: "gpt-5" })).toBeNull();
     expect(
       resolveModelIconMaker({ driverKind: "claudeAgent", model: "claude-opus-4-6" }),
     ).toBeNull();
     expect(resolveModelIconMaker({ driverKind: "antigravity", model: "gemini-3-pro" })).toBeNull();
+  });
+
+  it("shows a Pi account on a many-lab service as that service", () => {
+    expect(resolveSubProviderServiceDriver("opencode-go")).toBe("opencode");
+    expect(resolveSubProviderServiceDriver("antigravity")).toBe("antigravity");
+    expect(resolveSubProviderServiceDriver("claude-subscription-hfpetch")).toBeNull();
   });
 
   it("provides vector icon definitions for makers without dedicated app icons", () => {

@@ -66,7 +66,10 @@ function inferMakerFromVendorSegment(segment: string): ModelIconMaker | null {
   const normalized = segment.trim().toLowerCase();
   if (!normalized) return null;
   if (normalized === "openai" || normalized.startsWith("openai-")) return "openai";
-  if (normalized === "anthropic") return "anthropic";
+  // Pi names each Claude subscription it holds `claude-subscription-<account>`.
+  if (normalized === "anthropic" || normalized.startsWith("claude-subscription-")) {
+    return "anthropic";
+  }
   if (
     normalized === "google" ||
     normalized === "google-vertex" ||
@@ -87,9 +90,9 @@ function inferMakerFromVendorSegment(segment: string): ModelIconMaker | null {
 
 /**
  * Resolves the upstream model maker for drivers that host models from multiple
- * labs (`pi`, `opencode`, `openrouter`), returning `null` for single-brand
- * drivers or unrecognized/default model slugs so callers fall back to the
- * provider instance icon.
+ * labs (`pi`, `opencode`, `openrouter`), from the model, else from the sub-provider
+ * alone (a Pi account has no model). Returns `null` for single-brand drivers or when
+ * neither names a lab, so callers fall back to the provider instance icon.
  */
 export function resolveModelIconMaker(input: {
   readonly driverKind: string | null | undefined;
@@ -101,7 +104,7 @@ export function resolveModelIconMaker(input: {
   }
   const rawModel = input.model?.trim().toLowerCase();
   if (!rawModel || rawModel === "default") {
-    return null;
+    return input.subProvider ? inferMakerFromVendorSegment(input.subProvider) : null;
   }
 
   const segments = rawModel.split("/").filter((part) => part.length > 0);
@@ -133,6 +136,16 @@ export function resolveModelIconMaker(input: {
     }
   }
 
+  return null;
+}
+
+/**
+ * A Pi sub-provider that serves several labs is shown as that service, which T3 also drives;
+ * `null` for one that names a lab (see `resolveModelIconMaker`) or a service T3 has no icon for.
+ */
+export function resolveSubProviderServiceDriver(subProvider: string): string | null {
+  if (subProvider === "antigravity" || subProvider === "openrouter") return subProvider;
+  if (subProvider === "opencode" || subProvider.startsWith("opencode-")) return "opencode";
   return null;
 }
 

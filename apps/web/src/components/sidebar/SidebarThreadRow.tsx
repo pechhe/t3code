@@ -212,10 +212,13 @@ function SidebarProviderStack(props: {
     currentEntry,
     props.providerEntryByInstanceId.values(),
   );
+  const currentModel = props.thread.modelSelection.model;
   const current = (
     <ProviderInstanceIcon
       driverKind={currentEntry.driverKind}
       displayName={currentEntry.displayName}
+      model={currentModel}
+      subProvider={currentEntry.models.find((model) => model.slug === currentModel)?.subProvider}
       accentColor={currentEntry.accentColor}
       acpRegistryAgentId={currentEntry.acpRegistryAgentId}
       acpRegistryIconUrl={currentEntry.acpRegistryIconUrl}
@@ -339,6 +342,11 @@ function SidebarThreadTooltip({
               driverKind={driverKind}
               displayName={
                 providerEntry?.displayName ?? thread.runtime?.providerName ?? modelInstanceId
+              }
+              model={thread.modelSelection.model}
+              subProvider={
+                providerEntry?.models.find((model) => model.slug === thread.modelSelection.model)
+                  ?.subProvider
               }
               accentColor={providerEntry?.accentColor}
               acpRegistryAgentId={providerEntry?.acpRegistryAgentId}

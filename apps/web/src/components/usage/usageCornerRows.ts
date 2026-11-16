@@ -5,7 +5,8 @@ import {
   paceRemainingPercent,
   remainingPercent,
 } from "@t3tools/shared/usageLimits";
-import type { ServerProviderUsageWindow } from "@t3tools/contracts";
+import { resolveSubProviderServiceDriver } from "@t3tools/client-runtime/provider-clients";
+import { ProviderDriverKind, type ServerProviderUsageWindow } from "@t3tools/contracts";
 
 interface UsageCornerAccount {
   readonly account: LimitAccount;
@@ -15,6 +16,12 @@ interface UsageCornerAccount {
 }
 
 export interface UsageCornerRow {
+  /** Stable across machines and restarts, so a hidden row stays hidden. */
+  readonly id: string;
+  /** A Pi account's own name; a provider's row is named by its provider. */
+  readonly slotName: string | null;
+  /** What the row's icon shows: the model family or service an account belongs to. */
+  readonly icon: { readonly driverKind: ProviderDriverKind; readonly subProvider?: string };
   readonly pool: LimitPool;
   /** The accounts' remaining percentages added up, so two accounts reach 200%. */
   readonly remainingPercent: number;
@@ -94,39 +101,70 @@ function accountLimit(pool: LimitPool, windows: readonly ServerProviderUsageWind
     : null;
 }
 
+function rowIdentity(pool: LimitPool): Pick<UsageCornerRow, "id" | "slotName" | "icon"> {
+  const account = pool.accounts[0];
+  const slot = account?.slot;
+  if (slot === undefined) {
+    return { id: `driver:${pool.driver}`, slotName: null, icon: { driverKind: pool.driver } };
+  }
+  const service = resolveSubProviderServiceDriver(slot.accountKey);
+  return {
+    // The fingerprint keeps two logins under one sub-provider apart, and is the same on every machine.
+    id: `slot:${slot.accountKey}:${slot.account ?? account!.key}`,
+    slotName: slot.accountKey.replace(/^claude-subscription-/, ""),
+    icon: service
+      ? { driverKind: ProviderDriverKind.make(service) }
+      : { driverKind: pool.driver, subProvider: slot.accountKey },
+  };
+}
+
+/** Machines holding the same credential each report it; the card keeps the freshest report. */
+function freshestPerAccount(rows: readonly UsageCornerRow[]): UsageCornerRow[] {
+  const byId = new Map<string, UsageCornerRow>();
+  const checkedAt = (row: UsageCornerRow) => Date.parse(row.pool.accounts[0]!.limits.checkedAt);
+  for (const row of rows) {
+    const seen = byId.get(row.id);
+    if (!seen || checkedAt(row) > checkedAt(seen)) byId.set(row.id, row);
+  }
+  return [...byId.values()];
+}
+
 export function usageCornerRows(pools: readonly LimitPool[], now: number): UsageCornerRow[] {
-  return pools.flatMap((pool) => {
-    const windows = cornerWindows(pool);
-    const accounts = pool.accounts.flatMap((account) => {
-      const own = windows.flatMap((window) => {
-        const column = window.columns.find((column) => column.account.key === account.key);
-        return column?.window ? [column.window] : [];
+  return freshestPerAccount(
+    pools.flatMap((pool) => {
+      const windows = cornerWindows(pool);
+      const accounts = pool.accounts.flatMap((account) => {
+        const own = windows.flatMap((window) => {
+          const column = window.columns.find((column) => column.account.key === account.key);
+          return column?.window ? [column.window] : [];
+        });
+        const limit = accountLimit(pool, own);
+        return limit ? [{ account, ...limit }] : [];
       });
-      const limit = accountLimit(pool, own);
-      return limit ? [{ account, ...limit }] : [];
-    });
-    if (accounts.length === 0) return [];
-    const remaining = accounts.reduce((sum, { tightest }) => sum + remainingPercent(tightest), 0);
-    const paced = accounts.flatMap(({ tightest }) => {
-      const even = paceRemainingPercent(tightest, now);
-      return even === null ? [] : [{ left: remainingPercent(tightest), even }];
-    });
-    const backTimes = accounts.flatMap(({ backAt }) => (backAt === null ? [] : [backAt]));
-    return [
-      {
-        pool,
-        remainingPercent: remaining,
-        backAt: remaining === 0 && backTimes.length > 0 ? Math.min(...backTimes) : null,
-        ahead:
-          remaining > 0 &&
-          paced.length > 0 &&
-          paced.reduce((sum, p) => sum + p.even - p.left, 0) > 5 * paced.length,
-        accounts: accounts.map(({ account, tightest }) => ({
-          account,
-          name: accountName(account),
-          remainingPercent: remainingPercent(tightest),
-        })),
-      },
-    ];
-  });
+      if (accounts.length === 0) return [];
+      const remaining = accounts.reduce((sum, { tightest }) => sum + remainingPercent(tightest), 0);
+      const paced = accounts.flatMap(({ tightest }) => {
+        const even = paceRemainingPercent(tightest, now);
+        return even === null ? [] : [{ left: remainingPercent(tightest), even }];
+      });
+      const backTimes = accounts.flatMap(({ backAt }) => (backAt === null ? [] : [backAt]));
+      return [
+        {
+          ...rowIdentity(pool),
+          pool,
+          remainingPercent: remaining,
+          backAt: remaining === 0 && backTimes.length > 0 ? Math.min(...backTimes) : null,
+          ahead:
+            remaining > 0 &&
+            paced.length > 0 &&
+            paced.reduce((sum, p) => sum + p.even - p.left, 0) > 5 * paced.length,
+          accounts: accounts.map(({ account, tightest }) => ({
+            account,
+            name: accountName(account),
+            remainingPercent: remainingPercent(tightest),
+          })),
+        },
+      ];
+    }),
+  );
 }

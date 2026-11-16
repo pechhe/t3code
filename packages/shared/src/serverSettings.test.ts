@@ -119,6 +119,7 @@ describe("serverSettings helpers", () => {
       worktreeKeepWhen: "uncommitted-changes",
       browserArtifactsAfterDays: null,
       logsAfterDays: 30,
+      threadDetailAfterDays: 14,
     });
   });
   it("replaces the model compact points so a cleared model does not survive", () => {

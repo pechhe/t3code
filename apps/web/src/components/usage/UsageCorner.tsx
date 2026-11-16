@@ -12,7 +12,21 @@ import { useNowMinute } from "../../hooks/useNowMinute";
 import { observeResize } from "../../lib/observeResize";
 import { environmentPresentations } from "../../state/presentation";
 import { providerClients } from "../settings/providerDriverMeta";
-import { ArrowRightIcon } from "lucide-react";
+import { ArrowRightIcon, SlidersHorizontalIcon } from "lucide-react";
+
+import {
+  getClientSettings,
+  updateClientSettings,
+  useClientSettings,
+} from "../../hooks/useSettings";
+import {
+  Menu,
+  MenuCheckboxItem,
+  MenuGroup,
+  MenuGroupLabel,
+  MenuPopup,
+  MenuTrigger,
+} from "../ui/menu";
 
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { ThreadDetailsControl } from "../chat/ThreadDetailsControl";
@@ -75,9 +89,11 @@ export function UsageCorner({ overlay }: { readonly overlay: HTMLElement | null 
   // The minute clock keeps the reset countdowns true without a render per second.
   const now = Date.parse(`${useNowMinute()}:00.000Z`);
   const navigate = useNavigate();
+  const hiddenRows = useClientSettings((settings) => settings.usageCornerHiddenRows);
   if (placement === null) return null;
   const rows = usageCornerRows(collectLimitPools(collectLimitAccounts(presentations), now), now);
   if (rows.length === 0) return null;
+  const shownRows = rows.filter((row) => !hiddenRows.includes(row.id));
   const maxHeight = Math.max(0, placement.top - columnTop - GUTTER_MARGIN_PX);
   return (
     <div
@@ -95,26 +111,21 @@ export function UsageCorner({ overlay }: { readonly overlay: HTMLElement | null 
           title="Usage left"
           separated={false}
           actions={
-            <ThreadDetailsControl
-              part="icon"
-              aria-label="Open Usage"
-              onClick={() => void navigate({ to: "/usage" })}
-            >
-              <ArrowRightIcon className="size-3.5 text-muted-foreground" />
-            </ThreadDetailsControl>
+            <>
+              <UsageCornerRowsMenu rows={rows} hiddenRows={hiddenRows} />
+              <ThreadDetailsControl
+                part="icon"
+                aria-label="Open Usage"
+                onClick={() => void navigate({ to: "/usage" })}
+              >
+                <ArrowRightIcon className="size-3.5 text-muted-foreground" />
+              </ThreadDetailsControl>
+            </>
           }
         >
           <div className="flex flex-col gap-1.5 px-1.5">
-            {rows.map((row) => (
-              <UsageCornerLine
-                key={
-                  row.pool.accounts[0]?.slot === undefined
-                    ? row.pool.driver
-                    : row.pool.accounts.map((account) => account.key).join(":")
-                }
-                row={row}
-                now={now}
-              />
+            {shownRows.map((row) => (
+              <UsageCornerLine key={row.id} row={row} now={now} />
             ))}
           </div>
         </ThreadDetailsSection>
@@ -123,8 +134,62 @@ export function UsageCorner({ overlay }: { readonly overlay: HTMLElement | null 
   );
 }
 
+function rowName(row: UsageCornerRow): string {
+  return row.slotName ?? providerClients.get(row.pool.driver)?.label ?? String(row.pool.driver);
+}
+
+function UsageCornerRowIcon({ row }: { readonly row: UsageCornerRow }) {
+  return (
+    <ProviderInstanceIcon
+      driverKind={row.icon.driverKind}
+      subProvider={row.icon.subProvider}
+      displayName={rowName(row)}
+      className="size-3.5"
+      iconClassName="size-3.5"
+    />
+  );
+}
+
+/** Choosing which rows the card shows; every row stays listed here so a hidden one can return. */
+function UsageCornerRowsMenu(props: {
+  readonly rows: readonly UsageCornerRow[];
+  readonly hiddenRows: readonly string[];
+}) {
+  return (
+    <Menu>
+      <MenuTrigger render={<ThreadDetailsControl part="icon" aria-label="Choose what to show" />}>
+        <SlidersHorizontalIcon className="size-3.5 text-muted-foreground" />
+      </MenuTrigger>
+      <MenuPopup align="end">
+        <MenuGroup>
+          <MenuGroupLabel>Show in Usage left</MenuGroupLabel>
+          {props.rows.map((row) => (
+            <MenuCheckboxItem
+              key={row.id}
+              checked={!props.hiddenRows.includes(row.id)}
+              onCheckedChange={(checked) => {
+                const hidden = getClientSettings().usageCornerHiddenRows.filter(
+                  (id) => id !== row.id,
+                );
+                updateClientSettings({
+                  usageCornerHiddenRows: checked ? hidden : [...hidden, row.id],
+                });
+              }}
+            >
+              <span className="flex items-center gap-2">
+                <UsageCornerRowIcon row={row} />
+                {rowName(row)}
+              </span>
+            </MenuCheckboxItem>
+          ))}
+        </MenuGroup>
+      </MenuPopup>
+    </Menu>
+  );
+}
+
 function UsageCornerLine({ row, now }: { readonly row: UsageCornerRow; readonly now: number }) {
-  const provider = providerClients.get(row.pool.driver)?.label ?? String(row.pool.driver);
+  const provider = rowName(row);
   const out = row.remainingPercent === 0;
   const back = row.backAt === null ? null : formatDuration(row.backAt - now);
   const accounts = row.accounts.length > 1 ? row.accounts : [];
@@ -140,13 +205,11 @@ function UsageCornerLine({ row, now }: { readonly row: UsageCornerRow; readonly 
       ].join("; ")}
       className="flex items-center gap-2 tabular-nums"
     >
-      <ProviderInstanceIcon
-        driverKind={row.pool.driver}
-        displayName={provider}
-        className="size-3.5"
-        iconClassName="size-3.5"
-      />
-      <span aria-hidden className="ms-auto flex gap-2 text-2xs text-muted-foreground">
+      <UsageCornerRowIcon row={row} />
+      <span aria-hidden className="min-w-0 truncate text-muted-foreground">
+        {provider}
+      </span>
+      <span aria-hidden className="ms-auto flex shrink-0 gap-2 text-2xs text-muted-foreground">
         {accounts.map((entry) => {
           const accent = normalizeProviderAccentColor(entry.account.accentColor);
           return (

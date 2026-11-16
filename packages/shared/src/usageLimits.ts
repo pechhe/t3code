@@ -285,6 +285,8 @@ export interface LimitAccount {
   readonly slot?: {
     readonly instanceId: ProviderInstanceId;
     readonly accountKey: string;
+    /** Fingerprint of the credential, the same on every machine that holds it. */
+    readonly account?: string;
   };
   readonly environments: ReadonlyArray<{
     readonly environmentId: EnvironmentId;
@@ -411,7 +413,11 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
           email: undefined,
           plan: undefined,
           accentColor: provider.accentColor,
-          slot: { instanceId: provider.instanceId, accountKey: slot.accountKey },
+          slot: {
+            instanceId: provider.instanceId,
+            accountKey: slot.accountKey,
+            ...(slot.account ? { account: slot.account } : {}),
+          },
           environments: [{ environmentId, label }],
           sourceLabel: null,
           redeem: null,

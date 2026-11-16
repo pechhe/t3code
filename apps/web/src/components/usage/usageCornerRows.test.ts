@@ -1,4 +1,4 @@
-import { ProviderDriverKind } from "@t3tools/contracts";
+import { ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
 import { collectLimitPools, type LimitAccount } from "@t3tools/shared/usageLimits";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -149,5 +149,61 @@ describe("usageCornerRows", () => {
         ["claudeAgent", 90],
       ]),
     );
+  });
+
+  it("names a Pi account by its family or service, once however many machines report it", () => {
+    const slot = (accountKey: string, fingerprint: string, key = accountKey) => ({
+      ...account(key, [session(10)], "pi"),
+      slot: { instanceId: ProviderInstanceId.make("pi"), accountKey, account: fingerprint },
+    });
+    const result = rows([
+      account("c", [weekly(30)], "codex"),
+      slot("claude-subscription-yardsmith", "ys"),
+      slot("opencode-go", "go"),
+      // The same login seen from a second machine, read later, and a second login under one key.
+      {
+        ...slot("openai-codex", "chatgpt-a", "mac"),
+        limits: { checkedAt: "2026-09-03T10:00:00.000Z", windows: [session(10)] },
+      },
+      {
+        ...slot("openai-codex", "chatgpt-a", "vps"),
+        limits: { checkedAt: "2026-09-03T11:00:00.000Z", windows: [session(60)] },
+      },
+      slot("openai-codex", "chatgpt-b", "second"),
+    ]);
+    expect(
+      result.map(({ id, slotName, icon, remainingPercent }) => ({
+        id,
+        slotName,
+        icon,
+        remainingPercent,
+      })),
+    ).toEqual([
+      { id: "driver:codex", slotName: null, icon: { driverKind: "codex" }, remainingPercent: 70 },
+      {
+        id: "slot:claude-subscription-yardsmith:ys",
+        slotName: "yardsmith",
+        icon: { driverKind: "pi", subProvider: "claude-subscription-yardsmith" },
+        remainingPercent: 90,
+      },
+      {
+        id: "slot:opencode-go:go",
+        slotName: "opencode-go",
+        icon: { driverKind: "opencode" },
+        remainingPercent: 90,
+      },
+      {
+        id: "slot:openai-codex:chatgpt-a",
+        slotName: "openai-codex",
+        icon: { driverKind: "pi", subProvider: "openai-codex" },
+        remainingPercent: 40,
+      },
+      {
+        id: "slot:openai-codex:chatgpt-b",
+        slotName: "openai-codex",
+        icon: { driverKind: "pi", subProvider: "openai-codex" },
+        remainingPercent: 90,
+      },
+    ]);
   });
 });

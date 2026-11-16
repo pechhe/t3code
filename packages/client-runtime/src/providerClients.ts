@@ -72,4 +72,9 @@ export function resolveModelShortName(
   return modelShortName(model.name, families ?? []);
 }
 
-export { MODEL_MAKER_ICONS, resolveModelIconMaker, type ModelIconMaker } from "./modelIcons.ts";
+export {
+  MODEL_MAKER_ICONS,
+  resolveModelIconMaker,
+  resolveSubProviderServiceDriver,
+  type ModelIconMaker,
+} from "./modelIcons.ts";
