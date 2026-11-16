@@ -87,6 +87,7 @@ it.effect("runs Pi offline, since the process is stopped as soon as it answers",
         launchArgs: "",
         customModels: [],
         autoCompactWindow: "",
+        memoryModel: "",
       },
       {},
     ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
@@ -111,7 +112,14 @@ it.effect("names the model and the disabled extensions when Pi cannot load it", 
   Effect.gen(function* () {
     const pi = yield* makeFakePi("", "Model not found: demo/demo-model");
     const textGeneration = yield* makePiTextGeneration(
-      { enabled: true, binaryPath: "pi", launchArgs: "", customModels: [], autoCompactWindow: "" },
+      {
+        enabled: true,
+        binaryPath: "pi",
+        launchArgs: "",
+        customModels: [],
+        autoCompactWindow: "",
+        memoryModel: "",
+      },
       {},
     ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, pi.spawner));
 
@@ -143,7 +151,14 @@ it.effect("selects the provider and id Pi reported when the provider contains a 
       [{ provider, id: "qwen3" }],
     );
     const textGeneration = yield* makePiTextGeneration(
-      { enabled: true, binaryPath: "pi", launchArgs: "", customModels: [], autoCompactWindow: "" },
+      {
+        enabled: true,
+        binaryPath: "pi",
+        launchArgs: "",
+        customModels: [],
+        autoCompactWindow: "",
+        memoryModel: "",
+      },
       {},
     ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, pi.spawner));
 
@@ -182,6 +197,7 @@ const generateCommitMessage = (turnEvents: ReadonlyArray<Record<string, unknown>
         launchArgs: "",
         customModels: [],
         autoCompactWindow: "",
+        memoryModel: "",
       },
       {},
     ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, pi.spawner));

@@ -46,9 +46,22 @@ export const PiSettings = makeProviderSettingsSchema(
         },
       }),
     ),
+    memoryModel: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "Memory worker",
+        description:
+          "The model Pi Blackhole's memory worker uses when the Utility model (Settings → Threads) is not a Pi model. T3 writes the chosen model into Pi Blackhole's own config before a session starts; unset leaves that config as it is. Pi instances that share an agent directory share that config, so give them the same choice.",
+        providerSettingsForm: {
+          control: "model",
+          modelOptions: { emptyLabel: "Pi Blackhole's own setting" },
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
   },
   {
-    order: ["binaryPath", "autoCompactWindow", "launchArgs"],
+    order: ["binaryPath", "autoCompactWindow", "memoryModel", "launchArgs"],
   },
 );
 export type PiSettings = typeof PiSettings.Type;

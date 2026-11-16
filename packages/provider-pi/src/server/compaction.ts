@@ -124,7 +124,9 @@ interface PiCompactionSnapshot {
   readonly settings: PiCompactionSettings;
 }
 
-const readText = Effect.fn("readPiSettingsText")(function* (file: string) {
+export const decodeJsonOption = Schema.decodeOption(Schema.fromJsonString(Schema.Unknown));
+
+export const readText = Effect.fn("readPiSettingsText")(function* (file: string) {
   const fileSystem = yield* FileSystem.FileSystem;
   return yield* fileSystem.readFileString(file).pipe(Effect.orElseSucceed(() => undefined));
 });
@@ -138,8 +140,9 @@ const readSnapshot = (settingsPath: string) =>
 const readOwnership = Effect.fn("readPiCompactionOwnership")(function* (ownershipPath: string) {
   const text = yield* readText(ownershipPath);
   if (text === undefined) return { models: {} } satisfies PiCompactionOwnership;
-  const parsed = Schema.decodeOption(Schema.fromJsonString(Schema.Unknown))(text);
-  const models = Option.isSome(parsed) && isRecord(parsed.value) ? parsed.value["models"] : undefined;
+  const parsed = decodeJsonOption(text);
+  const models =
+    Option.isSome(parsed) && isRecord(parsed.value) ? parsed.value["models"] : undefined;
   // An earlier build recorded only the model names it changed; those replaced nothing known.
   if (Array.isArray(models)) {
     return {
@@ -161,7 +164,10 @@ const readOwnership = Effect.fn("readPiCompactionOwnership")(function* (ownershi
   } satisfies PiCompactionOwnership;
 });
 
-const writeFile = Effect.fn("writePiSettingsFile")(function* (file: string, contents: string) {
+export const writeFile = Effect.fn("writePiSettingsFile")(function* (
+  file: string,
+  contents: string,
+) {
   const fileSystem = yield* FileSystem.FileSystem;
   return yield* fileSystem.makeDirectory(NodePath.dirname(file), { recursive: true }).pipe(
     Effect.andThen(fileSystem.writeFileString(file, contents)),
@@ -174,14 +180,9 @@ const writeFile = Effect.fn("writePiSettingsFile")(function* (file: string, cont
  * One writer at a time, across Pi sessions and Pi's own TUI: the lock is a directory, so creating
  * it is atomic. Returns undefined when another writer holds it past the stale timeout.
  */
-interface PiCompactionSyncResult {
-  readonly settings: PiCompactionSettings;
-  readonly wrote: boolean;
-}
-
-const withSettingsLock = Effect.fn("withPiSettingsLock")(function* (
+export const withSettingsLock = Effect.fn("withPiSettingsLock")(function* <A>(
   lockDirectory: string,
-  use: Effect.Effect<PiCompactionSyncResult, never, FileSystem.FileSystem>,
+  use: Effect.Effect<A, never, FileSystem.FileSystem>,
 ) {
   const fileSystem = yield* FileSystem.FileSystem;
   let acquired = false;
@@ -256,7 +257,7 @@ function withModelReserve(
   return root;
 }
 
-function parseSettingsRoot(text: string | undefined): Record<string, unknown> {
+export function parseSettingsRoot(text: string | undefined): Record<string, unknown> {
   if (text === undefined) return {};
   try {
     const parsed: unknown = JSON.parse(text);
@@ -266,7 +267,7 @@ function parseSettingsRoot(text: string | undefined): Record<string, unknown> {
   }
 }
 
-const serializeSettings = (root: Record<string, unknown>): string =>
+export const serializeSettings = (root: Record<string, unknown>): string =>
   `${JSON.stringify(root, null, 2)}\n`;
 
 /**

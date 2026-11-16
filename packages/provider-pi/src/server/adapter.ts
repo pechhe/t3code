@@ -124,6 +124,7 @@ import {
   syncPiCompactionPoint,
   type PiCompactionSettings,
 } from "./compaction.ts";
+import { piBlackholeInstalled, syncPiBlackholeModel } from "./blackhole.ts";
 import { PI_FILE_CHANGE_TOOLS, PI_T3_SERVICE_TIER_COMMAND } from "./mcpExtensionSource.ts";
 import { PI_STANDARD_SERVICE_TIER } from "./modelCapabilities.ts";
 
@@ -905,6 +906,17 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         return null;
       };
 
+      const discoverModels = Effect.fnUntraced(function* () {
+        const modelsData = yield* request({ type: "get_available_models" }).pipe(
+          Effect.orElseSucceed(() => undefined),
+        );
+        const models = recordField(modelsData, "models");
+        if (Array.isArray(models)) {
+          for (const model of models) rememberModelContextWindow(model);
+          discoveredModels = models;
+        }
+      });
+
       // Pi reads its compaction point only when its settings load, so T3 writes the point
       // before the session's first turn and restarts the process it just opened when the value
       // changed, then reports the point that process loaded.
@@ -926,9 +938,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                 compactionSettings.enabled,
               );
       };
-      const prepareCompactionPoint = Effect.fnUntraced(function* () {
-        const agentDir = piAgentDirectory(options.environment);
-        if (agentDir === null) return;
+      const prepareCompactionPoint = Effect.fnUntraced(function* (agentDir: string) {
         const explicit =
           input.modelSelection.model === PI_INHERIT_MODEL_SLUG
             ? null
@@ -958,7 +968,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             }
           }
         }
-        if (provider === undefined || modelId === undefined) return;
+        if (provider === undefined || modelId === undefined) return false;
         const result = yield* syncPiCompactionPoint({
           agentDir,
           modelKey: `${provider}/${modelId}`,
@@ -974,15 +984,69 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             }).pipe(Effect.as(undefined)),
           ),
         );
-        if (result === undefined) return;
+        if (result === undefined) return false;
         compactionSettings = result.settings;
-        if (!result.wrote) return;
-        // The running process still holds the settings it loaded, so start it again on the file
-        // T3 just wrote, before any turn has run in it.
-        yield* connection.terminate;
-        connection = yield* spawnConnection();
+        return result.wrote;
       });
-      yield* prepareCompactionPoint();
+      // The Utility model when it is a Pi model, else this instance's Memory worker setting.
+      const prepareMemoryWorker = Effect.fnUntraced(function* (agentDir: string) {
+        const utility = input.runtimePolicy.utilityModel;
+        const utilitySlug =
+          utility?.driver === PI_PROVIDER && utility.model !== PI_INHERIT_MODEL_SLUG
+            ? utility.model
+            : null;
+        const fallbackSlug =
+          utilitySlug === null && options.settings.memoryModel !== ""
+            ? options.settings.memoryModel
+            : null;
+        if (
+          !(yield* piBlackholeInstalled(agentDir).pipe(
+            Effect.provideService(FileSystem.FileSystem, fileSystem),
+          ))
+        )
+          return false;
+        // Provider names and model ids may both contain "/", so resolve through Pi's inventory,
+        // which the session reuses rather than asking for it again.
+        if (discoveredModels === null && (utilitySlug !== null || fallbackSlug !== null))
+          yield* discoverModels();
+        const fromUtility =
+          utilitySlug === null ? null : resolvePiModelSlug(utilitySlug, discoveredModels);
+        const fallback =
+          fallbackSlug === null ? null : resolvePiModelSlug(fallbackSlug, discoveredModels);
+        const chosen = fromUtility ?? fallback;
+        return yield* syncPiBlackholeModel({
+          agentDir,
+          model:
+            chosen === null
+              ? null
+              : {
+                  provider: chosen.provider,
+                  id: chosen.modelId,
+                  ...(fromUtility !== null && utility?.thinking !== undefined
+                    ? { thinking: utility.thinking }
+                    : {}),
+                },
+        }).pipe(
+          Effect.provideService(FileSystem.FileSystem, fileSystem),
+          Effect.catchCause((cause) =>
+            Effect.logWarning("Pi Blackhole's memory worker model could not be written", {
+              providerSessionId: input.providerSessionId,
+              cause,
+            }).pipe(Effect.as(false)),
+          ),
+        );
+      });
+      const agentDir = piAgentDirectory(options.environment);
+      if (agentDir !== null) {
+        const compactionWrote = yield* prepareCompactionPoint(agentDir);
+        const memoryWorkerWrote = yield* prepareMemoryWorker(agentDir);
+        // The running process still holds the settings it loaded, so start it again on the files
+        // T3 just wrote, before any turn has run in it.
+        if (compactionWrote || memoryWorkerWrote) {
+          yield* connection.terminate;
+          connection = yield* spawnConnection();
+        }
+      }
 
       const lifecycleRequest = Effect.fn("PiAdapter.lifecycleRequest")(
         function* (record: PiRpcRecord) {
@@ -2945,17 +3009,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         );
       });
       yield* startPump(connection);
-
-      const discoverModels = Effect.fnUntraced(function* () {
-        const modelsData = yield* request({ type: "get_available_models" }).pipe(
-          Effect.orElseSucceed(() => undefined),
-        );
-        const models = recordField(modelsData, "models");
-        if (Array.isArray(models)) {
-          for (const model of models) rememberModelContextWindow(model);
-          discoveredModels = models;
-        }
-      });
 
       // CLI --fork uses Pi's own session format and sets the destination cwd. RPC
       // switch_session/clone alone would retain the source cwd.

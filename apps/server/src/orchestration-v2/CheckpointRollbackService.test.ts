@@ -1034,6 +1034,7 @@ it.effect(
           launchArgs: "",
           customModels: [],
           autoCompactWindow: "",
+          memoryModel: "",
         },
         environment: [],
       }).pipe(

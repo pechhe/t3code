@@ -553,7 +553,7 @@ function CleanupModelRow() {
       settingKeys={["speechPostProcessingModelSelection"]}
       {...searchableSetting("speech-post-processing-model")}
       title="Cleanup model"
-      description="Model for transcript cleanup, such as a cheaper or faster one. When disabled, use the text generation model configured for this environment."
+      description="Model for transcript cleanup, such as a cheaper or faster one. When disabled, use the utility model configured for this environment."
       control={
         connectedEnvironments.length === 0 ? (
           <span className="text-sm text-muted-foreground">Connect an environment first.</span>

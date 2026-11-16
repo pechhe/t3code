@@ -17,9 +17,9 @@ function readConfigString(value: unknown, key: string): string {
 }
 
 /**
- * A provider setting that names a model on any account, stored as the model slug plus the account
- * that runs it. The composer's picker is reused, so every installed model is searchable and
- * favourites come first; the empty choice leaves it to the conversation's own model.
+ * A provider setting that names a model, reusing the composer's picker so every installed model
+ * is searchable and favourites come first. With `instanceKey` it spans every account and stores
+ * the one chosen; without, it offers only this account's models.
  */
 export function ProviderSettingsModelPicker(props: {
   environmentId: EnvironmentId;
@@ -30,16 +30,24 @@ export function ProviderSettingsModelPicker(props: {
   /** The config a choice writes into: a pool member's own stored settings. Defaults to `value`. */
   base?: unknown | undefined;
   modelKey: string;
-  instanceKey: string;
+  instanceKey?: string | undefined;
+  /** The setting's name, for the picker's accessible label. */
+  label: string;
   emptyLabel: string;
   /** A pool-shared field stores an explicit empty choice, so it never falls back silently. */
   storeEmptyChoice?: boolean;
   disabled?: boolean;
   onChange: (nextConfig: Record<string, unknown> | undefined) => void;
 }) {
-  const { settings, providers, entries } = useInstanceEntries(props.environmentId);
+  const instanceEntries = useInstanceEntries(props.environmentId);
+  const { settings, providers } = instanceEntries;
+  const entries =
+    props.instanceKey === undefined
+      ? instanceEntries.entries.filter((entry) => entry.instanceId === props.instanceId)
+      : instanceEntries.entries;
   const model = readConfigString(props.value, props.modelKey);
-  const configuredInstanceId = readConfigString(props.value, props.instanceKey);
+  const configuredInstanceId =
+    props.instanceKey === undefined ? "" : readConfigString(props.value, props.instanceKey);
   const activeInstanceId =
     entries.find((entry) => entry.instanceId === configuredInstanceId)?.instanceId ??
     entries.find((entry) => entry.instanceId === props.instanceId)?.instanceId ??
@@ -75,7 +83,7 @@ export function ProviderSettingsModelPicker(props: {
     <div className="flex items-center justify-end gap-1.5">
       {model === "" ? null : (
         <SettingResetButton
-          label="Compact with"
+          label={props.label}
           tooltip={props.emptyLabel}
           disabled={props.disabled ?? false}
           onClick={clear}
@@ -83,7 +91,7 @@ export function ProviderSettingsModelPicker(props: {
       )}
       <ProviderModelPicker
         environmentId={props.environmentId}
-        triggerAriaLabel="Compact with"
+        triggerAriaLabel={props.label}
         activeInstanceId={activeInstanceId}
         model={model}
         lockedProvider={null}

@@ -1,9 +1,14 @@
-# Text generation models
+# Utility model
 
 T3 Code writes some text for you: thread titles, commit messages, pull request titles and
 descriptions, branch names, and voice transcript cleanup. Pick the model for this in
-**Settings → Threads → Text generation model**. **Settings → Source control** and
+**Settings → Threads → Utility model**. **Settings → Source control** and
 **Settings → Voice** can each pick a different one.
+
+When the utility model is a Pi model and Pi Blackhole is installed, Pi Blackhole's memory worker
+uses it too. Pi Blackhole can only call models Pi knows, so for any other utility model it uses
+the Pi provider's **Memory worker** setting (Settings → Providers → Pi), or its own config when
+that is unset. A running Pi session picks up a change the next time it starts.
 
 By default, a coding agent such as Codex or Claude writes this text, starting a session for each
 request. A **text generator** — a model API that only writes text — is usually faster and cheaper.
@@ -30,8 +35,7 @@ and refreshes the list after the service adds some.
 
 Each request sends the API what the task needs, such as the staged diff for a commit message.
 
-Turning a generator off or removing it sends its work back to the environment's text generation
-model.
+Turning a generator off or removing it sends its work back to the environment's utility model.
 
 ## What text generators can't do
 

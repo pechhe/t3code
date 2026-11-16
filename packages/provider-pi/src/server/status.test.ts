@@ -151,6 +151,7 @@ const settings = {
   launchArgs: "",
   customModels: [],
   autoCompactWindow: "",
+  memoryModel: "",
 } as const;
 
 describe("PiProvider", () => {

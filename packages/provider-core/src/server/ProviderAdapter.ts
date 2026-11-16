@@ -74,6 +74,17 @@ export const ProviderAdapterV2RuntimePolicy = Schema.Struct({
    */
   modelCompactAt: Schema.optional(Schema.NullOr(Schema.Number)),
   /**
+   * The environment's Utility model, with the driver that runs it. Pi hands it to its memory
+   * worker when it is a Pi model, since that worker can only call models Pi itself knows.
+   */
+  utilityModel: Schema.optional(
+    Schema.Struct({
+      driver: Schema.String,
+      model: Schema.String,
+      thinking: Schema.optional(Schema.String),
+    }),
+  ),
+  /**
    * The administrator's ceiling, when a managed policy sets one. `runtimeMode` is already under
    * it; adapters use it to refuse native mode choices a user makes beside T3 Code's own.
    */

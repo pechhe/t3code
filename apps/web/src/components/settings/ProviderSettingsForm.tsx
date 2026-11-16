@@ -56,7 +56,9 @@ export interface ProviderSettingsFieldModel {
   readonly options?: ReadonlyArray<ProviderSettingsFormOption> | undefined;
 
   /** Set on a `model` field: where the picker writes the chosen account. */
-  readonly modelChoice?: { readonly instanceKey: string; readonly emptyLabel: string } | undefined;
+  readonly modelChoice?:
+    | { readonly instanceKey?: string | undefined; readonly emptyLabel: string }
+    | undefined;
 }
 
 function titleizeFieldKey(key: string): string {
@@ -174,7 +176,9 @@ export function deriveProviderSettingsFields(
           environmentId !== undefined
             ? {
                 modelChoice: {
-                  instanceKey: formAnnotation.modelOptions.instanceKey,
+                  ...(formAnnotation.modelOptions.instanceKey === undefined
+                    ? {}
+                    : { instanceKey: formAnnotation.modelOptions.instanceKey }),
                   emptyLabel: formAnnotation.modelOptions.emptyLabel,
                 },
               }
@@ -626,6 +630,7 @@ function ProviderSettingsFieldRow({
           base={configBase ?? {}}
           modelKey={field.key}
           instanceKey={field.modelChoice.instanceKey}
+          label={field.label}
           emptyLabel={field.modelChoice.emptyLabel}
           storeEmptyChoice={poolField !== undefined}
           onChange={onConfigChange}

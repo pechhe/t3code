@@ -970,10 +970,12 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "text-generation-model",
-    title: "Text generation model",
+    title: "Utility model",
     to: "/settings/threads",
     scope: "project-defaults",
-    searchTerms: ["generated thread titles source control content default provider"],
+    searchTerms: [
+      "text generation model generated thread titles source control content default provider pi blackhole memory worker background",
+    ],
   },
   {
     id: "thread-title-instructions",

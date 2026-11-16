@@ -199,6 +199,35 @@ it.layer(layerTest)("RuntimePolicyV2 compact-at", (it) => {
       Effect.provide(ServerSettings.layerTest({ modelCompactAt: { "small-model": 95_000 } })),
     ),
   );
+
+  it.effect("names the Utility model's driver, so Pi can tell a model it can call", () =>
+    Effect.gen(function* () {
+      const policy = yield* RuntimePolicy.RuntimePolicyV2;
+      const now = yield* DateTime.now;
+      const resolved = yield* policy.resolve({
+        thread: makeThread({ now, worktreePath: null, runtimeMode: "full-access" }),
+        modelSelection: { instanceId: providerInstanceId, model: "gpt-6-luna" },
+      });
+      assert.deepEqual(resolved.utilityModel, {
+        driver: "pi",
+        model: "opencode-go/deepseek-v4.1-flash",
+        thinking: "low",
+      });
+    }).pipe(
+      Effect.provide(
+        ServerSettings.layerTest({
+          providerInstances: {
+            [ProviderInstanceId.make("pi-work")]: { driver: "pi", enabled: true },
+          },
+          textGenerationModelSelection: {
+            instanceId: ProviderInstanceId.make("pi-work"),
+            model: "opencode-go/deepseek-v4.1-flash",
+            options: [{ id: "thinking", value: "low" }],
+          },
+        }),
+      ),
+    ),
+  );
 });
 
 const managedBinding: AgentTaskBinding = {

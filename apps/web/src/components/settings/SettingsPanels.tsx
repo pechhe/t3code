@@ -598,7 +598,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       ? ["Delete confirmation"]
       : []),
     ...(settings.confirmQuit !== DEFAULT_UNIFIED_SETTINGS.confirmQuit ? ["Quit shortcut"] : []),
-    ...(isTextGenerationModelDirty ? ["Text generation model"] : []),
+    ...(isTextGenerationModelDirty ? ["Utility model"] : []),
     ...(settings.threadTitleInstructions !== DEFAULT_UNIFIED_SETTINGS.threadTitleInstructions
       ? ["Thread title instructions"]
       : []),
@@ -2011,16 +2011,16 @@ export function ThreadsSettingsPanel() {
         </SettingsSection>
       ) : null}
 
-      <SettingsSection id="text-generation" title="Text generation">
+      <SettingsSection id="text-generation" title="Utility model">
         <SettingsRow
           serverScoped
           settingKeys={["textGenerationModelSelection"]}
           {...searchableSetting("text-generation-model")}
-          description="For thread titles and other generated text. Source control has its own setting. Text generators from Providers also appear here."
+          description="For background work: thread titles, and Pi Blackhole's memory worker when it's a Pi model. Source control and voice cleanup follow it unless set. Text generators from Providers appear here."
           resetAction={
             hasServerTargets && isTextGenerationModelDirty ? (
               <SettingResetButton
-                label="text generation model"
+                label="utility model"
                 onClick={() =>
                   updateSettings({
                     textGenerationModelSelection:
@@ -2033,7 +2033,7 @@ export function ThreadsSettingsPanel() {
           control={
             !hasServerTargets ? (
               <span className="text-sm text-muted-foreground">
-                Connect an environment to choose its text generation model.
+                Connect an environment to choose its utility model.
               </span>
             ) : !hasTextGenerationProvider ? (
               <span className="text-sm text-muted-foreground">
@@ -2066,7 +2066,7 @@ export function ThreadsSettingsPanel() {
                     if (reason) {
                       toastManager.add({
                         type: "error",
-                        title: "Text generation model not saved",
+                        title: "Utility model not saved",
                         description: reason,
                       });
                       return;

@@ -132,10 +132,10 @@ sent to it. Use the built-in instructions or write your own, press **Skip**
 while cleanup runs to insert the raw transcript, and if cleanup fails the raw
 transcript is inserted.
 
-Cleanup uses the environment's text generation model unless you pick a
+Cleanup uses the environment's utility model unless you pick a
 **Cleanup model** for that environment, for example a cheaper or faster one.
 It can be a text generator instead of a coding agent; see
-[text generation models](./text-generation.md).
+[utility model](./text-generation.md).
 
 If cleanup misses the way you correct yourself, set a **Correction cue**: the
 word or phrase you say to flag a correction, such as "scratch that". Cleanup

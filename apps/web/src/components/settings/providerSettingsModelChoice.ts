@@ -6,22 +6,24 @@
 export function nextModelChoiceConfig(input: {
   readonly base: unknown;
   readonly modelKey: string;
-  readonly instanceKey: string;
+  readonly instanceKey: string | undefined;
   readonly model: string;
   readonly instanceId: string;
 }): Record<string, unknown> | undefined {
   const base = configRecord(input.base);
-  return { ...base, [input.modelKey]: input.model, [input.instanceKey]: input.instanceId };
+  return input.instanceKey === undefined
+    ? { ...base, [input.modelKey]: input.model }
+    : { ...base, [input.modelKey]: input.model, [input.instanceKey]: input.instanceId };
 }
 
 export function clearedModelChoiceConfig(input: {
   readonly base: unknown;
   readonly modelKey: string;
-  readonly instanceKey: string;
+  readonly instanceKey: string | undefined;
   readonly storeEmptyChoice: boolean;
 }): Record<string, unknown> | undefined {
   const base = configRecord(input.base);
-  delete base[input.instanceKey];
+  if (input.instanceKey !== undefined) delete base[input.instanceKey];
   if (input.storeEmptyChoice) base[input.modelKey] = "";
   else delete base[input.modelKey];
   return Object.keys(base).length === 0 ? undefined : base;

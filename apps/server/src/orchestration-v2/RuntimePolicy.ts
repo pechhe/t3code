@@ -10,6 +10,7 @@ import {
   OrchestrationV2AppThread,
   ProjectId,
   ProviderInstanceId,
+  type ServerSettings as ServerSettingsValue,
   isLeafAgentTask,
   RuntimeMode,
   ThreadId,
@@ -22,6 +23,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
@@ -214,21 +216,19 @@ export const layerFromProjectStore: Layer.Layer<
               }),
             ),
           ));
-        // The point set for this thread's model in the server settings.
-        const modelCompactAt = yield* Effect.serviceOption(
+        const serverSettings = yield* Effect.serviceOption(
           ServerSettings.ServerSettingsService,
         ).pipe(
           Effect.flatMap(
             Option.match({
               onNone: () => Effect.succeed(null),
-              onSome: (service) =>
-                service.getSettings.pipe(
-                  Effect.map((value) => value.modelCompactAt[input.modelSelection.model] ?? null),
-                  Effect.orElseSucceed(() => null),
-                ),
+              onSome: (service) => service.getSettings.pipe(Effect.orElseSucceed(() => null)),
             }),
           ),
         );
+        // The point set for this thread's model in the server settings.
+        const modelCompactAt = serverSettings?.modelCompactAt[input.modelSelection.model] ?? null;
+        const utilityModel = serverSettings === null ? undefined : utilityModelOf(serverSettings);
         // The thread's own point, else the one set for its model in the server settings.
         const compactAt = input.thread.compactAt ?? modelCompactAt;
         // A Spec lead runs under a top-level thread's policy; its role was admitted at dispatch.
@@ -340,6 +340,7 @@ export const layerFromProjectStore: Layer.Layer<
             ...(sandboxTempRoot === undefined ? {} : { sandboxTempRoot }),
             ...(compactAt == null ? {} : { compactAt }),
             ...(modelCompactAt == null ? {} : { modelCompactAt }),
+            ...(utilityModel === undefined ? {} : { utilityModel }),
             ...(input.thread.agentTask.toolProfile === "web-research" ? { webResearch: true } : {}),
             approvalPolicy: "never",
             sandboxPolicy:
@@ -368,12 +369,26 @@ export const layerFromProjectStore: Layer.Layer<
           cwd,
           ...(compactAt == null ? {} : { compactAt }),
           ...(modelCompactAt == null ? {} : { modelCompactAt }),
+          ...(utilityModel === undefined ? {} : { utilityModel }),
           ...(maxRuntimeMode === undefined ? {} : { maxRuntimeMode }),
         });
       }),
     });
   }),
 );
+
+function utilityModelOf(settings: ServerSettingsValue) {
+  const selection = settings.textGenerationModelSelection;
+  const instance = Object.hasOwn(settings.providerInstances, selection.instanceId)
+    ? settings.providerInstances[selection.instanceId]
+    : undefined;
+  const thinking = getModelSelectionStringOptionValue(selection, "thinking");
+  return {
+    driver: instance?.driver ?? selection.instanceId,
+    model: selection.model,
+    ...(thinking === undefined ? {} : { thinking }),
+  };
+}
 
 export function layerWithOverride(
   override: RuntimePolicyV2Override,

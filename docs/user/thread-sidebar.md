@@ -132,7 +132,7 @@ To generate a fresh title from the conversation, open a thread's menu and choose
 or when the connected environment needs a server update.
 
 To change how titles are written, add **Thread title instructions** in **Settings → Threads →
-Text generation**, under Advanced, such as a length limit or an identifier to put first. They apply to new and
+Utility model**, under Advanced, such as a length limit or an identifier to put first. They apply to new and
 regenerated titles. Select a project to give it its own instructions.
 
 Agents connected through T3 Code can use the same server-owned metadata workflow to

@@ -516,6 +516,7 @@ const makeAdapter = Effect.fnUntraced(function* (
         launchArgs,
         customModels: [],
         autoCompactWindow: "",
+        memoryModel: "",
       },
     }).pipe(
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
@@ -534,6 +535,7 @@ const makeAdapter = Effect.fnUntraced(function* (
       launchArgs,
       customModels: [],
       autoCompactWindow: "",
+      memoryModel: "",
     },
     environment: {},
   }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
@@ -2141,6 +2143,7 @@ describe("PiAdapterV2", () => {
             launchArgs: "",
             customModels: [],
             autoCompactWindow: "",
+            memoryModel: "",
           },
           environment: { PI_CODING_AGENT_DIR: agentDir },
         }).pipe(
@@ -2184,6 +2187,75 @@ describe("PiAdapterV2", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
+  it.effect.each([
+    {
+      name: "the Utility model when it is a Pi model",
+      utility: { driver: "pi", model: "opencode-go/deepseek-v4.1-flash", thinking: "high" },
+      expected: { provider: "opencode-go", id: "deepseek-v4.1-flash", thinking: "high" },
+      spawns: 2,
+    },
+    {
+      name: "the Memory worker setting when the Utility model is not Pi's",
+      utility: { driver: "codex", model: "gpt-6-luna" },
+      expected: { provider: "anthropic", id: "claude-haiku-5", thinking: "low" },
+      spawns: 2,
+    },
+    {
+      name: "a model it already has, without restarting Pi",
+      utility: { driver: "pi", model: "openai-codex/gpt-6-luna" },
+      expected: { provider: "openai-codex", id: "gpt-6-luna", thinking: "low" },
+      spawns: 1,
+    },
+  ])("gives Pi Blackhole's memory worker $name", ({ utility, expected, spawns: expectedSpawns }) =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const agentDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "pi-blackhole-" });
+      const configPath = `${agentDir}/pi-blackhole/pi-blackhole-config.json`;
+      yield* fileSystem.makeDirectory(`${agentDir}/pi-blackhole`);
+      yield* fileSystem.writeFileString(
+        configPath,
+        JSON.stringify({ model: { provider: "openai-codex", id: "gpt-6-luna", thinking: "low" } }),
+      );
+      let spawns = 0;
+      const adapter = yield* makePiAdapterV2({
+        instanceId: PI_INSTANCE_ID,
+        settings: {
+          enabled: true,
+          binaryPath: "pi",
+          launchArgs: "",
+          customModels: [],
+          autoCompactWindow: "",
+          memoryModel: "anthropic/claude-haiku-5",
+        },
+        environment: { PI_CODING_AGENT_DIR: agentDir },
+      }).pipe(
+        Effect.provideService(
+          ChildProcessSpawner.ChildProcessSpawner,
+          ChildProcessSpawner.make((command) =>
+            Effect.sync(() => {
+              spawns += 1;
+            }).pipe(Effect.andThen(fake.spawner.spawn(command))),
+          ),
+        ),
+      );
+      yield* adapter.openSession({
+        threadId: THREAD_ID,
+        providerSessionId: SESSION_ID,
+        modelSelection: modelSelection("default"),
+        runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          cwd: null,
+          utilityModel: utility,
+        }),
+      });
+      const written = JSON.parse(yield* fileSystem.readFileString(configPath));
+      assert.deepEqual(written.model, expected);
+      assert.equal(spawns, expectedSpawns);
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
   it.effect(
     "withholds Pi's shell, edit and write tools from a managed read-only session only",
     () =>
@@ -2200,6 +2272,7 @@ describe("PiAdapterV2", () => {
                 launchArgs: "--tools read,bash --extension /user/extension.ts -e /user/other.ts",
                 customModels: [],
                 autoCompactWindow: "",
+                memoryModel: "",
               },
               environment: {},
             }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, fake.spawner));

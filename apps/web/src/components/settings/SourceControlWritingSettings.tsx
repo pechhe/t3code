@@ -518,7 +518,7 @@ export function SourceControlWritingSettingsSection() {
           serverScoped
           settingKeys={["sourceControlWriterModelSelection"]}
           {...searchableSetting("source-control-writer-model")}
-          description="Model for commit messages, pull request text, and branch or bookmark names. When disabled, use the text generation model configured for this environment."
+          description="Model for commit messages, pull request text, and branch or bookmark names. When disabled, use the utility model configured for this environment."
           control={
             !hasServerTargets ? (
               <span className="text-sm text-muted-foreground">

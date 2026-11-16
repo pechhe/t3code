@@ -721,10 +721,12 @@ export interface ProviderSettingsFormAnnotation {
 
   readonly options?: ReadonlyArray<ProviderSettingsFormOption> | undefined;
   /**
-   * A model choice over every account, led by an empty choice with this label. `instanceKey` is
-   * the sibling field that stores the chosen account, so a pick across accounts round-trips.
+   * A model choice, led by an empty choice with this label. With `instanceKey`, the sibling field
+   * that stores the chosen account, it spans every account; without, only this account's models.
    */
-  readonly modelOptions?: { readonly emptyLabel: string; readonly instanceKey: string } | undefined;
+  readonly modelOptions?:
+    | { readonly emptyLabel: string; readonly instanceKey?: string | undefined }
+    | undefined;
   /** A member of an account pool inherits this field's pool value when it stores none. */
   readonly sharedInPool?: boolean | undefined;
 }

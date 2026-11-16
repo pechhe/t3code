@@ -207,7 +207,7 @@ export function TextGeneratorsSettings({
             </AlertDialogTitle>
             <AlertDialogDescription>
               This deletes the API key stored on {environmentLabel}. Anything set to use this
-              generator falls back to the text generation model.
+              generator falls back to the utility model.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -512,7 +512,7 @@ function TextGenerationTaskPicker({
   const settings = useEnvironmentSettings(environmentId);
   const updateSettings = useUpdateEnvironmentSettings(environmentId);
   const own = settings[settingKey];
-  // Source control and voice follow the text generation model until they get their own.
+  // Source control and voice follow the utility model until they get their own.
   const selection = own ?? settings.textGenerationModelSelection;
   const targets = useTextGenerationTargets({
     environmentId,
@@ -553,7 +553,7 @@ function TextGenerationTaskPicker({
             {selection.model} answered. It works.
           </span>
         ) : own === null ? (
-          <span className="text-xs text-muted-foreground">Follows the text generation model</span>
+          <span className="text-xs text-muted-foreground">Follows the utility model</span>
         ) : null}
       </div>
       <div className="justify-self-end">
@@ -719,7 +719,7 @@ function TextGeneratorModelsDialog({
               ? error
                 ? "The model list couldn't load."
                 : "Loading the model list."
-              : `${models.length} ${models.length === 1 ? "model" : "models"} available. Pick one in a text generation model picker.`}
+              : `${models.length} ${models.length === 1 ? "model" : "models"} available. Pick one in a model picker.`}
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
