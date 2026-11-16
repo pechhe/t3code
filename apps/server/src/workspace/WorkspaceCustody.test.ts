@@ -213,6 +213,169 @@ it.effect("retries proved release publication across refusal, lost reply and res
   }),
 );
 
+it.effect.each([
+  "released",
+  "transferred",
+  "missing-record",
+  "generation-gone",
+  "large-history",
+  "over-cap",
+  "status-truncated",
+  "status-timed-out",
+  "status-invalid-utf8",
+  "active",
+  "recovery-required",
+  "old-generation-active",
+  "same-generation-missing",
+  "wrong-claim",
+  "wrong-owner",
+  "wrong-obligation",
+  "wrong-path",
+  "unreadable",
+  "status-refused",
+  "unauthorized",
+  "transient",
+] as const)(
+  "reconciles permanent publication refusals only with ended-claim proof: %s",
+  (scenario) =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      yield* Effect.gen(function* () {
+        const custody = yield* WorkspaceCustody.WorkspaceCustody;
+        const journal = yield* Journal.WorkspaceCustody;
+        const epoch = yield* custody.prepare({ ownerRef: "refused", projectRoot: "/source" });
+        yield* custody.acquireExisting(epoch.id, "/source/worktree");
+        yield* custody.register(epoch.id, { id: "provider", kind: "provider-turn" });
+        yield* custody.close(epoch.id);
+        yield* Ref.set(
+          f.releaseRefusalCode,
+          scenario === "unauthorized"
+            ? "CLAIM_UNAUTHORIZED"
+            : scenario === "transient"
+              ? "CLAIM_OPERATION_FAILED"
+              : scenario === "missing-record"
+                ? "CLAIM_NOT_FOUND"
+                : scenario === "generation-gone" || scenario === "old-generation-active"
+                  ? "CLAIM_GENERATION_MISMATCH"
+                  : "CLAIM_ENDED",
+        );
+        const claim = {
+          claimId: scenario === "wrong-claim" ? "someone-else" : `custody:${epoch.id}`,
+          ownerId: scenario === "wrong-owner" ? "someone-else" : `custody:${epoch.id}`,
+          obligationRef:
+            scenario === "wrong-obligation" ? "someone-else" : `t3-custody:${epoch.id}`,
+          generation: "allocation-one",
+          state:
+            scenario === "active" || scenario === "old-generation-active"
+              ? "active"
+              : scenario === "recovery-required"
+                ? "recovery-required"
+                : scenario === "transferred"
+                  ? "transferred"
+                  : "released",
+        };
+        const validClaim = {
+          ...claim,
+          claimId: `custody:${epoch.id}`,
+          ownerId: `custody:${epoch.id}`,
+          obligationRef: `t3-custody:${epoch.id}`,
+          state: "released",
+        };
+        const validStatus = {
+          ok: true,
+          version: 1,
+          path: "/source/worktree",
+          generation: "allocation-one",
+          claims: [validClaim],
+        };
+        const status =
+          scenario === "unreadable"
+            ? { ok: true }
+            : {
+                ok: true,
+                version: 1,
+                path: scenario === "wrong-path" ? "/source/other" : "/source/worktree",
+                generation:
+                  scenario === "missing-record"
+                    ? null
+                    : scenario === "generation-gone" || scenario === "old-generation-active"
+                      ? "allocation-two"
+                      : "allocation-one",
+                claims: ["missing-record", "generation-gone", "same-generation-missing"].includes(
+                  scenario,
+                )
+                  ? []
+                  : scenario === "large-history"
+                    ? [
+                        claim,
+                        ...Array.from({ length: 454 }, (_, index) => ({
+                          ...validClaim,
+                          claimId: `historical:${index}`,
+                          reason: "x".repeat(400),
+                        })),
+                      ]
+                    : [claim],
+                ...(scenario === "over-cap" ? { reason: "x".repeat(4 * 1024 * 1024) } : {}),
+              };
+        if (scenario === "large-history" || scenario === "over-cap")
+          assert.isAbove(
+            Buffer.byteLength(JSON.stringify(status)),
+            scenario === "large-history" ? 64 * 1024 : 4 * 1024 * 1024,
+          );
+        yield* Ref.set(f.claimStatus, status);
+        yield* Ref.set(f.statusFailures, scenario === "status-refused");
+        yield* Ref.set(
+          f.statusOutput,
+          scenario === "status-truncated"
+            ? "truncated"
+            : scenario === "status-timed-out"
+              ? "timed-out"
+              : scenario === "status-invalid-utf8"
+                ? "invalid-utf8"
+                : "complete",
+        );
+        // Even authoritative producer state cannot settle T3's unacknowledged obligations.
+        assert.equal((yield* custody.releaseSettled(epoch.id).pipe(Effect.result))._tag, "Failure");
+        assert.equal((yield* Ref.get(f.releaseRequests)).length, 0);
+        yield* custody.acknowledge(epoch.id, "provider", "provider-stopped");
+        yield* custody.reconcile;
+        const ended = [
+          "released",
+          "transferred",
+          "missing-record",
+          "generation-gone",
+          "large-history",
+        ].includes(scenario);
+        assert.equal((yield* journal.get(epoch.id)).phase, ended ? "released" : "closing");
+        yield* custody.reconcile;
+        assert.equal((yield* Ref.get(f.releaseRequests)).length, ended ? 1 : 2);
+        assert.equal(yield* Ref.get(f.releases), 0);
+        const statusRequests = yield* Ref.get(f.statusRequests);
+        const statusSkipped = scenario === "unauthorized" || scenario === "transient";
+        assert.equal(statusRequests.length, statusSkipped ? 0 : ended ? 1 : 2);
+        for (const request of statusRequests) {
+          assert.equal(request.path, (yield* journal.get(epoch.id)).receipt!.path);
+          assert.equal(request.maxOutputBytes, 4 * 1024 * 1024);
+        }
+        if (!ended) {
+          // Correct only this scenario's failing input; every other guard must already permit release.
+          if (statusSkipped) yield* Ref.set(f.releaseRefusalCode, "CLAIM_ENDED");
+          else if (scenario === "status-refused") yield* Ref.set(f.statusFailures, false);
+          else if (scenario.startsWith("status-")) yield* Ref.set(f.statusOutput, "complete");
+          else
+            yield* Ref.set(
+              f.claimStatus,
+              scenario === "old-generation-active"
+                ? { ...validStatus, generation: "allocation-two" }
+                : validStatus,
+            );
+          yield* custody.releaseSettled(epoch.id);
+          assert.equal((yield* journal.get(epoch.id)).phase, "released");
+        }
+      }).pipe(Effect.provide(f.layer));
+    }),
+);
+
 it.effect(
   "a failed probe of this server's own identity leaves a live epoch open for registration",
   () =>

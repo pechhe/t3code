@@ -31,6 +31,15 @@ export const fixture = Effect.gen(function* () {
   const workspaceRoot = yield* Ref.make<string | null>(null);
   const releases = yield* Ref.make(0);
   const releaseFailures = yield* Ref.make(0);
+  const releaseRefusalCode = yield* Ref.make<string | null>(null);
+  const claimStatus = yield* Ref.make<unknown>(null);
+  const statusFailures = yield* Ref.make(false);
+  const statusOutput = yield* Ref.make<"complete" | "truncated" | "timed-out" | "invalid-utf8">(
+    "complete",
+  );
+  const statusRequests = yield* Ref.make<
+    ReadonlyArray<{ path: string; maxOutputBytes: number | undefined }>
+  >([]);
   const releaseRefusalClaim = yield* Ref.make<string | null>(null);
   const releaseLostReplies = yield* Ref.make(0);
   const releaseRequests = yield* Ref.make<
@@ -103,6 +112,12 @@ export const fixture = Effect.gen(function* () {
         case "release": {
           const request = yield* decodeRelease(input.stdin ?? "");
           yield* Ref.update(releaseRequests, (requests) => [...requests, request]);
+          const refusalCode = yield* Ref.get(releaseRefusalCode);
+          if (refusalCode !== null) {
+            code = 1;
+            reply = { ok: false, code: refusalCode, reason: "Publication refused" };
+            break;
+          }
           if (
             (yield* Ref.get(releaseFailures)) > 0 &&
             ((yield* Ref.get(releaseRefusalClaim)) === null ||
@@ -130,6 +145,17 @@ export const fixture = Effect.gen(function* () {
           };
           break;
         }
+        case "status":
+          yield* Ref.update(statusRequests, (requests) => [
+            ...requests,
+            {
+              path: args[2]!,
+              maxOutputBytes: input.maxOutputBytes,
+            },
+          ]);
+          reply = yield* Ref.get(claimStatus);
+          if (yield* Ref.get(statusFailures)) code = 1;
+          break;
         case "recover":
           reply = { ok: true, recoveryRequired: true };
           break;
@@ -137,14 +163,17 @@ export const fixture = Effect.gen(function* () {
           return yield* Effect.die("Unexpected custody producer operation");
       }
       const stdout = lostReply ? "" : yield* Schema.encodeEffect(json)(reply).pipe(Effect.orDie);
+      const output = args[1] === "status" ? yield* Ref.get(statusOutput) : "complete";
+      const bytes = Buffer.from(stdout);
+      const truncated = input.maxOutputBytes !== undefined && bytes.length > input.maxOutputBytes;
       return {
-        stdout,
+        stdout: truncated ? bytes.subarray(0, input.maxOutputBytes).toString("utf8") : stdout,
         stderr: "",
         code: ChildProcessSpawner.ExitCode(code),
-        timedOut: false,
-        stdoutTruncated: false,
+        timedOut: output === "timed-out",
+        stdoutTruncated: truncated || output === "truncated",
         stderrTruncated: false,
-        stdoutInvalidUtf8: false,
+        stdoutInvalidUtf8: output === "invalid-utf8",
         stderrInvalidUtf8: false,
       };
     }, Effect.orDie),
@@ -162,6 +191,11 @@ export const fixture = Effect.gen(function* () {
     layer,
     dependencies,
     releaseFailures,
+    releaseRefusalCode,
+    claimStatus,
+    statusFailures,
+    statusOutput,
+    statusRequests,
     releaseRefusalClaim,
     releaseLostReplies,
     releaseRequests,

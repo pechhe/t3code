@@ -42,11 +42,30 @@ const Acquisition = Schema.Struct({
   ownerId: Schema.String,
 });
 const Release = Schema.Struct({
-  ok: Schema.Boolean,
+  ok: Schema.Literals([true]),
   version: Schema.Literals([1]),
   released: Schema.Boolean,
   generation: Schema.String,
   claimId: Schema.String,
+});
+const ReleaseRefusal = Schema.Struct({
+  ok: Schema.Literals([false]),
+  code: Schema.Literals(["CLAIM_NOT_FOUND", "CLAIM_GENERATION_MISMATCH", "CLAIM_ENDED"]),
+});
+const ClaimStatus = Schema.Struct({
+  ok: Schema.Literals([true]),
+  version: Schema.Literals([1]),
+  path: Schema.String,
+  generation: Schema.NullOr(Schema.String),
+  claims: Schema.Array(
+    Schema.Struct({
+      claimId: Schema.String,
+      ownerId: Schema.String,
+      obligationRef: Schema.String,
+      generation: Schema.String,
+      state: Schema.Literals(["active", "recovery-required", "released", "transferred"]),
+    }),
+  ),
 });
 const decodeAcquisition = Schema.decodeUnknownEffect(Acquisition);
 const decodeJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
@@ -136,6 +155,8 @@ const make = Effect.gen(function* () {
     readonly entry?: string;
     readonly args: ReadonlyArray<string>;
     readonly payload?: unknown;
+    readonly acceptReleaseRefusal?: boolean;
+    readonly maxOutputBytes?: number;
   }) {
     const stdin =
       input.payload === undefined
@@ -150,10 +171,30 @@ const make = Effect.gen(function* () {
         cwd: input.projectRoot,
         ...(stdin === undefined ? {} : { stdin }),
         timeout: "30 seconds",
-        maxOutputBytes: 64 * 1024,
+        maxOutputBytes: input.maxOutputBytes ?? 64 * 1024,
       })
       .pipe(Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "transport", cause })));
-    if (output.code !== 0 || output.stdoutTruncated || output.stderrTruncated) {
+    if (
+      input.acceptReleaseRefusal &&
+      output.code === 1 &&
+      !output.timedOut &&
+      !output.stdoutTruncated &&
+      !output.stderrTruncated &&
+      !output.stdoutInvalidUtf8
+    ) {
+      const refusal = yield* decodeJson(output.stdout.trim()).pipe(
+        Effect.flatMap(Schema.decodeUnknownEffect(ReleaseRefusal)),
+        Effect.result,
+      );
+      if (refusal._tag === "Success") return refusal.success;
+    }
+    if (
+      output.code !== 0 ||
+      output.timedOut ||
+      output.stdoutTruncated ||
+      output.stderrTruncated ||
+      output.stdoutInvalidUtf8
+    ) {
       return yield* new WorkspaceCustodyError({
         stage: "transport",
         cause: "Custody producer refused or returned incomplete output.",
@@ -243,6 +284,7 @@ const make = Effect.gen(function* () {
       projectRoot: epoch.projectRoot,
       entry: epoch.producer.entry,
       args: ["claims", "release", receipt.path],
+      acceptReleaseRefusal: true,
       payload: {
         activationId: epoch.producer.activationId,
         requestId: `release:${id}`,
@@ -252,11 +294,40 @@ const make = Effect.gen(function* () {
         settlementRef,
       },
     }).pipe(
-      Effect.flatMap(Schema.decodeUnknownEffect(Release)),
+      Effect.flatMap(Schema.decodeUnknownEffect(Schema.Union([Release, ReleaseRefusal]))),
       Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "reply", cause })),
     );
-    if (
-      !reply.ok ||
+    if (!reply.ok) {
+      const status = yield* call({
+        projectRoot: epoch.projectRoot,
+        entry: epoch.producer.entry,
+        args: ["claims", "status", receipt.path],
+        // Status includes every historical claim on a pooled checkout.
+        maxOutputBytes: 4 * 1024 * 1024,
+      }).pipe(
+        Effect.flatMap(Schema.decodeUnknownEffect(ClaimStatus)),
+        Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "reply", cause })),
+      );
+      const former = status.claims.filter(
+        (claim) => claim.generation === receipt.generation && claim.claimId === receipt.claimId,
+      );
+      const ended =
+        former.length === 1 &&
+        former.every(
+          (claim) =>
+            claim.ownerId === `custody:${id}` &&
+            claim.obligationRef === `t3-custody:${id}` &&
+            (claim.state === "released" || claim.state === "transferred"),
+        );
+      const generationGone =
+        status.generation !== receipt.generation &&
+        !status.claims.some((claim) => claim.generation === receipt.generation);
+      if (status.path !== receipt.path || (!ended && !generationGone))
+        return yield* new WorkspaceCustodyError({
+          stage: "reply",
+          cause: "Former custody claim has not been proved ended.",
+        });
+    } else if (
       !reply.released ||
       reply.generation !== receipt.generation ||
       reply.claimId !== receipt.claimId
