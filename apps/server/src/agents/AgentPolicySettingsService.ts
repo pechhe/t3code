@@ -27,7 +27,7 @@ export class AgentPolicySettingsService extends Context.Service<
   }
 >()("t3/agents/AgentPolicySettingsService") {}
 
-const make = Effect.gen(function* () {
+export const make = Effect.gen(function* () {
   const policy = yield* Policy.AgentPolicyService;
   const providers = yield* Providers.ProviderRegistry;
   const process = yield* Processes.ProcessRunner;
@@ -164,6 +164,9 @@ const make = Effect.gen(function* () {
           (error) =>
             new AgentPolicySettingsError({
               cause: error,
+              ...(error._tag === "AgentPolicySaveError" && error.attention !== undefined
+                ? { attention: error.attention }
+                : {}),
               reason:
                 error.reason === "busy"
                   ? "busy"

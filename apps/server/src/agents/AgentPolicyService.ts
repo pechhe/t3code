@@ -66,10 +66,19 @@ export class AgentPolicySaveError extends Schema.TaggedError<AgentPolicySaveErro
   "AgentPolicySaveError",
   {
     reason: Schema.Literals(["stale", "busy", "invalid", "too-large", "write"]),
+    attention: Schema.optional(
+      Schema.Struct({
+        commit: Schema.optional(Schema.String.check(Schema.isPattern(/^[0-9a-f]{40}$/))),
+      }),
+    ),
     cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
+    if (this.attention?.commit !== undefined)
+      return `The policy folder has a Settings change that was not published. An agent needs to look at it (commit ${this.attention.commit.slice(0, 12)}).`;
+    if (this.attention !== undefined)
+      return "The policy folder is out of step with the shared copy and could not be updated. Nothing was saved; an agent needs to look at it.";
     return this.reason === "stale"
       ? "Agent policy changed since it was loaded. Reload it before saving."
       : this.reason === "busy"
@@ -241,7 +250,7 @@ const make = Effect.gen(function* () {
         if (Buffer.byteLength(text) > 65_536)
           return yield* new AgentPolicySaveError({ reason: "too-large" });
         // Use the same loader and brief validation as a launch, before touching the source.
-        const next = yield* load(root, text);
+        yield* load(root, text);
         const target = yield* filePath(root, manifestPath);
         const mode = (yield* fs
           .stat(target)
@@ -276,6 +285,18 @@ const make = Effect.gen(function* () {
                   }),
               }),
               (release) => Effect.promise(() => release()).pipe(Effect.ignore),
+            );
+            const checkoutError = (cause: AgentConfigCheckout.PolicyCheckoutError) =>
+              new AgentPolicySaveError({
+                reason: cause.reason === "stale" ? "stale" : "write",
+                cause,
+                ...(cause.reason === "attention"
+                  ? { attention: cause.commit === undefined ? {} : { commit: cause.commit } }
+                  : {}),
+              });
+            const base = yield* AgentConfigCheckout.preparePolicy(root).pipe(
+              Effect.provideService(Processes.ProcessRunner, processes),
+              Effect.mapError(checkoutError),
             );
             const directory = yield* fs
               .makeTempDirectoryScoped({
@@ -312,10 +333,11 @@ const make = Effect.gen(function* () {
             );
             // Still under the lock: publish the one file so the checkout's other users see it.
             // A checkout that cannot publish leaves the save alone and only reports why.
-            const publish = yield* AgentConfigCheckout.publishPolicy(root, revision).pipe(
+            const publish = yield* AgentConfigCheckout.publishPolicy(root, revision, base).pipe(
               Effect.provideService(Processes.ProcessRunner, processes),
+              Effect.mapError(checkoutError),
             );
-            return { snapshot: next, publish };
+            return { snapshot: yield* load(root), publish };
           }),
         );
       },

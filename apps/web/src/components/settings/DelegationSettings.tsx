@@ -75,6 +75,7 @@ import { useAgentPolicies } from "./useAgentPolicies";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
 
 const isValid = Schema.is(AgentPolicyManifest);
+const sameManifest = Schema.toEquivalence(AgentPolicyManifest);
 type Manifest = AgentPolicyManifest;
 
 export function DelegationSettings() {
@@ -215,6 +216,7 @@ function ScopedDelegation({
             setError(message);
             reload();
           }}
+          onDiscard={() => setError(null)}
         />
       ) : null}
     </>
@@ -229,6 +231,7 @@ function PolicyEditor({
   onReload,
   onSaved,
   onError,
+  onDiscard,
 }: {
   environmentId: EnvironmentId;
   targets: ReadonlyArray<{ environmentId: EnvironmentId; label: string; hash: string }>;
@@ -237,31 +240,40 @@ function PolicyEditor({
   onReload: () => void;
   onSaved: () => void;
   onError: (message: string) => void;
+  onDiscard: () => void;
 }) {
   const saved = data.snapshot.manifest;
   const modelPools = useScopedSettings((settings) => settings.modelPools);
   const catalog = catalogModels(data.providers, modelPools);
   const [draft, setDraft] = useState<Manifest>(() => editableManifest(saved, catalog));
   const [pending, setPending] = useState(false);
+  const [refused, setRefused] = useState(false);
+  const [hasEdits, setHasEdits] = useState(false);
+  const [draftHashes, setDraftHashes] = useState(
+    () => new Map(targets.map((target) => [target.environmentId, target.hash])),
+  );
   // A policy read after a reload or another device's save replaces the draft once nothing is
   // saving; the read that follows this page's own save already matches it.
   const [shownPolicy, setShownPolicy] = useState(saved);
   if (shownPolicy !== saved) {
     setShownPolicy(saved);
-    if (!pending) setDraft(editableManifest(saved, catalog));
+    if (!pending && !refused && !hasEdits) {
+      setDraft(editableManifest(saved, catalog));
+      setDraftHashes(new Map(targets.map((target) => [target.environmentId, target.hash])));
+    }
   }
   // Edits made while a save runs queue behind it; each save builds on the revision the last one
   // wrote, unless the policy has since changed elsewhere.
   const queue = useRef<{
     next: Manifest | null;
+    latest: Manifest | null;
     running: boolean;
     hashes: Map<EnvironmentId, string>;
-    known: Set<string>;
   }>({
     next: null,
+    latest: null,
     running: false,
-    hashes: new Map(targets.map((target) => [target.environmentId, target.hash])),
-    known: new Set(targets.map((target) => target.hash)),
+    hashes: new Map(draftHashes),
   });
   const save = useAtomCommand(serverEnvironment.agentPolicySave);
   // Set when a save reached the file but not the shared checkout's remote.
@@ -277,6 +289,7 @@ function PolicyEditor({
     setPublishNotice(null);
     const failures: string[] = [];
     const notPushed: string[] = [];
+    let written: Manifest | null = null;
     for (
       let manifest = state.next;
       manifest !== null && failures.length === 0;
@@ -288,9 +301,8 @@ function PolicyEditor({
         ...targets.filter((target) => target.environmentId !== environmentId),
       ];
       for (const target of orderedTargets) {
-        const expectedHash = state.known.has(target.hash)
-          ? (state.hashes.get(target.environmentId) ?? target.hash)
-          : target.hash;
+        // A fresh read cannot authorize a draft that was built from older content.
+        const expectedHash = state.hashes.get(target.environmentId) ?? target.hash;
         const result = await save({
           environmentId: target.environmentId,
           input: {
@@ -300,8 +312,19 @@ function PolicyEditor({
           },
         });
         if (result._tag === "Success") {
+          if (
+            !sameManifest(
+              { ...result.value.snapshot.manifest, revision: manifest.revision },
+              manifest,
+            )
+          ) {
+            failures.push(
+              "The policy changed on disk. Your edit is kept here; reload the current values before saving.",
+            );
+            break;
+          }
           state.hashes.set(target.environmentId, result.value.snapshot.hash);
-          state.known.add(result.value.snapshot.hash);
+          setDraftHashes(new Map(state.hashes));
           const publish = result.value.publish;
           if (publish !== undefined && !publish.pushed) {
             const detail = publish.detail ?? "no reason given";
@@ -313,23 +336,27 @@ function PolicyEditor({
           break;
         }
       }
+      if (failures.length === 0) written = manifest;
     }
     state.next = null;
     state.running = false;
     setPending(false);
     if (failures.length > 0) {
-      // Show what is on disk rather than an edit that did not save.
-      setDraft(editableManifest(saved, catalog));
+      setRefused(true);
       onError(failures.join("; "));
       return;
     }
     if (notPushed.length > 0)
       setPublishNotice(`Saved, but not pushed to agent-config: ${notPushed.join("; ")}.`);
+    setHasEdits(state.latest !== written);
     onSaved();
   };
   const change = (next: Manifest) => {
     setDraft(next);
-    if (!isValid(next) || councilIssue(next) !== null || unsavedEnvironments > 0) return;
+    setHasEdits(true);
+    queue.current.latest = next;
+    if (refused || !isValid(next) || councilIssue(next) !== null || unsavedEnvironments > 0) return;
+    if (!queue.current.running) queue.current.hashes = new Map(draftHashes);
     queue.current.next = next;
     void flush();
   };
@@ -341,6 +368,31 @@ function PolicyEditor({
           {unenforced.join(", ")} cannot keep a reader read-only, so their models serve only writer
           jobs; a reader job skips them.
         </p>
+      ) : null}
+      {refused ? (
+        <Alert variant="warning">
+          <AlertDescription>
+            Your change was not saved. It is still shown here: note what you changed, then Discard
+            to load the current policy and make it again.
+          </AlertDescription>
+          <AlertAction>
+            <Button
+              size="xs"
+              variant="ghost-muted"
+              onClick={() => {
+                onDiscard();
+                setRefused(false);
+                setHasEdits(false);
+                setDraft(editableManifest(saved, catalog));
+                setDraftHashes(
+                  new Map(targets.map((target) => [target.environmentId, target.hash])),
+                );
+              }}
+            >
+              Discard
+            </Button>
+          </AlertAction>
+        </Alert>
       ) : null}
       {publishNotice ? (
         <Alert variant="warning">
@@ -390,7 +442,13 @@ function PolicyEditor({
             <Button
               size="xs"
               variant="ghost-muted"
-              onClick={() => setDraft(editableManifest(saved, catalog))}
+              onClick={() => {
+                setHasEdits(false);
+                setDraft(editableManifest(saved, catalog));
+                setDraftHashes(
+                  new Map(targets.map((target) => [target.environmentId, target.hash])),
+                );
+              }}
             >
               Discard
             </Button>

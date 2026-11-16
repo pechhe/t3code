@@ -2,6 +2,7 @@ import type { AgentPolicyPublish } from "@t3tools/contracts";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import * as ProcessRunner from "../processRunner.ts";
 
 const POLICY_PATH = "roles/policy.json";
@@ -26,6 +27,14 @@ const git = Effect.fn("AgentConfigCheckout.git")(function* (
     .pipe(Effect.option);
   return Option.getOrNull(output);
 });
+
+export class PolicyCheckoutError extends Schema.TaggedError<PolicyCheckoutError>()(
+  "PolicyCheckoutError",
+  {
+    reason: Schema.Literals(["stale", "attention"]),
+    commit: Schema.optional(Schema.String),
+  },
+) {}
 
 type GitOutput = ProcessRunner.ProcessRunOutput;
 
@@ -60,15 +69,59 @@ export const commitsBehindMain = Effect.fn("AgentConfigCheckout.commitsBehindMai
   return Number.isNaN(parsed) ? null : parsed;
 });
 
+const policyBlob = Effect.fn("AgentConfigCheckout.policyBlob")(function* (
+  root: string,
+  revision?: string,
+) {
+  return (
+    stdout(
+      yield* git(
+        root,
+        revision === undefined
+          ? ["hash-object", "--", POLICY_PATH]
+          : // A successful empty tree listing means deleted; null means unreadable.
+            ["ls-tree", "--format=%(objectname)", revision, "--", POLICY_PATH],
+      ),
+    )?.trim() ?? null
+  );
+});
+
+const synchronizePolicy = Effect.fn("AgentConfigCheckout.synchronizePolicy")(function* (
+  root: string,
+) {
+  const pending = stdout(yield* git(root, ["status", "--porcelain", "--", POLICY_PATH]));
+  if (pending !== "" || !succeeded(yield* git(root, ["merge", "--ff-only", "origin/main"])))
+    return yield* new PolicyCheckoutError({ reason: "attention" });
+  return yield* new PolicyCheckoutError({ reason: "stale" });
+});
+
+/** Fetch before touching the policy; never replace a hand edit in the working tree. */
+export const preparePolicy = Effect.fn("AgentConfigCheckout.preparePolicy")(function* (
+  root: string,
+) {
+  const base = yield* policyBlob(root);
+  const branch = stdout(yield* git(root, ["rev-parse", "--abbrev-ref", "HEAD"]))?.trim();
+  if (branch !== "main") return base;
+  const fetched = yield* git(root, ["fetch", "origin", "main"], "30 seconds");
+  if (succeeded(fetched)) {
+    const remote = yield* policyBlob(root, "origin/main");
+    const contained = yield* git(root, ["merge-base", "--is-ancestor", "origin/main", "HEAD"]);
+    if (remote !== null && remote !== base && contained?.code !== 0)
+      return yield* synchronizePolicy(root);
+  }
+  return base;
+});
+
 /**
  * Commits and pushes one policy save so the shared checkout's other users see it, leaving every
- * other staged or unstaged change exactly as it was. Never fails: the policy file is already
- * written, so a checkout that cannot publish only reports why.
+ * other staged or unstaged change exactly as it was. Remote policy divergence refuses the save;
+ * ordinary publication failures keep the local save and report why it was not pushed.
  */
 export const publishPolicy = Effect.fn("AgentConfigCheckout.publishPolicy")(function* (
   root: string,
   revision: string,
-): Effect.fn.Return<AgentPolicyPublish, never, ProcessRunner.ProcessRunner> {
+  base: string | null,
+): Effect.fn.Return<AgentPolicyPublish, PolicyCheckoutError, ProcessRunner.ProcessRunner> {
   const notPushed = (detail: string): AgentPolicyPublish => ({ pushed: false, detail });
   const branch = stdout(yield* git(root, ["rev-parse", "--abbrev-ref", "HEAD"]));
   if (branch === null) return notPushed("not a git checkout");
@@ -77,9 +130,14 @@ export const publishPolicy = Effect.fn("AgentConfigCheckout.publishPolicy")(func
     return notPushed("no origin remote");
   const pending = stdout(yield* git(root, ["status", "--porcelain", "--", POLICY_PATH]));
   if (pending === null) return notPushed("git status failed");
+  let created: string | null = null;
   if (pending.trim() !== "") {
     // --only keeps other files' staged and unstaged changes out of this commit.
     const commit = yield* git(root, [
+      "-c",
+      "core.abbrev=40",
+      "-c",
+      "color.ui=false",
       "commit",
       "--only",
       "-m",
@@ -88,15 +146,58 @@ export const publishPolicy = Effect.fn("AgentConfigCheckout.publishPolicy")(func
       POLICY_PATH,
     ]);
     if (!succeeded(commit)) return notPushed("commit failed");
+    created = /^\[[^\]\n]* ([0-9a-f]{40})\]/m.exec(commit.stdout)?.[1] ?? null;
   }
   // Pushes an earlier save's commit too, if an earlier push was refused.
   const pushMain = git(root, ["push", "origin", "HEAD:main"], "30 seconds");
   let push = yield* pushMain;
   if (push !== null && !push.timedOut && push.code !== 0) {
-    // A save applied across environments commits the same change on each checkout, so main moves
-    // underneath us. Rebase drops commits origin already has; a real conflict is aborted.
+    // Only unrelated remote changes may be rebased; unseen policy changes must be refused.
     const fetched = yield* git(root, ["fetch", "origin", "main"], "30 seconds");
     if (succeeded(fetched)) {
+      const remote = yield* policyBlob(root, "origin/main");
+      const contained = yield* git(root, ["merge-base", "--is-ancestor", "origin/main", "HEAD"]);
+      if (remote !== null && remote !== base && contained?.code !== 0) {
+        const head = stdout(yield* git(root, ["rev-parse", "HEAD"]))?.trim();
+        const paths =
+          created === null
+            ? null
+            : stdout(
+                yield* git(root, ["diff-tree", "--no-commit-id", "--name-only", "-r", created]),
+              )?.trim();
+        const reachable =
+          created === null
+            ? null
+            : yield* git(root, ["merge-base", "--is-ancestor", created, "origin/main"]);
+        const clean = stdout(yield* git(root, ["status", "--porcelain", "--", POLICY_PATH]));
+        if (
+          created === null ||
+          head !== created ||
+          paths !== POLICY_PATH ||
+          reachable?.code !== 1 ||
+          clean !== ""
+        )
+          return yield* new PolicyCheckoutError({
+            reason: "attention",
+            ...(created === null ? {} : { commit: created }),
+          });
+        // Drop only our still-unpublished tip; the index and other working files stay intact.
+        if (
+          !succeeded(yield* git(root, ["update-ref", "HEAD", `${created}^`, created])) ||
+          !succeeded(
+            yield* git(root, [
+              "restore",
+              "--source=HEAD",
+              "--staged",
+              "--worktree",
+              "--",
+              POLICY_PATH,
+            ]),
+          )
+        )
+          return yield* new PolicyCheckoutError({ reason: "attention", commit: created });
+        return yield* synchronizePolicy(root);
+      }
       const rebased = yield* git(root, ["rebase", "--autostash", "origin/main"], "30 seconds");
       if (!succeeded(rebased)) {
         yield* git(root, ["rebase", "--abort"]);

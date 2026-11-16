@@ -58,6 +58,11 @@ export class AgentPolicySettingsError extends Schema.TaggedError<AgentPolicySett
   "AgentPolicySettingsError",
   {
     cause: Schema.optional(Schema.Defect()),
+    attention: Schema.optional(
+      Schema.Struct({
+        commit: Schema.optional(Schema.String.check(Schema.isPattern(/^[0-9a-f]{40}$/))),
+      }),
+    ),
     reason: Schema.Literals([
       "not-configured",
       "busy",
@@ -70,6 +75,10 @@ export class AgentPolicySettingsError extends Schema.TaggedError<AgentPolicySett
   },
 ) {
   override get message(): string {
+    if (this.attention?.commit !== undefined)
+      return `The policy folder has a Settings change that was not published. An agent needs to look at it (commit ${this.attention.commit.slice(0, 12)}).`;
+    if (this.attention !== undefined)
+      return "The policy folder is out of step with the shared copy and could not be updated. Nothing was saved; an agent needs to look at it.";
     return this.reason === "stale"
       ? "The policy changed on disk. Reload the current values before saving."
       : this.reason === "busy"

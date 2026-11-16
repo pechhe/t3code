@@ -202,7 +202,12 @@ const reset = () => {
   state.error = null;
   state.save.mockReset();
   state.refresh.mockReset();
-  state.save.mockResolvedValue(AsyncResult.success(state.data));
+  state.save.mockImplementation(async ({ input }) =>
+    AsyncResult.success({
+      ...state.data!,
+      snapshot: { ...state.data!.snapshot, manifest: input.manifest },
+    }),
+  );
 };
 const buttons = (label: string) =>
   [...container.querySelectorAll("button")].filter(
@@ -338,8 +343,105 @@ it("reports a stale save, reloads the current policy and does not retry", async 
   await using _screen = await mount();
   await editModelNote();
   expect(text()).toContain("policy changed on disk");
+  expect(text()).toContain(
+    "Your change was not saved. It is still shown here: note what you changed, then Discard to load the current policy and make it again.",
+  );
   expect(state.refresh).toHaveBeenCalledOnce();
   expect(state.save).toHaveBeenCalledOnce();
+  expect(
+    container.querySelector<HTMLTextAreaElement>('textarea[aria-label="What gpt-test is good at"]')!
+      .value,
+  ).toBe("Task fit");
+});
+
+it("never pairs a draft from before a concurrent read with that read's fresh hash", async () => {
+  reset();
+  let finish = (_: unknown) => {};
+  const original = state.data!;
+  state.save.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
+  await using _screen = await mount();
+  await editModelNote("My pending note");
+  state.data = {
+    ...original,
+    snapshot: {
+      ...original.snapshot,
+      hash: "e".repeat(64),
+      manifest: {
+        ...original.snapshot.manifest,
+        revision: "fixture.2",
+        models: {
+          ...original.snapshot.manifest.models,
+          opus: { ...original.snapshot.manifest.models.opus!, note: "Hand edited" },
+        },
+        roles: {
+          ...original.snapshot.manifest.roles,
+          reviewer: { ...original.snapshot.manifest.roles.reviewer, council: true },
+        },
+      },
+    },
+  };
+  await act(async () => publishRead());
+  const written = {
+    ...original,
+    snapshot: {
+      ...original.snapshot,
+      hash: "d".repeat(64),
+      manifest: state.save.mock.calls[0]![0].input.manifest,
+    },
+  };
+  await act(async () => finish(AsyncResult.success(written)));
+  state.save.mockResolvedValue(
+    AsyncResult.failure(Cause.fail(new AgentPolicySettingsError({ reason: "stale" }))),
+  );
+  await editModelNote("My later note");
+  const second = state.save.mock.calls[1]![0].input;
+  // The stale draft must be refused, not authorized by the concurrent read's hash.
+  expect(second.expectedHash).toBe(written.snapshot.hash);
+  expect(second.manifest.models.opus.note).toBeUndefined();
+  expect(text()).toContain("policy changed on disk");
+  expect(
+    container.querySelector<HTMLTextAreaElement>('textarea[aria-label="What gpt-test is good at"]')!
+      .value,
+  ).toBe("My later note");
+});
+
+it("stops queued stale drafts when publication returns a policy changed by another writer", async () => {
+  reset();
+  let finish = (_: unknown) => {};
+  state.save.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
+  await using _screen = await mount();
+  await editModelNote("First note");
+  await editModelNote("Queued note");
+  const submitted = state.save.mock.calls[0]![0].input.manifest;
+  const current = {
+    ...state.data!,
+    snapshot: {
+      ...state.data!.snapshot,
+      hash: "e".repeat(64),
+      manifest: {
+        ...submitted,
+        models: { ...submitted.models, opus: { ...submitted.models.opus, note: "Hand edited" } },
+        roles: { ...submitted.roles, reviewer: { ...submitted.roles.reviewer, council: true } },
+      },
+    },
+  };
+  state.data = current;
+  await act(async () => publishRead());
+  await act(async () => finish(AsyncResult.success(current)));
+  expect(state.save).toHaveBeenCalledOnce();
+  expect(text()).toContain("policy changed on disk");
+  expect(
+    container.querySelector<HTMLTextAreaElement>('textarea[aria-label="What gpt-test is good at"]')!
+      .value,
+  ).toBe("Queued note");
+  await click("Discard");
+  expect(
+    container.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="What claude-test is good at"]',
+    )!.value,
+  ).toBe("Hand edited");
+  expect(text()).not.toContain("policy changed on disk");
+  expect(councilSwitch().getAttribute("aria-checked")).toBe("true");
 });
 
 it("a job without models is not saved, and discarding restores it", async () => {
@@ -348,6 +450,16 @@ it("a job without models is not saved, and discarding restores it", async () => 
   // The browser job's list holds only gpt-test; the shared workhorse list keeps a model.
   await userEvent.click(buttons("Remove gpt-test").at(-1)!);
   expect(state.save).not.toHaveBeenCalled();
+  expect(text()).toContain("Every list needs at least one model");
+  state.data = {
+    ...state.data!,
+    snapshot: {
+      ...state.data!.snapshot,
+      hash: "e".repeat(64),
+      manifest: { ...state.data!.snapshot.manifest },
+    },
+  };
+  await act(async () => publishRead());
   expect(text()).toContain("Every list needs at least one model");
   await click("Discard");
   expect(buttons("Discard")).toHaveLength(0);
@@ -364,6 +476,7 @@ it("queues an edit made while a save runs and saves it against the revision just
   await editModelNote();
   await editModelNote("restored note");
   expect(state.save).toHaveBeenCalledOnce();
+  written.snapshot.manifest = state.save.mock.calls[0]![0].input.manifest;
   await act(async () => finish(AsyncResult.success(written)));
   expect(state.save.mock.calls.map(([call]) => call.input.expectedHash)).toEqual([
     "a".repeat(64),
@@ -371,6 +484,25 @@ it("queues an edit made while a save runs and saves it against the revision just
   ]);
   expect(state.save.mock.calls[1]![0].input.manifest.models.sol.note).toBe("restored note");
   expect(state.refresh).toHaveBeenCalledOnce();
+});
+
+it("keeps an invalid edit made during a save when its completion triggers a read", async () => {
+  reset();
+  let finish = (_: unknown) => {};
+  state.save.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
+  await using _screen = await mount();
+  await editModelNote();
+  const submitted = state.save.mock.calls[0]![0].input.manifest;
+  await userEvent.click(buttons("Remove gpt-test").at(-1)!);
+  const written = {
+    ...state.data!,
+    snapshot: { ...state.data!.snapshot, hash: "d".repeat(64), manifest: submitted },
+  };
+  await act(async () => finish(AsyncResult.success(written)));
+  state.data = written;
+  await act(async () => publishRead());
+  expect(text()).toContain("Every list needs at least one model");
+  expect(state.save).toHaveBeenCalledOnce();
 });
 
 it("describes an unreadable agent-config checkout as unknown, never up to date", () => {
@@ -450,7 +582,12 @@ it("names the environment whose save failed", async () => {
   reset();
   addEnvironment(fixture());
   state.save
-    .mockResolvedValueOnce(AsyncResult.success(state.data))
+    .mockImplementationOnce(async ({ input }) =>
+      AsyncResult.success({
+        ...state.data!,
+        snapshot: { ...state.data!.snapshot, manifest: input.manifest },
+      }),
+    )
     .mockResolvedValueOnce(
       AsyncResult.failure(Cause.fail(new AgentPolicySettingsError({ reason: "stale" }))),
     );
@@ -611,8 +748,12 @@ it("turning the council Off removes the key from what is saved", async () => {
 
 it("says a save was not pushed when agent-config could not publish it", async () => {
   reset();
-  state.save.mockResolvedValue(
-    AsyncResult.success({ ...state.data!, publish: { pushed: false, detail: "not on main" } }),
+  state.save.mockImplementation(async ({ input }) =>
+    AsyncResult.success({
+      ...state.data!,
+      snapshot: { ...state.data!.snapshot, manifest: input.manifest },
+      publish: { pushed: false, detail: "not on main" },
+    }),
   );
   await using _screen = await mount();
   await editModelNote();
@@ -620,8 +761,12 @@ it("says a save was not pushed when agent-config could not publish it", async ()
     expect(text()).toContain("Saved, but not pushed to agent-config: not on main."),
   );
   // A save that did reach the remote clears the notice.
-  state.save.mockResolvedValue(
-    AsyncResult.success({ ...state.data!, publish: { pushed: true, detail: null } }),
+  state.save.mockImplementation(async ({ input }) =>
+    AsyncResult.success({
+      ...state.data!,
+      snapshot: { ...state.data!.snapshot, manifest: input.manifest },
+      publish: { pushed: true, detail: null },
+    }),
   );
   await editModelNote("restored note");
   await vi.waitFor(() => expect(text()).not.toContain("not pushed to agent-config"));

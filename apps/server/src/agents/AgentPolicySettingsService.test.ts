@@ -8,6 +8,8 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { AgentPolicyManifest } from "@t3tools/contracts";
 import * as Settings from "./AgentPolicySettingsService.ts";
+import * as Policy from "./AgentPolicyService.ts";
+import * as Processes from "../processRunner.ts";
 import * as Providers from "../provider/ProviderRegistry.ts";
 import { snapshot, provider } from "./agentPolicy.testkit.ts";
 
@@ -108,6 +110,53 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("policy settings"
       ]);
     }),
   );
+  it.effect.each([
+    { reason: "stale" as const, attention: undefined },
+    { reason: "write" as const, attention: {} },
+    { reason: "write" as const, attention: { commit: "a".repeat(40) } },
+  ])("maps policy save refusal to $reason with attention $attention", ({ reason, attention }) =>
+    Effect.gen(function* () {
+      const service = yield* Settings.make;
+      const error = yield* service
+        .save({
+          expectedHash: "b".repeat(64),
+          manifest: snapshot().manifest,
+          validateCatalog: false,
+        })
+        .pipe(Effect.flip);
+      expect(error.reason).toBe(reason);
+      expect(error.attention).toEqual(attention);
+      if (attention === undefined) expect(error.message).toContain("policy changed on disk");
+      else if ("commit" in attention)
+        expect(error.message).toBe(
+          "The policy folder has a Settings change that was not published. An agent needs to look at it (commit aaaaaaaaaaaa).",
+        );
+      else
+        expect(error.message).toBe(
+          "The policy folder is out of step with the shared copy and could not be updated. Nothing was saved; an agent needs to look at it.",
+        );
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          Layer.mock(Policy.AgentPolicyService)({
+            save: () =>
+              Effect.fail(
+                new Policy.AgentPolicySaveError({
+                  reason,
+                  ...(attention === undefined ? {} : { attention }),
+                }),
+              ),
+          }),
+          Layer.mock(Providers.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+          Processes.layer,
+        ),
+      ),
+      Effect.provideService(HostProcess.Environment, {
+        T3CODE_AGENT_POLICY_ROOT: "/policy-fixture",
+      }),
+    ),
+  );
+
   it.effect("saves models available on another environment, as well as installed models", () =>
     Effect.gen(function* () {
       const f = yield* fixture;
