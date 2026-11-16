@@ -85,7 +85,7 @@ describe("cachedTestTasks", () => {
       });
     const summary = async () => {
       const value: { tasks: Array<{ result: Record<string, unknown> }> } = JSON.parse(
-        await NodeFSP.readFile(NodePath.join(directory, "cache/v18/last-summary.json"), "utf8"),
+        await NodeFSP.readFile(NodePath.join(directory, "cache/v23/last-summary.json"), "utf8"),
       );
       return value.tasks.filter((task) => "CacheHit" in task.result).length;
     };
