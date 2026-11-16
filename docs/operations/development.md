@@ -216,9 +216,10 @@ Before writing tests or choosing code checks, read [test authoring and focused v
 
 `vp run check:changed` runs CI's fast checks for your branch's changes: format and lint of the
 changed files, `knip:check` when code or a manifest changes, the generated GraphQL checks, typecheck
-of the affected packages and their dependents, and the test files beside the changed files. It also
-runs the checks that read other files: the agent context budget when the server is affected, and
-React Compiler coverage for only the changed web and mobile files. It maps
+of the affected packages and their dependents, and the test files beside the changed files together
+with those whose own relative imports name a changed file, which the landing gate runs whatever its
+budget. It also runs the checks that read other files: the agent context budget when the server is
+affected, and React Compiler coverage for only the changed web and mobile files. It maps
 files to packages with [ci-changes.cjs](../../.github/scripts/ci-changes.cjs), as CI does. It
 compares against the integration branch `slipjay.json` names, since the fork's remote `main` lags
 upstream; a repository without that file compares against the closest merge base with any remote's

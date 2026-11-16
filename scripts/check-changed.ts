@@ -1,9 +1,9 @@
 // @effect-diagnostics nodeBuiltinImport:off - hashes inputs with node:crypto and sizes the budget with node:os.
 // Runs CI's fast checks for this branch's changes: format and lint of the
 // changed files, knip, generated GraphQL operations, typecheck of the affected
-// packages and their dependents, the test files beside the changed files, and
-// the cross-file checks those miss (agent context budget, React Compiler
-// coverage of the changed client files).
+// packages and their dependents, the test files beside the changed files and those
+// importing a changed module, and the cross-file checks those miss (agent context
+// budget, React Compiler coverage of the changed client files).
 // A dependency change also gets the unused-patch install check below. CI still
 // runs the full test suites and the jobs listed in the summary.
 //
@@ -40,6 +40,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import { decide, readWorkspace } from "../.github/scripts/ci-changes.cjs";
 import { vitePlusCommand } from "./check-changed-command.ts";
+import { importerTests } from "./lib/test-selection.ts";
 
 const GiB = 1024 ** 3;
 
@@ -357,6 +358,25 @@ const checkChanged = Effect.fn("checkChanged")(function* (input: {
     }
   }
   for (const test of docReaderTests(files)) tests.add(test);
+  // The landing gate runs a test whose own relative imports name a changed file
+  // whatever its budget, so one broken in another directory fails there and not
+  // here: a change to foo.ts selects no test beside it when the test sits elsewhere.
+  const testDirs = packages
+    .filter((pkg) => pkg.hasTest && affected.includes(pkg.name))
+    .map((pkg) => pkg.dir);
+  const candidates = (
+    testDirs.length > 0 ? yield* lines("ls-files", "--", ...testDirs) : []
+  ).filter((file) => TEST.test(file) && !tests.has(file));
+  const sources = yield* Effect.forEach(
+    candidates,
+    (file) =>
+      fs.readFileString(inRoot(file)).pipe(
+        Effect.map((source) => ({ file, source })),
+        Effect.orElseSucceed(() => ({ file, source: "" })),
+      ),
+    { concurrency: 8 },
+  );
+  for (const file of importerTests(sources, files)) tests.add(file);
   // It reads files other than the ones beside it, so no changed file selects it.
   if (affected.includes("t3")) tests.add("apps/server/src/provider/AgentContextBudget.test.ts");
   const { vitestTests, nodeTests } = splitTests(tests);

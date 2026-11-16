@@ -344,7 +344,7 @@ it("compares against an explicit ref instead of the closest remote main", async 
   assert.strictEqual(result.ref, "origin/main");
 });
 
-function launcherFixture() {
+function launcherFixture(extra: Record<string, string> = {}) {
   const root = NodeFS.realpathSync(
     NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3 checks & (fixture) ")),
   );
@@ -356,6 +356,7 @@ function launcherFixture() {
   for (const file of [
     "scripts/check-changed.ts",
     "scripts/check-changed-command.ts",
+    "scripts/lib/test-selection.ts",
     ".github/scripts/ci-changes.cjs",
   ]) {
     write(file, NodeFS.readFileSync(NodePath.join(import.meta.dirname, "..", file), "utf8"));
@@ -372,9 +373,13 @@ function launcherFixture() {
       },
     }),
   );
-  write("packages/example/package.json", JSON.stringify({ name: "example" }));
+  write(
+    "packages/example/package.json",
+    JSON.stringify({ name: "example", scripts: { test: "vp test run" } }),
+  );
   const source = "packages/example/space & (draft) %PATH% ! 研究.ts";
   write(source, "export const value = 1;\n");
+  for (const [file, content] of Object.entries(extra)) write(file, content);
   write(
     "node_modules/vite-plus/package.json",
     JSON.stringify({ type: "module", exports: { "./bin": "./cli.js" } }),
@@ -463,6 +468,29 @@ it("checks changed source paths through the Windows launcher", () => {
   expect(calls.some(({ args }) => args[0] === "install")).toBe(false);
   expect(result.stdout).toContain("fixture stdout: lint");
   expect(result.stdout).toContain("fixture stderr: lint");
+});
+
+it("runs a test importing a changed module from another directory", () => {
+  // A leaf change selects no test beside it; the landing gate still runs the test
+  // that imports it, so a check that skips it passes and the gate then fails.
+  using project = launcherFixture({
+    "packages/example/src/lib/format.ts":
+      "export const format = (value: number) => String(value);\n",
+    "packages/example/src/use/useFormat.test.ts": 'import { format } from "../lib/format.ts";\n',
+    "packages/example/src/other/Unrelated.test.ts": "export {};\n",
+  });
+  project.write(
+    "packages/example/src/lib/format.ts",
+    "export const format = (value: number) => `${value}`;\n",
+  );
+  const result = project.run();
+  expect(result.status, result.stdout + result.stderr).toBe(0);
+  expect(project.calls().find(({ args }) => args[0] === "test")?.args).toEqual([
+    "test",
+    "run",
+    "--passWithNoTests",
+    "packages/example/src/use/useFormat.test.ts",
+  ]);
 });
 
 it("lints an Astro component and runs knip when only it changed", () => {

@@ -31,6 +31,7 @@ import {
   type InputRule,
 } from "./lib/test-landing-inputs.ts";
 import { listTests, mapConcurrently, runCommand, VITEST_FLAGS } from "./lib/test-landing-vitest.ts";
+import { changedModulePaths, relativeImports, stemOf } from "./lib/test-selection.ts";
 
 const ROOT = NodePath.resolve(import.meta.dirname, "..");
 const ENGINES_NODE = (
@@ -354,21 +355,6 @@ export function estimateSeconds(tests: ReadonlyArray<LandingTest>, durations: Du
   return total;
 }
 
-const stemOf = (file: string) => NodePath.posix.basename(file).replace(/\..*$/, "");
-const withoutExtension = (file: string) => file.replace(/\.[cm]?[jt]sx?$/, "");
-// A relative specifier in any import, mock or dynamic import; a query only names a loader.
-const RELATIVE_SPECIFIER = /["'](\.{1,2}\/[^"'\n?]+)(?:\?[^"'\n]*)?["']/g;
-
-/**
- * The repository paths a file's relative specifiers name, without an extension. Package
- * specifiers are not followed: only the relative imports inside a workspace are direct.
- */
-export function relativeImports(file: string, source: string) {
-  return [...source.matchAll(RELATIVE_SPECIFIER)].map((match) =>
-    withoutExtension(NodePath.posix.join(NodePath.posix.dirname(file), match[1]!)),
-  );
-}
-
 /** A test source the budget cannot read is treated as importing nothing. */
 const importsReadFrom =
   (root: string) =>
@@ -401,12 +387,7 @@ export function budgetLandingTests(
 ) {
   const changedFiles = new Set(changed);
   // `./dir` resolves to `dir/index.ts`.
-  const changedModules = new Set(
-    changed.flatMap((file) => [
-      withoutExtension(file),
-      ...(stemOf(file) === "index" ? [NodePath.posix.dirname(file)] : []),
-    ]),
-  );
+  const modules = changedModulePaths(changed);
   const changedDirectories = new Set(changed.map((file) => NodePath.posix.dirname(file)));
   const guardFiles = new Set(guards);
   const namedModules = new Set(
@@ -416,7 +397,7 @@ export function budgetLandingTests(
   const rank = ({ file }: LandingTest) =>
     changedFiles.has(file) || guardFiles.has(file)
       ? 0
-      : imports(file).some((path) => changedModules.has(path))
+      : imports(file).some((path) => modules.has(path))
         ? 1
         : namedModules.has(`${NodePath.posix.dirname(file)}/${stemOf(file)}`)
           ? 2

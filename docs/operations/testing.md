@@ -2,7 +2,7 @@
 
 Read this before writing or changing tests, or choosing checks for a code change.
 
-- Before an authorised push outside SlipJay, run `vp run check:changed`. SlipJay landings use the runner gate and focused local checks. It runs CI's fast checks for changed files: format, lint, knip, typecheck of affected packages and dependents, and tests beside changes. CI still runs the full test suites.
+- Before an authorised push outside SlipJay, run `vp run check:changed`. SlipJay landings use the runner gate and focused local checks. It runs CI's fast checks for changed files: format, lint, knip, typecheck of affected packages and dependents, and the tests beside changes and those importing what changed. CI still runs the full test suites.
 - While you iterate, run `vp test run <files>`. For big files, add `-t "<name>"`.
 - Use `vp run typecheck`; it caches per package. Each package runs `effect-tsgo tsrs --noEmit`, the Rust TypeScript checker with Effect diagnostics.
 - Run `node -e` snippets from `apps/server` or the owning package. `effect` does not resolve from the repo root.

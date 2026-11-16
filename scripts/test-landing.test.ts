@@ -24,7 +24,6 @@ import {
   withoutLocalBins,
   readQuarantine,
   readWorkspaces,
-  relativeImports,
   runCommands as runLandingCommands,
   selectLandingTests,
   versionOnlyChange,
@@ -42,6 +41,7 @@ import {
   INVARIANT_GUARDS,
 } from "./lib/test-landing-inputs.ts";
 import { runCommand, type RunRequest } from "./lib/test-landing-vitest.ts";
+import { relativeImports } from "./lib/test-selection.ts";
 
 const REPOSITORY_ROOT = NodePath.resolve(import.meta.dirname, "..");
 

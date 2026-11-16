@@ -9,13 +9,13 @@ import {
   LANDING_BUDGET,
   readQuarantine,
   readWorkspaces,
-  relativeImports,
   selectLandingTests,
   type Durations,
   type LandingChange,
   type LandingTest,
 } from "../../test-landing.ts";
 import { listTests, mapConcurrently } from "../../lib/test-landing-vitest.ts";
+import { relativeImports } from "../../lib/test-selection.ts";
 
 export const ROOT = NodePath.resolve(import.meta.dirname, "../../..");
 
