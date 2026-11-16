@@ -38,26 +38,28 @@ const WEAVE_AGENT_REF_MAX_LENGTH = 300;
 
 export interface WeaveAgent {
   readonly threadId: ThreadId;
-  /** `lead` for a top-level thread, the canonical role of a delegated task. */
+  /** `lead` for a top-level thread, its delegated task's role as Weave knows it. */
   readonly role: string;
   readonly model: string;
 }
 
 /**
- * The role a thread's agent acts under in Weave: its delegated task's canonical role, or `lead` for
- * a top-level thread. Any other thread has none and gets no Weave server: a raw, off-policy child,
- * or a fork or side chat with no task (an agent can fork itself), would otherwise act with the
- * lead's full authority.
+ * The role a thread's agent acts under in Weave: its delegated task's role as Weave knows it, or
+ * `lead` for a top-level thread. Any other thread has none and gets no Weave server: a raw,
+ * off-policy child, or a fork or side chat with no task (an agent can fork itself), would otherwise
+ * act with the lead's full authority.
  */
 export const weaveAgentRole = (
   thread: Pick<OrchestrationV2AppThread, "agentTask" | "lineage">,
-): string | undefined =>
-  // Forge still authorizes reviewer roles by scope under the pre-merge names.
-  thread.agentTask?.role === "reviewer"
-    ? thread.agentTask.review?.scope === "spec"
-      ? "spec-reviewer"
-      : "ticket-reviewer"
-    : (thread.agentTask?.role ?? (thread.lineage.parentThreadId === null ? "lead" : undefined));
+): string | undefined => {
+  const role = thread.agentTask?.role;
+  // Forge still authorizes the merged roles under their pre-merge names: the writer by name, the
+  // reviewer by its recorded scope.
+  if (role === "implementer") return "implementation-worker";
+  if (role === "reviewer")
+    return thread.agentTask?.review?.scope === "spec" ? "spec-reviewer" : "ticket-reviewer";
+  return role ?? (thread.lineage.parentThreadId === null ? "lead" : undefined);
+};
 
 /** The thread's `weave` MCP server. It carries no Weave credential. */
 export interface WeaveMcpConnection {

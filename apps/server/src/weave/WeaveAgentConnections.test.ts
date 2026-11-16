@@ -584,13 +584,25 @@ describe("weaveAgentRole", () => {
     rootThreadId: ThreadId.make("thread-parent"),
   });
   const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.5" };
+  const taskFields = {
+    taskClass: "non-ui" as const,
+    workId: "work",
+    attemptId: "1",
+    workspacePath: "/workspace",
+    requestFingerprint: "a".repeat(64),
+    policyHash: "b".repeat(64),
+    policyRevision: "test",
+    briefHash: "c".repeat(64),
+    requested: modelSelection,
+    assigned: null,
+    effective: modelSelection,
+  };
   const recordedTask = (review?: { readonly scope: "change" | "spec" }) =>
     decodeAgentTask({
+      ...taskFields,
       role: "reviewer",
-      taskClass: "non-ui",
-      workId: "work",
-      attemptId: "1",
-      workspacePath: "/workspace",
+      sourceAccess: "read-only",
+      toolProfile: "source-reader",
       ...(review === undefined
         ? {}
         : {
@@ -601,15 +613,13 @@ describe("weaveAgentRole", () => {
               coverage: "complete",
             },
           }),
-      requestFingerprint: "a".repeat(64),
-      policyHash: "b".repeat(64),
-      policyRevision: "test",
-      briefHash: "c".repeat(64),
-      sourceAccess: "read-only",
-      toolProfile: "source-reader",
-      requested: modelSelection,
-      assigned: null,
-      effective: modelSelection,
+    });
+  const writerTask = () =>
+    decodeAgentTask({
+      ...taskFields,
+      role: "implementer",
+      sourceAccess: "scoped-write",
+      toolProfile: "implementation",
     });
 
   it("is lead only for a top-level thread, and none for a raw child or a fork without a task", () => {
@@ -626,6 +636,13 @@ describe("weaveAgentRole", () => {
     assert.strictEqual(
       weaveAgentRole({ lineage: lineage("subagent"), agentTask: recordedTask({ scope: "spec" }) }),
       "spec-reviewer",
+    );
+  });
+
+  it("names the merged implementer to Weave as the pre-merge writer it authorizes", () => {
+    assert.strictEqual(
+      weaveAgentRole({ lineage: lineage("subagent"), agentTask: writerTask() }),
+      "implementation-worker",
     );
   });
 });

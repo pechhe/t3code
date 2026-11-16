@@ -797,7 +797,7 @@ it.effect("a helper waiting on its lead's session keeps its own end unsent", () 
     yield* records.enqueue({
       kind: "end",
       threadId: helperThread,
-      role: "implementer",
+      role: "implementation-worker",
     });
 
     yield* records.deliverDue;
@@ -821,7 +821,7 @@ it.effect("a helper waiting on its lead's session keeps its own end unsent", () 
       weave.toolCalls.map(({ name }) => name),
       ["weave_forge_bind", "weave_forge_start_session", "weave_forge_record_helper"],
     );
-    const helperAgents = weave.agents.filter((agent) => agent.role === "implementer");
+    const helperAgents = weave.agents.filter((agent) => agent.role === "implementation-worker");
     assert.isNotEmpty(helperAgents);
     assert.isTrue(helperAgents.every((agent) => agent.ended));
     assert.deepStrictEqual(yield* records.outstanding(), []);
