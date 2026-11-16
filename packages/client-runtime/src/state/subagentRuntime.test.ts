@@ -10,10 +10,12 @@ import * as DateTime from "effect/DateTime";
 
 import {
   deriveWorkflowGroups,
+  isSubagentPausedByParentStop,
   isWorkflowScriptMessage,
   projectedSubagentsToRuntime,
   resolveWorkflowOpening,
   workflowMemberModelSelection,
+  workflowOpeningHeadline,
 } from "./subagentRuntime.ts";
 import { resolveSubagentMetadata } from "./subagentDisplay.ts";
 import { formatSubagentEffort } from "./threadExecution.ts";
@@ -158,6 +160,35 @@ describe("projectedSubagentsToRuntime workflow expansion", () => {
       expect(members?.[0]?.speed).toBeUndefined();
     },
   );
+
+  it("marks unfinished workflow members paused when a parent Stop paused the coordinator, and leaves plain interruptions stopped", () => {
+    const workflow: OrchestrationV2SubagentWorkflow = {
+      phases: [],
+      agents: [
+        member(),
+        member({ index: 2, state: "queued" }),
+        member({ index: 3, state: "completed" }),
+      ],
+    };
+    const pausedMembers = groupsOf([
+      subagent({
+        status: "interrupted",
+        pausedByParentStop: true,
+        completedAt: at("2026-08-01T10:00:09.000Z"),
+        workflow,
+      }),
+    ])[0]!.phases.flatMap((phase) => phase.members);
+    const plainMembers = groupsOf([
+      subagent({
+        status: "interrupted",
+        completedAt: at("2026-08-01T10:00:09.000Z"),
+        workflow,
+      }),
+    ])[0]!.phases.flatMap((phase) => phase.members);
+
+    expect(pausedMembers.map(isSubagentPausedByParentStop)).toEqual([true, true, false]);
+    expect(plainMembers.map(isSubagentPausedByParentStop)).toEqual([false, false, false]);
+  });
 
   it("titles an untitled subagent from its prompt without splitting an emoji", () => {
     const [untitled] = projectedSubagentsToRuntime([
@@ -316,5 +347,30 @@ describe("resolveWorkflowOpening", () => {
       false,
     );
     expect(isWorkflowScriptMessage({ role: "assistant", text: SCRIPT })).toBe(false);
+  });
+
+  it("counts paused workflow members apart from stopped ones in the opening headline", () => {
+    const headlineFor = (pausedByParentStop?: true) => {
+      const opening = resolveWorkflowOpening({
+        thread: childThread,
+        messages: [brief(SCRIPT, true)],
+        parentSubagents: [
+          {
+            ...coordinator({
+              name: "probe-wf",
+              phases: [{ index: 1, title: "Alpha" }],
+              agents: [member({ state: "running" }), member({ index: 2, state: "completed" })],
+            }),
+            status: "interrupted",
+            ...(pausedByParentStop === undefined ? {} : { pausedByParentStop }),
+            completedAt: at("2026-08-01T10:00:09.000Z"),
+          },
+        ],
+      });
+      return workflowOpeningHeadline(opening!);
+    };
+
+    expect(headlineFor(true).agents).toBe("2 agents · 1 done · 1 paused");
+    expect(headlineFor(undefined).agents).toBe("2 agents · 1 done · 1 stopped");
   });
 });

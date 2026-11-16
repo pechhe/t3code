@@ -1,4 +1,6 @@
 import {
+  isSubagentPausedByParentStop,
+  PAUSED_SUBAGENT_LABEL,
   workflowMemberModelSelection,
   type SubagentWorkflowGroup,
   type RuntimeSubagent,
@@ -42,10 +44,15 @@ function phaseStatusLabel(phase: SubagentWorkflowGroup["phases"][number]) {
   if (phase.state === "running") return "running";
   if (phase.members.some((member) => member.status === "failed")) return "failed";
   if (
-    phase.members.some((member) => member.status === "cancelled" || member.status === "interrupted")
+    phase.members.some(
+      (member) =>
+        member.status === "cancelled" ||
+        (member.status === "interrupted" && !isSubagentPausedByParentStop(member)),
+    )
   ) {
     return "stopped";
   }
+  if (phase.members.some(isSubagentPausedByParentStop)) return "paused";
   return phase.state === "done" ? "done" : "not started";
 }
 
@@ -68,6 +75,7 @@ function WorkflowMemberRow({
 }) {
   const threadId = member.childThreadId;
   const canOpen = threadId !== null;
+  const paused = isSubagentPausedByParentStop(member);
   return (
     <li>
       <Tooltip>
@@ -89,9 +97,11 @@ function WorkflowMemberRow({
             status={member.status}
           />
           <span className="min-w-0 flex-1 truncate">{member.title}</span>
-          <span className="sr-only">{member.status}</span>
+          <span className="sr-only">{paused ? PAUSED_SUBAGENT_LABEL : member.status}</span>
           {member.status === "failed" ? (
             <span className="shrink-0 text-2xs text-destructive">Failed</span>
+          ) : paused ? (
+            <span className="shrink-0 text-2xs text-muted-foreground">{PAUSED_SUBAGENT_LABEL}</span>
           ) : member.startedAt ? (
             <span className="shrink-0 text-2xs font-normal tabular-nums text-muted-foreground">
               <AgentRowTime agent={member} />
@@ -112,6 +122,7 @@ function WorkflowMemberRow({
             elapsed={<AgentElapsed agent={member} />}
             totalTokens={member.usage?.totalTokens}
             status={member.status}
+            pausedByParentStop={member.pausedByParentStop}
             result={member.result ?? member.error}
             progress={member.progress}
           />

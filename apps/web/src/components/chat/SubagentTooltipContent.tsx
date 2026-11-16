@@ -14,6 +14,10 @@ import {
   resolveSubagentMetadata,
   subagentDetailPreview,
 } from "@t3tools/client-runtime/state/subagent-display";
+import {
+  isSubagentPausedByParentStop,
+  PAUSED_SUBAGENT_LABEL,
+} from "@t3tools/client-runtime/state/subagentRuntime";
 import { REASONING_EFFORT_OPTION_IDS } from "@t3tools/client-runtime/state/thread-execution";
 import { getModelSelectionStringOptionValue, resolveSelectableModel } from "@t3tools/shared/model";
 import { getTraitsSpeedDisplay, TraitsSpeedIcon } from "./TraitsSpeed";
@@ -57,6 +61,7 @@ export function SubagentTooltipContent(props: {
   parentProject?: Pick<OrchestrationProjectShell, "workspaceRoot"> | undefined;
   childProject?: Pick<OrchestrationProjectShell, "id" | "title" | "workspaceRoot"> | undefined;
   status: OrchestrationV2TurnItemStatus;
+  pausedByParentStop?: true | undefined;
   result?: string | null | undefined;
   progress?: string | null | undefined;
 }) {
@@ -128,6 +133,10 @@ export function SubagentTooltipContent(props: {
   const showInstanceBadge = entry !== undefined && shouldShowInstanceBadge(entry, entries);
   const working = ["running", "in_progress", "pending", "waiting"].includes(props.status);
   const failed = ["failed", "error"].includes(props.status);
+  const paused = isSubagentPausedByParentStop({
+    status: props.status,
+    pausedByParentStop: props.pausedByParentStop,
+  });
   const StatusIcon = working
     ? CircleDashedIcon
     : failed
@@ -180,7 +189,7 @@ export function SubagentTooltipContent(props: {
         )}
       >
         <StatusIcon aria-hidden className="size-3 shrink-0" />
-        {props.status.replaceAll("_", " ")}
+        {paused ? PAUSED_SUBAGENT_LABEL : props.status.replaceAll("_", " ")}
       </span>
       {startedLabel || props.totalTokens !== undefined ? (
         <div className="flex min-w-0 items-center gap-2">

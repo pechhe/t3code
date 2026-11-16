@@ -31,6 +31,7 @@ type SubagentRowSubagent = Pick<
   | "title"
   | "prompt"
   | "status"
+  | "pausedByParentStop"
   | "progress"
   | "result"
   | "remoteChild"

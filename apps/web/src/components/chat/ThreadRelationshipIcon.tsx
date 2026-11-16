@@ -1,10 +1,17 @@
+import {
+  isSubagentPausedByParentStop,
+  PAUSED_SUBAGENT_LABEL,
+} from "@t3tools/client-runtime/state/subagentRuntime";
 import type { ProviderDriverKind, ServerProvider } from "@t3tools/contracts";
 import { BotIcon, type LucideIcon } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { shouldShowInstanceBadge, type ProviderInstanceEntry } from "../../providerInstances";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
 
-export function threadRelationshipStatusLabel(status: string | null): string {
+export function threadRelationshipStatusLabel(
+  status: string | null,
+  pausedByParentStop?: true | undefined,
+): string {
   switch (status) {
     case "preparing":
     case "starting":
@@ -27,7 +34,10 @@ export function threadRelationshipStatusLabel(status: string | null): string {
       return "Failed";
     case "cancelled":
     case "interrupted":
-      return "Stopped";
+      return status === "interrupted" &&
+        isSubagentPausedByParentStop({ status: "interrupted", pausedByParentStop })
+        ? PAUSED_SUBAGENT_LABEL
+        : "Stopped";
     case "rolled_back":
       return "Reverted";
     case "resolved_native":

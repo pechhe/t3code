@@ -274,6 +274,48 @@ describe("workflow member rows", () => {
       error: "Type error",
     });
   });
+
+  it("reads a paused workflow's unfinished members as paused and plain interruptions as interrupted", () => {
+    const membersFor = (pausedByParentStop?: true) =>
+      deriveWorkflowGroups(
+        projectedSubagentsToRuntime([
+          {
+            id: "workflow",
+            title: "Workflow",
+            prompt: "",
+            model: null,
+            status: "interrupted",
+            ...(pausedByParentStop === undefined ? {} : { pausedByParentStop }),
+            result: null,
+            startedAt: DateTime.makeUnsafe("2026-08-01T10:00:00.000Z"),
+            completedAt: DateTime.makeUnsafe("2026-08-01T10:00:05.000Z"),
+            updatedAt: DateTime.makeUnsafe("2026-08-01T10:00:05.000Z"),
+            workflow: {
+              phases: [{ index: 0, title: "Inspect" }],
+              agents: [
+                agent(1, 0, "running", { childThreadId: ThreadId.make("m1") }),
+                agent(2, 0, "completed", { childThreadId: ThreadId.make("m2") }),
+              ],
+            },
+          },
+        ]),
+      )[0]!.phases[0]!.members.map((member) =>
+        resolveSubagentRowPresentation({
+          title: member.title,
+          prompt: "",
+          status: member.status,
+          pausedByParentStop: member.pausedByParentStop,
+          result: null,
+          childThreadId: member.childThreadId as ThreadId | null,
+        }),
+      );
+
+    expect(membersFor(true).map((row) => row.statusLabel)).toEqual(["Paused", "Completed"]);
+    expect(membersFor(undefined).map((row) => row.statusLabel)).toEqual([
+      "Interrupted",
+      "Completed",
+    ]);
+  });
 });
 
 const stopAgent = {

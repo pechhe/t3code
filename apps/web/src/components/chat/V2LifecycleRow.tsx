@@ -7,6 +7,7 @@ import { ThreadHoverCardPopup } from "../ThreadHoverCard";
 import { AgentElapsed } from "./AgentElapsed";
 import {
   isSubagentPausedByParentStop,
+  PAUSED_SUBAGENT_LABEL,
   projectedSubagentsToRuntime,
 } from "@t3tools/client-runtime/state/subagentRuntime";
 import type { ReactNode } from "react";
@@ -252,7 +253,13 @@ const STATUS_VISUALS: Record<
   interrupted: { dotClass: "bg-muted-foreground/60", label: "Stopped" },
 };
 
-function subagentStatusVisual(status: OrchestrationV2TurnItem["status"]) {
+function subagentStatusVisual(
+  status: OrchestrationV2TurnItem["status"],
+  pausedByParentStop?: true | undefined,
+) {
+  if (isSubagentPausedByParentStop({ status, pausedByParentStop })) {
+    return { dotClass: STATUS_VISUALS.interrupted.dotClass, label: PAUSED_SUBAGENT_LABEL };
+  }
   return STATUS_VISUALS[status];
 }
 
@@ -280,6 +287,7 @@ function SubagentAvatar({
   accentColor,
   showBadge,
   status,
+  pausedByParentStop,
   size = "default",
   className,
 }: {
@@ -289,6 +297,7 @@ function SubagentAvatar({
   accentColor?: string | undefined;
   showBadge: boolean;
   status?: OrchestrationV2TurnItem["status"] | undefined;
+  pausedByParentStop?: true | undefined;
   size?: "default" | "sm" | undefined;
   className?: string;
 }) {
@@ -321,7 +330,7 @@ function SubagentAvatar({
           className={cn(
             "absolute -right-px -bottom-px rounded-full",
             small ? "size-1.5 ring-1 ring-background" : "size-2 ring-2 ring-background",
-            subagentStatusVisual(status).dotClass,
+            subagentStatusVisual(status, pausedByParentStop).dotClass,
           )}
         />
       ) : null}
@@ -343,6 +352,7 @@ export function EnvironmentSubagentAvatar({
   /** A task in a linked environment runs a provider instance there; its driver here is only a label. */
   remote?: OrchestrationV2RemoteTaskChild | undefined;
   status?: OrchestrationV2TurnItem["status"] | undefined;
+  pausedByParentStop?: true | undefined;
   size?: "default" | "sm" | undefined;
 }) {
   const providerEnvironmentId = remote?.environmentId ?? environmentId;
@@ -622,7 +632,8 @@ function SubagentTimelineLink(props: {
         : null;
   const liveStatus = agent?.status ?? props.status;
   const status = liveStatus;
-  const statusLabel = subagentStatusVisual(liveStatus).label;
+  const paused = agent ? isSubagentPausedByParentStop(agent) : false;
+  const statusLabel = subagentStatusVisual(liveStatus, agent?.pausedByParentStop).label;
   const result = (agent?.result ?? props.result)?.trim();
   const progress = (agent?.progress ?? props.progress)?.trim();
   const settled = SETTLED_SUBAGENT_STATUSES.has(status);
@@ -656,9 +667,7 @@ function SubagentTimelineLink(props: {
       />
     );
   }
-  const outcome = settled
-    ? subagentFinishedOutcome(status, agent ? isSubagentPausedByParentStop(agent) : false)
-    : null;
+  const outcome = settled ? subagentFinishedOutcome(status, paused) : null;
   const OutcomeIcon = outcome?.icon ?? null;
   const showDetail = detail !== null && (failed || isSubagentDoer(role));
   const content = (
@@ -750,6 +759,7 @@ function SubagentTimelineLink(props: {
           modelSelection={agent?.modelSelection}
           totalTokens={agent?.totalTokens}
           status={liveStatus}
+          pausedByParentStop={agent?.pausedByParentStop}
           result={agent?.result ?? props.result}
           progress={agent?.progress ?? props.progress}
         />
@@ -762,6 +772,7 @@ function SubagentTimelineTooltip(
   props: Parameters<typeof SubagentTimelineLink>[0] & {
     model: string | null;
     modelSelection: OrchestrationV2Subagent["modelSelection"];
+    pausedByParentStop?: true | undefined;
     startedAtIso: string | null;
     elapsed: ReactNode;
     totalTokens: number | undefined;
@@ -793,6 +804,7 @@ function SubagentTimelineTooltip(
       elapsed={props.elapsed}
       totalTokens={props.totalTokens}
       status={props.status}
+      pausedByParentStop={props.pausedByParentStop}
       result={props.result}
       progress={props.progress}
       parentThread={parent}

@@ -156,6 +156,7 @@ function WorkflowMemberRow(props: {
     title: member.title,
     prompt: "",
     status: member.status,
+    pausedByParentStop: member.pausedByParentStop,
     result: null,
     childThreadId: threadId,
   });

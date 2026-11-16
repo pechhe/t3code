@@ -1,6 +1,8 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
+  isSubagentPausedByParentStop,
   isTerminalSubagentStatus,
+  PAUSED_SUBAGENT_LABEL,
   workflowMemberModelSelection,
   workflowOpeningHeadline,
   type RuntimeSubagent,
@@ -112,6 +114,7 @@ function WorkflowMemberRow(props: {
 }) {
   const { member } = props;
   const threadId = member.childThreadId;
+  const paused = isSubagentPausedByParentStop(member);
   const failed = member.status === "failed";
   const detail = (
     isTerminalSubagentStatus(member.status)
@@ -130,12 +133,15 @@ function WorkflowMemberRow(props: {
           delay={200}
           render={
             threadId === null ? (
-              <div aria-description={member.status} className={className} />
+              <div
+                aria-description={paused ? PAUSED_SUBAGENT_LABEL : member.status}
+                className={className}
+              />
             ) : (
               <button
                 type="button"
                 aria-label={`Open ${member.title}`}
-                aria-description={member.status}
+                aria-description={paused ? PAUSED_SUBAGENT_LABEL : member.status}
                 onClick={() => props.onOpenThread(threadId)}
                 className={cn(
                   className,
@@ -150,6 +156,7 @@ function WorkflowMemberRow(props: {
             providerInstanceId={props.providerInstanceId}
             driver={props.driver}
             status={member.status}
+            pausedByParentStop={member.pausedByParentStop}
           />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-xs font-medium text-foreground">
@@ -192,6 +199,7 @@ function WorkflowMemberRow(props: {
             driver={props.driver}
             elapsed={<AgentElapsed agent={member} />}
             status={member.status}
+            pausedByParentStop={member.pausedByParentStop}
             result={member.result ?? member.error}
             progress={member.progress}
           />

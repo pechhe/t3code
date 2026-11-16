@@ -10,8 +10,8 @@ import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   deriveWorkflowGroups,
+  isSubagentPausedByParentStop,
   projectedSubagentsToRuntime,
-  type RuntimeSubagent,
 } from "@t3tools/client-runtime/state/subagentRuntime";
 import { formatSubagentDisplayTitle } from "@t3tools/client-runtime/state/subagent-display";
 import { deriveProviderSubagentStatus } from "@t3tools/client-runtime/state/thread-execution";
@@ -309,34 +309,33 @@ function LineageTooltipContent(props: { readonly title: string; readonly hint: s
   );
 }
 
-function currentSubagent<Agent extends RuntimeSubagent>(
-  agent: Agent | undefined,
+function currentProjectedSubagent(
+  subagent: OrchestrationV2Subagent,
   childThread: OrchestrationV2ThreadShell | null | undefined,
-): Agent | undefined {
-  if (!agent || !childThread || isOrchestrationV2WorkActive(agent.status)) return agent;
+): OrchestrationV2Subagent {
+  if (!childThread || isOrchestrationV2WorkActive(subagent.status)) return subagent;
   const liveStatus =
     childThread.activityRunStatus ?? (childThread.status === "queued" ? "queued" : null);
   const newerRun =
     childThread.latestRunRequestedAt &&
     DateTime.toEpochMillis(childThread.latestRunRequestedAt) >
-      Date.parse(agent.completedAt ?? agent.startedAt ?? agent.updatedAt);
-  if (!liveStatus && !newerRun) return agent;
+      DateTime.toEpochMillis(subagent.completedAt ?? subagent.startedAt ?? subagent.updatedAt);
+  if (!liveStatus && !newerRun) return subagent;
   const status = liveStatus ?? childThread.status;
-  const startedAt = liveStatus ? childThread.activityRunStartedAt : childThread.latestRunStartedAt;
-  const completedAt = liveStatus ? null : childThread.latestRunCompletedAt;
+  const { pausedByParentStop: _paused, ...rest } = subagent;
   return {
-    ...agent,
+    ...rest,
     status:
       status === "preparing" || status === "starting" || status === "queued"
         ? "pending"
         : status === "rolled_back"
           ? "interrupted"
           : status,
-    startedAt: startedAt ? DateTime.formatIso(startedAt) : null,
-    completedAt: completedAt ? DateTime.formatIso(completedAt) : null,
-    progress: null,
+    startedAt:
+      (liveStatus ? childThread.activityRunStartedAt : childThread.latestRunStartedAt) ?? null,
+    completedAt: liveStatus ? null : (childThread.latestRunCompletedAt ?? null),
+    progress: undefined,
     result: null,
-    error: null,
   };
 }
 
@@ -396,7 +395,9 @@ function RemoteSubagentRow(props: {
             className={`flex max-w-1/2 shrink-0 gap-1 text-2xs ${failed ? "text-destructive" : "text-muted-foreground"}`}
           >
             <span className="truncate">on {remoteChild.label}</span>
-            <span className="shrink-0">· {threadRelationshipStatusLabel(status)}</span>
+            <span className="shrink-0">
+              · {threadRelationshipStatusLabel(status, props.agent.pausedByParentStop)}
+            </span>
           </span>
         </TooltipTrigger>
         <TooltipPopup side="left">
@@ -568,11 +569,22 @@ export function ThreadRelationshipsPanel(props: {
   const parentNativeStatus = parentProjection
     ? deriveProviderSubagentStatus(parentProjection)?.status
     : undefined;
+  const shells: ReadonlyArray<OrchestrationV2ThreadShell> = [
+    ...relationshipShells,
+    ...(archivedShells ?? []),
+  ];
+  const graph = deriveThreadRelationshipGraph({ threads: shells, projection });
   const projected = projection?.subagents ?? [];
-  const runtimeSubagents = projectedSubagentsToRuntime(projected);
+  const currentProjected = projected.map((subagent) =>
+    subagent.childThreadId === null
+      ? subagent
+      : currentProjectedSubagent(subagent, graph.nodes.get(subagent.childThreadId)?.thread),
+  );
+  const runtimeSubagents = projectedSubagentsToRuntime(currentProjected);
   const byId = new Map(runtimeSubagents.map((agent) => [agent.id, agent]));
+  const nativeStatusById = new Map(projected.map((subagent) => [subagent.id, subagent.status]));
   const subagentsByThreadId = new Map(
-    projected
+    currentProjected
       .filter((subagent) => subagent.childThreadId !== null)
       .map((subagent) => [
         subagent.childThreadId,
@@ -582,7 +594,7 @@ export function ThreadRelationshipsPanel(props: {
           threadId: subagent.threadId,
           runId: subagent.runId,
           nativeTaskRef: subagent.nativeTaskRef,
-          nativeStatus: subagent.status,
+          nativeStatus: nativeStatusById.get(subagent.id) ?? subagent.status,
           driver: subagent.driver,
           providerInstanceId: subagent.providerInstanceId,
           origin: subagent.origin,
@@ -593,11 +605,6 @@ export function ThreadRelationshipsPanel(props: {
   const workflowGroupsById = new Map(
     deriveWorkflowGroups(runtimeSubagents).map((group) => [group.workflow.id, group]),
   );
-  const shells: ReadonlyArray<OrchestrationV2ThreadShell> = [
-    ...relationshipShells,
-    ...(archivedShells ?? []),
-  ];
-  const graph = deriveThreadRelationshipGraph({ threads: shells, projection });
   const isHiddenRelation = (threadId: ThreadId) =>
     hiddenKeys.has(threadKey({ environmentId: props.environmentId, threadId }));
   // While hiding, an unloaded parent, fork or transfer may be hidden; unloaded subagent
@@ -898,13 +905,14 @@ export function ThreadRelationshipsPanel(props: {
           ? MessagesSquareIcon
           : GitForkIcon;
     const relationship = isSideChat ? "Side chat" : relationshipLabel(edge, props.threadId);
-    const projectedAgent = isSubagent && !isParent ? subagentsByThreadId.get(threadId) : undefined;
+    const agent = isSubagent && !isParent ? subagentsByThreadId.get(threadId) : undefined;
     // Idle children can be absent from the shell; their own route resolves availability.
-    const unavailable = node?.missing === true && projectedAgent === undefined;
-    const workflowGroup =
-      projectedAgent === undefined ? undefined : workflowGroupsById.get(projectedAgent.id);
-    const agent = workflowGroup ? projectedAgent : currentSubagent(projectedAgent, node?.thread);
-    const failed = rowStatus === "failed" || rowStatus === "error";
+    const unavailable = node?.missing === true && agent === undefined;
+    const workflowGroup = agent === undefined ? undefined : workflowGroupsById.get(agent.id);
+    const paused = agent !== undefined && isSubagentPausedByParentStop(agent);
+    const displayStatus = paused ? agent.status : rowStatus;
+    const statusLabel = threadRelationshipStatusLabel(displayStatus, paused ? true : undefined);
+    const failed = displayStatus === "failed" || displayStatus === "error";
     const canStop =
       agent &&
       (agent.origin === "app_owned" ||
@@ -958,6 +966,7 @@ export function ThreadRelationshipsPanel(props: {
         driver={providerDriver}
         elapsed={<AgentElapsed agent={agent} />}
         status={agent.status}
+        pausedByParentStop={paused ? true : undefined}
         result={agent.result}
         progress={agent.progress}
         parentThread={currentThread ?? undefined}
@@ -978,7 +987,7 @@ export function ThreadRelationshipsPanel(props: {
           provider={provider}
           providerEntries={providerEntries}
           fallbackIcon={RelationshipIcon}
-          status={rowStatus}
+          status={displayStatus}
         />
         <span className="flex min-w-0 flex-1 items-center gap-1.5">
           {role ? <AgentRoleChip role={role} className="shrink-0" /> : null}
@@ -995,6 +1004,7 @@ export function ThreadRelationshipsPanel(props: {
           <span className="shrink-0 text-2xs text-muted-foreground">Closed</span>
         ) : agent &&
           !failed &&
+          !paused &&
           (!isOrchestrationV2WorkActive(agent.status) ||
             deriveSubagentElapsedMs(agent, 0) !== null ||
             canStopWorkflow) ? (
@@ -1011,7 +1021,7 @@ export function ThreadRelationshipsPanel(props: {
                 : `shrink-0 text-2xs ${failed ? "text-destructive" : "text-muted-foreground"} ${trailingVisibilityClass}`
             }
           >
-            {threadRelationshipStatusLabel(rowStatus)}
+            {statusLabel}
           </span>
         ) : null}
       </>
@@ -1066,7 +1076,7 @@ export function ThreadRelationshipsPanel(props: {
                     size="sm"
                     variant="ghost"
                     part="primary"
-                    aria-label={`${threadTitle} ${threadRelationshipStatusLabel(rowStatus)}`}
+                    aria-label={`${threadTitle} ${statusLabel}`}
                     disabled={unavailable}
                     onClick={() => openThread(threadId)}
                   />
@@ -1109,7 +1119,7 @@ export function ThreadRelationshipsPanel(props: {
               </TooltipPopup>
             </Tooltip>
             <span className="shrink-0 border border-transparent ps-1 pe-2.5 text-2xs font-medium text-muted-foreground">
-              {threadRelationshipStatusLabel(rowStatus)}
+              {statusLabel}
             </span>
           </div>
         ) : (

@@ -55,6 +55,7 @@ export interface RuntimeSubagent {
   readonly effort: string | null;
   readonly speed?: string | undefined;
   readonly status: RuntimeSubagentStatus;
+  readonly pausedByParentStop?: true | undefined;
   readonly activationCount: number;
   readonly usage: SubagentUsage | null;
   readonly progress: string | null;
@@ -144,6 +145,7 @@ function workflowMembersToRuntime(
   coordinator: RuntimeSubagent,
   workflow: OrchestrationV2SubagentWorkflow,
 ): ReadonlyArray<RuntimeSubagent> {
+  const { pausedByParentStop: coordinatorPaused, ...coordinatorBase } = coordinator;
   return workflow.agents.map((agent) => {
     const status =
       (agent.state === "queued" || agent.state === "running") &&
@@ -161,7 +163,10 @@ function workflowMembersToRuntime(
           : coordinator.completedAt))
       : null;
     return {
-      ...coordinator,
+      ...coordinatorBase,
+      ...(isSubagentPausedByParentStop({ status, pausedByParentStop: coordinatorPaused })
+        ? { pausedByParentStop: true as const }
+        : {}),
       id: `${coordinator.id}:agent:${agent.index}`,
       kind: "workflow_agent" as const,
       title: agent.label,
@@ -223,6 +228,7 @@ export function projectedSubagentsToRuntime(
     readonly prompt: string;
     readonly model: string | null;
     readonly status: OrchestrationV2Subagent["status"];
+    readonly pausedByParentStop?: true | undefined;
     readonly progress?: string | undefined;
     readonly totalTokens?: number | undefined;
     readonly childThreadId?: string | null | undefined;
@@ -247,6 +253,7 @@ export function projectedSubagentsToRuntime(
       model: subagent.model,
       effort: null,
       status: subagent.status,
+      ...(subagent.pausedByParentStop === true ? { pausedByParentStop: true as const } : {}),
       activationCount: 1,
       usage: workflowUsage(workflow ?? subagent),
       progress: subagent.progress ?? null,
@@ -440,7 +447,9 @@ export function workflowOpeningHeadline(opening: WorkflowOpening): {
         ? "done"
         : member.status === "failed"
           ? "failed"
-          : "stopped"
+          : isSubagentPausedByParentStop(member)
+            ? "paused"
+            : "stopped"
       : "working";
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
@@ -451,6 +460,7 @@ export function workflowOpeningHeadline(opening: WorkflowOpening): {
           "working",
           "done",
           "failed",
+          "paused",
           "stopped",
         ]
           .filter((key) => counts.has(key))

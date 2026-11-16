@@ -70,6 +70,7 @@ function memberRowSubagent(
     title: member.title,
     prompt: member.progress ?? member.title,
     status: member.status,
+    ...(member.pausedByParentStop === true ? { pausedByParentStop: true as const } : {}),
     progress: undefined,
     result: member.result ?? member.error,
   };

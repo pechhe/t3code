@@ -144,8 +144,7 @@ async function setup() {
   // A named lineage group ("Earlier", "Watching") is its own collapse control.
   function groupToggle(label: string) {
     const [toggle] = buttons().filter(
-      (button) =>
-        button.getAttribute("aria-label") === null && button.textContent?.includes(label),
+      (button) => button.getAttribute("aria-label") === null && button.textContent?.includes(label),
     );
     if (!toggle) throw new Error(`No "${label}" group toggle`);
     return toggle;
@@ -364,9 +363,7 @@ it("leaves a subagent the composer panel already shows out of Lineage", async ()
     source: {
       id: "parent",
       lineage: { relationshipToParent: null },
-      pendingBackgroundTasks: [
-        { kind: "subagent", childThreadId: child.id, status: "running" },
-      ],
+      pendingBackgroundTasks: [{ kind: "subagent", childThreadId: child.id, status: "running" }],
     },
   };
   state.projection = {
@@ -403,4 +400,201 @@ it("leaves a subagent the composer panel already shows out of Lineage", async ()
     />,
   );
   expect(textNodes(" ")).not.toContain("Count the flaky tests");
+});
+
+it("shows paused for a task and workflow members paused by parent Stop, and stopped/interrupted otherwise", async () => {
+  await using fixture = await setup();
+  const { render, update, click, byLabel, groupToggle } = fixture;
+  state.showTooltips = true;
+  const pausedTaskThread = {
+    id: "paused-task",
+    title: "Paused task",
+    lineage: { parentThreadId: "parent", relationshipToParent: "subagent" },
+    status: "idle",
+    latestRunId: "run-paused",
+  };
+  const stoppedTaskThread = {
+    id: "stopped-task",
+    title: "Stopped task",
+    lineage: { parentThreadId: "parent", relationshipToParent: "subagent" },
+    status: "interrupted",
+  };
+  const pausedWorkflowThread = {
+    id: "paused-workflow",
+    title: "Paused workflow",
+    lineage: { parentThreadId: "parent", relationshipToParent: "subagent" },
+    status: "interrupted",
+  };
+  const stoppedWorkflowThread = {
+    id: "stopped-workflow",
+    title: "Stopped workflow",
+    lineage: { parentThreadId: "parent", relationshipToParent: "subagent" },
+    status: "interrupted",
+  };
+  state.shells = [
+    { environmentId: "test", source: pausedTaskThread },
+    { environmentId: "test", source: stoppedTaskThread },
+    { environmentId: "test", source: pausedWorkflowThread },
+    { environmentId: "test", source: stoppedWorkflowThread },
+  ];
+  const baseSubagent = {
+    origin: "app_owned",
+    driver: "claudeAgent",
+    providerInstanceId: "claude",
+    model: "claude-opus-4-6",
+    prompt: "Check",
+    progress: null,
+    result: null,
+    startedAt: DateTime.makeUnsafe("2026-09-16T12:00:00Z"),
+    completedAt: DateTime.makeUnsafe("2026-09-16T12:01:00Z"),
+    updatedAt: DateTime.makeUnsafe("2026-09-16T12:01:00Z"),
+  };
+  state.projection = {
+    thread: { id: "parent", lineage: { relationshipToParent: null } },
+    runs: [],
+    providerThreads: [],
+    providerSessions: [],
+    contextTransfers: [],
+    subagents: [
+      {
+        ...baseSubagent,
+        id: "task-paused",
+        childThreadId: "paused-task",
+        title: "Paused task",
+        status: "interrupted",
+        pausedByParentStop: true,
+      },
+      {
+        ...baseSubagent,
+        id: "task-stopped",
+        childThreadId: "stopped-task",
+        title: "Stopped task",
+        status: "interrupted",
+      },
+      {
+        ...baseSubagent,
+        id: "wf-paused",
+        childThreadId: "paused-workflow",
+        title: "Paused workflow",
+        status: "interrupted",
+        pausedByParentStop: true,
+        workflow: {
+          name: "Paused workflow",
+          phases: [{ index: 0, title: "Inspect" }],
+          agents: [
+            {
+              index: 0,
+              label: "paused-member",
+              state: "running",
+              phaseIndex: 0,
+              phaseTitle: "Inspect",
+              childThreadId: "paused-member-thread",
+            },
+            {
+              index: 1,
+              label: "done-member",
+              state: "completed",
+              phaseIndex: 0,
+              phaseTitle: "Inspect",
+              childThreadId: "done-member-thread",
+            },
+          ],
+        },
+      },
+      {
+        ...baseSubagent,
+        id: "wf-stopped",
+        childThreadId: "stopped-workflow",
+        title: "Stopped workflow",
+        status: "interrupted",
+        workflow: {
+          name: "Stopped workflow",
+          phases: [{ index: 0, title: "Verify" }],
+          agents: [
+            {
+              index: 0,
+              label: "stopped-member",
+              state: "running",
+              phaseIndex: 0,
+              phaseTitle: "Verify",
+              childThreadId: "stopped-member-thread",
+            },
+          ],
+        },
+      },
+    ],
+  };
+  await render(
+    <ThreadRelationshipsPanel
+      showLineage
+      showSideChats
+      environmentId={EnvironmentId.make("test")}
+      threadId={ThreadId.make("parent")}
+    />,
+  );
+  await click(groupToggle("Earlier"));
+  await click(byLabel("Expand Paused workflow"));
+  await click(byLabel("Expand Stopped workflow"));
+  await click(byLabel("Expand Inspect phase, paused"));
+  await click(byLabel("Expand Verify phase, stopped"));
+
+  const pausedTaskButton = byLabel("Open Paused task chat");
+  const pausedTaskRow = pausedTaskButton.closest("li")!;
+  expect(pausedTaskButton.lastElementChild?.textContent).toBe("Paused");
+  expect(pausedTaskRow.querySelector('[role="tooltip"]')?.textContent).toContain("Paused");
+
+  const stoppedTaskButton = byLabel("Open Stopped task chat");
+  const stoppedTaskRow = stoppedTaskButton.closest("li")!;
+  expect(stoppedTaskButton.textContent).not.toContain("Paused");
+  expect(stoppedTaskRow.querySelector('[role="tooltip"]')?.textContent).toContain("interrupted");
+  expect(stoppedTaskRow.querySelector('[role="tooltip"]')?.textContent).not.toContain("Paused");
+
+  const pausedMemberButton = byLabel("Open paused-member chat");
+  const pausedMemberRow = pausedMemberButton.closest("li")!;
+  expect(pausedMemberButton.lastElementChild?.textContent).toBe("Paused");
+  expect(pausedMemberButton.querySelector(".sr-only")?.textContent).toBe("Paused");
+  expect(pausedMemberRow.querySelector('[role="tooltip"]')?.textContent).toContain("Paused");
+
+  const doneMemberButton = byLabel("Open done-member chat");
+  const doneMemberRow = doneMemberButton.closest("li")!;
+  expect(doneMemberButton.textContent).not.toContain("Paused");
+  expect(doneMemberRow.querySelector('[role="tooltip"]')?.textContent).toContain("completed");
+
+  const stoppedMemberButton = byLabel("Open stopped-member chat");
+  const stoppedMemberRow = stoppedMemberButton.closest("li")!;
+  expect(stoppedMemberButton.textContent).not.toContain("Paused");
+  expect(stoppedMemberButton.querySelector(".sr-only")?.textContent).toBe("interrupted");
+  expect(stoppedMemberRow.querySelector('[role="tooltip"]')?.textContent).toContain("interrupted");
+
+  state.shells = [
+    { environmentId: "test", source: pausedTaskThread },
+    { environmentId: "test", source: stoppedTaskThread },
+    {
+      environmentId: "test",
+      source: {
+        ...pausedWorkflowThread,
+        status: "running",
+        activityRunStatus: "running",
+        activityRunStartedAt: DateTime.makeUnsafe("2026-09-16T12:02:00Z"),
+        latestRunRequestedAt: DateTime.makeUnsafe("2026-09-16T12:02:00Z"),
+      },
+    },
+    { environmentId: "test", source: stoppedWorkflowThread },
+  ];
+  await update();
+
+  const resumedWorkflowButton = byLabel("Open Paused workflow chat");
+  const resumedWorkflowRow = resumedWorkflowButton.closest("li")!;
+  expect(resumedWorkflowButton.querySelector(".sr-only")?.textContent).not.toBe("Paused");
+  expect(resumedWorkflowRow.querySelector('[role="tooltip"] .capitalize')?.textContent).toBe(
+    "running",
+  );
+
+  await click(byLabel("Expand Paused workflow"));
+  expect(byLabel("Collapse Inspect phase, running")).toBeDefined();
+  const resumedMemberButton = byLabel("Open paused-member chat");
+  const resumedMemberRow = resumedMemberButton.closest("li")!;
+  expect(resumedMemberButton.textContent).not.toContain("Paused");
+  expect(resumedMemberButton.querySelector(".sr-only")?.textContent).toBe("running");
+  expect(resumedMemberRow.querySelector('[role="tooltip"]')?.textContent).toContain("running");
 });
