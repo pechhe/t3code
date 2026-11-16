@@ -4,7 +4,6 @@ export interface CompactionPull {
 }
 
 export interface CompactionPullState {
-  readonly threadKey: string;
   readonly usedTokens: number;
   readonly compactionCount: number;
   /** A fall in context use that no completed compaction has yet accounted for. */
@@ -13,19 +12,18 @@ export interface CompactionPullState {
 
 /**
  * Decides when the context bar plays a compaction: once the thread's context use has fallen and
- * a compaction has completed, whichever the client hears of first. Another thread's numbers
- * never count as a fall, and a fall forgotten once context grows again cannot play late.
+ * a compaction has completed, whichever the client hears of first. `previous` is what the user
+ * last saw of this thread, so one that compacted unseen plays when they next look. A fall
+ * forgotten once context grows again cannot play late.
  */
 export function advanceCompactionPull(
   previous: CompactionPullState | null,
   input: {
-    readonly threadKey: string;
     readonly usedTokens: number;
     readonly compactionCount: number;
   },
 ): { readonly state: CompactionPullState; readonly pull: CompactionPull | null } {
-  if (previous === null || previous.threadKey !== input.threadKey)
-    return { state: { ...input, drop: null }, pull: null };
+  if (previous === null) return { state: { ...input, drop: null }, pull: null };
   const drop =
     input.usedTokens < previous.usedTokens
       ? { fromTokens: previous.drop?.fromTokens ?? previous.usedTokens, toTokens: input.usedTokens }

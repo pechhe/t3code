@@ -4115,6 +4115,7 @@ export default function ChatView(props: ChatViewProps) {
                                 resumeCompactionTokens={resumeCompactionTokens}
                                 resumeCompactionModelName={resumeCompactionModelName}
                                 contextWindow={activeContextWindow}
+                                isCompacting={isCompacting}
                                 extensionStatuses={deriveProviderExtensionStatuses(
                                   serverProjection,
                                 )}

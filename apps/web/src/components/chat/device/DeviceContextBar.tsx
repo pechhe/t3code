@@ -3,12 +3,16 @@ import {
   type KeyboardEvent,
   type PointerEvent,
   useEffect,
+  useId,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 
 import type { ContextWindowSnapshot } from "@t3tools/client-runtime/state/context-window";
 import { formatContextWindowTokens } from "~/lib/contextWindow";
+import { getDocumentActivity, subscribeDocumentActivity } from "~/lib/documentActivity";
+import { observeVisibleAnimation } from "~/lib/visibleAnimation";
 import { Button } from "../../ui/button";
 import { Popover, PopoverPopup } from "../../ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
@@ -32,6 +36,23 @@ function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, value));
 }
 
+/** What the user last saw of each thread's context, kept while the app runs. */
+const seenPullStates = new Map<string, CompactionPullState>();
+const SEEN_PULL_STATES_MAX = 200;
+
+function rememberPullState(threadKey: string, state: CompactionPullState) {
+  seenPullStates.delete(threadKey);
+  seenPullStates.set(threadKey, state);
+  if (seenPullStates.size <= SEEN_PULL_STATES_MAX) return;
+  const oldest = seenPullStates.keys().next().value;
+  if (oldest !== undefined) seenPullStates.delete(oldest);
+}
+
+function isUserWatching() {
+  const activity = getDocumentActivity();
+  return activity.visible && activity.focused;
+}
+
 /**
  * The segmented context readout inside the composer screen: filled segments for
  * the context in use, the amber compact line where the thread compacts, and the token
@@ -53,6 +74,8 @@ export function DeviceContextBar(props: {
   onCompactAtChange?: ((compactAt: number | null) => void) | undefined;
   onOpenProviderSettings?: (() => void) | undefined;
   onCompact?: (() => void) | undefined;
+  /** A compaction of this thread is under way. */
+  compacting: boolean;
   compactDisabled: boolean;
   compactDisabledReason: string | null;
   /** History the next send would summarise first; null when it sends as is. */
@@ -72,21 +95,27 @@ export function DeviceContextBar(props: {
   });
   const [pullReadout, setPullReadout] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
-  const pullState = useRef<CompactionPullState | null>(null);
+  const watching = useSyncExternalStore(subscribeDocumentActivity, isUserWatching, () => true);
+  const usageKnown = usage !== null;
   const usedTokens = usage?.usedTokens ?? 0;
   const windowTokens = usage?.maxTokens ?? null;
   const compactionCount = props.compactionSavings?.compactionCount ?? 0;
+  const blackhole = parseBlackholeExtensionStatus(props.extensionStatuses);
+  const hasBlackhole = blackhole !== null;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a completed compaction plays a one-off animation on the bar's own DOM nodes
   useEffect(() => {
-    const next = advanceCompactionPull(pullState.current, {
-      threadKey: props.threadKey,
+    // Only what the user watched counts as seen, so a compaction they missed plays on return.
+    if (!watching || !usageKnown) return;
+    const next = advanceCompactionPull(seenPullStates.get(props.threadKey) ?? null, {
       usedTokens,
       compactionCount,
     });
-    pullState.current = next.state;
     const root = rootRef.current;
     const track = root?.querySelector<HTMLElement>(".device-context__track");
-    const hole = root?.querySelector(".device-context__bh-glyph");
+    const hole = hasBlackhole ? root?.querySelector(".device-context__bh-glyph") : null;
+    const playable = windowTokens && track && hole;
+    // A pull the bar cannot draw yet stays unseen, so it plays once the glyph is there.
+    if (next.pull === null || playable) rememberPullState(props.threadKey, next.state);
     if (next.pull === null || !windowTokens || !track || !hole) return;
     return playCompactionPull({
       track,
@@ -96,7 +125,15 @@ export function DeviceContextBar(props: {
       onProgress: (share) =>
         setPullReadout(share === null ? null : formatContextWindowTokens(share * windowTokens)),
     });
-  }, [props.threadKey, usedTokens, compactionCount, windowTokens]);
+  }, [
+    props.threadKey,
+    watching,
+    usageKnown,
+    usedTokens,
+    compactionCount,
+    windowTokens,
+    hasBlackhole,
+  ]);
   const readout = usage
     ? `${pullReadout ?? formatContextWindowTokens(usage.usedTokens)} / ${
         usage.maxTokens != null ? formatContextWindowTokens(usage.maxTokens) : "-"
@@ -104,7 +141,6 @@ export function DeviceContextBar(props: {
     : "0 / -";
   const overloaded = used > 90;
   const maxTokens = usage?.maxTokens ?? null;
-  const blackhole = parseBlackholeExtensionStatus(props.extensionStatuses);
   return (
     <div
       ref={rootRef}
@@ -149,9 +185,14 @@ export function DeviceContextBar(props: {
             compactDisabled={props.compactDisabled}
             onRunCommand={props.onRunBlackholeCommand}
             onCompact={props.onCompact}
+            compacting={props.compacting}
           />
         ) : null}
-        {props.compactBeforeSendTokens !== null ? (
+        {props.compacting ? (
+          <span className="device-context__compacting" role="status">
+            compacting…
+          </span>
+        ) : props.compactBeforeSendTokens !== null ? (
           <CompactOnSendFlag
             tokens={props.compactBeforeSendTokens}
             modelName={props.compactionModelName}
@@ -413,15 +454,99 @@ const BLACKHOLE_WORK: Record<BlackholeWorkerPhase, { pill: string; status: strin
 };
 
 /** A black hole seen edge-on: a dark core in its ring of light, crossed by the accretion disc. */
-function BlackholeGlyph() {
+/** A tilted accretion disc that passes behind and in front of the hole; it spins while compacting. */
+function BlackholeGlyph(props: { compacting: boolean }) {
+  const id = useId();
+  const doppler = `${id}-doppler`;
+  const halo = `${id}-halo`;
+  const glow = `${id}-glow`;
+  const back = `${id}-back`;
+  const front = `${id}-front`;
+  const disc = (
+    <>
+      <circle
+        className="device-context__bh-disc"
+        r="14.4"
+        stroke={`url(#${doppler})`}
+        strokeWidth="4.6"
+        strokeOpacity="0.38"
+      />
+      <circle
+        className="device-context__bh-disc"
+        r="9.4"
+        stroke={`url(#${doppler})`}
+        strokeWidth="5.2"
+      />
+    </>
+  );
   return (
-    <svg className="device-context__bh-glyph" viewBox="0 0 34 22" aria-hidden>
-      <g transform="rotate(-9 17 11)">
-        <path className="device-context__bh-lens" d="M6.6 11 A10.4 9 0 0 1 27.4 11" />
-        <circle className="device-context__bh-halo" cx="17" cy="11" r="6.2" />
-        <circle className="device-context__bh-core" cx="17" cy="11" r="5.3" />
-        <path fill="currentColor" d="M0 11 Q17 6.6 34 11 Q17 15.4 0 11Z" />
-        <path className="device-context__bh-slit" d="M11 11 Q17 10.2 23 11 Q17 11.8 11 11Z" />
+    <svg
+      className="device-context__bh-glyph"
+      viewBox="0 0 34 22"
+      data-compacting={props.compacting || undefined}
+      ref={props.compacting ? observeVisibleAnimation : undefined}
+      aria-hidden
+    >
+      <defs>
+        <linearGradient id={doppler}>
+          <stop offset="0" stopColor="currentColor" />
+          <stop offset="0.6" stopColor="currentColor" stopOpacity="0.85" />
+          <stop offset="1" stopColor="currentColor" stopOpacity="0.3" />
+        </linearGradient>
+        <linearGradient id={halo} x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0" stopColor="currentColor" />
+          <stop offset="0.5" stopColor="currentColor" stopOpacity="0.75" />
+          <stop offset="1" stopColor="currentColor" stopOpacity="0.3" />
+        </linearGradient>
+        <radialGradient id={glow}>
+          <stop offset="0.5" stopColor="currentColor" stopOpacity="0.5" />
+          <stop offset="1" stopColor="currentColor" stopOpacity="0" />
+        </radialGradient>
+        <clipPath id={back}>
+          <rect x="-20" y="-20" width="40" height="20" />
+        </clipPath>
+        <clipPath id={front}>
+          <rect x="-20" y="0" width="40" height="20" />
+        </clipPath>
+      </defs>
+      <g transform="translate(17 11) rotate(-9)" fill="none">
+        <circle r="10.5" fill={`url(#${glow})`} opacity="0.5" />
+        <g clipPath={`url(#${back})`} opacity="0.55">
+          <g transform="scale(1 .3)">
+            {disc}
+            <circle
+              className="device-context__bh-spin"
+              r="12"
+              strokeWidth="3"
+              strokeDasharray="14 23.7"
+            />
+          </g>
+        </g>
+        <circle
+          className="device-context__bh-halo"
+          r="6.5"
+          stroke={`url(#${halo})`}
+          strokeWidth="1.3"
+        />
+        <circle className="device-context__bh-core" r="5.8" />
+        <g clipPath={`url(#${front})`}>
+          <g transform="scale(1 .3)">
+            {disc}
+            <circle
+              className="device-context__bh-spin"
+              r="14.4"
+              strokeWidth="4"
+              strokeDasharray="17 28.2"
+            />
+            <circle
+              className="device-context__bh-spin"
+              data-orbit="inner"
+              r="9.4"
+              strokeWidth="5.2"
+              strokeDasharray="11 18.5"
+            />
+          </g>
+        </g>
       </g>
     </svg>
   );
@@ -436,12 +561,14 @@ function BlackholeStatusControl(props: {
   compactDisabled: boolean;
   onRunCommand: ((command: string) => void) | undefined;
   onCompact: (() => void) | undefined;
+  compacting: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [pillEl, setPillEl] = useState<HTMLButtonElement | null>(null);
   const { status, compactionSavings } = props;
   const work = status.worker?.kind === "running" ? BLACKHOLE_WORK[status.worker.phase] : null;
-  const pillLabel = !status.memoryEnabled ? "off" : (work?.pill ?? null);
+  // The bar's own "compacting…" already names a compaction.
+  const pillLabel = props.compacting ? null : !status.memoryEnabled ? "off" : (work?.pill ?? null);
   const wrote =
     status.worker?.kind === "done" && status.worker.phase === "observer"
       ? status.worker.delta
@@ -465,14 +592,14 @@ function BlackholeStatusControl(props: {
         ref={setPillEl}
         type="button"
         className="device-context__bh-pill"
-        data-state={!status.memoryEnabled ? "off" : work ? "working" : "idle"}
+        data-state={props.compacting || work ? "working" : !status.memoryEnabled ? "off" : "idle"}
         aria-expanded={open}
         aria-haspopup="dialog"
         aria-label="Memory"
         onPointerDown={(event) => event.preventDefault()}
         onClick={() => setOpen((current) => !current)}
       >
-        <BlackholeGlyph />
+        <BlackholeGlyph compacting={props.compacting} />
         {pillLabel}
       </button>
       <PopoverPopup anchor={pillEl} side="top" align="end" width="md" padding="compact">

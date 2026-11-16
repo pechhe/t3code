@@ -519,6 +519,9 @@
   cursor: default;
   opacity: 0.5;
 }
+.device-context__compacting {
+  color: var(--crt-amber);
+}
 
 /* Compact on send: a lit tag while armed, a dashed prompt once disarmed. */
 .device-context__flag {
@@ -586,23 +589,44 @@
   overflow: visible;
   transform-origin: 50% 50%;
 }
-.device-context__bh-halo {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-}
-.device-context__bh-lens {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1;
-  opacity: 0.5;
-}
 .device-context__bh-core {
-  fill: oklch(0.1 0 0);
+  fill: oklch(0 0 0);
 }
-.device-context__bh-slit {
-  fill: oklch(0.1 0 0);
-  opacity: 0.55;
+/* Bright clumps orbiting the disc: only while a compaction runs and the glyph is on screen, and
+   stepped so a 120Hz display paints no more. */
+.device-context__bh-spin {
+  stroke: currentColor;
+  stroke-linecap: round;
+  transform-origin: 0 0;
+  opacity: 0;
+}
+.device-context__bh-glyph[data-compacting] .device-context__bh-disc {
+  opacity: 0.3;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .device-context__bh-glyph[data-compacting] .device-context__bh-spin {
+    opacity: 1;
+    animation: device-context-bh-spin 1.5s steps(45) infinite;
+    animation-play-state: var(--visible-animation-state, running);
+  }
+  .device-context__bh-glyph[data-compacting] .device-context__bh-spin[data-orbit="inner"] {
+    animation-duration: 0.8s;
+    animation-timing-function: steps(24);
+  }
+  .device-context__bh-glyph[data-compacting] .device-context__bh-halo {
+    animation: device-context-bh-halo 1.5s steps(12) infinite;
+    animation-play-state: var(--visible-animation-state, running);
+  }
+}
+@keyframes device-context-bh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes device-context-bh-halo {
+  50% {
+    opacity: 0.45;
+  }
 }
 /* The ring that leaves the hole as it swallows a compaction; centred on the glyph. */
 .device-context__bh-gulp {

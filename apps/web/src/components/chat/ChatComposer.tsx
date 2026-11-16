@@ -449,6 +449,8 @@ export interface ChatComposerProps {
     | null;
   extensionStatuses?: ReadonlyArray<{ readonly key: string; readonly text: string }> | undefined;
   blackholeCompactionSavings?: ThreadCompactionSavings | undefined;
+  /** A compaction of this thread is under way. */
+  isCompacting: boolean;
   onRunBlackholeCommand?: ((command: string) => void) | undefined;
   activeThreadShell: ThreadShell | null;
   compactDisabledReason: string | null;
@@ -4087,6 +4089,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   compactAtBounds={compactAtBounds}
                   onCompactAtChange={onCompactAtChange}
                   onOpenProviderSettings={onOpenProviderSettings}
+                  compacting={props.isCompacting}
                   compactDisabled={compactDisabled || noProviderAvailable || isSendBusy}
                   compactDisabledReason={resolvedCompactDisabledReason}
                   {...(compactCommandAvailable ? { onCompact: compactThreadContext } : {})}

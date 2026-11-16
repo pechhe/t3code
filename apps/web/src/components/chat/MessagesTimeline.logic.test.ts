@@ -24,7 +24,7 @@ import {
   makeStreamingWorkTimelineFixture,
   withStreamedText,
 } from "../../test-fixtures";
-import type { TurnDiffSummary } from "../../types";
+import type { ChatMessage, TurnDiffSummary } from "../../types";
 import { describe, expect, it } from "vite-plus/test";
 import { MessageId, RunId } from "@t3tools/contracts";
 import {
@@ -615,11 +615,15 @@ describe("deriveMessagesTimelineRows", () => {
         beforeTokenCount: 899_000,
       },
     };
-    const rowsFor = (visibleTurnItems: OrchestrationV2ProjectedTurnItem[], isWorking = true) =>
+    const rowsFor = (
+      visibleTurnItems: OrchestrationV2ProjectedTurnItem[],
+      isWorking = true,
+      optimisticMessages: ChatMessage[] = [],
+    ) =>
       deriveMessagesTimelineRows({
         timelineEntries: deriveTimelineEntriesFromVisibleTurnItems({
           visibleTurnItems: [history0!, history1!, history2!, ...visibleTurnItems],
-          optimisticMessages: [],
+          optimisticMessages,
         }),
         isWorking,
         runningRunId: fixture.runId,
@@ -633,6 +637,34 @@ describe("deriveMessagesTimelineRows", () => {
         turnDiffSummaries: [],
         supportsConversationRollback: false,
       });
+
+    const unsentRows = rowsFor([], true, [
+      {
+        id: MessageId.make("unsent-compact"),
+        role: "user",
+        text: "/compact",
+        runId: null,
+        createdAt: fixture.time(6),
+        updatedAt: fixture.time(6),
+        streaming: false,
+      },
+    ]);
+    expect(
+      unsentRows.slice(unsentRows.findIndex((row) => row.id.includes("history-assistant")) + 1),
+    ).toMatchObject([{ kind: "context-compaction", active: true, label: "Compacting context" }]);
+    const steeredRows = rowsFor([], true, [
+      {
+        id: MessageId.make("steered-compact"),
+        role: "user",
+        text: "/compact",
+        runId: null,
+        inputIntent: "steer",
+        createdAt: fixture.time(6),
+        updatedAt: fixture.time(6),
+        streaming: false,
+      },
+    ]);
+    expect(steeredRows.some((row) => row.kind === "context-compaction")).toBe(false);
 
     // Only compacting on return holds a sent message back, so only it speaks through the working
     // row; the others keep their live divider.

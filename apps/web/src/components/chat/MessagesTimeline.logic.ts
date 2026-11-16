@@ -1977,6 +1977,14 @@ export function deriveMessagesTimelineRows(input: {
       entry.kind === "work" &&
       workEntryIsInActiveRun(entry.entry),
   );
+  // Sent on its own but not yet in a run: the compaction row stands in for the prompt from the
+  // first frame. A steered or queued one is still a message waiting on the live turn.
+  const isUnsentCompaction = (entry: TimelineEntry) =>
+    entry.kind === "message" &&
+    entry.message.runId === null &&
+    (entry.message.inputIntent ?? "turn_start") === "turn_start" &&
+    isCompactionCommandMessage(entry.message);
+  const unsentCompactionActive = input.isWorking && timelineEntries.some(isUnsentCompaction);
   const activeRunIsCompaction =
     input.isWorking && unsettledRunId !== null && compactionRuns.has(unsettledRunId);
   // The item can finish before its run settles; only other work should keep activity visible.
@@ -2027,7 +2035,7 @@ export function deriveMessagesTimelineRows(input: {
     timelineEntries.findLastIndex((entry) => timelineEntryRunId(entry) === endedRunId) >=
       activeTurnHeaderIndex;
   const appendWorkingRow = () => {
-    if (compactionOnlyRunFinished || zenAnswerLanded) return;
+    if (compactionOnlyRunFinished || zenAnswerLanded || unsentCompactionActive) return;
     if (runningCompactionRunId !== null && activeCompactionRunId === null) return;
     nextRows.push({
       kind: "working",
@@ -2429,6 +2437,19 @@ export function deriveMessagesTimelineRows(input: {
     }
 
     const compactionRunId = timelineEntry.message.runId;
+    if (isUnsentCompaction(timelineEntry)) {
+      nextRows.push({
+        kind: "context-compaction",
+        id: `compaction:${timelineEntry.id}`,
+        createdAt: timelineEntry.createdAt,
+        label: input.isWorking ? "Compacting context" : "Context compaction",
+        tokenCounts: null,
+        modelName: null,
+        windowTooSmall: false,
+        active: input.isWorking,
+      });
+      continue;
+    }
     const compactionRun =
       compactionRunId !== null && isCompactionCommandMessage(timelineEntry.message);
     if (compactionRun) {
