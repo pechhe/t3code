@@ -65,11 +65,10 @@ const PI_RPC_DISCOVERY_TIMEOUT_MS = 30_000;
 const PI_TEXT_GENERATION_DISCOVERY_TIMEOUT_MS = 5_000;
 /**
  * get_entries arrived in 0.80.3 and agent_settled landed in source at 0.80.4.
- * Version 0.80.5 was the first published package containing both hooks.
+ * Version 0.80.5 was the first published package containing both hooks. Read-only sessions
+ * need `--no-mcp` and `*` patterns in `--tools`/`--exclude-tools`, which arrived in 1.0.4.
  */
-export const MINIMUM_PI_VERSION = "0.80.5";
-/** `pi auth check --json --no-refresh` arrived in 0.84.1. */
-const PI_AUTH_CHECK_VERSION = "0.84.1";
+export const MINIMUM_PI_VERSION = "1.0.4";
 
 const decodePiAuthCheck = Schema.decodeUnknownOption(
   Schema.fromJsonString(Schema.Struct({ reason: Schema.optional(Schema.String) })),
@@ -320,18 +319,12 @@ const describeUnavailablePiModel = Effect.fn("PiProviderStatus.describeUnavailab
   function* (
     piSettings: PiSettings,
     environment: NodeJS.ProcessEnv,
-    version: string,
     launchArgs: ReadonlyArray<string>,
     model: { readonly provider: string; readonly id: string },
   ) {
     const label = `Pi default (${model.provider}/${model.id})`;
     const unavailable = `${label} uses ${model.provider}, which has no available models in Pi. Choose another model, or check that provider's setup and the Pi launch arguments.`;
-    if (
-      compareSemverVersions(version, PI_AUTH_CHECK_VERSION) < 0 ||
-      launchArgs.includes("--api-key")
-    ) {
-      return unavailable;
-    }
+    if (launchArgs.includes("--api-key")) return unavailable;
     const command = piSettings.binaryPath || "pi";
     const output = yield* resolveSpawnCommand(
       command,
@@ -586,7 +579,6 @@ export const checkPiProviderStatus = Effect.fn("checkPiProviderStatus")(function
       : yield* describeUnavailablePiModel(
           piSettings,
           probeEnvironment,
-          version,
           resolvedLaunchArgs.args,
           discovery.unavailableActiveModel,
         );

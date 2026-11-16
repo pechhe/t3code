@@ -12,6 +12,7 @@ import {
   T3_MCP_URL_ENV,
   T3_PI_INSTRUCTIONS_ENV,
   piChildInstructionsFor,
+  T3_PI_READ_ONLY_ENV,
   T3_PI_RUNTIME_MODE_ENV,
   T3_PI_MCP_EXTENSION_PATH_ENV,
 } from "./mcpExtensionSource.ts";
@@ -71,6 +72,7 @@ const PI_ARGUMENTS_WITHOUT_VALUES = new Set([
   "-nc",
   "--no-extensions",
   "-ne",
+  "--no-mcp",
   "--no-prompt-templates",
   "-np",
   "--no-skills",
@@ -198,10 +200,24 @@ function withoutExplicitExtensions(args: ReadonlyArray<string>): ReadonlyArray<s
   return filtered;
 }
 
-/** Pi's built-in tools that run commands or change files; Pi does not sandbox them itself. */
-const PI_MUTATING_BUILTIN_TOOLS = ["bash", "edit", "write"] as const;
-/** Pi's read-only search built-ins, off by default; without them a read-only session has only `read`. */
-const PI_READ_ONLY_SEARCH_TOOLS = ["+grep", "+find", "+ls"] as const;
+/** Pi's mutating built-ins and built-in extension/MCP tools withheld in read-only sessions. */
+const PI_MUTATING_BUILTIN_TOOLS = [
+  "bash",
+  "edit",
+  "write",
+  "powershell",
+  "codemode",
+  "list_mcp_resources",
+  "list_mcp_resource_templates",
+  "read_mcp_resource",
+] as const;
+/** Plain names form an explicit --tools allowlist so user extensions cannot add tools. */
+const PI_READ_ONLY_TOOLS = ["read", "grep", "find", "ls", "tool_search"] as const;
+
+function mcpToolPatternsForServer(name: string): ReadonlyArray<string> {
+  const canonical = name.replaceAll("-", "_");
+  return canonical === name ? [`mcp__${name}__*`] : [`mcp__${name}__*`, `mcp__${canonical}__*`];
+}
 
 function withoutToolSelectionArgs(args: ReadonlyArray<string>): ReadonlyArray<string> {
   const filtered: string[] = [];
@@ -268,7 +284,7 @@ export function buildPiRpcLaunch(input: {
   readonly shortLived?: boolean;
   readonly disableExtensions?: boolean;
   readonly disableTools?: boolean;
-  /** A read-only managed session: mutating built-ins and user extensions are withheld. */
+  /** A read-only managed session: keeps extensions for providers, but enforces a closed tool allowlist. */
   readonly readOnlyTools?: boolean;
   readonly runtimeMode?: "approval-required" | "auto-accept-edits" | "auto" | "full-access";
 }): {
@@ -277,14 +293,26 @@ export function buildPiRpcLaunch(input: {
 } {
   const hasT3Extension = input.disableExtensions !== true && input.extensionPath !== undefined;
   const hasT3Mcp = hasT3Extension && input.mcpSession !== undefined;
+  const agentServers = hasT3Extension ? (input.agentServers ?? []) : [];
   const extensionSafeArgs =
-    input.disableExtensions === true || input.readOnlyTools === true
+    input.disableExtensions === true
       ? withoutExplicitExtensions(input.launchArgs)
       : input.launchArgs;
   const launchArgs =
     input.disableTools === true || input.readOnlyTools === true
       ? withoutToolSelectionArgs(extensionSafeArgs)
       : extensionSafeArgs;
+  const allowedReadOnlyMcpPatterns = [
+    ...new Set([
+      ...(hasT3Mcp ? mcpToolPatternsForServer("t3-code") : []),
+      ...agentServers.flatMap((server) => mcpToolPatternsForServer(server.name)),
+    ]),
+  ];
+  const readOnlyAllowedTools = [...PI_READ_ONLY_TOOLS, ...allowedReadOnlyMcpPatterns];
+  const readOnlyExcludedTools = [
+    ...PI_MUTATING_BUILTIN_TOOLS,
+    ...(allowedReadOnlyMcpPatterns.length === 0 ? ["mcp__*"] : []),
+  ];
   const args = [
     "--mode",
     "rpc",
@@ -296,17 +324,16 @@ export function buildPiRpcLaunch(input: {
     ...launchArgs,
     ...(input.shortLived === true && !launchArgs.includes("--offline") ? ["--offline"] : []),
     // Restrictions must follow launch args so user flags cannot re-enable unattended tools/extensions.
-    ...(input.disableExtensions === true || input.readOnlyTools === true
-      ? ["--no-extensions"]
-      : []),
+    ...(input.disableExtensions === true ? ["--no-extensions"] : []),
     ...(input.disableTools === true
       ? ["--no-tools"]
       : input.readOnlyTools === true
         ? [
+            ...(!launchArgs.includes("--no-mcp") ? ["--no-mcp"] : []),
             "--tools",
-            PI_READ_ONLY_SEARCH_TOOLS.join(","),
+            readOnlyAllowedTools.join(","),
             "--exclude-tools",
-            PI_MUTATING_BUILTIN_TOOLS.join(","),
+            readOnlyExcludedTools.join(","),
           ]
         : []),
   ];
@@ -323,7 +350,7 @@ export function buildPiRpcLaunch(input: {
   delete environment[T3_MCP_BEARER_ENV];
   delete environment[T3_PI_MCP_EXTENSION_PATH_ENV];
   delete environment[T3_MCP_AGENT_SERVERS_ENV];
-  const agentServers = hasT3Extension ? (input.agentServers ?? []) : [];
+  delete environment[T3_PI_READ_ONLY_ENV];
 
   return {
     args,
@@ -332,6 +359,7 @@ export function buildPiRpcLaunch(input: {
       ...(hasT3Extension && input.extensionPath !== undefined
         ? { [T3_PI_MCP_EXTENSION_PATH_ENV]: input.extensionPath }
         : {}),
+      ...(hasT3Extension && input.readOnlyTools === true ? { [T3_PI_READ_ONLY_ENV]: "1" } : {}),
       ...(hasT3Extension && input.runtimeMode !== undefined
         ? {
             [T3_PI_RUNTIME_MODE_ENV]:

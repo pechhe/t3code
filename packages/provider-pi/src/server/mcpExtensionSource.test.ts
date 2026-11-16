@@ -1,7 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off -- Pi extensions run outside Effect; these tests exercise their native filesystem boundary.
 import * as NodeFSP from "node:fs/promises";
-import * as NodeHTTP from "node:http";
-import * as NodeHTTPS from "node:https";
+import * as NodeHttp from "node:http";
+import * as NodeHttps from "node:https";
 import * as NodePath from "node:path";
 import * as NodeOS from "node:os";
 import * as NodeModule from "node:module";
@@ -626,6 +626,100 @@ describe("Pi tool discovery permissions", () => {
     },
   );
 
+  it("blocks non-readonly and extension-shadowed tools in a read-only session even under full-access", async () => {
+    const bridge = await loadMcpBridge({
+      modern: true,
+      toolSearchAvailable: true,
+      runtimeMode: "full-access",
+      environment: {
+        T3_MCP_URL: "http://fixture.invalid/mcp",
+        T3_MCP_BEARER_TOKEN: "fixture-token",
+        T3_MCP_AGENT_SERVERS: JSON.stringify([
+          {
+            name: "weave",
+            url: "http://weave.invalid/mcp/weave",
+            authorizationHeader: "Bearer weave-token",
+          },
+        ]),
+        T3_PI_MCP_EXTENSION_PATH: "/fixture/pi-t3-extension.ts",
+        T3_PI_RUNTIME_MODE: "full-access",
+        T3_PI_INSTRUCTIONS: "read-only child",
+        T3_PI_READ_ONLY: "1",
+      },
+      agentServers: [
+        {
+          name: "weave",
+          url: "http://weave.invalid/mcp/weave",
+          authorizationHeader: "Bearer weave-token",
+          tools: ["weave_forge_read"],
+        },
+      ],
+    });
+    const hook = bridge.handlers.get("tool_call") as unknown as (
+      event: { toolName: string; input: unknown },
+      ctx: { ui: { confirm: () => Promise<boolean> } },
+    ) => Promise<{ block: true; reason: string } | undefined>;
+    const ctx = { ui: { confirm: async () => true } };
+
+    for (const allowed of [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "tool_search",
+      "mcp__t3-code__orchestrator_capabilities",
+      "mcp__weave__weave_forge_read",
+    ]) {
+      assert.isUndefined(await hook({ toolName: allowed, input: {} }, ctx));
+    }
+
+    for (const blocked of [
+      "bash",
+      "edit",
+      "write",
+      "powershell",
+      "codemode",
+      "evil_exec",
+      "mcp__other__tool",
+    ]) {
+      assert.equal((await hook({ toolName: blocked, input: {} }, ctx))?.block, true);
+    }
+
+    bridge.setBridgeSourcePath("/user/extensions/replacement.ts");
+    assert.equal(
+      (await hook({ toolName: "mcp__t3-code__orchestrator_capabilities", input: {} }, ctx))?.block,
+      true,
+    );
+
+    // Shadowing a built-in read-only tool with a user extension tool is also blocked.
+    type ToolCallHook = typeof hook;
+    let shadowedHook: ToolCallHook | undefined;
+    const source = NodeModule.stripTypeScriptTypes(
+      PI_T3_MCP_EXTENSION_SOURCE.replace(/^import .*;$/gm, "").replace(
+        "export default async function",
+        "async function",
+      ),
+    );
+    await NodeVM.runInNewContext(`${source}\nt3McpExtension(pi)`, {
+      process: {
+        env: { T3_PI_RUNTIME_MODE: "full-access", T3_PI_READ_ONLY: "1" },
+        argv: [],
+      },
+      pi: {
+        on: (name: string, handler: ToolCallHook) => {
+          if (name === "tool_call") shadowedHook = handler;
+        },
+        registerCommand: () => {},
+        getAllTools: () => [
+          { name: "read", sourceInfo: { path: "/user/extensions/evil-read.ts" } },
+          { name: "tool_search", sourceInfo: { path: "/user/extensions/evil-search.ts" } },
+        ],
+      },
+    });
+    assert.equal((await shadowedHook!({ toolName: "read", input: {} }, ctx))?.block, true);
+    assert.equal((await shadowedHook!({ toolName: "tool_search", input: {} }, ctx))?.block, true);
+  });
+
   it("allows discovery without confirmation and still gates the discovered tool", async () => {
     type ToolCallHook = (
       event: { toolName: string; input: unknown },
@@ -1034,7 +1128,11 @@ describe("canonical and legacy Weave discovery", () => {
 describe("Pi MCP client request limits", () => {
   type Limits = { readonly controlMs: number; readonly toolCallMs: number };
   type Client = {
-    callTool: (name: string, args: Record<string, unknown>, signal?: AbortSignal) => Promise<unknown>;
+    callTool: (
+      name: string,
+      args: Record<string, unknown>,
+      signal?: AbortSignal,
+    ) => Promise<unknown>;
     listTools: (signal?: AbortSignal) => Promise<unknown>;
   };
 
@@ -1045,10 +1143,19 @@ describe("Pi MCP client request limits", () => {
         "async function",
       ),
     );
-    return NodeVM.runInNewContext(
-      `${source}\ncreateMcpClient(url, "token", limits)`,
-      { NodeHTTP, NodeHTTPS, Buffer, URL, setTimeout, clearTimeout, fetch, AbortSignal, Type: {}, url, limits },
-    ) as Client;
+    return NodeVM.runInNewContext(`${source}\ncreateMcpClient(url, "token", limits)`, {
+      NodeHTTP: NodeHttp,
+      NodeHTTPS: NodeHttps,
+      Buffer,
+      URL,
+      setTimeout,
+      clearTimeout,
+      fetch,
+      AbortSignal,
+      Type: {},
+      url,
+      limits,
+    }) as Client;
   };
 
   // Replies to every POST after `delayMs`, as a slow server-side tool would.
@@ -1056,7 +1163,7 @@ describe("Pi MCP client request limits", () => {
     delayMs: number,
     run: (url: string) => Promise<void>,
   ): Promise<void> => {
-    const server = NodeHTTP.createServer((req, res) => {
+    const server = NodeHttp.createServer((req, res) => {
       req.resume();
       // @effect-diagnostics-next-line globalTimers:off -- the fixture server stands in for a slow tool.
       const timer = setTimeout(() => {

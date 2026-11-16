@@ -124,7 +124,7 @@ const piDiscoverySpawner = (
     ChildProcessSpawner.make((command) => {
       const args = ChildProcess.isStandardCommand(command) ? command.args : [];
       if (args.includes("--version")) {
-        return Effect.succeed(processHandle({ stdout: `pi ${options.version ?? "0.84.3"}\n` }));
+        return Effect.succeed(processHandle({ stdout: `pi ${options.version ?? "1.5.2"}\n` }));
       }
       if (args[0] === "auth") {
         const expected = ["auth", "check", "--provider", "openai", "--json", "--no-refresh"];
@@ -168,7 +168,7 @@ describe("PiProvider", () => {
   it.effect("keeps compatible Pi selectable when optional discovery fails", () =>
     Effect.gen(function* () {
       const snapshot = yield* checkPiProviderStatus(settings).pipe(
-        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, piProbeSpawner("0.84.3")),
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, piProbeSpawner("1.5.2")),
       );
       assert.equal(snapshot.readOnlySourceAccess, "enforced");
       assert.equal(snapshot.nativeWebResearch, false);
@@ -187,7 +187,7 @@ describe("PiProvider", () => {
       label: "answers after 6 s",
       versionDelay: "6 seconds",
       status: "ready",
-      version: "0.84.3",
+      version: "1.5.2",
       message: "could not refresh its models and commands",
       probesAfterVersion: true,
     },
@@ -207,7 +207,7 @@ describe("PiProvider", () => {
         spawned.push(args.join(" "));
         return Effect.succeed(
           args.includes("--version")
-            ? processHandle({ stdout: "pi 0.84.3\n", answered: Effect.sleep(row.versionDelay) })
+            ? processHandle({ stdout: "pi 1.5.2\n", answered: Effect.sleep(row.versionDelay) })
             : processHandle({ stderr: "RPC startup failed", exitCode: 1 }),
         );
       });
@@ -260,13 +260,6 @@ describe("PiProvider", () => {
       version: "1.4.0",
       activeModel: { provider: "openai", id: "gpt-5" },
       authCheck: '{"status":"not_ready","provider":"openai","reason":"provider_not_found"}',
-      message: "Pi default (openai/gpt-5) uses openai, which has no available models in Pi.",
-    },
-    {
-      label: "a pinned model on Pi without auth check",
-      version: MINIMUM_PI_VERSION,
-      activeModel: { provider: "openai", id: "gpt-5" },
-      authCheck: undefined,
       message: "Pi default (openai/gpt-5) uses openai, which has no available models in Pi.",
     },
     {

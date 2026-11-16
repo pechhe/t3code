@@ -43,6 +43,7 @@ export const piChildInstructionsFor = (listing: {
 }): string => PI_CHILD_INSTRUCTION_VARIANTS[piChildInstructionKey(listing)] ?? "";
 
 export const T3_PI_MCP_EXTENSION_PATH_ENV = "T3_PI_MCP_EXTENSION_PATH";
+export const T3_PI_READ_ONLY_ENV = "T3_PI_READ_ONLY";
 export const PI_T3_SERVICE_TIER_COMMAND = "t3-service-tier";
 
 // These tools trigger file-change approvals, bypassed by Auto-accept edits.
@@ -63,6 +64,7 @@ const AGENT_SERVERS_ENV = ${JSON.stringify(T3_MCP_AGENT_SERVERS_ENV)};
 const RUNTIME_MODE_ENV = ${JSON.stringify(T3_PI_RUNTIME_MODE_ENV)};
 const EXTENSION_PATH_ENV = ${JSON.stringify(T3_PI_MCP_EXTENSION_PATH_ENV)};
 const INSTRUCTIONS_ENV = ${JSON.stringify(T3_PI_INSTRUCTIONS_ENV)};
+const READ_ONLY_ENV = ${JSON.stringify(T3_PI_READ_ONLY_ENV)};
 const ORCHESTRATION_INSTRUCTIONS = ${JSON.stringify(T3_CODE_ORCHESTRATION_INSTRUCTIONS.trim())};
 const SERVICE_TIER_COMMAND = ${JSON.stringify(PI_T3_SERVICE_TIER_COMMAND)};
 const PROTOCOL = "2025-06-18";
@@ -613,14 +615,25 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
     typeof pi.getAllTools === "function" &&
     pi.getAllTools().some((tool) => tool.name === "tool_search" && tool.sourceInfo?.path === "builtin:tool-search");
 
+  const isBuiltinReadOnlyTool = (name: string) => {
+    if (!READ_ONLY_TOOLS.has(name)) return false;
+    if (typeof pi.getAllTools !== "function") return true;
+    const registered = pi.getAllTools().find((tool) => tool.name === name);
+    return registered?.sourceInfo?.path === undefined
+      ? true
+      : registered.sourceInfo.path === \`builtin:\${name}\`;
+  };
+
   // T3's annotated reads, every T3 tool for a delegated task (its asking would wait on nobody,
   // and T3 refuses what its class may not call), and every tool of an agent server, which itself
   // decides what this thread's role may do there.
   const approvedMcpTools = new Set<string>();
   const delegatedTask = process.env[INSTRUCTIONS_ENV] !== undefined;
   const isApprovedMcpTool = (name: string) => {
+    if (!approvedMcpTools.has(name)) return false;
+    if (typeof pi.getAllTools !== "function") return true;
     const extensionPath = env(EXTENSION_PATH_ENV);
-    if (extensionPath === undefined || !approvedMcpTools.has(name) || typeof pi.getAllTools !== "function") return false;
+    if (extensionPath === undefined) return false;
     // A user extension may own the same name. Only our registered HTTP bridge
     // may inherit the canonical server's approval.
     return pi.getAllTools().some((tool) => tool.name === name &&
@@ -670,6 +683,19 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
   pi.on("tool_call", async (event, ctx) => {
     const refusal = await guardRefusal(event, ctx);
     if (refusal !== undefined) return refusal;
+    if (env(READ_ONLY_ENV) === "1") {
+      if (
+        isBuiltinReadOnlyTool(event.toolName) ||
+        (event.toolName === "tool_search" && hasBuiltinToolSearch()) ||
+        isApprovedMcpTool(event.toolName)
+      ) {
+        return;
+      }
+      return {
+        block: true,
+        reason: \`\${event.toolName} is not allowed in a read-only T3 Code session.\`,
+      };
+    }
     const mode = runtimeMode();
     if (mode === "full-access") return;
     if ((event.toolName === "tool_search" ? hasBuiltinToolSearch() : READ_ONLY_TOOLS.has(event.toolName)) || isApprovedMcpTool(event.toolName)) {

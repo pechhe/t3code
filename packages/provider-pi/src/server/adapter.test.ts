@@ -2241,23 +2241,31 @@ describe("PiAdapterV2", () => {
         if (readOnly === undefined || writer === undefined || ordinary === undefined) {
           assert.fail("Expected read-only, writer and ordinary Pi launches");
         }
-        // A user's tool selection cannot re-enable the withheld tools.
+        // A user's tool selection cannot re-enable the withheld tools, while provider extensions still load.
         assert.notInclude(readOnly, "read,bash");
+        assert.include(readOnly, "--no-mcp");
+        assert.deepEqual(
+          readOnly.slice(readOnly.indexOf("--tools"), readOnly.indexOf("--tools") + 2),
+          ["--tools", "read,grep,find,ls,tool_search"],
+        );
         assert.deepEqual(
           readOnly.slice(
             readOnly.indexOf("--exclude-tools"),
             readOnly.indexOf("--exclude-tools") + 2,
           ),
-          ["--exclude-tools", "bash,edit,write"],
+          [
+            "--exclude-tools",
+            "bash,edit,write,powershell,codemode,list_mcp_resources,list_mcp_resource_templates,read_mcp_resource,mcp__*",
+          ],
         );
-        assert.include(readOnly, "--no-extensions");
-        assert.notInclude(readOnly, "/user/extension.ts");
-        assert.notInclude(readOnly, "/user/other.ts");
+        assert.notInclude(readOnly, "--no-extensions");
+        assert.include(readOnly, "/user/extension.ts");
+        assert.include(readOnly, "/user/other.ts");
         const extensions = readOnly.flatMap((arg, index) =>
-          arg === "--extension" ? [readOnly[index + 1]] : [],
+          arg === "--extension" || arg === "-e" ? [readOnly[index + 1]] : [],
         );
-        assert.lengthOf(extensions, 1);
-        assert.isTrue(extensions[0]?.endsWith("pi-t3-mcp-extension.ts"));
+        assert.lengthOf(extensions, 3);
+        assert.isTrue(extensions.at(-1)?.endsWith("pi-t3-mcp-extension.ts"));
         for (const args of [writer, ordinary]) {
           assert.notInclude(args, "--no-extensions");
           assert.include(args, "/user/extension.ts");

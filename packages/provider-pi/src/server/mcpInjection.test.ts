@@ -5,6 +5,7 @@ import {
   T3_MCP_AGENT_SERVERS_ENV,
   T3_MCP_BEARER_ENV,
   T3_MCP_URL_ENV,
+  T3_PI_READ_ONLY_ENV,
   T3_PI_RUNTIME_MODE_ENV,
   T3_PI_MCP_EXTENSION_PATH_ENV,
 } from "./mcpExtensionSource.ts";
@@ -175,7 +176,7 @@ describe("pi T3 MCP injection", () => {
     assert.deepInclude(resolvePiLaunchArgs("--plan @instructions.md"), { ok: false });
   });
 
-  it("withholds mutating built-ins after any user tool selection for a read-only session", () => {
+  it("withholds mutating built-ins and extension tools while keeping provider extensions for a read-only session", () => {
     const launch = buildPiRpcLaunch({
       launchArgs: [
         "--tools",
@@ -189,24 +190,69 @@ describe("pi T3 MCP injection", () => {
       ],
       environment: {},
       mcpSession,
+      agentServers: [
+        {
+          name: "weave",
+          url: "http://127.0.0.1:43123/mcp/weave",
+          authorizationHeader: "Bearer weave-token",
+        },
+      ],
       extensionPath: "/tmp/cache/pi-t3-mcp-extension.ts",
       readOnlyTools: true,
     });
     assert.notInclude(launch.args, "read,bash");
     assert.notInclude(launch.args, "--exclude-tools=grep");
-    assert.notInclude(launch.args, "--extension=./user.ts");
-    assert.notInclude(launch.args, "./other.ts");
-    assert.include(launch.args, "--no-extensions");
+    assert.include(launch.args, "--extension=./user.ts");
+    assert.include(launch.args, "./other.ts");
+    assert.notInclude(launch.args, "--no-extensions");
+    assert.include(launch.args, "--no-mcp");
     assert.deepEqual(launch.args.slice(-2), ["--extension", "/tmp/cache/pi-t3-mcp-extension.ts"]);
     const excluded = launch.args.indexOf("--exclude-tools");
     assert.deepEqual(launch.args.slice(excluded, excluded + 2), [
       "--exclude-tools",
-      "bash,edit,write",
+      "bash,edit,write,powershell,codemode,list_mcp_resources,list_mcp_resource_templates,read_mcp_resource",
     ]);
     const added = launch.args.indexOf("--tools");
-    assert.deepEqual(launch.args.slice(added, added + 2), ["--tools", "+grep,+find,+ls"]);
+    assert.deepEqual(launch.args.slice(added, added + 2), [
+      "--tools",
+      "read,grep,find,ls,tool_search,mcp__t3-code__*,mcp__t3_code__*,mcp__weave__*",
+    ]);
     assert.include(launch.args, "anthropic");
     assert.equal(launch.env[T3_MCP_URL_ENV], mcpSession.endpoint);
+    assert.equal(launch.env[T3_PI_READ_ONLY_ENV], "1");
+
+    const withoutMcp = buildPiRpcLaunch({
+      launchArgs: [],
+      environment: { [T3_PI_READ_ONLY_ENV]: "1" },
+      mcpSession: undefined,
+      extensionPath: "/tmp/cache/pi-t3-mcp-extension.ts",
+      readOnlyTools: true,
+    });
+    assert.deepEqual(
+      withoutMcp.args.slice(
+        withoutMcp.args.indexOf("--tools"),
+        withoutMcp.args.indexOf("--tools") + 2,
+      ),
+      ["--tools", "read,grep,find,ls,tool_search"],
+    );
+    assert.deepEqual(
+      withoutMcp.args.slice(
+        withoutMcp.args.indexOf("--exclude-tools"),
+        withoutMcp.args.indexOf("--exclude-tools") + 2,
+      ),
+      [
+        "--exclude-tools",
+        "bash,edit,write,powershell,codemode,list_mcp_resources,list_mcp_resource_templates,read_mcp_resource,mcp__*",
+      ],
+    );
+
+    const writable = buildPiRpcLaunch({
+      launchArgs: [],
+      environment: { [T3_PI_READ_ONLY_ENV]: "1" },
+      mcpSession,
+      extensionPath: "/tmp/cache/pi-t3-mcp-extension.ts",
+    });
+    assert.isUndefined(writable.env[T3_PI_READ_ONLY_ENV]);
   });
 
   it("rejects --provider without --model, which Pi 1.0 refuses at startup", () => {

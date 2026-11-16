@@ -108,9 +108,15 @@ its revision and the role names, or the reason the policy is refused.
   opt-in and a Full access child within the caller's permission ceiling.
   Read-only tasks (a reader role or `readOnly: true`) require the provider
   snapshot to declare read-only source enforcement. Claude, Codex, OpenCode,
-  Grok, Pi, Muse and Antigravity currently declare it; Pi also disables user
-  extensions for these tasks, Muse runs the task with its shell and write tools
-  disabled, and
+  Grok, Pi, Muse and Antigravity currently declare it; Pi keeps configured
+  extensions loaded so extension-registered models still start, while restricting
+  tools to a closed read-only allowlist (`read`, `grep`, `find`, `ls`,
+  `tool_search`, and T3's read-only MCP tools) with mutating built-ins,
+  `codemode`, and external MCP servers excluded, and its injected extension refusing
+  any other tool call. For Pi, read-only means no write or exec tool reaches the
+  model; the user's own installed extensions still run with the user's
+  permissions, as in any Pi session. Muse runs the task with its
+  shell and write tools disabled, and
   Antigravity asks for permission on every edit and command so the task's
   read-only policy can refuse it. Dispatch skips
   other providers with `read-only-unenforced` and refuses when none qualify,
@@ -134,13 +140,13 @@ its revision and the role names, or the reason the policy is refused.
   environment does.
 - Lazy loading of T3's tools, and whether harness extras can be turned off, per adapter:
 
-  | Adapter                                         | T3 tools lazily loaded                                                               | Established by                                    | Harness extras off |
-  | ----------------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------- | ------------------ |
-  | Claude                                          | Yes, through ToolSearch, unless a setting stops it                                   | Recorded first-turn requests list names only      | Yes                |
-  | Pi                                              | Yes, except two or three direct tools, if search is built in; names are never listed | Pi's tool-search source and the extension's tests | None to turn off   |
-  | Codex                                           | Yes, through tool search, except `t3_thread_wait`                                    | Thread-start request from the replay fixtures     | Yes                |
-  | Antigravity                                      | Not confirmed                                                                        | Not measured                                      | Native subagents disabled |
-  | Cursor, Grok, OpenCode, Kiro, Muse              | Not confirmed                                                                        | Not measured                                      | Not turned off     |
+  | Adapter                            | T3 tools lazily loaded                                                               | Established by                                    | Harness extras off        |
+  | ---------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------- | ------------------------- |
+  | Claude                             | Yes, through ToolSearch, unless a setting stops it                                   | Recorded first-turn requests list names only      | Yes                       |
+  | Pi                                 | Yes, except two or three direct tools, if search is built in; names are never listed | Pi's tool-search source and the extension's tests | None to turn off          |
+  | Codex                              | Yes, through tool search, except `t3_thread_wait`                                    | Thread-start request from the replay fixtures     | Yes                       |
+  | Antigravity                        | Not confirmed                                                                        | Not measured                                      | Native subagents disabled |
+  | Cursor, Grok, OpenCode, Kiro, Muse | Not confirmed                                                                        | Not measured                                      | Not turned off            |
 
   An adapter that loads T3's tools eagerly gives every editor the full catalogue's schemas, about
   650 KB, on its first turn, so an unconfirmed adapter is a poor choice for delegated work.
