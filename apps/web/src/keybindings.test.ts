@@ -741,7 +741,7 @@ describe("resolveShortcutCommand", () => {
         DEFAULT_RESOLVED_KEYBINDINGS,
         { platform: "Linux", context: { isDesktop: true } },
       ),
-      "thread.jump.1",
+      "composer.modelSlot.1",
     );
     assert.strictEqual(
       resolveShortcutCommand(
