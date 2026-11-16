@@ -10,7 +10,7 @@ const serverSrc = NodePath.resolve(here, "../..");
 const repoRoot = NodePath.resolve(serverSrc, "../../..");
 const dir = "decisionEvaluations/contextRanking";
 
-/** Everything that decides what a provider is asked, how it is called and what the baseline sees. A change to any of these invalidates a retained run. */
+/** Captured as historical identity for manual runs, not checked against retained results. */
 const RUN_FILES = [
   "run.ts",
   "provenance.ts",

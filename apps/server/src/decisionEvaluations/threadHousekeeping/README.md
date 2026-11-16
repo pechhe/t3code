@@ -72,7 +72,9 @@ The state database records no token spend for a turn, so the spend of the turns 
 - One call per ask and engine; a later pass on the same cases differed in the top label on 9 of 770 calls and changed no wake figure and at most one project figure (Jev 51 to 50 and Luna 37 to 38 matched, `results/first-run/`, made on source that differed only in comments and a test; its identity no longer matches the files). Luna timed out on one call in the final pass and on two in the first; Jev never failed.
 - The keyword rule is T3-359's, frozen and unaware of three of this operator's projects.
 
-## Reproducing
+## Historical records and optional reproduction
+
+These results are historical records from the retained evaluation collection, last measured on Effect 4.1.4 on 16 Nov 2026; this pilot's original run dates remain in its results. They are no longer tied to the current tree and are not re-run on dependency, lockfile, source, corpus or label changes. The owner retired the re-run gate on 16 Nov 2026, replacing Decision #6927's certified-amendment ledger. The recorded conclusions and scores remain unchanged.
 
 From `apps/server`, with the provider keys in the environment (`TYPESAFE_API_KEY` for Jev, `OPENAI_API_KEY` for Luna); never pass a key as an argument. The private cases file is built from the two snapshots by a local extraction script and kept outside the repository.
 

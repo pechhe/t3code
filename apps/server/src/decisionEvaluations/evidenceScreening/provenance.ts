@@ -10,7 +10,7 @@ const serverSrc = NodePath.resolve(here, "../..");
 const repoRoot = NodePath.resolve(serverSrc, "../../..");
 const dir = "decisionEvaluations/evidenceScreening";
 
-/** Everything that decides what a provider is asked and how it is called. A change to any of these invalidates a retained run. */
+/** Captured for manual runs and to prevent resuming attempts with mixed inputs. */
 const RUN_FILES = [
   "run.ts",
   "attemptLog.ts",

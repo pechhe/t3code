@@ -1,5 +1,4 @@
 // @effect-diagnostics nodeBuiltinImport:off - reads pool bodies through git at the retained run's commit
-import { gitFileAt, retainedRunProblems } from "../retainedRunIdentity.ts";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
@@ -17,7 +16,6 @@ import { TUNE_CASES } from "./corpusTune.ts";
 import { armContext, armSelections, DOWNSTREAM } from "./downstream.ts";
 import { corpusDigest, evaluate, runEvaluation } from "./harness.ts";
 import { agree, ALL_CASES, hasAllLabels, labelSources, labelViews, primaryView } from "./labels.ts";
-import { runDigests, scorerDigests } from "./provenance.ts";
 import { buildRequest, THRESHOLD, TOKEN_BUDGET, TOP_K } from "./rule.ts";
 import { averagePrecision, ranked, select, summarizeRule, type CaseView } from "./scoring.ts";
 import firstHeldout from "./results/first-run/heldout.json" with { type: "json" };
@@ -277,21 +275,11 @@ it.effect(
 
 const REPOSITORY_ROOT = NodePath.resolve(import.meta.dirname, "../../../../..");
 
-it("keeps retained results tied to the code, labels and corpus that produced them and reproducible from their records", () => {
+it("reproduces the historical scores from their records", () => {
   for (const [retained, cases] of [
     [heldoutResults, HELDOUT_CASES],
     [tuneResults, TUNE_CASES],
   ] as const) {
-    expect(retained.corpusDigest).toBe(corpusDigest(cases));
-    expect(retained.corpusDigestAll).toBe(corpusDigest(ALL_CASES));
-    expect(
-      retainedRunProblems(
-        { head: retained.run.checkout.head, files: retained.run.files },
-        runDigests(),
-        gitFileAt(REPOSITORY_ROOT),
-      ),
-    ).toEqual([]);
-    expect(retained.scorer.files).toEqual(scorerDigests());
     expect(retained.declared).toEqual({
       topK: TOP_K,
       threshold: THRESHOLD,
@@ -304,7 +292,6 @@ it("keeps retained results tied to the code, labels and corpus that produced the
 });
 
 it("keeps the superseded first run reproducible from its records, without claiming the current code made it", () => {
-  expect(firstHeldout.corpusDigest).toBe(corpusDigest(HELDOUT_CASES));
   const again = evaluate(HELDOUT_CASES, firstHeldout.records as never, primaryView);
   expect(JSON.parse(JSON.stringify(again.systems))).toEqual(firstHeldout.systems);
 });

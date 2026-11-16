@@ -41,7 +41,9 @@ On this small synthetic pilot both models matched or beat the deterministic base
 - Prevalence is artificial (about half the cases are defects), so precision and the flagged share do not transfer to real review.
 - Categories use only evidence shown. Questions that need repository context (call sites, other files) were deliberately limited to two boundary cases.
 
-## Reproducing
+## Historical records and optional reproduction
+
+These results are historical records from the retained evaluation collection, last measured on Effect 4.1.4 on 16 Nov 2026; this pilot's original run dates remain below. They are no longer tied to the current tree and are not re-run on dependency, lockfile, source, corpus or label changes. The owner retired the re-run gate on 16 Nov 2026, replacing Decision #6927's certified-amendment ledger. The recorded conclusions and scores remain unchanged.
 
 Run from `apps/server` with the two provider keys already in the environment (`TYPESAFE_API_KEY` for Jev, `OPENAI_API_KEY` for Luna); never pass keys as arguments.
 

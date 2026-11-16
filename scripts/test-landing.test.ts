@@ -291,12 +291,8 @@ describe("tests the import graph cannot see", () => {
   // sees. Map it in INPUT_RULES, or list it here with the reason nothing needs mapping.
   const READS_BY_PATH = /new URL\([^)]*import\.meta\.url|import\.meta\.dirname|\b__dirname\b/;
   const REVIEWED_UNMAPPED: Readonly<Record<string, string>> = {
-    "apps/server/src/decisionEvaluations/autoRouting/autoRouting.test.ts":
-      "compares the retained manifest with the lock at its recorded commit",
     "apps/server/src/decisionEvaluations/contextRanking/contextRanking.test.ts":
       "reads pool bodies as they stood at the retained run's commit",
-    "apps/server/src/decisionEvaluations/evidenceScreening/evidenceScreening.test.ts":
-      "compares the retained manifest with the lock at its recorded commit",
     "apps/server/src/serviceLauncher.test.ts":
       "import.meta.url is used only by a generated temporary child script; no repository path is read",
     "apps/desktop/scripts/electron-launcher.test.mjs":
