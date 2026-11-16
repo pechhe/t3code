@@ -35,8 +35,15 @@ const decodePlain = Schema.decodeUnknownEffect(
   Schema.fromJsonString(Schema.Struct({ plainSummary: Schema.String })),
 );
 const isChampionError = Schema.is(ChampionError);
+// Nothing else of a cause reaches the caller, so a query or a stored document that fails says why.
 const failure = (cause: unknown) =>
-  isChampionError(cause) ? cause : new ChampionError({ reason: "unavailable", cause });
+  isChampionError(cause)
+    ? cause
+    : new ChampionError({
+        reason: "unavailable",
+        detail: cause instanceof Error ? cause.message.slice(0, 400) : "A learnings read failed.",
+        cause,
+      });
 
 interface Row {
   readonly document_json: string;

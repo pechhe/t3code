@@ -844,7 +844,8 @@ export const ChampionLearningContributor = Schema.Struct({
   linkSessionId: Schema.NullOr(ChampionLabel),
   threadId: ChampionLabel,
   threadTitle: Schema.NullOr(ChampionLabel),
-  role: Schema.NullOr(AgentRole),
+  // A stored record: a role named before the writer roles merged still reads, as `implementer`.
+  role: Schema.NullOr(StoredAgentRole),
 });
 export type ChampionLearningContributor = typeof ChampionLearningContributor.Type;
 export const ChampionLearningRecordInput = Schema.Struct({
