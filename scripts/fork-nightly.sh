@@ -196,10 +196,19 @@ acquire() {
 }
 release() { rm -rf "${STATE:?}/$1"; }
 
+# pgrep <options> <app path>, matching the path literally. LC_ALL=C: in a UTF-8
+# locale macOS pgrep -f fails ("illegal byte sequence") whenever any process has
+# arguments that are not valid UTF-8, as a build's processes can.
 # -a: run by an agent inside the app, the app's main process is an ancestor.
+app_pgrep() {
+  LC_ALL=C pgrep "$1" "$(printf '%s' "$2" | sed 's/[][()\.^$*+?{}|]/\\&/g')"
+}
+
+# Only pgrep's "no match" means not running: a pgrep that failed counts as running.
 path_running() {
-  pgrep -af "$(printf '%s' "$1" | sed 's/[][()\.^$*+?{}|]/\\&/g')" >/dev/null && return 0
-  return 1
+  local rc=0
+  app_pgrep -af "$1" >/dev/null || rc=$?
+  [ "$rc" -ne 1 ]
 }
 
 # A pre-rename install matters only while it is the one installed.
@@ -213,7 +222,7 @@ t3_running() {
 }
 
 path_pid() {
-  pgrep -afo "$(printf '%s' "$1" | sed 's/[][()\.^$*+?{}|]/\\&/g')" || true
+  app_pgrep -afo "$1" || true
 }
 
 t3_pid() {
@@ -237,12 +246,11 @@ wait_for_process_quit() {
   done
 }
 
-# Without a readable start time, fall back to waiting until no app runs.
+# Without a pid or a readable start time, fall back to waiting until no app runs.
 wait_for_t3_quit() {
-  local pid started
+  local pid started=""
   pid="$(t3_pid)"
-  [ -n "$pid" ] || return 0
-  started="$(process_started "$pid")"
+  if [ -n "$pid" ]; then started="$(process_started "$pid")"; fi
   if [ -z "$started" ]; then
     while t3_running; do sleep 3; done
     return 0

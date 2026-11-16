@@ -43,7 +43,16 @@ fi
 case "$1" in *.replaced) [ "$T3_TEST_DITTO" != fail-retain ] || exit 1 ;; esac
 cp -R "$1" "$2"
 `,
+  // A pgrep-fails file makes pgrep fail as macOS pgrep does on a non-UTF-8 process:
+  // "utf8" only outside the C locale, "always" in any locale.
   pgrep: `echo "$*" >> "$T3_TEST_ROOT/pgrep.log"
+if [ -e "$T3_TEST_ROOT/pgrep-fails" ]; then
+  mode="$(cat "$T3_TEST_ROOT/pgrep-fails")"
+  if [ "$mode" = always ] || [ "$LC_ALL" != C ]; then
+    echo "pgrep: Regular expression evaluation error (illegal byte sequence)" >&2
+    exit 3
+  fi
+fi
 [ -e "$T3_TEST_ROOT/running" ] || exit 1
 read -r pid started < "$T3_TEST_ROOT/running"
 echo "\${pid:-101}"
@@ -1007,6 +1016,40 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
             expect(result.code, result.stderr).toBe(0);
             expect(await build(f.installed)).toBe("new");
             // The app quit on its own: nothing asked it to.
+            expect((await calls(f, "osascript")).filter((c) => c.endsWith(" to quit"))).toEqual([]);
+          });
+        },
+        TIMEOUT,
+      );
+
+      it.each(["utf8", "always"])(
+        "install --wait-for-quit does not take a failing pgrep (%s) for a quit",
+        async (mode) => {
+          await withFixture(async (f) => {
+            await installOld(f);
+            await stageBuild(f);
+            const marker = NodePath.join(f.root, "running");
+            const fails = NodePath.join(f.root, "pgrep-fails");
+            await NodeFSP.writeFile(marker, "");
+            await NodeFSP.writeFile(fails, mode);
+            let settled = false;
+            const pending = run(f, ["install", "--wait-for-quit"], {
+              LC_ALL: "en_US.UTF-8",
+            }).finally(() => {
+              settled = true;
+            });
+            // Several polls while the app runs: reading the failure as a quit would install
+            // and exit here. With pgrep always failing, the job polls pgrep itself.
+            await waitForLines(f, mode === "always" ? "pgrep" : "ps", 7);
+            expect(settled).toBe(false);
+            expect(await build(f.installed)).toBe("old");
+            expect(await calls(f, "osascript")).toEqual([]);
+
+            await NodeFSP.rm(fails);
+            await NodeFSP.rm(marker);
+            const result = await pending;
+            expect(result.code, result.stderr).toBe(0);
+            expect(await build(f.installed)).toBe("new");
             expect((await calls(f, "osascript")).filter((c) => c.endsWith(" to quit"))).toEqual([]);
           });
         },
