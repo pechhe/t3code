@@ -31,7 +31,12 @@ import {
   type InputRule,
 } from "./lib/test-landing-inputs.ts";
 import { listTests, mapConcurrently, runCommand, VITEST_FLAGS } from "./lib/test-landing-vitest.ts";
-import { changedModulePaths, relativeImports, stemOf } from "./lib/test-selection.ts";
+import {
+  changedModulePaths,
+  relativeImports,
+  stemOf,
+  TEST_FILE_WORKERS,
+} from "./lib/test-selection.ts";
 
 const ROOT = NodePath.resolve(import.meta.dirname, "..");
 const ENGINES_NODE = (
@@ -321,10 +326,13 @@ export function selectLandingTests(
 /**
  * The gate's time limit, inside the verify budget in slipjay.json (p90 180 s) with room for the
  * typechecks and for listing the selection. The server suite is configured to run one file at a
- * time, which put a hub change at half an hour, so the gate and the audit run files in parallel
- * across a fixed number of workers.
+ * time, so the gate and the audit run files in parallel across TEST_FILE_WORKERS.
  */
-export const LANDING_BUDGET = { seconds: 60, workers: 8, startupSeconds: 5 } as const;
+export const LANDING_BUDGET = {
+  seconds: 60,
+  workers: TEST_FILE_WORKERS,
+  startupSeconds: 5,
+} as const;
 // About the median recorded file; a test added since the durations were recorded.
 const UNRECORDED_SECONDS = 2;
 

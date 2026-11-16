@@ -2,8 +2,9 @@
 // Runs CI's fast checks for this branch's changes: format and lint of the
 // changed files, knip, generated GraphQL operations, typecheck of the affected
 // packages and their dependents, the test files beside the changed files and those
-// importing a changed module, and the cross-file checks those miss (agent context
-// budget, React Compiler coverage of the changed client files).
+// importing a changed module (in parallel, since the server project runs one file at
+// a time and a hub change reaches over a hundred of them), and the cross-file checks
+// those miss (agent context budget, React Compiler coverage of the changed client files).
 // A dependency change also gets the unused-patch install check below. CI still
 // runs the full test suites and the jobs listed in the summary.
 //
@@ -40,7 +41,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import { decide, readWorkspace } from "../.github/scripts/ci-changes.cjs";
 import { vitePlusCommand } from "./check-changed-command.ts";
-import { importerTests } from "./lib/test-selection.ts";
+import { importerTests, TEST_FILE_WORKERS } from "./lib/test-selection.ts";
 
 const GiB = 1024 ** 3;
 
@@ -557,6 +558,11 @@ const checkChanged = Effect.fn("checkChanged")(function* (input: {
               "test",
               "run",
               "--passWithNoTests",
+              // The server project runs one file at a time, which took a hub change's selection
+              // past the step timeout; the landing gate runs the same files this way.
+              "--fileParallelism",
+              "--maxWorkers",
+              String(TEST_FILE_WORKERS),
               ...vitestTests,
             ]),
             serial: true,

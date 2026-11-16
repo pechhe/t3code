@@ -3,6 +3,13 @@
 // local pass cannot miss a test the gate runs.
 import * as NodePath from "node:path";
 
+/**
+ * Test files Vitest runs at once. The server project's config runs them one at a time for
+ * load-sensitive flakes, which put a hub change at half an hour and past check:changed's step
+ * timeout, so both runners ask for parallelism and bound it here.
+ */
+export const TEST_FILE_WORKERS = 8;
+
 export const stemOf = (file: string) => NodePath.posix.basename(file).replace(/\..*$/, "");
 const withoutExtension = (file: string) => file.replace(/\.[cm]?[jt]sx?$/, "");
 

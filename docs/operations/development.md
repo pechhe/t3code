@@ -227,7 +227,9 @@ upstream; a repository without that file compares against the closest merge base
 test suites and the jobs the summary lists, so a local pass does not promise a green CI run.
 
 The steps run side by side, as many at once as the machine allows: one per two cores and per 6 GiB
-of available memory. On a large machine a run takes about as long as its slowest step, usually
+of available memory. The test step runs up to eight test files at once, the count the landing gate
+uses, because the server project runs them one at a time and a hub change selects over a hundred. On
+a large machine a run takes about as long as its slowest step, usually
 knip's exports pass at about 10 s. Pass `--concurrency <n>` or set `CHECK_CHANGED_CONCURRENCY` to
 change the limit (`1` runs the steps one by one). A step that runs past `--timeout <seconds>` or
 `CHECK_CHANGED_TIMEOUT` (default 900) is killed with every process it started and reported as

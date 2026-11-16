@@ -485,10 +485,14 @@ it("runs a test importing a changed module from another directory", () => {
   );
   const result = project.run();
   expect(result.status, result.stdout + result.stderr).toBe(0);
+  // The server project would otherwise run these one at a time, past the step timeout.
   expect(project.calls().find(({ args }) => args[0] === "test")?.args).toEqual([
     "test",
     "run",
     "--passWithNoTests",
+    "--fileParallelism",
+    "--maxWorkers",
+    "8",
     "packages/example/src/use/useFormat.test.ts",
   ]);
 });
