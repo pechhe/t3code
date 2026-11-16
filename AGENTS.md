@@ -2,7 +2,7 @@
 
 T3 Peach is Henry’s fork of T3 Code: a Node WebSocket server wrapping provider runtimes, with web, Electron desktop and React Native mobile clients. Preserve remote use, open-source forkability and performance; avoid excess WebSocket data, costly list rendering and continuously repainting animations, especially on high-refresh displays.
 
-Global agent policy governs authority, workflow, delegation, review, SlipJay delivery and release. This file adds repository constraints; it grants no publication or browser authority. Track maintainer work in Weave Forge (`tracker` in `slipjay.json`); GitHub Issues are read-only history. External proposals follow [CONTRIBUTING.md](CONTRIBUTING.md) and belong in Ideas discussions. Keep plans, research notes and scratch files outside the worktree; `.plans/` is only a legacy safety net.
+Global agent policy governs authority, workflow, delegation, review, SlipJay delivery and release. This file adds repository constraints; it grants no publication or browser authority. Track maintainer work in Weave Forge (`tracker` in `slipjay.json`); GitHub Issues are read-only history, whatever Plans and work artifacts says below. External proposals follow [CONTRIBUTING.md](CONTRIBUTING.md) and belong in Ideas discussions. Keep plans, research notes and scratch files outside the worktree; `.plans/` is only a legacy safety net.
 
 ## What makes T3 Code special?
 
@@ -234,12 +234,12 @@ The fork does no mobile development: Henry uses the official T3 Code app. Build 
 
 ### Making a fork change
 
-A substantial feature, behaviour change or performance fix:
+A substantial feature, behaviour change or performance fix reads [`fork/README.md`](fork/README.md) first, which governs upstream reuse, shipped-native-client compatibility and performance evidence, and:
 
 - **Checks upstream first.** Look for upstream work on the same problem (recent commits, open PRs, issues) before adding another mechanism, and reuse it or its direction when it fits.
 - **Stays removable.** Keep it behind existing service boundaries, in identifiable changes, so it can be retired without rewriting shared history.
 - **Proves behaviour.** Tests assert the observable requirement, not the internal implementation, so an upstream replacement can pass them.
-- **Stays readable by shipped clients.** The TestFlight and App Store apps are upstream builds. They ignore an extra optional key on a struct, so an additive optional field (like `endedThreadWatches` on the thread shell) needs no gate. A new enum value, union member, required field, changed type or message is rejected whole, and the app only says the connection failed. Gate those behind a per-connection opt-in that fork clients send (see `LIVE_RESPONSE_STREAMING_QUERY_PARAM`), and send older clients the nearest value they know. `apps/server/src/shippedClientCompatibility.test.ts` decodes the settings a shipped client receives against the frozen schema in `shipped-client/`; extend it when the fork changes another payload, and refresh the schema when a newer upstream release ships.
+- **Stays readable by shipped clients.** The TestFlight and App Store apps are upstream builds. They ignore an extra optional key on a struct, so an additive optional field (like `endedThreadWatches` on the thread shell) needs no gate. A new enum value, union member, required field, changed type or message is rejected whole, and the app only says the connection failed. Gate those behind a per-connection opt-in that fork clients send (see `LIVE_RESPONSE_STREAMING_QUERY_PARAM`), and send older clients the nearest value they know. `apps/server/src/shippedClientCompatibility.test.ts` decodes the settings a shipped client receives against the frozen schema in `fork/shipped-client/`; extend it when the fork changes another payload, and refresh the schema when a newer upstream release ships.
 - **Updates its record entry** in `fork/differences.md` in the same change: requirements, integration points (the contracts and seams an upstream change could break), proof, known upstream work, and the condition that retires it. A temporary workaround says so.
 - **Measures performance claims.** Name the bottleneck, the realistic workload, the before and after source revisions and the correctness checks. Keep execution time apart from waiting, less work apart from deferred work, and measured gains apart from hypotheses. #135 owns profiling, metrics and the daily performance routine; use its results.
 - **Considers upstream.** Note when a focused, general fix could be proposed upstream. Never open an upstream PR without Henry asking.
@@ -248,20 +248,6 @@ A substantial feature, behaviour change or performance fix:
 
 - **Dev server or test fixtures:** read [development](docs/operations/development.md#choosing-a-dev-process) before setup, starting or sharing a server, or copying test data. It covers isolated homes, setup markers, ports, pairing and secrets.
 - **Tests or code verification:** read [testing](docs/operations/testing.md) before authoring tests or choosing checks. Run focused checks locally; global SlipJay policy owns the runner landing gate. Do not run repo-wide checks (`vp check`, `vp run -r test`, `vp run -r typecheck`) unless asked.
-- **Visible UI change:** capture it headlessly with `test-t3-app` on the machine the thread runs on, and show Henry the screenshots in your reply instead of a preview link, unless the change is judged by motion or he asks to try it. This replaces the preview in the global design loop; his yes still comes before landing. The primary agent verifies after integration; helpers do not start dev servers. Other browser or computer use still needs the authority required by global policy; this exception grants no broader permission.
+- **Visible UI change:** capture it headlessly with `test-t3-app` on the machine the thread runs on, without asking (this overrides T3's ask-before-browsing rule), and show Henry the screenshots in your reply instead of a preview link, unless the change is judged by motion or he asks to try it. This replaces the preview in the global design loop; his yes still comes before landing. The primary agent verifies after integration; helpers do not start dev servers. Other browser or computer use still needs the authority required by global policy; this exception grants no broader permission.
 - **Authorised PR work:** read [PR procedures](docs/operations/development.md#authorised-pull-requests); these do not override SlipJay publication rules.
-- **Landed work on `t3peach`:** use `t3-fork-install` to install it into the Nightly app before finishing. Landed is not installed.
-
-### Before changing behaviour
-
-Read [`fork/README.md`](fork/README.md) before a feature, behaviour change or performance fix. It governs upstream reuse, shipped-native-client compatibility and performance evidence. Every deliberate difference from upstream updates its [fork record](fork/differences.md) in the same change.
-
-## Architecture and implementation
-
-- **Server work:** before adding code in `apps/server`, read [Effect services](docs/internals/effect-services.md) and `.repos/effect-smol/LLMS.md`. Complexity belongs at adapter boundaries; orchestration stays pure. Server features are services: WebSocket, HTTP and MCP transports decode, call one service method, and map errors.
-- **Client mutations:** use `createEnvironmentRpcCommand`. Add protected methods to `CLIENT_GUARDED_RPC_SCOPES`, use the command’s `permissionAtom` for availability, and extend permission behaviour tests. Execution checks grants against the destination environment; the server stays authoritative. Raw RPC clients stay inside `rpc/`.
-- **Web UI:** read [Web UI](docs/internals/web-ui.md). Exports in `apps/web/src/components/ui` own their look: use a `variant` or `size`, not restyling via `className`. Add generic variants there; feature-specific looks belong in feature components. Put layout classes on the parent. `shadcn/no-restyle` enforces this.
-- **Effect:** reusable functions use `Effect.fn("Service.operation")` with stable span names; reserve `Effect.gen` for inline programs and layer construction. Use `Effect.fnUntraced` only for overly frequent spans or a duplicated tracing boundary, explaining why nearby. Named `Effect.fn` creates a span; unnamed does not. Preserve existing span names/options and pass combinators as additional builder arguments.
-- **Shared packages:** `packages/contracts` holds Effect/Schema contracts and small derived helpers, not heavy runtime logic. `packages/shared` uses subpath exports, no barrel. Prefer inferred types; avoid `any`.
-- **Vendored references:** `.repos/` is read-only: follow its patterns, never edit or import from it. Run `vpr sync:repos` when bumping the matching dependency. For missing sparse files use `git show origin/main:.repos/<path>`.
-- **Comments:** default to none. Record only a constraint, external quirk or invariant the code cannot show, usually one line, at most four. Do not narrate code, signatures or fix history; `t3code/no-low-value-comments` enforces the mechanical cases.
+- **Landed work on `t3peach`:** use `t3-fork-install` to install it into the Nightly app before finishing, without asking; when a staged install still waits for Henry to quit the app, rebuild it to include work landed since. Landed is not installed.
