@@ -23,6 +23,19 @@ const canonicalJson = (value: unknown): string =>
 export const digestProviderInstances = (redactedInstances: ProviderInstanceConfigMap): string =>
   NodeCrypto.createHash("sha256").update(canonicalJson(redactedInstances)).digest("hex");
 
+/** Identifies model favorites and per-provider model preferences for shared setup sync. */
+export const digestModelPreferences = (
+  input: Pick<ServerSettings, "favorites" | "providerModelPreferences">,
+): string =>
+  NodeCrypto.createHash("sha256")
+    .update(
+      canonicalJson({
+        favorites: input.favorites ?? [],
+        providerModelPreferences: input.providerModelPreferences ?? {},
+      }),
+    )
+    .digest("hex");
+
 /** A change this server didn't receive from the shared setup is a new edit to it. */
 export const stampLocalEdit = (
   state: SharedProviderSetupState,
@@ -38,6 +51,24 @@ export const stampLocalEdit = (
         version: state.version + 1,
         baseVersion: state.version > state.baseVersion ? state.baseVersion : state.version,
       };
+
+/** A model-preference change this server didn't receive from the shared setup is a new edit. */
+export const stampLocalModelPreferencesEdit = (
+  state: SharedProviderSetupState,
+  digest: string,
+  changedAt: string,
+): SharedProviderSetupState => {
+  if (state.modelPreferencesDigest === digest) return state;
+  const version = state.modelPreferencesVersion ?? 0;
+  const baseVersion = state.modelPreferencesBaseVersion ?? 0;
+  return {
+    ...state,
+    modelPreferencesDigest: digest,
+    modelPreferencesChangedAt: changedAt,
+    modelPreferencesVersion: version + 1,
+    modelPreferencesBaseVersion: version > baseVersion ? baseVersion : version,
+  };
+};
 
 const homePathOf = (instance: ProviderInstanceConfigMap[ProviderInstanceId]): string | null => {
   const config = instance.config;

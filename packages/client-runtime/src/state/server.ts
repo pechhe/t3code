@@ -1384,6 +1384,10 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:apply-shared-provider-setup",
       tag: WS_METHODS.serverApplySharedProviderSetup,
     }),
+    applySharedModelPreferences: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:apply-shared-model-preferences",
+      tag: WS_METHODS.serverApplySharedModelPreferences,
+    }),
     setProviderSetupSharing: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:set-provider-setup-sharing",
       tag: WS_METHODS.serverSetProviderSetupSharing,

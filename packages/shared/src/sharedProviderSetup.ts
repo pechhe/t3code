@@ -61,6 +61,74 @@ export function planSharedSetupSync(
   };
 }
 
+const EPOCH_ISO = "1970-01-01T00:00:00.000Z";
+
+interface SharedModelPreferencesMember extends SharedSetupMember {
+  readonly hasPreferences?: boolean;
+}
+
+function modelPreferencesSetupMember(member: SharedModelPreferencesMember): SharedSetupMember {
+  return {
+    environmentId: member.environmentId,
+    state: {
+      shared: member.state.shared,
+      version: member.state.modelPreferencesVersion ?? 0,
+      baseVersion: member.state.modelPreferencesBaseVersion ?? 0,
+      changedAt: member.state.modelPreferencesChangedAt ?? EPOCH_ISO,
+      digest: member.state.modelPreferencesDigest ?? "",
+    },
+  };
+}
+
+/** Null when every member already holds the same model preferences. */
+export function planSharedModelPreferencesSync(
+  members: ReadonlyArray<SharedModelPreferencesMember>,
+): SharedSetupPlan | null {
+  const projected = members.map(modelPreferencesSetupMember);
+  const plan = planSharedSetupSync(projected);
+  if (plan !== null) {
+    const source = projected.find((member) => member.environmentId === plan.sourceEnvironmentId);
+    if (!source) return plan;
+    const targets = projected.filter(
+      (member) =>
+        member.state.version !== plan.version ||
+        member.state.changedAt !== plan.changedAt ||
+        hasUnspreadEdit(member) ||
+        (source.state.digest !== "" && member.state.digest !== source.state.digest),
+    );
+    return { ...plan, targets };
+  }
+  if (projected.length < 2) return null;
+  const digests = new Set(projected.map((member) => member.state.digest));
+  if (digests.size <= 1) return null;
+
+  // Migrated machines can start at the same version/epoch with different favorites: prefer a
+  // populated member, then break ties deterministically so divergent machines still converge.
+  const ranked = members.map((member, index) => ({
+    raw: member,
+    projected: projected[index]!,
+  }));
+  const winner = ranked.reduce((best, candidate) => {
+    const bestPopulated = best.raw.hasPreferences !== false && best.projected.state.digest !== "";
+    const candidatePopulated =
+      candidate.raw.hasPreferences !== false && candidate.projected.state.digest !== "";
+    if (candidatePopulated !== bestPopulated) {
+      return candidatePopulated ? candidate : best;
+    }
+    return laterEdit(best.projected, candidate.projected) === candidate.projected
+      ? candidate
+      : best;
+  });
+  const highest = Math.max(...projected.map(({ state }) => state.version));
+  const version = highest + 1;
+  return {
+    sourceEnvironmentId: winner.projected.environmentId,
+    version,
+    changedAt: winner.projected.state.changedAt,
+    targets: projected,
+  };
+}
+
 /**
  * A source records its edit as spread only once everyone else took it: a refused target can still
  * hold a newer edit, which has to stay comparable with the source's.

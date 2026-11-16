@@ -319,6 +319,7 @@ function makeMutableServerSettingsService(
           return next;
         }),
       applySharedProviderSetup: () => Effect.die("Unexpected shared setup write"),
+      applySharedModelPreferences: () => Effect.die("Unexpected shared setup write"),
       setProviderSetupSharing: () => Effect.die("Unexpected shared setup write"),
       setAway: () => Effect.die("Unexpected Away change"),
       withSettingsSnapshot: (use) => Ref.get(settingsRef).pipe(Effect.flatMap(use)),

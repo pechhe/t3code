@@ -1548,6 +1548,11 @@ export const SharedProviderSetupState = Schema.Struct({
   missingSecrets: Schema.optionalKey(Schema.Record(Schema.String, Schema.Array(Schema.String))),
   /** Recently removed instances, so a client still listing one can't bring it back. */
   removedInstanceIds: Schema.optionalKey(Schema.Array(Schema.String)),
+  /** Same monotonic version/baseVersion/changedAt/digest state for model favorites and preferences. */
+  modelPreferencesVersion: Schema.optionalKey(Schema.Number),
+  modelPreferencesBaseVersion: Schema.optionalKey(Schema.Number),
+  modelPreferencesChangedAt: Schema.optionalKey(Schema.String),
+  modelPreferencesDigest: Schema.optionalKey(Schema.String),
 });
 export type SharedProviderSetupState = typeof SharedProviderSetupState.Type;
 
@@ -2124,6 +2129,7 @@ export const ServerSettingsOperation = Schema.Literals([
   "write-managed-setting",
   "use-disallowed-provider",
   "apply-shared-provider-setup",
+  "apply-shared-model-preferences",
 ]);
 export type ServerSettingsOperation = typeof ServerSettingsOperation.Type;
 

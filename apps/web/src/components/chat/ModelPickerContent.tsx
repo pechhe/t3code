@@ -54,7 +54,7 @@ import {
 import {
   useClientSettings,
   useEnvironmentModelPreferences,
-  useToggleEnvironmentModelFavorite,
+  useToggleSharedModelFavorite,
 } from "~/hooks/useSettings";
 import { announce } from "~/lib/announce";
 import { cn } from "~/lib/utils";
@@ -462,7 +462,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   const [searchHeight, setSearchHeight] = useState(0);
   const slotLabels = useClientSettings(selectModelSlotLabels);
   const [renamingModelKey, setRenamingModelKey] = useState<string | null>(null);
-  const toggleFavorite = useToggleEnvironmentModelFavorite(props.environmentId);
+  const toggleFavorite = useToggleSharedModelFavorite(props.environmentId);
 
   const focusSearchInput = () => {
     searchInputRef.current?.focus({ preventScroll: true });

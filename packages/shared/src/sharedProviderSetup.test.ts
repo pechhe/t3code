@@ -3,6 +3,7 @@ import { describe, expect, it } from "@effect/vitest";
 
 import {
   applySharedSetupPlan,
+  planSharedModelPreferencesSync,
   planSharedSetupSync,
   type SharedSetupMember,
 } from "./sharedProviderSetup.ts";
@@ -115,5 +116,102 @@ describe("applySharedSetupPlan", () => {
     });
     expect(applied).toEqual(["other", "source"]);
     expect(failures.size).toBe(0);
+  });
+});
+
+describe("planSharedModelPreferencesSync", () => {
+  it("spreads an edit from the member with newer modelPreferencesVersion and catches up peers", () => {
+    const a: SharedSetupMember = {
+      environmentId: "a" as EnvironmentId,
+      state: {
+        shared: true,
+        version: 1,
+        baseVersion: 1,
+        changedAt: T1,
+        digest: "a",
+        modelPreferencesVersion: 2,
+        modelPreferencesBaseVersion: 1,
+        modelPreferencesChangedAt: T2,
+        modelPreferencesDigest: "fav-2",
+      },
+    };
+    const b: SharedSetupMember = {
+      environmentId: "b" as EnvironmentId,
+      state: {
+        shared: true,
+        version: 1,
+        baseVersion: 1,
+        changedAt: T1,
+        digest: "b",
+      },
+    };
+    const plan = planSharedModelPreferencesSync([a, b]);
+    expect(plan).toMatchObject({
+      sourceEnvironmentId: "a",
+      version: 2,
+      changedAt: T2,
+    });
+    expect(plan?.targets.map((target) => target.environmentId).toSorted()).toEqual(["a", "b"]);
+  });
+
+  it("converges divergent members that share the same version and epoch", () => {
+    const empty: SharedSetupMember & { hasPreferences?: boolean } = {
+      environmentId: "a" as EnvironmentId,
+      hasPreferences: false,
+      state: {
+        shared: true,
+        version: 1,
+        baseVersion: 1,
+        changedAt: T1,
+        digest: "a",
+        modelPreferencesVersion: 0,
+        modelPreferencesBaseVersion: 0,
+        modelPreferencesChangedAt: "1970-01-01T00:00:00.000Z",
+        modelPreferencesDigest: "empty-digest",
+      },
+    };
+    const populated: SharedSetupMember & { hasPreferences?: boolean } = {
+      environmentId: "b" as EnvironmentId,
+      hasPreferences: true,
+      state: {
+        shared: true,
+        version: 1,
+        baseVersion: 1,
+        changedAt: T1,
+        digest: "b",
+        modelPreferencesVersion: 0,
+        modelPreferencesBaseVersion: 0,
+        modelPreferencesChangedAt: "1970-01-01T00:00:00.000Z",
+        modelPreferencesDigest: "populated-digest",
+      },
+    };
+    const plan = planSharedModelPreferencesSync([empty, populated]);
+    expect(plan).toMatchObject({
+      sourceEnvironmentId: "b",
+      version: 1,
+    });
+    expect(plan?.targets.map((target) => target.environmentId).toSorted()).toEqual(["a", "b"]);
+  });
+
+  it("returns null when upgraded members already share the same model preferences digest", () => {
+    const a: SharedSetupMember = {
+      environmentId: "a" as EnvironmentId,
+      state: {
+        shared: true,
+        version: 1,
+        baseVersion: 1,
+        changedAt: T1,
+        digest: "a",
+        modelPreferencesVersion: 0,
+        modelPreferencesBaseVersion: 0,
+        modelPreferencesChangedAt: "1970-01-01T00:00:00.000Z",
+        modelPreferencesDigest: "same-digest",
+      },
+    };
+    const b: SharedSetupMember = {
+      ...a,
+      environmentId: "b" as EnvironmentId,
+    };
+    expect(planSharedModelPreferencesSync([a, b])).toBeNull();
   });
 });

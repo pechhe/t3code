@@ -541,6 +541,53 @@ export function useToggleEnvironmentModelFavorite(
   };
 }
 
+/**
+ * Toggle a favorite on `environmentId`, fanning out directly to connected shared-setup peers
+ * that predate `sharedModelPreferences` catch-up; newer peers catch up through `SharedProviderSetupSync`.
+ */
+export function useToggleSharedModelFavorite(environmentId: EnvironmentId | null) {
+  const registry = use(RegistryContext);
+  const saveSettings = useAtomCommand(serverEnvironment.updateSettings, "model favorites update");
+  return useToggleEnvironmentModelFavorite(environmentId, async (patch) => {
+    if (!environmentId) return undefined;
+    const primarySettings = registry.get(serverEnvironment.settingsValueAtom(environmentId));
+    if (!primarySettings) return undefined;
+    const peerTargets: EnvironmentId[] = [];
+    if (primarySettings.sharedProviderSetup?.shared) {
+      for (const candidateId of registry.get(environmentCatalog.catalogValueAtom).entries.keys()) {
+        if (candidateId === environmentId) continue;
+        const connection = Option.match(
+          AsyncResult.value(registry.get(environmentCatalog.stateAtom(candidateId))),
+          { onNone: () => null, onSome: (value) => value },
+        );
+        if (connection?.phase !== "connected") continue;
+        const candidateSettings = registry.get(serverEnvironment.settingsValueAtom(candidateId));
+        if (!candidateSettings?.sharedProviderSetup?.shared) continue;
+        if (!readEnvironmentScope(candidateId, AuthSettingsWriteScope)) continue;
+        const candidateConfig = registry.get(serverEnvironment.configValueAtom(candidateId));
+        if (candidateConfig?.environment.capabilities.sharedModelPreferences === true) continue;
+        peerTargets.push(candidateId);
+      }
+    }
+    const primaryResult = await saveSettings({
+      environmentId,
+      input: { patch: await prepareModelPreferencesPatch(primarySettings, patch) },
+    });
+    if (primaryResult._tag === "Success" && peerTargets.length > 0) {
+      void Promise.all(
+        peerTargets.map(async (targetId) => {
+          const settings = registry.get(serverEnvironment.settingsValueAtom(targetId));
+          if (!settings) return;
+          const prepared = await prepareModelPreferencesPatch(settings, patch).catch(() => null);
+          if (!prepared) return;
+          await saveSettings({ environmentId: targetId, input: { patch: prepared } });
+        }),
+      );
+    }
+    return primaryResult;
+  });
+}
+
 const noEnvironmentSettingsAtom = Atom.make<ServerSettings | null>(null);
 
 export function useEnvironmentModelPreferences(environmentId: EnvironmentId | null) {

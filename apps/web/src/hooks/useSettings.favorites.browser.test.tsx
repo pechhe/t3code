@@ -24,6 +24,7 @@ const state = vi.hoisted(() => ({
     readonly entries: ReadonlyMap<string, unknown>;
   }>,
   settings: new Map<string, unknown>(),
+  configs: new Map<string, unknown>(),
   connections: new Map<
     EnvironmentId,
     Atom.Writable<AsyncResult.AsyncResult<SupervisorConnectionState>>
@@ -64,11 +65,19 @@ vi.mock(import("~/state/server"), async (original) => {
     serverEnvironment: {
       ...actual.serverEnvironment,
       settingsValueAtom: ((id: EnvironmentId) => state.settings.get(id)) as never,
+      configValueAtom: ((id: EnvironmentId) => state.configs.get(id)) as never,
       updateSettings: {
         ...actual.serverEnvironment.updateSettings,
         run: (_registry: unknown, input: unknown) => state.persist(input),
       } as never,
     },
+  };
+});
+vi.mock(import("~/state/session"), async (original) => {
+  const actual = await original();
+  return {
+    ...actual,
+    readEnvironmentScope: () => true,
   };
 });
 vi.mock(import("~/state/use-atom-command"), async (original) => ({
@@ -81,6 +90,7 @@ import {
   ensureClientSettingsHydrated,
   startModelPreferencesMigration,
   useToggleEnvironmentModelFavorite,
+  useToggleSharedModelFavorite,
 } from "./useSettings";
 
 const primaryId = EnvironmentId.make("primary");
@@ -120,6 +130,7 @@ async function setup() {
   await using stack = new AsyncDisposableStack();
   const registry = stack.adopt(AtomRegistry.make(), (registry) => registry.dispose());
   state.settings.clear();
+  state.configs.clear();
   state.connections.clear();
   const durable = new Map<EnvironmentId, ServerSettings>();
   const toggles: Array<() => Promise<void>> = [];
@@ -260,6 +271,88 @@ describe("environment favorite toggles", () => {
     writes[0]!.finish();
     await clicked;
     expect(durable.get(primaryId)!.favorites).toEqual([]);
+  });
+
+  it("fans out favorite toggles to shared peers without sharedModelPreferences catch-up", async () => {
+    await using fixture = await setup();
+    const { registry, durable, writes, show } = fixture;
+    const legacyPeerId = EnvironmentId.make("legacy-peer");
+    const modernPeerId = EnvironmentId.make("modern-peer");
+    const sharedSettings = {
+      ...initialSettings,
+      sharedProviderSetup: {
+        shared: true,
+        version: 1,
+        baseVersion: 1,
+        changedAt: "2026-11-16T10:00:00.000Z",
+        digest: "d",
+      },
+    } satisfies ServerSettings;
+    for (const id of [primaryId, legacyPeerId, modernPeerId]) {
+      registry.set(
+        settingsAtom(id) ?? Atom.make<ServerSettings | null>(sharedSettings),
+        sharedSettings,
+      );
+      if (!state.settings.has(id)) {
+        state.settings.set(id, Atom.make<ServerSettings | null>(sharedSettings));
+      }
+      state.configs.set(
+        id,
+        Atom.make({
+          environment: {
+            capabilities: {
+              sharedModelPreferences: id === modernPeerId,
+            },
+          },
+        }),
+      );
+      state.connections.set(
+        id,
+        Atom.make<AsyncResult.AsyncResult<SupervisorConnectionState>>(
+          AsyncResult.success({
+            ...AVAILABLE_CONNECTION_STATE,
+            desired: true,
+            generation: 1,
+            phase: "connected",
+          } as SupervisorConnectionState),
+        ),
+      );
+      durable.set(id, sharedSettings);
+    }
+    registry.set(state.catalog, {
+      isReady: true,
+      entries: new Map([
+        [primaryId, {}],
+        [legacyPeerId, {}],
+        [modernPeerId, {}],
+      ]),
+    });
+
+    let pending: Promise<void> | undefined;
+    function SharedFavoriteHarness({ onClicked }: { onClicked: (result: Promise<void>) => void }) {
+      const toggleShared = useToggleSharedModelFavorite(primaryId);
+      return (
+        <button onClick={() => onClicked(toggleShared(provider, model))}>Toggle shared</button>
+      );
+    }
+    await show(
+      <SharedFavoriteHarness
+        onClicked={(result) => {
+          pending = result;
+        }}
+      />,
+    );
+    document.querySelector("button")!.click();
+    await act(async () => {});
+    expect(writes.map((write) => write.environmentId)).toEqual([primaryId]);
+    writes[0]!.finish();
+    await act(async () => {});
+    expect(writes.map((write) => write.environmentId)).toEqual([primaryId, legacyPeerId]);
+    writes[1]!.finish();
+    await pending!;
+    expect(durable.get(primaryId)!.favorites).toEqual([{ provider, model }]);
+    expect(durable.get(legacyPeerId)!.favorites).toEqual([{ provider, model }]);
+    expect(durable.get(modernPeerId)!.favorites).toEqual([]);
   });
 });
 

@@ -46,6 +46,9 @@ const stateOf = (settings: { readonly sharedProviderSetup?: unknown }) =>
     readonly version: number;
     readonly baseVersion: number;
     readonly digest: string;
+    readonly modelPreferencesVersion?: number;
+    readonly modelPreferencesBaseVersion?: number;
+    readonly modelPreferencesDigest?: string;
   };
 
 it.describe("shared provider setup", () => {
@@ -355,6 +358,158 @@ it.describe("shared provider setup", () => {
       });
       assert.deepEqual(added.sharedProviderSetup?.missingSecrets, {});
       assert.equal(stateOf(added).version, stateOf(settings).version);
+    }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect(
+    "tracks local model preference edits separately and applies received ones without echo",
+    () =>
+      Effect.gen(function* () {
+        const service = yield* sharedService;
+        const initial = yield* service.getSettings;
+        const initialInstanceVersion = stateOf(initial).version;
+
+        const favored = yield* service.updateSettings({
+          setModelFavorites: [{ provider: id("codex"), model: "gpt-6-luna", favorite: true }],
+        });
+        assert.equal(stateOf(favored).version, initialInstanceVersion);
+        assert.equal(stateOf(favored).modelPreferencesVersion, 1);
+        assert.equal(stateOf(favored).modelPreferencesBaseVersion, 0);
+
+        const applied = yield* service.applySharedModelPreferences({
+          favorites: [{ provider: id("codex"), model: "gpt-6.1-sol" }],
+          providerModelPreferences: { [id("codex")]: { hiddenModels: ["old"], modelOrder: [] } },
+          version: 7,
+          changedAt: "2026-11-16T10:00:00.000Z",
+          expectedDigest: stateOf(favored).modelPreferencesDigest!,
+        });
+        assert.equal(stateOf(applied).modelPreferencesVersion, 7);
+        assert.equal(stateOf(applied).modelPreferencesBaseVersion, 7);
+        assert.deepEqual(applied.favorites, [{ provider: id("codex"), model: "gpt-6.1-sol" }]);
+        assert.deepEqual(applied.providerModelPreferences, {
+          [id("codex")]: { hiddenModels: ["old"], modelOrder: [] },
+        });
+      }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect("refuses shared model preferences from stale state or after stopping sharing", () =>
+    Effect.gen(function* () {
+      const service = yield* sharedService;
+      const planned = yield* service.getSettings;
+      yield* service.updateSettings({
+        setModelFavorites: [{ provider: id("codex"), model: "gpt-6-luna", favorite: true }],
+      });
+      const staleError = yield* Effect.flip(
+        service.applySharedModelPreferences({
+          favorites: [],
+          providerModelPreferences: {},
+          version: 2,
+          changedAt: "2026-11-16T10:00:00.000Z",
+          expectedDigest: stateOf(planned).modelPreferencesDigest!,
+        }),
+      );
+      assert.equal(staleError.operation, "apply-shared-model-preferences");
+      assert.deepEqual((yield* service.getSettings).favorites, [
+        { provider: id("codex"), model: "gpt-6-luna" },
+      ]);
+
+      const left = yield* service.setProviderSetupSharing(false);
+      const unsharedError = yield* Effect.flip(
+        service.applySharedModelPreferences({
+          favorites: [],
+          providerModelPreferences: {},
+          version: 3,
+          changedAt: "2026-11-16T10:00:00.000Z",
+          expectedDigest: stateOf(left).modelPreferencesDigest!,
+        }),
+      );
+      assert.equal(unsharedError.operation, "apply-shared-model-preferences");
+    }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect("treats favorites edited by hand in the settings file as an edit", () =>
+    Effect.gen(function* () {
+      const settings = yield* startWith({
+        favorites: [{ provider: "codex", model: "gpt-6-luna" }],
+        sharedProviderSetup: {
+          ...sharedAt(4, ""),
+          modelPreferencesVersion: 4,
+          modelPreferencesBaseVersion: 4,
+          modelPreferencesChangedAt: "2026-11-09T09:00:00.000Z",
+          modelPreferencesDigest: "digest-before-the-hand-edit",
+        },
+      });
+      assert.equal(stateOf(settings).modelPreferencesVersion, 5);
+      assert.equal(stateOf(settings).modelPreferencesBaseVersion, 4);
+    }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect(
+    "seeds a baseline digest on start so a later stopped-server hand edit is detected",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const tempDir = yield* fs.realPath(
+          yield* fs.makeTempDirectoryScoped({ prefix: "t3code-restart-test-" }),
+        );
+        const configLayer = ServerConfig.layerTest(process.cwd(), tempDir);
+        const makeInstanceLayer = () =>
+          ServerSettingsModule.layer.pipe(
+            Layer.provideMerge(ServerSecretStore.layer),
+            Layer.provide(ManagedPolicy.layerTest()),
+            Layer.provideMerge(Layer.fresh(SqlitePersistence.layerMemory)),
+            Layer.provideMerge(configLayer),
+            Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+          );
+        yield* Effect.gen(function* () {
+          const config = yield* ServerConfig.ServerConfig;
+          const fs = yield* FileSystem.FileSystem;
+          yield* fs.writeFileString(
+            config.settingsPath,
+            JSON.stringify({
+              favorites: [{ provider: "codex", model: "gpt-6-luna" }],
+              sharedProviderSetup: sharedAt(4, ""),
+            }),
+          );
+          const initialService = yield* ServerSettingsModule.ServerSettingsService;
+          yield* initialService.start;
+          const booted = yield* initialService.getSettings;
+          assert.equal(stateOf(booted).modelPreferencesVersion, 0);
+          assert.isDefined(stateOf(booted).modelPreferencesDigest);
+
+          // Simulate a hand edit while the server is stopped.
+          const persisted = JSON.parse(yield* fs.readFileString(config.settingsPath)) as Record<
+            string,
+            unknown
+          >;
+          persisted.favorites = [{ provider: "codex", model: "gpt-6.1-sol" }];
+          yield* fs.writeFileString(config.settingsPath, JSON.stringify(persisted));
+        }).pipe(Effect.provide(makeInstanceLayer()));
+
+        const afterRestart = yield* Effect.gen(function* () {
+          const restartedService = yield* ServerSettingsModule.ServerSettingsService;
+          yield* restartedService.start;
+          return yield* restartedService.getSettings;
+        }).pipe(Effect.provide(makeInstanceLayer()));
+        assert.equal(stateOf(afterRestart).modelPreferencesVersion, 1);
+        assert.equal(stateOf(afterRestart).modelPreferencesBaseVersion, 0);
+      }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("preserves existing favorites when applySharedModelPreferences receives null", () =>
+    Effect.gen(function* () {
+      const service = yield* sharedService;
+      const saved = yield* service.updateSettings({
+        setModelFavorites: [{ provider: id("codex"), model: "gpt-6-luna", favorite: true }],
+      });
+      const applied = yield* service.applySharedModelPreferences({
+        favorites: null,
+        providerModelPreferences: null,
+        version: 2,
+        changedAt: "2026-11-16T10:00:00.000Z",
+        expectedDigest: stateOf(saved).modelPreferencesDigest!,
+      });
+      assert.deepEqual(applied.favorites, [{ provider: id("codex"), model: "gpt-6-luna" }]);
     }).pipe(Effect.provide(testLayer)),
   );
 });

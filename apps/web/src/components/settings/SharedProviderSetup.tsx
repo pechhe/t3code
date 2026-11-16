@@ -1,6 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
   AuthProvidersManageScope,
+  AuthSettingsWriteScope,
   resolveEnvironmentMachineKind,
   type EnvironmentId,
   type ProviderInstanceId,
@@ -8,6 +9,7 @@ import {
   type SharedProviderSetupState,
 } from "@t3tools/contracts";
 import {
+  planSharedModelPreferencesSync,
   planSharedSetupSync,
   type SharedSetupMember,
   applySharedSetupPlan,
@@ -35,6 +37,17 @@ import { useOptionalSettingsScope } from "./SettingsScopeContext";
 const syncFailuresAtom = Atom.make<ReadonlyMap<EnvironmentId, string>>(new Map()).pipe(
   Atom.keepAlive,
 );
+
+function mergeSyncFailures(
+  providerFailures: ReadonlyMap<EnvironmentId, string>,
+  modelPreferencesFailures: ReadonlyMap<EnvironmentId, string>,
+): ReadonlyMap<EnvironmentId, string> {
+  const merged = new Map(providerFailures);
+  for (const [id, message] of modelPreferencesFailures) {
+    if (!merged.has(id)) merged.set(id, message);
+  }
+  return merged;
+}
 
 const settingsByEnvironmentAtom = Atom.family((key: string) =>
   Atom.make((get) => {
@@ -103,8 +116,29 @@ export function SharedProviderSetupSync() {
     reportFailure: false,
     reportDefect: false,
   });
+  const applyModelPreferences = useAtomCommand(serverEnvironment.applySharedModelPreferences, {
+    reportFailure: false,
+    reportDefect: false,
+  });
   const running = useRef(false);
   const failedPlan = useRef<string | null>(null);
+  const providerFailuresRef = useRef<ReadonlyMap<EnvironmentId, string>>(new Map());
+  const runningModelPreferences = useRef(false);
+  const failedModelPreferencesPlan = useRef<string | null>(null);
+  const modelPreferencesFailuresRef = useRef<ReadonlyMap<EnvironmentId, string>>(new Map());
+  const publishFailures = () => {
+    const merged = mergeSyncFailures(
+      providerFailuresRef.current,
+      modelPreferencesFailuresRef.current,
+    );
+    const current = appAtomRegistry.get(syncFailuresAtom);
+    if (
+      merged.size !== current.size ||
+      [...merged.entries()].some(([id, msg]) => current.get(id) !== msg)
+    ) {
+      appAtomRegistry.set(syncFailuresAtom, merged);
+    }
+  };
   const [, reconsider] = useState(0);
   const reachable = known.filter(
     (entry) =>
@@ -116,8 +150,9 @@ export function SharedProviderSetupSync() {
   const planKey = plan && JSON.stringify([plan, plan.targets.map((target) => target.state.digest)]);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Writes to other servers when their pushed state disagrees; nothing here derives render state.
   useEffect(() => {
-    if (!plan && appAtomRegistry.get(syncFailuresAtom).size > 0) {
-      appAtomRegistry.set(syncFailuresAtom, new Map());
+    if (!plan && providerFailuresRef.current.size > 0) {
+      providerFailuresRef.current = new Map();
+      publishFailures();
     }
     // Only the identical plan stays refused, so a machine coming back is tried again.
     if (planKey !== failedPlan.current) failedPlan.current = null;
@@ -139,10 +174,74 @@ export function SharedProviderSetupSync() {
         });
         return result._tag === "Success" ? null : describeFailure(result);
       });
-      appAtomRegistry.set(syncFailuresAtom, failures);
+      providerFailuresRef.current = failures;
+      publishFailures();
       failedPlan.current = failures.size > 0 ? planKey : null;
       running.current = false;
       // State pushed during the run was skipped above, and may be what the next plan needs.
+      reconsider((count) => count + 1);
+    })();
+  });
+  const reachableModelPreferences = known
+    .filter(
+      (entry) =>
+        entry.state.shared &&
+        entry.online &&
+        entry.environment.serverConfig?.environment.capabilities.sharedModelPreferences === true &&
+        readEnvironmentScope(entry.environmentId, AuthSettingsWriteScope),
+    )
+    .map((entry) => ({
+      ...entry,
+      hasPreferences:
+        (entry.settings.favorites?.length ?? 0) > 0 ||
+        Object.keys(entry.settings.providerModelPreferences ?? {}).length > 0,
+    }));
+  const modelPreferencesPlan = planSharedModelPreferencesSync(reachableModelPreferences);
+  const modelPreferencesPlanKey =
+    modelPreferencesPlan &&
+    JSON.stringify([
+      modelPreferencesPlan,
+      modelPreferencesPlan.targets.map((target) => target.state.digest),
+    ]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Writes model favorites and preferences to other shared servers when their state disagrees; nothing here derives render state.
+  useEffect(() => {
+    if (!modelPreferencesPlan && modelPreferencesFailuresRef.current.size > 0) {
+      modelPreferencesFailuresRef.current = new Map();
+      publishFailures();
+    }
+    if (modelPreferencesPlanKey !== failedModelPreferencesPlan.current) {
+      failedModelPreferencesPlan.current = null;
+    }
+    if (
+      !modelPreferencesPlan ||
+      runningModelPreferences.current ||
+      modelPreferencesPlanKey === failedModelPreferencesPlan.current
+    ) {
+      return;
+    }
+    const source = reachableModelPreferences.find(
+      (entry) => entry.environmentId === modelPreferencesPlan.sourceEnvironmentId,
+    );
+    if (!source) return;
+    runningModelPreferences.current = true;
+    void (async () => {
+      const failures = await applySharedSetupPlan(modelPreferencesPlan, async (target) => {
+        const result = await applyModelPreferences({
+          environmentId: target.environmentId,
+          input: {
+            favorites: source.settings.favorites,
+            providerModelPreferences: source.settings.providerModelPreferences,
+            version: modelPreferencesPlan.version,
+            changedAt: modelPreferencesPlan.changedAt,
+            expectedDigest: target.state.digest,
+          },
+        });
+        return result._tag === "Success" ? null : describeFailure(result);
+      });
+      modelPreferencesFailuresRef.current = failures;
+      publishFailures();
+      failedModelPreferencesPlan.current = failures.size > 0 ? modelPreferencesPlanKey : null;
+      runningModelPreferences.current = false;
       reconsider((count) => count + 1);
     })();
   });
@@ -158,6 +257,14 @@ const describeFailure = (result: unknown): string => {
 function useJoinSharedSetup() {
   const { members, primaryEnvironmentId, candidates } = useSharedProviderSetup();
   const apply = useAtomCommand(serverEnvironment.applySharedProviderSetup);
+  const applyModelPreferences = useAtomCommand(serverEnvironment.applySharedModelPreferences, {
+    reportFailure: false,
+    reportDefect: false,
+  });
+  const updateSettings = useAtomCommand(serverEnvironment.updateSettings, {
+    reportFailure: false,
+    reportDefect: false,
+  });
   const setSharing = useAtomCommand(serverEnvironment.setProviderSetupSharing);
   return async (target: SharedEnvironment) => {
     let source: Pick<SharedEnvironment, "settings" | "state"> | undefined = members
@@ -177,7 +284,7 @@ function useJoinSharedSetup() {
       if (started._tag !== "Success") return;
       source = { settings: started.value, state: started.value.sharedProviderSetup! };
     }
-    await apply({
+    const joined = await apply({
       environmentId: target.environmentId,
       input: {
         instances: withoutSecretValues(source.settings as ServerSettings),
@@ -187,6 +294,38 @@ function useJoinSharedSetup() {
         join: true,
       },
     });
+    if (
+      joined._tag === "Success" &&
+      readEnvironmentScope(target.environmentId, AuthSettingsWriteScope) &&
+      (source.settings.favorites !== null || source.settings.providerModelPreferences !== null)
+    ) {
+      if (target.environment.serverConfig?.environment.capabilities.sharedModelPreferences) {
+        await applyModelPreferences({
+          environmentId: target.environmentId,
+          input: {
+            favorites: source.settings.favorites,
+            providerModelPreferences: source.settings.providerModelPreferences,
+            version: Math.max(source.state.modelPreferencesVersion ?? 0, 1),
+            changedAt: source.state.modelPreferencesChangedAt ?? new Date().toISOString(),
+            expectedDigest: joined.value.sharedProviderSetup?.modelPreferencesDigest ?? "",
+          },
+        });
+      } else {
+        await updateSettings({
+          environmentId: target.environmentId,
+          input: {
+            patch: {
+              ...(source.settings.favorites !== null
+                ? { favorites: source.settings.favorites }
+                : {}),
+              ...(source.settings.providerModelPreferences !== null
+                ? { providerModelPreferences: source.settings.providerModelPreferences }
+                : {}),
+            },
+          },
+        });
+      }
+    }
   };
 }
 

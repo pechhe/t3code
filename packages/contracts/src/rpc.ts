@@ -489,6 +489,8 @@ import {
   StorageCleanupReport,
   DatabaseReclaimError,
   DatabaseStorageStatus,
+  ModelFavorites,
+  ProviderModelPreferences,
   ServerSettings,
   ServerSettingsError,
   ClientServerSettingsPatch,
@@ -683,6 +685,7 @@ export const WS_METHODS = {
   serverUpdateSettings: "server.updateSettings",
   serverSetAway: "server.setAway",
   serverApplySharedProviderSetup: "server.applySharedProviderSetup",
+  serverApplySharedModelPreferences: "server.applySharedModelPreferences",
   serverSetProviderSetupSharing: "server.setProviderSetupSharing",
   serverDiscoverSourceControl: "server.discoverSourceControl",
   serverCheckSecretSource: "server.checkSecretSource",
@@ -1174,6 +1177,22 @@ const WsServerApplySharedProviderSetupRpc = Rpc.make(WS_METHODS.serverApplyShare
   success: ServerSettings,
   error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
 });
+
+const WsServerApplySharedModelPreferencesRpc = Rpc.make(
+  WS_METHODS.serverApplySharedModelPreferences,
+  {
+    payload: Schema.Struct({
+      favorites: Schema.NullOr(ModelFavorites),
+      providerModelPreferences: Schema.NullOr(ProviderModelPreferences),
+      version: Schema.Number,
+      changedAt: Schema.String,
+      /** Refuses the write if this environment's model preferences changed after the client planned it. */
+      expectedDigest: Schema.String,
+    }),
+    success: ServerSettings,
+    error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
+  },
+);
 
 const WsServerSetProviderSetupSharingRpc = Rpc.make(WS_METHODS.serverSetProviderSetupSharing, {
   payload: Schema.Struct({ shared: Schema.Boolean }),
@@ -3078,6 +3097,7 @@ export const WsServerOperationsRpcGroup = RpcGroup.make(
   WsAgentPolicySaveRpc,
   WsServerUpdateSettingsRpc,
   WsServerApplySharedProviderSetupRpc,
+  WsServerApplySharedModelPreferencesRpc,
   WsServerSetProviderSetupSharingRpc,
   WsServerDiscoverSourceControlRpc,
   WsServerCheckSecretSourceRpc,

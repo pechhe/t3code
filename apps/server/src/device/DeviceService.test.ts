@@ -312,6 +312,7 @@ const fixture = Effect.fn("fixture")(function* (
       ServerSettings.ServerSettingsService.of({
         updateProviderInstance: () => Effect.die("Unexpected provider mutation"),
         applySharedProviderSetup: () => Effect.die("Unexpected shared setup write"),
+        applySharedModelPreferences: () => Effect.die("Unexpected shared setup write"),
         setProviderSetupSharing: () => Effect.die("Unexpected shared setup write"),
         setAway: () => Effect.die("Unexpected Away change"),
         withSettingsSnapshot: (use) => Effect.flatMap(Ref.get(settings), use),

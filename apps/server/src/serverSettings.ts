@@ -77,11 +77,13 @@ import {
   type SettingsSecret,
 } from "./settingsSecrets.ts";
 import {
+  digestModelPreferences,
   digestProviderInstances,
   planInstanceRenames,
   renameInstanceIds,
   sharedProviderSetupOf,
   stampLocalEdit,
+  stampLocalModelPreferencesEdit,
   UNSHARED_PROVIDER_SETUP,
   withoutDanglingPoolMembers,
   asWholeListWrite,
@@ -212,9 +214,20 @@ export function redactServerSettingsForClient(
     : mapSettingsSecretValues(redacted, (value) =>
         isSecretReference(value) ? SECRET_REDACTED : value,
       );
+  const sharedProviderSetup = shaped.sharedProviderSetup ?? UNSHARED_PROVIDER_SETUP;
   return {
     ...shaped,
-    sharedProviderSetup: shaped.sharedProviderSetup ?? UNSHARED_PROVIDER_SETUP,
+    sharedProviderSetup:
+      sharedProviderSetup.shared && sharedProviderSetup.modelPreferencesDigest === undefined
+        ? {
+            ...sharedProviderSetup,
+            modelPreferencesVersion: sharedProviderSetup.modelPreferencesVersion ?? 0,
+            modelPreferencesBaseVersion: sharedProviderSetup.modelPreferencesBaseVersion ?? 0,
+            modelPreferencesChangedAt:
+              sharedProviderSetup.modelPreferencesChangedAt ?? "1970-01-01T00:00:00.000Z",
+            modelPreferencesDigest: digestModelPreferences(shaped),
+          }
+        : sharedProviderSetup,
     secretProviders: withoutUnknownSecretProviderConfigs(shaped),
   };
 }
@@ -225,10 +238,19 @@ const providerInstancesDigest = (settings: ServerSettings): string =>
   );
 
 /** A shared environment's edit is a new version, however it was made. */
-const withLocalEditStamp = (settings: ServerSettings, changedAt: string): ServerSettings => {
+const withLocalEditStamp = (
+  settings: ServerSettings,
+  changedAt: string,
+  baselineModelPreferencesDigest?: string,
+): ServerSettings => {
   const state = sharedProviderSetupOf(settings);
   if (!state.shared) return settings;
-  const stamped = stampLocalEdit(state, providerInstancesDigest(settings), changedAt);
+  let stamped = stampLocalEdit(state, providerInstancesDigest(settings), changedAt);
+  const prefsDigest = digestModelPreferences(settings);
+  const knownPrefsDigest = stamped.modelPreferencesDigest ?? baselineModelPreferencesDigest;
+  if (knownPrefsDigest !== undefined && knownPrefsDigest !== prefsDigest) {
+    stamped = stampLocalModelPreferencesEdit(stamped, prefsDigest, changedAt);
+  }
   return stamped === state ? settings : { ...settings, sharedProviderSetup: stamped };
 };
 
@@ -395,6 +417,15 @@ export class ServerSettingsService extends Context.Service<
       readonly join: boolean;
     }) => Effect.Effect<ServerSettings, ServerSettingsError>;
 
+    /** Takes the shared model favorites and per-provider preferences a client chose. */
+    readonly applySharedModelPreferences: (input: {
+      readonly favorites: ServerSettings["favorites"];
+      readonly providerModelPreferences: ServerSettings["providerModelPreferences"];
+      readonly version: number;
+      readonly changedAt: string;
+      readonly expectedDigest: string;
+    }) => Effect.Effect<ServerSettings, ServerSettingsError>;
+
     readonly setProviderSetupSharing: (
       shared: boolean,
     ) => Effect.Effect<ServerSettings, ServerSettingsError>;
@@ -473,11 +504,31 @@ const makeTest = Effect.fn("serverSettings.makeTest")(function* (
           ...current,
           providerInstances: withoutDanglingPoolMembers(instances),
           sharedProviderSetup: {
+            ...sharedProviderSetupOf(current),
             shared: join || sharedProviderSetupOf(current).shared,
             version,
             baseVersion: version,
             changedAt,
             digest: providerInstancesDigest({ ...current, providerInstances: instances }),
+          },
+        }),
+      ),
+    applySharedModelPreferences: ({ favorites, providerModelPreferences, version, changedAt }) =>
+      updateTestSettings((current) =>
+        Effect.succeed({
+          ...current,
+          favorites,
+          providerModelPreferences,
+          sharedProviderSetup: {
+            ...sharedProviderSetupOf(current),
+            shared: true,
+            modelPreferencesVersion: version,
+            modelPreferencesBaseVersion: version,
+            modelPreferencesChangedAt: changedAt,
+            modelPreferencesDigest: digestModelPreferences({
+              favorites,
+              providerModelPreferences,
+            }),
           },
         }),
       ),
@@ -1402,7 +1453,7 @@ const make = Effect.gen(function* () {
   const updateAndPersistSettings = (
     patch: ServerSettingsPatch,
     update: (current: ServerSettings) => Effect.Effect<ServerSettings, ServerSettingsError>,
-    stamp: "edit" | "received" = "edit",
+    stamp: "edit" | "received-instances" | "received-model-preferences" | "received" = "edit",
   ): Effect.Effect<ServerSettings, ServerSettingsError> =>
     writeSemaphore.withPermits(1)(
       Effect.gen(function* () {
@@ -1452,7 +1503,7 @@ const make = Effect.gen(function* () {
         );
         const normalized = yield* normalizeServerSettings(persisted.settings);
         const stamped =
-          stamp === "received"
+          stamp === "received-instances"
             ? {
                 ...normalized,
                 sharedProviderSetup: {
@@ -1460,7 +1511,21 @@ const make = Effect.gen(function* () {
                   digest: providerInstancesDigest(normalized),
                 },
               }
-            : withLocalEditStamp(normalized, DateTime.formatIso(yield* DateTime.now));
+            : stamp === "received-model-preferences"
+              ? {
+                  ...normalized,
+                  sharedProviderSetup: {
+                    ...sharedProviderSetupOf(normalized),
+                    modelPreferencesDigest: digestModelPreferences(normalized),
+                  },
+                }
+              : stamp === "received"
+                ? normalized
+                : withLocalEditStamp(
+                    normalized,
+                    DateTime.formatIso(yield* DateTime.now),
+                    digestModelPreferences(current),
+                  );
         const tracked = sharedProviderSetupOf(stamped).shared
           ? {
               ...stamped,
@@ -1576,20 +1641,76 @@ const make = Effect.gen(function* () {
                   ),
                 }),
             sharedProviderSetup: {
+              ...state,
               shared: input.join || state.shared,
               version: input.version,
               baseVersion: input.version,
               changedAt: input.changedAt,
               digest: state.digest,
+              modelPreferencesVersion: state.modelPreferencesVersion ?? 0,
+              modelPreferencesBaseVersion: state.modelPreferencesBaseVersion ?? 0,
+              modelPreferencesChangedAt:
+                state.modelPreferencesChangedAt ?? "1970-01-01T00:00:00.000Z",
+              modelPreferencesDigest:
+                state.modelPreferencesDigest ?? digestModelPreferences(received),
               ...(state.removedInstanceIds ? { removedInstanceIds: state.removedInstanceIds } : {}),
             },
           };
         }),
-      "received",
+      "received-instances",
     );
+
+  const applySharedModelPreferences: ServerSettingsService["Service"]["applySharedModelPreferences"] =
+    (input) =>
+      updateAndPersistSettings(
+        {
+          ...(input.favorites !== null ? { favorites: input.favorites } : {}),
+          ...(input.providerModelPreferences !== null
+            ? { providerModelPreferences: input.providerModelPreferences }
+            : {}),
+        },
+        (current) =>
+          Effect.gen(function* () {
+            const state = sharedProviderSetupOf(current);
+            if (!state.shared || digestModelPreferences(current) !== input.expectedDigest) {
+              return yield* new ServerSettingsError({
+                settingsPath,
+                operation: "apply-shared-model-preferences",
+              });
+            }
+            return {
+              ...current,
+              favorites: input.favorites ?? current.favorites,
+              providerModelPreferences:
+                input.providerModelPreferences ?? current.providerModelPreferences,
+              sharedProviderSetup: {
+                ...state,
+                modelPreferencesVersion: input.version,
+                modelPreferencesBaseVersion: input.version,
+                modelPreferencesChangedAt: input.changedAt,
+              },
+            };
+          }),
+        "received-model-preferences",
+      );
 
   const withSettingsSnapshot: ServerSettingsService["Service"]["withSettingsSnapshot"] = (use) =>
     writeSemaphore.withPermits(1)(getMaterializedSettings.pipe(Effect.flatMap(use)));
+
+  const withBaselineModelPreferencesDigest = (settings: ServerSettings): ServerSettings => {
+    const state = sharedProviderSetupOf(settings);
+    if (!state.shared || state.modelPreferencesDigest !== undefined) return settings;
+    return {
+      ...settings,
+      sharedProviderSetup: {
+        ...state,
+        modelPreferencesVersion: state.modelPreferencesVersion ?? 0,
+        modelPreferencesBaseVersion: state.modelPreferencesBaseVersion ?? 0,
+        modelPreferencesChangedAt: state.modelPreferencesChangedAt ?? "1970-01-01T00:00:00.000Z",
+        modelPreferencesDigest: digestModelPreferences(settings),
+      },
+    };
+  };
 
   const revalidateAndEmit = writeSemaphore.withPermits(1)(
     Effect.gen(function* () {
@@ -1601,7 +1722,15 @@ const make = Effect.gen(function* () {
         : yield* withMissingSecrets(
             withHandRemovalsTracked(
               Option.map(before, (cached) => cached.settings.providerInstances),
-              withLocalEditStamp(loaded, DateTime.formatIso(yield* DateTime.now)),
+              withBaselineModelPreferencesDigest(
+                withLocalEditStamp(
+                  loaded,
+                  DateTime.formatIso(yield* DateTime.now),
+                  Option.getOrUndefined(
+                    Option.map(before, (cached) => digestModelPreferences(cached.settings)),
+                  ),
+                ),
+              ),
             ),
           );
       if (settings !== loaded) {
@@ -1751,23 +1880,32 @@ const make = Effect.gen(function* () {
         }),
       ),
     applySharedProviderSetup,
+    applySharedModelPreferences,
     setProviderSetupSharing: (shared) =>
       updateAndPersistSettings(
         {},
         (current) =>
           Effect.gen(function* () {
             const state = sharedProviderSetupOf(current);
+            const instances = shared
+              ? withoutDanglingPoolMembers(current.providerInstances)
+              : current.providerInstances;
             return {
               ...current,
-              providerInstances: shared
-                ? withoutDanglingPoolMembers(current.providerInstances)
-                : current.providerInstances,
+              providerInstances: instances,
               sharedProviderSetup: {
                 ...state,
                 shared,
                 version: Math.max(state.version, 1),
                 baseVersion: Math.max(state.version, 1),
                 changedAt: DateTime.formatIso(yield* DateTime.now),
+                digest: providerInstancesDigest({ ...current, providerInstances: instances }),
+                modelPreferencesVersion: state.modelPreferencesVersion ?? 0,
+                modelPreferencesBaseVersion: state.modelPreferencesBaseVersion ?? 0,
+                modelPreferencesChangedAt:
+                  state.modelPreferencesChangedAt ?? "1970-01-01T00:00:00.000Z",
+                modelPreferencesDigest:
+                  state.modelPreferencesDigest ?? digestModelPreferences(current),
               },
             };
           }),

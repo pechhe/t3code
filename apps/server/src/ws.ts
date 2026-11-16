@@ -3527,6 +3527,8 @@ export const layerWsRpc = (
           }),
         [WS_METHODS.serverApplySharedProviderSetup]: (input) =>
           serverSettings.applySharedProviderSetup(input).pipe(Effect.map(settingsForClient)),
+        [WS_METHODS.serverApplySharedModelPreferences]: (input) =>
+          serverSettings.applySharedModelPreferences(input).pipe(Effect.map(settingsForClient)),
         [WS_METHODS.serverSetProviderSetupSharing]: ({ shared }) =>
           serverSettings.setProviderSetupSharing(shared).pipe(Effect.map(settingsForClient)),
         [WS_METHODS.serverCheckSecretSource]: (input) => secretCheck.check(input.source),

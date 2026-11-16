@@ -449,13 +449,13 @@ fails with that reason.
 
 ## Share one provider setup
 
-To use the same providers on every environment, open **Settings > Providers**. When a connected environment has its own setup, choose **Use shared setup**. This replaces its providers with the shared ones and keeps its sign-ins. The environment menu in the settings header lists what is sharing, and **Stop sharing** returns an environment to its own setup.
+To use the same providers on every environment, open **Settings > Providers**. When a connected environment has its own setup, choose **Use shared setup**. This replaces its providers, favorited models, and per-provider model preferences (hidden models and custom order) with the shared setup, while keeping its sign-ins. The environment menu in the settings header lists what is sharing, and **Stop sharing** returns an environment to its own setup.
 
-After that, a change on one environment applies to all of them. An environment that was offline catches up when you next connect to it, and if two changed while apart, the later change replaces the whole setup.
+After that, a change to providers, favorites, or model preferences on one environment applies to all of them. An environment that was offline catches up when you next connect to it (on servers with shared model preferences), and if two changed while apart, the later change replaces the whole setup. Machines whose favorites or model preferences already differ when they start sharing are brought into line with one shared list when they connect, so a list kept only on the other machine is replaced.
 
 Sign-ins and API keys stay on each machine and are never copied. A provider that can't run on one of them shows which machine needs attention, with a button to sign in or add its key there.
 
-Spreading a change needs this version of T3 Code connected to both environments. An edit from the mobile app applies to the environment you made it on, and spreads the next time desktop or web connects to both.
+Spreading a change and catching up offline machines needs this version of T3 Code connected to both environments. An edit from the mobile app applies to the environment you made it on, and spreads the next time desktop or web connects to both.
 
 ## Manage or revoke access
 
