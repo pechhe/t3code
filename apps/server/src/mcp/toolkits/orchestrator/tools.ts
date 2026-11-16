@@ -195,7 +195,7 @@ const AdvicePeerTool = Tool.make("t3_advice_peer", {
 
 const DelegateTaskTool = Tool.make("delegate_task", {
   description:
-    "Start one child agent with only `task`: no parent history. Call `agent_roles` first; choose target.model explicitly for multi-model pools. Supply agentTask (role, taskClass, workId, attemptId, workspacePath) and clientRequestId. Browser defaults integrated; choose browser.backend='phi' and optional phiLane. Reviews need sourceRevision and scope. Isolated workspaceAssignment returns a handoff. Pass `followup` with a `taskId` to continue that conversation.",
+    "Start one child agent with only `task`: no parent history. Call `agent_roles` first; choose target.model explicitly for multi-model pools. Supply agentTask (role, taskClass, workId, attemptId, workspacePath) and clientRequestId. Browser defaults integrated; choose browser.backend='phi' and optional phiLane. Reviews need sourceRevision and scope. Isolated workspaceAssignment returns a handoff. Pass only `followup` (a `taskId`, `changes`) to continue that conversation.",
   parameters: OrchestratorMcpDelegateTaskWireInput,
   success: OrchestratorMcpDelegateTaskResult,
   failure: OrchestratorMcpFailure,

@@ -2641,7 +2641,7 @@ const make = Effect.gen(function* () {
       return service
         .delegateTask(callerScope, {
           ...input,
-          task: `${input.task}\n\n${
+          task: `${input.task ?? ""}\n\n${
             model === undefined
               ? review.council === false
                 ? "You review alone. "
@@ -3445,6 +3445,11 @@ const make = Effect.gen(function* () {
     }),
     delegateTask: Effect.fn("OrchestratorMcpService.delegateTask")(
       function* (callerScope, input) {
+        if (input.task === undefined && input.followup === undefined)
+          return yield* failure(
+            "invalid_request",
+            "Pass `task` with the work to start, or `followup` with a taskId and changes to continue that conversation.",
+          );
         if (
           input.followup !== undefined &&
           (input.agentTask !== undefined ||

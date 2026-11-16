@@ -382,7 +382,91 @@ describe("setupWindow", () => {
   });
 });
 
+describe("ComposedRunSetupRecorder", () => {
+  it.effect("records only the calling provider's running run", () =>
+    Effect.gen(function* () {
+      const stored: Array<string> = [];
+      let running: OrchestrationV2Run | undefined = run;
+      const recorder = yield* RunSetup.ComposedRunSetupRecorder.pipe(
+        Effect.provide(
+          RunSetup.composedLayer.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.mock(ProjectionStore.ProjectionStoreV2)({
+                  getRunningTurnContext: () =>
+                    Effect.sync(() => ({
+                      run: running,
+                      providerThread: undefined,
+                      providerTurn: undefined,
+                    })),
+                }),
+                Layer.mock(RunSetup.RunSetupStore)({
+                  recordComposed: (run) =>
+                    Effect.sync(() => {
+                      stored.push(run.id);
+                    }),
+                }),
+              ),
+            ),
+          ),
+        ),
+      );
+      const composed = {
+        systemPromptCharacters: 10,
+        instructions: [],
+        skills: [],
+        tools: { count: 0, characters: 0, declarations: [] },
+      };
+      yield* recorder.report({ threadId, providerInstanceId: "different" as never }, composed);
+      yield* recorder.report({ threadId, providerInstanceId: "codex" as never }, composed);
+      running = undefined;
+      yield* recorder.report({ threadId, providerInstanceId: "codex" as never }, composed);
+      assert.deepEqual(stored, ["run:setup:1"]);
+    }),
+  );
+});
+
 describe("RunSetupStore", () => {
+  it.effect("keeps the first composed request even when it arrives before the file scan", () =>
+    Effect.gen(function* () {
+      const store = yield* RunSetup.RunSetupStore;
+      const composed = {
+        systemPromptCharacters: 123,
+        instructions: [{ path: "/repo/AGENTS.md", characters: 12 }],
+        skills: [{ name: "local", path: "/repo/local/SKILL.md" }],
+        tools: { count: 1, characters: 50, declarations: [{ name: "read", characters: 50 }] },
+      };
+      yield* store.recordComposed(run, composed);
+      yield* store.recordComposed(run, { ...composed, systemPromptCharacters: 999 });
+      const [stored] = yield* store.list(["run:setup:1"]);
+      assert.deepEqual(stored?.composedPrompt, composed);
+      const entries = yield* RunSetup.setupReport({
+        runs: [
+          {
+            id: RunId.make("run:setup:1"),
+            threadId,
+            ordinal: 1,
+            status: "running",
+            modelSelection: stored!.modelSelection,
+            workflow: null,
+            requestedAt: DateTime.makeUnsafe("2026-10-15T10:00:00Z"),
+            startedAt: null,
+          },
+        ],
+        records: stored ? [stored] : [],
+        turnItems: [],
+        driverOf: () => "pi",
+      });
+      assert.deepEqual(entries[0]?.composedPrompt, composed);
+    }).pipe(
+      Effect.provide(
+        RunSetup.storeLayer.pipe(
+          Layer.provideMerge(Sqlite.layerMemory),
+          Layer.provideMerge(NodeCrypto.layer),
+        ),
+      ),
+    ),
+  );
   it.effect("lists the stored records of the runs asked for", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
@@ -463,6 +547,14 @@ describe("RunSetupRecorder.record", () => {
   it.effect("gives each run its own record once", () =>
     Effect.gen(function* () {
       const recorder = yield* RunSetup.RunSetupRecorder;
+      const store = yield* RunSetup.RunSetupStore;
+      const composed = {
+        systemPromptCharacters: 123,
+        instructions: [],
+        skills: [],
+        tools: { count: 0, characters: 0, declarations: [] },
+      };
+      yield* store.recordComposed(runAt(1), composed);
       yield* recorder.record(runAt(1));
       yield* recorder.record(runAt(1));
       // A later run is captured afresh.
@@ -473,6 +565,11 @@ describe("RunSetupRecorder.record", () => {
         "run:setup:2",
       ]);
       assert.deepEqual(records[0]?.workflow, { kind: "lead", unattended: true });
+      const first = records.find((record) => record.runId === "run:setup:1");
+      assert.deepEqual(first?.composedPrompt, composed);
+      assert.isArray(first?.instructions);
+      yield* store.recordComposed(runAt(2), composed);
+      assert.deepEqual((yield* store.list(["run:setup:2"]))[0]?.composedPrompt, composed);
       // The model has no provider snapshot here, so its options are unknown.
       assert.isNull(records[0]?.effectiveOptions);
       assert.isNull(records[0]?.instructionOverlay);

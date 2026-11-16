@@ -61,6 +61,7 @@ import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 import * as HtmlRender from "../htmlRender/HtmlRender.ts";
 import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as OrchestratorMcpService from "./OrchestratorMcpService.ts";
+import * as HiddenTools from "./HiddenTools.ts";
 import * as ThreadMetadataMcpService from "./ThreadMetadataMcpService.ts";
 import * as WorktreeMcpService from "./WorktreeMcpService.ts";
 import * as McpHttpServer from "./McpHttpServer.ts";
@@ -135,7 +136,15 @@ const serviceMocks = Layer.mergeAll(
  * The registry only holds tool descriptors, so the tools never run: every service
  * below is an empty mock kept in step with the toolkits' handler dependencies.
  */
-const listedTools = (key: SessionEndpointKey) =>
+/** An owner policy that hides these tools, as the server reads it from the role policy. */
+const hiddenToolPolicy = (hiddenTools: ReadonlyArray<string>) =>
+  Layer.succeed(HiddenTools.HiddenTools, hiddenTools);
+type HiddenToolPolicy = ReturnType<typeof hiddenToolPolicy>;
+
+const listedTools = (
+  key: SessionEndpointKey,
+  hiddenTools: HiddenToolPolicy = hiddenToolPolicy([]),
+) =>
   Effect.gen(function* () {
     const server = yield* McpServer.McpServer;
     return server.tools.map(({ tool }) => tool);
@@ -144,11 +153,19 @@ const listedTools = (key: SessionEndpointKey) =>
       McpHttpServer.layerSessionToolkits(SESSION_TOOL_ENDPOINTS[key].families).pipe(
         Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
         Layer.provide(serviceMocks),
+        Layer.provide(hiddenTools),
         Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
       ),
     ),
     Effect.scoped,
   );
+
+/** The tool groups agent-config's role policy hides from a Pi run. */
+const HIDDEN_TOOLS = ["*pull_request*", "t3_work_*", "create_threads"];
+
+/** Whether `name` is one of the tools the three patterns cover. */
+const coveredByHiddenTools = (name: string) =>
+  /pull_request/u.test(name) || name.startsWith("t3_work_") || name === "create_threads";
 
 const contextServices = Layer.mergeAll(
   ContextDocumentText.layer.pipe(Layer.provide(NodeServices.layer)),
@@ -163,8 +180,13 @@ const contextServices = Layer.mergeAll(
   ),
 );
 
-const listedToolNames = (key: SessionEndpointKey) =>
-  listedTools(key).pipe(Effect.map((tools) => tools.map((tool) => tool.name).toSorted()));
+const listedToolNames = (
+  key: SessionEndpointKey,
+  hiddenTools: HiddenToolPolicy = hiddenToolPolicy([]),
+) =>
+  listedTools(key, hiddenTools).pipe(
+    Effect.map((tools) => tools.map((tool) => tool.name).toSorted()),
+  );
 
 it.effect("says on every endpoint which open tool is headless and which follows the setting", () =>
   Effect.gen(function* () {
@@ -223,6 +245,29 @@ it.effect("gives an editor every toolkit, including what used to be workspace-on
         "device_open",
         ...BOUNDED_BROWSER_TOOL_NAMES,
       ]),
+    );
+  }).pipe(
+    Effect.provide(
+      Layer.merge(contextServices, Layer.mock(FixtureRemoteDelegation.RemoteDelegation)({})),
+    ),
+  ),
+);
+
+it.effect("hides the tools an owner's policy lists, and restores them when it lists none", () =>
+  Effect.gen(function* () {
+    const covered = (names: ReadonlyArray<string>) => names.filter(coveredByHiddenTools);
+    expect(covered(yield* listedToolNames("editor"))).not.toEqual([]);
+    expect(covered(yield* listedToolNames("editor", hiddenToolPolicy([])))).not.toEqual([]);
+    const hidden = yield* listedToolNames("editor", hiddenToolPolicy(HIDDEN_TOOLS));
+    expect(covered(hidden)).toEqual([]);
+    // Only what the patterns name: the rest of the catalogue is untouched.
+    expect(hidden).toEqual(
+      expect.arrayContaining(["t3_thread_list", "t3_worktree_handoff", "delegate_task"]),
+    );
+    expect(hidden).toEqual(
+      (yield* listedToolNames("editor", hiddenToolPolicy([]))).filter(
+        (name) => !coveredByHiddenTools(name),
+      ),
     );
   }).pipe(
     Effect.provide(
@@ -366,6 +411,135 @@ it.effect("loads editor tools through its own deferred HTTP catalogue", () =>
         arguments: { name: "call_mcp_tool", arguments: {} },
       });
       expect(recursive.error?.message).toContain("recursive");
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect("refuses a hidden tool to a script that knows its name", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const scope: McpInvocationContext.McpThreadInvocationScope = {
+        environmentId: EnvironmentId.make("hidden-tools-test"),
+        requestNamespace: "hidden-tools-test",
+        endpointKey: "editor",
+        thread: {
+          threadId: ThreadId.make("hidden-tools-test"),
+          providerSessionId: "hidden-tools-test",
+          providerInstanceId: ProviderInstanceId.make("pi"),
+        },
+        client: undefined,
+        capabilities: new Set(["orchestration"]),
+        issuedAt: 1,
+      };
+      const endpoints = McpHttpServer.layerSessionTransport(
+        "editor",
+        McpHttpServer.layerSessionToolkits(SESSION_TOOL_ENDPOINTS.editor.families),
+      ).pipe(
+        Layer.provide(serviceMocks),
+        Layer.provide(contextServices),
+        Layer.provide(Layer.mock(FixtureRemoteDelegation.RemoteDelegation)({})),
+        Layer.provide(
+          Layer.mock(McpSessionRegistry.McpSessionRegistry)({
+            resolve: () => Effect.succeed(scope),
+          }),
+        ),
+        Layer.provide(hiddenToolPolicy(HIDDEN_TOOLS)),
+        Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+      );
+      yield* HttpRouter.serve(endpoints, { disableListenLog: true, disableLogger: true }).pipe(
+        Layer.build,
+      );
+      const client = yield* HttpClient.HttpClient;
+      const path = SESSION_TOOL_ENDPOINTS.editor.path;
+      const headers = {
+        accept: "application/json, text/event-stream",
+        authorization: "Bearer hidden-tools",
+        "t3-tool-exposure": "deferred",
+      };
+      const initialize = yield* client.post(path, {
+        headers,
+        body: HttpBody.jsonUnsafe({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: "2025-06-18",
+            capabilities: {},
+            clientInfo: { name: "probe", version: "1" },
+          },
+        }),
+      });
+      const rpc = (method: string, params: object) =>
+        client
+          .post(path, {
+            headers: {
+              ...headers,
+              "mcp-session-id": initialize.headers["mcp-session-id"]!,
+              "mcp-protocol-version": "2025-06-18",
+            },
+            body: HttpBody.jsonUnsafe({ jsonrpc: "2.0", id: 2, method, params }),
+          })
+          .pipe(
+            Effect.flatMap((response) => response.text),
+            Effect.map((text) =>
+              text
+                .split("\n")
+                .filter((line) => line.startsWith("data: ") || line.startsWith("{"))
+                .map(
+                  (line) =>
+                    JSON.parse(line.replace(/^data: /u, "")) as {
+                      id?: number;
+                      error?: { code: number; message: string };
+                      result?: {
+                        tools?: ReadonlyArray<{ name: string }>;
+                        structuredContent?: unknown;
+                      };
+                    },
+                )
+                .find((message) => message.id === 2)!,
+            ),
+          );
+      const listed = yield* rpc("tools/list", {});
+      expect(listed.result!.tools!.map((tool) => tool.name).sort()).toEqual([
+        "call_mcp_tool",
+        "delegate_task",
+        "orchestrator_capabilities",
+        "task_status",
+        "tool_search",
+      ]);
+      // Search never finds them, however the query names them.
+      const found = (result: { tools?: ReadonlyArray<{ name: string }> } | undefined) =>
+        (result?.tools ?? []).map((tool) => tool.name);
+      const searched = yield* rpc("tools/call", {
+        name: "tool_search",
+        arguments: { query: "pull request link" },
+      });
+      const searchedNames = found(searched.result!.structuredContent as never);
+      expect(searchedNames.length).toBeGreaterThan(0);
+      expect(searchedNames.filter(coveredByHiddenTools)).toEqual([]);
+      const byName = yield* rpc("tools/call", {
+        name: "tool_search",
+        arguments: { query: "t3_work_enroll" },
+      });
+      expect(found(byName.result!.structuredContent as never)).not.toContain("t3_work_enroll");
+      // Nor can a script that already knows the name call one.
+      const called = yield* rpc("tools/call", { name: "link_pull_request", arguments: {} });
+      expect(called.error!.message).toContain("not found");
+      const scripted = yield* rpc("tools/call", {
+        name: "call_mcp_tool",
+        arguments: { name: "link_pull_request", arguments: {} },
+      });
+      expect(scripted.error!.message).toContain("not found");
+      const started = yield* rpc("tools/call", { name: "create_threads", arguments: {} });
+      expect(started.error!.message).toContain("not found");
+      // A tool the policy leaves alone still answers.
+      const kept = yield* rpc("tools/call", {
+        name: "tool_search",
+        arguments: { query: "t3_thread_list" },
+      });
+      expect(kept.result!.structuredContent).toMatchObject({
+        tools: expect.arrayContaining([expect.objectContaining({ name: "t3_thread_list" })]),
+      });
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );

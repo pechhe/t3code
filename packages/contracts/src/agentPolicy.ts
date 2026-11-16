@@ -316,7 +316,22 @@ const manifestFields = {
   models: Schema.Record(Alias, ModelBinding),
   /** Eligible model pools; ordinary multi-model delegation requires a caller choice. */
   lists: Schema.Record(Alias, Schema.Array(AgentListEntry).check(Schema.isMinLength(1))),
+  /**
+   * Tools no agent thread sees or may call: a tool's bare name, or a pattern where `*` matches
+   * any run of characters. The owner keeps it in `roles/policy.json`; absent hides nothing.
+   */
+  hiddenTools: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
 };
+/** Whether an owner's hidden-tool patterns cover a tool; `*` matches any run of characters. */
+export const hidesTool = (patterns: ReadonlyArray<string>, name: string): boolean =>
+  patterns.some((pattern) =>
+    new RegExp(
+      `^${pattern
+        .split("*")
+        .map((part) => part.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"))
+        .join(".*")}$`,
+    ).test(name),
+  );
 const Manifest = Schema.Struct({ ...manifestFields, roles: rolesRecord(StoredRolePolicy) });
 const WriterManifest = Schema.Struct({
   ...manifestFields,

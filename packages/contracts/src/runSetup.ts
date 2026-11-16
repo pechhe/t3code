@@ -26,6 +26,22 @@ export const RunSetupSkill = Schema.Struct({
 });
 export type RunSetupSkill = typeof RunSetupSkill.Type;
 
+export const RunSetupComposedPrompt = Schema.Struct({
+  systemPromptCharacters: NonNegativeInt,
+  instructions: Schema.Array(
+    Schema.Struct({ path: TrimmedNonEmptyString, characters: NonNegativeInt }),
+  ),
+  skills: Schema.Array(Schema.Struct({ name: TrimmedNonEmptyString, path: TrimmedNonEmptyString })),
+  tools: Schema.Struct({
+    count: NonNegativeInt,
+    characters: NonNegativeInt,
+    declarations: Schema.Array(
+      Schema.Struct({ name: TrimmedNonEmptyString, characters: NonNegativeInt }),
+    ),
+  }),
+});
+export type RunSetupComposedPrompt = typeof RunSetupComposedPrompt.Type;
+
 /**
  * The setup a run started with, as T3 observed it just after the run started. Values T3
  * could not observe are null, and a capture that failed outright keeps only the run's
@@ -37,6 +53,8 @@ export const RunSetupRecord = Schema.Struct({
   /** The run's ordinal in its thread, which orders records; absent from early records. */
   runOrdinal: Schema.optional(PositiveInt),
   capturedAt: Schema.String,
+  /** Pi's first request, measured after composing its prompt; null when unreported. */
+  composedPrompt: Schema.optional(Schema.NullOr(RunSetupComposedPrompt)),
   /** The live agent-config checkout (`T3CODE_AGENT_POLICY_ROOT`), read without writing to it. */
   agentConfig: Schema.NullOr(
     Schema.Struct({

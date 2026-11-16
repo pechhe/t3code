@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off -- Executes the shipped Pi extension at its native JavaScript boundary.
 import * as NodeCrypto from "node:crypto";
+import * as NodeFSP from "node:fs/promises";
 import * as NodeModule from "node:module";
 import * as NodePath from "node:path";
 import * as NodeVM from "node:vm";
@@ -33,7 +34,12 @@ interface RegisteredTool {
 type AgentStartHook = (
   event: {
     systemPrompt: string;
-    systemPromptOptions?: { sections?: Record<string, string> | null; forceSystemPrompt?: string };
+    systemPromptOptions?: {
+      sections?: Record<string, string> | null;
+      forceSystemPrompt?: string;
+      contextFiles?: Array<{ path: string; content: string }>;
+      skills?: Array<{ name: string; filePath: string }>;
+    };
   },
   ctx: {
     model?: { api: string };
@@ -44,6 +50,9 @@ type AgentStartHook = (
 export async function loadMcpBridge(
   options: {
     readonly modern?: boolean;
+    readonly createThreadsAvailable?: boolean;
+    readonly role?: string;
+    readonly agentConfigRoot?: string;
     readonly result?: unknown;
     readonly toolSearchAvailable?: boolean;
     readonly toolSearchDisabled?: boolean;
@@ -84,12 +93,17 @@ export async function loadMcpBridge(
       annotations: { readOnlyHint: true },
     },
     { name: "delegate_task", description: "Delegate work to another agent." },
+    { name: "agent_roles", description: "Discover roles." },
+    { name: "ask_advice", description: "Ask the parent." },
     {
       name: "task_status",
       description: "Check delegated work.",
       annotations: { readOnlyHint: false },
     },
     { name: "preview_snapshot", description: "Inspect the collaborative browser." },
+    ...(options.createThreadsAvailable
+      ? [{ name: "create_threads", description: "Create threads." }]
+      : []),
   ].map((tool) => ({
     ...tool,
     inputSchema: options.inputSchema ?? { type: "object", properties: {} },
@@ -160,6 +174,8 @@ export async function loadMcpBridge(
             }),
         T3_PI_MCP_EXTENSION_PATH: "/fixture/pi-t3-extension.ts",
         T3_PI_RUNTIME_MODE: options.runtimeMode,
+        T3_PI_AGENT_ROLE: options.role,
+        T3_PI_AGENT_CONFIG_ROOT: options.agentConfigRoot,
         ...(options.delegatedInstructions === undefined
           ? {}
           : { T3_PI_INSTRUCTIONS: options.delegatedInstructions }),
@@ -168,6 +184,11 @@ export async function loadMcpBridge(
     AbortSignal,
     NodeCrypto,
     NodePath,
+    NodeFSP,
+    getCurrentSystemPrompt: (messages: Array<{ content: string }>) =>
+      messages.map((message) => message.content).join("\n"),
+    getCurrentTools: (messages: Array<{ toolsAdded?: unknown[] }>) =>
+      messages.flatMap((message) => message.toolsAdded ?? []),
     Type: { Unsafe: (schema: unknown) => schema },
     Buffer,
     URL,

@@ -3,9 +3,12 @@ import { type AgentTaskBinding, isConsultingRole } from "@t3tools/contracts";
 /** The message a follow-up adds to the agent's existing conversation. */
 export const followupPrompt = (
   followup: { readonly sourceRevision?: string | undefined; readonly changes: string },
-  task: string,
-) =>
-  `${followup.sourceRevision === undefined ? "" : `Source revision: ${followup.sourceRevision}\n`}Changes since your previous task: ${followup.changes}\n\n${task}`;
+  task: string | undefined,
+) => {
+  const header = `${followup.sourceRevision === undefined ? "" : `Source revision: ${followup.sourceRevision}\n`}Changes since your previous task: ${followup.changes}`;
+  // The changes alone often say what to do next, so a follow-up may carry no task text.
+  return task === undefined || task.trim().length === 0 ? header : `${header}\n\n${task}`;
+};
 
 /**
  * The binding a follow-up is validated against. A pinned task, launched on a source

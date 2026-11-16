@@ -31,6 +31,8 @@ export interface McpProviderSessionConfig {
    * orchestration sections, whatever its permission class lists.
    */
   readonly delegated?: boolean;
+  readonly delegatedRole?: import("@t3tools/contracts").AgentRole;
+  readonly agentConfigRoot?: string;
   /** The thread's listing carries the preview family. */
   readonly listsPreview?: boolean;
   /** The thread's listing carries the device family. */

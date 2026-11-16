@@ -270,6 +270,36 @@ it.effect(
             .pipe(Effect.flip)).code,
         ).toBe("capability_denied");
         revoked = false;
+        // A follow-up states the changes since and needs no task text of its own.
+        const changesOnly = yield* service.delegateTask(scope, {
+          clientRequestId: "changes-only",
+          followup: {
+            taskId: another.taskId,
+            sourceRevision: "revision-two",
+            changes: "Added the missing test.",
+          },
+        });
+        expect(changesOnly.childThreadId).toBe(childId);
+        expect(sends).toBe(3);
+        expect(lastSend!.text).toBe(
+          "Source revision: revision-two\nChanges since your previous task: Added the missing test.",
+        );
+        // Neither a task to start nor a follow-up to continue is a refusal that says so.
+        const neither = yield* service
+          .delegateTask(scope, { clientRequestId: "neither" })
+          .pipe(Effect.flip);
+        expect(neither.code).toBe("invalid_request");
+        expect(neither.message).toContain("Pass `task`");
+        child = { ...child, runs: child.runs.map((run) => ({ ...run, status: "completed" })) };
+        parent = {
+          ...parent,
+          subagents: parent.subagents.map((task) => ({
+            ...task,
+            status: "completed",
+            result: "Advice",
+            completionDelivery: { state: "acknowledged", observedByRunId: null },
+          })),
+        };
         // A worker continues with its corrections in the same conversation.
         child = {
           ...child,
@@ -289,7 +319,7 @@ it.effect(
           task: "Rename the helper as discussed.",
         });
         expect(correction.childThreadId).toBe(childId);
-        expect(sends).toBe(3);
+        expect(sends).toBe(4);
         expect(lastSend!.followupSourceRevision).toBe("revision-two");
         child = { ...child, runs: child.runs.map((run) => ({ ...run, status: "completed" })) };
         parent = {

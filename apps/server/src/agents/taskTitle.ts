@@ -12,12 +12,12 @@ import {
  */
 export const managedTaskTitle = (
   role: AgentRole,
-  task: string,
+  task: string | undefined,
   title: string | undefined,
 ): string => {
   const topic = (
     withoutAgentRolePrefix(title?.trim() ?? "", AGENT_TASK_TITLE_LABELS) ||
-    task.split("\n").find((line) => line.trim().length > 0) ||
+    (task ?? "").split("\n").find((line) => line.trim().length > 0) ||
     ""
   ).trim();
   return topic.length === 0

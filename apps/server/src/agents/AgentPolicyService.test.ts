@@ -193,6 +193,36 @@ it.layer(testLayer)("immutable policy snapshots", (it) => {
       );
     }),
   );
+  it.effect("keeps the hidden tools an owner lists through a snapshot and a save", () =>
+    Effect.gen(function* () {
+      const service = yield* AgentPolicy.AgentPolicyService;
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* source;
+      const hidden = ["*pull_request*", "t3_work_*", "create_threads"];
+      yield* fs.writeFileString(
+        `${root}/roles/policy.json`,
+        JSON.stringify({ ...manifest(), hiddenTools: hidden }),
+      );
+      const first = yield* service.snapshot(root);
+      expect(first.manifest.hiddenTools).toEqual(hidden);
+      const saved = yield* service.save(root, {
+        expectedHash: first.hash,
+        manifest: first.manifest,
+      });
+      expect(saved.snapshot.manifest.hiddenTools).toEqual(hidden);
+      expect(JSON.parse(yield* fs.readFileString(`${root}/roles/policy.json`)).hiddenTools).toEqual(
+        hidden,
+      );
+      // An empty list is how an owner restores a group: no entry, nothing hidden.
+      yield* service.save(root, {
+        expectedHash: saved.snapshot.hash,
+        manifest: { ...saved.snapshot.manifest, hiddenTools: [] },
+      });
+      expect(JSON.parse(yield* fs.readFileString(`${root}/roles/policy.json`)).hiddenTools).toEqual(
+        [],
+      );
+    }),
+  );
   it.effect(
     "loads a policy with the retired writing roles as implementer and saves it current",
     () =>
@@ -200,7 +230,7 @@ it.layer(testLayer)("immutable policy snapshots", (it) => {
         const service = yield* AgentPolicy.AgentPolicyService;
         const fs = yield* FileSystem.FileSystem;
         const root = yield* source;
-        const retired = writerManifest();
+        const retired = { ...writerManifest(), hiddenTools: ["t3_work_*"] };
         yield* fs.writeFileString(`${root}/roles/policy.json`, JSON.stringify(retired));
         yield* fs.remove(`${root}/roles/implementer.md`);
         for (const role of Object.values(retired.roles))
@@ -217,6 +247,8 @@ it.layer(testLayer)("immutable policy snapshots", (it) => {
         expect(first.briefs.implementer.text).toBe("Brief for roles/implementation-worker.md\n");
         yield* service.save(root, { expectedHash: first.hash, manifest: first.manifest });
         const written = JSON.parse(yield* fs.readFileString(`${root}/roles/policy.json`));
+        // Dropping the retired roles is the only rewrite: the owner's hidden tools stay.
+        expect(written.hiddenTools).toEqual(["t3_work_*"]);
         for (const name of ["chore-worker", "implementation-worker", "ui-worker", "ui-verifier"])
           expect(Object.keys(written.roles)).not.toContain(name);
         expect(written.roles.implementer).toMatchObject({

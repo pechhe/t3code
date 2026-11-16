@@ -2,6 +2,7 @@
 import {
   T3_CODE_ORCHESTRATION_INSTRUCTIONS,
   t3ChildInstructions,
+  t3OrchestrationText,
 } from "@t3tools/provider-core/server/orchestrationInstructions";
 
 import {
@@ -23,6 +24,8 @@ export const T3_PI_RUNTIME_MODE_ENV = "T3_PI_RUNTIME_MODE";
  * thread, which uses `ORCHESTRATION_INSTRUCTIONS`.
  */
 export const T3_PI_INSTRUCTIONS_ENV = "T3_PI_INSTRUCTIONS";
+export const T3_PI_AGENT_ROLE_ENV = "T3_PI_AGENT_ROLE";
+export const T3_PI_AGENT_CONFIG_ROOT_ENV = "T3_PI_AGENT_CONFIG_ROOT";
 
 /**
  * The child text a Pi process may need, keyed by what its endpoint lists, so the
@@ -73,6 +76,7 @@ import * as NodeHTTP from "node:http";
 import * as NodeHTTPS from "node:https";
 import * as NodePath from "node:path";
 import { Type } from "typebox";
+import { getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
 
 const URL_ENV = ${JSON.stringify(T3_MCP_URL_ENV)};
 const TOKEN_ENV = ${JSON.stringify(T3_MCP_BEARER_ENV)};
@@ -80,11 +84,14 @@ const AGENT_SERVERS_ENV = ${JSON.stringify(T3_MCP_AGENT_SERVERS_ENV)};
 const RUNTIME_MODE_ENV = ${JSON.stringify(T3_PI_RUNTIME_MODE_ENV)};
 const EXTENSION_PATH_ENV = ${JSON.stringify(T3_PI_MCP_EXTENSION_PATH_ENV)};
 const INSTRUCTIONS_ENV = ${JSON.stringify(T3_PI_INSTRUCTIONS_ENV)};
+const ROLE_ENV = ${JSON.stringify(T3_PI_AGENT_ROLE_ENV)};
+const CONFIG_ROOT_ENV = ${JSON.stringify(T3_PI_AGENT_CONFIG_ROOT_ENV)};
 const READ_ONLY_ENV = ${JSON.stringify(T3_PI_READ_ONLY_ENV)};
 const READ_ONLY_SHELL_ENV = ${JSON.stringify(T3_PI_READ_ONLY_SHELL_ENV)};
 const READ_ONLY_SHELL_FILENAME = ${JSON.stringify(PI_READ_ONLY_SHELL_FILENAME)};
 ${PI_READ_ONLY_SHELL_EXTENSION_SOURCE}
 const ORCHESTRATION_INSTRUCTIONS = ${JSON.stringify(T3_CODE_ORCHESTRATION_INSTRUCTIONS.trim())};
+const ORCHESTRATION_WITHOUT_CREATE_THREADS = ${JSON.stringify(t3OrchestrationText(false, { createThreads: false }).trim())};
 const SERVICE_TIER_COMMAND = ${JSON.stringify(PI_T3_SERVICE_TIER_COMMAND)};
 const PROTOCOL = "2025-06-18";
 // Node's fetch (undici) cuts any response whose headers take over 300 s, which killed
@@ -534,6 +541,9 @@ function createMcpClient(
     async callTool(name: string, args: Record<string, unknown>, signal?: AbortSignal) {
       return request("tools/call", { name, arguments: args }, limits.toolCallMs, signal);
     },
+    async reportSetup(composed: unknown) {
+      return request("t3/run-setup", composed, limits.controlMs);
+    },
   };
 }
 
@@ -711,6 +721,14 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
   };
 
   pi.on("tool_call", async (event, ctx) => {
+    if (event.toolName === "tool_search" && hasBuiltinToolSearch()) {
+      const input = event.input as { query?: unknown; limit?: number };
+      const query = typeof input.query === "string" ? input.query.trim() : "";
+      const exact = query.length > 0 && pi.getAllTools().some((tool) =>
+        tool.name === query || tool.name.replace(/^mcp__.+?__/, "") === query);
+      if (exact) input.limit = 1;
+      else if (input.limit === undefined) input.limit = 3;
+    }
     const refusal = await guardRefusal(event, ctx);
     if (refusal !== undefined) return refusal;
     if (env(READ_ONLY_ENV) === "1") {
@@ -811,11 +829,9 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
   // Tool exposure arrived with registerMcpServer in Pi 0.99. Keep the HTTP
   // bridge as the credential owner: mcp.json overrides native registrations.
   const supportsExposure = "registerMcpServer" in pi && typeof pi.registerMcpServer === "function";
-  // A delegated task rarely delegates, so its large delegate_task schema loads on demand.
+  const helper = delegatedTask && env(ROLE_ENV) !== "lead";
   const directTools = new Set(
-    delegatedTask
-      ? ["orchestrator_capabilities", "task_status"]
-      : ["orchestrator_capabilities", "delegate_task", "task_status"],
+    helper ? ["ask_advice", "task_status"] : ["agent_roles", "delegate_task", "task_status"],
   );
   let deferOptionalTools = supportsExposure;
 
@@ -917,11 +933,64 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
 
   if (!hasT3) return;
 
-  const instructions = process.env[INSTRUCTIONS_ENV] ?? ORCHESTRATION_INSTRUCTIONS;
-
   // Keep guidance in the system prompt so leading slash commands still expand.
-  pi.on("before_agent_start", (event) => {
+  const setupClient = createMcpClient(new URL("/mcp/run-setup", endpoint!).toString(), token!, { controlMs: 5_000, toolCallMs: 5_000 });
+  let reportedSetup = false;
+  let promptFiles: Array<{ path: string; characters: number }> = [];
+  let promptSkills: Array<{ name: string; path: string }> = [];
+  pi.on("context_with_system", async (event) => {
+    if (reportedSetup) return;
+    reportedSetup = true;
+    const tools = getCurrentTools(event.messages).map((tool) => ({ name: tool.name, characters: JSON.stringify(tool).length }));
+    try {
+      await setupClient.reportSetup({
+        systemPromptCharacters: getCurrentSystemPrompt(event.messages).length,
+        instructions: promptFiles,
+        skills: promptSkills,
+        tools: { count: tools.length, characters: tools.reduce((sum, tool) => sum + tool.characters, 0), declarations: tools },
+      });
+    } catch {
+      // Measurement is best-effort and must not stop a provider turn.
+    }
+  });
+  const realPath = async (path: string) => NodeFSP.realpath(path).catch(() => NodePath.resolve(path));
+  pi.on("before_agent_start", async (event) => {
     reconcileDiscovery();
+    const options = event.systemPromptOptions;
+    const seen = new Set<string>();
+    if (options?.contextFiles) {
+      const kept = [];
+      for (const file of options.contextFiles) {
+        const path = await realPath(file.path);
+        if (seen.has(path)) continue;
+        seen.add(path);
+        if (helper) {
+          const marker = /^<!-- lead-only-below -->\\r?$/m.exec(file.content);
+          if (marker) file.content = file.content.slice(0, marker.index);
+        }
+        kept.push(file);
+      }
+      options.contextFiles.splice(0, options.contextFiles.length, ...kept);
+    }
+    const root = env(CONFIG_ROOT_ENV);
+    if (helper && ["scout", "researcher", "browser", "reviewer", "advisor"].includes(env(ROLE_ENV) ?? "") && root && options?.skills) {
+      const resolvedRoot = await realPath(root);
+      const kept = [];
+      for (const skill of options.skills) {
+        const relative = NodePath.relative(resolvedRoot, await realPath(skill.filePath));
+        if (relative === "" || (!relative.startsWith(".." + NodePath.sep) && relative !== ".." && !NodePath.isAbsolute(relative))) continue;
+        kept.push(skill);
+      }
+      options.skills.splice(0, options.skills.length, ...kept);
+    }
+    reportedSetup = false;
+    promptFiles = options?.forceSystemPrompt === undefined
+      ? options?.contextFiles?.map((file) => ({ path: file.path, characters: file.content.length })) ?? [] : [];
+    promptSkills = options?.forceSystemPrompt === undefined
+      ? options?.skills?.map((skill) => ({ name: skill.name, path: skill.filePath })) ?? [] : [];
+    const instructions = process.env[INSTRUCTIONS_ENV] ??
+      (servers.find((server) => server.name === "t3-code")?.catalog.some((tool) => tool.name === "create_threads")
+        ? ORCHESTRATION_INSTRUCTIONS : ORCHESTRATION_WITHOUT_CREATE_THREADS);
     const sections = event.systemPromptOptions?.sections;
     if (sections && typeof sections === "object" && event.systemPromptOptions?.forceSystemPrompt === undefined) {
       // A full prompt override bypasses Pi's later section rendering.

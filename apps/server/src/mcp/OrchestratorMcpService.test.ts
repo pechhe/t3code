@@ -712,6 +712,7 @@ describe("OrchestratorMcpService", () => {
         const outcomes = yield* Effect.gen(function* () {
           const service = yield* OrchestratorMcpService.OrchestratorMcpService;
           const delegated = yield* service.delegateTask(scope, {
+            task: "Route this through the owned work service.",
             mode: "wait",
             timeoutMs: 5,
           } as never);
@@ -4146,7 +4147,7 @@ describe("OrchestratorMcpService provider resolution", () => {
                     parentThreadId,
                     parentRunId: run.id,
                     parentNodeId: run.rootNodeId!,
-                    task: input.task,
+                    task: input.task ?? "",
                     driver: ProviderDriverKind.make("remote"),
                     modelSelection: run.modelSelection,
                     remoteChild,

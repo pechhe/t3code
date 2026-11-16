@@ -39,6 +39,7 @@ import {
   type RunId,
   READ_ONLY_TOOLS,
   SESSION_TOOL_ENDPOINTS,
+  hidesTool,
   type SessionEndpointKey,
   type ToolFamily,
   RuntimeMode,
@@ -48,6 +49,8 @@ import {
 } from "@t3tools/contracts";
 
 import packageJson from "../../package.json" with { type: "json" };
+import * as AgentPolicy from "../agents/AgentPolicyService.ts";
+import { HiddenTools, layerHiddenTools } from "./HiddenTools.ts";
 import { parseBearerToken } from "../auth/EnvironmentAuth.ts";
 import * as ServerConfig from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -141,6 +144,7 @@ import { HtmlPreviewTool, HtmlPreviewToolkit, HtmlRenderToolkit } from "./toolki
 import { GuardToolkit } from "./toolkits/guard/tools.ts";
 import * as GuardHandlers from "./toolkits/guard/handlers.ts";
 import { requestUrl } from "../requestUrl.ts";
+import * as RunSetupReportHttp from "./RunSetupReportHttp.ts";
 
 const mcpResourceMetadataUrl = (request: HttpServerRequest.HttpServerRequest) =>
   requestUrl(request).pipe(
@@ -1324,18 +1328,28 @@ export const toolkitRegistration = <Tools extends Record<string, Tool.Any>, EX, 
   handlers: McpToolAccess.HandlersLayer<Tools, EX, RX>,
 ) =>
   Layer.effectDiscard(
-    withToolAnalytics(
-      withToolSpans(
-        withAdvertisedSchemas(
-          toolkit,
-          withTaskImages(
-            withUndecodedTaskRecord(
-              McpServer.registerToolkit(decodeAsAdvertised(listedForReadOnly(toolkit))),
+    Effect.gen(function* () {
+      // A hidden tool is never registered: no thread lists it, `tool_search` cannot find it, and
+      // a call to it fails as an unknown tool.
+      const patterns = yield* HiddenTools;
+      const kept = Object.entries(toolkit.tools).filter(([name]) => !hidesTool(patterns, name));
+      const listed =
+        kept.length === Object.keys(toolkit.tools).length
+          ? toolkit
+          : (Toolkit.make(...kept.map(([, tool]) => tool)) as unknown as Toolkit.Toolkit<Tools>);
+      yield* withToolAnalytics(
+        withToolSpans(
+          withAdvertisedSchemas(
+            listed,
+            withTaskImages(
+              withUndecodedTaskRecord(
+                McpServer.registerToolkit(decodeAsAdvertised(listedForReadOnly(listed))),
+              ),
             ),
           ),
         ),
-      ),
-    ),
+      );
+    }),
   ).pipe(
     Layer.provide(
       provideRegistrationServices<
@@ -1761,6 +1775,7 @@ export const layerTools = Layer.mergeAll(
 );
 
 export const layer = Layer.mergeAll(
+  RunSetupReportHttp.layer,
   Layer.fresh(layerMcpTransport(layerTools)),
   layerManagedBrowserToolkit,
   ...sessionEndpointLayers,
@@ -1771,4 +1786,7 @@ export const layer = Layer.mergeAll(
   Layer.provideMerge(BrowserLogins.layer),
   Layer.provide(BitwardenSecrets.layer.pipe(Layer.provide(ProcessRunner.layer))),
   Layer.provide(SavedSecrets.layer.pipe(Layer.provide(BwsClient.layer))),
+  // The owner's policy decides which tools no agent thread sees.
+  Layer.provide(layerHiddenTools),
+  Layer.provide(AgentPolicy.layer),
 );

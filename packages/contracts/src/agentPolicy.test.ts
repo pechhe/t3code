@@ -10,6 +10,7 @@ import {
   StoredAgentRole,
   agentTaskTopic,
   grantsBrowserTasks,
+  hidesTool,
   modelMaker,
 } from "./agentPolicy.ts";
 
@@ -399,6 +400,36 @@ describe("AgentPolicyManifest", () => {
         },
       })._tag,
     ).toBe("Failure");
+  });
+
+  it("keeps the owner's hidden tools a manifest carries, a save included", () => {
+    const hidden = ["*pull_request*", "t3_work_*", "create_threads"];
+    const current = encodeManifest(decodeManifest(legacy));
+    expect(current.hiddenTools).toBeUndefined();
+    const manifest = encodeManifest(decodeManifest({ ...current, hiddenTools: hidden }));
+    expect(manifest.hiddenTools).toEqual(hidden);
+    // A policy save carries it: the edit keeps the field, an excess property still fails.
+    const edit = Schema.decodeUnknownSync(AgentPolicyManifestEdit, {
+      onExcessProperty: "error",
+    });
+    // As a save does it: the retired role is dropped, and the hidden list stays.
+    const { "ui-verifier": _retired, ...roles } = manifest.roles;
+    expect(edit({ ...manifest, roles }).hiddenTools).toEqual(hidden);
+    expect(() => decodeManifest({ ...current, hiddenTools: [""] })).toThrow();
+  });
+
+  it("matches hidden tool patterns by bare name and `*` run", () => {
+    const hidden = ["*pull_request*", "t3_work_*", "create_threads"];
+    expect(hidesTool(hidden, "link_pull_request")).toBe(true);
+    expect(hidesTool(hidden, "list_thread_pull_requests")).toBe(true);
+    expect(hidesTool(hidden, "t3_work_enroll")).toBe(true);
+    expect(hidesTool(hidden, "create_threads")).toBe(true);
+    expect(hidesTool(hidden, "delegate_task")).toBe(false);
+    expect(hidesTool(hidden, "create_threads_extra")).toBe(false);
+    expect(hidesTool(hidden, "t3_worktree_handoff")).toBe(false);
+    // Nothing listed hides nothing; a pattern is a bare tool name, not a regex.
+    expect(hidesTool([], "link_pull_request")).toBe(false);
+    expect(hidesTool(["link.pull_request"], "link_pull_request")).toBe(false);
   });
 
   it("grants bounded browser tasks only to writers and the reviewer, and never by request", () => {

@@ -26,6 +26,7 @@ import * as NetAddress from "effect/net/NetAddress";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
+import { agentPolicyRoot } from "../agents/agentPolicyRoot.ts";
 
 export interface McpCredentialRequest {
   readonly threadId: ThreadId;
@@ -345,6 +346,11 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
           ...(managedBrowser ? { managedBrowser: true } : {}),
           ...(boundedBrowser ? { boundedBrowser: true } : {}),
           ...(request.delegated === true ? { delegated: true } : {}),
+          ...(request.agentRole === undefined ? {} : { delegatedRole: request.agentRole }),
+          ...Option.match(yield* agentPolicyRoot, {
+            onNone: () => ({}),
+            onSome: (agentConfigRoot) => ({ agentConfigRoot }),
+          }),
           listsPreview,
           listsDevice,
           listsHtml,

@@ -7,6 +7,9 @@ import {
   type RunSetupReportEntry,
   type RunSetupFile,
   type RunSetupSkill,
+  type RunSetupComposedPrompt,
+  type ThreadId,
+  type ProviderInstanceId,
 } from "@t3tools/contracts";
 import * as Digest from "effect/crypto/Digest";
 import * as Hex from "effect/encoding/Hex";
@@ -59,6 +62,7 @@ const SKILL_DEPTH = 2;
 
 const decodeRecord = Schema.decodeUnknownEffect(Schema.fromJsonString(RunSetupRecord));
 const encodeRecord = Schema.encodeSync(Schema.fromJsonString(RunSetupRecord));
+const encodeRecordEffect = Schema.encodeEffect(Schema.fromJsonString(RunSetupRecord));
 
 const hashFile = Effect.fn("RunSetupRecorder.hashFile")(function* (file: string) {
   const fs = yield* FileSystem.FileSystem;
@@ -150,6 +154,7 @@ export const captureRunSetup = Effect.fn("RunSetupRecorder.captureRunSetup")(fun
     threadId: input.run.threadId,
     ...(input.run.ordinal === undefined ? {} : { runOrdinal: input.run.ordinal }),
     capturedAt: DateTime.formatIso(yield* DateTime.now),
+    composedPrompt: null,
     agentConfig: root === null ? null : yield* AgentConfigCheckout.read(root),
     instructions: [
       ...(root === null ? [] : yield* instructionFiles(root, SHARED_INSTRUCTIONS)),
@@ -203,6 +208,7 @@ export function uncapturedRunSetup(
     threadId: run.threadId,
     ...(run.ordinal === undefined ? {} : { runOrdinal: run.ordinal }),
     capturedAt,
+    composedPrompt: null,
     agentConfig: null,
     instructions: null,
     skills: null,
@@ -331,6 +337,7 @@ export const setupReport = Effect.fn("RunSetupRecorder.setupReport")(function* (
     const driver = input.driverOf(record.modelSelection.instanceId) ?? null;
     entries.push({
       ...record,
+      composedPrompt: record.composedPrompt ?? null,
       runOrdinal: run.ordinal,
       driver,
       status: run.status,
@@ -365,6 +372,10 @@ export class RunSetupStore extends Context.Service<
     readonly list: (
       runIds: ReadonlyArray<string>,
     ) => Effect.Effect<ReadonlyArray<RunSetupRecord>, RunSetupStoreError>;
+    readonly recordComposed: (
+      run: OrchestrationV2Run,
+      composed: RunSetupComposedPrompt,
+    ) => Effect.Effect<void, RunSetupStoreError>;
   }
 >()("t3/agents/RunSetupRecorder/RunSetupStore") {}
 
@@ -378,11 +389,54 @@ export const storeLayer = Layer.effect(
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     return RunSetupStore.of({
+      recordComposed: Effect.fn("RunSetupStore.recordComposed")(
+        function* (run, composed) {
+          const fallback = {
+            ...uncapturedRunSetup(run, DateTime.formatIso(yield* DateTime.now)),
+            composedPrompt: composed,
+          };
+          const encoded = yield* encodeRecordEffect(fallback);
+          yield* sql`INSERT INTO run_setup_records (run_id, thread_id, captured_at, record_json)
+            VALUES (${run.id}, ${run.threadId}, ${fallback.capturedAt}, ${encoded})
+            ON CONFLICT(run_id) DO UPDATE SET record_json = json_set(run_setup_records.record_json, '$.composedPrompt', json_extract(excluded.record_json, '$.composedPrompt'))
+              WHERE json_extract(run_setup_records.record_json, '$.composedPrompt') IS NULL`;
+        },
+        Effect.mapError((cause) => new RunSetupStoreError({ cause })),
+      ),
       list: Effect.fn("RunSetupStore.list")((runIds) =>
         listRunSetups(runIds).pipe(
           Effect.provideService(SqlClient.SqlClient, sql),
           Effect.mapError((cause) => new RunSetupStoreError({ cause })),
         ),
+      ),
+    });
+  }),
+);
+
+export class ComposedRunSetupRecorder extends Context.Service<
+  ComposedRunSetupRecorder,
+  {
+    readonly report: (
+      caller: { readonly threadId: ThreadId; readonly providerInstanceId: ProviderInstanceId },
+      composed: RunSetupComposedPrompt,
+    ) => Effect.Effect<void, RunSetupStoreError>;
+  }
+>()("t3/agents/RunSetupRecorder/ComposedRunSetupRecorder") {}
+
+export const composedLayer = Layer.effect(
+  ComposedRunSetupRecorder,
+  Effect.gen(function* () {
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const store = yield* RunSetupStore;
+    return ComposedRunSetupRecorder.of({
+      report: Effect.fn("ComposedRunSetupRecorder.report")(
+        function* (caller, composed) {
+          const { run } = yield* projections.getRunningTurnContext(caller.threadId);
+          if (run === undefined || run.modelSelection.instanceId !== caller.providerInstanceId)
+            return;
+          yield* store.recordComposed(run, composed);
+        },
+        Effect.mapError((cause) => new RunSetupStoreError({ cause })),
       ),
     });
   }),
@@ -427,6 +481,9 @@ export const make = Effect.gen(function* () {
   const insert = (record: RunSetupRecord) =>
     sql`INSERT OR IGNORE INTO run_setup_records (run_id, thread_id, captured_at, record_json)
       VALUES (${record.runId}, ${record.threadId}, ${record.capturedAt}, ${encodeRecord(record)})
+      ON CONFLICT(run_id) DO UPDATE SET record_json = json_set(excluded.record_json, '$.composedPrompt', json_extract(run_setup_records.record_json, '$.composedPrompt'))
+        WHERE json_extract(run_setup_records.record_json, '$.instructions') IS NULL
+          AND json_extract(run_setup_records.record_json, '$.composedPrompt') IS NOT NULL
       RETURNING run_id`.pipe(Effect.map((rows) => rows.length > 0));
 
   const capture = Effect.fn("RunSetupRecorder.capture")(

@@ -8,6 +8,8 @@ import {
   T3_PI_READ_ONLY_ENV,
   T3_PI_READ_ONLY_SHELL_ENV,
   T3_PI_INSTRUCTIONS_ENV,
+  T3_PI_AGENT_ROLE_ENV,
+  T3_PI_AGENT_CONFIG_ROOT_ENV,
   T3_PI_RUNTIME_MODE_ENV,
   T3_PI_MCP_EXTENSION_PATH_ENV,
 } from "./mcpExtensionSource.ts";
@@ -37,6 +39,42 @@ const mcpSession = {
 };
 
 describe("pi T3 MCP injection", () => {
+  it.each([
+    { role: "scout", current: "scout" },
+    { role: "lead", current: "lead" },
+    { role: "implementation-worker", current: "implementer" },
+  ])(
+    "passes the current $role role and policy root without inheriting parent instructions",
+    ({ role, current }) => {
+      const launch = buildPiRpcLaunch({
+        launchArgs: [],
+        environment: {
+          T3_PI_INSTRUCTIONS: "stale",
+          T3_PI_AGENT_ROLE: "stale",
+          T3_PI_AGENT_CONFIG_ROOT: "stale",
+        },
+        mcpSession: {
+          ...mcpSession,
+          delegated: true,
+          delegatedRole: role as never,
+          agentConfigRoot: "/config",
+        },
+        extensionPath: "/tmp/cache/pi-t3-mcp-extension.ts",
+      });
+      assert.equal(launch.env[T3_PI_AGENT_ROLE_ENV], current);
+      assert.equal(launch.env[T3_PI_AGENT_CONFIG_ROOT_ENV], "/config");
+      assert.notEqual(launch.env[T3_PI_INSTRUCTIONS_ENV], "stale");
+      const standalone = buildPiRpcLaunch({
+        launchArgs: [],
+        environment: launch.env,
+        mcpSession: undefined,
+        extensionPath: "/tmp/cache/pi-t3-mcp-extension.ts",
+      });
+      assert.isUndefined(standalone.env[T3_PI_AGENT_ROLE_ENV]);
+      assert.isUndefined(standalone.env[T3_PI_AGENT_CONFIG_ROOT_ENV]);
+      assert.isUndefined(standalone.env[T3_PI_INSTRUCTIONS_ENV]);
+    },
+  );
   it("always adds the permission bridge and configures MCP when available", () => {
     const resolvedArgs = resolvePiLaunchArgs(
       "--extension=/home/user/.pi/agent/extensions/demo.ts --session-dir=/tmp/pi-sessions --provider=anthropic --model=claude-sonnet --tools='' --name=-review --extension-flag=kept",

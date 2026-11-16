@@ -215,7 +215,7 @@ export const OrchestratorMcpDelegateTaskInput = Schema.Struct({
   offPolicyReason: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(500))).annotate({
     description: "Rare fallback: why no policy role or model fits.",
   }),
-  task: OrchestratorMcpPrompt,
+  task: Schema.optional(OrchestratorMcpPrompt),
   target: Schema.optional(OrchestratorMcpTarget),
   title: Schema.optional(OrchestratorMcpTitle),
   role: Schema.optional(OrchestratorMcpTaskRole),

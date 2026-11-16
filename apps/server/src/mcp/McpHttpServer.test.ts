@@ -1204,7 +1204,7 @@ it("describes role-first delegation with a managed follow-up", () => {
   const description = OrchestratorToolkit.tools.delegate_task.description ?? "";
   expect(description).toContain("Start one child agent with only `task`");
   expect(description).toContain("Call `agent_roles` first");
-  expect(description).toContain("`followup` with a `taskId` to continue that conversation");
+  expect(description).toContain("Pass only `followup`");
   // Review rounds and polling are routed in the system text.
   expect(description).not.toContain("t3_thread_send");
   expect(description).not.toContain("Do not poll");

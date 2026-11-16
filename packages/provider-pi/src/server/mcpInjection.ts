@@ -1,6 +1,9 @@
 import { tokenizeCliArgs } from "@t3tools/shared/cliArgs";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Schema from "effect/Schema";
+import * as Option from "effect/Option";
+import { StoredAgentRole } from "@t3tools/contracts";
 
 import type { AgentMcpServer } from "@t3tools/provider-core/server/AgentMcpServers";
 import type { McpProviderSessionConfig } from "@t3tools/provider-core/server/mcpSession";
@@ -11,6 +14,8 @@ import {
   T3_MCP_BEARER_ENV,
   T3_MCP_URL_ENV,
   T3_PI_INSTRUCTIONS_ENV,
+  T3_PI_AGENT_ROLE_ENV,
+  T3_PI_AGENT_CONFIG_ROOT_ENV,
   piChildInstructionsFor,
   T3_PI_READ_ONLY_ENV,
   T3_PI_READ_ONLY_SHELL_ENV,
@@ -19,6 +24,8 @@ import {
 } from "./mcpExtensionSource.ts";
 
 import { PI_READ_ONLY_SHELL_FILENAME, PI_READ_ONLY_SHELL_SOURCE } from "./readOnlyShellSource.ts";
+
+const decodeStoredRole = Schema.decodeUnknownOption(StoredAgentRole);
 
 const RESERVED_PI_LAUNCH_ARGUMENTS = new Set([
   "--continue",
@@ -302,6 +309,7 @@ export function buildPiRpcLaunch(input: {
 } {
   const hasT3Extension = input.disableExtensions !== true && input.extensionPath !== undefined;
   const hasT3Mcp = hasT3Extension && input.mcpSession !== undefined;
+  const delegatedRole = Option.getOrUndefined(decodeStoredRole(input.mcpSession?.delegatedRole));
   const agentServers = hasT3Extension ? (input.agentServers ?? []) : [];
   const extensionSafeArgs =
     input.disableExtensions === true
@@ -367,6 +375,9 @@ export function buildPiRpcLaunch(input: {
   delete environment[T3_MCP_AGENT_SERVERS_ENV];
   delete environment[T3_PI_READ_ONLY_ENV];
   delete environment[T3_PI_READ_ONLY_SHELL_ENV];
+  delete environment[T3_PI_INSTRUCTIONS_ENV];
+  delete environment[T3_PI_AGENT_ROLE_ENV];
+  delete environment[T3_PI_AGENT_CONFIG_ROOT_ENV];
 
   return {
     args,
@@ -382,6 +393,10 @@ export function buildPiRpcLaunch(input: {
             [T3_PI_RUNTIME_MODE_ENV]:
               input.runtimeMode === "auto" ? "approval-required" : input.runtimeMode,
           }
+        : {}),
+      ...(hasT3Mcp && delegatedRole !== undefined ? { [T3_PI_AGENT_ROLE_ENV]: delegatedRole } : {}),
+      ...(hasT3Mcp && input.mcpSession?.agentConfigRoot !== undefined
+        ? { [T3_PI_AGENT_CONFIG_ROOT_ENV]: input.mcpSession.agentConfigRoot }
         : {}),
       ...(hasT3Mcp && input.mcpSession?.delegated === true
         ? {
