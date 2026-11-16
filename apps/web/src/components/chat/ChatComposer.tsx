@@ -4078,6 +4078,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               </div>
               {deviceComposer && !isComposerApprovalState ? (
                 <DeviceContextBar
+                  threadKey={`${routeThreadRef.environmentId}:${routeThreadRef.threadId}`}
                   usage={activeContextWindow}
                   extensionStatuses={props.extensionStatuses}
                   compactionSavings={props.blackholeCompactionSavings}

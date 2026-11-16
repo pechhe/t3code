@@ -44,6 +44,102 @@ export const piBlackholeInstalled = Effect.fnUntraced(function* (agentDir: strin
   return yield* fileSystem.exists(configPathFor(agentDir)).pipe(Effect.orElseSucceed(() => false));
 });
 
+interface CurveAnchor {
+  readonly window: number;
+  readonly ratio: number;
+}
+
+/** Pi Blackhole's built-in `default` curve: the share of a context window it compacts at. */
+const DEFAULT_COMPACTION_CURVE: ReadonlyArray<CurveAnchor> = [
+  { window: 32_768, ratio: 0.9 },
+  { window: 131_072, ratio: 0.8 },
+  { window: 262_144, ratio: 0.7 },
+  { window: 1_048_576, ratio: 0.4 },
+];
+/** A fixed point Pi Blackhole once wrote into every config and now ignores. */
+const LEGACY_COMPACT_AFTER_TOKENS = 81_000;
+
+const positiveInteger = (value: unknown): value is number =>
+  typeof value === "number" && Number.isInteger(value) && value > 0;
+
+const windowRatio = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value) && value > 0 && value <= 1;
+
+function compactionCurve(config: Record<string, unknown>): ReadonlyArray<CurveAnchor> {
+  const presets = config["compactAfterPresets"];
+  const name = typeof config["compactAfterPreset"] === "string" ? config["compactAfterPreset"] : "";
+  const own = isRecord(presets) ? presets[name] : undefined;
+  if (!Array.isArray(own)) return DEFAULT_COMPACTION_CURVE;
+  const anchors = own
+    .flatMap((anchor): ReadonlyArray<CurveAnchor> =>
+      isRecord(anchor) && positiveInteger(anchor["window"]) && windowRatio(anchor["ratio"])
+        ? [{ window: anchor["window"], ratio: anchor["ratio"] }]
+        : [],
+    )
+    .toSorted((left, right) => left.window - right.window);
+  return anchors.length === 0 ? DEFAULT_COMPACTION_CURVE : anchors;
+}
+
+function curveRatio(anchors: ReadonlyArray<CurveAnchor>, contextWindow: number): number {
+  const first = anchors[0]!;
+  const last = anchors[anchors.length - 1]!;
+  if (contextWindow <= first.window) return first.ratio;
+  if (contextWindow >= last.window) return last.ratio;
+  const upper = anchors.findIndex((anchor) => anchor.window >= contextWindow);
+  const from = anchors[upper - 1]!;
+  const to = anchors[upper]!;
+  const share = (contextWindow - from.window) / (to.window - from.window);
+  return from.ratio + share * (to.ratio - from.ratio);
+}
+
+/**
+ * Where Pi Blackhole compacts a session with this context window, in context tokens, or null
+ * when its config leaves compacting to Pi. Follows `compactThresholdTokens` in pi-blackhole
+ * 0.5.18: a fixed point, then a share of the window, then a reserve, then the preset curve.
+ * Its environment overrides and per-model window overrides are not read.
+ */
+export function piBlackholeCompactionThreshold(
+  config: Record<string, unknown>,
+  contextWindow: number,
+): number | null {
+  const mode = config["compaction"];
+  const engine = config["compactionEngine"];
+  if (mode === "off" || mode === "manual" || engine === "pi-default") return null;
+  if (
+    mode === undefined &&
+    engine === undefined &&
+    (config["passive"] === true ||
+      config["noAutoCompact"] === true ||
+      config["overrideDefaultCompaction"] === false)
+  )
+    return null;
+  if (contextWindow <= 0) return null;
+  const fixed = config["compactAfterTokens"];
+  if (positiveInteger(fixed) && fixed !== LEGACY_COMPACT_AFTER_TOKENS) return fixed;
+  const ratio = config["compactAfterRatio"];
+  if (windowRatio(ratio)) return Math.max(1, Math.floor(contextWindow * ratio));
+  const reserve = config["compactReserveTokens"];
+  if (positiveInteger(reserve)) return Math.max(1, contextWindow - reserve);
+  return Math.max(
+    1,
+    Math.floor(contextWindow * curveRatio(compactionCurve(config), contextWindow)),
+  );
+}
+
+/**
+ * The config Pi Blackhole loads for a session in `cwd`: the agent directory's file with the
+ * project's `.pi/pi-blackhole-config.json` laid over it, or null where it is not installed.
+ */
+export const readPiBlackholeConfig = Effect.fn("readPiBlackholeConfig")(function* (
+  agentDir: string,
+  cwd: string,
+) {
+  const text = yield* readText(configPathFor(agentDir));
+  if (text === undefined) return null;
+  const project = yield* readText(NodePath.join(cwd, ".pi", "pi-blackhole-config.json"));
+  return { ...parseSettingsRoot(text), ...parseSettingsRoot(project) };
+});
+
 /**
  * Point the memory worker at `model`, or with null put back the model T3 replaced. Does nothing
  * where Pi Blackhole has no config, since then it is not installed for this agent directory.

@@ -14,9 +14,12 @@ import { Popover, PopoverPopup } from "../../ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
 import {
   type BlackholeStatusSnapshot,
+  type BlackholeWorkerPhase,
   type ThreadCompactionSavings,
   parseBlackholeExtensionStatus,
 } from "./blackholeStatus.logic";
+import { type CompactionPullState, advanceCompactionPull } from "./compactionPull.logic";
+import { playCompactionPull } from "./compactionPull";
 import {
   type CompactAtBounds,
   compactAtFromPointer,
@@ -36,6 +39,8 @@ function clampPercent(value: number): number {
  * compact-at point.
  */
 export function DeviceContextBar(props: {
+  /** The thread on show, so another thread's numbers are never read as this one's compaction. */
+  threadKey: string;
   usage: ContextWindowSnapshot | null;
   extensionStatuses?: ReadonlyArray<{ readonly key: string; readonly text: string }> | undefined;
   compactionSavings?: ThreadCompactionSavings | undefined;
@@ -65,16 +70,44 @@ export function DeviceContextBar(props: {
     appliedThreshold: usage?.autoCompactThreshold,
     bounds: props.compactAtBounds,
   });
+  const [pullReadout, setPullReadout] = useState<string | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const pullState = useRef<CompactionPullState | null>(null);
+  const usedTokens = usage?.usedTokens ?? 0;
+  const windowTokens = usage?.maxTokens ?? null;
+  const compactionCount = props.compactionSavings?.compactionCount ?? 0;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a completed compaction plays a one-off animation on the bar's own DOM nodes
+  useEffect(() => {
+    const next = advanceCompactionPull(pullState.current, {
+      threadKey: props.threadKey,
+      usedTokens,
+      compactionCount,
+    });
+    pullState.current = next.state;
+    const root = rootRef.current;
+    const track = root?.querySelector<HTMLElement>(".device-context__track");
+    const hole = root?.querySelector(".device-context__bh-glyph");
+    if (next.pull === null || !windowTokens || !track || !hole) return;
+    return playCompactionPull({
+      track,
+      hole,
+      fromShare: next.pull.fromTokens / windowTokens,
+      toShare: next.pull.toTokens / windowTokens,
+      onProgress: (share) =>
+        setPullReadout(share === null ? null : formatContextWindowTokens(share * windowTokens)),
+    });
+  }, [props.threadKey, usedTokens, compactionCount, windowTokens]);
   const readout = usage
-    ? `${formatContextWindowTokens(usage.usedTokens)} / ${
-        usage.maxTokens != null ? formatContextWindowTokens(usage.maxTokens) : "—"
+    ? `${pullReadout ?? formatContextWindowTokens(usage.usedTokens)} / ${
+        usage.maxTokens != null ? formatContextWindowTokens(usage.maxTokens) : "-"
       }`
-    : "0 / —";
+    : "0 / -";
   const overloaded = used > 90;
   const maxTokens = usage?.maxTokens ?? null;
   const blackhole = parseBlackholeExtensionStatus(props.extensionStatuses);
   return (
     <div
+      ref={rootRef}
       className="device-context"
       data-overloaded={overloaded || undefined}
       style={{ "--used": used / 100 } as CSSProperties}
@@ -106,6 +139,11 @@ export function DeviceContextBar(props: {
         {blackhole ? (
           <BlackholeStatusControl
             status={blackhole}
+            compactionShare={
+              usage && compactLine.position !== null && !compactLine.unreported
+                ? usage.usedTokens / compactLine.position
+                : blackhole.compactionFraction
+            }
             compactionSavings={props.compactionSavings}
             canOperateThread={props.canOperateThread}
             compactDisabled={props.compactDisabled}
@@ -230,6 +268,7 @@ function CompactLine(props: {
   const shown = drag?.value ?? props.position;
   const percent = clampPercent((shown / props.maxTokens) * 100);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Escape cancels a drag through a window listener that lives only while dragging
   useEffect(() => {
     if (!dragging) return;
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -366,40 +405,32 @@ function CompactLine(props: {
   );
 }
 
-function formatBlackholePillLabel(status: BlackholeStatusSnapshot): string {
-  if (!status.memoryEnabled) return "off";
-  if (status.observerFraction !== null) return `${Math.round(status.observerFraction * 100)}%`;
-  return "";
-}
+const BLACKHOLE_WORK: Record<BlackholeWorkerPhase, { pill: string; status: string }> = {
+  observer: { pill: "noting", status: "Writing notes…" },
+  reflector: { pill: "condensing", status: "Condensing notes…" },
+  dropper: { pill: "trimming", status: "Trimming old notes…" },
+  compact: { pill: "compacting", status: "Compacting…" },
+};
 
-/** A black hole seen edge-on: a dark core inside a tilted accretion ring. */
+/** A black hole seen edge-on: a dark core in its ring of light, crossed by the accretion disc. */
 function BlackholeGlyph() {
   return (
-    <svg className="device-context__bh-glyph" viewBox="0 0 16 12" aria-hidden>
-      <ellipse
-        cx="8"
-        cy="6"
-        rx="7"
-        ry="2.6"
-        transform="rotate(-14 8 6)"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.3"
-      />
-      <circle cx="8" cy="6" r="3.4" className="device-context__bh-core" />
-      <path
-        d="M1 6 A7 2.6 0 0 0 15 6"
-        transform="rotate(-14 8 6)"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.3"
-      />
+    <svg className="device-context__bh-glyph" viewBox="0 0 34 22" aria-hidden>
+      <g transform="rotate(-9 17 11)">
+        <path className="device-context__bh-lens" d="M6.6 11 A10.4 9 0 0 1 27.4 11" />
+        <circle className="device-context__bh-halo" cx="17" cy="11" r="6.2" />
+        <circle className="device-context__bh-core" cx="17" cy="11" r="5.3" />
+        <path fill="currentColor" d="M0 11 Q17 6.6 34 11 Q17 15.4 0 11Z" />
+        <path className="device-context__bh-slit" d="M11 11 Q17 10.2 23 11 Q17 11.8 11 11Z" />
+      </g>
     </svg>
   );
 }
 
 function BlackholeStatusControl(props: {
   status: BlackholeStatusSnapshot;
+  /** Context in use as a share of the point where the thread compacts. */
+  compactionShare: number | null;
   compactionSavings: ThreadCompactionSavings | undefined;
   canOperateThread: boolean;
   compactDisabled: boolean;
@@ -407,10 +438,21 @@ function BlackholeStatusControl(props: {
   onCompact: (() => void) | undefined;
 }) {
   const [open, setOpen] = useState(false);
-  const [guideOpen, setGuideOpen] = useState(false);
   const [pillEl, setPillEl] = useState<HTMLButtonElement | null>(null);
   const { status, compactionSavings } = props;
-  const pillState = status.memoryEnabled ? "idle" : "off";
+  const work = status.worker?.kind === "running" ? BLACKHOLE_WORK[status.worker.phase] : null;
+  const pillLabel = !status.memoryEnabled ? "off" : (work?.pill ?? null);
+  const wrote =
+    status.worker?.kind === "done" && status.worker.phase === "observer"
+      ? status.worker.delta
+      : null;
+  const statusLine = work
+    ? work.status
+    : !status.memoryEnabled
+      ? "Paused"
+      : wrote
+        ? `Wrote ${wrote} ${wrote === 1 ? "note" : "notes"}`
+        : "Up to date";
 
   const runAndClose = (command: string) => {
     setOpen(false);
@@ -423,102 +465,62 @@ function BlackholeStatusControl(props: {
         ref={setPillEl}
         type="button"
         className="device-context__bh-pill"
-        data-state={pillState}
+        data-state={!status.memoryEnabled ? "off" : work ? "working" : "idle"}
         aria-expanded={open}
         aria-haspopup="dialog"
-        aria-label="Blackhole observational memory details"
+        aria-label="Memory"
         onPointerDown={(event) => event.preventDefault()}
         onClick={() => setOpen((current) => !current)}
       >
         <BlackholeGlyph />
-        {formatBlackholePillLabel(status) ? (
-          <span className="device-context__bh-label">{formatBlackholePillLabel(status)}</span>
-        ) : null}
+        {pillLabel}
       </button>
       <PopoverPopup anchor={pillEl} side="top" align="end" width="md" padding="compact">
         <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs font-semibold text-foreground">
-              Blackhole Observational Memory
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-xs font-semibold text-foreground">Memory</span>
+            <span
+              className={
+                work
+                  ? "text-2xs whitespace-nowrap text-warning"
+                  : "text-2xs whitespace-nowrap text-muted-foreground"
+              }
+            >
+              {statusLine}
             </span>
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-2xs text-muted-foreground">
-                {status.worker?.kind === "running"
-                  ? `Running ${status.worker.phase}…`
-                  : status.worker?.kind === "done"
-                    ? `Settled${status.worker.delta !== null ? ` (+${status.worker.delta})` : ""}`
-                    : status.memoryEnabled
-                      ? "Active"
-                      : "Paused"}
-              </span>
-              <Button
-                type="button"
-                size="xs"
-                variant="ghost"
-                aria-expanded={guideOpen}
-                onClick={() => setGuideOpen((current) => !current)}
-              >
-                {guideOpen ? "Hide guide" : "Guide"}
-              </Button>
-            </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-2">
-            <BlackholeGauge
-              label="Observer"
+          <dl className="grid grid-cols-[auto_minmax(0,1fr)_4ch] items-center gap-x-2.5 gap-y-1.5 text-2xs">
+            <BlackholeMeter
+              label="Next notes"
+              hint="New context since notes were last written. At 100% a background model writes more."
               fraction={status.observerFraction}
-              disabled={!status.memoryEnabled}
-              accent="amber"
+              off={!status.memoryEnabled}
+              live={status.worker?.kind === "running" && status.worker.phase === "observer"}
             />
-            <BlackholeGauge
-              label="Obs Pool"
+            <BlackholeMeter
+              label="Notes stored"
+              hint="How full the note store is. As it fills, older notes are condensed and stale ones dropped."
               fraction={status.poolFraction}
-              disabled={!status.memoryEnabled}
-              accent="ink"
+              off={!status.memoryEnabled}
+              live={false}
             />
-            <BlackholeGauge
-              label="Compaction"
-              fraction={status.compactionFraction}
-              disabled={false}
-              accent="ink"
+            <BlackholeMeter
+              label="Until compaction"
+              hint="Context in use towards the line on the bar, where older turns fold into a summary."
+              fraction={props.compactionShare}
+              off={false}
+              live={false}
             />
-          </div>
+          </dl>
 
-          {guideOpen ? (
-            <div className="flex flex-col gap-1.5 rounded-md border border-border/60 bg-muted/40 px-2.5 py-2 text-2xs leading-relaxed text-muted-foreground">
-              <p>
-                <span className="font-medium text-foreground">Observer %:</span> New tokens since
-                the last observer pass. At 100%, a background model records key facts and resets to
-                0%.
-              </p>
-              <p>
-                <span className="font-medium text-foreground">Obs Pool %:</span> Saved observation
-                buffer fill. As it fills, Reflector condenses older notes and Dropper trims stale
-                ones.
-              </p>
-              <p>
-                <span className="font-medium text-foreground">Compaction %:</span> Context fill
-                toward Blackhole's auto-compact point. At 100%, older turns fold into a structural
-                summary at zero LLM cost.
-              </p>
-            </div>
-          ) : null}
-
-          {compactionSavings ? (
-            <div className="flex items-center justify-between gap-2 rounded-md bg-muted/40 px-2.5 py-1.5 text-2xs">
-              <span className="text-muted-foreground">Context freed in thread</span>
-              <span className="font-mono tabular-nums text-foreground">
-                {compactionSavings.compactionCount > 0
-                  ? `${formatContextWindowTokens(compactionSavings.freedTokens)} (${compactionSavings.compactionCount} ${
-                      compactionSavings.compactionCount === 1 ? "compaction" : "compactions"
-                    })`
-                  : "0 (no compactions yet)"}
-              </span>
-            </div>
-          ) : null}
-
-          {props.onRunCommand || props.onCompact ? (
-            <div className="flex items-center justify-end gap-1.5 border-t border-border/60 pt-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-2xs whitespace-nowrap text-muted-foreground/70">
+              {compactionSavings && compactionSavings.compactionCount > 0
+                ? `${formatContextWindowTokens(compactionSavings.freedTokens)} freed so far`
+                : null}
+            </span>
+            <div className="flex items-center gap-1.5">
               {props.onRunCommand ? (
                 <Button
                   type="button"
@@ -543,42 +545,46 @@ function BlackholeStatusControl(props: {
                     props.onCompact?.();
                   }}
                 >
-                  Compact
+                  Compact now
                 </Button>
               ) : null}
             </div>
-          ) : null}
+          </div>
         </div>
       </PopoverPopup>
     </Popover>
   );
 }
 
-function BlackholeGauge(props: {
+function BlackholeMeter(props: {
   label: string;
+  hint: string;
   fraction: number | null;
-  disabled: boolean;
-  accent: "amber" | "ink";
+  off: boolean;
+  live: boolean;
 }) {
   const pct = props.fraction !== null ? Math.round(clampPercent(props.fraction * 100)) : null;
   return (
-    <div className="flex flex-col gap-1.5 rounded-md bg-muted/60 px-2.5 py-2">
-      <div className="flex items-center justify-between gap-1 text-2xs">
-        <span className="text-muted-foreground">{props.label}</span>
-        <span className="font-mono tabular-nums text-foreground">
-          {props.disabled ? "off" : pct !== null ? `${pct}%` : "-"}
-        </span>
-      </div>
-      <div className="h-1 w-full overflow-hidden rounded-full bg-foreground/10">
+    <>
+      <Tooltip>
+        <TooltipTrigger render={<dt className="text-muted-foreground" />}>
+          {props.label}
+        </TooltipTrigger>
+        <TooltipPopup side="left">{props.hint}</TooltipPopup>
+      </Tooltip>
+      <dd className="h-[3px] overflow-hidden rounded-full bg-foreground/10">
         <div
           className={
-            props.accent === "amber"
+            props.live
               ? "h-full rounded-full bg-warning transition-[width] duration-150"
               : "h-full rounded-full bg-foreground/55 transition-[width] duration-150"
           }
-          style={{ width: `${props.disabled || pct === null ? 0 : pct}%` }}
+          style={{ width: `${props.off || pct === null ? 0 : pct}%` }}
         />
-      </div>
-    </div>
+      </dd>
+      <dd className="text-right font-mono tabular-nums text-foreground">
+        {props.off ? "off" : pct !== null ? `${pct}%` : "-"}
+      </dd>
+    </>
   );
 }

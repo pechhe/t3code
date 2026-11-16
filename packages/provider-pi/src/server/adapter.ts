@@ -137,7 +137,12 @@ import {
   syncPiCompactionPoint,
   type PiCompactionSettings,
 } from "./compaction.ts";
-import { piBlackholeInstalled, syncPiBlackholeModel } from "./blackhole.ts";
+import {
+  piBlackholeCompactionThreshold,
+  piBlackholeInstalled,
+  readPiBlackholeConfig,
+  syncPiBlackholeModel,
+} from "./blackhole.ts";
 import { PI_FILE_CHANGE_TOOLS, PI_T3_SERVICE_TIER_COMMAND } from "./mcpExtensionSource.ts";
 import { PI_STANDARD_SERVICE_TIER } from "./modelCapabilities.ts";
 
@@ -730,6 +735,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
       let contextWindow: number | null = null;
       // Where the running Pi process compacts: Pi's settings as this process loaded them.
       let compactionSettings: PiCompactionSettings | null = null;
+      let blackholeConfig: Record<string, unknown> | null = null;
       let autoCompactThreshold: number | null = null;
       const modelContextWindows = new Map<string, number>();
       let discoveredModels: ReadonlyArray<unknown> | null = null;
@@ -943,7 +949,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         (baselineModel === null ? null : `${baselineModel.provider}/${baselineModel.modelId}`);
       const rememberAutoCompactThreshold = () => {
         const modelKey = currentModelKey();
-        autoCompactThreshold =
+        const piPoint =
           compactionSettings === null || modelKey === null
             ? null
             : piCompactionThreshold(
@@ -951,6 +957,15 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                 piCompactionReserve(compactionSettings, modelKey),
                 compactionSettings.enabled,
               );
+        // Pi Blackhole compacts at its own point as well, so the session compacts at the earlier.
+        const blackholePoint =
+          blackholeConfig === null || contextWindow === null
+            ? null
+            : piBlackholeCompactionThreshold(blackholeConfig, contextWindow);
+        autoCompactThreshold =
+          piPoint === null || blackholePoint === null
+            ? (piPoint ?? blackholePoint)
+            : Math.min(piPoint, blackholePoint);
       };
       const prepareCompactionPoint = Effect.fnUntraced(function* (agentDir: string) {
         const explicit =
@@ -1054,6 +1069,9 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
       if (agentDir !== null) {
         const compactionWrote = yield* prepareCompactionPoint(agentDir);
         const memoryWorkerWrote = yield* prepareMemoryWorker(agentDir);
+        blackholeConfig = yield* readPiBlackholeConfig(agentDir, cwd).pipe(
+          Effect.provideService(FileSystem.FileSystem, fileSystem),
+        );
         // The running process still holds the settings it loaded, so start it again on the files
         // T3 just wrote, before any turn has run in it.
         if (compactionWrote || memoryWorkerWrote) {

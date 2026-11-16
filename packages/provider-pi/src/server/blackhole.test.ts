@@ -5,7 +5,11 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as NodePath from "node:path";
 
-import { syncPiBlackholeModel } from "./blackhole.ts";
+import {
+  piBlackholeCompactionThreshold,
+  readPiBlackholeConfig,
+  syncPiBlackholeModel,
+} from "./blackhole.ts";
 
 const ownModel = { provider: "openai-codex", id: "gpt-6-luna", thinking: "low" };
 
@@ -119,5 +123,86 @@ describe("syncPiBlackholeModel", () => {
         assert.deepEqual((yield* readConfig)["model"], theirs);
       }),
     ),
+  );
+});
+
+describe("piBlackholeCompactionThreshold", () => {
+  const auto = { compaction: "auto", compactionEngine: "blackhole" };
+  it.each([
+    { name: "the default curve at its last anchor", config: auto, window: 1_048_576, at: 419_430 },
+    { name: "the default curve between anchors", config: auto, window: 196_608, at: 147_456 },
+    { name: "the default curve below its first anchor", config: auto, window: 16_000, at: 14_400 },
+    {
+      name: "a fixed point over every other knob",
+      config: { ...auto, compactAfterTokens: 120_000, compactAfterRatio: 0.5 },
+      window: 1_000_000,
+      at: 120_000,
+    },
+    {
+      name: "a share of the window, ignoring the retired 81000 default",
+      config: { ...auto, compactAfterTokens: 81_000, compactAfterRatio: 0.5 },
+      window: 200_000,
+      at: 100_000,
+    },
+    {
+      name: "a reserve below the window",
+      config: { ...auto, compactAfterRatio: 0, compactReserveTokens: 30_000 },
+      window: 200_000,
+      at: 170_000,
+    },
+    {
+      name: "the user's own curve",
+      config: {
+        ...auto,
+        compactAfterPreset: "early",
+        compactAfterPresets: { early: [{ window: 100_000, ratio: 0.25 }] },
+      },
+      window: 400_000,
+      at: 100_000,
+    },
+    {
+      name: "the default curve for an unknown preset",
+      config: { ...auto, compactAfterPreset: "missing" },
+      window: 32_768,
+      at: 29_491,
+    },
+    {
+      name: "nothing when compaction is manual",
+      config: { ...auto, compaction: "manual" },
+      at: null,
+    },
+    {
+      name: "nothing when Pi's own engine compacts",
+      config: { compaction: "auto", compactionEngine: "pi-default" },
+      at: null,
+    },
+    { name: "nothing for a legacy passive config", config: { passive: true }, at: null },
+  ])("reports $name", ({ config, window = 200_000, at }) => {
+    assert.equal(piBlackholeCompactionThreshold(config, window), at);
+  });
+});
+
+describe("readPiBlackholeConfig", () => {
+  it.effect("lays the project's config over the agent directory's", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const agentDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "pi-blackhole-" });
+      const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "pi-project-" });
+      assert.equal(yield* readPiBlackholeConfig(agentDir, cwd), null);
+      yield* fileSystem.makeDirectory(NodePath.join(agentDir, "pi-blackhole"));
+      yield* fileSystem.writeFileString(
+        NodePath.join(agentDir, "pi-blackhole", "pi-blackhole-config.json"),
+        JSON.stringify({ compaction: "auto", compactAfterPreset: "default" }),
+      );
+      const own = yield* readPiBlackholeConfig(agentDir, cwd);
+      assert.equal(own && piBlackholeCompactionThreshold(own, 1_048_576), 419_430);
+      yield* fileSystem.makeDirectory(NodePath.join(cwd, ".pi"));
+      yield* fileSystem.writeFileString(
+        NodePath.join(cwd, ".pi", "pi-blackhole-config.json"),
+        JSON.stringify({ compactAfterRatio: 0.5 }),
+      );
+      const merged = yield* readPiBlackholeConfig(agentDir, cwd);
+      assert.equal(merged && piBlackholeCompactionThreshold(merged, 200_000), 100_000);
+    }).pipe(Effect.provide(NodeServices.layer), Effect.scoped, Effect.orDie),
   );
 });

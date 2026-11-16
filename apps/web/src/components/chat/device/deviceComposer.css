@@ -505,12 +505,15 @@
   padding: 0;
   border: 0;
   background: none;
-  color: oklch(0.6 0.16 52);
+  color: var(--cream-ink-muted);
   font: inherit;
+  text-decoration: underline transparent;
+  text-underline-offset: 3px;
   cursor: pointer;
 }
-.device-context__compact:hover:not(:disabled) {
-  color: oklch(0.7 0.18 52);
+.device-context__compact:hover:not([aria-disabled]) {
+  color: var(--crt-amber);
+  text-decoration-color: currentColor;
 }
 .device-context__compact[aria-disabled] {
   cursor: default;
@@ -552,41 +555,81 @@
   opacity: 0.85;
 }
 
+/* The black hole stands in the bar as an object, with no card around it. */
 .device-context__bh-pill {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 1px 6px;
-  border: 1px solid color-mix(in oklch, var(--cream-ink) 20%, transparent);
-  border-radius: 4px;
-  background: color-mix(in oklch, var(--cream-ink) 5%, transparent);
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
   color: var(--cream-ink-muted);
   font: inherit;
   font-size: 10.5px;
   cursor: pointer;
 }
-.device-context__bh-pill:hover {
-  border-color: color-mix(in oklch, var(--cream-ink) 38%, transparent);
+.device-context__bh-pill:hover,
+.device-context__bh-pill[aria-expanded="true"] {
   color: var(--cream-ink);
 }
+.device-context__bh-pill[data-state="working"] {
+  color: var(--crt-amber);
+}
 .device-context__bh-pill[data-state="off"] {
-  opacity: 0.65;
+  opacity: 0.5;
 }
 .device-context__bh-glyph {
-  width: 19px;
-  height: 14px;
+  width: 34px;
+  height: 22px;
   flex: none;
   overflow: visible;
+  transform-origin: 50% 50%;
 }
-.device-context__bh-label {
-  min-width: 4ch;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
+.device-context__bh-halo {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+}
+.device-context__bh-lens {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+  opacity: 0.5;
 }
 .device-context__bh-core {
-  fill: var(--cream-ink);
-  stroke: var(--cream-bg);
-  stroke-width: 0.9;
+  fill: oklch(0.1 0 0);
+}
+.device-context__bh-slit {
+  fill: oklch(0.1 0 0);
+  opacity: 0.55;
+}
+/* The ring that leaves the hole as it swallows a compaction; centred on the glyph. */
+.device-context__bh-gulp {
+  position: absolute;
+  left: 17px;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border: 1.5px solid var(--crt-amber);
+  border-radius: 50%;
+  pointer-events: none;
+}
+/* Segments of compacted context on their way into the hole (compactionPull.ts). */
+.device-context__pull-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.device-context__pull {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background-color: var(--cream-ink);
+  color: var(--crt-amber);
+  will-change: transform;
 }
 
 /* ---------------- Controls strip ---------------- */
