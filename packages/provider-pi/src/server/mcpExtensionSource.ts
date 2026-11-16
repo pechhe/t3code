@@ -50,7 +50,7 @@ export const piChildInstructionsFor = (listing: {
   const instructions = PI_CHILD_INSTRUCTION_VARIANTS[piChildInstructionKey(listing)] ?? "";
   return listing.readOnlyShell === true
     ? instructions +
-        "\n\nYour shell filesystem is read-only outside its scratch directory ($TMPDIR) and git-ignored paths in the assigned checkout. Use jj with --ignore-working-copy; pnpm exec/run fail here, so call tools directly, such as node_modules/.bin/vp."
+        "\n\nYour shell filesystem is read-only outside its scratch directory ($TMPDIR) and git-ignored paths that already exist in the assigned checkout. Use jj with --ignore-working-copy; pnpm exec/run fail here, so call tools directly, such as node_modules/.bin/vp. A command cannot create a new ignored file in a source directory, such as a first *.tsbuildinfo: when one fails for that reason, report it so the lead runs the command once."
     : instructions;
 };
 

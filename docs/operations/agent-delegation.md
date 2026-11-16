@@ -115,7 +115,10 @@ its revision and the role names, or the reason the policy is refused.
   get the built-in shell, sandboxed with Landlock on Linux and sandbox-exec on
   macOS: file contents and directory changes are refused outside a task scratch
   directory (`$TMPDIR`) and existing git-ignored paths inside the assigned checkout;
-  `.git` and `.jj` stay protected. Python 3 and a working host sandbox are required;
+  `.git` and `.jj` stay protected. An ignored path must already exist: a command
+  cannot create a first-time ignored file in a source directory (a new
+  `*.tsbuildinfo`, say), so a check that writes one runs once in the lead's
+  checkout before a reader can run it. Python 3 and a working host sandbox are required;
   an unavailable sandbox blocks the shell rather than running without protection.
   Browser and researcher tasks have no shell. Codemode stays available: each tool
   a script calls reaches the same tool-call guard, including sandboxing bash.
