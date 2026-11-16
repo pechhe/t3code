@@ -514,7 +514,7 @@ describe("resolveThreadStatusPill", () => {
       resolveThreadStatusPill({
         thread: { ...baseThread, hasPendingApprovals: true, parkedWaitGaveUp: gaveUp },
       }),
-    ).toMatchObject({ label: "Pending Approval" });
+    ).toMatchObject({ label: "Approval" });
   });
 
   it("shows plan ready when a settled plan turn has a proposed plan ready for follow-up", () => {
@@ -531,7 +531,7 @@ describe("resolveThreadStatusPill", () => {
           },
         },
       }),
-    ).toMatchObject({ label: "Plan Ready", pulse: false });
+    ).toMatchObject({ label: "Plan ready", pulse: false });
   });
 
   it("does not manufacture completed state without a client visit marker", () => {
@@ -565,7 +565,7 @@ describe("resolveThreadStatusPill", () => {
           },
         },
       }),
-    ).toMatchObject({ label: "Completed", pulse: false });
+    ).toMatchObject({ label: "Done", pulse: false });
   });
 
   it("shows failed, not completed, when the unseen run failed", () => {
@@ -1032,14 +1032,14 @@ describe("unseen completion with background work", () => {
       task: { kind: "command" },
       status: "ready",
       receded: false,
-      pill: "Completed",
+      pill: "Done",
     },
     {
       roster: "dev server watchdog",
       task: { kind: "monitor" },
       status: "ready",
       receded: false,
-      pill: "Completed",
+      pill: "Done",
     },
     {
       roster: "awaited command",

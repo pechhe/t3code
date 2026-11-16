@@ -665,15 +665,14 @@ export function buildBulkUnpinContextMenuItem(input: {
 export interface ThreadStatusPill {
   label:
     | "Working"
-    | "Connecting"
-    | "Completed"
+    | "Setting up"
     | "Failed"
-    | "Pending Approval"
-    | "Awaiting Input"
-    | "Guest Request"
+    | "Approval"
+    | "Input"
+    | "Request"
     | "Waiting"
     | "Watching"
-    | "Plan Ready"
+    | "Plan ready"
     | "Stalled"
     | "Needs you"
     | "Parked wait gave up"
@@ -1242,7 +1241,7 @@ export function resolveThreadStatusPill(input: {
     base === null ||
     base.label === "Waiting" ||
     base.label === "Watching" ||
-    (thread.parkedWaitGaveUp !== undefined && base.label === "Completed");
+    (thread.parkedWaitGaveUp !== undefined && base.label === "Done");
   const attention = quiet ? threadStandingAttention(standing, thread.parkedWaitGaveUp) : null;
   if (attention === "gave_up") {
     return {
@@ -1272,10 +1271,9 @@ export function resolveThreadStatusPill(input: {
       pulse: false,
     };
   }
-  if (standing.state === "finished" && base?.label === "Completed") {
+  if (standing.state === "finished" && base?.label === "Done") {
     return {
       ...base,
-      label: "Done",
       colorClass: "text-success-foreground",
       dotClass: "bg-success",
     };
@@ -1283,11 +1281,29 @@ export function resolveThreadStatusPill(input: {
   return base;
 }
 
+export function hasPlanReadyPrompt(
+  thread: Pick<
+    SidebarThreadSummary,
+    | "hasPendingUserInput"
+    | "interactionMode"
+    | "latestRun"
+    | "runtime"
+    | "hasActionableProposedPlan"
+  >,
+): boolean {
+  return (
+    !thread.hasPendingUserInput &&
+    thread.interactionMode === "plan" &&
+    isLatestRunSettled(thread.latestRun, thread.runtime) &&
+    thread.hasActionableProposedPlan
+  );
+}
+
 /** The pre-standing rules, kept whole for a server that sends no standing. */
 function resolveRuntimeThreadStatusPill(thread: ThreadStatusInput): ThreadStatusPill | null {
   if (thread.hasPendingApprovals || thread.pendingSubagentRequest === "approval") {
     return {
-      label: "Pending Approval",
+      label: "Approval",
       colorClass: "text-amber-600 dark:text-amber-300/90",
       dotClass: "bg-amber-500 dark:bg-amber-300/90",
       pulse: false,
@@ -1296,7 +1312,7 @@ function resolveRuntimeThreadStatusPill(thread: ThreadStatusInput): ThreadStatus
 
   if (thread.hasPendingUserInput || thread.pendingSubagentRequest === "user_input") {
     return {
-      label: "Awaiting Input",
+      label: "Input",
       colorClass: "text-indigo-600 dark:text-indigo-300/90",
       dotClass: "bg-indigo-500 dark:bg-indigo-300/90",
       pulse: false,
@@ -1305,7 +1321,7 @@ function resolveRuntimeThreadStatusPill(thread: ThreadStatusInput): ThreadStatus
 
   if ((thread.pendingGuestMessageCount ?? 0) > 0) {
     return {
-      label: "Guest Request",
+      label: "Request",
       colorClass: "text-guest-foreground",
       dotClass: "bg-guest",
       pulse: false,
@@ -1330,7 +1346,7 @@ function resolveRuntimeThreadStatusPill(thread: ThreadStatusInput): ThreadStatus
     thread.runtime?.status === "queued"
   ) {
     return {
-      label: "Connecting",
+      label: thread.runtime.status === "preparing" ? "Setting up" : "Working",
       colorClass: "text-sky-600 dark:text-sky-300/80",
       dotClass: "bg-sky-500 dark:bg-sky-300/80",
       pulse: true,
@@ -1360,14 +1376,9 @@ function resolveRuntimeThreadStatusPill(thread: ThreadStatusInput): ThreadStatus
     };
   }
 
-  const hasPlanReadyPrompt =
-    !thread.hasPendingUserInput &&
-    thread.interactionMode === "plan" &&
-    isLatestRunSettled(thread.latestRun, thread.runtime) &&
-    thread.hasActionableProposedPlan;
-  if (hasPlanReadyPrompt) {
+  if (hasPlanReadyPrompt(thread)) {
     return {
-      label: "Plan Ready",
+      label: "Plan ready",
       colorClass: "text-violet-600 dark:text-violet-300/90",
       dotClass: "bg-violet-500 dark:bg-violet-300/90",
       pulse: false,
@@ -1376,7 +1387,7 @@ function resolveRuntimeThreadStatusPill(thread: ThreadStatusInput): ThreadStatus
 
   if (hasUnseenCompletion(thread)) {
     return {
-      label: "Completed",
+      label: "Done",
       colorClass: "text-emerald-600 dark:text-emerald-300/90",
       dotClass: "bg-emerald-500 dark:bg-emerald-300/90",
       pulse: false,

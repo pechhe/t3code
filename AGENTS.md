@@ -220,6 +220,10 @@ T3peach (`pechhe/t3code`, branch `t3peach`) is T3 Code with upstream's nightlies
 - [`differences.md`](fork/differences.md) records each deliberate difference from upstream: why it exists, what must survive an update, where it meets upstream code, its proof and when it can go.
 - [`upstream-receipt.json`](fork/upstream-receipt.json) is the reconciliation receipt for the newest upstream merge. The landing gate refuses a candidate whose receipt is missing or stale (`scripts/fork-upstream-receipt.ts`), and from receipt version 2 it also refuses one that leaves a recorded entry out of its coverage or retires one without a decision.
 
+### Mobile is upstream's
+
+The fork does no mobile development: Henry uses the official T3 Code app. Build no fork feature in `apps/mobile` and verify none there; for fork work, the Clients entry of Hit every surface means web and desktop. Two duties remain: the official app keeps working against a fork server (see Stays readable by shipped clients), and `apps/mobile` keeps type-checking when a shared contract or `client-runtime` change reaches it, by the smallest edit that does.
+
 ### Upstream policy
 
 1. Prefer upstream's implementation of shared behaviour when evidence shows it meets the fork's requirements. Keep required behaviour, not code because it was written here.
@@ -245,7 +249,6 @@ A substantial feature, behaviour change or performance fix:
 - **Dev server or test fixtures:** read [development](docs/operations/development.md#choosing-a-dev-process) before setup, starting or sharing a server, or copying test data. It covers isolated homes, setup markers, ports, pairing and secrets.
 - **Tests or code verification:** read [testing](docs/operations/testing.md) before authoring tests or choosing checks. Run focused checks locally; global SlipJay policy owns the runner landing gate. Do not run repo-wide checks (`vp check`, `vp run -r test`, `vp run -r typecheck`) unless asked.
 - **Visible UI change:** capture it headlessly with `test-t3-app` on the machine the thread runs on, and show Henry the screenshots in your reply instead of a preview link, unless the change is judged by motion or he asks to try it. This replaces the preview in the global design loop; his yes still comes before landing. The primary agent verifies after integration; helpers do not start dev servers. Other browser or computer use still needs the authority required by global policy; this exception grants no broader permission.
-- **Native mobile verification:** use `test-t3-mobile` when authorised. A missing/outdated native client is a build step: run `node scripts/mobile-native-client.ts ensure <ios|android> <device-id>` on the simulator host before Metro.
 - **Authorised PR work:** read [PR procedures](docs/operations/development.md#authorised-pull-requests); these do not override SlipJay publication rules.
 - **Landed work on `t3peach`:** use `t3-fork-install` to install it into the Nightly app before finishing. Landed is not installed.
 

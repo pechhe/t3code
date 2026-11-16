@@ -99,6 +99,7 @@ import {
   resolveSidebarThreadStatus,
   resolveThreadLastVisitedAt,
   threadStandingAttention,
+  hasPlanReadyPrompt,
   shouldRecedeSidebarThread,
   resolveWorkingStartedAt,
   useRetainedValue,
@@ -909,8 +910,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     status === "waiting" || status === "ready"
       ? threadStandingAttention(thread.standing, thread.parkedWaitGaveUp)
       : null;
+  const planReady = status === "ready" && hasPlanReadyPrompt(thread);
   const shouldRecede =
     standingAttention === null &&
+    !planReady &&
     shouldRecedeSidebarThread({
       status,
       isUnread,
@@ -995,19 +998,25 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                               icon: "failed" as const,
                               className: "text-error-foreground",
                             }
-                          : isWoke
+                          : planReady
                             ? {
-                                label: "Woke",
-                                icon: "woke" as const,
-                                className: "text-warning-foreground",
+                                label: "Plan ready",
+                                icon: "input" as const,
+                                className: "text-violet-600 dark:text-violet-300",
                               }
-                            : isUnread
+                            : isWoke
                               ? {
-                                  label: "Done",
-                                  icon: "done" as const,
-                                  className: "text-success",
+                                  label: "Woke",
+                                  icon: "woke" as const,
+                                  className: "text-warning-foreground",
                                 }
-                              : null;
+                              : isUnread
+                                ? {
+                                    label: "Done",
+                                    icon: "done" as const,
+                                    className: "text-success",
+                                  }
+                                : null;
   const isWokeStatus = topStatus?.icon === "woke";
 
   const branchMismatch = resolveLocalCheckoutBranchMismatch({
