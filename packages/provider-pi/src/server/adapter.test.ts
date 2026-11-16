@@ -2907,6 +2907,57 @@ describe("PiAdapterV2", () => {
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 
+  it.effect.each([
+    { name: "a one-hour write", usage: { cacheWrite: 50, cacheWrite1h: 50 }, ttlMs: 3_600_000 },
+    { name: "a five-minute write", usage: { cacheWrite: 50, cacheWrite1h: 0 }, ttlMs: 300_000 },
+    { name: "a fully cached request", usage: { cacheWrite: 0, cacheWrite1h: 0 } },
+    { name: "a cache without lifetimes", usage: { cacheWrite: 50 } },
+  ])("dates the prompt cache expiry from the request after $name", ({ usage, ttlMs }) =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      const { runtime, takeEvent } = yield* openRuntime(fake);
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("default"),
+        runtimePolicy,
+      });
+      yield* startTurn(runtime, providerThread);
+      yield* fake.takeRequest("prompt");
+      yield* fake.emit({ type: "agent_start" });
+      const requestedAt = Date.parse("2026-11-16T10:00:00.000Z");
+      yield* fake.emit({
+        type: "message_end",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "done" }],
+          provider: "anthropic",
+          model: "claude-sonnet-5",
+          usage: { input: 2, output: 10, cacheRead: 100_000, ...usage },
+          stopReason: "stop",
+          timestamp: requestedAt,
+        },
+      });
+      fake.queueStats({ contextUsage: { tokens: 100_162, contextWindow: 200_000 } });
+      yield* fake.emit({ type: "agent_end", messages: [], willRetry: false });
+      yield* fake.emit({ type: "agent_settled" });
+      const completed = yield* takeEvent(
+        (event) =>
+          event.type === "provider_turn.updated" && event.providerTurn.status === "completed",
+      );
+      assert(completed.type === "provider_turn.updated");
+      const tokenUsage = completed.providerTurn.tokenUsage;
+      assert.deepEqual(
+        {
+          ttlMs: tokenUsage?.promptCacheTtlMs,
+          expiresAt: tokenUsage?.promptCacheExpiresAt,
+        },
+        ttlMs === undefined
+          ? { ttlMs: undefined, expiresAt: undefined }
+          : { ttlMs, expiresAt: DateTime.formatIso(DateTime.makeUnsafe(requestedAt + ttlMs)) },
+      );
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
   it.effect.each(["anthropic/model-b", "default"])(
     "preserves explicit thinking when switching models to %s in the same runtime",
     (targetModel) =>

@@ -47,6 +47,13 @@ Switching providers uses portable conversation context. Extension
 dialogs appear in the T3 Code composer, and the thread details context window follows Pi's own usage
 reporting while a response streams and after it settles.
 
+With **Compact idle threads** set to **Before the cache expires (beta)**, an idle Pi thread on a
+Claude model compacts shortly before its prompt cache expires, as a Claude thread does (see
+[Claude](./providers-claude.md)). Pi caches Claude requests for 5 minutes unless
+you add `PI_CACHE_RETENTION=long` to the Pi provider's environment variables in **Settings →
+Providers**, which makes it an hour. Models whose cache reports no lifetime, such as OpenAI's, are
+never compacted this way, and **When you return** does not apply to Pi.
+
 Pi skills appear in the composer's `$` menu. This includes user skills and project skills that Pi
 loads for the current workspace; selecting one uses Pi's native skill expansion.
 

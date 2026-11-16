@@ -15,6 +15,12 @@ const MIN_CONTEXT_TOKENS = COMPACTION_SUGGESTION_MIN_TOKENS;
 // and send the compaction while the cache is still warm.
 const LEAD_MS = 2 * 60_000;
 
+/**
+ * Providers whose `/compact` compacts the session and that report when their prompt cache
+ * expires. Pi reports an expiry only for Anthropic-style caches, so only its Claude models qualify.
+ */
+export const IDLE_COMPACTION_DRIVERS: ReadonlySet<string> = new Set(["claudeAgent", "pi"]);
+
 export type IdleCompactionRecords = Pick<
   OrchestrationV2ThreadProjection,
   | "thread"
@@ -28,10 +34,10 @@ export type IdleCompactionRecords = Pick<
 >;
 
 /**
- * When an idle Claude thread should compact, or null when it should not. The
- * window ends when the prompt cache of Claude's last request expires (1h on
- * subscriptions, 5m on API keys); compacting after that pays a full uncached
- * read.
+ * When an idle thread should compact, or null when it should not. The window
+ * ends when the prompt cache of the provider's last request expires (for Claude,
+ * 1h on subscriptions and 5m on API keys); after that the next turn re-reads the
+ * whole conversation uncached.
  */
 export function idleCompactionWindow(
   {
@@ -88,9 +94,10 @@ export function idleCompactionWindow(
   const providerThread = providerThreads.find(
     (candidate) => candidate.id === thread.activeProviderThreadId,
   );
-  // The thread's current selection receives the /compact, so it must still be this Claude session.
+  // The thread's current selection receives the /compact, so it must still be this session.
   if (
-    providerThread?.driver !== "claudeAgent" ||
+    providerThread === undefined ||
+    !IDLE_COMPACTION_DRIVERS.has(providerThread.driver) ||
     providerThread.id !== latestRun.providerThreadId ||
     providerThread.providerInstanceId !== thread.providerInstanceId ||
     latestRun.providerInstanceId !== thread.providerInstanceId

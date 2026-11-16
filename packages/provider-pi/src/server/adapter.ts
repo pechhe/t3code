@@ -135,6 +135,28 @@ const DEFAULT_PI_SETTINGS = Schema.decodeSync(PiSettings)({});
 const PI_INHERIT_MODEL_SLUG = "default";
 
 const STREAM_FLUSH_MS = 50;
+
+interface PiPromptCache {
+  readonly ttlMs: number;
+  readonly expiresAt: DateTime.Utc;
+}
+
+/**
+ * The prompt cache entry an assistant request wrote. Pi reports `cacheWrite1h` only for
+ * Anthropic-style caches, whose entries last 5 minutes or 1 hour from the request, and stamps the
+ * message when the request starts.
+ */
+export function piPromptCache(message: unknown): PiPromptCache | undefined {
+  const usage = recordField(message, "usage");
+  const longWrite = recordNumber(usage, "cacheWrite1h");
+  const requestedAtMs = recordNumber(message, "timestamp");
+  if (longWrite === undefined || requestedAtMs === undefined) return undefined;
+  // A request served fully from cache writes no entry, so its lifetime is unknown.
+  const ttlMs =
+    longWrite > 0 ? 60 * 60_000 : (recordNumber(usage, "cacheWrite") ?? 0) > 0 ? 5 * 60_000 : 0;
+  if (ttlMs === 0) return undefined;
+  return { ttlMs, expiresAt: DateTime.makeUnsafe(requestedAtMs + ttlMs) };
+}
 const PI_REQUEST_TIMEOUT_MS = 15_000;
 const PI_SESSION_TIMEOUT_MS = 60_000;
 const MAX_EXTENSION_STATUSES = 32;
@@ -432,6 +454,8 @@ interface ActivePiTurn {
   stopTreeRefs?: PiTurnTreeRefs | null;
   /** The provider/model Pi reported on its latest assistant message. */
   reportedModel?: string;
+  /** The prompt cache entry of the turn's latest request that reported one. */
+  promptCache?: PiPromptCache;
 }
 
 interface PiTurnTreeRefs {
@@ -1086,6 +1110,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         stats: unknown,
         fallbackUsedTokens: number | null,
         updatedAt: DateTime.Utc,
+        promptCache: PiPromptCache | undefined,
       ): OrchestrationV2ProviderTurnTokenUsage | undefined => {
         const contextUsage = recordField(stats, "contextUsage");
         const maxTokens = nonNegativeInteger(contextUsage, "contextWindow");
@@ -1105,13 +1130,25 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           ...(inputTokens === undefined ? {} : { inputTokens }),
           ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
           ...(outputTokens === undefined ? {} : { outputTokens }),
+          ...(promptCache === undefined
+            ? {}
+            : {
+                promptCacheTtlMs: promptCache.ttlMs,
+                promptCacheExpiresAt: DateTime.formatIso(promptCache.expiresAt),
+              }),
           updatedAt: DateTime.formatIso(updatedAt),
         };
       };
 
-      const readTokenUsage = (fallbackUsedTokens: number | null, updatedAt: DateTime.Utc) =>
+      const readTokenUsage = (
+        fallbackUsedTokens: number | null,
+        updatedAt: DateTime.Utc,
+        promptCache: PiPromptCache | undefined,
+      ) =>
         request({ type: "get_session_stats" }, 2_000).pipe(
-          Effect.map((stats) => tokenUsageFromStats(stats, fallbackUsedTokens, updatedAt)),
+          Effect.map((stats) =>
+            tokenUsageFromStats(stats, fallbackUsedTokens, updatedAt, promptCache),
+          ),
           Effect.orElseSucceed(() => undefined),
         );
 
@@ -2013,7 +2050,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         const treeRefs =
           turn.stopTreeRefs !== undefined ? turn.stopTreeRefs : yield* captureTurnTreeRefs();
         const tokenUsage = readUsage
-          ? yield* readTokenUsage(turn.latestCompactionAfterTokens, completedAt)
+          ? yield* readTokenUsage(turn.latestCompactionAfterTokens, completedAt, turn.promptCache)
           : undefined;
         const failure = interrupted ? null : (turn.rejectedPromptFailure ?? turn.failure);
         yield* emit({
@@ -2288,6 +2325,8 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             if (reportedProvider && reportedModelId) {
               turn.reportedModel = `${reportedProvider}/${reportedModelId}`;
             }
+            const promptCache = piPromptCache(message);
+            if (promptCache !== undefined) turn.promptCache = promptCache;
             if (recordString(message, "stopReason") === "error" && turn.failure === null) {
               turn.failure = yield* piModelFailure(
                 recordString(message, "errorMessage") ?? "Pi reported a model error.",

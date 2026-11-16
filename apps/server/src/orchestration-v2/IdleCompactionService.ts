@@ -16,13 +16,13 @@ import * as Stream from "effect/Stream";
 
 import { forkParked } from "../serverActivation.ts";
 import * as ServerSettings from "../serverSettings.ts";
-import { idleCompactionWindow } from "./IdleCompaction.ts";
+import { IDLE_COMPACTION_DRIVERS, idleCompactionWindow } from "./IdleCompaction.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 
 /**
- * Beta: when a run completes on a Claude instance set to compact before the
- * cache expires, waits until shortly before its prompt cache expires and sends
+ * Beta: when a run completes on a Claude or Pi instance set to compact before
+ * the cache expires, waits until shortly before its prompt cache expires and sends
  * `/compact` as a visible T3 Code turn. Timers live in
  * memory, so a server restart skips compactions that were still waiting.
  */
@@ -39,11 +39,13 @@ export const make = Effect.gen(function* () {
         const current = yield* settings.getSettings;
         const thread = yield* projections.getThread(threadId);
         const instanceId = currentProviderInstanceId(current, thread.providerInstanceId);
-        const claudeInstance = Object.hasOwn(current.providerInstances, instanceId)
-          ? current.providerInstances[instanceId]?.driver === "claudeAgent"
-          : instanceId === "claudeAgent";
+        // A default instance with no configured entry is named after its driver.
+        const driver = Object.hasOwn(current.providerInstances, instanceId)
+          ? current.providerInstances[instanceId]?.driver
+          : instanceId;
         if (
-          !claudeInstance ||
+          driver === undefined ||
+          !IDLE_COMPACTION_DRIVERS.has(driver) ||
           resolveIdleCompaction(current, instanceId) !== "beforeCacheExpires" ||
           !resolveProjectProviderInstanceEnabled(
             current,

@@ -157,6 +157,9 @@ describe("idleCompactionWindow", () => {
       { ...codex.providerThreads[0]!, driver: ProviderDriverKind.make("codex") },
     ];
     expect(idleCompactionWindow(codex, NOW_MS)).toBeNull();
+    const pi = records(cache);
+    pi.providerThreads = [{ ...pi.providerThreads[0]!, driver: ProviderDriverKind.make("pi") }];
+    expect(idleCompactionWindow(pi, NOW_MS)).not.toBeNull();
     const switched = records(cache);
     switched.thread = { ...switched.thread, providerInstanceId: ProviderInstanceId.make("codex") };
     expect(idleCompactionWindow(switched, NOW_MS)).toBeNull();
@@ -205,6 +208,7 @@ describe("IdleCompactionService", () => {
     { mode: "beforeCacheExpires", driver: "codex", instance: "custom-codex", reads: 0 },
     { mode: "beforeCacheExpires", driver: "claudeAgent", instance: "custom-claude", reads: 1 },
     { mode: "beforeCacheExpires", unconfigured: true, reads: 1 },
+    { mode: "beforeCacheExpires", driver: "pi", instance: "pi", reads: 1 },
   ] as const)(
     "loads history only for eligible idle compaction: $mode/$override/$enabled/$projectDisabled/$instance/$unconfigured",
     (scenario) => {
