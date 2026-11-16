@@ -1,9 +1,11 @@
-import type {
-  OrchestrationV2AppThread,
-  OrchestrationV2DomainEvent,
-  ThreadId,
+import {
+  isOrchestrationV2TaskClosed,
+  type OrchestrationV2AppThread,
+  type OrchestrationV2DomainEvent,
+  type ThreadId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as FiberSet from "effect/FiberSet";
 import * as Layer from "effect/Layer";
@@ -12,26 +14,28 @@ import * as Stream from "effect/Stream";
 
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import { forkParked } from "../serverActivation.ts";
 import * as WeaveAgentConnections from "./WeaveAgentConnections.ts";
 import * as WeaveForgeRecords from "./WeaveForgeRecords.ts";
 import * as WeaveForgeRecordingReactor from "./WeaveForgeRecordingReactor.ts";
 
+const FINISHED_RUN_STATUSES: ReadonlySet<string> = new Set(["completed", "failed", "cancelled"]);
+
+/** The child thread of a local delegated task this event closes, if it closes one. */
+const closedChildOf = (event: OrchestrationV2DomainEvent): ThreadId | undefined =>
+  event.type === "subagent.updated" &&
+  event.payload.origin === "app_owned" &&
+  event.payload.childThreadId !== null &&
+  isOrchestrationV2TaskClosed(event.payload)
+    ? event.payload.childThreadId
+    : undefined;
+
 /**
- * Ends a thread's Weave agent when its work is over: a delegated task that completed, failed or was
- * cancelled. A deleted thread's agent is dropped. An interrupted run is left alone, since a
- * restart continues it. T3 only ever ends agents; revoking one is the person's call in Weave.
- *
- * The end is queued rather than sent: ending replaces the agent's identity, so every Forge record
- * the thread still owes Weave has to reach it first (Spec #4395). A thread with nothing queued
- * ahead of its end is ended on the queue's next pass, as it was before the queue existed. The
- * records its finished run owes are queued here, in the same fiber, rather than from another
- * reactor, so they are always ahead of the end.
- *
- * Archiving a thread keeps its agent. Weave lets only the agent that opened a Forge bind or session
- * end it, and an ended agent is replaced by one with a new id, so ending it on archive would leave
- * an open session that nothing can end once the thread is unarchived. Whether the thread still
- * links a Forge item at that point says nothing about whether its agent owns a session.
+ * Ends a thread's Weave agent when its delegated task is over (closed by `task_cancel`, nothing of it
+ * running) or the thread is deleted, never when a run or turn finishes: Weave replaces an ended agent
+ * with a new id, and Forge lets only the agent that opened a bind or session end it. Archiving keeps
+ * it too. Ends are queued so the thread's Forge records reach Weave first.
  */
 export class WeaveAgentLifecycleReactor extends Context.Service<
   WeaveAgentLifecycleReactor,
@@ -49,12 +53,12 @@ const make = Effect.gen(function* () {
   const recording = yield* WeaveForgeRecordingReactor.WeaveForgeRecordingReactor;
 
   /** Acts on the thread's agent; a thread with no Weave role never had one. */
-  const withAgentOf = (
+  const withAgentOf = <E>(
     threadId: ThreadId,
     act: (
       agent: Omit<WeaveAgentConnections.WeaveAgent, "model">,
       thread: OrchestrationV2AppThread,
-    ) => Effect.Effect<void, WeaveForgeRecords.WeaveForgeRecordError>,
+    ) => Effect.Effect<void, E>,
   ) =>
     projections.getThread(threadId).pipe(
       Effect.flatMap((thread) => {
@@ -63,30 +67,46 @@ const make = Effect.gen(function* () {
       }),
     );
 
-  const handle: WeaveAgentLifecycleReactor["Service"]["handle"] = Effect.fn(
-    "WeaveAgentLifecycleReactor.handle",
-  )(
+  /**
+   * Queues the agent's end once its task is closed and none of its runs is live, whichever of the two
+   * comes last. The projection may already show a last run whose own event is still to come, so what
+   * that run owes is queued first; queueing it again when its event arrives stores nothing new.
+   */
+  const endIfTaskOver = Effect.fn("WeaveAgentLifecycleReactor.endIfTaskOver")(function* (
+    agent: Omit<WeaveAgentConnections.WeaveAgent, "model">,
+    recordedRunId?: string,
+  ) {
+    const task = yield* projections.getSubagentByChildThread(agent.threadId);
+    if (task === undefined || !isOrchestrationV2TaskClosed(task)) return;
+    const { runs } = yield* projections.getThreadRecords(agent.threadId, ["runs"], {
+      runStatuses: ThreadManagementService.ACTIVE_RUN_STATUSES,
+      includeLatestRun: true,
+    });
+    if (runs.some(ThreadManagementService.isActiveRun)) return;
+    const last = runs.toSorted((a, b) => b.ordinal - a.ordinal)[0];
+    if (last !== undefined && last.id !== recordedRunId && FINISHED_RUN_STATUSES.has(last.status))
+      yield* recording.recordCompletion(agent.threadId, last);
+    yield* records.enqueue({ kind: "end", threadId: agent.threadId, role: agent.role });
+  });
+
+  const handleNow = Effect.fn("WeaveAgentLifecycleReactor.handle")(
     function* (event: OrchestrationV2DomainEvent) {
       switch (event.type) {
         case "run.updated": {
           const { status, delegatedTaskId } = event.payload;
-          if (status !== "completed" && status !== "failed" && status !== "cancelled") return;
+          if (!FINISHED_RUN_STATUSES.has(status)) return;
           return yield* withAgentOf(event.threadId, (agent, thread) =>
             // Only a follow-up run carries its task's id; a task's first run is told by its parent.
-            delegatedTaskId === undefined && thread.lineage.parentThreadId === null
+            (delegatedTaskId === undefined && thread.lineage.parentThreadId === null
               ? Effect.void
-              : recording.recordCompletion(agent.threadId, event.payload).pipe(
-                  Effect.andThen(
-                    records.enqueue({
-                      kind: "end",
-                      // One end per run: a follow-up run gets a fresh agent, which needs its own end.
-                      recordKey: `end:${agent.threadId}:${event.payload.id}`,
-                      threadId: agent.threadId,
-                      role: agent.role,
-                    }),
-                  ),
-                ),
+              : recording.recordCompletion(agent.threadId, event.payload)
+            ).pipe(Effect.andThen(endIfTaskOver(agent, event.payload.id))),
           );
+        }
+        case "subagent.updated": {
+          const childThreadId = closedChildOf(event);
+          if (childThreadId === undefined) return;
+          return yield* withAgentOf(childThreadId, (agent) => endIfTaskOver(agent));
         }
         case "thread.deleted":
           return yield* withAgentOf(event.threadId, (agent) =>
@@ -109,16 +129,47 @@ const make = Effect.gen(function* () {
       ),
   );
 
+  /**
+   * One thread's events are handled in the order they happened, so an end never overtakes an earlier
+   * run's record that is still being queued. Registering an event takes its place at once; the effect
+   * it returns waits for the thread's earlier events and then handles it.
+   */
+  const latest = new Map<ThreadId, Deferred.Deferred<void>>();
+  const inOrder = Effect.fnUntraced(function* (event: OrchestrationV2DomainEvent) {
+    const threadId =
+      event.type === "run.updated" || event.type === "thread.deleted"
+        ? event.threadId
+        : closedChildOf(event);
+    if (threadId === undefined) return undefined;
+    const before = latest.get(threadId);
+    const done = yield* Deferred.make<void>();
+    latest.set(threadId, done);
+    return (before === undefined ? Effect.void : Deferred.await(before)).pipe(
+      Effect.andThen(handleNow(event)),
+      Effect.ensuring(
+        Effect.suspend(() => {
+          if (latest.get(threadId) === done) latest.delete(threadId);
+          return Deferred.succeed(done, undefined);
+        }),
+      ),
+    );
+  });
+
+  const handle: WeaveAgentLifecycleReactor["Service"]["handle"] = (event) =>
+    inOrder(event).pipe(Effect.flatMap((ordered) => ordered ?? Effect.void));
+
   const start: WeaveAgentLifecycleReactor["Service"]["start"] = Effect.fn(
     "WeaveAgentLifecycleReactor.start",
   )(function* () {
-    // Ending calls Weave, so one slow request must not hold up the events behind it.
+    // Ending calls Weave, so one slow request must not hold up other threads' events.
     const ends = yield* FiberSet.make<void, never>();
     yield* forkParked(
       Stream.runForEach(engine.streamDomainEvents, (event) =>
-        event.type === "run.updated" || event.type === "thread.deleted"
-          ? FiberSet.run(ends, handle(event)).pipe(Effect.asVoid)
-          : Effect.void,
+        inOrder(event).pipe(
+          Effect.flatMap((ordered) =>
+            ordered === undefined ? Effect.void : FiberSet.run(ends, ordered),
+          ),
+        ),
       ).pipe(
         Effect.catchCause((cause) =>
           Effect.logWarning("Weave agent lifecycle event stream failed", { cause }),

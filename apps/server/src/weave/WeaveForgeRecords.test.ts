@@ -76,7 +76,7 @@ const harness = Effect.gen(function* () {
   /** A read failure a test turns on, as a restart or a maintenance window would cause. */
   const projectionReads = { fail: false, calls: [] as Array<ThreadId> };
   /** The T3 run each thread is on, which a report records for the usage of that run. */
-  const runs = { latestRunId: "t3-run-1" as string | null };
+  const runs = { latestRunId: "t3-run-1" as string | null, finished: new Set<string>() };
   const parentOf = (threadId: ThreadId) =>
     threadId === leadThread || threadId === unresolvedLead
       ? null
@@ -105,6 +105,8 @@ const harness = Effect.gen(function* () {
       }),
     getThreadShell: () =>
       Effect.succeed(projectionReads.fail ? null : ({ latestRunId: runs.latestRunId } as never)),
+    getRun: (_threadId: ThreadId, runId: string) =>
+      Effect.succeed({ status: runs.finished.has(runId) ? "completed" : "running" } as never),
   });
   // Another process over the same database, as a restart is: its queue starts with nothing in memory.
   const openQueue = WeaveForgeRecords.layer.pipe(
@@ -269,6 +271,32 @@ it.effect("a restart over the same database picks up what is still owed", () =>
     assert.deepStrictEqual(
       weave.toolCalls.map(({ name, args }) => ({ name, args })),
       [{ name: "weave_forge_record_usage", args: usage.args }],
+    );
+  }),
+);
+
+it.effect("a per-run agent end an earlier build queued is dropped when the queue starts", () =>
+  Effect.gen(function* () {
+    const { weave, boot } = yield* harness;
+    const before = yield* boot;
+    // Held back by the usage ahead of it, as an earlier build's per-run end could be.
+    weave.state.unreachable = true;
+    yield* before.enqueue(usage);
+    yield* before.enqueue({
+      kind: "end",
+      recordKey: `end:${reviewerThread}:t3-run-1`,
+      threadId: reviewerThread,
+      role: "spec-reviewer",
+    });
+    yield* before.enqueue({ kind: "end", threadId: helperThread, role: "implementer" });
+
+    const after = yield* boot;
+    yield* Effect.scoped(after.start());
+
+    // Only the end of a task that is over survives: the run's would end an agent still at work.
+    assert.deepStrictEqual(
+      (yield* after.outstanding()).map((record) => record.recordKey),
+      ["usage:thread-1", `end:${helperThread}`],
     );
   }),
 );
@@ -768,7 +796,6 @@ it.effect("a helper waiting on its lead's session keeps its own end unsent", () 
     });
     yield* records.enqueue({
       kind: "end",
-      recordKey: "end:thread-helper:run-1",
       threadId: helperThread,
       role: "implementer",
     });
@@ -808,7 +835,6 @@ it.effect("a row a transient failure put back keeps its thread's end unsent", ()
     yield* records.enqueue({ ...usage, args: { inputTokens: 5 } });
     yield* records.enqueue({
       kind: "end",
-      recordKey: "end:thread-reviewer:run-1",
       threadId: reviewerThread,
       role: "spec-reviewer",
     });
@@ -1904,34 +1930,28 @@ it.effect("a reviewer's usage waits for the report of its own run and then names
   }),
 );
 
-it.effect(
-  "a reviewer's usage with no report is sent without ids once its run's end is queued",
-  () =>
-    Effect.gen(function* () {
-      const { weave, boot } = yield* harness;
-      const records = yield* boot;
-      const byRun = reviewerUsageOf("t3-run-a");
-      yield* records.enqueue(byRun);
-      yield* records.deliverDue;
+it.effect("a reviewer's usage with no report is sent without ids once its run has finished", () =>
+  Effect.gen(function* () {
+    const { weave, boot, runs } = yield* harness;
+    const records = yield* boot;
+    const byRun = reviewerUsageOf("t3-run-a");
+    yield* records.enqueue(byRun);
+    yield* records.deliverDue;
 
-      // A report of that run may still be on its way, and another run's would be the wrong answer.
-      assert.deepStrictEqual(weave.toolCalls, []);
-      assert.strictEqual((yield* records.outstanding())[0]?.status, "pending");
+    // A report of that run may still be on its way, and another run's would be the wrong answer.
+    assert.deepStrictEqual(weave.toolCalls, []);
+    assert.strictEqual((yield* records.outstanding())[0]?.status, "pending");
 
-      yield* records.enqueue({
-        kind: "end",
-        recordKey: `end:${reviewerThread}:t3-run-a`,
-        threadId: reviewerThread,
-        role: "spec-reviewer",
-      });
-      yield* records.deliverDue;
+    runs.finished.add("t3-run-a");
+    yield* TestClock.adjust(RETRY_CAP_MS);
+    yield* records.deliverDue;
 
-      // The end says no report can follow, so the usage goes without ids, and the end after it.
-      assert.deepStrictEqual(
-        weave.toolCalls.map(({ name, args }) => ({ name, args })),
-        [{ name: "weave_forge_record_usage", args: byRun.args }],
-      );
-      assert.isTrue(weave.agents.every((agent) => agent.ended));
-      assert.deepStrictEqual(yield* records.outstanding(), []);
-    }),
+    // A finished run reports nothing more, so the usage goes without ids, and the agent lives on.
+    assert.deepStrictEqual(
+      weave.toolCalls.map(({ name, args }) => ({ name, args })),
+      [{ name: "weave_forge_record_usage", args: byRun.args }],
+    );
+    assert.isTrue(weave.agents.every((agent) => !agent.ended));
+    assert.deepStrictEqual(yield* records.outstanding(), []);
+  }),
 );

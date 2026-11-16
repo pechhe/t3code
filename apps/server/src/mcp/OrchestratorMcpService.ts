@@ -113,6 +113,7 @@ import {
   type AgentReviewRequest,
   type OrchestrationV2ParkedWaitTarget,
   READ_ONLY_ROLES,
+  isOrchestrationV2TaskClosed,
   isOrchestrationV2WorkActive,
   latestProviderTurnForAttempt,
   resolveProjectProviderInstanceEnabled,
@@ -657,10 +658,7 @@ function closedTask(
   childThreadId: ThreadId | null,
 ): boolean {
   return subagents.some(
-    (task) =>
-      task.childThreadId === childThreadId &&
-      task.completionDelivery?.state === "disposed" &&
-      task.completionDelivery.stopped !== true,
+    (task) => task.childThreadId === childThreadId && isOrchestrationV2TaskClosed(task),
   );
 }
 

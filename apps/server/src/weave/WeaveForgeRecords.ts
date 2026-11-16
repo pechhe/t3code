@@ -1,11 +1,11 @@
 /**
  * What a thread's agent owes Weave's Forge record, queued durably because ending an agent replaces
- * its identity and a turn can end, or T3 restart, before Weave takes it. A row waits for its own
+ * its identity and its task can end, or T3 restart, before Weave takes it. A row waits for its own
  * thread's earlier rows, retries while Weave is unreachable, and is parked with its reason when
  * Weave refuses it, so no later row waits for ever.
  */
 import { sameWeaveAddress } from "@t3tools/shared/weaveOrigins";
-import { ThreadId } from "@t3tools/contracts";
+import { RunId, ThreadId } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
@@ -30,6 +30,7 @@ import * as WeaveAgentConnections from "./WeaveAgentConnections.ts";
 /** A record Weave has not taken yet is tried again after this, doubling up to the cap. */
 const RETRY_BASE_MS = 1_000;
 const RETRY_MAX_MS = 5 * 60 * 1_000;
+const FINISHED_RUN_STATUSES: ReadonlySet<string> = new Set(["completed", "failed", "cancelled"]);
 /**
  * A reviewer's run is written into local storage before its agent is answered, because that answer
  * is the only place Weave's run id reaches T3. A write that fails is tried again this many times,
@@ -264,7 +265,7 @@ const retryDelay = (attempts: number) =>
 
 /**
  * The key a record is stored under: one per thread for a session or an end when the caller names
- * none, because a thread opens one of each unless it links another item or runs again.
+ * none, because a thread opens one of each unless it links another item.
  */
 const defaultRecordKey = (record: WeaveForgeRecordInput) =>
   record.kind === "session" || record.kind === "end"
@@ -530,19 +531,18 @@ const make = Effect.gen(function* () {
   });
 
   /**
-   * Whether a run's end has been queued. Nothing reports a run once its end is queued, so a reviewer
-   * whose usage found no report of its run takes its end as the answer that none is coming.
+   * Whether a run has finished. A reviewer reports its run only from within it, so a reviewer whose
+   * usage found no report of a finished run takes that as the answer that none is coming. An
+   * interrupted run is not finished: a restart continues it.
    */
-  const endQueued = Effect.fn("WeaveForgeRecords.endQueued")(function* (
+  const runFinished = Effect.fn("WeaveForgeRecords.runFinished")(function* (
     threadId: ThreadId,
     t3RunId: string,
   ): Effect.fn.Return<boolean, WeaveForgeRecordError> {
-    const rows = yield* sql<{ readonly present: number }>`
-      SELECT 1 AS present FROM weave_forge_records
-      WHERE record_key = ${`end:${threadId}:${t3RunId}`}
-      LIMIT 1
-    `.pipe(Effect.mapError((cause) => failed("deliver", cause)));
-    return rows.length > 0;
+    const run = yield* projections
+      .getRun(threadId, RunId.make(t3RunId))
+      .pipe(Effect.mapError((cause) => failed("deliver", cause)));
+    return run !== undefined && FINISHED_RUN_STATUSES.has(run.status);
   });
 
   /**
@@ -563,9 +563,9 @@ const make = Effect.gen(function* () {
       // reviewer has reported none at all.
       if (t3RunId === null) return {};
       // A reviewer's report of its own run reaches T3 only from its `weave_forge_run` answer, so a row
-      // that finds none waits for it rather than naming another run's, unless the run's end has
-      // been queued and no report can follow: then the usage is sent without ids and the end after it.
-      return (yield* endQueued(agent.threadId, t3RunId)) ? {} : null;
+      // that finds none waits for it rather than naming another run's, unless the run has finished
+      // and no report can follow: then the usage is sent without ids.
+      return (yield* runFinished(agent.threadId, t3RunId)) ? {} : null;
     }
     // A lead's turns count toward the session its link opened for this Spec; a helper's toward the
     // session its own run's record opened, never another run's of the same thread.
@@ -977,7 +977,7 @@ const make = Effect.gen(function* () {
       const reportedRuns = yield* Stream.toQueue(weave.reportedRunChanges, {
         capacity: "unbounded",
       });
-      // A reviewer is not given its run id until the run is on record: its own end may come before the
+      // A reviewer is not given its run id until the run is on record: its task may end before the
       // next pass looks, and Weave's run id reaches T3 nowhere else. The run is stamped on the report
       // here, once, so a write that cannot happen yet still names it when the pass that follows writes
       // it; the answer waits for every try but the last to fail.
@@ -1009,6 +1009,12 @@ const make = Effect.gen(function* () {
           'session_reference_conflict', 'session_active', 'bind_status_invalid'))
         OR last_error IN ('lead_session_parked', 'session_parked', 'action_execution_failed'))`.pipe(
         Effect.catchCause((cause) => Effect.logWarning("Could not reopen parked records", cause)),
+      );
+      // Earlier builds queued an end for every finished run, keyed by the run; sent now, one would
+      // end an agent whose task is still open and lose it its Forge bind.
+      yield* sql`DELETE FROM weave_forge_records
+      WHERE kind = 'end' AND status <> 'delivered' AND record_key <> 'end:' || thread_id`.pipe(
+        Effect.catchCause((cause) => Effect.logWarning("Could not drop per-run agent ends", cause)),
       );
       // A restart inherits rows whose backoff was timed for an outage this process knows nothing
       // about, so it tries them at once rather than after the row's remaining wait.

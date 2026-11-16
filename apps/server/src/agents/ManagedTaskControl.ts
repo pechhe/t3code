@@ -1,6 +1,7 @@
 import {
   CommandId,
   OrchestratorMcpFailure,
+  isOrchestrationV2TaskClosed,
   isOrchestrationV2WorkActive,
   type NodeId,
   type ThreadId,
@@ -213,9 +214,7 @@ export const layer = Layer.effect(
       );
       // A Stop's disposal leaves the task open; cancelling closes it.
       const disposeCompletionDelivery =
-        parentTask?.completionDelivery?.state === "disposed" &&
-        parentTask.completionDelivery.stopped !== true &&
-        parentTask.pausedByParentStop !== true
+        parentTask !== undefined && isOrchestrationV2TaskClosed(parentTask)
           ? Effect.void
           : dispatch({
               type: "delegated_task.completion-delivery.dispose",

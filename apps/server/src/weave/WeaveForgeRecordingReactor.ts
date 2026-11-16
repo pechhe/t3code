@@ -68,8 +68,8 @@ export class WeaveForgeRecordingReactor extends Context.Service<
     readonly start: () => Effect.Effect<void, never, Scope.Scope>;
     readonly handle: (event: OrchestrationV2DomainEvent) => Effect.Effect<void>;
     /**
-     * Queues what a finished delegated run owes Weave. The caller runs it in the fiber that queues
-     * the thread's end, before that end, so the order is fixed rather than raced.
+     * Queues what a finished delegated run owes Weave. The caller runs it before it may queue the
+     * thread's end, in the same fiber, so the order is fixed rather than raced.
      */
     readonly recordCompletion: (threadId: ThreadId, run: OrchestrationV2Run) => Effect.Effect<void>;
   }
