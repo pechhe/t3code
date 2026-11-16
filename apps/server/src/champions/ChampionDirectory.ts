@@ -1,6 +1,5 @@
 import {
   ChampionListInput,
-  ChampionListResult,
   ChampionSummary,
   EnvironmentId,
   OrchestratorMcpPeerNotice,
@@ -28,7 +27,18 @@ const EnvironmentStatus = Schema.Struct({
 export const ChampionDirectoryResult = Schema.Struct({
   champions: Schema.Array(
     Schema.Struct({
-      ...ChampionSummary.fields,
+      id: ChampionSummary.fields.id,
+      projectId: ChampionSummary.fields.projectId,
+      name: ChampionSummary.fields.name,
+      purpose: ChampionSummary.fields.purpose,
+      lifecycle: ChampionSummary.fields.lifecycle,
+      ownerThreadId: ChampionSummary.fields.ownerThreadId,
+      nextCheckAt: ChampionSummary.fields.nextCheckAt,
+      lastCheckAt: ChampionSummary.fields.lastCheckAt,
+      attention: ChampionSummary.fields.attention,
+      openFindingCount: ChampionSummary.fields.openFindingCount,
+      pendingProposal: ChampionSummary.fields.pendingProposal,
+      updatedAt: ChampionSummary.fields.updatedAt,
       environmentId: Schema.optional(EnvironmentId),
       environmentLabel: Schema.optional(Schema.String),
     }),
@@ -36,7 +46,8 @@ export const ChampionDirectoryResult = Schema.Struct({
   environments: Schema.optional(Schema.Array(EnvironmentStatus)),
 });
 
-const decodeListResult = Schema.decodeUnknownEffect(ChampionListResult);
+const decodeListResult = Schema.decodeUnknownEffect(ChampionDirectoryResult);
+const compactList = Schema.decodeUnknownSync(ChampionDirectoryResult);
 
 /** Summaries have no paging; aggregate each machine once without duplicating its page. */
 export const listAcross = Effect.fn("ChampionDirectory.listAcross")(function* (
@@ -45,7 +56,7 @@ export const listAcross = Effect.fn("ChampionDirectory.listAcross")(function* (
   const scope = yield* McpInvocationContext.McpInvocationContext;
   const service = yield* Champions.ChampionService;
   const { environmentId, ...query } = input;
-  const local = yield* service.list(query);
+  const local = compactList(yield* service.list(query));
   const peers = yield* Effect.serviceOption(PeerEnvironments.PeerEnvironments);
   if (
     environmentId !== undefined ||
@@ -72,7 +83,7 @@ export const listAcross = Effect.fn("ChampionDirectory.listAcross")(function* (
     (peer) => {
       const answer = (
         status: PeerEnvironmentStatus,
-        page: typeof ChampionListResult.Type | null,
+        page: typeof ChampionDirectoryResult.Type | null,
       ) => ({
         environmentId: peer.environmentId,
         label: peer.label,
@@ -91,7 +102,7 @@ export const listAcross = Effect.fn("ChampionDirectory.listAcross")(function* (
             tool: "t3_champions_list",
             arguments: { environmentId: peer.environmentId },
             limits,
-            success: ChampionListResult,
+            success: ChampionDirectoryResult,
           })
           .pipe(
             Effect.map((page) => answer("ok", page)),

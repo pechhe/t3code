@@ -121,7 +121,11 @@ const detail: ChampionDetail = {
     schedule: { type: "interval", everyMs: 3600000 },
     setupModelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "m" },
     routineModelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "m" },
-    charter: { maxConcurrentRepairs: 1, maxRepairsPerDay: 3, instructions: "" },
+    charter: {
+      maxConcurrentRepairs: 1,
+      maxRepairsPerDay: 3,
+      instructions: "Measure responsiveness. ".repeat(300),
+    },
     lifecycle: "active",
     ownerThreadId: leadThread,
     setupThreadId: null,
@@ -133,6 +137,23 @@ const detail: ChampionDetail = {
     pendingProposal: false,
     updatedAt: "2026-11-07T00:00:00.000Z",
   },
+  latestSamples: [
+    {
+      metricId: "latency",
+      name: "Response latency",
+      version: 1,
+      seriesId: "latency",
+      unit: "ms",
+      required: true,
+      value: 100,
+      status: "measured",
+      health: "healthy",
+      observedAt: "2026-11-07T00:00:00.000Z",
+      collectedAt: "2026-11-07T00:00:00.000Z",
+      revision: "a".repeat(40),
+      staleAt: null,
+    },
+  ],
   metrics: [],
   findings: [],
   proposal: null,
@@ -180,7 +201,7 @@ const harness = Effect.sync(() => {
     }) as unknown as ChampionLearningRevision;
   const service = Layer.mock(Champions.ChampionService)({
     // The lead thread owns this champion; every other caller contributes.
-    get: () => Effect.succeed({ champion: { ownerThreadId: leadThread } } as unknown as never),
+    get: () => Effect.succeed(detail),
     recordLearning: (_caller, input) =>
       Effect.sync(() => {
         recorded.push(input);
@@ -301,6 +322,17 @@ const call = (
     Effect.provideService(McpInvocationContext.McpInvocationContext, scope),
     Effect.provideService(McpSchema.McpServerClient, mcpClient),
   );
+
+it.effect("gets full Champion configuration and latest samples by id", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    const result = yield* call("t3_champions_get", threadScope(leadThread), {
+      id: detail.champion.id,
+    }).pipe(Effect.provide(h.layer));
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.text)).toEqual(detail);
+  }),
+);
 
 it.effect(
   "a linked environment reads learnings and passes on an orchestrating thread's contribution, and nothing else",

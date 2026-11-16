@@ -297,7 +297,7 @@ const learning_read = Tool.make("t3_champions_learning_read", {
 const list = Tool.make("t3_champions_list", {
   ...shared,
   description:
-    "Read compact Champion summaries from here and every linked environment, stamped with environmentId and environmentLabel. environments reports unreachable peers without failing the call. There is no paging: every summary is returned once. projectId filters this environment only. Set environmentId to read just that environment.",
+    "Read compact Champion summaries from here and every linked environment, stamped with environmentId and environmentLabel. environments reports unreachable peers without failing the call. There is no paging: every summary is returned once. Omits charter, samples and execution configuration; use t3_champions_get with id (and environmentId for a peer) for full configuration and latest samples. projectId filters this environment only. Set environmentId to read just that environment.",
   parameters: Schema.Struct({
     ...ChampionListInput.fields,
     environmentId: Schema.optional(EnvironmentId),
