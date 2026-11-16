@@ -356,6 +356,8 @@ function launcherFixture(extra: Record<string, string> = {}) {
   for (const file of [
     "scripts/check-changed.ts",
     "scripts/check-changed-command.ts",
+    "scripts/fork-reconcile.ts",
+    "scripts/fork-upstream-receipt.ts",
     "scripts/lib/test-selection.ts",
     ".github/scripts/ci-changes.cjs",
   ]) {
@@ -436,12 +438,16 @@ function launcherFixture(extra: Record<string, string> = {}) {
     root,
     source,
     write,
-    run(failStep = "") {
-      return NodeChildProcess.spawnSync(process.execPath, ["scripts/check-changed.ts", "HEAD"], {
-        cwd: root,
-        encoding: "utf8",
-        env: { ...env, TEMP: NodeOS.tmpdir(), RECORDS: records, FAIL_STEP: failStep },
-      });
+    run(failStep = "", args: string[] = []) {
+      return NodeChildProcess.spawnSync(
+        process.execPath,
+        ["scripts/check-changed.ts", "HEAD", ...args],
+        {
+          cwd: root,
+          encoding: "utf8",
+          env: { ...env, TEMP: NodeOS.tmpdir(), RECORDS: records, FAIL_STEP: failStep },
+        },
+      );
     },
     calls: (): Array<{ args: Array<string>; cwd: string }> =>
       NodeFS.readdirSync(records).map((file) =>
@@ -452,6 +458,33 @@ function launcherFixture(extra: Record<string, string> = {}) {
     },
   };
 }
+
+it("selects the requested workspace rather than the checkout containing the command", () => {
+  using caller = launcherFixture();
+  using target = launcherFixture();
+  target.write("target-only.md", "changed\n");
+  const result = caller.run("", ["--repo", target.root, "--list"]);
+  expect(result.status, result.stdout + result.stderr).toBe(0);
+  expect(result.stdout.trim()).toBe("target-only.md");
+  expect(caller.calls()).toEqual([]);
+});
+
+it.each(["check-changed.ts", "fork-upstream-receipt.ts"])(
+  "refuses %s on the wrong Node before running checks",
+  (script) => {
+    using project = launcherFixture();
+    project.write("package.json", JSON.stringify({ engines: { node: "0.0.1" } }));
+    const args = script === "check-changed.ts" ? ["--list"] : ["verify"];
+    const result = NodeChildProcess.spawnSync(
+      process.execPath,
+      [NodePath.join(project.root, "scripts", script), ...args, "--repo", project.root],
+      { encoding: "utf8", env: { ...process.env, T3_FORK_PINNED_NODE: "1" } },
+    );
+    expect(result.status).toBe(1);
+    expect(result.stdout + result.stderr).toContain("require Node 0.0.1");
+    expect(project.calls()).toEqual([]);
+  },
+);
 
 it("checks changed source paths through the Windows launcher", () => {
   using project = launcherFixture();

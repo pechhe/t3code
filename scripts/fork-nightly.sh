@@ -17,6 +17,11 @@
 #   is sent or built. A tag without them is skipped with the missing asset
 #   recorded on its attempt (`unavailable`), so it never holds a complete newer
 #   release back, and is sent once the release appears.
+#   A new update goes out only once the update interval (two days, or
+#   T3FORK_UPDATE_INTERVAL_SECONDS) has passed since the newest upstream integration
+#   landed on the branch; the newest publishable tag goes then, and the tags in between
+#   are skipped. Everything else above, and an attempt already sent, keeps running
+#   hourly: a held newer tag never stops the re-send of an attempt already dispatched.
 #
 # Subcommands, for the agent and by hand:
 #   build [--rev <commit>] [--recovery <reason>] [--attempt <tag>] [--take-over]
@@ -87,6 +92,11 @@ INSTALL_JOB="${T3FORK_INSTALL_JOB:-com.pechhe.t3code-install-on-quit}"
 # An unclaimed dispatch is sent again after this long, at most MAX_DISPATCHES times.
 REDISPATCH_SECONDS="${T3FORK_REDISPATCH_SECONDS:-10800}"
 MAX_DISPATCHES=3
+# A new update is dispatched only once this long has passed since the newest upstream
+# integration landed on the branch, so updates cost one agent session per interval
+# rather than one per tag. 0 removes the wait. The landing that starts a new interval is
+# an upstream merge, not an ordinary commit, so landing a fork change resets nothing.
+UPDATE_INTERVAL_SECONDS="${T3FORK_UPDATE_INTERVAL_SECONDS:-$((2 * 24 * 3600))}"
 
 # The desktop build needs rustup's toolchain, which the login shell does not put on PATH.
 export PATH="/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH"
@@ -770,8 +780,48 @@ update_attempts() {
   esac
 }
 
+# An update nobody has claimed keeps its hourly re-send even while a newer tag is held
+# for the update interval, so the interval never starves an attempt already dispatched
+# (or lets a newer tag supersede it to start an update of its own). Called with
+# attempts.lock held.
+redispatch_unclaimed_attempts() {
+  local file tag
+  for file in "$STATE"/attempts/*.json; do
+    [ -f "$file" ] || continue
+    [ "$(json_get "$file" .phase)" = dispatched ] || continue
+    git merge-base --is-ancestor "$(json_get "$file" .sha)" "origin/$BRANCH" 2>/dev/null && continue
+    tag="$(json_get "$file" .tag)"
+    redispatch_due "$tag" update
+  done
+}
+
 # The newest upstream integration on a commit's first-parent history.
 integration_of() { git rev-list --first-parent --merges -n1 "$1"; }
+
+# Seconds since the newest upstream integration landed on the branch, from that merge
+# commit's committer time: a hand-run update counts, so no per-tag state is needed, and
+# only an upstream merge is measured, so landing fork work (a linear commit) neither
+# starts nor ends an interval.
+since_integration_landed() {
+  local landed
+  landed="$(integration_of "origin/$BRANCH")"
+  [ -n "$landed" ] || return 1
+  echo $(($(now) - $(git show -s --format=%ct "$landed")))
+}
+
+# Whether the hour may start a new update for this tag: one it has not begun waits for
+# the interval since the newest integration landed, while an attempt already recorded
+# (sent, claimed, blocked, retried, or waiting on its release) keeps the present rules.
+update_due() {
+  local since
+  case "$(json_get "$(attempt_file "$1")" .phase)" in
+    "" | new | unpublished) ;;
+    *) return 0 ;;
+  esac
+  [ "$UPDATE_INTERVAL_SECONDS" -gt 0 ] || return 0
+  since="$(since_integration_landed)" || return 0
+  [ "$since" -ge "$UPDATE_INTERVAL_SECONDS" ]
+}
 
 # Whether the selected build holds this integration and has reached both machines.
 selected_satisfies() {
@@ -1615,7 +1665,14 @@ hourly() {
   settle_landed_attempts
   recover_interrupted
   newest_publishable_tag
-  if [ -n "$TARGET_TAG" ]; then update_attempts "$TARGET_TAG" "$TARGET_SHA"; fi
+  if [ -n "$TARGET_TAG" ]; then
+    if update_due "$TARGET_TAG"; then
+      update_attempts "$TARGET_TAG" "$TARGET_SHA"
+    else
+      log "upstream $TARGET_TAG waits for the update interval: the newest upstream integration landed $(since_integration_landed)s ago, and updates are $UPDATE_INTERVAL_SECONDS apart (T3FORK_UPDATE_INTERVAL_SECONDS)"
+      redispatch_unclaimed_attempts
+    fi
+  fi
   request_build
   release attempts.lock
 }

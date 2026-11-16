@@ -209,8 +209,17 @@ export const INPUT_RULES: ReadonlyArray<InputRule> = [
   },
   {
     when: /^(?:scripts\/check-changed(?:-command)?\.ts|\.github\/scripts\/ci-changes\.cjs)$/,
-    select: ["scripts/check-changed.test.ts", "scripts/check-changed-command.test.ts"],
-    reason: "tests copy and run the checker and its CI entry from disk",
+    select: [
+      "scripts/check-changed.test.ts",
+      "scripts/check-changed-command.test.ts",
+      "scripts/fork-reconcile.test.ts",
+    ],
+    reason: "tests copy or spawn the checker and its CI entry from disk",
+  },
+  {
+    when: /^scripts\/fork-(?:reconcile|upstream-receipt)\.ts$/,
+    select: ["scripts/check-changed.test.ts", "scripts/fork-reconcile.test.ts"],
+    reason: "checker fixtures copy the fork CLIs and reconciliation tests spawn them",
   },
   {
     when: /^scripts\/install\.(?:sh|ps1)$/,

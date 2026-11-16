@@ -41,6 +41,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import { decide, readWorkspace } from "../.github/scripts/ci-changes.cjs";
 import { vitePlusCommand } from "./check-changed-command.ts";
+import { gitRepository, reconciliationFiles, requireRepositoryNode } from "./fork-reconcile.ts";
 import { importerTests, TEST_FILE_WORKERS } from "./lib/test-selection.ts";
 
 const GiB = 1024 ** 3;
@@ -241,13 +242,26 @@ export const docReaderTests = (files: ReadonlyArray<string>) =>
 
 const checkChanged = Effect.fn("checkChanged")(function* (input: {
   readonly ref: Option.Option<string>;
+  readonly repo: Option.Option<string>;
+  readonly reconcile: boolean;
+  readonly list: boolean;
   readonly concurrency: Option.Option<number>;
   readonly timeout: Option.Option<number>;
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-  const root = yield* path.fromFileUrl(new URL("..", import.meta.url));
+  const root = Option.isSome(input.repo)
+    ? path.resolve(input.repo.value)
+    : yield* path.fromFileUrl(new URL("..", import.meta.url));
+  yield* Effect.try({
+    try: () => requireRepositoryNode(root, true),
+    catch: (error) => String(error),
+  });
+  const store = gitRepository(root);
+  const reconciliation = input.reconcile
+    ? yield* Effect.try({ try: () => reconciliationFiles(root), catch: (error) => String(error) })
+    : undefined;
   const inRoot = (file: string) => path.join(root, file);
 
   // macOS counts its file cache as used, so available memory there would
@@ -266,14 +280,24 @@ const checkChanged = Effect.fn("checkChanged")(function* (input: {
     () => 900,
   );
 
-  const lines = (...args: Array<string>) => gitLines(root, args);
+  const lines = (...args: Array<string>) => gitLines(store, args);
 
-  const { ref, base } = yield* comparisonBase(root, input.ref);
+  const { ref, base } = reconciliation
+    ? { ref: "reconciliation", base: reconciliation.merge }
+    : yield* comparisonBase(root, input.ref);
   // --no-renames lists a rename as its old and new path, as CI does.
-  const changedFiles = lines("diff", "--name-only", "--no-renames", base, "--");
-  const untrackedFiles = lines("ls-files", "--others", "--exclude-standard");
+  const changedFiles = reconciliation
+    ? Effect.succeed(reconciliation.files)
+    : lines("diff", "--name-only", "--no-renames", base, "--");
+  const untrackedFiles = reconciliation
+    ? Effect.succeed([] as string[])
+    : lines("ls-files", "--others", "--exclude-standard");
   const files = [...new Set([...(yield* changedFiles), ...(yield* untrackedFiles)])].sort();
 
+  if (input.list) {
+    for (const file of files) yield* Console.log(file);
+    return true;
+  }
   if (files.length === 0) {
     yield* Console.log(`check:changed: no changes since ${base.slice(0, 12)} (${ref}).`);
     return true;
@@ -289,28 +313,32 @@ const checkChanged = Effect.fn("checkChanged")(function* (input: {
     // CI changes test behavior (vite.config.ts rejects .only under CI).
     hash.update(`${process.version}\0${base}\0${ci}\0`);
     hash.update(
-      yield* git(root, [
+      yield* git(store, [
         "diff",
         "--binary",
         "--no-renames",
         "--no-ext-diff",
         "--no-textconv",
         base,
+        ...(reconciliation ? [reconciliation.rev] : []),
         "--",
+        ...(reconciliation ? files : []),
       ]),
     );
-    const ignored = yield* lines(
-      "ls-files",
-      "--others",
-      "--ignored",
-      "--exclude-standard",
-      "--",
-      ":(glob)**/.generated/**",
-      ":(glob)**/.astro/**",
-      ":(glob)**/*.d.ts",
-      ":(glob)**/.env*",
-      ":(exclude,glob)**/node_modules/**",
-    );
+    const ignored = reconciliation
+      ? []
+      : yield* lines(
+          "ls-files",
+          "--others",
+          "--ignored",
+          "--exclude-standard",
+          "--",
+          ":(glob)**/.generated/**",
+          ":(glob)**/.astro/**",
+          ":(glob)**/*.d.ts",
+          ":(glob)**/.env*",
+          ":(exclude,glob)**/node_modules/**",
+        );
     for (const file of [
       // Raw bytes of changed files too: .gitattributes normalizes line endings in
       // the diff, but the formatter reads the file as it is on disk.
@@ -335,7 +363,7 @@ const checkChanged = Effect.fn("checkChanged")(function* (input: {
   const cached = yield* fs
     .readFileString(cachePath)
     .pipe(Effect.flatMap(decodeCacheEntry), Effect.option);
-  if (Option.isSome(cached) && cached.value.key === key) {
+  if (!reconciliation && Option.isSome(cached) && cached.value.key === key) {
     yield* Console.log("Nothing changed since the last passing run.\n");
     for (const line of cached.value.summary) yield* Console.log(line);
     return true;
@@ -343,7 +371,7 @@ const checkChanged = Effect.fn("checkChanged")(function* (input: {
 
   const present = yield* Effect.filter(files, (file) => fs.exists(inRoot(file)));
   const code = present.filter((file) => CODE.test(file));
-  const packages = readWorkspace();
+  const packages = readWorkspace(root);
   const { affected, outputs } = decide(files, packages, false);
 
   // Changed test files, and the test files beside a changed source file
@@ -366,7 +394,11 @@ const checkChanged = Effect.fn("checkChanged")(function* (input: {
     .filter((pkg) => pkg.hasTest && affected.includes(pkg.name))
     .map((pkg) => pkg.dir);
   const candidates = (
-    testDirs.length > 0 ? yield* lines("ls-files", "--", ...testDirs) : []
+    testDirs.length > 0
+      ? reconciliation
+        ? yield* lines("ls-tree", "-r", "--name-only", reconciliation.rev, "--", ...testDirs)
+        : yield* lines("ls-files", "--", ...testDirs)
+      : []
   ).filter((file) => TEST.test(file) && !tests.has(file));
   const sources = yield* Effect.forEach(
     candidates,
@@ -640,6 +672,20 @@ export const checkChangedCommand = Command.make(
     ref: Argument.String("ref").pipe(
       Argument.withDescription("Compare against the merge base with this ref."),
       Argument.optional,
+    ),
+    repo: Flag.String("repo").pipe(
+      Flag.withDescription("Workspace whose files and checks to use."),
+      Flag.optional,
+    ),
+    reconcile: Flag.Boolean("reconcile").pipe(
+      Flag.withDefault(false),
+      Flag.withDescription(
+        "Check only merge resolutions and edits on top of the newest upstream merge; snapshot jj's working copy first.",
+      ),
+    ),
+    list: Flag.Boolean("list").pipe(
+      Flag.withDefault(false),
+      Flag.withDescription("Print selected files without running checks."),
     ),
     concurrency: Flag.Int("concurrency").pipe(
       Flag.withDescription(

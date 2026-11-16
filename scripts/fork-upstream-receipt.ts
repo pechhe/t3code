@@ -2,7 +2,9 @@
 // @effect-diagnostics nodeBuiltinImport:off - Thin git/CLI gate with no Effect runtime so it runs under plain node in the landing gate.
 import * as NodeChildProcess from "node:child_process";
 import * as NodeCrypto from "node:crypto";
+import * as NodePath from "node:path";
 import * as NodeUtil from "node:util";
+import { requireRepositoryNode } from "./fork-reconcile.ts";
 
 const RECEIPT_PATH = "fork/upstream-receipt.json";
 const RECORD_PATH = "fork/differences.md";
@@ -466,6 +468,7 @@ function main(argv: ReadonlyArray<string>): number {
       },
       strict: true,
     });
+    requireRepositoryNode(NodePath.resolve(import.meta.dirname, ".."), true);
     if (command === "verify") {
       if (
         values.landed !== undefined &&

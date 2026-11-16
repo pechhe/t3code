@@ -5,7 +5,7 @@ interface WorkspacePackage {
   readonly deps: ReadonlyArray<string>;
 }
 
-export function readWorkspace(): Array<WorkspacePackage>;
+export function readWorkspace(workspaceRoot?: string): Array<WorkspacePackage>;
 
 export function decide(
   files: ReadonlyArray<string> | null,

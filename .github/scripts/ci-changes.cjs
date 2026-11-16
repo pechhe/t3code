@@ -68,10 +68,12 @@ const DESKTOP_LAUNCH = [
 
 const OWN_TEST_JOB = new Set(["t3", "@t3tools/web", "@t3tools/monorepo"]);
 
-function readWorkspace() {
+function readWorkspace(workspaceRoot = root) {
   const patterns = [];
   let inPackages = false;
-  for (const line of fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf8").split("\n")) {
+  for (const line of fs
+    .readFileSync(path.join(workspaceRoot, "pnpm-workspace.yaml"), "utf8")
+    .split("\n")) {
     if (/^\S/.test(line)) inPackages = line.startsWith("packages:");
     const entry = inPackages && line.match(/^\s+-\s+["']?([^"'\s]+)/);
     if (entry) patterns.push(entry[1]);
@@ -80,12 +82,12 @@ function readWorkspace() {
   const dirs = patterns.flatMap((pattern) => {
     if (!pattern.endsWith("/*")) return [pattern];
     const parent = pattern.slice(0, -2);
-    return fs.readdirSync(path.join(root, parent)).map((name) => `${parent}/${name}`);
+    return fs.readdirSync(path.join(workspaceRoot, parent)).map((name) => `${parent}/${name}`);
   });
 
   const packages = [];
   for (const dir of dirs) {
-    const manifestPath = path.join(root, dir, "package.json");
+    const manifestPath = path.join(workspaceRoot, dir, "package.json");
     if (!fs.existsSync(manifestPath)) continue;
     const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
     const deps = {

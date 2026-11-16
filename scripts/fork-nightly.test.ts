@@ -230,6 +230,9 @@ async function withFixture(body: (f: Fixture) => Promise<void>) {
         T3FORK_VPS: "",
         T3FORK_ORIGIN_URL: NodePath.join(root, "origin.git"),
         T3FORK_UPSTREAM_URL: NodePath.join(root, "upstream.git"),
+        // The cadence has its own tests; no wait keeps every other fixture's dispatch
+        // independent of the host clock against the fixtures' fixed integration dates.
+        T3FORK_UPDATE_INTERVAL_SECONDS: "0",
       },
     };
     expect(f.installed.startsWith(root)).toBe(true);
@@ -2385,6 +2388,187 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
       },
       TIMEOUT,
     );
+  });
+
+  describe("update cadence", () => {
+    // A settled clock, so the interval is measured against the fixtures' own dates
+    // rather than the host's. An empty interval uses the script's default.
+    const NOW = Date.parse("2026-03-01T00:00:00Z") / 1000;
+    const INTERVAL = 2 * 24 * 3600;
+    const defaults = { T3FORK_UPDATE_INTERVAL_SECONDS: "", T3_TEST_NOW_EPOCH: `${NOW}` };
+    const updates = async (f: Fixture) =>
+      (await curlCalls(f)).filter((call) => call.body.action === "update");
+
+    it("holds a newer publishable tag until the interval since the newest integration landed", async () => {
+      await withFixture(async (f) => {
+        await seedRepos(f);
+        // The integration landed 12 hours ago, so the default two days are part spent.
+        await landIntegration(f, BUILD_TAG, "2026-02-28T12:00:00Z");
+        await publishUpstreamTag(f, OLD_TAG, "2026-02-28T13:00:00Z");
+
+        expect((await run(f, [], defaults)).code).toBe(0);
+        expect(await updates(f)).toEqual([]);
+        expect(await exists(stateFile(f, "attempts", `${OLD_TAG}.json`))).toBe(false);
+        expect(await nightlyLog(f)).toContain(`upstream ${OLD_TAG} waits`);
+
+        // A second before the interval, the tag still waits.
+        await run(f, [], { ...defaults, T3_TEST_NOW_EPOCH: `${NOW + 36 * 3600 - 1}` });
+        expect(await updates(f)).toEqual([]);
+        expect(await exists(stateFile(f, "attempts", `${OLD_TAG}.json`))).toBe(false);
+
+        // At the interval the newest tag is dispatched, once.
+        await run(f, [], { ...defaults, T3_TEST_NOW_EPOCH: `${NOW + 36 * 3600}` });
+        expect((await updates(f)).map((call) => call.body.tag)).toEqual([OLD_TAG]);
+        expect(await attemptOf(f, OLD_TAG)).toMatchObject({ phase: "dispatched", dispatches: 1 });
+      });
+    });
+
+    it("dispatches one update for the newest publishable tag, never the tags it skipped", async () => {
+      await withFixture(async (f) => {
+        await seedRepos(f);
+        await landIntegration(f, BUILD_TAG, "2026-02-20T00:00:00Z");
+        await publishUpstreamTag(f, OLD_TAG, "2026-02-26T00:00:00Z");
+        await publishUpstreamTag(f, NEW_TAG, "2026-02-27T00:00:00Z");
+
+        expect((await run(f, [], defaults)).code).toBe(0);
+        expect((await updates(f)).map((call) => call.body.tag)).toEqual([NEW_TAG]);
+        expect(await exists(stateFile(f, "attempts", `${OLD_TAG}.json`))).toBe(false);
+
+        // Later hours neither repeat it nor send the tags it skipped.
+        await run(f, [], defaults);
+        expect((await updates(f)).map((call) => call.body.tag)).toEqual([NEW_TAG]);
+        expect(await exists(stateFile(f, "attempts", `${OLD_TAG}.json`))).toBe(false);
+      });
+    });
+
+    it("keeps installing, recovering, building and re-sending a dispatched attempt inside the interval", async () => {
+      await withFixture(async (f) => {
+        const head = await seedRepos(f);
+        await stageBuild(f, { source: head });
+        const { head: landed, upstream } = await landIntegration(
+          f,
+          BUILD_TAG,
+          "2026-02-28T12:00:00Z",
+        );
+        const sha = await publishUpstreamTag(f, OLD_TAG, "2026-02-28T13:00:00Z");
+        await writeJson(stateFile(f, "attempts", `${OLD_TAG}.json`), {
+          tag: OLD_TAG,
+          sha,
+          attempt: `${OLD_TAG}@1`,
+          phase: "dispatched",
+          action: "update",
+          dispatches: 1,
+          dispatchedAt: 0,
+          updatedEpoch: 0,
+        });
+        // A build of the landed attempt that stopped before it finished: its recorded
+        // owner is a pid and group nothing runs, so the hour reads it as interrupted.
+        await writeJson(stateFile(f, "attempts", `${BUILD_TAG}.json`), {
+          tag: BUILD_TAG,
+          sha: upstream,
+          attempt: `${BUILD_TAG}@1`,
+          phase: "claimed",
+          claimedBy: "thread-a",
+          dispatches: 1,
+          updatedEpoch: 4_102_444_800,
+        });
+        await writeJson(stateFile(f, "build-invocation.json"), {
+          id: `build@${NOW}`,
+          stage: "compiling",
+          source: landed,
+          claim: { tag: BUILD_TAG, attempt: `${BUILD_TAG}@1`, claimedBy: "thread-a" },
+          owner: { pid: 999999, pgid: 999999, started: "gone" },
+        });
+
+        const interval = {
+          T3FORK_UPDATE_INTERVAL_SECONDS: `${INTERVAL}`,
+          T3_TEST_NOW_EPOCH: `${NOW}`,
+          T3FORK_REDISPATCH_SECONDS: "0",
+        };
+        expect((await run(f, [], interval)).code).toBe(0);
+
+        // The staged build installs.
+        expect(await build(f.installed)).toBe("new");
+        expect(await readJson(stateFile(f, "active-mac.json"))).toMatchObject({ source: head });
+        // The interrupted build is recovered, and the landed integration is built.
+        expect(await nightlyLog(f)).toContain("recovering the interrupted build");
+        expect(await exists(stateFile(f, "build-invocation.json"))).toBe(false);
+        const attempt = await attemptOf(f, BUILD_TAG);
+        expect(attempt).toMatchObject({ phase: "build-requested" });
+        expect(Object.keys(attempt.interruptionRecoveries as object)).toEqual([landed]);
+        const sent = await curlCalls(f);
+        expect(sent.filter((call) => call.body.action === "build").map((c) => c.body.tag)).toEqual([
+          BUILD_TAG,
+        ]);
+        // The attempt already dispatched is sent again as itself; no update starts.
+        const redispatched = sent.filter((call) => call.body.action === "update");
+        expect(redispatched.map((call) => call.body.tag)).toEqual([OLD_TAG]);
+        expect(redispatched[0]!.body.attempt).toBe(`${OLD_TAG}@1`);
+        expect(await attemptOf(f, OLD_TAG)).toMatchObject({ phase: "dispatched", dispatches: 2 });
+      });
+    });
+
+    it("records a newer tag whose release is absent inside the interval without dispatching it", async () => {
+      await withFixture(async (f) => {
+        await seedRepos(f);
+        await landIntegration(f, BUILD_TAG, "2026-02-28T12:00:00Z");
+        const sha = await publishUpstreamTag(f, OLD_TAG, "2026-02-28T13:00:00Z");
+
+        const absent = {
+          T3FORK_UPDATE_INTERVAL_SECONDS: `${INTERVAL}`,
+          T3_TEST_NOW_EPOCH: `${NOW}`,
+          T3_TEST_ABSENT: `${OLD_TAG}/`,
+        };
+        expect((await run(f, [], absent)).code).toBe(0);
+        expect(await updates(f)).toEqual([]);
+        expect(await attemptOf(f, OLD_TAG)).toMatchObject({ phase: "unpublished", sha });
+        expect(await nightlyLog(f)).toContain(`Upstream ${OLD_TAG} is skipped`);
+      });
+    });
+
+    it("re-sends an attempt already dispatched while a newer tag waits for the interval", async () => {
+      await withFixture(async (f) => {
+        await seedRepos(f);
+        await landIntegration(f, BUILD_TAG, "2026-02-28T12:00:00Z");
+        const sha = await publishUpstreamTag(f, OLD_TAG, "2026-02-28T13:00:00Z");
+        await publishUpstreamTag(f, NEW_TAG, "2026-02-28T14:00:00Z");
+        await writeJson(stateFile(f, "attempts", `${OLD_TAG}.json`), {
+          tag: OLD_TAG,
+          sha,
+          attempt: `${OLD_TAG}@1`,
+          phase: "dispatched",
+          action: "update",
+          dispatches: 1,
+          dispatchedAt: 0,
+          updatedEpoch: 0,
+        });
+
+        const interval = {
+          T3FORK_UPDATE_INTERVAL_SECONDS: `${INTERVAL}`,
+          T3_TEST_NOW_EPOCH: `${NOW}`,
+          T3FORK_REDISPATCH_SECONDS: "0",
+        };
+        expect((await run(f, [], interval)).code).toBe(0);
+
+        // The newer tag is held, so it starts nothing and the older attempt keeps its
+        // place rather than being superseded for it.
+        expect(await exists(stateFile(f, "attempts", `${NEW_TAG}.json`))).toBe(false);
+        expect(await nightlyLog(f)).toContain(`upstream ${NEW_TAG} waits`);
+        // The attempt already dispatched is sent again as itself.
+        const sent = await updates(f);
+        expect(sent.map((call) => call.body.tag)).toEqual([OLD_TAG]);
+        expect(sent[0]!.body).toMatchObject({ attempt: `${OLD_TAG}@1`, sha, action: "update" });
+        expect(await attemptOf(f, OLD_TAG)).toMatchObject({ phase: "dispatched", dispatches: 2 });
+        expect(await attemptOf(f, OLD_TAG)).not.toHaveProperty("supersededBy");
+
+        // The next hour inside the interval re-sends it again, and still sends nothing
+        // for the tag it holds.
+        expect((await run(f, [], interval)).code).toBe(0);
+        expect((await updates(f)).map((call) => call.body.tag)).toEqual([OLD_TAG, OLD_TAG]);
+        expect(await exists(stateFile(f, "attempts", `${NEW_TAG}.json`))).toBe(false);
+        expect(await attemptOf(f, OLD_TAG)).toMatchObject({ phase: "dispatched", dispatches: 3 });
+      });
+    });
   });
 
   describe("build requests", () => {
