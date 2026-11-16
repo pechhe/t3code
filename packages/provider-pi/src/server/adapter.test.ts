@@ -2257,7 +2257,7 @@ describe("PiAdapterV2", () => {
   );
 
   it.effect(
-    "withholds Pi's shell, edit and write tools from a managed read-only session only",
+    "sandboxes reader shells and withholds edit and write tools from managed read-only sessions",
     () =>
       Effect.gen(function* () {
         const launches: Array<ReadonlyArray<string>> = [];
@@ -2301,6 +2301,7 @@ describe("PiAdapterV2", () => {
           );
         yield* open({
           managedAgent: true,
+          readOnlyShell: true,
           approvalPolicy: "never",
           sandboxPolicy: { type: "readOnly", networkAccess: false },
         });
@@ -2319,7 +2320,7 @@ describe("PiAdapterV2", () => {
         assert.include(readOnly, "--no-mcp");
         assert.deepEqual(
           readOnly.slice(readOnly.indexOf("--tools"), readOnly.indexOf("--tools") + 2),
-          ["--tools", "read,grep,find,ls,tool_search,codemode"],
+          ["--tools", "read,grep,find,ls,tool_search,codemode,bash"],
         );
         assert.deepEqual(
           readOnly.slice(
@@ -2328,7 +2329,7 @@ describe("PiAdapterV2", () => {
           ),
           [
             "--exclude-tools",
-            "bash,edit,write,powershell,list_mcp_resources,list_mcp_resource_templates,read_mcp_resource,mcp__*",
+            "edit,write,powershell,list_mcp_resources,list_mcp_resource_templates,read_mcp_resource,mcp__*",
           ],
         );
         assert.notInclude(readOnly, "--no-extensions");

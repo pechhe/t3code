@@ -111,12 +111,17 @@ its revision and the role names, or the reason the policy is refused.
   snapshot to declare read-only source enforcement. Claude, Codex, OpenCode,
   Grok, Pi, Muse and Antigravity currently declare it; Pi keeps configured
   extensions loaded so extension-registered models still start, while restricting
-  tools to a closed read-only allowlist (`read`, `grep`, `find`, `ls`,
-  `tool_search`, `codemode`, and T3's read-only MCP tools) with mutating built-ins
-  and external MCP servers excluded, and its injected extension refusing
-  any other tool call, including each tool a codemode script calls. For Pi, read-only means no write or exec tool reaches the
-  model; the user's own installed extensions still run with the user's
-  permissions, as in any Pi session. Muse runs the task with its
+  tools to a closed read-only allowlist. Pi reviewers, scouts and advisors also
+  get the built-in shell, sandboxed with Landlock on Linux and sandbox-exec on
+  macOS: file contents and directory changes are refused outside a task scratch
+  directory (`$TMPDIR`) and existing git-ignored paths inside the assigned checkout;
+  `.git` and `.jj` stay protected. Python 3 and a working host sandbox are required;
+  an unavailable sandbox blocks the shell rather than running without protection.
+  Browser and researcher tasks have no shell. Codemode stays available: each tool
+  a script calls reaches the same tool-call guard, including sandboxing bash.
+  Edit, write, powershell and MCP resource tools stay withheld.
+  The user's own installed extensions still
+  run with the user's permissions, as in any Pi session. Muse runs the task with its
   shell and write tools disabled, and
   Antigravity asks for permission on every edit and command so the task's
   read-only policy can refuse it. Dispatch skips
@@ -152,8 +157,11 @@ its revision and the role names, or the reason the policy is refused.
   An adapter that loads T3's tools eagerly gives every editor the full catalogue's schemas, about
   650 KB, on its first turn, so an unconfirmed adapter is a poor choice for delegated work.
 
-  The Codex read-only shell keeps network access, so publishing from it is stopped by its brief,
-  not by T3. Claude and Pi read-only tasks have no shell.
+  Codex and Pi read-only shells keep network access. The Pi sandbox stops local
+  disk content and directory changes, not a command asking another machine or
+  service to write (ssh, authenticated gh, the Docker socket or systemd); the brief
+  holds that boundary, as for Codex. Linux Landlock does not cover metadata changes
+  such as modes, owners, timestamps or xattrs. Claude read-only tasks still have no shell.
 
 - Browser agents and researchers read untrusted web pages, so they stay on narrow endpoints:
   no thread reads, no delegation and no T3 writes.

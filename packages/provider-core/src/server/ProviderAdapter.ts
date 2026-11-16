@@ -50,6 +50,8 @@ export const ProviderAdapterV2RuntimePolicy = Schema.Struct({
   managedAgent: Schema.optional(Schema.Boolean),
   /** A managed read-only agent that may also search and fetch the web. */
   webResearch: Schema.optional(Schema.Boolean),
+  /** Source-reading Pi tasks may run commands in a filesystem sandbox. */
+  readOnlyShell: Schema.optional(Schema.Boolean),
   /**
    * The directory a managed sandboxed writer may write as its own temp root, outside its
    * workspace. Set for managed writers with a workspace sandbox; absent for every other task.

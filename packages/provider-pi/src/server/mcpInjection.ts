@@ -13,9 +13,12 @@ import {
   T3_PI_INSTRUCTIONS_ENV,
   piChildInstructionsFor,
   T3_PI_READ_ONLY_ENV,
+  T3_PI_READ_ONLY_SHELL_ENV,
   T3_PI_RUNTIME_MODE_ENV,
   T3_PI_MCP_EXTENSION_PATH_ENV,
 } from "./mcpExtensionSource.ts";
+
+import { PI_READ_ONLY_SHELL_FILENAME, PI_READ_ONLY_SHELL_SOURCE } from "./readOnlyShellSource.ts";
 
 const RESERVED_PI_LAUNCH_ARGUMENTS = new Set([
   "--continue",
@@ -253,21 +256,27 @@ export const materializePiT3McpExtension = Effect.fn("materializePiT3McpExtensio
 ) {
   const fs = yield* FileSystem.FileSystem;
   yield* fs.makeDirectory(cacheDir, { recursive: true });
-  const dest = piT3McpExtensionDestPath(cacheDir);
-  const existing = yield* fs.readFileString(dest).pipe(Effect.orElseSucceed(() => ""));
-  if (existing !== PI_T3_MCP_EXTENSION_SOURCE) {
-    // Concurrent pi launches read this file: stage it in a per-call directory
-    // and rename so readers and other writers never see a partial file.
-    yield* Effect.scoped(
-      Effect.gen(function* () {
-        const stagingDir = yield* fs.makeTempDirectoryScoped({ directory: cacheDir });
-        const staging = `${stagingDir.replace(/\\/g, "/")}/${PI_T3_MCP_EXTENSION_FILENAME}`;
-        yield* fs.writeFileString(staging, PI_T3_MCP_EXTENSION_SOURCE);
-        yield* fs.rename(staging, dest).pipe(Effect.retry({ times: 3 }));
-      }),
-    );
+  const extensionDest = piT3McpExtensionDestPath(cacheDir);
+  for (const [filename, source] of [
+    [PI_READ_ONLY_SHELL_FILENAME, PI_READ_ONLY_SHELL_SOURCE],
+    [PI_T3_MCP_EXTENSION_FILENAME, PI_T3_MCP_EXTENSION_SOURCE],
+  ] as const) {
+    const dest = `${cacheDir.replace(/\\/g, "/")}/${filename}`;
+    const existing = yield* fs.readFileString(dest).pipe(Effect.orElseSucceed(() => ""));
+    if (existing !== source) {
+      // Concurrent pi launches read this file: stage it in a per-call directory
+      // and rename so readers and other writers never see a partial file.
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const stagingDir = yield* fs.makeTempDirectoryScoped({ directory: cacheDir });
+          const staging = `${stagingDir.replace(/\\/g, "/")}/${filename}`;
+          yield* fs.writeFileString(staging, source);
+          yield* fs.rename(staging, dest).pipe(Effect.retry({ times: 3 }));
+        }),
+      );
+    }
   }
-  return dest;
+  return extensionDest;
 });
 
 export function buildPiRpcLaunch(input: {
@@ -285,6 +294,7 @@ export function buildPiRpcLaunch(input: {
   readonly disableTools?: boolean;
   /** A read-only managed session: keeps extensions for providers, but enforces a closed tool allowlist. */
   readonly readOnlyTools?: boolean;
+  readonly readOnlyShell?: boolean;
   readonly runtimeMode?: "approval-required" | "auto-accept-edits" | "auto" | "full-access";
 }): {
   readonly args: ReadonlyArray<string>;
@@ -307,9 +317,15 @@ export function buildPiRpcLaunch(input: {
       ...agentServers.flatMap((server) => mcpToolPatternsForServer(server.name)),
     ]),
   ];
-  const readOnlyAllowedTools = [...PI_READ_ONLY_TOOLS, ...allowedReadOnlyMcpPatterns];
+  const readOnlyShell =
+    hasT3Extension && input.readOnlyTools === true && input.readOnlyShell === true;
+  const readOnlyAllowedTools = [
+    ...PI_READ_ONLY_TOOLS,
+    ...(readOnlyShell ? ["bash"] : []),
+    ...allowedReadOnlyMcpPatterns,
+  ];
   const readOnlyExcludedTools = [
-    ...PI_MUTATING_BUILTIN_TOOLS,
+    ...PI_MUTATING_BUILTIN_TOOLS.filter((tool) => !readOnlyShell || tool !== "bash"),
     ...(allowedReadOnlyMcpPatterns.length === 0 ? ["mcp__*"] : []),
   ];
   const args = [
@@ -350,6 +366,7 @@ export function buildPiRpcLaunch(input: {
   delete environment[T3_PI_MCP_EXTENSION_PATH_ENV];
   delete environment[T3_MCP_AGENT_SERVERS_ENV];
   delete environment[T3_PI_READ_ONLY_ENV];
+  delete environment[T3_PI_READ_ONLY_SHELL_ENV];
 
   return {
     args,
@@ -359,6 +376,7 @@ export function buildPiRpcLaunch(input: {
         ? { [T3_PI_MCP_EXTENSION_PATH_ENV]: input.extensionPath }
         : {}),
       ...(hasT3Extension && input.readOnlyTools === true ? { [T3_PI_READ_ONLY_ENV]: "1" } : {}),
+      ...(readOnlyShell ? { [T3_PI_READ_ONLY_SHELL_ENV]: "1" } : {}),
       ...(hasT3Extension && input.runtimeMode !== undefined
         ? {
             [T3_PI_RUNTIME_MODE_ENV]:
@@ -370,6 +388,7 @@ export function buildPiRpcLaunch(input: {
             [T3_PI_INSTRUCTIONS_ENV]: piChildInstructionsFor({
               preview: input.mcpSession.listsPreview === true,
               html: input.mcpSession.listsHtml !== false,
+              readOnlyShell,
             }),
           }
         : {}),

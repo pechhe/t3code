@@ -1,5 +1,9 @@
 // @effect-diagnostics nodeBuiltinImport:off -- Pi extensions run outside Effect; these tests exercise their native filesystem boundary.
 import * as NodeFSP from "node:fs/promises";
+import * as NodeFS from "node:fs";
+import * as NodeChildProcess from "node:child_process";
+import * as NodeUtil from "node:util";
+import * as Effect from "effect/Effect";
 import * as NodeHttp from "node:http";
 import * as NodeHttps from "node:https";
 import * as NodePath from "node:path";
@@ -10,6 +14,7 @@ import { assert, describe, it } from "@effect/vitest";
 
 import { PI_T3_MCP_EXTENSION_SOURCE, PI_T3_SERVICE_TIER_COMMAND } from "./mcpExtensionSource.ts";
 import { loadMcpBridge } from "./mcpBridge.testkit.ts";
+import { PI_READ_ONLY_SHELL_FILENAME, PI_READ_ONLY_SHELL_SOURCE } from "./readOnlyShellSource.ts";
 
 type RequestHook = (
   event: { payload: unknown },
@@ -215,36 +220,45 @@ describe("Pi command guard", () => {
     ctx: { signal: AbortSignal; ui: { confirm: (title: string) => Promise<boolean> } },
   ) => Promise<{ block: true; reason: string } | undefined>;
 
-  it("blocks a command the repository guard refuses, in every runtime mode", async () => {
-    for (const runtimeMode of ["full-access", "auto", "approval-required"]) {
-      const bridge = await loadMcpBridge({
-        modern: true,
-        runtimeMode,
-        result: { structuredContent: { allowed: false, reason: "main is protected" } },
-      });
-      const hook = bridge.handlers.get("tool_call") as unknown as ToolCallHook;
-      let confirmed = false;
-      const refusal = await hook(
-        { toolName: "bash", input: { command: "git push origin main" } },
-        {
-          signal: new AbortController().signal,
-          ui: {
-            confirm: async () => {
-              confirmed = true;
-              return true;
+  it.each([false, true])(
+    "blocks the original command before sandbox wrapping (read-only: %s), in every runtime mode",
+    async (readOnly) => {
+      for (const runtimeMode of ["full-access", "auto", "approval-required"]) {
+        const bridge = await loadMcpBridge({
+          modern: true,
+          runtimeMode,
+          result: { structuredContent: { allowed: false, reason: "main is protected" } },
+          environment: {
+            T3_MCP_URL: "http://fixture.invalid/mcp",
+            T3_MCP_BEARER_TOKEN: "fixture-token",
+            T3_PI_RUNTIME_MODE: runtimeMode,
+            ...(readOnly ? { T3_PI_READ_ONLY: "1", T3_PI_READ_ONLY_SHELL: "1" } : {}),
+          },
+        });
+        const hook = bridge.handlers.get("tool_call") as unknown as ToolCallHook;
+        let confirmed = false;
+        const refusal = await hook(
+          { toolName: "bash", input: { command: "git push origin main" } },
+          {
+            signal: new AbortController().signal,
+            ui: {
+              confirm: async () => {
+                confirmed = true;
+                return true;
+              },
             },
           },
-        },
-      );
-      assert.deepEqual(refusal, { block: true, reason: "main is protected" });
-      assert.isFalse(confirmed, "a guarded refusal never asks the user");
-      const call = bridge.requests.find((request) => request.method === "tools/call");
-      assert.deepEqual(call?.params, {
-        name: "t3_guard_command",
-        arguments: { cwd: "/fixture/workspace", command: "git push origin main" },
-      });
-    }
-  });
+        );
+        assert.deepEqual(refusal, { block: true, reason: "main is protected" });
+        assert.isFalse(confirmed, "a guarded refusal never asks the user");
+        const call = bridge.requests.find((request) => request.method === "tools/call");
+        assert.deepEqual(call?.params, {
+          name: "t3_guard_command",
+          arguments: { cwd: "/fixture/workspace", command: "git push origin main" },
+        });
+      }
+    },
+  );
 
   it("leaves an allowed command to the runtime mode", async () => {
     const bridge = await loadMcpBridge({
@@ -704,7 +718,11 @@ describe("Pi tool discovery permissions", () => {
     );
     await NodeVM.runInNewContext(`${source}\nt3McpExtension(pi)`, {
       process: {
-        env: { T3_PI_RUNTIME_MODE: "full-access", T3_PI_READ_ONLY: "1" },
+        env: {
+          T3_PI_RUNTIME_MODE: "full-access",
+          T3_PI_READ_ONLY: "1",
+          T3_PI_READ_ONLY_SHELL: "1",
+        },
         argv: [],
       },
       pi: {
@@ -713,16 +731,121 @@ describe("Pi tool discovery permissions", () => {
         },
         registerCommand: () => {},
         getAllTools: () => [
+          { name: "bash", sourceInfo: { path: "/user/extensions/evil-bash.ts" } },
           { name: "read", sourceInfo: { path: "/user/extensions/evil-read.ts" } },
           { name: "tool_search", sourceInfo: { path: "/user/extensions/evil-search.ts" } },
           { name: "codemode", sourceInfo: { path: "/user/extensions/evil-codemode.ts" } },
         ],
       },
     });
+    assert.equal(
+      (await shadowedHook!({ toolName: "bash", input: { command: "echo x" } }, ctx))?.block,
+      true,
+    );
     assert.equal((await shadowedHook!({ toolName: "read", input: {} }, ctx))?.block, true);
     assert.equal((await shadowedHook!({ toolName: "tool_search", input: {} }, ctx))?.block, true);
     assert.equal((await shadowedHook!({ toolName: "codemode", input: {} }, ctx))?.block, true);
   });
+
+  it.live("sandboxes codemode-origin bash, probes once and fails closed before execution", () =>
+    Effect.promise(async () => {
+      type Hook = (
+        event: { toolName: string; parentToolCallId: string; input: { command: string } },
+        ctx: unknown,
+      ) => Promise<{ block: true; reason: string } | undefined>;
+      const source = NodeModule.stripTypeScriptTypes(
+        PI_T3_MCP_EXTENSION_SOURCE.replace(/^import .*;$/gm, "").replace(
+          "export default async function",
+          "async function",
+        ),
+      );
+      const execute = NodeUtil.promisify(NodeChildProcess.execFile);
+      const directory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "pi-nested-shell-"));
+      const launcher = NodePath.join(directory, PI_READ_ONLY_SHELL_FILENAME);
+      const checkout = NodePath.join(directory, "checkout");
+      const onExit: Array<() => void> = [];
+      try {
+        await NodeFSP.writeFile(launcher, PI_READ_ONLY_SHELL_SOURCE);
+        await NodeFSP.mkdir(checkout);
+        await execute("git", ["init", "--quiet", checkout]);
+        await NodeFSP.writeFile(NodePath.join(checkout, "tracked"), "original");
+        await execute("git", ["add", "tracked"], { cwd: checkout });
+        for (const available of [true, false]) {
+          let hook: Hook | undefined;
+          const calls: string[][] = [];
+          await NodeVM.runInNewContext(`${source}\nt3McpExtension(pi)`, {
+            process: {
+              env: {
+                T3_PI_READ_ONLY: "1",
+                T3_PI_READ_ONLY_SHELL: "1",
+                T3_PI_MCP_EXTENSION_PATH: NodePath.join(directory, "extension.ts"),
+              },
+              once: (_event: string, handler: () => void) => onExit.push(handler),
+            },
+            NodePath,
+            NodeOS,
+            NodeFSP,
+            NodeFS,
+            NodeChildProcess: {
+              execFile: (
+                binary: string,
+                args: string[],
+                callback: (error: Error | null, stdout: string, stderr: string) => void,
+              ) => {
+                calls.push(args);
+                if (available) NodeChildProcess.execFile(binary, args, callback);
+                else callback(new Error("probe failed"), "", "no Landlock");
+              },
+            },
+            pi: {
+              on: (name: string, handler: Hook) => {
+                if (name === "tool_call") hook = handler;
+              },
+              registerCommand: () => {},
+              getAllTools: () => [{ name: "bash", sourceInfo: { path: "builtin:bash" } }],
+            },
+          });
+          for (const command of ["printf changed > tracked", "cat tracked"]) {
+            const event = {
+              toolName: "bash",
+              parentToolCallId: "codemode-call",
+              input: { command },
+            };
+            const result = await hook!(event, {});
+            if (available) {
+              assert.isUndefined(result);
+              const output = await execute("/bin/bash", ["-c", event.input.command], {
+                cwd: checkout,
+              }).then(
+                ({ stdout, stderr }) => ({ stdout, stderr, code: 0 }),
+                (error: { stdout: string; stderr: string; code: number }) => error,
+              );
+              if (command === "cat tracked") {
+                assert.equal(output.code, 0);
+                assert.equal(output.stdout, "original");
+              } else {
+                assert.equal(output.code, 1);
+                assert.match(output.stderr, /Permission denied|Operation not permitted/);
+              }
+            } else {
+              assert.equal(result?.block, true);
+              assert.include(result!.reason, "read-only shell is unavailable on this host");
+              assert.include(result!.reason, "no Landlock");
+              assert.equal(event.input.command, command);
+            }
+          }
+          assert.deepEqual(calls, [[launcher, "--probe"]]);
+          assert.equal(
+            await NodeFSP.readFile(NodePath.join(checkout, "tracked"), "utf8"),
+            "original",
+          );
+        }
+      } finally {
+        for (const cleanup of onExit) cleanup();
+        await NodeFSP.rm(directory, { recursive: true, force: true });
+      }
+    }),
+  );
 
   it("allows discovery and codemode without confirmation and still gates the discovered tool", async () => {
     type ToolCallHook = (

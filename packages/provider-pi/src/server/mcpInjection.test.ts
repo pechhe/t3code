@@ -6,6 +6,8 @@ import {
   T3_MCP_BEARER_ENV,
   T3_MCP_URL_ENV,
   T3_PI_READ_ONLY_ENV,
+  T3_PI_READ_ONLY_SHELL_ENV,
+  T3_PI_INSTRUCTIONS_ENV,
   T3_PI_RUNTIME_MODE_ENV,
   T3_PI_MCP_EXTENSION_PATH_ENV,
 } from "./mcpExtensionSource.ts";
@@ -127,6 +129,51 @@ describe("pi T3 MCP injection", () => {
       assert.isUndefined(without.env[T3_MCP_AGENT_SERVERS_ENV]);
     }
   });
+
+  it.each([
+    { role: "reviewer", readOnlyTools: true, readOnlyShell: true, shell: true },
+    { role: "scout", readOnlyTools: true, readOnlyShell: true, shell: true },
+    { role: "advisor", readOnlyTools: true, readOnlyShell: true, shell: true },
+    { role: "browser", readOnlyTools: true, readOnlyShell: false, shell: false },
+    { role: "researcher", readOnlyTools: true, readOnlyShell: false, shell: false },
+    { role: "editor", readOnlyTools: false, readOnlyShell: false, shell: false },
+  ])(
+    "gives only shell-bearing readers sandbox guidance and bash: $role",
+    ({ readOnlyTools, readOnlyShell, shell }) => {
+      const launch = buildPiRpcLaunch({
+        launchArgs: [],
+        environment: { [T3_PI_READ_ONLY_SHELL_ENV]: "stale" },
+        mcpSession: { ...mcpSession, delegated: true },
+        extensionPath: "/tmp/cache/pi-t3-mcp-extension.ts",
+        readOnlyTools,
+        readOnlyShell,
+      });
+      assert.equal(launch.env[T3_PI_READ_ONLY_SHELL_ENV], shell ? "1" : undefined);
+      assert.equal(launch.env[T3_PI_INSTRUCTIONS_ENV]?.includes("$TMPDIR"), shell);
+      if (readOnlyTools) {
+        const allowed = launch.args[launch.args.indexOf("--tools") + 1]!.split(",");
+        const excluded = launch.args[launch.args.indexOf("--exclude-tools") + 1]!.split(",");
+        assert.include(allowed, "codemode");
+        assert.notInclude(excluded, "codemode");
+        assert.equal(allowed.includes("bash"), shell);
+        assert.equal(excluded.includes("bash"), !shell);
+        for (const tool of [
+          "edit",
+          "write",
+          "powershell",
+          "list_mcp_resources",
+          "list_mcp_resource_templates",
+          "read_mcp_resource",
+        ]) {
+          assert.include(excluded, tool);
+          assert.notInclude(allowed, tool);
+        }
+      } else {
+        assert.notInclude(launch.args, "--tools");
+        assert.notInclude(launch.args, "--exclude-tools");
+      }
+    },
+  );
 
   it("forces tools and user extensions off for unattended text generation", () => {
     const launch = buildPiRpcLaunch({

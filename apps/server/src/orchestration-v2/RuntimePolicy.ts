@@ -342,6 +342,10 @@ export const layerFromProjectStore: Layer.Layer<
             ...(modelCompactAt == null ? {} : { modelCompactAt }),
             ...(utilityModel === undefined ? {} : { utilityModel }),
             ...(input.thread.agentTask.toolProfile === "web-research" ? { webResearch: true } : {}),
+            ...(input.thread.agentTask.sourceAccess === "read-only" &&
+            input.thread.agentTask.toolProfile === "source-reader"
+              ? { readOnlyShell: true }
+              : {}),
             approvalPolicy: "never",
             sandboxPolicy:
               input.thread.agentTask.sourceAccess === "read-only"

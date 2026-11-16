@@ -373,9 +373,29 @@ it.layer(layerTest)("managed RuntimePolicyV2", (it) => {
       assert.equal(validations[0]?.ceiling, "full-access");
       assert.equal(result.cwd, managedBinding.workspacePath);
       assert.equal(result.managedAgent, true);
+      assert.equal(result.readOnlyShell, true);
       assert.equal(result.approvalPolicy, "never");
       assert.equal(result.interactionMode, "default");
       assert.deepEqual(result.sandboxPolicy, { type: "readOnly", networkAccess: true });
+      for (const toolProfile of ["phi", "web-research"] as const) {
+        const narrow = yield* policy
+          .resolve({
+            thread: {
+              ...makeThread({ now, worktreePath: managedBinding.workspacePath }),
+              agentTask: { ...managedBinding, toolProfile },
+            },
+            modelSelection,
+          })
+          .pipe(
+            Effect.provide(
+              Layer.mergeAll(
+                ServerSettings.layerTest(),
+                Layer.mock(ManagedAgent.ManagedAgentService)({ validate: () => Effect.void }),
+              ),
+            ),
+          );
+        assert.isUndefined(narrow.readOnlyShell);
+      }
     }),
   );
   it.effect(

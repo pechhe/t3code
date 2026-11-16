@@ -573,6 +573,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         agentServers: yield* readAgentServers(input.threadId),
         extensionPath,
         readOnlyTools: ProviderAdapter.isManagedReadOnlyRuntimePolicy(input.runtimePolicy),
+        readOnlyShell: input.runtimePolicy.readOnlyShell === true,
         runtimeMode: input.runtimePolicy.runtimeMode,
       });
       const processObservers = new Set<ProviderAdapter.ProviderStopObserver>();

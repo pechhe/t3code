@@ -4,6 +4,11 @@ import {
   t3ChildInstructions,
 } from "@t3tools/provider-core/server/orchestrationInstructions";
 
+import {
+  PI_READ_ONLY_SHELL_FILENAME,
+  PI_READ_ONLY_SHELL_EXTENSION_SOURCE,
+} from "./readOnlyShellSource.ts";
+
 export const PI_T3_MCP_EXTENSION_FILENAME = "pi-t3-mcp-extension.ts";
 
 export const T3_MCP_URL_ENV = "T3_MCP_URL";
@@ -23,7 +28,7 @@ export const T3_PI_INSTRUCTIONS_ENV = "T3_PI_INSTRUCTIONS";
  * The child text a Pi process may need, keyed by what its endpoint lists, so the
  * generated extension never names a tool its own listing lacks.
  */
-export const PI_CHILD_INSTRUCTION_VARIANTS: Readonly<Record<string, string>> = {
+const PI_CHILD_INSTRUCTION_VARIANTS: Readonly<Record<string, string>> = {
   none: t3ChildInstructions({ preview: false, html: false }).trim(),
   html: t3ChildInstructions({ preview: false, html: true }).trim(),
   preview: t3ChildInstructions({ preview: true, html: false }).trim(),
@@ -40,10 +45,18 @@ const piChildInstructionKey = (listing: {
 export const piChildInstructionsFor = (listing: {
   readonly preview: boolean;
   readonly html: boolean;
-}): string => PI_CHILD_INSTRUCTION_VARIANTS[piChildInstructionKey(listing)] ?? "";
+  readonly readOnlyShell?: boolean;
+}): string => {
+  const instructions = PI_CHILD_INSTRUCTION_VARIANTS[piChildInstructionKey(listing)] ?? "";
+  return listing.readOnlyShell === true
+    ? instructions +
+        "\n\nYour shell filesystem is read-only outside its scratch directory ($TMPDIR) and git-ignored paths in the assigned checkout. Use jj with --ignore-working-copy; pnpm exec/run fail here, so call tools directly, such as node_modules/.bin/vp."
+    : instructions;
+};
 
 export const T3_PI_MCP_EXTENSION_PATH_ENV = "T3_PI_MCP_EXTENSION_PATH";
 export const T3_PI_READ_ONLY_ENV = "T3_PI_READ_ONLY";
+export const T3_PI_READ_ONLY_SHELL_ENV = "T3_PI_READ_ONLY_SHELL";
 export const PI_T3_SERVICE_TIER_COMMAND = "t3-service-tier";
 
 // These tools trigger file-change approvals, bypassed by Auto-accept edits.
@@ -52,6 +65,9 @@ export const PI_FILE_CHANGE_TOOLS = ["edit", "write"] as const;
 export const PI_T3_MCP_EXTENSION_SOURCE = `\
 import { stripFrontmatter, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import * as NodeCrypto from "node:crypto";
+import * as NodeChildProcess from "node:child_process";
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeHTTP from "node:http";
 import * as NodeHTTPS from "node:https";
@@ -65,6 +81,9 @@ const RUNTIME_MODE_ENV = ${JSON.stringify(T3_PI_RUNTIME_MODE_ENV)};
 const EXTENSION_PATH_ENV = ${JSON.stringify(T3_PI_MCP_EXTENSION_PATH_ENV)};
 const INSTRUCTIONS_ENV = ${JSON.stringify(T3_PI_INSTRUCTIONS_ENV)};
 const READ_ONLY_ENV = ${JSON.stringify(T3_PI_READ_ONLY_ENV)};
+const READ_ONLY_SHELL_ENV = ${JSON.stringify(T3_PI_READ_ONLY_SHELL_ENV)};
+const READ_ONLY_SHELL_FILENAME = ${JSON.stringify(PI_READ_ONLY_SHELL_FILENAME)};
+${PI_READ_ONLY_SHELL_EXTENSION_SOURCE}
 const ORCHESTRATION_INSTRUCTIONS = ${JSON.stringify(T3_CODE_ORCHESTRATION_INSTRUCTIONS.trim())};
 const SERVICE_TIER_COMMAND = ${JSON.stringify(PI_T3_SERVICE_TIER_COMMAND)};
 const PROTOCOL = "2025-06-18";
@@ -519,6 +538,9 @@ function createMcpClient(
 }
 
 export default async function t3McpExtension(pi: ExtensionAPI) {
+  pi.on("session_shutdown", (event) => {
+    if (event.reason === "quit") cleanReadOnlyShellScratch();
+  });
   // RPC has no trust prompt, so Pi skips an untrusted folder's protected resources. Session
   // replacement reruns this factory without project_trust, and T3 drops notices outside a turn,
   // so check each session's first turn. An explicit --no-approve is deliberate and stays quiet.
@@ -692,6 +714,18 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
     const refusal = await guardRefusal(event, ctx);
     if (refusal !== undefined) return refusal;
     if (env(READ_ONLY_ENV) === "1") {
+      // Pi must execute mutated inputs for nested codemode calls as well as direct calls.
+      if (event.toolName === "bash" && env(READ_ONLY_SHELL_ENV) === "1" &&
+          pi.getAllTools?.().some((tool) => tool.name === "bash" && tool.sourceInfo?.path === "builtin:bash")) {
+        try {
+          const input = event.input as { command: string };
+          input.command = await readOnlyShellCommand(input.command);
+          return;
+        } catch (error) {
+          return { block: true, reason: "The read-only shell is unavailable on this host: " +
+            (error instanceof Error ? error.message : String(error)) };
+        }
+      }
       if (
         isBuiltinReadOnlyTool(event.toolName) ||
         isCodemodeContainer(event.toolName) ||
