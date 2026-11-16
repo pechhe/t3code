@@ -5137,6 +5137,13 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 SELECT thread_id FROM orchestration_v2_projection_runtime_requests
                 WHERE status = 'pending'
                 UNION
+                SELECT turn.thread_id FROM orchestration_v2_projection_provider_turns AS turn
+                JOIN orchestration_v2_projection_run_attempts AS attempt
+                  ON attempt.attempt_id = turn.run_attempt_id
+                JOIN orchestration_v2_projection_runs AS run ON run.run_id = attempt.run_id
+                WHERE turn.status IN ('pending', 'running')
+                  AND run.status IN ('completed', 'interrupted', 'failed', 'cancelled', 'rolled_back')
+                UNION
                 SELECT bindings.thread_id
                 FROM orchestration_v2_projection_provider_sessions AS sessions
                 CROSS JOIN orchestration_v2_projection_provider_session_bindings AS bindings
@@ -5529,6 +5536,12 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                     WHERE latest.thread_id = ${threadId}
                     ORDER BY latest.ordinal DESC LIMIT 1
                   )
+                  OR run.run_id IN (
+                    SELECT attempt.run_id FROM orchestration_v2_projection_provider_turns AS turn
+                    JOIN orchestration_v2_projection_run_attempts AS attempt
+                      ON attempt.attempt_id = turn.run_attempt_id
+                    WHERE turn.thread_id = ${threadId} AND turn.status IN ('pending', 'running')
+                  )
                   -- Retain the latest run for each provider thread with lost
                   -- background work, including owners used before a handoff.
                   OR run.run_id IN (
@@ -5566,10 +5579,16 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               SELECT attempt.payload_json
               FROM orchestration_v2_projection_run_attempts AS attempt
               WHERE attempt.thread_id = ${threadId}
-                AND attempt.run_id IN (
-                  SELECT run_id FROM orchestration_v2_projection_runs
-                  WHERE thread_id = ${threadId}
-                    AND status IN ('queued', 'preparing', 'starting', 'running', 'waiting')
+                AND (
+                  attempt.run_id IN (
+                    SELECT run_id FROM orchestration_v2_projection_runs
+                    WHERE thread_id = ${threadId}
+                      AND status IN ('queued', 'preparing', 'starting', 'running', 'waiting')
+                  )
+                  OR attempt.attempt_id IN (
+                    SELECT run_attempt_id FROM orchestration_v2_projection_provider_turns
+                    WHERE thread_id = ${threadId} AND status IN ('pending', 'running')
+                  )
                 )
               ORDER BY attempt.run_id ASC, attempt.attempt_ordinal ASC
             `,
@@ -5723,11 +5742,6 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                   provider_turn.run_attempt_id IN (
                     SELECT attempt_id FROM orchestration_v2_projection_run_attempts
                     WHERE thread_id = ${threadId}
-                      AND run_id IN (
-                        SELECT run_id FROM orchestration_v2_projection_runs
-                        WHERE thread_id = ${threadId}
-                          AND status IN ('queued', 'preparing', 'starting', 'running', 'waiting')
-                      )
                   )
                   OR (
                     provider_turn.run_attempt_id IS NULL

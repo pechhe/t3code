@@ -26,6 +26,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import { restartContinuationRun } from "./RestartContinuation.ts";
 import { isBufferedProviderNotification } from "./NotificationMailbox.ts";
 import { queuedRunsInDeliveryOrder } from "./QueuedRunOrder.ts";
+import { isTerminalRunStatus } from "./ThreadManagementService.ts";
 import {
   endOrphanedNativeSubagent,
   endRunlessRootTurns,
@@ -675,6 +676,27 @@ export const make = Effect.gen(function* () {
             type: "system_notice",
             message: detail,
           },
+        });
+      }
+      const terminalRuns = new Map(
+        projection.runs
+          .filter((run) => isTerminalRunStatus(run.status))
+          .map((run) => [run.id, run]),
+      );
+      for (const turn of projection.providerTurns ?? []) {
+        if (turn.status !== "pending" && turn.status !== "running") continue;
+        const attempt = projection.attempts.find((candidate) => candidate.id === turn.runAttemptId);
+        const run = attempt === undefined ? undefined : terminalRuns.get(attempt.runId);
+        if (run === undefined) continue;
+        events.push({
+          id: yield* allocateEventId(),
+          type: "provider-turn.updated",
+          threadId: projection.thread.id,
+          runId: run.id,
+          nodeId: turn.nodeId,
+          providerInstanceId: run.providerInstanceId,
+          occurredAt: now,
+          payload: { ...turn, status: "cancelled", completedAt: now },
         });
       }
       // Blocking waits die with their turn; let child results wake the parent continuation as async tasks.

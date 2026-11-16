@@ -13,6 +13,7 @@ import {
   ProviderSessionId,
   ProviderThreadId,
   ProviderTurnId,
+  RunAttemptId,
   RunId,
   RuntimeRequestId,
   ThreadId,
@@ -1594,6 +1595,83 @@ it.effect("marks fork descendants unreadable when their source is missing or cor
       new Set([fork, descendant]),
     );
   }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect.each(["completed", "interrupted", "failed", "cancelled", "rolled_back"] as const)(
+  "startup closes abandoned provider turns of an older %s run",
+  (status) =>
+    Effect.gen(function* () {
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const recovery = yield* ProviderRuntimeRecovery.ProviderRuntimeRecoveryService;
+      const now = yield* DateTime.now;
+      const threadId = yield* createThread(`abandoned-turn:${status}`, { settledAt: now });
+      const runId = yield* createRun(threadId, status);
+      yield* createRun(threadId, "completed", { ordinal: 2 });
+      const nodeId = NodeId.make(`node:${runId}`);
+      const attemptId = RunAttemptId.make(`attempt:${runId}`);
+      const providerThreadId = ProviderThreadId.make(`provider-thread:${threadId}`);
+      yield* projections.apply({
+        id: EventId.make(`event:${attemptId}`),
+        type: "run-attempt.created",
+        threadId,
+        runId,
+        nodeId,
+        providerInstanceId,
+        occurredAt: now,
+        payload: {
+          id: attemptId,
+          runId,
+          attemptOrdinal: 1,
+          rootNodeId: nodeId,
+          providerInstanceId,
+          providerThreadId,
+          providerTurnId: null,
+          reason: "initial",
+          status: "completed",
+          startedAt: now,
+          completedAt: now,
+        },
+      });
+      for (const turnStatus of ["pending", "running", "completed"] as const) {
+        const providerTurnId = ProviderTurnId.make(`turn:${runId}:${turnStatus}`);
+        yield* projections.apply({
+          id: EventId.make(`event:${providerTurnId}`),
+          type: "provider-turn.updated",
+          threadId,
+          runId,
+          nodeId,
+          providerInstanceId,
+          occurredAt: now,
+          payload: {
+            id: providerTurnId,
+            providerThreadId,
+            nodeId,
+            runAttemptId: attemptId,
+            nativeTurnRef: null,
+            ordinal: turnStatus === "pending" ? 1 : turnStatus === "running" ? 2 : 3,
+            status: turnStatus,
+            startedAt: now,
+            completedAt: turnStatus === "completed" ? now : null,
+          },
+        });
+      }
+
+      yield* recovery.reconcile("startup");
+
+      const projection = yield* projections.getThreadProjection(threadId);
+      assert.deepEqual(
+        projection.providerTurns.map((turn) => turn.status),
+        ["cancelled", "cancelled", "completed"],
+      );
+      assert.isTrue(projection.providerTurns.every((turn) => turn.completedAt !== null));
+      assert.equal(projection.runs[0]?.status, status);
+      assert.deepEqual(yield* projections.getRecoveryThreadIds("runtime"), []);
+      yield* recovery.reconcile("startup");
+      assert.deepEqual(
+        (yield* projections.getThreadProjection(threadId)).providerTurns,
+        projection.providerTurns,
+      );
+    }).pipe(Effect.provide(layerRecoveryTest)),
 );
 
 it.effect("startup ends the provider turn of a native child root it cancels", () =>

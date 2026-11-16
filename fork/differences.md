@@ -1144,6 +1144,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Upstream:** none known; upstream prunes events behind a log-wide boundary (#29806) but never rewrites projected items.
 - **Retire when:** upstream expires settled threads' detail with the same eligibility, marker and client copy.
 - **Constraints:** destructive by design: expired detail cannot come back, and `rebuild` already refuses once any thread is marked. A fork child that inherits an expired source's run shows that run's lines without detail. Shipped clients ignore `detailRemoved` and render an expired item as output withheld; they cannot fetch it.
+- **Recovery invariant:** startup/shutdown reconciliation cancels pending/running provider turns whose owning run is already terminal, including older runs absent from the usual active/latest recovery snapshot. `ProjectionStore` selects these threads and loads the owning runs and attempts; `ProviderRuntimeRecoveryService` writes normal turn events. `ProjectionRecovery.test.ts` covers each terminal run status, already-completed turns and a second recovery pass. The shared active-work retention guard stays unchanged; todo-list semantics are separate. Retire this repair when upstream recovery closes abandoned provider turns with the same coverage.
 - **Decision:** `retain` (T3-597, 2026-11-16): new.
 - **Owner:** Forge T3-597 (#7497) under T3-ARC-04 (#7498).
 
