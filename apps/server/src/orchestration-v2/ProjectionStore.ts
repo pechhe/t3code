@@ -742,6 +742,10 @@ not yet due: no branch or pull request, and inactive since `inactiveBefore` or l
   readonly getSubagentByChildThread: (
     childThreadId: ThreadId,
   ) => Effect.Effect<OrchestrationV2Subagent | undefined, ProjectionStoreV2Error>;
+  /** Every task this child thread has run, its first and each follow-up. */
+  readonly getSubagentsByChildThread: (
+    childThreadId: ThreadId,
+  ) => Effect.Effect<ReadonlyArray<OrchestrationV2Subagent>, ProjectionStoreV2Error>;
   readonly getProviderControlContext: (
     threadId: ThreadId,
     target: ProjectionProviderControlTarget,
@@ -5982,6 +5986,19 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         effect.pipe(readOnly, Effect.mapError(controlReadError(childThreadId))),
     );
 
+    const getSubagentsByChildThread: ProjectionStoreV2Shape["getSubagentsByChildThread"] =
+      Effect.fn("ProjectionStore.getSubagentsByChildThread")(
+        function* (childThreadId) {
+          const rows = yield* sql<PayloadRow>`
+            SELECT payload_json FROM orchestration_v2_projection_subagents
+            WHERE child_thread_id = ${childThreadId}
+          `;
+          return yield* Effect.forEach(rows, (row) => decodeSubagentPayload(row.payload_json));
+        },
+        (effect, childThreadId) =>
+          effect.pipe(readOnly, Effect.mapError(controlReadError(childThreadId))),
+      );
+
     const getProviderControlContext: ProjectionStoreV2Shape["getProviderControlContext"] = (
       threadId,
       target,
@@ -9528,6 +9545,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         getThreadRecords(threadId, fields, filter).pipe(NodeSqliteClient.readOnly),
       getRuntimeRequest: readOnReader(getRuntimeRequest),
       getSubagentByChildThread: readOnReader(getSubagentByChildThread),
+      getSubagentsByChildThread: readOnReader(getSubagentsByChildThread),
       getPlan: readOnReader(getPlan),
       getProviderControlContext: readOnReader(getProviderControlContext),
       getLimitRecoveryCandidates: readOnReader(getLimitRecoveryCandidates),

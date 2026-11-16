@@ -255,6 +255,7 @@ it.effect(
           getThreadRecords: () => Effect.die("unused record read"),
           getRuntimeRequest: () => Effect.die("unused getRuntimeRequest"),
           getSubagentByChildThread: () => Effect.die("unused getSubagentByChildThread"),
+          getSubagentsByChildThread: () => Effect.die("unused getSubagentsByChildThread"),
           getRunningTurnContext: () => Effect.die("unused getRunningTurnContext"),
           getThreadProviderContext: () => Effect.die("unused getThreadProviderContext"),
           getRuntimeResponseContext: () => Effect.die("unused getRuntimeResponseContext"),

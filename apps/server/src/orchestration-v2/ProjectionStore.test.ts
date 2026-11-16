@@ -2495,6 +2495,12 @@ const commandReadsSkipSettledLeafNodes = Effect.gen(function* () {
       },
     });
   }
+  assert.deepEqual(
+    (yield* store.getSubagentsByChildThread(ThreadId.make("thread:settled-subagents:child-a")))
+      .map((task) => task.title)
+      .toSorted(),
+    ["delivered", "running"],
+  );
   yield* sql`INSERT INTO orchestration_v2_projection_provider_session_bindings
     (provider_session_id, thread_id) VALUES (${sharedSessionId}, ${threadId})`;
   // A command drops the node and the provider thread of each task it drops. The provider thread

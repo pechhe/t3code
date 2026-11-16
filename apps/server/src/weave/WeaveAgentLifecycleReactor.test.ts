@@ -51,7 +51,8 @@ const withReactor = <A, E>(
       readonly kind: "end" | "forget" | "records";
       readonly detail: unknown;
     }>;
-    readonly tasks: Map<ThreadId, Task>;
+    /** Each child thread's tasks: its first and each follow-up. */
+    readonly tasks: Map<ThreadId, ReadonlyArray<Task>>;
     /** Holds every run's recording until the test lets it finish, as a slow Weave read would. */
     readonly recording: { gate: (runId: string) => Effect.Effect<void> };
     /** Each thread's runs as its projection holds them, latest last. */
@@ -66,7 +67,7 @@ const withReactor = <A, E>(
     yield* connections.prepare({ threadId: delegatedLead, role: "lead", model: "claude-opus-5-5" });
     const calls: Array<{ readonly kind: "end" | "forget" | "records"; readonly detail: unknown }> =
       [];
-    const tasks = new Map<ThreadId, Task>();
+    const tasks = new Map<ThreadId, ReadonlyArray<Task>>();
     const runs = new Map<ThreadId, Array<{ id: string; ordinal: number; status: string }>>();
     const recording = { gate: (_runId: string): Effect.Effect<void> => Effect.void };
     const reactor = yield* Effect.service(
@@ -89,8 +90,8 @@ const withReactor = <A, E>(
                         ? { agentTask: { role: "lead" } }
                         : {}),
                   } as never),
-                getSubagentByChildThread: (threadId: ThreadId) =>
-                  Effect.succeed(tasks.get(threadId) as never),
+                getSubagentsByChildThread: (threadId: ThreadId) =>
+                  Effect.succeed((tasks.get(threadId) ?? []) as never),
                 getThreadRecords: (threadId: ThreadId) =>
                   Effect.succeed({
                     runs: runs.get(threadId) ?? [],
@@ -165,7 +166,7 @@ const threadEvent = (type: "thread.archived" | "thread.deleted", threadId: Threa
 it.effect("a delegated lead ends its own session as the agent that bound, turns later", () =>
   withReactor(({ reactor, calls, tasks, callTool }) =>
     Effect.gen(function* () {
-      tasks.set(delegatedLead, openTask(delegatedLead));
+      tasks.set(delegatedLead, [openTask(delegatedLead)]);
       const bound = yield* callTool(delegatedLead, "weave_forge_bind");
       // Each turn that waits on a landing, a child or a watch finishes a run; a compaction or a
       // stopped provider can end one too, and the lead's first run carries no task id.
@@ -226,7 +227,7 @@ it.effect("a cancelled task's agent ends once its last run has stopped, after it
       const before = yield* callTool(reviewerThread, "weave_forge_read");
       // task_cancel closes the task while its run is still stopping.
       runs.set(reviewerThread, [{ id: "run-1", ordinal: 1, status: "running" }]);
-      tasks.set(reviewerThread, closedTask(reviewerThread));
+      tasks.set(reviewerThread, [closedTask(reviewerThread)]);
       yield* reactor.handle(subagentUpdated(closedTask(reviewerThread)));
       assert.deepStrictEqual(calls, []);
 
@@ -252,7 +253,7 @@ it.effect("a task closed while its last run is still recording ends only after t
       const release = yield* Deferred.make<void>();
       recording.gate = () =>
         Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(release)));
-      tasks.set(reviewerThread, closedTask(reviewerThread));
+      tasks.set(reviewerThread, [closedTask(reviewerThread)]);
       runs.set(reviewerThread, [{ id: "run-1", ordinal: 1, status: "cancelled" }]);
       const finished = yield* Effect.forkChild(
         reactor.handle(
@@ -293,7 +294,7 @@ it.effect("an end waits for an earlier run's record that is still being queued",
           ? Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(release)))
           : Effect.void
         ).pipe(Effect.andThen(Effect.sync(() => void recorded.push(runId))));
-      tasks.set(reviewerThread, closedTask(reviewerThread));
+      tasks.set(reviewerThread, [closedTask(reviewerThread)]);
       runs.set(reviewerThread, [
         { id: "run-a", ordinal: 1, status: "completed" },
         { id: "run-b", ordinal: 2, status: "cancelled" },
@@ -335,7 +336,7 @@ it.effect(
     withReactor(({ reactor, calls, tasks, runs }) =>
       Effect.gen(function* () {
         // The run has stopped in the projection, but its run.updated is still behind the close.
-        tasks.set(reviewerThread, closedTask(reviewerThread));
+        tasks.set(reviewerThread, [closedTask(reviewerThread)]);
         runs.set(reviewerThread, [
           { id: "run-0", ordinal: 1, status: "completed" },
           { id: "run-1", ordinal: 2, status: "cancelled" },
@@ -352,8 +353,24 @@ it.effect(
 it.effect("closing an idle task ends its agent at once", () =>
   withReactor(({ reactor, calls, tasks }) =>
     Effect.gen(function* () {
-      tasks.set(delegatedLead, closedTask(delegatedLead));
+      tasks.set(delegatedLead, [closedTask(delegatedLead)]);
       yield* reactor.handle(subagentUpdated(closedTask(delegatedLead)));
+      assert.deepStrictEqual(calls, [
+        { kind: "end", detail: { kind: "end", threadId: delegatedLead, role: "lead" } },
+      ]);
+    }),
+  ),
+);
+
+it.effect("cancelling a follow-up ends the agent, though the task it followed stays open", () =>
+  withReactor(({ reactor, calls, tasks }) =>
+    Effect.gen(function* () {
+      const followUp: Task = {
+        ...closedTask(delegatedLead),
+        id: `followup-${delegatedLead}` as never,
+      };
+      tasks.set(delegatedLead, [openTask(delegatedLead), followUp]);
+      yield* reactor.handle(subagentUpdated(followUp));
       assert.deepStrictEqual(calls, [
         { kind: "end", detail: { kind: "end", threadId: delegatedLead, role: "lead" } },
       ]);
@@ -369,7 +386,7 @@ it.effect("a Stop, an archive or an interrupted run keeps the agent", () =>
         ...openTask(delegatedLead),
         completionDelivery: { state: "disposed", observedByRunId: null, stopped: true },
       };
-      tasks.set(delegatedLead, stopped);
+      tasks.set(delegatedLead, [stopped]);
       yield* reactor.handle(subagentUpdated(stopped));
       yield* reactor.handle(runUpdated(delegatedLead, { status: "completed" }));
       yield* reactor.handle(
@@ -399,7 +416,7 @@ it.effect("deleting a thread drops its connection", () =>
 it.effect("a raw delegated child never had a Weave agent, so nothing is ended", () =>
   withReactor(({ reactor, calls, tasks }) =>
     Effect.gen(function* () {
-      tasks.set(rawChild, closedTask(rawChild));
+      tasks.set(rawChild, [closedTask(rawChild)]);
       yield* reactor.handle(
         runUpdated(rawChild, { status: "completed", delegatedTaskId: "node-task" as never }),
       );

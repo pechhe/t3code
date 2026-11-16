@@ -76,8 +76,10 @@ const make = Effect.gen(function* () {
     agent: Omit<WeaveAgentConnections.WeaveAgent, "model">,
     recordedRunId?: string,
   ) {
-    const task = yield* projections.getSubagentByChildThread(agent.threadId);
-    if (task === undefined || !isOrchestrationV2TaskClosed(task)) return;
+    // Each follow-up is a task of its own on the same child thread; cancelling any of them closes
+    // the conversation, as it refuses further follow-ups.
+    const tasks = yield* projections.getSubagentsByChildThread(agent.threadId);
+    if (!tasks.some(isOrchestrationV2TaskClosed)) return;
     const { runs } = yield* projections.getThreadRecords(agent.threadId, ["runs"], {
       runStatuses: ThreadManagementService.ACTIVE_RUN_STATUSES,
       includeLatestRun: true,
