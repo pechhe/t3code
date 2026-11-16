@@ -219,7 +219,7 @@ it("opens on the active provider when every favorite belongs to a disabled provi
   await expect.element(page.getByRole("option", { name: /Codex model/ })).toBeVisible();
 });
 
-it("marks the composer's four favourites, in favourites order, above a divider", async () => {
+it("marks the composer's three favourites, in favourites order, above a divider", async () => {
   const slugs = ["one", "two", "three", "four", "five"];
   const [codex] = deriveProviderInstanceEntries([
     {
@@ -270,7 +270,7 @@ it("marks the composer's four favourites, in favourites order, above a divider",
   expect(options.map((option) => option.textContent?.match(/Model (\w+)/)?.[1])).toEqual(order);
   const precedes = (node: Element) =>
     Boolean(node.compareDocumentPosition(divider.element()) & Node.DOCUMENT_POSITION_FOLLOWING);
-  expect(options.map(precedes)).toEqual([true, true, true, true, false]);
+  expect(options.map(precedes)).toEqual([true, true, true, false, false]);
 });
 
 it("shows model-matched icons for pi models while keeping the pi icon in the sidebar", async () => {

@@ -166,7 +166,7 @@ reasoning column and choose **Make default** (or press **D** on a focused level)
 and switching to that model, then start at that level; a level you pick inside a thread stays in
 that thread. **Default ×** on the chosen level goes back to the provider's default.
 
-The four models on the composer slider are your first four favourites. Reorder favourites in the
+The three models on the composer slider are your first three favourites. Reorder favourites in the
 picker's Favorites tab by dragging a row, or with **Alt+↑** and **Alt+↓** on the highlighted one.
 
 ## Delegation stance

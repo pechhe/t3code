@@ -1,5 +1,5 @@
 /** The composer slider's favourite detents, before its overflow detent. */
-export const FAVORITE_SLOTS = 4;
+export const FAVORITE_SLOTS = 3;
 
 /**
  * The first `limit` favourites the provider still supplies. A withdrawn or hidden model drops off

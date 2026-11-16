@@ -55,7 +55,7 @@ interface Slot {
 }
 
 /**
- * The model slider: the first four favourite models as detents, and the
+ * The model slider: the first three favourite models as detents, and the
  * overflow detent opening the full picker. A model chosen from the picker that
  * is not a favourite parks the thumb on the overflow detent under its own name.
  * Double-clicking a favourite's name renames it; an empty name restores the model's.

@@ -16,16 +16,18 @@ const selectModelSlot =
 
 /** Chords that open or step the composer's controls. Held keys do not repeat the pickers. */
 export function composerShortcutCommands(composerRef: ComposerHandleRef): ChatShortcutCommands {
+  const toggleModelPicker = ({ event }: { readonly event: KeyboardEvent }) => {
+    if (!event.repeat) composerRef.current?.toggleModelPicker();
+  };
   return {
-    "modelPicker.toggle": ({ event }) => {
-      if (!event.repeat) composerRef.current?.toggleModelPicker();
-    },
+    "modelPicker.toggle": toggleModelPicker,
     "composer.effort": openControl(composerRef, "composer.effort"),
     "composer.mode": openControl(composerRef, "composer.mode"),
     "composer.modelSlot.1": selectModelSlot(composerRef, 0),
     "composer.modelSlot.2": selectModelSlot(composerRef, 1),
     "composer.modelSlot.3": selectModelSlot(composerRef, 2),
-    "composer.modelSlot.4": selectModelSlot(composerRef, 3),
+    // The slider holds three models; its fourth stop opens the full picker.
+    "composer.modelSlot.4": toggleModelPicker,
     // A held key keeps turning the dial.
     "composer.effortUp": () => composerRef.current?.stepEffort(1),
     "composer.effortDown": () => composerRef.current?.stepEffort(-1),

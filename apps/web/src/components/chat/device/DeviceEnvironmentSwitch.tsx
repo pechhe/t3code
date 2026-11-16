@@ -30,16 +30,20 @@ interface DeviceEnvironmentSwitchProps {
 function SwitchLabel({
   environment,
   position,
+  named,
 }: {
   environment: EnvironmentOption;
   position: "upper" | "lower";
+  named: boolean;
 }) {
   return (
     <span className={`device-switch__label device-switch__label--${position}`}>
       <EnvironmentMachineIcon kind={environment.machine} className="device-switch__icon" />
-      <span className="device-switch__name">
-        {environment.isPrimary ? "Local" : environment.label}
-      </span>
+      {named ? (
+        <span className="device-switch__name">
+          {environment.isPrimary ? "Local" : environment.label}
+        </span>
+      ) : null}
     </span>
   );
 }
@@ -64,6 +68,8 @@ export function DeviceEnvironmentSwitch({
   const other = active === upper ? lower : upper;
   const atLower = active === lower;
   const movable = locked && onMove !== undefined;
+  // Two machines of one kind share an icon, so only then do the names tell them apart.
+  const named = upper.machine === lower.machine;
   const description = movable
     ? `Runs on ${active.label}. Click to move this thread to ${other.label}.`
     : locked
@@ -100,9 +106,13 @@ export function DeviceEnvironmentSwitch({
               playRotary();
               onChange(other.environmentId);
             }}
-            className={cn("device-switch", atLower && "device-switch--lower")}
+            className={cn(
+              "device-switch",
+              atLower && "device-switch--lower",
+              !named && "device-switch--icons",
+            )}
           >
-            <SwitchLabel environment={upper} position="upper" />
+            <SwitchLabel environment={upper} position="upper" named={named} />
             <DeviceLeverTrack
               trackClassName="device-switch__track"
               thumbClassName="device-switch__thumb"
@@ -123,7 +133,7 @@ export function DeviceEnvironmentSwitch({
                 </span>
               ) : null}
             </DeviceLeverTrack>
-            <SwitchLabel environment={lower} position="lower" />
+            <SwitchLabel environment={lower} position="lower" named={named} />
           </button>
         }
       />

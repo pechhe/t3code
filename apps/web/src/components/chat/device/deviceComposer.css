@@ -615,8 +615,8 @@
   --slider-inset: 14px;
   --slider-step: calc((100% - 2 * var(--slider-inset)) / var(--slider-detents));
   position: relative;
-  flex: 1 1 380px;
-  min-width: 180px;
+  flex: 1 1 300px;
+  min-width: 160px;
   height: 80px;
 }
 
@@ -727,8 +727,9 @@
   top: 22px;
   left: calc(var(--slider-inset) + var(--slider-step) * (var(--slot) + 0.5));
   display: flex;
-  align-items: flex-start;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
   width: var(--slider-step);
   height: 58px;
   padding: 34px 2px 0;
@@ -775,12 +776,9 @@
   box-shadow: 0 0 6px color-mix(in oklch, var(--light) 30%, transparent);
 }
 
-/* Fast sits under the chosen model's name, in the lit colour. */
+/* Fast sits under the chosen model's name, however many lines that takes, in the lit colour. */
 .device-slider__fast {
-  position: absolute;
-  top: 46px;
-  left: 0;
-  right: 0;
+  margin-top: 2px;
   color: var(--light);
   text-shadow: 0 0 6px color-mix(in oklch, var(--light) 45%, transparent);
 }
@@ -1196,6 +1194,20 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Machines of different kinds are told apart by icon alone, sized and spaced as the
+   stance lever's icons so the two levers sit as a pair. */
+.device-switch--icons {
+  width: auto;
+  gap: 2px;
+  padding: 0 16px 0 10px;
+}
+.device-switch--icons .device-switch__label {
+  padding: 3px;
+}
+.device-switch--icons .device-switch__icon {
+  width: 11px;
+  height: 11px;
+}
 .device-switch:not(.device-switch--lower) .device-switch__label--upper {
   color: oklch(0.72 0.22 145);
   text-shadow:
@@ -1272,6 +1284,7 @@
   grid-template-columns: auto auto;
   justify-items: center;
   row-gap: 2px;
+  margin-right: 12px;
 }
 .device-stance[aria-disabled] {
   opacity: 0.6;
