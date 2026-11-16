@@ -70,7 +70,16 @@ import {
 // which has said both `[overloaded]` and "service is overloaded".
 const PI_OVERLOADED_ERROR = /\b429\b[\s\S]*\boverloaded\b/iu;
 const PI_USAGE_LIMIT_ERROR =
-  /\b(?:insufficient\s+credits?|not enough credits?|usage limit|quota limit|rate limit|credit limit|allowance exhausted)\b/iu;
+  /\b(?:insufficient\s+credits?|not enough credits?|usage limit|quota limit|quota reached|rate limit|credit limit|allowance exhausted)\b/iu;
+
+/** The wait a quota host relays as `Please wait 113h50m33s`, in seconds. */
+const piWaitSeconds = (message: string): number | undefined => {
+  const match = message.match(/\bwait\s+(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?\b/iu);
+  if (match === null) return undefined;
+  const [, hours, minutes, seconds] = match;
+  if (hours === undefined && minutes === undefined && seconds === undefined) return undefined;
+  return Number(hours ?? 0) * 3_600 + Number(minutes ?? 0) * 60 + Number(seconds ?? 0);
+};
 
 /** A Pi model failure, coded as an overload when the upstream said it was overloaded. */
 const piModelFailure = Effect.fn("PiAdapter.modelFailure")(function* (
@@ -83,12 +92,16 @@ const piModelFailure = Effect.fn("PiAdapter.modelFailure")(function* (
   const retryAfterSeconds = Number(
     message.match(/\bretry[_ -]?after\b[\s"'=:\-]{0,16}(\d+(?:\.\d+)?)/iu)?.[1],
   );
+  const resumeSeconds =
+    Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+      ? retryAfterSeconds
+      : piWaitSeconds(message);
   const resetAt =
     absoluteReset !== undefined
       ? absoluteReset
-      : Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+      : resumeSeconds !== undefined && resumeSeconds > 0
         ? DateTime.formatIso(
-            DateTime.addDuration(yield* DateTime.now, Duration.seconds(retryAfterSeconds)),
+            DateTime.addDuration(yield* DateTime.now, Duration.seconds(resumeSeconds)),
           )
         : undefined;
   return makeProviderFailure({

@@ -12,6 +12,7 @@ import * as Effect from "effect/Effect";
 import * as TestClock from "effect/testing/TestClock";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import { makeProviderRegistryMock } from "../provider/testUtils/providerRegistryMock.ts";
+import { withRememberedLimits } from "@t3tools/shared/providerPools";
 import * as Resolver from "./AgentRoleResolver.ts";
 import { providerOverloadKey } from "../provider/ProviderOverloads.ts";
 import {
@@ -1447,6 +1448,79 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
         }),
       );
       expect(chosen.instanceId).toBe(spare.instanceId);
+    }),
+  );
+
+  it.effect("treats a Pi account out of allowance as out for the models it serves", () =>
+    Effect.gen(function* () {
+      const resolver = yield* Resolver.AgentRoleResolver;
+      const antigravityModel = "antigravity/gemini-4-hydrogen";
+      const resetsAt = "2026-10-21T06:00:00.000Z";
+      const pi = provider("pi", "pi", [antigravityModel]);
+      const original = snapshot();
+      const policy = {
+        ...original,
+        manifest: {
+          ...original.manifest,
+          models: {
+            ...original.manifest.models,
+            hydrogen: { driverKind: ProviderDriverKind.make("pi"), model: antigravityModel },
+          },
+          lists: { ...original.manifest.lists, workhorse: [{ model: "hydrogen" }] },
+        },
+      };
+      const withSlot = (usedPercent: number) => ({
+        ...pi,
+        usageSlots: [
+          {
+            accountKey: "antigravity",
+            label: "antigravity",
+            usageLimits: {
+              checkedAt: "2026-10-16T16:49:00.000Z",
+              windows: [
+                {
+                  id: "gemini-weekly",
+                  kind: "weekly" as const,
+                  label: "Gemini · Weekly",
+                  usedPercent,
+                  resetsAt,
+                },
+              ],
+            },
+          },
+        ],
+      });
+      const out = yield* resolver.preview(input({ snapshot: policy, providers: [withSlot(100)] }));
+      expect(out.selection).toBeNull();
+      expect(out.candidates).toContainEqual(
+        expect.objectContaining({
+          alias: "hydrogen",
+          model: antigravityModel,
+          reason: "usage-limited",
+          until: resetsAt,
+        }),
+      );
+      // The same account with allowance left serves again.
+      expect((yield* resolve(input({ snapshot: policy, providers: [withSlot(40)] }))).model).toBe(
+        antigravityModel,
+      );
+      // A quota failure's remembered limit keeps the account out to its reset, even though the
+      // reading still shows allowance.
+      const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
+      const cooled = withRememberedLimits(
+        [withSlot(40)],
+        new Map([[`${pi.instanceId}:antigravity`, Date.parse(resetsAt)]]),
+        nowMs,
+      );
+      const remembered = yield* resolver.preview(input({ snapshot: policy, providers: cooled }));
+      expect(remembered.selection).toBeNull();
+      expect(remembered.candidates).toContainEqual(
+        expect.objectContaining({
+          model: antigravityModel,
+          reason: "usage-limited",
+          until: resetsAt,
+        }),
+      );
     }),
   );
 

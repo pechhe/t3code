@@ -5885,6 +5885,47 @@ describe("PiAdapterV2", () => {
       }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 
+  it.effect("codes a quota the upstream says to wait out as a usage limit to its reset", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      const { runtime, takeEvent } = yield* openRuntime(fake);
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("default"),
+        runtimePolicy,
+      });
+      yield* startTurn(runtime, providerThread);
+      yield* fake.takeRequest("prompt");
+      const reportedAt = yield* DateTime.now;
+      yield* fake.emit({ type: "agent_start" });
+      yield* fake.emit({
+        type: "message_end",
+        message: {
+          role: "assistant",
+          content: [],
+          stopReason: "error",
+          errorMessage:
+            "Quota reached. Please wait 113h50m33s. (Enable AI credits fallback with /antigravity.credits on) Next: switch models or try again after reset.",
+        },
+      });
+      yield* fake.emit({ type: "agent_settled" });
+      const terminal = yield* takeEvent((event) => event.type === "turn.terminal");
+      assert.isTrue(
+        terminal.type === "turn.terminal" &&
+          terminal.status === "failed" &&
+          terminal.failure.class === "usage_limit" &&
+          terminal.failure.resetAt ===
+            DateTime.formatIso(
+              DateTime.addDuration(reportedAt, {
+                hours: 113,
+                minutes: 50,
+                seconds: 33,
+              }),
+            ),
+      );
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
   it.effect("preserves exhausted retry failure through non-retrying compaction", () =>
     Effect.gen(function* () {
       const fake = yield* makeFakePi;

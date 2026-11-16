@@ -24,14 +24,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
-import {
-  accountStanding,
-  limitPercentOf,
-  poolOf,
-  poolRoutesOf,
-  rankAccounts,
-  usableAgainMs,
-} from "@t3tools/shared/providerPools";
+import { limitPercentOf, poolOf, poolRoutesOf, rankAccounts } from "@t3tools/shared/providerPools";
 import {
   applicableSlotUsageWindows,
   isModelPoolSlotConserved,
@@ -670,10 +663,18 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
       }
       const pool = poolOf(pools, candidate.provider);
       const limitPercent = pool === undefined ? 100 : limitPercentOf(pool);
-      if (accountStanding(candidate.provider, nowMs, limitPercent) === "out") {
+      // The account serving this model: a Pi sub-provider reads its own slot, so an account out
+      // of allowance is out even when the instance's other accounts still have some.
+      if (
+        slotStanding(candidate.provider, candidate.selection.model, nowMs, limitPercent) === "out"
+      ) {
         excluded.set(candidate, {
           reason: "usage-limited",
-          untilMs: usableAgainMs(candidate.provider, nowMs, limitPercent),
+          untilMs: windowsUsableAgainMs(
+            applicableSlotUsageWindows(candidate.provider, candidate.selection.model),
+            nowMs,
+            limitPercent,
+          ),
         });
         continue;
       }
