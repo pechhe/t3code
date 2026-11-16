@@ -16,10 +16,8 @@ import type { ProviderInstanceEntry } from "../../../providerInstances";
 import { resolveModelPickerSelectedModel } from "../ModelPickerContent";
 import { saveModelLabel, selectModelSlotLabels } from "../modelLabels";
 import { getTriggerDisplayModelName, type ModelEsque } from "../providerIconUtils";
-import { resolveFavoriteSlots } from "./favoriteSlots.logic";
+import { FAVORITE_SLOTS, resolveFavoriteSlots } from "./favoriteSlots.logic";
 
-/** Favourite slots before the overflow detent. */
-const FAVORITE_SLOTS = 4;
 const DETENTS = FAVORITE_SLOTS + 1;
 
 /**
@@ -214,6 +212,7 @@ export function DeviceModelSlider(props: {
               render={
                 <button
                   type="button"
+                  // oxlint-disable-next-line shadcn/no-restyle -- a native button in the device's own look; TooltipTrigger only wraps it
                   className="device-slider__label"
                   style={{ "--slot": index } as CSSProperties}
                   disabled={disabled}

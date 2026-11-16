@@ -13,7 +13,22 @@ import { formatProviderUpdateRequiredNotice } from "@t3tools/client-runtime/prov
 import { useNavigate } from "@tanstack/react-router";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import {
+  DndContext,
+  type DragEndEvent,
+  PointerSensor,
+  closestCenter,
+  useDndMonitor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
+import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { GripVerticalIcon } from "lucide-react";
+import {
+  createContext,
   memo,
+  use,
   useState,
   useEffect,
   useEffectEvent,
@@ -58,6 +73,7 @@ import {
   useClientSettings,
   useEnvironmentModelPreferences,
   useToggleSharedModelFavorite,
+  useUpdateEnvironmentModelPreferences,
 } from "~/hooks/useSettings";
 import { announce } from "~/lib/announce";
 import { cn } from "~/lib/utils";
@@ -70,7 +86,8 @@ import {
   shouldShowInstanceBadge,
   type ProviderInstanceEntry,
 } from "../../providerInstances";
-import { providerModelKey, sortProviderModelItems } from "../../modelOrdering";
+import { moveFavorite, providerModelKey, sortProviderModelItems } from "../../modelOrdering";
+import { FAVORITE_SLOTS } from "./device/favoriteSlots.logic";
 
 /** A model pool offered as one entry: T3 picks the account when the turn runs. */
 export type ModelPickerPool = {
@@ -182,10 +199,66 @@ const MODEL_LIST_ESTIMATED_ITEM_SIZE = 32;
 // Rendered heights in `--spacing` units. Chrome is the search box and list padding, plus a 1px border.
 const ROW_UNITS = 8;
 const ROW_SEPARATOR_UNITS = 0.5;
+const COMPOSER_DIVIDER_UNITS = 6;
 const LIST_CHROME_UNITS = 15.5;
 
-function ModelListSeparator() {
-  return <div className="h-0.5" />;
+/** The last favourite the composer slider shows, when more favourites follow it. */
+const ComposerBoundaryContext = createContext<string | null>(null);
+
+function ModelListSeparator({ leadingItem }: { leadingItem: string }) {
+  if (use(ComposerBoundaryContext) !== leadingItem) return <div className="h-0.5" />;
+  return (
+    <div className="flex h-6 items-center gap-2 px-2 text-2xs text-muted-foreground/70">
+      <span>On the composer ↑</span>
+      <span className="h-px flex-1 bg-border/70" />
+    </div>
+  );
+}
+
+/** A favourite in the Favorites tab: the whole row drags, and its logo turns into a grip on hover. */
+function SortableModelListRow(
+  props: Omit<React.ComponentProps<typeof ModelListRow>, "dragHandle"> & { sortableId: string },
+) {
+  const { sortableId, ...rowProps } = props;
+  // No sortable attributes: focus stays in the search box, and Alt+Up/Down moves the highlighted row.
+  const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: sortableId,
+  });
+  // The click that ends a drag must not also pick the dropped model; it fires before this timer.
+  const draggingRef = useRef(false);
+  const settle = () => window.setTimeout(() => (draggingRef.current = false));
+  useDndMonitor({
+    onDragStart: () => (draggingRef.current = true),
+    onDragEnd: settle,
+    onDragCancel: settle,
+  });
+  return (
+    <div
+      ref={setNodeRef}
+      // Capture, ahead of the item's own capture handler: it prevents default, and a prevented
+      // press never starts a dnd-kit drag.
+      onPointerDownCapture={(event) => listeners?.onPointerDown?.(event)}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
+      className={cn("relative rounded-sm", isDragging && "z-10 bg-popover shadow-md")}
+      onClickCapture={(event) => {
+        if (!draggingRef.current) return;
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+    >
+      <ModelListRow
+        {...rowProps}
+        dragHandle={
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 left-0 hidden w-8 items-center justify-center group-hover:flex pointer-coarse:flex"
+          >
+            <GripVerticalIcon className="size-3.5 text-muted-foreground" />
+          </span>
+        }
+      />
+    </div>
+  );
 }
 
 function modelJumpLabelsByKey(
@@ -271,12 +344,16 @@ function ModelPickerList({
   itemKeys,
   extraData,
   renderItem,
+  sortable,
 }: {
   listRef: RefObject<LegendListRef | null>;
   itemKeys: ReadonlyArray<string>;
   extraData: unknown;
   renderItem: (props: { item: string; index: number }) => ReactNode;
+  /** Lets every row be dragged to a new place; `onMove` gets the dragged key and the one it took. */
+  sortable?: { onMove: (key: string, targetKey: string) => void } | undefined;
 }) {
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
   const [showTopScrollFade, setShowTopScrollFade] = useState(false);
   const [showBottomScrollFade, setShowBottomScrollFade] = useState(false);
   const updateScrollFades = () => {
@@ -295,28 +372,43 @@ function ModelPickerList({
       )}
     >
       <ComboboxListVirtualized>
-        <LegendList<string>
-          ref={scrollRef}
-          data={itemKeys}
-          extraData={extraData}
-          keyExtractor={(modelKey) => modelKey}
-          renderItem={renderItem}
-          estimatedItemSize={MODEL_LIST_ESTIMATED_ITEM_SIZE}
-          drawDistance={480}
-          recycleItems
-          contentContainerClassName="pl-2 pr-px"
-          ItemSeparatorComponent={ModelListSeparator}
-          onLayout={updateScrollFades}
-          onScroll={updateScrollFades}
-          onReady={updateScrollFades}
-          className={cn(
-            "scrollbar-gutter-stable h-full overflow-x-hidden overscroll-y-contain py-1.5 [&::-webkit-scrollbar-track]:my-2",
-            getVirtualizedScrollFadeClassName({
-              top: showTopScrollFade,
-              bottom: showBottomScrollFade,
-            }),
-          )}
-        />
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          modifiers={[restrictToVerticalAxis]}
+          onDragEnd={(event: DragEndEvent) => {
+            if (event.over === null || event.active.id === event.over.id) return;
+            sortable?.onMove(String(event.active.id), String(event.over.id));
+          }}
+        >
+          <SortableContext
+            items={sortable ? [...itemKeys] : []}
+            strategy={verticalListSortingStrategy}
+          >
+            <LegendList<string>
+              ref={scrollRef}
+              data={itemKeys}
+              extraData={extraData}
+              keyExtractor={(modelKey) => modelKey}
+              renderItem={renderItem}
+              estimatedItemSize={MODEL_LIST_ESTIMATED_ITEM_SIZE}
+              drawDistance={480}
+              recycleItems
+              contentContainerClassName="pl-2 pr-px"
+              ItemSeparatorComponent={ModelListSeparator}
+              onLayout={updateScrollFades}
+              onScroll={updateScrollFades}
+              onReady={updateScrollFades}
+              className={cn(
+                "scrollbar-gutter-stable h-full overflow-x-hidden overscroll-y-contain py-1.5 [&::-webkit-scrollbar-track]:my-2",
+                getVirtualizedScrollFadeClassName({
+                  top: showTopScrollFade,
+                  bottom: showBottomScrollFade,
+                }),
+              )}
+            />
+          </SortableContext>
+        </DndContext>
       </ComboboxListVirtualized>
     </div>
   );
@@ -384,7 +476,22 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- publishes this picker's mount to global keydown handlers
   useLayoutEffect(() => registerModelPickerContent(), []);
   const highlightedModelKeyRef = useRef<string | null>(null);
-  const { favorites } = useEnvironmentModelPreferences(props.environmentId);
+  const { favorites: savedFavorites } = useEnvironmentModelPreferences(props.environmentId);
+  const saveModelPreferences = useUpdateEnvironmentModelPreferences(props.environmentId);
+  // A move shows at once and gives way when the saved favourites change.
+  const [pendingFavoriteOrder, setPendingFavoriteOrder] = useState<{
+    saved: typeof savedFavorites;
+    next: typeof savedFavorites;
+  } | null>(null);
+  const favorites =
+    pendingFavoriteOrder?.saved === savedFavorites ? pendingFavoriteOrder.next : savedFavorites;
+  const handleMoveFavorite = async (key: string, targetKey: string) => {
+    const next = moveFavorite(favorites, key, targetKey);
+    if (!next) return;
+    setPendingFavoriteOrder({ saved: savedFavorites, next });
+    const result = await saveModelPreferences({ favorites: next });
+    if (result?._tag !== "Success") setPendingFavoriteOrder(null);
+  };
   const activeEntry = props.instanceEntries.find(
     (entry) => entry.instanceId === props.activeInstanceId,
   );
@@ -650,10 +757,14 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       );
     };
     const tabsWithLegacyRow = new Set<ProviderInstanceId>();
+    let favoriteRows = 0;
     for (const model of flatModels) {
       if (!matchesLockedProvider(model)) continue;
       const isFavorite = favoritesSet.has(providerModelKey(model.instanceId, model.slug));
-      if (isFavorite) addRow("favorites");
+      if (isFavorite) {
+        addRow("favorites");
+        favoriteRows += 1;
+      }
       if (model.isLegacy && !isFavorite) {
         tabsWithLegacyRow.add(model.instanceId);
       } else {
@@ -661,6 +772,10 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       }
     }
     for (const instanceId of tabsWithLegacyRow) addRow(instanceId);
+    const favoriteUnits = unitsByTab.get("favorites");
+    if (!isLocked && favoriteUnits !== undefined && favoriteRows > FAVORITE_SLOTS) {
+      unitsByTab.set("favorites", favoriteUnits + COMPOSER_DIVIDER_UNITS - ROW_SEPARATOR_UNITS);
+    }
     return Math.max(0, ...unitsByTab.values());
   })();
   const lockedDisabledInstanceIds = (() => {
@@ -692,7 +807,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     return [...available, ...disabled];
   })();
   const showSidebar = !isSearching && sidebarInstanceEntries.length > 0;
-  const instanceOrder = instanceEntries.map((entry) => entry.instanceId);
+  const isArrangingFavorites = selectedInstanceId === "favorites" && !isSearching;
 
   const filteredModels = (() => {
     let result = flatModels;
@@ -730,7 +845,11 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     return sortProviderModelItems(result, {
       favoriteModelKeys: favoritesSet,
       groupFavorites: selectedInstanceId !== "favorites",
-      instanceOrder: selectedInstanceId === "favorites" ? instanceOrder : [],
+      // Favorites keep the user's order, the order the composer slider takes its four from.
+      keyOrder:
+        selectedInstanceId === "favorites"
+          ? favorites.map((favorite) => providerModelKey(favorite.provider, favorite.model))
+          : [],
     });
   })();
 
@@ -841,6 +960,22 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       ),
     ))();
 
+  const moveFavoriteRow = (rowKey: string, targetRowKey: string) => {
+    const model = filteredModelByKey.get(rowKey);
+    const target = filteredModelByKey.get(targetRowKey);
+    if (!model || !target) return;
+    void handleMoveFavorite(
+      providerModelKey(model.instanceId, model.slug),
+      providerModelKey(target.instanceId, target.slug),
+    );
+  };
+  const composerBoundaryModel =
+    isArrangingFavorites && !isLocked ? visibleModels[FAVORITE_SLOTS - 1] : undefined;
+  const composerBoundaryKey =
+    composerBoundaryModel && visibleModels.length > FAVORITE_SLOTS
+      ? modelPickerModelKey(composerBoundaryModel.instanceId, composerBoundaryModel.slug)
+      : null;
+
   const modelJumpLabelByKey = modelJumpLabelsByKey(
     modelJumpModelKeys,
     keybindings,
@@ -859,6 +994,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     selectedModelKeySet,
     slotLabels,
     renamingModelKey,
+    composerBoundaryKey,
   };
 
   const onWindowKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -879,6 +1015,29 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       event.keyCode === 229 ||
       isCommandPaletteOpen()
     ) {
+      return;
+    }
+
+    if (
+      isArrangingFavorites &&
+      (event.key === "ArrowUp" || event.key === "ArrowDown") &&
+      event.altKey &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.shiftKey
+    ) {
+      const highlightedKey = highlightedModelKeyRef.current;
+      const index = highlightedKey ? filteredItemKeys.indexOf(highlightedKey) : -1;
+      const targetKey = filteredItemKeys[index + (event.key === "ArrowUp" ? -1 : 1)];
+      if (highlightedKey && index !== -1 && targetKey && filteredModelByKey.has(targetKey)) {
+        // The list still moves the highlight a step, so it follows the moved row.
+        moveFavoriteRow(highlightedKey, targetKey);
+      } else {
+        // At either end, or next to a pool, the list would move the highlight off the row.
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+      }
       return;
     }
 
@@ -951,8 +1110,11 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       <div
         ref={pickerContentRef}
         className={cn(
-          "relative flex w-screen max-w-90 flex-row overflow-hidden",
-          props.docked ? "max-sm:h-56 max-sm:w-full max-sm:max-w-none" : "max-h-86.5",
+          "relative flex w-screen flex-row overflow-hidden",
+          // Docked beside the w-48 effort column, the list takes what the window leaves, up to 30rem.
+          props.docked
+            ? "max-w-[min(30rem,calc(100vw-13rem))] max-sm:h-56 max-sm:w-full max-sm:max-w-none"
+            : "max-h-86.5 max-w-90",
         )}
         // Docked, the popup sets the height; a minimum here would overflow short windows.
         style={
@@ -1122,92 +1284,96 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
               onTouchStart={(e) => e.stopPropagation()}
             />
 
-            <ModelPickerList
-              listRef={modelListRef}
-              itemKeys={filteredItemKeys}
-              extraData={modelListExtraData}
-              renderItem={({ item: modelKey, index }) => {
-                if (legacySection?.key === modelKey) {
-                  return (
-                    <ComboboxItem
-                      hideIndicator
-                      index={index}
-                      value={modelKey}
-                      aria-expanded={legacySection.isExpanded}
-                      className="group w-full cursor-pointer"
-                    >
-                      <span className="text-sm leading-snug text-muted-foreground group-hover:text-foreground group-data-highlighted:text-foreground">
-                        {legacySection.isExpanded ? "Show less" : "Show more"}
-                      </span>
-                    </ComboboxItem>
-                  );
-                }
-                const pool = poolByKey.get(modelKey);
-                if (pool) {
-                  return (
-                    <ComboboxItem
-                      key={modelKey}
-                      hideIndicator
-                      index={index}
-                      value={modelKey}
-                      data-model-pool={pool.id}
-                      className="group w-full cursor-pointer"
-                    >
-                      <span className="flex min-w-0 flex-1 flex-col">
-                        <span className="flex min-w-0 items-center gap-1.5">
-                          <span className="truncate text-sm leading-snug">{pool.name}</span>
-                          <Badge variant="outline" size="sm">
-                            Pool
-                          </Badge>
+            <ComposerBoundaryContext value={composerBoundaryKey}>
+              <ModelPickerList
+                listRef={modelListRef}
+                itemKeys={filteredItemKeys}
+                extraData={modelListExtraData}
+                sortable={isArrangingFavorites ? { onMove: moveFavoriteRow } : undefined}
+                renderItem={({ item: modelKey, index }) => {
+                  if (legacySection?.key === modelKey) {
+                    return (
+                      <ComboboxItem
+                        hideIndicator
+                        index={index}
+                        value={modelKey}
+                        aria-expanded={legacySection.isExpanded}
+                        className="group w-full cursor-pointer"
+                      >
+                        <span className="text-sm leading-snug text-muted-foreground group-hover:text-foreground group-data-highlighted:text-foreground">
+                          {legacySection.isExpanded ? "Show less" : "Show more"}
                         </span>
-                        <span className="truncate text-xs text-muted-foreground">
-                          {pool.summary}
+                      </ComboboxItem>
+                    );
+                  }
+                  const pool = poolByKey.get(modelKey);
+                  if (pool) {
+                    return (
+                      <ComboboxItem
+                        key={modelKey}
+                        hideIndicator
+                        index={index}
+                        value={modelKey}
+                        data-model-pool={pool.id}
+                        className="group w-full cursor-pointer"
+                      >
+                        <span className="flex min-w-0 flex-1 flex-col">
+                          <span className="flex min-w-0 items-center gap-1.5">
+                            <span className="truncate text-sm leading-snug">{pool.name}</span>
+                            <Badge variant="outline" size="sm">
+                              Pool
+                            </Badge>
+                          </span>
+                          <span className="truncate text-xs text-muted-foreground">
+                            {pool.summary}
+                          </span>
                         </span>
-                      </span>
-                    </ComboboxItem>
-                  );
-                }
-                const model = filteredModelByKey.get(modelKey);
-                if (!model) {
-                  return null;
-                }
-                const disabledReason =
-                  getModelDisabledReason?.(model.instanceId, model.slug) ?? null;
-                return (
-                  <ModelListRow
-                    key={modelKey}
-                    index={index}
-                    slug={model.slug}
-                    name={model.name}
-                    customLabel={getCustomModelLabel(slotLabels, model.instanceId, model.slug)}
-                    subProvider={model.subProvider}
-                    instanceId={model.instanceId}
-                    driverKind={model.driverKind}
-                    providerDisplayName={model.instanceDisplayName}
-                    providerAccentColor={model.instanceAccentColor}
-                    acpRegistryAgentId={model.acpRegistryAgentId}
-                    acpRegistryIconUrl={model.acpRegistryIconUrl}
-                    isFavorite={favoritesSet.has(providerModelKey(model.instanceId, model.slug))}
-                    isSelected={
+                      </ComboboxItem>
+                    );
+                  }
+                  const model = filteredModelByKey.get(modelKey);
+                  if (!model) {
+                    return null;
+                  }
+                  const disabledReason =
+                    getModelDisabledReason?.(model.instanceId, model.slug) ?? null;
+                  const rowProps = {
+                    index,
+                    slug: model.slug,
+                    name: model.name,
+                    customLabel: getCustomModelLabel(slotLabels, model.instanceId, model.slug),
+                    subProvider: model.subProvider,
+                    instanceId: model.instanceId,
+                    driverKind: model.driverKind,
+                    providerDisplayName: model.instanceDisplayName,
+                    providerAccentColor: model.instanceAccentColor,
+                    acpRegistryAgentId: model.acpRegistryAgentId,
+                    acpRegistryIconUrl: model.acpRegistryIconUrl,
+                    isFavorite: favoritesSet.has(providerModelKey(model.instanceId, model.slug)),
+                    isSelected:
                       selectedModelKeys !== undefined
                         ? selectedModelKeySet.has(modelKey)
-                        : activePoolKey === null && modelKey === activeModelKey
-                    }
-                    isRenaming={renamingModelKey === modelKey}
-                    favoriteStarOnHover={selectedInstanceId === "favorites" && !isSearching}
-                    showInstanceBadge={badgedInstanceIds.has(model.instanceId)}
-                    showNewBadge={model.badge === "new"}
-                    unavailable={model.isUnavailable === true}
-                    jumpLabel={modelJumpLabelByKey.get(modelKey) ?? null}
-                    disabledReason={disabledReason}
-                    onToggleFavorite={toggleFavorite}
-                    onStartRename={handleStartRename}
-                    onCommitRename={handleCommitRename}
-                    onCancelRename={handleCancelRename}
-                  />
-                );
-              }}
-            />
+                        : activePoolKey === null && modelKey === activeModelKey,
+                    isRenaming: renamingModelKey === modelKey,
+                    favoriteStarOnHover: isArrangingFavorites,
+                    showInstanceBadge: badgedInstanceIds.has(model.instanceId),
+                    showNewBadge: model.badge === "new",
+                    unavailable: model.isUnavailable === true,
+                    jumpLabel: modelJumpLabelByKey.get(modelKey) ?? null,
+                    disabledReason,
+                    onToggleFavorite: toggleFavorite,
+                    onStartRename: handleStartRename,
+                    onCommitRename: handleCommitRename,
+                    onCancelRename: handleCancelRename,
+                  };
+                  return isArrangingFavorites ? (
+                    <SortableModelListRow key={modelKey} sortableId={modelKey} {...rowProps} />
+                  ) : (
+                    <ModelListRow key={modelKey} {...rowProps} />
+                  );
+                }}
+              />
+            </ComposerBoundaryContext>
             <ModelPickerProviderNotices
               setupEntries={providerSetupEntries}
               updateRequiredNotices={updateRequiredNotices}

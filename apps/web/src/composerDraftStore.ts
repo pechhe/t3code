@@ -703,7 +703,11 @@ interface ComposerDraftStoreState {
   ) => void;
   /** Lets the thread's model show again once the server accepted this exact pick. */
   releaseModelSelection: (threadRef: ScopedThreadRef, modelSelection: ModelSelection) => void;
-  applyStickyState: (threadRef: ComposerThreadTarget) => void;
+  /** Seeds a draft from the remembered picks; `startAt` adjusts each, as the user's model defaults do. */
+  applyStickyState: (
+    threadRef: ComposerThreadTarget,
+    startAt?: (selection: ModelSelection) => ModelSelection,
+  ) => void;
   setProviderModelOptions: (
     threadRef: ComposerThreadTarget,
     provider: ProviderDriverKind,
@@ -3216,7 +3220,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             };
           });
         },
-        applyStickyState: (threadRef) => {
+        applyStickyState: (threadRef, startAt) => {
           const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
           if (threadKey.length === 0) {
             return;
@@ -3226,7 +3230,16 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             const stickyActiveProvider = state.stickyActiveProvider;
             const existing = state.draftsByThreadKey[threadKey];
             const base = existing ?? createEmptyThreadDraft();
-            const nextMap = compactModelSelectionByProvider(stickyMap);
+            const nextMap = compactModelSelectionByProvider(
+              startAt
+                ? Object.fromEntries(
+                    Object.entries(stickyMap).map(([instanceId, selection]) => [
+                      instanceId,
+                      selection && startAt(selection),
+                    ]),
+                  )
+                : stickyMap,
+            );
             if (
               Equal.equals(base.modelSelectionByProvider, nextMap) &&
               base.activeProvider === stickyActiveProvider &&

@@ -41,6 +41,7 @@ import {
   CustomModelSetting,
   DEFAULT_TEXT_GENERATION_MODEL,
   DEFAULT_TEXT_GENERATION_REASONING_EFFORT,
+  ProviderOptionSelectionValue,
   ProviderOptionSelections,
 } from "./model.ts";
 import { ModelSelection } from "./modelSelection.ts";
@@ -385,6 +386,8 @@ export const ProviderModelPreferences = Schema.Record(
   Schema.Struct({
     hiddenModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
     modelOrder: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+    /** Options a model starts with, by model slug, such as its default reasoning level. */
+    defaultOptions: Schema.optionalKey(Schema.Record(Schema.String, ProviderOptionSelections)),
   }),
 );
 export type ModelPreferences = {
@@ -2203,6 +2206,14 @@ export const ServerSettingsPatch = Schema.Struct({
   ),
   setProviderModelOrder: Schema.optionalKey(
     Schema.Struct({ provider: ProviderInstanceId, modelOrder: Schema.Array(TrimmedString) }),
+  ),
+  /** Sets one option a model starts with, such as its reasoning level; null clears it. */
+  setModelDefaultOption: Schema.optionalKey(
+    Schema.Struct({
+      ...ModelFavorite.fields,
+      id: TrimmedNonEmptyString,
+      value: Schema.NullOr(ProviderOptionSelectionValue),
+    }),
   ),
   favorites: Schema.optionalKey(ModelFavorites),
   providerModelPreferences: Schema.optionalKey(ProviderModelPreferences),

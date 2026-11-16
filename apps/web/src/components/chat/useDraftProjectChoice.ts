@@ -1,3 +1,4 @@
+import { withModelDefaultOptions } from "../../modelDefaultOptions";
 import type { DraftId } from "~/composerDraftStore";
 import {
   composerDraftHasUserContent,
@@ -167,10 +168,15 @@ export function useDraftProjectChoice({
       draftId,
     );
     if (!hasExplicitComposerModelSelection(currentDraft)) {
-      applyStickyState(draftId);
       const environmentSettings = environments.find(
         (environment) => environment.environmentId === project.environmentId,
       )?.serverConfig?.settings;
+      applyStickyState(
+        draftId,
+        environmentSettings
+          ? (selection) => withModelDefaultOptions(selection, environmentSettings)
+          : undefined,
+      );
       const defaultModelSelection = environmentSettings
         ? resolveProjectSettings(environmentSettings, project.id, project).settings
             .defaultModelSelection

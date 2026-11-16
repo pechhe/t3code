@@ -420,6 +420,7 @@ export function applyServerSettingsPatch(
     setModelFavorites,
     setModelsHidden,
     setProviderModelOrder,
+    setModelDefaultOption,
     providerModelPreferences,
     automaticGitFetchInterval,
     providerHealthRefreshInterval,
@@ -529,6 +530,20 @@ export function applyServerSettingsPatch(
         ...preferences,
         modelOrder: [...setProviderModelOrder.modelOrder],
       },
+    };
+  }
+  if (setModelDefaultOption) {
+    const { provider, model, id, value } = setModelDefaultOption;
+    const preferences = nextModelPreferences?.[provider] ?? { hiddenModels: [], modelOrder: [] };
+    const options = [
+      ...(preferences.defaultOptions?.[model] ?? []).filter((option) => option.id !== id),
+      ...(value === null ? [] : [{ id, value }]),
+    ];
+    const { [model]: _previous, ...otherModels } = preferences.defaultOptions ?? {};
+    const defaultOptions = options.length > 0 ? { ...otherModels, [model]: options } : otherModels;
+    nextModelPreferences = {
+      ...nextModelPreferences,
+      [provider]: { ...preferences, defaultOptions },
     };
   }
   const next = deepMerge(current, patchForMerge);

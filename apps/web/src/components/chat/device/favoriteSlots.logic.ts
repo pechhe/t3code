@@ -1,10 +1,10 @@
+/** The composer slider's favourite detents, before its overflow detent. */
+export const FAVORITE_SLOTS = 4;
+
 /**
- * The device model slider's favourite detents: the first `limit` favourites the
- * provider still supplies. A favourite whose model is no longer in the picker's
- * options (withdrawn upstream, or hidden in Settings) drops off the slider
- * instead of parking on it under its raw id, and a later favourite fills the
- * freed slot. Matches the full picker, which only lists favourites it can
- * resolve against supplied models.
+ * The first `limit` favourites the provider still supplies. A withdrawn or hidden model drops off
+ * the slider instead of parking there under its raw id, and a later favourite takes its slot, as
+ * the full picker lists only favourites it can resolve.
  */
 export function resolveFavoriteSlots<Favorite, Slot>(
   favorites: ReadonlyArray<Favorite>,

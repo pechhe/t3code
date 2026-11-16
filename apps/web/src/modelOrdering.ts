@@ -60,13 +60,12 @@ export function sortProviderModelItems<T extends ProviderModelItem>(
   options?: {
     readonly favoriteModelKeys?: ReadonlySet<string> | ReadonlyArray<string>;
     readonly groupFavorites?: boolean;
-    readonly instanceOrder?: ReadonlyArray<ProviderInstanceId>;
+    /** Provider model keys in the order to list them; unlisted items keep their order after. */
+    readonly keyOrder?: ReadonlyArray<string>;
   },
 ): T[] {
   const favoriteModelKeys = toSet(options?.favoriteModelKeys);
-  const instanceOrder = new Map(
-    Arr.map(options?.instanceOrder ?? [], (instanceId, index) => [instanceId, index] as const),
-  );
+  const keyOrder = rankByValue(options?.keyOrder ?? []);
   const originalOrder = rankByValue(
     Arr.map(items, (item) => providerModelKey(item.instanceId, item.slug)),
   );
@@ -78,9 +77,34 @@ export function sortProviderModelItems<T extends ProviderModelItem>(
           ),
         ]
       : []),
-    byOptionalRank((item) => instanceOrder.get(item.instanceId)),
+    byOptionalRank((item) => keyOrder.get(providerModelKey(item.instanceId, item.slug))),
     byOptionalRank((item) => originalOrder.get(providerModelKey(item.instanceId, item.slug))),
   ];
 
   return Arr.sort(items, Order.combineAll(orders));
+}
+
+export interface ModelFavoriteItem {
+  readonly provider: ProviderInstanceId;
+  readonly model: string;
+}
+
+/**
+ * Moves the favourite `key` to the place `targetKey` holds, shifting the ones between. The
+ * favourites' order is the Favorites tab's and the composer's, so a drag or Alt+Arrow sets both.
+ * Null when either key is not a favourite or nothing would move.
+ */
+export function moveFavorite<T extends ModelFavoriteItem>(
+  favorites: ReadonlyArray<T>,
+  key: string,
+  targetKey: string,
+): T[] | null {
+  const keyOf = (favorite: T) => providerModelKey(favorite.provider, favorite.model);
+  const from = favorites.findIndex((favorite) => keyOf(favorite) === key);
+  const to = favorites.findIndex((favorite) => keyOf(favorite) === targetKey);
+  if (from === -1 || to === -1 || from === to) return null;
+  const next = [...favorites];
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved!);
+  return next;
 }

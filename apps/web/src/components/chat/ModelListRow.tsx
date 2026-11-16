@@ -1,5 +1,5 @@
 import { type ProviderDriverKind, type ProviderInstanceId } from "@t3tools/contracts";
-import { memo, useRef } from "react";
+import { memo, type ReactNode, useRef } from "react";
 import { CheckIcon, PencilIcon, RotateCcwIcon, StarIcon } from "lucide-react";
 import { getDisplayModelName } from "./providerIconUtils";
 import { ComboboxItem } from "../ui/combobox";
@@ -161,7 +161,10 @@ export const ModelListRow = memo(function ModelListRow(props: {
     restoreFocus: boolean,
   ) => void;
   onCancelRename: () => void;
+  /** A grip over the logo, which shows on hover, for a row in a sortable list. */
+  dragHandle?: ReactNode;
 }) {
+  const { dragHandle } = props;
   const model = {
     slug: props.slug,
     name: props.name,
@@ -184,6 +187,7 @@ export const ModelListRow = memo(function ModelListRow(props: {
           "data-disabled:pointer-events-auto data-disabled:cursor-not-allowed",
       )}
     >
+      {dragHandle}
       {/* One row shape in every tab: the logo names the provider, so Favorites needs no second line. */}
       <ProviderInstanceIcon
         driverKind={props.driverKind}
@@ -194,7 +198,7 @@ export const ModelListRow = memo(function ModelListRow(props: {
         acpRegistryAgentId={props.acpRegistryAgentId}
         acpRegistryIconUrl={props.acpRegistryIconUrl}
         showBadge={props.showInstanceBadge}
-        className="size-4"
+        className={cn("size-4", dragHandle && "group-hover:invisible pointer-coarse:invisible")}
         iconClassName="size-4"
         indicatorBackground="var(--popover)"
         badgeClassName="right-[-0.125rem] bottom-[-0.125rem] h-3 min-w-3 px-0.5 text-5xs"
@@ -233,7 +237,8 @@ export const ModelListRow = memo(function ModelListRow(props: {
               <CheckIcon className="size-3.5 shrink-0" aria-hidden="true" />
             ) : null}
             {props.subProvider ? (
-              <span className="min-w-0 shrink truncate text-xs text-muted-foreground/70">
+              // Gives way before the name does.
+              <span className="min-w-0 shrink-[100] truncate text-xs text-muted-foreground/70">
                 {props.subProvider}
               </span>
             ) : null}

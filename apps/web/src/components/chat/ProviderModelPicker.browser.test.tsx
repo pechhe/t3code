@@ -219,6 +219,60 @@ it("opens on the active provider when every favorite belongs to a disabled provi
   await expect.element(page.getByRole("option", { name: /Codex model/ })).toBeVisible();
 });
 
+it("marks the composer's four favourites, in favourites order, above a divider", async () => {
+  const slugs = ["one", "two", "three", "four", "five"];
+  const [codex] = deriveProviderInstanceEntries([
+    {
+      instanceId: ProviderInstanceId.make("codex"),
+      driver: ProviderDriverKind.make("codex"),
+      enabled: true,
+      installed: true,
+      version: null,
+      status: "ready" as const,
+      auth: { status: "authenticated" as const },
+      checkedAt: "2026-01-01T00:00:00.000Z",
+      models: slugs.map((slug) => ({
+        slug,
+        name: `Model ${slug}`,
+        isCustom: false,
+        capabilities: {},
+      })),
+      slashCommands: [],
+      skills: [],
+    },
+  ]);
+  const order = ["five", "two", "four", "one", "three"];
+  __setClientSettingsForTests({
+    ...DEFAULT_CLIENT_SETTINGS,
+    favorites: order.map((model) => ({ provider: codex!.instanceId, model })),
+  });
+  using _settings = {
+    [Symbol.dispose]: () => __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS),
+  };
+
+  await using screen = await render(
+    <ProviderModelPicker
+      environmentId={null}
+      activeInstanceId={codex!.instanceId}
+      model="one"
+      lockedProvider={null}
+      instanceEntries={[codex!]}
+      modelOptionsByInstance={new Map([[codex!.instanceId, codex!.models]])}
+      triggerAriaLabel="Choose model"
+      onInstanceModelChange={() => {}}
+    />,
+  );
+  await screen.getByRole("button", { name: "Choose model" }).click();
+  const divider = page.getByText("On the composer ↑");
+  await expect.element(divider).toBeVisible();
+
+  const options = page.getByRole("option").elements();
+  expect(options.map((option) => option.textContent?.match(/Model (\w+)/)?.[1])).toEqual(order);
+  const precedes = (node: Element) =>
+    Boolean(node.compareDocumentPosition(divider.element()) & Node.DOCUMENT_POSITION_FOLLOWING);
+  expect(options.map(precedes)).toEqual([true, true, true, true, false]);
+});
+
 it("shows model-matched icons for pi models while keeping the pi icon in the sidebar", async () => {
   const entries = deriveProviderInstanceEntries([
     {

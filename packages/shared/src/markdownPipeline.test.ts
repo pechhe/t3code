@@ -138,7 +138,8 @@ it.each([
     ["<https://example.com/日本語，続き>", link("https://example.com/日本語，続き")],
     ["[記事](https://example.com/a，b)", "[記事](https://example.com/a，b)"],
     ["[http://example.com/a，b](http://example.com/a，b)", link("http://example.com/a，b")],
-    ["`https://example.com/a。次`", "`https://example.com/a。次`"],
+    // The fork links inline code that is exactly a URL, and the code span keeps its whole URL.
+    ["`https://example.com/a。次`", "[`https://example.com/a。次`](https://example.com/a。次)"],
     [
       "https://x.com/a_ https://x.com/b_",
       `${link("https://x.com/a_")} ${link("https://x.com/b_")}`,

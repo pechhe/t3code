@@ -3,7 +3,12 @@ import {
   scopeProjectRef,
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
-import { DEFAULT_SERVER_SETTINGS, type ScopedProjectRef, type ThreadId } from "@t3tools/contracts";
+import {
+  DEFAULT_SERVER_SETTINGS,
+  type ModelSelection,
+  type ScopedProjectRef,
+  type ThreadId,
+} from "@t3tools/contracts";
 import { type AnyRouter, useRouter } from "@tanstack/react-router";
 import {
   composerDraftHasUserContent,
@@ -48,6 +53,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { defaultProjectFallbackReadyAtom } from "../state/projects";
 import { useThreadRouteTarget } from "./useThreadRouteTarget";
 import { readUnloadedThreadCount } from "../state/olderSettledShelf";
+import { withModelDefaultOptions } from "../modelDefaultOptions";
 import { resolveProjectDefaultProviderModelSelection } from "../providerInstances";
 import { resolveNewThreadModelSelection } from "@t3tools/shared/usageLimits";
 
@@ -118,6 +124,8 @@ export function createNewThreadHandler(router: AnyRouter) {
     const environmentServerConfigs = appAtomRegistry.get(environmentServerConfigsAtom);
     const targetServerSettings =
       environmentServerConfigs.get(projectRef.environmentId)?.settings ?? DEFAULT_SERVER_SETTINGS;
+    const startAtModelDefaults = (selection: ModelSelection) =>
+      withModelDefaultOptions(selection, targetServerSettings);
     const {
       getComposerDraft,
       getDraftSessionByLogicalProjectKey,
@@ -195,7 +203,8 @@ export function createNewThreadHandler(router: AnyRouter) {
     const resolveModelSelectionOverride = (destinationDraftId: DraftId) =>
       resolveNewThreadModelSelectionOverride({
         projectDefaultSelection: projectDefaultModelSelection ?? null,
-        carrySelection: carryModelSelection,
+        // The new thread keeps the model but starts at its defaults, not this thread's level.
+        carrySelection: carryModelSelection && startAtModelDefaults(carryModelSelection),
         carrySourceDraftId:
           currentRouteTarget?.kind === "draft" ? currentRouteTarget.draftId : null,
         destinationDraftId,
@@ -262,7 +271,7 @@ export function createNewThreadHandler(router: AnyRouter) {
           ...(carryInteractionMode ? { interactionMode: carryInteractionMode } : {}),
         });
         if (!hasExplicitComposerModelSelection(getComposerDraft(retargetDraftId))) {
-          applyStickyState(retargetDraftId);
+          applyStickyState(retargetDraftId, startAtModelDefaults);
           const modelSelectionOverride = resolveModelSelectionOverride(retargetDraftId);
           if (modelSelectionOverride) {
             setModelSelection(retargetDraftId, modelSelectionOverride, { replaceOptions: true });
@@ -351,7 +360,7 @@ export function createNewThreadHandler(router: AnyRouter) {
         const storedDraft = getComposerDraft(emptyStoredDraftThread.draftId);
         const storedDraftHasExplicitModelPick = hasExplicitComposerModelSelection(storedDraft);
         if (!storedDraftHasExplicitModelPick) {
-          applyStickyState(emptyStoredDraftThread.draftId);
+          applyStickyState(emptyStoredDraftThread.draftId, startAtModelDefaults);
           const modelSelectionOverride = resolveModelSelectionOverride(
             emptyStoredDraftThread.draftId,
           );
@@ -469,7 +478,7 @@ export function createNewThreadHandler(router: AnyRouter) {
         runtimeMode: defaultRuntimeMode,
         ...(carryInteractionMode ? { interactionMode: carryInteractionMode } : {}),
       });
-      applyStickyState(draftId);
+      applyStickyState(draftId, startAtModelDefaults);
       const modelSelectionOverride = resolveModelSelectionOverride(draftId);
       if (modelSelectionOverride) {
         setModelSelection(draftId, modelSelectionOverride, { replaceOptions: true });

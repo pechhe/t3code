@@ -31,6 +31,7 @@ import {
   resolveAppModelSelectionState,
   resolveEffectiveDefaultModelSelection,
 } from "./modelSelection";
+import { withModelDefaultOptions } from "./modelDefaultOptions";
 
 function provider(input: {
   provider?: ProviderDriverKind;
@@ -1406,5 +1407,40 @@ describe("composer fallback to another instance of the same driver", () => {
 
     expect(selectedInstanceId).toBe(ProviderInstanceId.make("codex"));
     expect(state.modelOptions?.[selectedInstanceId]).toBeUndefined();
+  });
+});
+
+describe("withModelDefaultOptions", () => {
+  const codex = ProviderInstanceId.make("codex");
+  const settings = {
+    providerModelPreferences: {
+      [codex]: {
+        hiddenModels: [],
+        modelOrder: [],
+        defaultOptions: { "gpt-5.4": [{ id: "reasoningEffort", value: "high" }] },
+      },
+    },
+  };
+
+  it("starts a model at its default over the remembered level, keeping its other options", () => {
+    expect(
+      withModelDefaultOptions(
+        createModelSelection(codex, "gpt-5.4", [
+          { id: "reasoningEffort", value: "low" },
+          { id: "fastMode", value: true },
+        ]),
+        settings,
+      ).options,
+    ).toEqual([
+      { id: "fastMode", value: true },
+      { id: "reasoningEffort", value: "high" },
+    ]);
+  });
+
+  it("leaves a model without defaults as it was", () => {
+    const selection = createModelSelection(codex, "gpt-5.4-mini", [
+      { id: "reasoningEffort", value: "low" },
+    ]);
+    expect(withModelDefaultOptions(selection, settings)).toBe(selection);
   });
 });

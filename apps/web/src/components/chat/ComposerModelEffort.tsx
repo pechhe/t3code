@@ -4,12 +4,16 @@ import {
   isReasoningControl,
   selectableProviderOptionChoices,
 } from "@t3tools/client-runtime/model-traits";
-import type { ProviderOptionDescriptor, RuntimeMode } from "@t3tools/contracts";
+import type { EnvironmentId, ProviderOptionDescriptor, RuntimeMode } from "@t3tools/contracts";
 import type { EffortDisplay } from "@t3tools/contracts/settings";
 import { getProviderOptionCurrentLabel } from "@t3tools/shared/model";
 import { CheckIcon, ChevronRightIcon, ChevronUpIcon, WorkflowIcon } from "lucide-react";
 import { type KeyboardEvent, type ReactNode, use, useRef, useState } from "react";
 
+import {
+  useEnvironmentModelPreferences,
+  useUpdateEnvironmentModelPreferences,
+} from "~/hooks/useSettings";
 import { cn } from "~/lib/utils";
 import {
   Menu,
@@ -190,7 +194,10 @@ function ColumnRow(props: {
   isDefault?: boolean | undefined;
   disabled?: boolean;
   onPick: () => void;
+  /** Makes this level the model's default; on the user's own default, clears it instead. */
+  defaultAction?: { kind: "set" | "clear"; run: () => void } | undefined;
 }) {
+  const { defaultAction } = props;
   const rowProps = {
     type: "button",
     role: "radio",
@@ -203,28 +210,57 @@ function ColumnRow(props: {
     tabIndex: props.tabStop ? 0 : -1,
     className: COLUMN_ROW,
     onClick: props.onPick,
+    onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => {
+      if (event.key !== "d" || event.altKey || event.ctrlKey || event.metaKey || !defaultAction)
+        return;
+      event.preventDefault();
+      defaultAction.run();
+    },
   } as const;
   const content = (
     <>
       <span className="min-w-0 flex-1 truncate">{props.label}</span>
-      {props.selected ? (
-        <>
-          {props.isDefault ? <span className="sr-only">Default</span> : null}
-          <CheckIcon aria-hidden="true" className="size-3.5" />
-        </>
-      ) : props.isDefault ? (
-        <span className="text-muted-foreground/70 text-xs">Default</span>
+      {props.isDefault ? (
+        // The hover button sits where the tag is, so the tag gives way to it.
+        <span
+          className={cn(
+            "text-muted-foreground/70 text-xs",
+            defaultAction && !props.disabled && "group-hover/level:invisible",
+          )}
+        >
+          Default
+        </span>
       ) : null}
+      {props.selected ? <CheckIcon aria-hidden="true" className="size-3.5 shrink-0" /> : null}
     </>
   );
-  if (!props.description) return <button {...rowProps}>{content}</button>;
-  return (
+  const row = props.description ? (
     <Tooltip>
       <TooltipTrigger render={<button {...rowProps} />}>{content}</TooltipTrigger>
       <TooltipPopup side="right" className="max-w-56">
         {props.description}
       </TooltipPopup>
     </Tooltip>
+  ) : (
+    <button {...rowProps}>{content}</button>
+  );
+  if (!defaultAction || props.disabled) return row;
+  return (
+    <div className="group/level relative">
+      {row}
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-label={`${defaultAction.kind === "set" ? "Make" : "Stop making"} ${props.label} the default`}
+        className={cn(
+          "absolute top-1/2 hidden -translate-y-1/2 cursor-pointer rounded-sm px-1 text-muted-foreground text-xs hover:text-foreground group-hover/level:block",
+          props.selected ? "right-7" : "right-2",
+        )}
+        onClick={defaultAction.run}
+      >
+        {defaultAction.kind === "set" ? "Make default" : "Default ×"}
+      </button>
+    </div>
   );
 }
 
@@ -245,7 +281,31 @@ function moveBetweenRows(event: KeyboardEvent<HTMLElement>) {
   next.scrollIntoView({ block: "nearest" });
 }
 
-function EffortLevels(props: { traits: TraitsSelectionInput }) {
+/** The user's default for one option of the open model, and how to change it. */
+type ModelDefaults = {
+  value: (optionId: string) => string | boolean | undefined;
+  set: (optionId: string, value: string | null) => void;
+};
+
+function useModelDefaults(
+  environmentId: EnvironmentId | null,
+  traits: TraitsSelectionInput,
+): ModelDefaults | null {
+  const { providerModelPreferences } = useEnvironmentModelPreferences(environmentId);
+  const save = useUpdateEnvironmentModelPreferences(environmentId);
+  const { instanceId, model } = traits;
+  if (!environmentId || !instanceId || !model) return null;
+  const defaults = providerModelPreferences[instanceId]?.defaultOptions?.[model] ?? [];
+  return {
+    value: (optionId) => defaults.find((option) => option.id === optionId)?.value,
+    set: (optionId, value) =>
+      void save({
+        setModelDefaultOption: { provider: instanceId, model, id: optionId, value },
+      }),
+  };
+}
+
+function EffortLevels(props: { traits: TraitsSelectionInput; defaults: ModelDefaults | null }) {
   const traits = useTraitsSelection(props.traits);
   const { effort, others } = columnControls(traits.selectDescriptors, traits.booleanDescriptors);
   if (traits.modelIsUnavailable) {
@@ -269,7 +329,9 @@ function EffortLevels(props: { traits: TraitsSelectionInput }) {
     effort?.descriptor.id === traits.primarySelectDescriptor?.id && traits.ultrathinkInBodyText;
   return (
     <>
-      {effort ? <EffortRows control={effort} traits={traits} locked={locked} /> : null}
+      {effort ? (
+        <EffortRows control={effort} traits={traits} locked={locked} defaults={props.defaults} />
+      ) : null}
       {others.length > 0 ? (
         <div
           className={cn("flex flex-col gap-0.5", effort && "mt-1 border-t border-border/70 pt-1")}
@@ -299,7 +361,12 @@ function EffortLevels(props: { traits: TraitsSelectionInput }) {
 
 type TraitsSelection = ReturnType<typeof useTraitsSelection>;
 
-function EffortRows(props: { control: ColumnControl; traits: TraitsSelection; locked: boolean }) {
+function EffortRows(props: {
+  control: ColumnControl;
+  traits: TraitsSelection;
+  locked: boolean;
+  defaults: ModelDefaults | null;
+}) {
   const { control, traits } = props;
   const { descriptor } = control;
   if (control.kind === "boolean") {
@@ -317,9 +384,11 @@ function EffortRows(props: { control: ColumnControl; traits: TraitsSelection; lo
       </div>
     );
   }
-  const { locked } = props;
+  const { locked, defaults } = props;
   const value = traits.selectValue(control.descriptor);
   const choices = selectableProviderOptionChoices(control.descriptor);
+  const userDefault = defaults?.value(descriptor.id);
+  const hasUserDefault = choices.some((option) => option.id === userDefault);
   // An "Ultrathink:" prefix selects a level the column does not offer.
   const shown = choices.some((option) => option.id === value);
   return (
@@ -336,9 +405,22 @@ function EffortRows(props: { control: ColumnControl; traits: TraitsSelection; lo
           selected={option.id === value}
           tabStop={shown ? option.id === value : index === 0}
           description={option.description}
-          isDefault={option.isDefault}
+          isDefault={hasUserDefault ? option.id === userDefault : option.isDefault}
           disabled={locked}
           onPick={() => traits.changeSelect(control.descriptor, option.id)}
+          defaultAction={
+            defaults
+              ? option.id === userDefault
+                ? { kind: "clear", run: () => defaults.set(descriptor.id, null) }
+                : {
+                    kind: "set",
+                    run: () => {
+                      defaults.set(descriptor.id, option.id);
+                      traits.changeSelect(control.descriptor, option.id);
+                    },
+                  }
+              : undefined
+          }
         />
       ))}
     </div>
@@ -483,6 +565,18 @@ function OptionSwitchRow(props: {
   );
 }
 
+function EffortLevelsWithDefaults(props: {
+  traits: TraitsSelectionInput;
+  environmentId: EnvironmentId | null;
+}) {
+  return (
+    <EffortLevels
+      traits={props.traits}
+      defaults={useModelDefaults(props.environmentId, props.traits)}
+    />
+  );
+}
+
 function NoEffortRow() {
   return (
     <div className="flex h-8 items-center px-2 text-muted-foreground text-sm">No effort levels</div>
@@ -490,7 +584,11 @@ function NoEffortRow() {
 }
 
 /** The model picker's effort column: the selected model's levels and its other options. */
-export function ComposerEffortColumn(props: { traits: TraitsSelectionInput | null }) {
+export function ComposerEffortColumn(props: {
+  traits: TraitsSelectionInput | null;
+  /** Where the model's defaults are saved; without one the column offers none. */
+  environmentId?: EnvironmentId | null;
+}) {
   const picker = use(DockedPickerContext);
   const visibility = props.traits ? getTraitsSectionVisibility(props.traits) : null;
   const controls =
@@ -516,7 +614,14 @@ export function ComposerEffortColumn(props: { traits: TraitsSelectionInput | nul
         // Capture, so Up and Down on an option row move rows instead of opening its menu.
         onKeyDownCapture={moveBetweenRows}
       >
-        {props.traits ? <EffortLevels traits={props.traits} /> : <NoEffortRow />}
+        {props.traits ? (
+          <EffortLevelsWithDefaults
+            traits={props.traits}
+            environmentId={props.environmentId ?? null}
+          />
+        ) : (
+          <NoEffortRow />
+        )}
       </div>
     </>
   );

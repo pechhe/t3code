@@ -161,6 +161,14 @@ returns to the remembered selection.
 
 Leaving reasoning level or service tier unset uses the provider's own configuration.
 
+To give a model its own default reasoning level, open the model picker, hover a level in the
+reasoning column and choose **Make default** (or press **D** on a focused level). New threads,
+and switching to that model, then start at that level; a level you pick inside a thread stays in
+that thread. **Default ×** on the chosen level goes back to the provider's default.
+
+The four models on the composer slider are your first four favourites. Reorder favourites in the
+picker's Favorites tab by dragging a row, or with **Alt+↑** and **Alt+↓** on the highlighted one.
+
 ## Quote an assistant response
 
 On web and desktop, select text within one assistant response and choose

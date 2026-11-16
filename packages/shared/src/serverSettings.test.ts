@@ -1014,6 +1014,23 @@ describe("synchronized model preferences", () => {
     ).toEqual({ hiddenModels: ["luna", "sol"], modelOrder: [] });
   });
 
+  it("sets and clears one default option per model, keeping the model's others", () => {
+    const set = (settings: typeof DEFAULT_SERVER_SETTINGS, id: string, value: string | null) =>
+      applyServerSettingsPatch(settings, {
+        setModelDefaultOption: { provider, model: "sol", id, value },
+      });
+    const withEffort = set(DEFAULT_SERVER_SETTINGS, "reasoningEffort", "high");
+    const withBoth = set(set(withEffort, "contextWindow", "1m"), "reasoningEffort", "low");
+    expect(withBoth.providerModelPreferences?.[provider]?.defaultOptions).toEqual({
+      sol: [
+        { id: "contextWindow", value: "1m" },
+        { id: "reasoningEffort", value: "low" },
+      ],
+    });
+    const cleared = set(set(withBoth, "contextWindow", null), "reasoningEffort", null);
+    expect(cleared.providerModelPreferences?.[provider]?.defaultOptions).toEqual({});
+  });
+
   it("migrates saved lists independently without claiming empty legacy lists", () => {
     expect(modelPreferencesMigrationPatch(DEFAULT_SERVER_SETTINGS, {})).toBeNull();
     const patch = modelPreferencesMigrationPatch(DEFAULT_SERVER_SETTINGS, legacy)!;
