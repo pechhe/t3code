@@ -1450,6 +1450,18 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Decision:** `retain` (new, 2026-10-29, T3-308).
 - **Owner:** T3-308 (Forge #5588).
 
+### pi-failed-switch-connection-replacement
+
+- **Kind:** temporary workaround (upstreamable bug fix)
+- **Why:** When `switch_session` failed with `PiRpcError` or `PiRpcTimeoutError`, `PiAdapter.lifecycleRequest` terminated the Pi connection and retired the runtime event stream. On a canonical thread, `ProviderTurnStartService` immediately recovers on the same session via `ensureThread({ forceNewNativeThread: true })`, which failed with `Pi transport closed during status reset`, hiding the resume failure and blocking recovery.
+- **Requirements:** After an uninterrupted `switch_session` failure (`PiRpcError` or `PiRpcTimeoutError`), `PiAdapter` terminates the old Pi connection, waits for its pump to finish, clears any extension statuses published during the failed switch without emitting `"error"` or `"stopped"` session status, and immediately spawns and starts `startPump` on a replacement connection so subsequent `ensureThread`, `resumeThread` retries, or `rollbackThread` calls run on a live Pi process while the original resume error propagates. Interrupted switches and non-switch lifecycle failures still retire the runtime.
+- **Integration points:** `PiAdapter.lifecycleRequest` (replacement-connection spawn after a failed `switch_session`), `startPump`, per-connection `Scope` in `spawnConnection`, and `registerThread` in `packages/provider-pi/src/server/adapter.ts`; `ProviderTurnStartService`'s resume fallback.
+- **Proof:** `packages/provider-pi/src/server/adapter.test.ts` ("handles native status publications during session switch hooks", "creates a distinct native session after a failed resume (%s)", "retries resumeThread with a real switch_session after a failed switch (%s)", "rolls back on the replacement process after a failed session switch", "retires an interrupted switch before accepting further requests").
+- **Upstream:** none known as of v0.1.10-nightly.20261114.4669 (`f0fe3f7a` only prevents the moved-worktree `cwd` mismatch); upstreamable.
+- **Retire when:** upstream's Pi adapter replaces the connection on a failed `switch_session` or reopens the session on canonical resume fallback without breaking multi-thread providers.
+- **Decision:** `retain` (new, 2026-11-16).
+- **Owner:** none.
+
 ### claude-full-access-no-prompts
 
 - **Decision:** `retain` (v0.1.10-nightly.20261112.4580, 2026-11-12): Keep the full-access permission environment flag; upstream Claude session and alias changes do not supply an equivalent. Evidence: ClaudeAdapterV2.test.ts.

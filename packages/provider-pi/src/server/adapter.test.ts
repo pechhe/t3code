@@ -34,6 +34,7 @@ import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
@@ -1067,13 +1068,17 @@ describe("PiAdapterV2", () => {
         const exit = yield* Fiber.join(switching);
         assert.equal(Exit.isFailure(exit), outcome !== "success");
         if (outcome === "error") {
-          const reuse = yield* runtime.resumeThread({ providerThread }).pipe(Effect.exit);
-          assert.isTrue(Exit.isFailure(reuse));
           yield* takeEvent(
             (event) =>
-              event.type === "provider_session.updated" && event.providerSession.status === "error",
+              event.type === "provider_session.updated" &&
+              event.providerSession.status === "ready" &&
+              event.providerSession.extensionStatuses?.length === 0,
           );
+          assert.equal(runtime.providerSession.status, "ready");
+          assert.isNull(runtime.providerSession.lastError);
           assert.deepEqual(runtime.providerSession.extensionStatuses, []);
+          const reuse = yield* runtime.resumeThread({ providerThread }).pipe(Effect.exit);
+          assert.isTrue(Exit.isSuccess(reuse));
           return;
         }
         assert.deepEqual(runtime.providerSession.extensionStatuses, [
@@ -2519,7 +2524,119 @@ describe("PiAdapterV2", () => {
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 
-  it.effect("creates a distinct native session after a failed resume", () =>
+  it.effect.each(["veto", "rpc error", "timeout"] as const)(
+    "creates a distinct native session after a failed resume (%s)",
+    (failureKind) =>
+      Effect.gen(function* () {
+        const fake = yield* makeFakePi;
+        const { runtime, takeEvent } = yield* openRuntime(fake);
+        const providerThread = yield* runtime.ensureThread({
+          threadId: THREAD_ID,
+          modelSelection: modelSelection("default"),
+          runtimePolicy,
+        });
+        if (failureKind === "veto") {
+          fake.vetoNextSwitch();
+          yield* runtime.resumeThread({ providerThread }).pipe(Effect.flip);
+        } else {
+          fake.deferNextLifecycle("switch_session");
+          const resumed = yield* runtime
+            .resumeThread({ providerThread })
+            .pipe(Effect.flip, Effect.forkChild);
+          const request = yield* fake.takeRequest("switch_session");
+          if (failureKind === "rpc error") {
+            yield* fake.emit({
+              type: "response",
+              id: request["id"],
+              command: "switch_session",
+              success: false,
+              error: "Stored session working directory does not exist",
+            });
+          } else {
+            yield* TestClock.adjust("60 seconds");
+          }
+          yield* Fiber.join(resumed);
+        }
+        const replacement = yield* runtime.ensureThread({
+          threadId: THREAD_ID,
+          modelSelection: modelSelection("default"),
+          runtimePolicy,
+          existingProviderThread: { ...providerThread, nativeThreadRef: null },
+          forceNewNativeThread: true,
+        });
+        assert.equal(replacement.id, providerThread.id);
+        assert.notEqual(
+          replacement.nativeThreadRef?.nativeId,
+          providerThread.nativeThreadRef?.nativeId,
+        );
+        assert.equal(runtime.providerSession.status, "ready");
+        assert.isNull(runtime.providerSession.lastError);
+        assert.equal(
+          fake.allRequests().filter((request) => request.type === "new_session").length,
+          1,
+        );
+        yield* startTurn(runtime, replacement, "default");
+        yield* fake.takeRequest("prompt");
+        const turnStarted = yield* takeEvent(
+          (event) =>
+            event.type === "provider_turn.updated" && event.providerTurn.status === "running",
+        );
+        assert.equal(turnStarted.type, "provider_turn.updated");
+      }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect.each(["rpc error", "timeout"] as const)(
+    "retries resumeThread with a real switch_session after a failed switch (%s)",
+    (failureKind) =>
+      Effect.gen(function* () {
+        const fake = yield* makeFakePi;
+        const { runtime, takeEvent } = yield* openRuntime(fake);
+        const providerThread = yield* runtime.ensureThread({
+          threadId: THREAD_ID,
+          modelSelection: modelSelection("default"),
+          runtimePolicy,
+        });
+        fake.deferNextLifecycle("switch_session");
+        const failedResume = yield* runtime
+          .resumeThread({ providerThread })
+          .pipe(Effect.flip, Effect.forkChild);
+        const firstSwitch = yield* fake.takeRequest("switch_session");
+        if (failureKind === "rpc error") {
+          yield* fake.emit({
+            type: "response",
+            id: firstSwitch["id"],
+            command: "switch_session",
+            success: false,
+            error: "Transient switch error",
+          });
+        } else {
+          yield* TestClock.adjust("60 seconds");
+        }
+        yield* Fiber.join(failedResume);
+
+        assert.equal(runtime.providerSession.status, "ready");
+        assert.isNull(runtime.providerSession.lastError);
+
+        const resumed = yield* runtime.resumeThread({ providerThread });
+        assert.equal(resumed.id, providerThread.id);
+        assert.equal(resumed.nativeThreadRef?.nativeId, providerThread.nativeThreadRef?.nativeId);
+        assert.equal(
+          fake.allRequests().filter((request) => request.type === "switch_session").length,
+          2,
+        );
+        assert.isFalse(fake.allRequests().some((request) => request.type === "new_session"));
+
+        yield* startTurn(runtime, resumed, "default");
+        yield* fake.takeRequest("prompt");
+        const turnStarted = yield* takeEvent(
+          (event) =>
+            event.type === "provider_turn.updated" && event.providerTurn.status === "running",
+        );
+        assert.equal(turnStarted.type, "provider_turn.updated");
+      }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect("rolls back on the replacement process after a failed session switch", () =>
     Effect.gen(function* () {
       const fake = yield* makeFakePi;
       const { runtime } = yield* openRuntime(fake);
@@ -2528,25 +2645,58 @@ describe("PiAdapterV2", () => {
         modelSelection: modelSelection("default"),
         runtimePolicy,
       });
-      fake.vetoNextSwitch();
-      yield* runtime.resumeThread({ providerThread }).pipe(Effect.flip);
-      const replacement = yield* runtime.ensureThread({
-        threadId: THREAD_ID,
-        modelSelection: modelSelection("default"),
-        runtimePolicy,
-        existingProviderThread: { ...providerThread, nativeThreadRef: null },
+      fake.deferNextLifecycle("switch_session");
+      const failedResume = yield* runtime
+        .resumeThread({ providerThread })
+        .pipe(Effect.flip, Effect.forkChild);
+      const firstSwitch = yield* fake.takeRequest("switch_session");
+      yield* fake.emit({
+        type: "response",
+        id: firstSwitch["id"],
+        command: "switch_session",
+        success: false,
+        error: "Stored session working directory does not exist",
       });
-      assert.equal(replacement.id, providerThread.id);
-      assert.notEqual(
-        replacement.nativeThreadRef?.nativeId,
-        providerThread.nativeThreadRef?.nativeId,
-      );
+      yield* Fiber.join(failedResume);
+
+      const turn = (ordinal: number, entryId: string | null): OrchestrationV2ProviderTurn => ({
+        id: ProviderTurnId.make(`turn-${ordinal}`),
+        providerThreadId: providerThread.id,
+        nodeId: NodeId.make(`node-${ordinal}`),
+        runAttemptId: null,
+        nativeTurnRef:
+          entryId === null ? null : { driver: PI_PROVIDER, nativeId: entryId, strength: "strong" },
+        ordinal,
+        status: "completed",
+        startedAt: null,
+        completedAt: null,
+      });
+      const rolledFile = "/fake/rolled-back.jsonl";
+      fake.queueState({ sessionFile: FAKE_SESSION_FILE });
+      fake.queueState({ sessionFile: rolledFile });
+      const rolled = yield* runtime.rollbackThread({
+        providerThread,
+        target: {
+          type: "provider_turn",
+          checkpointId: CheckpointId.make("checkpoint-1"),
+          appRunOrdinal: 1,
+          providerTurn: turn(1, "u1"),
+        },
+        providerThreadTurns: [turn(1, "u1"), turn(2, "u2")],
+      });
+      assert.equal(rolled.providerThread.nativeThreadRef?.nativeId, rolledFile);
       assert.equal(
-        fake.allRequests().filter((request) => request.type === "new_session").length,
-        1,
+        fake.allRequests().filter((request) => request.type === "switch_session").length,
+        2,
       );
-      yield* startTurn(runtime, replacement, "default");
-      yield* fake.takeRequest("prompt");
+      assert.deepEqual(
+        fake
+          .allRequests()
+          .filter((request) => request.type === "fork")
+          .map((request) => request.entryId),
+        ["u2"],
+      );
+      assert.isFalse(fake.allRequests().some((request) => request.type === "new_session"));
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 

@@ -36,10 +36,12 @@ import * as Deferred from "effect/Deferred";
 import * as Option from "effect/Option";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
+import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
@@ -546,47 +548,58 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
       });
       const processObservers = new Set<ProviderAdapter.ProviderStopObserver>();
       const spawnConnection = Effect.fn("PiAdapterV2.spawnConnection")(function* () {
-        const scopedLaunch = yield* agentScope.wrap({
-          command: options.settings.binaryPath || "pi",
-          args: launch.args,
-          name: "pi",
-          threadId: input.threadId,
-          env: launch.env,
-        });
-        // Finalizers run in reverse order: reap detached work after terminating Pi.
-        const scopeUnit = scopedLaunch.unit;
-        const stopScope =
-          scopeUnit === undefined ? Effect.void : yield* Effect.cached(agentScope.stop(scopeUnit));
-        yield* Effect.addFinalizer(() => stopScope);
-        const spawned = yield* makePiRpcConnection({
-          command: scopedLaunch.command,
-          args: scopedLaunch.args,
-          cwd,
-          env: launch.env,
-        }).pipe(
-          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-          Effect.mapError(
-            (cause) =>
-              new ProviderAdapter.ProviderAdapterOpenSessionError({
-                driver: PI_PROVIDER,
-                providerSessionId: input.providerSessionId,
-                cause,
-              }),
-          ),
-        );
-        for (const observer of processObservers)
-          yield* observer(spawned.processId === undefined ? [] : [{ pid: spawned.processId }]);
-        // Detached children can keep stdout open after Pi exits.
-        if (scopeUnit !== undefined) {
-          yield* spawned.exited.pipe(
-            Effect.matchEffect({ onFailure: () => stopScope, onSuccess: () => stopScope }),
-            Effect.forkIn(scope),
+        const connectionScope = yield* Scope.fork(scope);
+        return yield* Effect.gen(function* () {
+          const scopedLaunch = yield* agentScope.wrap({
+            command: options.settings.binaryPath || "pi",
+            args: launch.args,
+            name: "pi",
+            threadId: input.threadId,
+            env: launch.env,
+          });
+          // Finalizers run in reverse order: reap detached work after terminating Pi.
+          const scopeUnit = scopedLaunch.unit;
+          const stopScope =
+            scopeUnit === undefined
+              ? Effect.void
+              : yield* Effect.cached(agentScope.stop(scopeUnit));
+          yield* Scope.addFinalizer(connectionScope, stopScope);
+          const spawned = yield* makePiRpcConnection({
+            command: scopedLaunch.command,
+            args: scopedLaunch.args,
+            cwd,
+            env: launch.env,
+          }).pipe(
+            Scope.provide(connectionScope),
+            Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+            Effect.mapError(
+              (cause) =>
+                new ProviderAdapter.ProviderAdapterOpenSessionError({
+                  driver: PI_PROVIDER,
+                  providerSessionId: input.providerSessionId,
+                  cause,
+                }),
+            ),
           );
-        }
-        return {
-          ...spawned,
-          terminate: spawned.terminate.pipe(Effect.andThen(stopScope), Effect.uninterruptible),
-        };
+          for (const observer of processObservers)
+            yield* observer(spawned.processId === undefined ? [] : [{ pid: spawned.processId }]);
+          // Detached children can keep stdout open after Pi exits.
+          if (scopeUnit !== undefined) {
+            yield* spawned.exited.pipe(
+              Effect.matchEffect({ onFailure: () => stopScope, onSuccess: () => stopScope }),
+              Effect.forkIn(connectionScope),
+            );
+          }
+          return {
+            ...spawned,
+            terminate: spawned.terminate.pipe(
+              Effect.andThen(stopScope),
+              Effect.andThen(Scope.close(connectionScope, Exit.void)),
+              Effect.ignore,
+              Effect.uninterruptible,
+            ),
+          };
+        }).pipe(Effect.tapError(() => Scope.close(connectionScope, Exit.void).pipe(Effect.ignore)));
       });
       let connection: PiRpcConnection = yield* spawnConnection();
       const now = yield* DateTime.now;
@@ -618,6 +631,9 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
       let unsolicitedActivityDetected = false;
       // Turn failures can leave Pi alive; pump termination retires the runtime.
       let runtimeRetired = false;
+      // A failed switch_session replaces Pi cleanly without retiring the runtime.
+      let activeSwitchConnection: PiRpcConnection | null = null;
+      let pumpExited = yield* Deferred.make<void>();
       let pendingWake: PiWake | null = null;
       let extensionStatusReset: {
         previous: NonNullable<OrchestrationV2ProviderSession["extensionStatuses"]>;
@@ -942,6 +958,9 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         function* (record: PiRpcRecord) {
           if (extensionStatusReset !== null)
             return yield* protocolError("A Pi session lifecycle request is already pending");
+          const switchConnection = connection;
+          const switchPumpExited = pumpExited;
+          const isSwitchSession = record["type"] === "switch_session";
           const reset = {
             previous: sessionEntity.extensionStatuses ?? [],
             touched: new Set<string>(),
@@ -951,11 +970,21 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           return yield* Effect.gen(function* () {
             // RPC responses bypass the pump. Reset after all earlier native notifications.
             if (
-              !(yield* Queue.offer(connection.events, { type: "t3.extension_status_reset", reset }))
+              !(yield* Queue.offer(switchConnection.events, {
+                type: "t3.extension_status_reset",
+                reset,
+              }))
             )
               return yield* protocolError("Pi transport closed during status reset");
             yield* Deferred.await(reset.ready);
-            const result = yield* request(record, PI_SESSION_TIMEOUT_MS);
+            if (isSwitchSession) activeSwitchConnection = switchConnection;
+            const result = yield* request(record, PI_SESSION_TIMEOUT_MS).pipe(
+              Effect.tap(() =>
+                Effect.sync(() => {
+                  if (activeSwitchConnection === switchConnection) activeSwitchConnection = null;
+                }),
+              ),
+            );
             if (recordField(result, "cancelled") === true) {
               yield* sessionEventPermit.withPermits(1)(
                 Effect.gen(function* () {
@@ -988,9 +1017,55 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             }
             return result;
           }).pipe(
+            // A failed lifecycle RPC can leave Pi's previous native session disposed.
+            // Replace the connection immediately after a failed switch_session so any subsequent
+            // switch, new_session, or rollback runs on a live Pi process.
+            Effect.tapError((error) =>
+              error._tag === "PiRpcError" || error._tag === "PiRpcTimeoutError"
+                ? isSwitchSession
+                  ? switchConnection.terminate.pipe(
+                      Effect.andThen(Deferred.await(switchPumpExited)),
+                      Effect.andThen(
+                        Effect.gen(function* () {
+                          if (closed || stopRequested || runtimeRetired) return;
+                          connection = yield* spawnConnection();
+                          serviceTierMayBeSet = false;
+                          yield* startPump(connection);
+                        }).pipe(
+                          Effect.catchCause((spawnCause) =>
+                            Effect.gen(function* () {
+                              runtimeRetired = true;
+                              closed = true;
+                              yield* updateProviderSession(
+                                "error",
+                                "Pi process failed to restart.",
+                              );
+                              yield* Queue.fail(
+                                events,
+                                new ProviderAdapter.ProviderAdapterEventStreamError({
+                                  driver: PI_PROVIDER,
+                                  providerSessionId: input.providerSessionId,
+                                  cause: spawnCause,
+                                }),
+                              );
+                            }),
+                          ),
+                        ),
+                      ),
+                      Effect.uninterruptible,
+                    )
+                  : switchConnection.terminate
+                : Effect.void,
+            ),
+            Effect.onInterrupt(() =>
+              Effect.sync(() => {
+                if (activeSwitchConnection === switchConnection) activeSwitchConnection = null;
+              }).pipe(Effect.andThen(connection.terminate), Effect.ignore),
+            ),
             Effect.ensuring(
               Effect.sync(() => {
                 if (extensionStatusReset === reset) extensionStatusReset = null;
+                if (activeSwitchConnection === switchConnection) activeSwitchConnection = null;
               }),
             ),
           );
@@ -1004,13 +1079,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                 errorTag: error._tag,
               }),
             ),
-            // A failed lifecycle RPC can leave Pi's previous native session disposed.
-            Effect.tapError((error) =>
-              error._tag === "PiRpcError" || error._tag === "PiRpcTimeoutError"
-                ? connection.terminate
-                : Effect.void,
-            ),
-            Effect.onInterrupt(() => connection.terminate),
           ),
       );
 
@@ -2630,98 +2698,119 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         }
       });
 
-      yield* Effect.gen(function* () {
-        while (true) {
-          const event = yield* Queue.take(connection.events);
-          yield* sessionEventPermit.withPermits(1)(
-            Effect.gen(function* () {
-              // Tracked here rather than in handleSessionEvent, which also
-              // replays buffered wake events after they were observed.
-              if (event["type"] === "compaction_start") nativeCompacting = true;
-              if (event["type"] === "compaction_end") {
-                nativeCompacting = false;
-                // Send before the handler can probe settlement, so Pi sees the
-                // prompt first. Prompts whose turn ended or is stopping are dropped.
-                rejectedHeldCount = 0;
-                for (const held of heldPrompts.splice(0)) {
-                  const turn = threadState?.activeTurn;
-                  if (
-                    turn?.providerTurn.id !== held.providerTurnId ||
-                    turn.interrupted ||
-                    stopRequested
-                  )
-                    continue;
-                  yield* sendPrompt(held);
-                  releasedPromptTurnId = held.providerTurnId;
+      const startPump = Effect.fn("PiAdapter.startPump")(function* (
+        pumpConnection: PiRpcConnection,
+      ) {
+        const exited = yield* Deferred.make<void>();
+        pumpExited = exited;
+        yield* Effect.gen(function* () {
+          while (true) {
+            const event = yield* Queue.take(pumpConnection.events);
+            yield* sessionEventPermit.withPermits(1)(
+              Effect.gen(function* () {
+                // Tracked here rather than in handleSessionEvent, which also
+                // replays buffered wake events after they were observed.
+                if (event["type"] === "compaction_start") nativeCompacting = true;
+                if (event["type"] === "compaction_end") {
+                  nativeCompacting = false;
+                  // Send before the handler can probe settlement, so Pi sees the
+                  // prompt first. Prompts whose turn ended or is stopping are dropped.
+                  rejectedHeldCount = 0;
+                  for (const held of heldPrompts.splice(0)) {
+                    const turn = threadState?.activeTurn;
+                    if (
+                      turn?.providerTurn.id !== held.providerTurnId ||
+                      turn.interrupted ||
+                      stopRequested
+                    )
+                      continue;
+                    yield* sendPrompt(held);
+                    releasedPromptTurnId = held.providerTurnId;
+                  }
                 }
-              }
-              yield* handleSessionEvent(event).pipe(
-                Effect.ensuring(Effect.sync(() => (releasedPromptTurnId = null))),
-              );
-            }),
-          );
-        }
-      }).pipe(
-        Effect.catchCause((cause) =>
-          sessionEventPermit.withPermits(1)(
-            Effect.gen(function* () {
-              runtimeRetired = true;
-              const state = threadState;
-              closed = true;
-              if (pendingPromptResponsesDrained !== null)
-                yield* Deferred.fail(
-                  pendingPromptResponsesDrained,
-                  protocolError("Pi transport closed while awaiting prompt acknowledgment"),
+                yield* handleSessionEvent(event).pipe(
+                  Effect.ensuring(Effect.sync(() => (releasedPromptTurnId = null))),
                 );
-              if (extensionStatusReset !== null)
-                yield* Deferred.fail(
-                  extensionStatusReset.ready,
-                  protocolError("Pi transport closed during status reset"),
-                );
-              if (rollbackBarrier !== null)
-                yield* Deferred.fail(
-                  rollbackBarrier,
-                  protocolError("Pi transport closed during rollback"),
-                );
-              pendingWake = null;
-              const interrupted = state?.activeTurn?.interrupted === true;
-              if (state?.activeTurn != null) {
-                state.activeTurn.failure = interrupted
-                  ? null
-                  : makeProviderFailure({
-                      cause,
-                      message: "Pi process exited unexpectedly.",
-                      class: "transport_error",
-                    });
-                yield* finalizeTurn(state, false);
-              } else {
-                yield* cancelPendingPrompts(yield* DateTime.now);
-              }
-              if (unsolicitedActivityDetected) {
-                yield* updateProviderSession("error", PI_UNSOLICITED_ACTIVITY_ERROR);
-                yield* Queue.end(events);
-              } else if (stopRequested) {
-                yield* updateProviderSession("stopped", null);
-                yield* Queue.end(events);
-              } else {
-                yield* updateProviderSession(
-                  "error",
-                  interrupted ? "Pi process was stopped." : "Pi process exited unexpectedly.",
-                );
-                yield* Queue.fail(
-                  events,
-                  new ProviderAdapter.ProviderAdapterEventStreamError({
-                    driver: PI_PROVIDER,
-                    providerSessionId: input.providerSessionId,
-                    cause,
-                  }),
-                );
-              }
-            }),
+              }),
+            );
+          }
+        }).pipe(
+          Effect.catchCause((cause) =>
+            sessionEventPermit
+              .withPermits(1)(
+                Effect.gen(function* () {
+                  const state = threadState;
+                  const switchRecovery =
+                    activeSwitchConnection === pumpConnection &&
+                    !stopRequested &&
+                    !unsolicitedActivityDetected &&
+                    !closed &&
+                    !runtimeRetired;
+                  if (switchRecovery) {
+                    activeSwitchConnection = null;
+                  } else {
+                    runtimeRetired = true;
+                    closed = true;
+                  }
+                  if (pendingPromptResponsesDrained !== null)
+                    yield* Deferred.fail(
+                      pendingPromptResponsesDrained,
+                      protocolError("Pi transport closed while awaiting prompt acknowledgment"),
+                    );
+                  if (extensionStatusReset !== null)
+                    yield* Deferred.fail(
+                      extensionStatusReset.ready,
+                      protocolError("Pi transport closed during status reset"),
+                    );
+                  if (rollbackBarrier !== null)
+                    yield* Deferred.fail(
+                      rollbackBarrier,
+                      protocolError("Pi transport closed during rollback"),
+                    );
+                  pendingWake = null;
+                  const interrupted = state?.activeTurn?.interrupted === true;
+                  if (state?.activeTurn != null) {
+                    state.activeTurn.failure = interrupted
+                      ? null
+                      : makeProviderFailure({
+                          cause,
+                          message: "Pi process exited unexpectedly.",
+                          class: "transport_error",
+                        });
+                    yield* finalizeTurn(state, false);
+                  } else {
+                    yield* cancelPendingPrompts(yield* DateTime.now);
+                  }
+                  if (switchRecovery) {
+                    yield* clearExtensionStatuses();
+                  } else if (unsolicitedActivityDetected) {
+                    yield* updateProviderSession("error", PI_UNSOLICITED_ACTIVITY_ERROR);
+                    yield* Queue.end(events);
+                  } else if (stopRequested) {
+                    yield* updateProviderSession("stopped", null);
+                    yield* Queue.end(events);
+                  } else {
+                    yield* updateProviderSession(
+                      "error",
+                      interrupted ? "Pi process was stopped." : "Pi process exited unexpectedly.",
+                    );
+                    yield* Queue.fail(
+                      events,
+                      new ProviderAdapter.ProviderAdapterEventStreamError({
+                        driver: PI_PROVIDER,
+                        providerSessionId: input.providerSessionId,
+                        cause,
+                      }),
+                    );
+                  }
+                }),
+              )
+              .pipe(Effect.ensuring(Deferred.succeed(exited, undefined).pipe(Effect.asVoid))),
           ),
-        ),
-        Effect.forkIn(scope),
-      );
+          Effect.forkIn(scope),
+        );
+      });
+      yield* startPump(connection);
 
       const discoverModels = Effect.fnUntraced(function* () {
         const modelsData = yield* request({ type: "get_available_models" }).pipe(
@@ -2814,6 +2903,9 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         threadInput: ProviderAdapter.ProviderAdapterV2EnsureThreadInput,
         publish = true,
       ) {
+        if (closed || stopRequested || runtimeRetired) {
+          return yield* protocolError("Cannot register a Pi thread after session closure");
+        }
         if (rollbackBarrier !== null)
           return yield* protocolError("Cannot register a Pi thread during rollback");
         if (threadState !== null && threadState.activeTurn !== null) {
@@ -2835,8 +2927,11 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           );
         }
         const existing = threadInput.existingProviderThread;
-        const resumeId = existing?.nativeThreadRef?.nativeId;
-        const needsNewSession = resumeId == null && registrationAttempted;
+        const resumeId = threadInput.forceNewNativeThread
+          ? undefined
+          : existing?.nativeThreadRef?.nativeId;
+        const needsNewSession =
+          (resumeId == null && registrationAttempted) || threadInput.forceNewNativeThread === true;
         registrationAttempted = true;
         if (resumeId != null || needsNewSession) {
           lastNativeThreadId = resumeId ?? lastNativeThreadId;
