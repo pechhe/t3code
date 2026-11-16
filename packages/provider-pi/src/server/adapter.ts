@@ -147,7 +147,7 @@ interface PiPromptCache {
  * Anthropic-style caches, whose entries last 5 minutes or 1 hour from the request, and stamps the
  * message when the request starts.
  */
-export function piPromptCache(message: unknown): PiPromptCache | undefined {
+function piPromptCache(message: unknown): PiPromptCache | undefined {
   const usage = recordField(message, "usage");
   const longWrite = recordNumber(usage, "cacheWrite1h");
   const requestedAtMs = recordNumber(message, "timestamp");
