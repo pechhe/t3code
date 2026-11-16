@@ -3200,4 +3200,132 @@ it.layer(layerTest)("parked waits", (it) => {
       assert.lengthOf(yield* parkedOf(landingThread), 0);
     }),
   );
+
+  it.effect(
+    "a parked time wait due during an active idle-compaction run wakes once compaction finishes, while a paused Arc run stays held until the owner replies",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const reactor = yield* ThreadWatchReactor.ThreadWatchReactor;
+        const eventSink = yield* EventSink.EventSinkV2;
+
+        const thread = yield* createThread("park-compact-plain");
+        yield* seedRun(thread, { status: "completed", text: "Turn 1." });
+        const at = DateTime.formatIso(DateTime.add(yield* DateTime.now, { minutes: 60 }));
+        yield* parkOn(thread, { kind: "time", at }, { note: "Resume after the wait." }, [reactor]);
+        assert.lengthOf(yield* parkedOf(thread), 1);
+
+        // Idle compaction starts before the parked time wait is due.
+        yield* TestClock.adjust("59 minutes");
+        const compactMessageId = MessageId.make(`idle-compact:${thread}:1`);
+        yield* orchestrator.dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make(`server:idle-compact:${thread}`),
+          messageId: compactMessageId,
+          threadId: thread,
+          text: "/compact",
+          attachments: [],
+          createdBy: "agent",
+          creationSource: "server",
+          idleCompaction: "beforeCacheExpires",
+          dispatchMode: { type: "start_immediately" },
+        });
+        const compactRun = (yield* orchestrator.getThreadRecords(thread, ["runs"])).runs.find(
+          (candidate) => candidate.userMessageId === compactMessageId,
+        )!;
+        assert.equal(compactRun.status, "starting");
+
+        // The time wait comes due while compaction is running; it queues behind compaction.
+        const woken = yield* awaitParkedWake(thread);
+        yield* TestClock.adjust("1 minute");
+        yield* Fiber.join(woken);
+        assert.lengthOf(yield* parkedOf(thread), 0);
+        const [wake] = yield* parkedWakes(thread);
+        assert.isDefined(wake);
+        const queuedWakeRun = (yield* orchestrator.getThreadRecords(thread, ["runs"])).runs.find(
+          (candidate) => candidate.userMessageId === wake!.id,
+        )!;
+        assert.equal(queuedWakeRun.status, "queued");
+        assert.notEqual(queuedWakeRun.queueHeld, true);
+
+        // Once the compaction run completes, the queued parked wake starts.
+        const started = yield* orchestrator.streamDomainEvents.pipe(
+          Stream.filter(
+            (event) =>
+              event.threadId === thread &&
+              event.type === "run.updated" &&
+              event.payload.id === queuedWakeRun.id &&
+              event.payload.status === "starting",
+          ),
+          Stream.take(1),
+          Stream.runCollect,
+          Effect.forkScoped,
+        );
+        yield* Effect.yieldNow;
+        const completedAt = yield* DateTime.now;
+        yield* eventSink.write({
+          commandId: CommandId.make(`command:compact-complete:${thread}`),
+          events: [
+            {
+              id: EventId.make(`event:compact-complete:${thread}`),
+              type: "run.updated",
+              threadId: thread,
+              runId: compactRun.id,
+              occurredAt: completedAt,
+              payload: {
+                ...compactRun,
+                status: "completed",
+                startedAt: compactRun.startedAt ?? completedAt,
+                completedAt,
+              },
+            },
+          ],
+        });
+        yield* Fiber.join(started);
+        const wakeRunAfter = (yield* orchestrator.getThreadRecords(thread, ["runs"])).runs.find(
+          (candidate) => candidate.id === queuedWakeRun.id,
+        );
+        assert.equal(wakeRunAfter?.status, "starting");
+
+        // A paused Arc run keeps a due parked wait held until the owner's message resumes it.
+        const pausedThread = yield* createThread("park-compact-paused");
+        yield* seedRun(pausedThread, { status: "completed", text: "Turn 1." });
+        yield* orchestrator.dispatch({
+          type: "thread.arc-run",
+          commandId: CommandId.make("command:arc-paused-start"),
+          threadId: pausedThread,
+          op: "start",
+          arc: { number: 4, ref: "T3-ARC-04" },
+        });
+        yield* orchestrator.dispatch({
+          type: "thread.arc-run",
+          commandId: CommandId.make("command:arc-paused-pause"),
+          threadId: pausedThread,
+          op: "pause",
+        });
+        const pausedAt = DateTime.formatIso(DateTime.add(yield* DateTime.now, { minutes: 10 }));
+        yield* parkOn(pausedThread, { kind: "time", at: pausedAt }, {}, [reactor]);
+        yield* TestClock.adjust("10 minutes");
+        assert.lengthOf(yield* parkedWakes(pausedThread), 0);
+        assert.lengthOf(yield* parkedOf(pausedThread), 1);
+
+        yield* orchestrator.dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make("command:arc-paused-owner"),
+          threadId: pausedThread,
+          messageId: MessageId.make("message:arc-paused-owner"),
+          text: "Carry on.",
+          attachments: [],
+          dispatchMode: { type: "queue_after_active" },
+          createdBy: "user",
+          creationSource: "web",
+        });
+        const pausedWoken = yield* awaitParkedWake(pausedThread);
+        yield* Effect.yieldNow;
+        yield* reactor.sweep;
+        yield* Fiber.join(pausedWoken);
+        assert.lengthOf(yield* parkedWakes(pausedThread), 1);
+        assert.lengthOf(yield* parkedOf(pausedThread), 0);
+      }),
+  );
 });

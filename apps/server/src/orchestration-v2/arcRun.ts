@@ -136,7 +136,7 @@ export function latestArcRunTurn(
 function arcRunHasNextTrigger(state: ArcRunState): boolean {
   const { thread, runs } = state;
   if (runs.some((run) => LIVE_RUN.has(run.status))) return true;
-  if (thread.parkedWaits?.some((wait) => wait.target.kind === "time")) return true;
+  if ((thread.parkedWaits?.length ?? 0) > 0) return true;
   if (
     state.subagents.some(
       (task) =>

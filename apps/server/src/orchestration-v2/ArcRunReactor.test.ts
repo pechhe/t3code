@@ -1145,6 +1145,29 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
     }),
   );
 
+  it.effect("a non-time parked wait holds an Arc wake until it fires", () =>
+    Effect.gen(function* () {
+      const reactor = yield* ArcRunReactor.ArcRunReactor;
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const { threadId, run } = yield* setup("parked-build-trigger");
+      yield* orchestrator.dispatch({
+        type: "thread.thread-watch",
+        commandId: CommandId.make("park:arc-build-trigger"),
+        threadId,
+        target: { kind: "build_item", number: 7497, until: "unblocked" },
+        watching: true,
+        park: { expectedMs: 5_700 * 60_000, note: "Continue once #7497 unblocks." },
+      });
+
+      const finishEvent = yield* finish(run);
+      yield* reactor.handle(finishEvent);
+      assert.lengthOf(yield* wakes(threadId), 0);
+
+      yield* reactor.sweep("watchdog");
+      assert.lengthOf(yield* wakes(threadId), 0);
+    }),
+  );
+
   it.effect("a parked time wait holds an Arc wake until its timer fires once", () =>
     Effect.gen(function* () {
       const reactor = yield* ArcRunReactor.ArcRunReactor;
@@ -2429,6 +2452,28 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
         "event",
       ),
       "a future parked time wait already promises to wake the Arc lead",
+    );
+    assert.isUndefined(
+      decideArcRunWake(
+        {
+          ...state,
+          thread: {
+            ...thread,
+            parkedWaits: [
+              {
+                id: "wait:build",
+                title: "Build #7497",
+                startedAt: iso,
+                expectedAt: "2026-11-12T11:00:00.000Z",
+                givesUpAt: "2026-11-16T10:00:00.000Z",
+                target: { kind: "build_item", number: 7497, until: "unblocked" },
+              },
+            ],
+          },
+        },
+        "event",
+      ),
+      "a parked Build wait already promises to wake the Arc lead",
     );
     assert.isUndefined(
       decideArcRunWake(
