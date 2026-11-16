@@ -97,7 +97,7 @@ lapse**), what to keep in reserve, and what happens when an account hits its lim
 they do for account pools.
 
 The pool appears in the model picker on the **Favorites** tab, marked **Pool**, with its accounts
-beneath its name; search finds it too. On mobile it is listed under **Model pools**. A thread on a pool stays on its account while that account
+beneath its name; search finds it too. A thread on a pool stays on its account while that account
 has allowance. When the account runs out, the thread continues on the next account with allowance if
 the pool switches on limit, handing the conversation over when the next account is another provider;
 otherwise it waits for the reset. An account with no usage reading counts as available.

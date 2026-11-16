@@ -87,7 +87,6 @@ import {
 } from "../../lib/composerImages";
 import {
   buildModelOptions,
-  findModelOption,
   isModelSelectionUnavailable,
   serverConfigForCwd,
 } from "../../lib/modelOptions";
@@ -723,7 +722,12 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     lockedProviderInstanceId,
     props.selectedThread.projectId,
   );
-  const currentModelOption = findModelOption(modelOptions, currentModelSelection) ?? null;
+  const currentModelOption =
+    modelOptions.find(
+      (option) =>
+        option.selection.instanceId === currentModelSelection.instanceId &&
+        option.selection.model === currentModelSelection.model,
+    ) ?? null;
   const openSettings = () => {
     settingsSheetPresentation.open();
   };
