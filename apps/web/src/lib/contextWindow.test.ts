@@ -71,6 +71,31 @@ describe("live provider-turn usage (#8144)", () => {
       "Compacts automatically at about 150,000 tokens.",
     );
   });
+
+  it.each([
+    { case: "a newer provider-thread report", reportedAt: "2026-08-27T00:01:00.000Z", used: 3_400 },
+    {
+      case: "an older provider-thread report",
+      reportedAt: "2026-08-26T23:59:00.000Z",
+      used: 426_013,
+    },
+    { case: "an undated provider-thread report", reportedAt: undefined, used: 426_013 },
+  ])("shows the newest figure over $case", ({ reportedAt, used }) => {
+    const turnUsage = decodeTokenUsage({
+      usedTokens: 426_013,
+      maxTokens: 1_000_000,
+      updatedAt: "2026-08-27T00:00:00.000Z",
+    });
+    const snapshot = deriveLatestContextWindowSnapshot([], turnUsage, {
+      contextUsage: {
+        usedTokens: 3_400,
+        maxTokens: 1_000_000,
+        ...(reportedAt === undefined ? {} : { updatedAt: reportedAt }),
+      },
+      updatedAt: DateTime.makeUnsafe("2026-08-27T00:02:00.000Z"),
+    });
+    expect(snapshot?.usedTokens).toBe(used);
+  });
 });
 
 describe("latestProviderTurnTokenUsage", () => {

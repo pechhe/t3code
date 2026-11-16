@@ -29,10 +29,12 @@ function asFiniteNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+type ContextWindowUsageFields = Omit<ThreadTokenUsageSnapshot, "updatedAt">;
+
 type NullableContextWindowUsage = {
-  readonly [Key in keyof ThreadTokenUsageSnapshot]: undefined extends ThreadTokenUsageSnapshot[Key]
-    ? Exclude<ThreadTokenUsageSnapshot[Key], undefined> | null
-    : ThreadTokenUsageSnapshot[Key];
+  readonly [Key in keyof ContextWindowUsageFields]: undefined extends ContextWindowUsageFields[Key]
+    ? Exclude<ContextWindowUsageFields[Key], undefined> | null
+    : ContextWindowUsageFields[Key];
 };
 
 export type ContextWindowSnapshot = NullableContextWindowUsage & {
@@ -79,7 +81,13 @@ export function deriveLatestContextWindowSnapshot(
   liveUsage?: OrchestrationV2ProviderTurnTokenUsage | null,
   providerThread?: Pick<OrchestrationV2ProviderThread, "contextUsage" | "updatedAt"> | null,
 ): ContextWindowSnapshot | null {
-  if (liveUsage != null) {
+  const providerUsage = providerThread?.contextUsage;
+  // Provider-thread usage outranks turn usage only when it says it is newer.
+  const providerUsageIsNewer =
+    providerUsage?.updatedAt != null &&
+    liveUsage != null &&
+    Date.parse(providerUsage.updatedAt) > Date.parse(liveUsage.updatedAt);
+  if (liveUsage != null && !providerUsageIsNewer) {
     const usedTokens = Math.max(0, liveUsage.usedTokens);
     const maxTokens = liveUsage.maxTokens ?? null;
     const usedPercentage =
@@ -111,8 +119,11 @@ export function deriveLatestContextWindowSnapshot(
       updatedAt: liveUsage.updatedAt,
     };
   }
-  const providerUsage = providerThread?.contextUsage;
-  const providerUsageUpdatedAt = providerThread?.updatedAt;
+  const providerUsageUpdatedAt =
+    providerUsage?.updatedAt ??
+    (providerThread?.updatedAt === undefined
+      ? undefined
+      : DateTime.formatIso(providerThread.updatedAt));
   if (
     providerUsage !== null &&
     providerUsage !== undefined &&
@@ -143,7 +154,7 @@ export function deriveLatestContextWindowSnapshot(
       compactsAutomatically: providerUsage.compactsAutomatically ?? null,
       cost: providerUsage.cost ?? null,
       autoCompactThreshold: providerUsage.autoCompactThreshold ?? null,
-      updatedAt: DateTime.formatIso(providerUsageUpdatedAt),
+      updatedAt: providerUsageUpdatedAt,
     };
   }
   for (let index = entries.length - 1; index >= 0; index -= 1) {

@@ -4783,7 +4783,27 @@ it.effect(
           }),
           runId: idAllocator.derive.run({ threadId, ordinal: 1 }),
         };
+        const { input: _input, output: _output, ...itemBase } = anchored;
+        const compaction = {
+          ...itemBase,
+          id: idAllocator.derive.turnItemFromProviderItem({
+            driver: CODEX_DRIVER,
+            nativeItemId: "compaction_after_turn",
+          }),
+          status: "completed" as const,
+          completedAt: now,
+          type: "compaction" as const,
+          driver: CODEX_DRIVER,
+          beforeTokenCount: 426_013,
+          afterTokenCount: 3_400,
+        };
         const commandEvents = [
+          {
+            type: "turn_item.updated" as const,
+            driver: CODEX_DRIVER,
+            turnItem: compaction,
+            sessionScoped: true,
+          },
           {
             type: "turn_item.updated" as const,
             driver: CODEX_DRIVER,
@@ -4884,6 +4904,10 @@ it.effect(
         assert.deepInclude(
           projection.turnItems.find((item) => item.id === anchored.id),
           { runId: anchored.runId, output: "retained" },
+        );
+        assert.deepInclude(
+          projection.turnItems.find((item) => item.id === compaction.id),
+          { runId: anchored.runId, afterTokenCount: 3_400 },
         );
         assert.isEmpty(projection.runs);
         const unrelated = yield* projectionStore.getThreadProjection(otherThreadId);

@@ -1464,6 +1464,18 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Decision:** `retain` (new, 2026-11-16).
 - **Owner:** none.
 
+### pi-out-of-turn-compaction
+
+- **Kind:** behaviour change (upstreamable bug fix)
+- **Why:** Pi (or an extension) can compact a session after T3 has ended the turn, for example straight after a quota error. The adapter dropped `compaction_start`/`compaction_end` with no active turn, so the thread never showed the compaction and the context meter kept the pre-compaction figure (T3-673).
+- **Requirements:** a compaction Pi runs with no active turn appears as a compaction item on the run that ended last, persisted with no run subscriber, and its post-compaction estimate becomes the provider thread's `contextUsage` with its own `updatedAt`. The meter shows provider-thread usage over the latest turn's usage only when that `updatedAt` is newer; usage without one keeps the turn-first rule, so other providers are unchanged. A compaction that started idle and ends after a new turn began finishes on the earlier run, not the new one, and installing that turn keeps the newer reported usage over the turn input's.
+- **Integration points:** `compaction_start`/`compaction_end` and `finishIdleCompaction` in `packages/provider-pi/src/server/adapter.ts`; session-scoped `compaction` turn items in `ProviderSessionManager.sessionScopedArtifactThreadId`; additive optional `updatedAt` on `ThreadTokenUsageSnapshot`; `deriveLatestContextWindowSnapshot` in `packages/client-runtime/src/state/contextWindow.ts`.
+- **Proof:** `packages/provider-pi/src/server/adapter.test.ts` ("records a compaction Pi runs after the turn ended on that run and its context", "keeps a compaction's context when it ends while the next turn sets up"), `apps/server/src/orchestration-v2/ProviderSessionManager.test.ts` ("persists session-scoped requests and recovered commands without a run"), `apps/web/src/lib/contextWindow.test.ts` ("shows the newest figure over …").
+- **Upstream:** none known as of v0.1.10-nightly.20261114.4669; upstreamable.
+- **Retire when:** upstream's Pi adapter reports out-of-turn compaction and the meter follows the newest usage report.
+- **Decision:** `retain` (new, 2026-11-16).
+- **Owner:** none.
+
 ### claude-full-access-no-prompts
 
 - **Decision:** `retain` (v0.1.10-nightly.20261112.4580, 2026-11-12): Keep the full-access permission environment flag; upstream Claude session and alias changes do not supply an equivalent. Evidence: ClaudeAdapterV2.test.ts.

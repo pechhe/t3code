@@ -498,6 +498,10 @@ interface PiPromptSend {
 interface PiThreadState {
   providerThread: OrchestrationV2ProviderThread;
   activeTurn: ActivePiTurn | null;
+  /** The turn that ended last; compaction Pi runs after it lands on its run. */
+  endedTurn: ActivePiTurn | null;
+  /** A compaction Pi started with no active turn. */
+  idleCompaction: PiCompactionState | null;
 }
 
 interface PiWake {
@@ -861,6 +865,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           state: PiThreadState,
           patch: Partial<OrchestrationV2ProviderThread>,
           retainedNativeTurnIds?: ReadonlyArray<string>,
+          sessionScoped = false,
         ) {
           const updatedAt = yield* DateTime.now;
           state.providerThread = { ...state.providerThread, ...patch, updatedAt };
@@ -869,6 +874,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             driver: PI_PROVIDER,
             providerThread: state.providerThread,
             ...(retainedNativeTurnIds === undefined ? {} : { retainedNativeTurnIds }),
+            ...(sessionScoped ? { sessionScoped: true } : {}),
           });
         });
 
@@ -1302,22 +1308,28 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           readonly beforeTokenCount?: number;
           readonly afterTokenCount?: number;
         } = {},
+        /** The turn has ended: the item is persisted without a run subscriber or node. */
+        sessionScoped = false,
       ) {
         const emittedAt = yield* DateTime.now;
         const completedAt = status === "running" ? null : emittedAt;
-        yield* emitItemNode(
-          turn,
-          compaction.nativeItemId,
-          "system",
-          status,
-          compaction.startedAt,
-          completedAt,
-        );
+        if (!sessionScoped) {
+          yield* emitItemNode(
+            turn,
+            compaction.nativeItemId,
+            "system",
+            status,
+            compaction.startedAt,
+            completedAt,
+          );
+        }
         yield* emit({
           type: "turn_item.updated",
           driver: PI_PROVIDER,
+          ...(sessionScoped ? { sessionScoped: true } : {}),
           turnItem: {
             ...baseItemFields(turn, compaction.nativeItemId, compaction.startedAt, emittedAt),
+            ...(sessionScoped ? { nodeId: null } : {}),
             status,
             title: compactionTitle(status),
             completedAt,
@@ -1326,6 +1338,62 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             ...details,
           },
         });
+      });
+
+      const finishIdleCompaction = Effect.fnUntraced(function* (
+        state: PiThreadState,
+        endedTurn: ActivePiTurn,
+        compaction: PiCompactionState,
+        event: PiRpcRecord,
+      ) {
+        const result = event["result"];
+        if (result === null || result === undefined) {
+          if (event["aborted"] === true) {
+            yield* emitCompaction(endedTurn, compaction, "cancelled", {}, true);
+            return;
+          }
+          const errorMessage =
+            recordString(event, "errorMessage") ?? "Pi context compaction failed.";
+          yield* emitCompaction(
+            endedTurn,
+            compaction,
+            "failed",
+            { summary: errorMessage.slice(0, 1_000) },
+            true,
+          );
+          return;
+        }
+        const summary = recordString(result, "summary");
+        const beforeTokenCount = nonNegativeInteger(result, "tokensBefore");
+        const afterTokenCount = nonNegativeInteger(result, "estimatedTokensAfter");
+        yield* emitCompaction(
+          endedTurn,
+          compaction,
+          "completed",
+          {
+            ...(summary === undefined ? {} : { summary }),
+            ...(beforeTokenCount === undefined ? {} : { beforeTokenCount }),
+            ...(afterTokenCount === undefined ? {} : { afterTokenCount }),
+          },
+          true,
+        );
+        if (afterTokenCount === undefined) return;
+        const updatedAt = yield* DateTime.now;
+        yield* updateProviderThread(
+          state,
+          {
+            contextUsage: {
+              usedTokens: afterTokenCount,
+              ...(contextWindow === null || contextWindow === 0
+                ? {}
+                : { maxTokens: contextWindow }),
+              ...(autoCompactThreshold === null ? {} : { autoCompactThreshold }),
+              updatedAt: DateTime.formatIso(updatedAt),
+            },
+          },
+          undefined,
+          true,
+        );
       });
 
       const emitStreamItem =
@@ -2025,6 +2093,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         const turn = state.activeTurn;
         if (turn === null) return;
         state.activeTurn = null;
+        state.endedTurn = turn;
         const interrupted = turn.interrupted || turn.nativeAborted;
         const completedAt = yield* DateTime.now;
         yield* completeOpenStreamItems(turn);
@@ -2347,7 +2416,19 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             if (turn !== null) yield* emitToolItem(turn, event, "end");
             return;
           case "compaction_start": {
-            if (turn === null) return;
+            if (turn === null) {
+              const endedTurn = state?.endedTurn ?? null;
+              if (state === null || endedTurn === null) return;
+              if (state.idleCompaction !== null) {
+                yield* emitCompaction(endedTurn, state.idleCompaction, "cancelled", {}, true);
+              }
+              state.idleCompaction = {
+                nativeItemId: compactionNativeItemId(endedTurn),
+                startedAt: yield* DateTime.now,
+              };
+              yield* emitCompaction(endedTurn, state.idleCompaction, "running", {}, true);
+              return;
+            }
             turn.settleProbeGeneration += 1;
             turn.sawCompaction = true;
             if (turn.activeCompaction !== null) {
@@ -2363,6 +2444,20 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             return;
           }
           case "compaction_end": {
+            const idleCompaction = state?.idleCompaction ?? null;
+            const endedTurn = state?.endedTurn ?? null;
+            if (state !== null && idleCompaction !== null && endedTurn !== null) {
+              state.idleCompaction = null;
+              yield* finishIdleCompaction(state, endedTurn, idleCompaction, event);
+              if (
+                turn !== null &&
+                (turn.settleWhenIdle || !turn.sawAgentActivity) &&
+                releasedPromptTurnId !== turn.providerTurn.id
+              ) {
+                yield* scheduleSettleProbe(turn, turn.settleWhenIdle);
+              }
+              return;
+            }
             if (turn === null) return;
             const observedAt = yield* DateTime.now;
             const compaction = turn.activeCompaction ?? {
@@ -3052,7 +3147,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                 createdAt,
                 updatedAt: createdAt,
               };
-        threadState = { providerThread, activeTurn: null };
+        threadState = { providerThread, activeTurn: null, endedTurn: null, idleCompaction: null };
         const baselineEntries = yield* request({ type: "get_entries" }).pipe(
           Effect.orElseSucceed(() => undefined),
         );
@@ -3374,7 +3469,15 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                   return yield* protocolError("Pi native wake belongs to a different app thread");
                 }
                 pendingWake = null;
-                state.providerThread = turnInput.providerThread;
+                // A compaction that ended during setup reported usage newer than the turn input's.
+                const reportedUsage = state.providerThread.contextUsage;
+                const inputUsage = turnInput.providerThread.contextUsage;
+                state.providerThread =
+                  reportedUsage?.updatedAt !== undefined &&
+                  (inputUsage?.updatedAt === undefined ||
+                    Date.parse(reportedUsage.updatedAt) > Date.parse(inputUsage.updatedAt))
+                    ? { ...turnInput.providerThread, contextUsage: reportedUsage }
+                    : turnInput.providerThread;
                 state.activeTurn = activeTurn;
                 activeTurn.adoptedWake = wake !== null && !continuation;
                 if (compactCommand !== null) {

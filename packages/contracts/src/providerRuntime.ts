@@ -50,6 +50,8 @@ export const ThreadTokenUsageSnapshot = Schema.Struct({
       currency: TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(32)),
     }),
   ),
+  /** When the provider reported this figure; set when it can be newer than a turn's usage. */
+  updatedAt: Schema.optional(Schema.String),
 });
 export type ThreadTokenUsageSnapshot = typeof ThreadTokenUsageSnapshot.Type;
 

@@ -384,7 +384,7 @@ function sessionScopedArtifactThreadId(
         ? event.node.threadId
         : undefined;
     case "turn_item.updated":
-      if (event.turnItem.type === "command_execution")
+      if (event.turnItem.type === "command_execution" || event.turnItem.type === "compaction")
         return event.sessionScoped === true ? event.turnItem.threadId : undefined;
       return event.turnItem.runId === null &&
         (event.turnItem.type === "approval_request" || event.turnItem.type === "user_input_request")
@@ -2924,7 +2924,8 @@ export const layerWithOptions = (
                         current?.runtime !== entry.runtime ||
                         ((event.type === "provider_thread.updated" ||
                           (event.type === "turn_item.updated" &&
-                            event.turnItem.type === "command_execution")) &&
+                            (event.turnItem.type === "command_execution" ||
+                              event.turnItem.type === "compaction"))) &&
                           !current.attachedThreadIds.has(threadId))
                       )
                         return;

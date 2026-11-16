@@ -6429,6 +6429,136 @@ describe("PiAdapterV2", () => {
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 
+  it.effect("records a compaction Pi runs after the turn ended on that run and its context", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      const { runtime, takeEvent } = yield* openRuntime(fake);
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("default"),
+        runtimePolicy,
+      });
+      yield* startTurn(runtime, providerThread);
+      yield* fake.takeRequest("prompt");
+      const running = yield* takeEvent(
+        (event) =>
+          event.type === "provider_turn.updated" && event.providerTurn.status === "running",
+      );
+      const providerTurnId =
+        running.type === "provider_turn.updated" ? running.providerTurn.id : undefined;
+      yield* fake.emit({ type: "agent_start" });
+      yield* fake.emit({
+        type: "message_end",
+        message: { role: "assistant", stopReason: "error", errorMessage: "Quota reached" },
+      });
+      yield* fake.emit({ type: "agent_settled" });
+      const terminal = yield* takeEvent((event) => event.type === "turn.terminal");
+      assert.isTrue(terminal.type === "turn.terminal" && terminal.status === "failed");
+
+      yield* fake.emit({ type: "compaction_start", reason: "threshold" });
+      const started = yield* takeEvent(
+        (event) => event.type === "turn_item.updated" && event.turnItem.type === "compaction",
+      );
+      yield* fake.emit({
+        type: "compaction_end",
+        reason: "threshold",
+        result: { summary: "smaller", tokensBefore: 426_013, estimatedTokensAfter: 3_400 },
+        aborted: false,
+        willRetry: false,
+      });
+      const completed = yield* takeEvent(
+        (event) =>
+          event.type === "turn_item.updated" &&
+          event.turnItem.type === "compaction" &&
+          event.turnItem.status !== "running",
+      );
+      const usage = yield* takeEvent((event) => event.type === "provider_thread.updated");
+
+      assert.isTrue(
+        started.type === "turn_item.updated" &&
+          started.sessionScoped === true &&
+          started.turnItem.status === "running" &&
+          started.turnItem.providerTurnId === providerTurnId &&
+          started.turnItem.nodeId === null,
+      );
+      assert.isTrue(
+        completed.type === "turn_item.updated" &&
+          started.type === "turn_item.updated" &&
+          completed.sessionScoped === true &&
+          completed.turnItem.id === started.turnItem.id &&
+          completed.turnItem.runId === started.turnItem.runId &&
+          completed.turnItem.type === "compaction" &&
+          completed.turnItem.status === "completed" &&
+          completed.turnItem.beforeTokenCount === 426_013 &&
+          completed.turnItem.afterTokenCount === 3_400,
+      );
+      assert.isTrue(
+        usage.type === "provider_thread.updated" &&
+          usage.sessionScoped === true &&
+          usage.providerThread.contextUsage?.usedTokens === 3_400 &&
+          usage.providerThread.contextUsage.updatedAt !== undefined,
+      );
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect("keeps a compaction's context when it ends while the next turn sets up", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      const { runtime, takeEvent } = yield* openRuntime(fake);
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("default"),
+        runtimePolicy,
+      });
+      yield* startTurn(runtime, providerThread);
+      yield* fake.takeRequest("prompt");
+      yield* fake.emit({ type: "agent_start" });
+      yield* fake.emit({ type: "agent_settled" });
+      yield* takeEvent((event) => event.type === "turn.terminal");
+
+      fake.deferNextModelSelection();
+      const starting = yield* startTurn(
+        runtime,
+        providerThread,
+        "default",
+        [],
+        "Second turn",
+        modelSelection("xai/grok-4.6"),
+        2,
+      ).pipe(Effect.forkScoped);
+      const modelRequest = yield* fake.takeRequest("set_model");
+      yield* fake.emit({ type: "compaction_start", reason: "threshold" });
+      yield* fake.emit({
+        type: "compaction_end",
+        reason: "threshold",
+        result: { summary: "smaller", tokensBefore: 426_013, estimatedTokensAfter: 3_400 },
+        aborted: false,
+        willRetry: false,
+      });
+      yield* takeEvent(
+        (event) =>
+          event.type === "provider_thread.updated" &&
+          event.providerThread.contextUsage?.usedTokens === 3_400,
+      );
+      yield* fake.emit({
+        type: "response",
+        id: modelRequest["id"],
+        command: "set_model",
+        success: true,
+        data: { provider: "xai", id: "grok-4.6" },
+      });
+      yield* Fiber.join(starting);
+      const active = yield* takeEvent(
+        (event) =>
+          event.type === "provider_thread.updated" && event.providerThread.status === "active",
+      );
+      assert.isTrue(
+        active.type === "provider_thread.updated" &&
+          active.providerThread.contextUsage?.usedTokens === 3_400,
+      );
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
   it.effect("restarts Pi when Stop interrupts detached compaction", () =>
     Effect.gen(function* () {
       const fake = yield* makeFakePi;
