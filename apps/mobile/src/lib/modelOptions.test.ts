@@ -13,6 +13,7 @@ import {
 import {
   buildModelOptions,
   describeUnavailableModelSelection,
+  findModelOption,
   groupByProvider,
   isModelSelectionUnavailable,
   resolveDefaultableModelSelection,
@@ -164,6 +165,62 @@ describe("mobile model options", () => {
         (option) => option.providerKey === "codex",
       ),
     );
+  });
+
+  it("offers a model pool as one option that names the pool, only where providers may switch", () => {
+    const providers = ["codex", "claudeAgent"].map((instanceId) => ({
+      instanceId,
+      driver: instanceId,
+      enabled: true,
+      installed: true,
+      status: "ready",
+      auth: { status: "authenticated" },
+      models: [{ slug: "test", name: instanceId, capabilities: null }],
+    }));
+    const config = {
+      providers,
+      settings: {
+        providerInstances: {},
+        modelPools: {
+          both: {
+            displayName: "Test pool",
+            policy: { strategy: "order" },
+            slots: [
+              { providerInstanceId: "claudeAgent", model: "test" },
+              { providerInstanceId: "codex", model: "test" },
+            ],
+          },
+          off: {
+            displayName: "Off pool",
+            slots: [{ providerInstanceId: "codex", model: "test", enabled: false }],
+          },
+        },
+      },
+    } as unknown as ServerConfig;
+    const pooled = {
+      instanceId: ProviderInstanceId.make("claudeAgent"),
+      model: "test",
+      poolId: "both",
+    } as ModelSelection;
+
+    const options = buildModelOptions(config, pooled, undefined, null);
+    expect(options.filter((option) => option.providerKey === "model-pools")).toMatchObject([
+      {
+        key: "model-pool:both",
+        label: "Test pool",
+        selection: { instanceId: "claudeAgent", model: "test", poolId: "both" },
+      },
+    ]);
+    expect(findModelOption(options, pooled)?.key).toBe("model-pool:both");
+    // The slot's own option stays an individual model.
+    expect(findModelOption(options, { ...pooled, poolId: undefined })?.selection).toEqual({
+      instanceId: "claudeAgent",
+      model: "test",
+    });
+    // A thread held to one provider is offered no pool, and its pooled selection shows as its slot.
+    const locked = buildModelOptions(config, pooled, pooled.instanceId, null);
+    expect(locked.some((option) => option.providerKey === "model-pools")).toBe(false);
+    expect(findModelOption(locked, pooled)?.key).toBe("claudeAgent:test");
   });
 
   it("keeps accounts in the continuation group and excludes other providers", () => {

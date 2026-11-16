@@ -29,6 +29,7 @@ import type { DraftComposerAttachment } from "../../lib/composerImages";
 import type { ModelOption, ProviderGroup } from "../../lib/modelOptions";
 import {
   buildModelOptions,
+  findModelOption,
   groupByProvider,
   resolveDefaultableModelSelection,
   resolveNewTaskModelSelection,
@@ -473,17 +474,10 @@ export function NewTaskFlowProvider(
     projectId: selectedProject?.id ?? null,
     now: modelSelectionNow,
   }).selection;
-  const selectedModelKey = selectedModel
-    ? `${selectedModel.instanceId}:${selectedModel.model}`
-    : null;
-
-  const selectedModelOption =
-    modelOptions.find(
-      (option) =>
-        selectedModel &&
-        option.selection.instanceId === selectedModel.instanceId &&
-        option.selection.model === selectedModel.model,
-    ) ?? null;
+  const selectedModelOption = findModelOption(modelOptions, selectedModel) ?? null;
+  const selectedModelKey =
+    selectedModelOption?.key ??
+    (selectedModel ? `${selectedModel.instanceId}:${selectedModel.model}` : null);
   const selectedProviderStatus =
     selectedEnvironmentServerConfig?.providers.find(
       (provider) => provider.instanceId === selectedModel?.instanceId,

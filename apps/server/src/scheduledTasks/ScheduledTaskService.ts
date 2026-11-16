@@ -546,11 +546,7 @@ export const layer = Layer.effect(
         const resolved = result.roles.find((entry) => entry.role === role);
         if (resolved?.selection == null && resolved?.refusal?.startsWith("conservation:"))
           return yield* taskError(resolved.refusal);
-        if (resolved?.selection == null) return null;
-        // The role placed this run on a pool slot under conservation; a pool id would let
-        // thread creation place it again without that rule.
-        const { poolId: _placed, ...selection } = resolved.selection;
-        return selection;
+        return resolved?.selection ?? null;
       },
       (effect, role) =>
         effect.pipe(
@@ -570,9 +566,13 @@ export const layer = Layer.effect(
      */
     const runModel = (task: ScheduledTask) =>
       task.agentRole == null
-        ? Effect.succeed(task.modelSelection)
+        ? Effect.succeed({ modelSelection: task.modelSelection, placedByRole: false })
         : resolveRoleModel(task.agentRole, task.runtimeMode, task.projectId).pipe(
-            Effect.map((selection) => selection ?? task.modelSelection),
+            Effect.map((selection) =>
+              selection === null
+                ? { modelSelection: task.modelSelection, placedByRole: false }
+                : { modelSelection: selection, placedByRole: true },
+            ),
           );
 
     // Webhook deliveries for one task dispatch in arrival order rather than
@@ -1186,12 +1186,13 @@ export const layer = Layer.effect(
           active.threadId === null
             ? yield* Effect.exit(
                 runModel(active).pipe(
-                  Effect.flatMap((modelSelection) =>
+                  Effect.flatMap(({ modelSelection, placedByRole }) =>
                     threadLaunch.launch({
                       commandId,
                       projectId: active.projectId,
                       title: active.title,
                       modelSelection,
+                      ...(placedByRole ? { placedByRole } : {}),
                       runtimeMode: active.runtimeMode,
                       interactionMode: active.interactionMode,
                       workspaceStrategy: active.workspaceStrategy,

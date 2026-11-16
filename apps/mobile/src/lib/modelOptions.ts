@@ -15,6 +15,9 @@ import type {
 import {
   disallowedProviderMessage,
   isManagedDriverAllowed,
+  isModelPoolSlotEnabled,
+  type ModelPoolId,
+  resolveModelPoolEnabled,
   isProviderDriverKind,
   resolveProjectProviderInstanceEnabled,
 } from "@t3tools/contracts";
@@ -22,6 +25,11 @@ import {
   buildExplicitProviderOptionSelectionsFromDescriptors,
   getProviderOptionDescriptors,
 } from "@t3tools/shared/model";
+import {
+  adaptModelSelectionForSlot,
+  formatModelPoolSummary,
+  pickModelPoolSlot,
+} from "@t3tools/shared/modelPools";
 import { resolveModelShortName } from "@t3tools/client-runtime/provider-clients";
 import { resolveProvidersForCwd } from "@t3tools/client-runtime/providerSkills";
 
@@ -143,8 +151,9 @@ function normalizeSelectionOptions(
   if (!capabilities) {
     return selection;
   }
+  const poolId = selection.poolId === undefined ? {} : { poolId: selection.poolId };
   if (!selection.options?.length) {
-    return { instanceId: selection.instanceId, model: selection.model };
+    return { instanceId: selection.instanceId, model: selection.model, ...poolId };
   }
   const options = buildExplicitProviderOptionSelectionsFromDescriptors(
     getProviderOptionDescriptors({
@@ -158,8 +167,30 @@ function normalizeSelectionOptions(
     : {
         instanceId: selection.instanceId,
         model: selection.model,
+        ...poolId,
       };
 }
+
+/** A model pool's option is keyed by the pool, so a pooled selection never reads as its slot. */
+export const modelOptionKey = (
+  selection: Pick<ModelSelection, "instanceId" | "model" | "poolId">,
+) =>
+  selection.poolId === undefined
+    ? `${selection.instanceId}:${selection.model}`
+    : `model-pool:${selection.poolId}`;
+
+/** The option showing a selection: its pool's, else (pool gone or not offered) its slot's. */
+export const findModelOption = (
+  options: ReadonlyArray<ModelOption>,
+  selection: Pick<ModelSelection, "instanceId" | "model" | "poolId"> | null | undefined,
+): ModelOption | undefined => {
+  if (selection == null) return undefined;
+  const key = modelOptionKey(selection);
+  const slotKey = `${selection.instanceId}:${selection.model}`;
+  return (
+    options.find((option) => option.key === key) ?? options.find((option) => option.key === slotKey)
+  );
+};
 
 /** The config as a project at `cwd` sees it, with that project's own provider models. */
 export function serverConfigForCwd<C extends T3ServerConfig | null | undefined>(
@@ -290,9 +321,12 @@ export function resolveNewTaskModelSelection(input: {
   );
 }
 
+const withoutPool = ({ poolId: _poolId, ...selection }: ModelSelection): ModelSelection =>
+  selection;
+
 export function buildModelOptions(
   config: T3ServerConfig | null | undefined,
-  fallbackModelSelection: ModelSelection | null,
+  pooledFallback: ModelSelection | null,
   providerInstanceId: ModelSelection["instanceId"] | undefined,
   projectId: ProjectId | null,
   includeHidden = false,
@@ -350,6 +384,38 @@ export function buildModelOptions(
       ),
     };
   };
+
+  // Pools span providers, so they are offered only where the thread may switch provider.
+  if (providerInstanceId === undefined) {
+    const providers = config?.providers ?? [];
+    const nowMs = Date.now();
+    for (const [id, pool] of Object.entries(config?.settings?.modelPools ?? {})) {
+      if (!resolveModelPoolEnabled(pool) || !pool.slots.some(isModelPoolSlotEnabled)) continue;
+      const poolId = id as ModelPoolId;
+      const slot =
+        pickModelPoolSlot({ pool, providers, nowMs })?.slot ??
+        pool.slots.find(isModelPoolSlotEnabled);
+      const provider = providers.find((candidate) =>
+        providerAnswersTo(candidate, slot?.providerInstanceId),
+      );
+      if (slot === undefined || provider === undefined) continue;
+      const selection = adaptModelSelectionForSlot({ poolId, slot, providers });
+      const key = modelOptionKey(selection);
+      options.set(key, {
+        key,
+        label: pool.displayName,
+        subtitle: formatModelPoolSummary(pool, providers),
+        providerKey: "model-pools",
+        providerLabel: "Model pools",
+        providerDriver: provider.driver,
+        isDefault: false,
+        isLegacy: false,
+        capabilities:
+          provider.models.find((model) => model.slug === slot.model)?.capabilities ?? null,
+        selection,
+      });
+    }
+  }
 
   for (const provider of config?.providers ?? []) {
     if (
@@ -409,6 +475,12 @@ export function buildModelOptions(
     }
   }
 
+  const fallbackModelSelection =
+    pooledFallback?.poolId === undefined
+      ? pooledFallback
+      : options.has(modelOptionKey(pooledFallback))
+        ? null
+        : withoutPool(pooledFallback);
   if (
     fallbackModelSelection &&
     (providerInstanceId === undefined ||

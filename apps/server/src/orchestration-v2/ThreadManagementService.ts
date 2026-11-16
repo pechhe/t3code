@@ -406,6 +406,11 @@ type ThreadManagementFailure = ThreadManagementError | Orchestrator.Orchestrator
 const PAUSED_TASK_RESUME_TEXT =
   "Your parent thread was stopped, which interrupted you, and has now resumed. Before you continue, check any operation you had running when you were stopped (a landing, a background command, a delegated task) and whether it finished. Then carry on with your task.";
 
+export interface DispatchOptions {
+  /** A subagent role placed this thread's pool slot, under conservation; routing keeps it. */
+  readonly placedByRole?: boolean | undefined;
+}
+
 export interface ThreadManagementServiceShape {
   readonly acknowledgeRemoteCustody: Orchestrator.OrchestratorV2["Service"]["acknowledgeRemoteCustody"];
   readonly searchThreadStream: (
@@ -419,6 +424,7 @@ export interface ThreadManagementServiceShape {
   ) => Effect.Effect<void, LegacyV1ThreadImporter.LegacyV1ThreadImportError>;
   readonly dispatch: (
     command: OrchestrationV2ServerCommand,
+    options?: DispatchOptions,
   ) => Effect.Effect<
     Orchestrator.OrchestratorV2DispatchResult,
     Orchestrator.OrchestratorV2Error | ThreadManagementProviderInstanceDisabledError
@@ -1058,11 +1064,17 @@ const make = Effect.gen(function* () {
 
   const routePoolCommand = (
     command: OrchestrationV2ServerCommand,
+    options?: DispatchOptions,
   ): Effect.Effect<OrchestrationV2ServerCommand, Orchestrator.OrchestratorV2Error> => {
     switch (command.type) {
       case "thread.create":
         return routePoolSelection(command, command.modelSelection, undefined, {
-          managed: command.agentTask === undefined ? undefined : { agentTask: command.agentTask },
+          managed:
+            command.agentTask !== undefined
+              ? { agentTask: command.agentTask }
+              : options?.placedByRole === true
+                ? {}
+                : undefined,
         }).pipe(Effect.map((modelSelection) => ({ ...command, modelSelection })));
       case "message.dispatch": {
         const selection = command.modelSelection;
@@ -1152,8 +1164,9 @@ const make = Effect.gen(function* () {
   const dispatchOwned = Effect.fn("orchestrationV2.threadManagement.dispatchOwned")(function* (
     input: OrchestrationV2ServerCommand,
     externalWorkOwner?: NonNullable<AgentTaskBinding["externalOwner"]>,
+    options?: DispatchOptions,
   ) {
-    const command = yield* routePoolCommand(input);
+    const command = yield* routePoolCommand(input, options);
     if (
       command.type === "thread.archive" ||
       command.type === "thread.delete" ||
@@ -1206,7 +1219,8 @@ const make = Effect.gen(function* () {
     return yield* orchestrator.dispatch(command);
   });
 
-  const dispatch: ThreadManagementServiceShape["dispatch"] = (input) => dispatchOwned(input);
+  const dispatch: ThreadManagementServiceShape["dispatch"] = (input, options) =>
+    dispatchOwned(input, undefined, options);
 
   const getProjectThreadRecords: ThreadManagementServiceShape["getProjectThreadRecords"] = (
     input,

@@ -136,6 +136,8 @@ export interface ThreadLaunchInput {
   readonly linkOrigin?: OrchestrationV2LinkOrigin;
   /** The parent there, when that environment's agent delegated this as a task. */
   readonly delegatedFrom?: OrchestrationV2DelegatedFrom;
+  /** A subagent role chose the model's pool slot, so routing keeps it rather than re-ranking. */
+  readonly placedByRole?: boolean;
 }
 
 type PreparationInput = Pick<
@@ -1512,28 +1514,31 @@ const make = Effect.gen(function* () {
                 threadId: candidateThreadId,
                 expectedEmpty: true,
               })
-            : threads.dispatch({
-                type: "thread.create",
-                ...(agentTask === undefined ? {} : { agentTask }),
-                commandId: input.commandId,
-                threadId: candidateThreadId,
-                projectId: input.projectId,
-                title: input.title,
-                modelSelection: input.modelSelection,
-                runtimeMode: input.runtimeMode,
-                interactionMode: input.interactionMode,
-                branch: initialBranch,
-                worktreePath: initialWorktreePath,
-                ...(input.importedNativeThread === undefined
-                  ? {}
-                  : { importedNativeThread: input.importedNativeThread }),
-                ...(input.linkOrigin === undefined ? {} : { linkOrigin: input.linkOrigin }),
-                ...(input.delegatedFrom === undefined
-                  ? {}
-                  : { delegatedFrom: input.delegatedFrom }),
-                createdBy: input.createdBy,
-                creationSource: input.creationSource,
-              });
+            : threads.dispatch(
+                {
+                  type: "thread.create",
+                  ...(agentTask === undefined ? {} : { agentTask }),
+                  commandId: input.commandId,
+                  threadId: candidateThreadId,
+                  projectId: input.projectId,
+                  title: input.title,
+                  modelSelection: input.modelSelection,
+                  runtimeMode: input.runtimeMode,
+                  interactionMode: input.interactionMode,
+                  branch: initialBranch,
+                  worktreePath: initialWorktreePath,
+                  ...(input.importedNativeThread === undefined
+                    ? {}
+                    : { importedNativeThread: input.importedNativeThread }),
+                  ...(input.linkOrigin === undefined ? {} : { linkOrigin: input.linkOrigin }),
+                  ...(input.delegatedFrom === undefined
+                    ? {}
+                    : { delegatedFrom: input.delegatedFrom }),
+                  createdBy: input.createdBy,
+                  creationSource: input.creationSource,
+                },
+                input.placedByRole === true ? { placedByRole: true } : undefined,
+              );
         const claimed = yield* claimDispatch.pipe(
           Effect.mapError(
             mapError(

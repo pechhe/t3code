@@ -65,6 +65,7 @@ import { cn } from "../../lib/cn";
 import { useReduceMotionEnabled } from "../../lib/appState";
 import {
   buildModelOptions,
+  findModelOption,
   groupByProvider,
   serverConfigForCwd,
   type ModelOption,
@@ -489,9 +490,11 @@ function ThreadSettingsSessionProvider(
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
   const displayedPrompt = pendingModel ? (pendingPrompt ?? props.prompt) : props.prompt;
 
-  const isApplied = (option: ModelOption) =>
-    option.selection.instanceId === props.selectedModel?.instanceId &&
-    option.selection.model === props.selectedModel.model;
+  const appliedKey = findModelOption(
+    props.providerGroups.flatMap((group) => group.models),
+    props.selectedModel,
+  )?.key;
+  const isApplied = (option: ModelOption) => option.key === appliedKey;
   const isDisplayed = (option: ModelOption) =>
     pendingModel ? option.key === pendingModel.key : isApplied(option);
 
@@ -1390,12 +1393,7 @@ export function ExistingThreadSettingsRouteScreen({
     lockedProviderInstanceId,
     selectedThread.projectId,
   );
-  const currentModelOption =
-    modelOptions.find(
-      (option) =>
-        option.selection.instanceId === modelSelection.instanceId &&
-        option.selection.model === modelSelection.model,
-    ) ?? null;
+  const currentModelOption = findModelOption(modelOptions, modelSelection) ?? null;
   const updateModelSelection = (selection: ModelSelection) =>
     selectThreadModel(route.params, selection);
 

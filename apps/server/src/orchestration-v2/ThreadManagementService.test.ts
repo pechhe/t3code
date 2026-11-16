@@ -267,6 +267,7 @@ const dispatchToPiAccount = (input: {
   readonly modelPools?: Record<string, unknown>;
   readonly conservedModels?: ReadonlyArray<string>;
   readonly shell?: Record<string, unknown>;
+  readonly dispatchOptions?: ThreadManagementService.DispatchOptions;
 }) => {
   const projectId = ProjectId.make("project:thread-management:pi-slot");
   const threadId = ThreadId.make("thread:thread-management:pi-slot");
@@ -378,7 +379,7 @@ const dispatchToPiAccount = (input: {
       createdBy: "user" as const,
       creationSource: "web" as const,
     };
-    const result = yield* Effect.result(threads.dispatch(command));
+    const result = yield* Effect.result(threads.dispatch(command, input.dispatchOptions));
     return { result, dispatched };
   }).pipe(Effect.provide(layerTest));
 };
@@ -520,6 +521,52 @@ it.effect("keeps a delegated task on the slot its role placed, never a conserved
         }) as unknown as OrchestrationV2ServerCommand,
     });
     expect(running.dispatched[0]).toMatchObject({ modelSelection: { model: conserved, poolId } });
+  }),
+);
+
+it.effect("starts a scheduled role run on the pool slot its role placed", () =>
+  Effect.gen(function* () {
+    const pi = ProviderInstanceId.make("pi");
+    const poolId = ModelPoolId.make("fable");
+    const conserved = "claude-subscription-yardsmith/claude-fable-5-2";
+    const placed = "opencode-go/claude-fable-5-2";
+    const create = (model: string, placedByRole: boolean) =>
+      dispatchToPiAccount({
+        model,
+        conservedModels: [conserved],
+        dispatchOptions: { placedByRole },
+        modelPools: {
+          [poolId]: {
+            displayName: "Fable",
+            policy: { strategy: "order" },
+            slots: [
+              { providerInstanceId: pi, model: conserved },
+              { providerInstanceId: pi, model: placed },
+            ],
+          },
+        },
+        command: (commandId, threadId) =>
+          ({
+            type: "thread.create",
+            commandId,
+            threadId,
+            projectId: ProjectId.make("project:thread-management:pi-slot"),
+            title: "Scheduled",
+            modelSelection: { instanceId: pi, model, poolId },
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdBy: "user",
+            creationSource: "server",
+          }) as unknown as OrchestrationV2ServerCommand,
+      });
+    // The role skipped the conserved first slot; the pool id stays so the run can fail over later.
+    const kept = yield* create(placed, true);
+    expect(kept.dispatched[0]).toMatchObject({ modelSelection: { model: placed, poolId } });
+    // Unplaced, a new thread takes the first slot in order, as a user's thread does.
+    const ranked = yield* create(placed, false);
+    expect(ranked.dispatched[0]).toMatchObject({ modelSelection: { model: conserved, poolId } });
   }),
 );
 
