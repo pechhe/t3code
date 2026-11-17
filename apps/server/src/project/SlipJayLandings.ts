@@ -44,6 +44,7 @@ import {
   landingForOperation,
   parseLandingDetail,
   parseLandingOutcome,
+  withRecoveredLanding,
   parseWatchLine,
   resolveWorkspaceLanding,
   runnerOverviewFromSnapshot,
@@ -179,6 +180,11 @@ export class SlipJayLandings extends Context.Service<
     readonly changes: Stream.Stream<LandingChange>;
     /** Every landing this host tracks, oldest first. */
     readonly landings: Effect.Effect<ReadonlyArray<TrackedLanding>>;
+    /**
+     * Tracks a finished landing the watch never saw end, from the runner's retained outcome;
+     * undefined while it runs or when the runner has no record of it.
+     */
+    readonly recover: (operationId: string) => Effect.Effect<TrackedLanding | undefined>;
     /** Starts the runner watch on a host with SlipJay, with no client asking for a status. */
     readonly follow: Effect.Effect<void>;
     /** The root of SlipJay workspace `name` in the repository holding `cwd`, while it exists. */
@@ -776,6 +782,12 @@ export const make = Effect.gen(function* () {
 
   const landings = Ref.get(state).pipe(Effect.map((current) => [...current.operations.values()]));
 
+  const recover = Effect.fn("SlipJayLandings.recover")(function* (operationId: string) {
+    const outcome = yield* readOutcome(operationId);
+    yield* transition((current) => withRecoveredLanding(current, operationId, outcome));
+    return (yield* Ref.get(state)).operations.get(operationId);
+  });
+
   // `slipjay list` prints `<name>\t<root>\t<state>` per workspace of the repository around `cwd`.
   const workspaceRoot: SlipJayLandings["Service"]["workspaceRoot"] = ({ cwd, name }) =>
     processes
@@ -801,6 +813,7 @@ export const make = Effect.gen(function* () {
 
   return SlipJayLandings.of({
     landings,
+    recover,
     follow,
     workspaceRoot,
     runner,
@@ -829,6 +842,7 @@ export const layerNone = Layer.succeed(
     ),
     changes: Stream.empty,
     landings: Effect.succeed([]),
+    recover: Effect.fn("SlipJayLandings.recover")(() => Effect.undefined),
     follow: Effect.void,
     workspaceRoot: Effect.fn("SlipJayLandings.workspaceRoot")(() => Effect.undefined),
     runner: Stream.make(emptyRunnerOverview),

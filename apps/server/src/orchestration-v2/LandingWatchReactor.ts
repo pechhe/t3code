@@ -217,6 +217,15 @@ const make = Effect.gen(function* () {
     });
   });
 
+  // A landing that ended while T3 restarted is in no snapshot or replay; the runner is asked
+  // once per operation, so a wait the runner never knew costs one read, not one per sweep.
+  const recoveryAsked = new Set<string>();
+  const recoverOnce = (operationId: string) => {
+    if (recoveryAsked.has(operationId)) return Effect.undefined;
+    recoveryAsked.add(operationId);
+    return slipJay.recover(operationId);
+  };
+
   const settleParkedLanding = Effect.fn("LandingWatchReactor.settleParkedLanding")(function* (
     thread: OrchestrationV2AppThread,
     wait: OrchestrationV2ParkedWait,
@@ -224,7 +233,7 @@ const make = Effect.gen(function* () {
   ) {
     if (wait.target.kind !== "landing") return;
     const { operationId } = wait.target;
-    const landing = landings.get(operationId);
+    const landing = landings.get(operationId) ?? (yield* recoverOnce(operationId));
     const end = engine.dispatch({
       type: "thread.thread-watch",
       commandId: CommandId.make(`server:landing-watch-end:${thread.id}:${wait.id}`),

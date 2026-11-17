@@ -13,6 +13,7 @@ import {
   resolveWorkspaceLanding,
   runnerOverviewFromSnapshot,
   submittingWorkspace,
+  withRecoveredLanding,
   type LandingWatchState,
 } from "./slipJayLandingState.ts";
 
@@ -166,6 +167,28 @@ describe("slipJayLandingState", () => {
     expect(
       landingForChange(applyLandingOutcome(state, "op_a", undefined), REPO, "change-a")?.status,
     ).toBe("unknown");
+  });
+
+  it("tracks a landing that ended unseen only once the runner reports it finished", () => {
+    const outcome = (fields: object) =>
+      Option.getOrUndefined(
+        parseLandingOutcome(
+          JSON.stringify({ repo: REPO, changeId: "change-r", stage: "publishing", ...fields }),
+        ),
+      );
+    const landed = outcome({ status: "landed", terminal: true, publication: { commitId: "abc" } });
+    expect(
+      landingForChange(
+        withRecoveredLanding(initialLandingWatchState, "op_r", landed),
+        REPO,
+        "change-r",
+      ),
+    ).toMatchObject({ status: "landed", commitId: "abc" });
+    const running = outcome({ status: "active", terminal: false });
+    expect(withRecoveredLanding(initialLandingWatchState, "op_r", running).operations.size).toBe(0);
+    expect(withRecoveredLanding(initialLandingWatchState, "op_r", undefined).operations.size).toBe(
+      0,
+    );
   });
 
   it("keeps the Spec a snapshot named after the landing leaves the queue", () => {

@@ -1896,8 +1896,18 @@ const createWorkspaceThread = (name: string, worktreePath: string) =>
 const makeLandingHarness = Effect.gen(function* () {
   const landings: Array<TrackedLanding> = [];
   const roots = new Map<string, string>();
+  // What the runner retained of landings the watch never saw end, and which were asked for.
+  const retained = new Map<string, TrackedLanding>();
+  const recoveries: Array<string> = [];
   const slipJay = Layer.mock(SlipJayLandings.SlipJayLandings)({
     landings: Effect.sync(() => [...landings]),
+    recover: (operationId) =>
+      Effect.sync(() => {
+        recoveries.push(operationId);
+        const landing = retained.get(operationId);
+        if (landing !== undefined) landings.push(landing);
+        return landing;
+      }),
     follow: Effect.void,
     changes: Stream.empty,
     repositoryOf: () => Effect.succeed("pechhe/t3code"),
@@ -1936,7 +1946,7 @@ const makeLandingHarness = Effect.gen(function* () {
       const { messages } = yield* engine.getThreadRecords(threadId, ["messages"]);
       return messages.filter((message) => message.notification?.source.kind === "landing");
     });
-  return { landings, roots, reactor, submit, finish, messages };
+  return { landings, roots, retained, recoveries, reactor, submit, finish, messages };
 });
 
 it.layer(layerTest)("landing watches", (it) => {
@@ -3191,6 +3201,42 @@ it.layer(layerTest)("parked waits", (it) => {
       assert.lengthOf(moreLanded, 0);
       assert.include(landed?.text, "Published commit: abc1234");
       assert.lengthOf(yield* parkedOf(landingThread), 0);
+    }),
+  );
+
+  it.effect("a parked landing that ended while T3 restarted wakes from the runner's outcome", () =>
+    Effect.gen(function* () {
+      const landing = yield* makeLandingHarness;
+      const thread = yield* createThread("park-restarted-landing");
+      landing.retained.set("op_restarted", {
+        operationId: "op_restarted",
+        repo: "pechhe/slipjay",
+        changeId: "change-op_restarted",
+        status: "landed",
+        stage: "publishing",
+        commitId: "abc1234",
+      });
+      yield* parkOn(
+        thread,
+        { kind: "landing", operationId: "op_restarted" },
+        { expectedMs: HOUR_MS },
+      );
+      yield* landing.reactor.sweep;
+      const [landed, ...more] = yield* landing.messages(thread);
+      assert.lengthOf(more, 0);
+      assert.include(landed?.text, "Published commit: abc1234");
+      assert.lengthOf(yield* parkedOf(thread), 0);
+
+      const unknown = yield* createThread("park-unknown-landing");
+      yield* parkOn(
+        unknown,
+        { kind: "landing", operationId: "op_unknown" },
+        { expectedMs: HOUR_MS },
+      );
+      yield* landing.reactor.sweep;
+      yield* landing.reactor.sweep;
+      assert.include((yield* parkedOf(unknown))[0]?.lastKnown, "does not track landing op_unknown");
+      assert.deepEqual(landing.recoveries, ["op_restarted", "op_unknown"]);
     }),
   );
 

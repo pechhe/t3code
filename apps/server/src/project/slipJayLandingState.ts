@@ -152,6 +152,8 @@ const decodeWatchLine = Schema.decodeUnknownOption(Schema.fromJsonString(WatchEn
 export const parseWatchLine = (line: string) => decodeWatchLine(line);
 
 const LandingOutcome = Schema.Struct({
+  repo: Schema.optional(Schema.String),
+  changeId: Schema.optional(Schema.String),
   status: Schema.String,
   stage: Schema.String,
   terminal: Schema.Boolean,
@@ -397,23 +399,46 @@ export function applyLandingOutcome(
     if (landing.status !== "active") return landing;
     if (outcome === undefined) return { ...landing, status: "unknown" };
     if (!outcome.terminal) return { ...landing, stage: outcome.stage };
-    const status =
-      outcome.status === "landed" ||
-      outcome.status === "failed" ||
-      outcome.status === "cancelled" ||
-      outcome.status === "declined"
-        ? outcome.status
-        : "unknown";
-    const commitId = outcome.publication?.commitId;
-    const reason = outcome.failure?.reason;
-    return {
-      ...landing,
-      status,
-      stage: outcome.failure?.stage ?? outcome.stage,
-      ...(commitId === undefined ? {} : { commitId }),
-      ...(reason === undefined ? {} : { reason }),
-    };
+    return { ...landing, ...finished(outcome) };
   });
+}
+
+const finished = (outcome: LandingOutcome) => {
+  const status =
+    outcome.status === "landed" ||
+    outcome.status === "failed" ||
+    outcome.status === "cancelled" ||
+    outcome.status === "declined"
+      ? outcome.status
+      : "unknown";
+  const commitId = outcome.publication?.commitId;
+  const reason = outcome.failure?.reason;
+  return {
+    status,
+    stage: outcome.failure?.stage ?? outcome.stage,
+    ...(commitId === undefined ? {} : { commitId }),
+    ...(reason === undefined ? {} : { reason }),
+  } as const;
+};
+
+/**
+ * A landing that ended while no watch ran (the server restarting) is in no snapshot and no
+ * replay, so the runner's retained outcome is the only record of it. Only a finished one is added.
+ */
+export function withRecoveredLanding(
+  state: LandingWatchState,
+  operationId: string,
+  outcome: LandingOutcome | undefined,
+): LandingWatchState {
+  if (state.operations.has(operationId) || !outcome?.terminal) return state;
+  if (outcome.repo === undefined || outcome.changeId === undefined) return state;
+  const landing: TrackedLanding = {
+    operationId,
+    repo: outcome.repo.toLowerCase(),
+    changeId: outcome.changeId,
+    ...finished(outcome),
+  };
+  return { ...state, operations: withOperation(state, landing) };
 }
 
 /** The latest landing of `changeId` in `repo`, as a workspace's status shows it. */
