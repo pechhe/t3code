@@ -187,7 +187,10 @@ describe("pi T3 MCP injection", () => {
         readOnlyShell,
       });
       assert.equal(launch.env[T3_PI_READ_ONLY_SHELL_ENV], shell ? "1" : undefined);
-      assert.equal(launch.env[T3_PI_INSTRUCTIONS_ENV]?.includes("$TMPDIR"), shell);
+      assert.equal(
+        launch.env[T3_PI_INSTRUCTIONS_ENV]?.includes("cannot change the assigned checkout"),
+        shell,
+      );
       if (readOnlyTools) {
         const allowed = launch.args[launch.args.indexOf("--tools") + 1]!.split(",");
         const excluded = launch.args[launch.args.indexOf("--exclude-tools") + 1]!.split(",");

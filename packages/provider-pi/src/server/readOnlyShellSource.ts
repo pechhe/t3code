@@ -11,26 +11,50 @@ def fail(reason):
     sys.exit("The read-only shell is unavailable on this host: " + reason)
 
 
-def writable_roots(scratch):
-    cwd = os.path.realpath(os.getcwd())
-    roots = [scratch, "/dev/null"]
+def git(cwd, *args):
     try:
-        result = subprocess.run(
-            ["git", "ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"],
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False,
-        )
-        if result.returncode == 0:
-            for entry in os.fsdecode(result.stdout).split("\0"):
-                if not entry or os.path.islink(entry):
-                    continue
-                path = os.path.realpath(entry)
-                relative = os.path.relpath(path, cwd)
-                if (relative != "." and not relative.startswith(".." + os.sep)
-                        and relative != ".." and not {".git", ".jj"}.intersection(relative.split(os.sep))
-                        and os.path.exists(path)):
-                    roots.append(path)
+        result = subprocess.run(["git", "-C", cwd, *args], stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL, check=False)
     except FileNotFoundError:
-        pass
+        return ""
+    return os.fsdecode(result.stdout) if result.returncode == 0 else ""
+
+
+def checkout_root():
+    cwd = os.path.realpath(os.getcwd())
+    top = git(cwd, "rev-parse", "--show-toplevel").strip()
+    return os.path.realpath(top) if top else cwd
+
+
+def checkout_writes(checkout):
+    """The checkout's git-ignored paths that exist, and its version-control metadata."""
+    listing = git(checkout, "ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z")
+    roots = []
+    for entry in [*listing.split("\0"), ".git", ".jj"]:
+        path = os.path.join(checkout, entry.rstrip("/"))
+        # A symlink could point back at tracked source; nothing needs to write through one.
+        if not entry or os.path.islink(path) or not os.path.exists(path):
+            continue
+        path = os.path.realpath(path)
+        if os.path.commonpath([path, checkout]) == checkout and path != checkout:
+            roots.append(path)
+    return roots
+
+
+def outside_writes(checkout):
+    """Every path beside the checkout or one of its parents: all of the filesystem but the checkout."""
+    roots, below = [], checkout
+    while os.path.dirname(below) != below:
+        above = os.path.dirname(below)
+        try:
+            names = os.listdir(above)
+        except OSError:
+            names = []
+        for name in names:
+            path = os.path.join(above, name)
+            if path != below and not os.path.islink(path):
+                roots.append(path)
+        below = above
     return roots
 
 
@@ -52,12 +76,15 @@ def landlock(roots):
     fd = libc.syscall(create, ctypes.byref(attr), ctypes.sizeof(attr), 0)
     if fd < 0:
         fail("Landlock create_ruleset: " + os.strerror(ctypes.get_errno()))
+    # A root that cannot be added stays read-only, which only narrows the sandbox.
     for path in roots:
-        pfd = os.open(path, os.O_PATH | os.O_CLOEXEC)
+        try:
+            pfd = os.open(path, os.O_PATH | os.O_CLOEXEC)
+        except OSError:
+            continue
         allowed = writes if os.path.isdir(path) else write_file | truncate
         rule = PathBeneath(allowed, pfd)
-        if libc.syscall(add, fd, 1, ctypes.byref(rule), 0) != 0:
-            fail("Landlock add_rule: " + os.strerror(ctypes.get_errno()))
+        libc.syscall(add, fd, 1, ctypes.byref(rule), 0)
         os.close(pfd)
     if libc.prctl(38, 1, 0, 0, 0) != 0:
         fail("cannot set no_new_privs")
@@ -75,13 +102,17 @@ def main():
         if len(args) < 5 or args[0] != "--scratch" or args[2] != "--":
             fail("invalid launcher arguments")
         scratch = os.path.realpath(args[1])
-        roots, command = writable_roots(scratch), args[3:]
+        checkout, command = checkout_root(), args[3:]
+        inside = checkout_writes(checkout)
         os.environ["TMPDIR"] = scratch
-    if sys.platform == "linux":
+    if probe and sys.platform == "linux":
         landlock(roots)
+    elif sys.platform == "linux":
+        landlock([scratch, *outside_writes(checkout), *inside])
     elif sys.platform == "darwin":
-        profile = "(version 1)(allow default)(deny file-write*)"
-        for path in roots:
+        profile = "(version 1)(allow default)(deny file-write*)" if probe else (
+            "(version 1)(allow default)(deny file-write* (subpath " + json.dumps(checkout, ensure_ascii=False) + "))")
+        for path in roots if probe else inside:
             kind = "subpath" if os.path.isdir(path) else "literal"
             profile += "(allow file-write* (" + kind + " " + json.dumps(path, ensure_ascii=False) + "))"
         command = ["/usr/bin/sandbox-exec", "-p", profile, *command]

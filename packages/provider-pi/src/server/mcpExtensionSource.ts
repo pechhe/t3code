@@ -53,7 +53,7 @@ export const piChildInstructionsFor = (listing: {
   const instructions = PI_CHILD_INSTRUCTION_VARIANTS[piChildInstructionKey(listing)] ?? "";
   return listing.readOnlyShell === true
     ? instructions +
-        "\n\nYour shell filesystem is read-only outside its scratch directory ($TMPDIR) and git-ignored paths that already exist in the assigned checkout. Use jj with --ignore-working-copy; pnpm exec/run fail here, so call tools directly, such as node_modules/.bin/vp. Ignored directories such as node_modules are writable, but a command cannot create or replace an ignored file that sits directly in a source directory: when one fails for that reason, report the path instead of working around it."
+        "\n\nYour shell cannot change the assigned checkout's source files; everything outside the checkout, its .jj and .git metadata and its git-ignored paths that already exist stay writable, so jj, git and SlipJay commands work. pnpm exec/run fail here, so call tools directly, such as node_modules/.bin/vp. A command cannot create a new file or directory directly in a source directory, ignored or not: when one fails for that reason, report the path instead of working around it."
     : instructions;
 };
 
