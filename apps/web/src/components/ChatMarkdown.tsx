@@ -1577,15 +1577,20 @@ const CHAT_MARKDOWN_COMPONENTS = {
           inlineCodeFilePathCandidate(codeText) ?? codeText.trim(),
         );
       }
+      if (insideLink) {
+        return (
+          <code {...props} className={className} onDoubleClick={selectInlineCode}>
+            {children}
+          </code>
+        );
+      }
       return (
-        <code {...props} className={className} onDoubleClick={selectInlineCode}>
-          {children}
-        </code>
-      );
-    }
-    if (node?.properties?.dataInlineCode != null && !insideLink) {
-      return (
-        <CopyableInlineCode {...props} className={className} text={nodeToPlainText(children)}>
+        <CopyableInlineCode
+          {...props}
+          className={className}
+          text={codeText}
+          onDoubleClick={selectInlineCode}
+        >
           {children}
         </CopyableInlineCode>
       );

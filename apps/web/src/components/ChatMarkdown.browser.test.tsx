@@ -716,6 +716,14 @@ describe("ChatMarkdown inline code selection", () => {
     expect(window.getSelection()?.toString()).toBe("fenced");
   });
 
+  it("copies inline code on a single click", async () => {
+    setup();
+    await using screen = await renderText("Run `migration-gate --dry-run` first.");
+    using writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    await userEvent.click(screen.getByText("migration-gate --dry-run"));
+    expect(writeText).toHaveBeenCalledWith("migration-gate --dry-run");
+  });
+
   it("selects the whole line on triple-click beside a favicon link or a file chip", async () => {
     setup();
     await using screen = await renderText(
