@@ -3238,6 +3238,29 @@ it.effect("interrupts open background items when the session is detached on purp
   }),
 );
 
+it.effect.each(["failed", "cancelled", "interrupted"] as const)(
+  "settles run-owned tool calls when the provider reports a %s terminal",
+  (status) =>
+    Effect.gen(function* () {
+      const { written, observed } = yield* captureRootRunTermination({
+        key: `terminal:${status}:open-tool`,
+        shouldFinalizeRun: () => Effect.succeed(true),
+        events: (ids) =>
+          Stream.make(
+            backgroundTurnItemEvent(ids, "dynamic_tool", "running", 1),
+            rootTerminalEvent(ids, status),
+          ),
+      });
+      assert.deepEqual(observed, [`run:${status}`, "pull-requests-refreshed"]);
+      const tools = written.filter((item) => item.type === "dynamic_tool");
+      assert.deepEqual(
+        tools.map((item) => item.status),
+        ["interrupted"],
+      );
+      assert.isNotNull(tools[0]?.completedAt);
+    }),
+);
+
 it.effect("interrupts open background items when provider event ingestion fails", () =>
   Effect.gen(function* () {
     const { written, observed } = yield* captureRootRunTermination({

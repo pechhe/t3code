@@ -339,13 +339,22 @@ export function delegatedTaskRunHold(
   readonly held: boolean;
   readonly abandonedBackgroundWork: ReadonlyArray<OrchestrationV2PendingBackgroundTask>;
 } {
+  // Before source settlement, failed/cancelled/interrupted runs left dynamic_tool items running.
+  // Remove this compatibility filter once no such stored run can still hold a task open.
+  const stoppedRunIds = new Set(
+    projection.runs
+      .filter((run) => ["failed", "cancelled", "interrupted"].includes(run.status))
+      .map((run) => String(run.id)),
+  );
   const backgroundWork = [
     ...new Map(
       [
         ...derivePendingBackgroundWork({
           latestRun: resultRun,
           providerThreads: projection.providerThreads,
-          turnItems: projection.turnItems,
+          turnItems: projection.turnItems.filter(
+            (item) => item.type !== "dynamic_tool" || !stoppedRunIds.has(String(item.runId)),
+          ),
           activeProviderThreadId: projection.thread.activeProviderThreadId,
           runs: projection.runs,
           pullRequests: projection.thread.pullRequests,

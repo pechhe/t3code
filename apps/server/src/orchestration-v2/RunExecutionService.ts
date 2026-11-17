@@ -1281,6 +1281,11 @@ export const layer: Layer.Layer<
           }
           const providerThread = yield* Ref.get(latestProviderThread);
           const openSubagents = yield* Ref.get(openRunOwnedSubagents);
+          const openTools = isRunOwnedSubagentTerminalStatus(terminal.status)
+            ? [...(yield* Ref.get(openBackgroundTurnItems)).values()].filter(
+                (item) => item.type === "dynamic_tool" && item.runId === input.run.id,
+              )
+            : [];
           const writeTerminal = (settledTerminal: ProviderTerminalEvent) =>
             writeFinalRunEvents({
               run: input.run,
@@ -1311,6 +1316,7 @@ export const layer: Layer.Layer<
               ...(input.movedTo === undefined ? {} : { movedTo: input.movedTo }),
               openRunOwnedSubagents: openSubagents,
               openRunOwnedSubagentsTerminal: terminal,
+              interruptTurnItems: openTools,
               ...(abandonedProviderTurn === undefined ? {} : { abandonedProviderTurn }),
               terminal: settledTerminal,
               failureItemPersisted: settledTerminal.status === "failed",

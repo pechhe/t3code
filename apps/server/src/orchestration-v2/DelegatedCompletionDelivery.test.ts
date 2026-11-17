@@ -6029,7 +6029,7 @@ it.layer(layerTest)("delegated tasks across a server restart", (it) => {
       }),
   );
 
-  it.effect("settles a child whose provider failure holds its queued wakes", () =>
+  it.effect("settles a failed child with a stale tool and queued wakes", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
       const eventSink = yield* EventSink.EventSinkV2;
@@ -6075,6 +6075,33 @@ it.layer(layerTest)("delegated tasks across a server restart", (it) => {
         commandId: CommandId.make("command:failed-hold-child:resumed"),
         events: [
           activeRun,
+          {
+            id: EventId.make("event:failed-hold-child:tool"),
+            type: "turn-item.updated",
+            threadId: child.childThreadId,
+            runId: activeRun.runId,
+            occurredAt: now,
+            payload: {
+              id: TurnItemId.make("turn-item:failed-hold-child:tool"),
+              type: "dynamic_tool",
+              threadId: child.childThreadId,
+              runId: activeRun.runId,
+              nodeId: null,
+              providerThreadId: null,
+              providerTurnId: null,
+              nativeItemRef: null,
+              parentItemId: null,
+              ordinal: 0,
+              status: "running",
+              title: "read",
+              startedAt: now,
+              completedAt: null,
+              updatedAt: now,
+              toolName: "read",
+              input: { path: "/tmp/image.png" },
+              output: null,
+            },
+          },
           { ...queued, payload: { ...queued.payload, startedAt: null, completedAt: null } },
         ],
       });
@@ -6134,7 +6161,19 @@ it.layer(layerTest)("delegated tasks across a server restart", (it) => {
         );
       assert.isTrue(settled._tag === "Some");
       const recovered = yield* orchestrator.getThreadProjection(threadId);
-      assert.equal(recovered.subagents.find((row) => row.id === child.taskId)?.status, "failed");
+      const task = recovered.subagents.find((row) => row.id === child.taskId);
+      assert.equal(task?.status, "failed");
+      assert.include(task?.result ?? "", "Provider failed.");
+      yield* orchestrator.recoverDelegatedTasks;
+      const woken = yield* orchestrator.getThreadProjection(threadId);
+      assert.lengthOf(
+        woken.runs.filter((run) => run.delegatedCompletion !== undefined),
+        1,
+      );
+      assert.lengthOf(
+        woken.contextTransfers.filter((transfer) => transfer.type === "subagent_result"),
+        1,
+      );
       const childProjection = yield* orchestrator.getThreadProjection(child.childThreadId);
       assert.deepEqual(
         childProjection.runs.map((run) => [run.status, run.queueHeld ?? false]),

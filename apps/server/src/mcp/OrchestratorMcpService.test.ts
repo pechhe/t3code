@@ -30,6 +30,7 @@ import {
   ProviderTurnId,
   RunId,
   ThreadId,
+  TurnItemId,
   type OrchestrationV2ServerCommand,
   type OrchestrationV2StoredEvent,
   type OrchestrationV2ThreadProjection,
@@ -439,197 +440,223 @@ describe("OrchestratorMcpService", () => {
     }).pipe(Effect.provide(Layer.mergeAll(Layer.mock(RemoteDelegation.RemoteDelegation)({})))),
   );
 
-  it.effect("retries terminal acknowledgement with a fresh command id", () =>
-    Effect.gen(function* () {
-      const parentThreadId = ThreadId.make("thread:mcp-ack-parent");
-      const childThreadId = ThreadId.make("thread:mcp-ack-child");
-      const childRunId = RunId.make("run:mcp-ack-child");
-      const taskId = NodeId.make("node:mcp-ack-task");
-      const resultTransferId = ContextTransferId.make("transfer:mcp-ack-result");
-      const acknowledgementCommandIds = yield* Ref.make<ReadonlyArray<string>>([]);
-      const acknowledgementAttempts = yield* Ref.make(0);
-      const parentProjection = {
-        thread: {
-          id: parentThreadId,
-          lineage: { parentThreadId: null, relationshipToParent: null },
-        },
-        runs: [],
-        subagents: [
-          {
-            id: taskId,
-            threadId: parentThreadId,
-            origin: "app_owned",
-            childThreadId,
-            driver: "codex",
-            model: "gpt-5.6-terra",
-            result: "terminal result",
-            completionDelivery: { state: "pending" },
+  it.effect.each(["completed", "failed"] as const)(
+    "retries %s terminal acknowledgement with a fresh command id despite stale tool items",
+    (terminalStatus) =>
+      Effect.gen(function* () {
+        const parentThreadId = ThreadId.make("thread:mcp-ack-parent");
+        const childThreadId = ThreadId.make("thread:mcp-ack-child");
+        const childRunId = RunId.make("run:mcp-ack-child");
+        const taskId = NodeId.make("node:mcp-ack-task");
+        const resultTransferId = ContextTransferId.make("transfer:mcp-ack-result");
+        const summary =
+          terminalStatus === "failed" ? "Pi process exited unexpectedly." : "terminal result";
+        const acknowledgementCommandIds = yield* Ref.make<ReadonlyArray<string>>([]);
+        const acknowledgementAttempts = yield* Ref.make(0);
+        const parentProjection = {
+          thread: {
+            id: parentThreadId,
+            lineage: { parentThreadId: null, relationshipToParent: null },
           },
-        ],
-      } as unknown as OrchestrationV2ThreadProjection;
-      const childProjection = {
-        providerSessions: [],
-        thread: { id: childThreadId, title: "Child" },
-        runs: [
-          {
-            id: childRunId,
-            ordinal: 1,
-            status: "completed",
-            startedAt: DateTime.makeUnsafe("2026-10-03T10:00:00Z"),
-            completedAt: DateTime.makeUnsafe("2026-10-03T10:10:00Z"),
-          },
-          {
-            id: RunId.make("run:mcp-ack-continuation"),
-            ordinal: 2,
-            status: "failed",
-            startedAt: DateTime.makeUnsafe("2026-10-03T10:02:00Z"),
-            completedAt: DateTime.makeUnsafe("2026-10-03T10:05:00Z"),
-          },
-        ],
-        contextTransfers: [
-          {
-            id: resultTransferId,
-            type: "subagent_result",
-            sourceThreadId: childThreadId,
-            targetThreadId: parentThreadId,
-            sourcePoint: { runId: childRunId },
-          },
-        ],
-        messages: [
-          {
-            id: MessageId.make("message:mcp-ack-result"),
-            runId: childRunId,
-            role: "assistant",
-            text: "terminal result",
-            createdAt: DateTime.makeUnsafe("2026-10-03T10:10:00Z"),
-            updatedAt: DateTime.makeUnsafe("2026-10-03T10:10:00Z"),
-          },
-        ],
-        turnItems: [],
-        subagents: [],
-        providerThreads: [],
-        providerTurns: [],
-        runtimeRequests: [],
-      } as unknown as OrchestrationV2ThreadProjection;
-      let hasNestedWork = true;
-      let settleAfterTaskRead = false;
-      let parentExpired = false;
-      const layerDependencies = Layer.mergeAll(
-        Layer.merge(
-          Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
-          Layer.mock(Experiments.ExperimentService)({
-            assignForTask: () => Effect.succeed([]),
-            assignments: () => Effect.succeed([]),
-          }),
-        ),
-        NodeCrypto.layer,
-        Layer.mock(ThreadManagementService.ThreadManagementService)({
-          getThreadRecords: (threadId) =>
-            Effect.sync(() => {
-              if (threadId !== parentThreadId) {
-                return hasNestedWork
-                  ? {
-                      ...childProjection,
-                      contextTransfers: [],
-                      subagents: [
-                        { ...parentProjection.subagents[0]!, status: "running" as const },
-                      ],
-                    }
-                  : childProjection;
-              }
-              const snapshot = hasNestedWork
-                ? {
-                    ...parentProjection,
-                    subagents: parentProjection.subagents.map((task) => ({
-                      ...task,
-                      result: null,
-                      status: "running" as const,
-                    })),
-                  }
-                : parentProjection;
-              if (settleAfterTaskRead) {
-                settleAfterTaskRead = false;
-                hasNestedWork = false;
-              }
-              return parentExpired
-                ? {
-                    ...snapshot,
-                    subagents: snapshot.subagents.map((task) => ({
-                      ...task,
-                      result: "terminal",
-                      detailRemoved: { at: "2026-11-16T00:00:00.000Z", afterDays: 14 },
-                    })),
-                  }
-                : snapshot;
+          runs: [],
+          subagents: [
+            {
+              id: taskId,
+              threadId: parentThreadId,
+              origin: "app_owned",
+              childThreadId,
+              driver: "codex",
+              model: "gpt-5.6-terra",
+              result: summary,
+              completionDelivery: { state: "pending" },
+            },
+          ],
+        } as unknown as OrchestrationV2ThreadProjection;
+        const childProjection = {
+          providerSessions: [],
+          thread: { id: childThreadId, title: "Child" },
+          runs: [
+            {
+              id: childRunId,
+              ordinal: 1,
+              status: terminalStatus,
+              startedAt: DateTime.makeUnsafe("2026-10-03T10:00:00Z"),
+              completedAt: DateTime.makeUnsafe("2026-10-03T10:10:00Z"),
+            },
+            {
+              id: RunId.make("run:mcp-ack-continuation"),
+              ordinal: 2,
+              status: "failed",
+              startedAt: DateTime.makeUnsafe("2026-10-03T10:02:00Z"),
+              completedAt: DateTime.makeUnsafe("2026-10-03T10:05:00Z"),
+            },
+          ],
+          contextTransfers: [
+            {
+              id: resultTransferId,
+              type: "subagent_result",
+              sourceThreadId: childThreadId,
+              targetThreadId: parentThreadId,
+              sourcePoint: { runId: childRunId },
+            },
+          ],
+          messages: [
+            {
+              id: MessageId.make("message:mcp-ack-result"),
+              runId: childRunId,
+              role: "assistant",
+              text: "terminal result",
+              createdAt: DateTime.makeUnsafe("2026-10-03T10:10:00Z"),
+              updatedAt: DateTime.makeUnsafe("2026-10-03T10:10:00Z"),
+            },
+          ],
+          turnItems:
+            terminalStatus === "failed"
+              ? [
+                  {
+                    id: TurnItemId.make("stale-read"),
+                    runId: childRunId,
+                    type: "dynamic_tool",
+                    status: "running",
+                    title: "read",
+                    ordinal: 1,
+                  },
+                  {
+                    id: TurnItemId.make("provider-error"),
+                    runId: childRunId,
+                    type: "error",
+                    status: "failed",
+                    ordinal: 2,
+                    failure: { message: summary },
+                  },
+                ]
+              : [],
+          subagents: [],
+          providerThreads: [],
+          providerTurns: [],
+          runtimeRequests: [],
+        } as unknown as OrchestrationV2ThreadProjection;
+        let hasNestedWork = true;
+        let settleAfterTaskRead = false;
+        let parentExpired = false;
+        const layerDependencies = Layer.mergeAll(
+          Layer.merge(
+            Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
+            Layer.mock(Experiments.ExperimentService)({
+              assignForTask: () => Effect.succeed([]),
+              assignments: () => Effect.succeed([]),
             }),
-          delegatedTaskResultPending: () => Effect.succeed(false),
-          dispatch: (command) =>
-            Ref.update(acknowledgementCommandIds, (commandIds) => [
-              ...commandIds,
-              String(command.commandId),
-            ]).pipe(
-              Effect.andThen(Ref.updateAndGet(acknowledgementAttempts, (count) => count + 1)),
-              Effect.flatMap((attempt) =>
-                attempt === 1
-                  ? Effect.fail(new Error("simulated acknowledgement failure") as never)
-                  : Effect.succeed({} as never),
+          ),
+          NodeCrypto.layer,
+          Layer.mock(ThreadManagementService.ThreadManagementService)({
+            getThreadRecords: (threadId) =>
+              Effect.sync(() => {
+                if (threadId !== parentThreadId) {
+                  return hasNestedWork
+                    ? {
+                        ...childProjection,
+                        contextTransfers: [],
+                        subagents: [
+                          { ...parentProjection.subagents[0]!, status: "running" as const },
+                        ],
+                      }
+                    : childProjection;
+                }
+                const snapshot = hasNestedWork
+                  ? {
+                      ...parentProjection,
+                      subagents: parentProjection.subagents.map((task) => ({
+                        ...task,
+                        result: null,
+                        status: "running" as const,
+                      })),
+                    }
+                  : parentProjection;
+                if (settleAfterTaskRead) {
+                  settleAfterTaskRead = false;
+                  hasNestedWork = false;
+                }
+                return parentExpired
+                  ? {
+                      ...snapshot,
+                      subagents: snapshot.subagents.map((task) => ({
+                        ...task,
+                        result: "terminal",
+                        detailRemoved: { at: "2026-11-16T00:00:00.000Z", afterDays: 14 },
+                      })),
+                    }
+                  : snapshot;
+              }),
+            delegatedTaskResultPending: () => Effect.succeed(false),
+            dispatch: (command) =>
+              Ref.update(acknowledgementCommandIds, (commandIds) => [
+                ...commandIds,
+                String(command.commandId),
+              ]).pipe(
+                Effect.andThen(Ref.updateAndGet(acknowledgementAttempts, (count) => count + 1)),
+                Effect.flatMap((attempt) =>
+                  attempt === 1
+                    ? Effect.fail(new Error("simulated acknowledgement failure") as never)
+                    : Effect.succeed({} as never),
+                ),
               ),
-            ),
-        }),
-        ServerSettings.layerTest(),
-        Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
-        Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
-          list: () => Effect.succeed([]),
-        }),
-        Layer.mock(ProjectService.ProjectService)({}),
-        Layer.mock(SecretRequests.SecretRequests)({}),
-        Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
-        Layer.mock(RemoteDelegation.RemoteDelegation)({}),
-        Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
-      );
-      const scope: McpInvocationScope = {
-        environmentId: EnvironmentId.make("environment:mcp-ack"),
-        requestNamespace: "provider-session:mcp-ack",
-        thread: {
-          threadId: parentThreadId,
-          providerSessionId: "provider-session:mcp-ack",
-          providerInstanceId: ProviderInstanceId.make("codex"),
-        },
-        client: undefined,
-        capabilities: new Set(["orchestration"]),
-        issuedAt: 1,
-      };
+          }),
+          ServerSettings.layerTest(),
+          Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+          Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
+            list: () => Effect.succeed([]),
+          }),
+          Layer.mock(ProjectService.ProjectService)({}),
+          Layer.mock(SecretRequests.SecretRequests)({}),
+          Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
+          Layer.mock(RemoteDelegation.RemoteDelegation)({}),
+          Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+        );
+        const scope: McpInvocationScope = {
+          environmentId: EnvironmentId.make("environment:mcp-ack"),
+          requestNamespace: "provider-session:mcp-ack",
+          thread: {
+            threadId: parentThreadId,
+            providerSessionId: "provider-session:mcp-ack",
+            providerInstanceId: ProviderInstanceId.make("codex"),
+          },
+          client: undefined,
+          capabilities: new Set(["orchestration"]),
+          issuedAt: 1,
+        };
 
-      yield* Effect.gen(function* () {
-        const service = yield* OrchestratorMcpService.OrchestratorMcpService;
-        const pending = yield* service.taskStatus(scope, taskId);
-        assert.equal(pending.status, "running");
-        assert.equal(pending.workState, "waiting_for_children");
-        assert.isNull(pending.summary);
-        assert.isNull(pending.resultContextTransferId);
-        assert.equal(yield* Ref.get(acknowledgementAttempts), 0);
-        hasNestedWork = false;
-        const error = yield* service.taskStatus(scope, taskId).pipe(Effect.flip);
-        assert.equal(error.code, "orchestration_error");
+        yield* Effect.gen(function* () {
+          const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+          const pending = yield* service.taskStatus(scope, taskId);
+          assert.equal(pending.status, "running");
+          assert.equal(pending.workState, "waiting_for_children");
+          assert.isNull(pending.summary);
+          assert.isNull(pending.resultContextTransferId);
+          assert.equal(yield* Ref.get(acknowledgementAttempts), 0);
+          hasNestedWork = false;
+          const error = yield* service.taskStatus(scope, taskId).pipe(Effect.flip);
+          assert.equal(error.code, "orchestration_error");
 
-        // Completion lands after task selection, before the remaining parent/child reads.
-        hasNestedWork = true;
-        settleAfterTaskRead = true;
-        const result = yield* service.taskStatus(scope, taskId);
-        assert.equal(result.status, "completed");
-        assert.equal(result.summary, "terminal result");
-        assert.equal(result.latestTerminalRunId, childRunId);
-        assert.equal(result.latestTerminalStatus, "completed");
-        assert.equal(result.resultContextTransferId, resultTransferId);
-        const commandIds = yield* Ref.get(acknowledgementCommandIds);
-        assert.equal(commandIds.length, 2);
-        assert.notEqual(commandIds[0], commandIds[1]);
-        // Retention cut the expired parent's record to one line; the child still has the answer.
-        parentExpired = true;
-        const expired = yield* service.taskStatus(scope, taskId);
-        assert.equal(expired.summary, "terminal result");
-      }).pipe(Effect.provide(layerOrchestratorService.pipe(Layer.provide(layerDependencies))));
-    }),
+          // Completion lands after task selection, before the remaining parent/child reads.
+          hasNestedWork = true;
+          settleAfterTaskRead = true;
+          const result = yield* service.taskStatus(scope, taskId);
+          assert.equal(result.status, terminalStatus);
+          assert.equal(result.workState, "result_available");
+          assert.equal(result.summary, summary);
+          assert.isUndefined(result.next);
+          assert.equal(result.latestTerminalRunId, childRunId);
+          assert.equal(result.latestTerminalStatus, terminalStatus);
+          assert.equal(result.resultContextTransferId, resultTransferId);
+          const commandIds = yield* Ref.get(acknowledgementCommandIds);
+          assert.equal(commandIds.length, 2);
+          assert.notEqual(commandIds[0], commandIds[1]);
+          // Retention cut the expired parent's record to one line; the child still has the answer.
+          parentExpired = true;
+          const expired = yield* service.taskStatus(scope, taskId);
+          assert.equal(expired.summary, summary);
+        }).pipe(Effect.provide(layerOrchestratorService.pipe(Layer.provide(layerDependencies))));
+      }),
   );
 
   it.effect(

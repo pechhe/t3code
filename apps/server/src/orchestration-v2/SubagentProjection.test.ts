@@ -666,6 +666,58 @@ it("holds a managed task for an awaited command until it ends, and never for one
   );
 });
 
+it.each(["failed", "cancelled", "interrupted"] as const)(
+  "publishes a stored %s delegated run despite stale running tool items",
+  (status) => {
+    const { projection, run } = delegatedTaskFixture();
+    const tool = {
+      id: TurnItemId.make("image-read"),
+      type: "dynamic_tool" as const,
+      status: "running" as const,
+      title: "read",
+      runId: run.id,
+      input: { path: "/tmp/image.png" },
+    };
+    assert.equal(progressOf({ ...projection, turnItems: [tool] }).state, "waiting_for_children");
+    const stoppedRun = { ...run, status };
+    const stored = {
+      ...projection,
+      runs: [stoppedRun],
+      turnItems: [tool],
+      pendingBlockingAdvice: true,
+    };
+    const progress = progressOf(stored);
+    assert.equal(progress.state, "result_available");
+    assert.equal(progress.resultRun?.status, status);
+    assert.equal(
+      progressOf({ ...stored, subagents: [{ status: "running" }] }).state,
+      "waiting_for_children",
+    );
+    assert.equal(
+      progressOf({ ...stored, subagents: [{ status: "completed" }] }).state,
+      "result_available",
+    );
+    assert.equal(
+      progressOf({
+        ...stored,
+        providerThreads: [
+          {
+            id: ProviderThreadId.make("provider:live-work"),
+            pendingBackgroundTasks: [{ taskId: "live-work", kind: "background_task" }],
+          },
+        ],
+      }).state,
+      "waiting_for_children",
+    );
+    const later = { ...run, id: RunId.make("later"), ordinal: 2, status: "running" as const };
+    assert.equal(
+      progressOf({ ...projection, runs: [run, later], turnItems: [{ ...tool, runId: later.id }] })
+        .state,
+      "working",
+    );
+  },
+);
+
 it("exposes the provider failure rather than a progress message from the failed run", () => {
   const { projection, run } = taskFixture();
   const failedRun = { ...run, status: "failed" as const };
