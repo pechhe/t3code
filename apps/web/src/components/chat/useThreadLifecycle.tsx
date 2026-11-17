@@ -685,8 +685,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
       finishedSubagents.length > 0 ||
       panelWaits.length > 0 ||
       panelParkedWaits.length > 0 ||
-      panelStanding?.waitsOnPerson !== undefined ||
-      panelStanding?.question !== undefined) ? (
+      panelStanding?.waitsOnPerson !== undefined) ? (
       <SubagentPanel
         threadRef={activeThreadRef}
         subagentIds={liveSubagentIds}

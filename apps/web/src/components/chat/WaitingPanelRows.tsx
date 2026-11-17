@@ -403,22 +403,6 @@ export function WaitsOnYouRow(props: {
   );
 }
 
-export function OwnerWaitRow({ question }: { readonly question: string }) {
-  return (
-    <div
-      data-owner-wait="true"
-      className="flex min-w-0 items-center gap-2 border-s-2 border-accent-foreground px-3 py-2"
-    >
-      <PanelKindLabel icon={UserIcon} you>
-        You
-      </PanelKindLabel>
-      <span className="min-w-0 flex-1 truncate font-medium text-foreground">
-        Waiting on your answer: {question}
-      </span>
-    </div>
-  );
-}
-
 const PARKED_KIND_ICON: Record<ParkedWaitKindLabel, LucideIcon> = {
   Release: FlagIcon,
   Time: ClockIcon,

@@ -54,7 +54,6 @@ import {
   StalledStatus,
   WaitRow,
   WaitsOnYouRow,
-  OwnerWaitRow,
   type PanelLinkHandlers,
 } from "./WaitingPanelRows";
 import { subagentSummaryLine } from "./V2LifecycleRow.logic";
@@ -667,11 +666,6 @@ export function SubagentPanel(props: {
           </div>
         ) : null}
       </Reveal>
-      {standing?.question === undefined ? null : (
-        <div className={cn((header || hasSubagentRows) && "border-t border-border/70")}>
-          <OwnerWaitRow question={standing.question} />
-        </div>
-      )}
       {waitsOnYou === null ? null : (
         <div className={cn((header || hasSubagentRows) && "border-t border-border/70")}>
           <WaitsOnYouRow threadRef={threadRef} waits={waitsOnYou} />
