@@ -1,9 +1,4 @@
-import type {
-  EnvironmentId,
-  OrchestrationV2ProviderGoal,
-  OrchestrationV2ProviderSession,
-  ThreadId,
-} from "@t3tools/contracts";
+import type { EnvironmentId, OrchestrationV2ProviderGoal, ThreadId } from "@t3tools/contracts";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import {
   presentProviderGoal,
@@ -25,19 +20,6 @@ import { Button, InlineButton } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import type { ComposerBannerStackItem } from "./ComposerBannerStack";
 import type { ThreadNowItem } from "./ThreadNow";
-
-export function extensionStatusBannerItem(
-  statuses: NonNullable<OrchestrationV2ProviderSession["extensionStatuses"]>,
-): ComposerBannerStackItem | null {
-  const visible = statuses.filter((status) => status.key !== "blackhole");
-  if (visible.length === 0) return null;
-  return {
-    id: "pi-extension-status",
-    variant: "default",
-    icon: <span>▸</span>,
-    title: <output>{`Pi · ${visible.map((status) => status.text).join(" · ")}`}</output>,
-  };
-}
 
 /** Subagents and side chats waiting on the user, unless the parent is itself waiting on them. */
 export function childInputNowItem(input: {

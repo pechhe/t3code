@@ -414,7 +414,7 @@ import {
   isAutomaticDraftEnvironment,
   useDraftEnvironmentRouting,
 } from "./chat/useDraftEnvironmentRouting";
-import { branchMismatchBannerItem, extensionStatusBannerItem } from "./chat/ThreadActivityBanners";
+import { branchMismatchBannerItem } from "./chat/ThreadActivityBanners";
 import { resolveThreadCompactionSavings } from "./chat/device/blackholeStatus.logic";
 import { ThreadNow } from "./chat/ThreadNow";
 import type { ThreadStructure } from "@t3tools/client-runtime/state/shell";
@@ -2847,10 +2847,6 @@ export default function ChatView(props: ChatViewProps) {
           ]
         : [];
     const limitRecoveryItems = limitRecoveryBanner === null ? [] : [limitRecoveryBanner];
-    const extensionStatusBanner = extensionStatusBannerItem(
-      deriveProviderExtensionStatuses(serverProjection),
-    );
-    const extensionStatusItems = extensionStatusBanner === null ? [] : [extensionStatusBanner];
     const projectSuggestionItems =
       projectSuggestionBanner === null ? [] : [projectSuggestionBanner];
     const handoffItems = threadHandoffBannerItem === null ? [] : [threadHandoffBannerItem];
@@ -2867,7 +2863,6 @@ export default function ChatView(props: ChatViewProps) {
         ...feedbackBannerItems,
         ...fallbackItems,
         ...limitRecoveryItems,
-        ...extensionStatusItems,
         ...usageLimitsItems,
         ...projectCloneItems,
         ...projectSuggestionItems,
@@ -2882,7 +2877,6 @@ export default function ChatView(props: ChatViewProps) {
       ...feedbackBannerItems,
       ...fallbackItems,
       ...limitRecoveryItems,
-      ...extensionStatusItems,
       ...usageLimitsItems,
       ...projectCloneItems,
       ...projectSuggestionItems,

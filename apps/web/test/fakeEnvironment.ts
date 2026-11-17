@@ -23,6 +23,7 @@ import {
   type OrchestrationProjectShell,
   type OrchestrationV2Command,
   type OrchestrationV2ProjectedTurnItem,
+  type OrchestrationV2ProviderSession,
   type OrchestrationV2ProviderThread,
   type OrchestrationV2Run,
   type OrchestrationV2ShellStreamItem,
@@ -225,6 +226,7 @@ export interface FakeThread {
   readonly modelSelection?: ModelSelection;
   /** The first is the thread's active provider thread. */
   readonly providerThreads?: ReadonlyArray<OrchestrationV2ProviderThread>;
+  readonly providerSessions?: ReadonlyArray<OrchestrationV2ProviderSession>;
   readonly runs: ReadonlyArray<OrchestrationV2Run>;
   readonly items: ReadonlyArray<OrchestrationV2TurnItem>;
 }
@@ -338,7 +340,7 @@ function projectionOf(thread: FakeThread): OrchestrationV2ThreadProjection {
     attempts: [],
     nodes: [],
     subagents: [],
-    providerSessions: [],
+    providerSessions: [...(thread.providerSessions ?? [])],
     providerThreads: [...(thread.providerThreads ?? [])],
     providerTurns: [],
     runtimeRequests: [],
