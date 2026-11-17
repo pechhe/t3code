@@ -395,7 +395,10 @@ export const runBrowserScript = Effect.fn("cli.browserRun.runScript")(function* 
   return yield* Effect.onInterrupt(finish, () => close("failed").pipe(Effect.asVoid));
 });
 
-/** Prints the one JSON object and sets the exit code; ends the process when the script outlived its run. */
+/**
+ * Prints the one JSON object and sets the exit code; ends the process when the script outlived its run.
+ * @public A test imports it from a generated script, which knip cannot see.
+ */
 export const reportBrowserRunOutput = (output: BrowserRunOutput): Effect.Effect<void> =>
   output.error === SCRIPT_OUTLIVED_RUN
     ? // Its promise cannot be cancelled, so the process ends with it once the report is out.
