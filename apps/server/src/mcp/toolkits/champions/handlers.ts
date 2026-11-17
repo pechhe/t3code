@@ -154,8 +154,6 @@ export const handlers = {
                 return service.setup({ id: input.id });
               case "cancel_setup":
                 return service.cancelSetup({ id: input.id });
-              case "discard_proposal":
-                return service.discardProposal({ id: input.id });
             }
           }),
         ),
@@ -163,25 +161,28 @@ export const handlers = {
       ),
     { linkedCallers: "allowed" },
   ),
-  t3_champions_proposal: McpToolAccess.either(
+  t3_champions_metrics: McpToolAccess.either(
     (input) => input.action === "edit",
     McpToolAccess.writesEnvironment(
       (input, check) =>
         Effect.gen(function* () {
-          yield* check;
+          const context = yield* check;
           const metrics = input.metrics ?? (input.retires === undefined ? undefined : []);
           if (input.id === undefined || metrics === undefined || input.reason === undefined)
             return yield* missing(
-              "t3_champions_proposal",
+              "t3_champions_metrics",
               "id, reason, and metrics or retires with action edit",
             );
           const service = yield* Champions.ChampionService;
-          return yield* service.propose({
-            id: input.id,
-            metrics,
-            ...(input.retires === undefined ? {} : { retires: input.retires }),
-            reason: input.reason,
-          });
+          return yield* service.changeMetrics(
+            {
+              id: input.id,
+              metrics,
+              ...(input.retires === undefined ? {} : { retires: input.retires }),
+              reason: input.reason,
+            },
+            context.caller?.id,
+          );
         }).pipe(Effect.mapError(failure)),
       { linkedCallers: "allowed" },
     ),
@@ -190,12 +191,12 @@ export const handlers = {
         const metrics = input.metrics ?? (input.retires === undefined ? undefined : []);
         if (metrics === undefined || input.reason === undefined)
           return yield* missing(
-            "t3_champions_proposal",
+            "t3_champions_metrics",
             "reason, and metrics or retires with action submit",
           );
         const scope = yield* McpInvocationContext.McpInvocationContext;
         const service = yield* Champions.ChampionService;
-        return yield* service.proposeFromSetup(scope.thread, {
+        return yield* service.changeMetricsFromCheck(scope.thread, {
           metrics,
           ...(input.retires === undefined ? {} : { retires: input.retires }),
           reason: input.reason,
@@ -561,19 +562,6 @@ export const handlers = {
         Effect.mapError(failure),
       ),
     { linkedCallers: "allowed" },
-  ),
-  t3_champions_accept: McpToolAccess.beforeForwarding(
-    McpToolAccess.writesEnvironment(
-      (input, check) =>
-        Effect.gen(function* () {
-          const context = yield* check;
-          const relay = yield* approvalRelay(input, context.caller?.id);
-          const service = yield* Champions.ChampionService;
-          return yield* service.accept({ id: input.id, proposalId: input.proposalId }, relay);
-        }).pipe(Effect.mapError(failure)),
-      { linkedCallers: "allowed" },
-    ),
-    prepareApproval,
   ),
   t3_champions_check_context: McpToolAccess.readsAsCaller((_input) =>
     Effect.gen(function* () {

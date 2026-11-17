@@ -18,7 +18,6 @@ import {
   type ChampionId,
   type ChampionMetric,
   type ChampionMetricInput,
-  type ChampionProposal,
   type ChampionRecommendation,
   type ChampionRuntimeState,
   type ChampionSample,
@@ -57,19 +56,18 @@ export interface ChampionEntry {
 }
 
 const HEALTH_RANK: Record<ChampionStatus, number> = {
-  review: 0,
-  attention: 1,
-  "setting-up": 2,
-  working: 3,
-  checking: 4,
-  "off-target": 5,
-  unknown: 6,
-  stale: 7,
-  unmeasured: 8,
-  untargeted: 9,
-  healthy: 10,
-  paused: 11,
-  retired: 12,
+  attention: 0,
+  "setting-up": 1,
+  working: 2,
+  checking: 3,
+  "off-target": 4,
+  unknown: 5,
+  stale: 6,
+  unmeasured: 7,
+  untargeted: 8,
+  healthy: 9,
+  paused: 10,
+  retired: 11,
 };
 
 export function orderChampions(
@@ -139,6 +137,18 @@ export function readingFreshness(
     return { prefix: "Checked", at: reading.observedAt };
   }
   return null;
+}
+
+const RECENT_METRIC_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Whether this metric's current definition took effect in the last week, as a new metric or a change. */
+export function recentMetricChange(
+  metric: Pick<ChampionMetric, "version" | "definedAt">,
+  nowMs: number,
+): "new" | "updated" | null {
+  if (metric.definedAt === undefined) return null;
+  if (nowMs - Date.parse(metric.definedAt) > RECENT_METRIC_MS) return null;
+  return metric.version === 1 ? "new" : "updated";
 }
 
 export function metricTargetLabel(metric: ChampionMetricInput): string {
@@ -384,6 +394,7 @@ const ACTIVITY_TITLES: Readonly<Record<string, string>> = {
   "dispatch-unavailable": "A run couldn't start",
   "metric-proposal": "Metrics proposed",
   "metrics-accepted": "Metrics accepted",
+  "metrics-changed": "Metrics changed",
   dismiss: "Finding dismissed",
   reopen: "Finding reopened",
   decision: "Decision requested",
@@ -561,7 +572,7 @@ export function parseMetricDrafts(drafts: ReadonlyArray<MetricDraft>): ParsedMet
 
 export type MetricChange = "new" | "new-series" | "same-series";
 
-/** Mirrors what accepting a proposal does to a series, so the editor can say so beforehand. */
+/** Mirrors what a metric change does to a series, so the editor can say so beforehand. */
 export function metricChange(
   draft: ChampionMetricInput,
   current: ReadonlyArray<ChampionMetric>,
@@ -591,21 +602,6 @@ const inputOf = (metric: ChampionMetricInput): ChampionMetricInput => ({
   ...(metric.staleAfterMs === undefined ? {} : { staleAfterMs: metric.staleAfterMs }),
   ...(metric.collect === undefined ? {} : { collect: metric.collect }),
 });
-
-const metricsKey = (metrics: ReadonlyArray<ChampionMetricInput>) =>
-  JSON.stringify(metrics.map(inputOf));
-
-export function metricsMatchProposal(
-  metrics: ReadonlyArray<ChampionMetricInput>,
-  retires: ReadonlyArray<string>,
-  proposal: ChampionProposal | null,
-): boolean {
-  return (
-    proposal !== null &&
-    metricsKey(metrics) === metricsKey(proposal.metrics) &&
-    JSON.stringify(retires.toSorted()) === JSON.stringify((proposal.retires ?? []).toSorted())
-  );
-}
 
 export const metricInputsOf = (metrics: ReadonlyArray<ChampionMetric>) => metrics.map(inputOf);
 

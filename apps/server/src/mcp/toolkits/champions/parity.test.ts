@@ -10,10 +10,8 @@ const SCREEN_WRITES_TO_TOOLS: Record<string, string> = {
   [WS_METHODS.championsSetLifecycle]: "t3_champions_control",
   [WS_METHODS.championsSetup]: "t3_champions_control",
   [WS_METHODS.championsRunCheck]: "t3_champions_control",
-  [WS_METHODS.championsPropose]: "t3_champions_proposal",
-  [WS_METHODS.championsDiscardProposal]: "t3_champions_control",
+  [WS_METHODS.championsChangeMetrics]: "t3_champions_metrics",
   [WS_METHODS.championsCancelSetup]: "t3_champions_control",
-  [WS_METHODS.championsAccept]: "t3_champions_accept",
   [WS_METHODS.championsFindingAction]: "t3_champions_finding_action",
   [WS_METHODS.championsCancelInvestigation]: "t3_champions_investigation",
 };
@@ -46,7 +44,7 @@ const SCREEN_READS = new Set<string>([
 const RUN_ONLY_TOOLS = new Set([
   "t3_champions_record_learning",
   "t3_champions_synthesize",
-  "t3_champions_proposal",
+  "t3_champions_metrics",
   "t3_champions_report",
   "t3_champions_confirm_learning",
   "t3_champions_measurement",

@@ -4,7 +4,6 @@ import type { ChampionFinding } from "@t3tools/contracts";
 type BadgeVariant = "warning" | "info" | "success" | "outline";
 
 const STATUS_VARIANTS: Record<ChampionStatus, BadgeVariant> = {
-  review: "warning",
   attention: "warning",
   "setting-up": "info",
   checking: "info",
@@ -35,7 +34,6 @@ export const FINDING_VARIANTS: Record<ChampionFinding["status"], BadgeVariant> =
 };
 
 export const HEALTH_DOTS: Record<ChampionStatus, string> = {
-  review: "bg-warning",
   attention: "bg-warning",
   "setting-up": "bg-info",
   checking: "bg-info",

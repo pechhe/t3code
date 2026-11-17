@@ -39,7 +39,6 @@ const summary: ChampionSummary = {
   outstandingCheckId: null,
   attention: [],
   openFindingCount: 0,
-  pendingProposal: false,
   updatedAt: "2026-11-07T00:00:00.000Z",
 };
 
@@ -208,7 +207,6 @@ it.effect("keeps a dozen long Champion configurations out of the list result", (
       lastCheckAt: null,
       attention: [],
       openFindingCount: 0,
-      pendingProposal: false,
       updatedAt: summary.updatedAt,
     });
     expect(JSON.stringify(result).length).toBeLessThan(5_000);

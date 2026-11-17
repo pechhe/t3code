@@ -16,7 +16,6 @@ import {
   ChampionSynthesisInput,
   ChampionRecommendation,
   ChampionRecommendationInput,
-  ChampionAgentAcceptInput,
   ChampionAgentFindingActionInput,
   ChampionCandidateReplay,
   ChampionCandidateReplayInput,
@@ -34,7 +33,7 @@ import {
   ChampionHistoryInput,
   ChampionHistoryResult,
   ChampionListInput,
-  ChampionProposal,
+  ChampionMetricChange,
   ChampionReportInput,
   ChampionUpsertInput,
   OrchestratorMcpFailure,
@@ -80,7 +79,7 @@ const class_choices = Tool.make("t3_champions_class_choices", {
 const get = Tool.make("t3_champions_get", {
   ...shared,
   description:
-    "Read champion configuration, metrics, pending proposal and open findings, here or in a linked environment named with environmentId. Set include to runtime_state for bounded execution provenance, investigations and recommendations instead, or to recommendation with findingId, findingAttemptId and recommendationId for one exact retained recommendation.",
+    "Read champion configuration, metrics and open findings, here or in a linked environment named with environmentId. Set include to runtime_state for bounded execution provenance, investigations and recommendations instead, or to recommendation with findingId, findingAttemptId and recommendationId for one exact retained recommendation.",
   parameters: Schema.Struct({
     ...ChampionGetInput.fields,
     environmentId: OrchestratorMcpEnvironmentTarget,
@@ -96,17 +95,9 @@ const get = Tool.make("t3_champions_get", {
 const control = Tool.make("t3_champions_control", {
   ...shared,
   description:
-    "Control a champion: pause, resume or retire it (in-flight work continues; resume never backfills), run a measurement now (a paused champion measures only; retired champions refuse), start stronger-model setup preserving the draft and pending proposal, cancel that setup retaining accepted metrics and the draft, or discard pending metrics without changing accepted versions.",
+    "Control a champion: pause, resume or retire it (in-flight work continues; resume never backfills), run a measurement now (a paused champion measures only; retired champions refuse), start stronger-model setup (which changes the metrics itself), or cancel that setup keeping the current metrics and the draft.",
   parameters: Schema.Struct({
-    action: Schema.Literals([
-      "pause",
-      "resume",
-      "retire",
-      "run_check",
-      "setup",
-      "cancel_setup",
-      "discard_proposal",
-    ]),
+    action: Schema.Literals(["pause", "resume", "retire", "run_check", "setup", "cancel_setup"]),
     id: ChampionGetInput.fields.id,
     environmentId: OrchestratorMcpEnvironmentTarget,
   }),
@@ -114,16 +105,16 @@ const control = Tool.make("t3_champions_control", {
 })
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false);
-const proposal = Tool.make("t3_champions_proposal", {
+const metrics = Tool.make("t3_champions_metrics", {
   ...shared,
   description:
-    'Edit the pending metric proposal with action edit (champion id plus metrics and reason; requires subsequent user acceptance), or submit metric proposals from your authenticated setup run or routine check with action submit (metrics and reason; the proposal waits for the user to accept it on the Champion page, and a check still reports as usual). Accepted metrics you do not list are kept unchanged: list only metrics to add or change, and to stop tracking one, name its id in retires. A champion tracks at most 32 metrics. Give a metric that is a plain read (a file, a count, a CLI query) collect: the argument list of a command the server runs itself at each check, with no shell, in the project root, within 30 seconds and with no provider keys or tokens in its environment. It must print a number, or JSON {"value": n, "revision"?: string, "evidence"?: string}. Once accepted, the server measures that metric and no agent reports it.',
+    'Change a champion\'s metrics. The change applies at once: nobody accepts it, so tell the user what you changed. Use action edit with the champion id from any orchestrating thread, or action submit from your own authenticated setup run or routine check (a check still reports as usual). List only metrics to add or change; ones you do not list stay as they are, and to stop tracking one, name its id in retires. A champion tracks at most 32 metrics. Prove a metric works before adding it. Give a metric that is a plain read (a file, a count, a CLI query) collect: the argument list of a command the server runs itself at each check, with no shell, in the project root, within 30 seconds and with no provider keys or tokens in its environment. It must print a number, or JSON {"value": n, "revision"?: string, "evidence"?: string}. The server runs each new or changed command once before applying the change and refuses the whole change, with the command\'s output, if one fails. A metric without collect is measured by an agent at each check: measure it once yourself first, and put how in its description.',
   parameters: Schema.Struct({
     action: Schema.Literals(["edit", "submit"]),
     id: Schema.optional(ChampionGetInput.fields.id),
-    metrics: Schema.optional(ChampionProposal.fields.metrics),
-    retires: ChampionProposal.fields.retires,
-    reason: Schema.optional(ChampionProposal.fields.reason),
+    metrics: Schema.optional(ChampionMetricChange.fields.metrics),
+    retires: ChampionMetricChange.fields.retires,
+    reason: Schema.optional(ChampionMetricChange.fields.reason),
     environmentId: OrchestratorMcpEnvironmentTarget,
   }),
   success: ChampionDetail,
@@ -329,19 +320,6 @@ const upsert = Tool.make("t3_champions_upsert", {
 })
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false);
-const accept = Tool.make("t3_champions_accept", {
-  ...shared,
-  description:
-    "Accept the pending metric proposal named by proposalId (from t3_champions_get) for the user. It needs approvalQuote: the user's exact words approving it, copied from a message they typed in this thread. Without one it is refused and the proposal keeps waiting for them on the Champion page. A proposal replaced since you read it is refused. For a Champion in a linked environment, name it with environmentId: your quote is checked here against your thread, and the other environment accepts it only if the message was typed after the proposal was filed.",
-  parameters: Schema.Struct({
-    ...ChampionAgentAcceptInput.fields,
-    environmentId: OrchestratorMcpEnvironmentTarget,
-    forwardedApproval: Schema.optional(ForwardedChampionApproval),
-  }),
-  success: ChampionDetail,
-})
-  .annotate(Tool.Readonly, false)
-  .annotate(Tool.Destructive, false);
 const check_context = Tool.make("t3_champions_check_context", {
   ...shared,
   description:
@@ -403,7 +381,7 @@ export const ChampionsToolkit = Toolkit.make(
   class_choices,
   get,
   control,
-  proposal,
+  metrics,
   report,
   learning_search,
   record_learning,
@@ -416,7 +394,6 @@ export const ChampionsToolkit = Toolkit.make(
   list,
   history,
   upsert,
-  accept,
   check_context,
   journeys_start,
   journey_candidate,

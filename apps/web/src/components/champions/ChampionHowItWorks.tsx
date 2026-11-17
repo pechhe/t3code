@@ -142,9 +142,10 @@ export function HowChampionsWorkDialog() {
             </dd>
             <dt className="text-muted-foreground">Metrics</dt>
             <dd>
-              Metrics are its instruments, not its goal. When they can't show progress, it proposes
-              better ones for you to accept. Fix with a lead starts a <AgentRoleChip role="lead" />{" "}
-              thread to rework them.
+              Metrics are its instruments, not its goal. When they can't show progress, it changes
+              them itself, after checking each new one reads a value, and they show as new here. You
+              can ask for a change from any thread. Fix with a lead starts a{" "}
+              <AgentRoleChip role="lead" /> thread to rework them.
             </dd>
           </dl>
         </DialogPanel>

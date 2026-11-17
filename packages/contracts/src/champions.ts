@@ -54,6 +54,8 @@ export const ChampionMetric = Schema.Struct({
   version: Schema.Int,
   seriesId: ChampionLabel,
   reason: ChampionLabel,
+  /** When this version took effect; absent on a version stored before it was recorded. */
+  definedAt: Schema.optional(IsoDateTime),
 });
 export type ChampionMetric = typeof ChampionMetric.Type;
 export const ChampionCharter = Schema.Struct({
@@ -180,7 +182,6 @@ export const ChampionSummary = Schema.Struct({
   outstandingSetupId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   attention: Schema.Array(Schema.String),
   openFindingCount: Schema.Int,
-  pendingProposal: Schema.Boolean,
   updatedAt: IsoDateTime,
 });
 export type ChampionSummary = typeof ChampionSummary.Type;
@@ -321,60 +322,41 @@ export const ChampionActivity = Schema.Struct({
 });
 export type ChampionActivity = typeof ChampionActivity.Type;
 export const CHAMPION_METRIC_LIMIT = 32;
-/** Accepted metrics a proposal neither lists nor retires stay accepted unchanged. */
-export const ChampionProposal = Schema.Struct({
+/** A change to a champion's metrics, applied at once; metrics it neither lists nor retires stay unchanged. */
+export const ChampionMetricChange = Schema.Struct({
   metrics: Schema.Array(ChampionMetricInput).check(Schema.isMaxLength(CHAMPION_METRIC_LIMIT)),
-  /** Ids of accepted metrics to stop tracking. A stored proposal lacks it only if filed before retirement was explicit. */
+  /** Ids of tracked metrics to stop tracking. */
   retires: Schema.optional(
     Schema.Array(ChampionLabel).check(Schema.isMaxLength(CHAMPION_METRIC_LIMIT)),
   ),
   reason: ChampionLabel,
 });
-export type ChampionProposal = typeof ChampionProposal.Type;
-/** The metrics accepting `proposal` installs: accepted ones in place (replaced when listed, dropped when retired), then new ones. */
-export function championProposalResult<
+export type ChampionMetricChange = typeof ChampionMetricChange.Type;
+/** The metrics `change` leaves tracked: current ones in place (replaced when listed, dropped when retired), then new ones. */
+export function championMetricChangeResult<
   A extends { readonly id: string },
   P extends { readonly id: string },
 >(
-  accepted: ReadonlyArray<A>,
-  proposal: {
+  current: ReadonlyArray<A>,
+  change: {
     readonly metrics: ReadonlyArray<P>;
     readonly retires?: ReadonlyArray<string> | undefined;
   },
 ): Array<A | P> {
-  const listed = new Map(proposal.metrics.map((metric) => [metric.id, metric]));
-  const retired = new Set(proposal.retires);
-  const known = new Set(accepted.map((metric) => metric.id));
+  const listed = new Map(change.metrics.map((metric) => [metric.id, metric]));
+  const retired = new Set(change.retires);
+  const known = new Set(current.map((metric) => metric.id));
   return [
-    ...accepted.flatMap((metric) =>
+    ...current.flatMap((metric) =>
       retired.has(metric.id) ? [] : [listed.get(metric.id) ?? metric],
     ),
-    ...proposal.metrics.filter((metric) => !known.has(metric.id)),
+    ...change.metrics.filter((metric) => !known.has(metric.id)),
   ];
 }
-/** The accepted metrics accepting `proposal` stops tracking. */
-export function championProposalRetiring<A extends { readonly id: string }>(
-  accepted: ReadonlyArray<A>,
-  proposal: {
-    readonly metrics: ReadonlyArray<{ readonly id: string }>;
-    readonly retires?: ReadonlyArray<string> | undefined;
-  },
-): Array<A> {
-  const installs = new Set(championProposalResult(accepted, proposal).map((metric) => metric.id));
-  return accepted.filter((metric) => !installs.has(metric.id));
-}
-/** A pending proposal; proposals filed before identities existed have none. */
-export const ChampionPendingProposal = Schema.Struct({
-  ...ChampionProposal.fields,
-  id: Schema.optional(ChampionLabel),
-  proposedAt: Schema.optional(IsoDateTime),
-});
-export type ChampionPendingProposal = typeof ChampionPendingProposal.Type;
 export const ChampionDetail = Schema.Struct({
   champion: ChampionSummary,
   latestSamples: Schema.optional(Schema.Array(ChampionLatestSample).check(Schema.isMaxLength(32))),
   metrics: Schema.Array(ChampionMetric),
-  proposal: Schema.NullOr(ChampionPendingProposal),
   findings: Schema.Array(ChampionFinding).check(Schema.isMaxLength(100)),
 });
 export type ChampionDetail = typeof ChampionDetail.Type;
@@ -387,21 +369,13 @@ export const ChampionLifecycleInput = Schema.Struct({
   id: ChampionId,
   lifecycle: ChampionLifecycle,
 });
-export const ChampionProposeInput = Schema.Struct({ id: ChampionId, ...ChampionProposal.fields });
-/** Names the proposal read, so one replaced since is refused; older clients omit it. */
-export const ChampionAcceptInput = Schema.Struct({
+export const ChampionMetricChangeInput = Schema.Struct({
   id: ChampionId,
-  proposalId: Schema.optional(ChampionLabel),
+  ...ChampionMetricChange.fields,
 });
-export type ChampionAcceptInput = typeof ChampionAcceptInput.Type;
 const ApprovalQuote = Schema.optional(ChampionText).annotate({
   description:
     "The user's own words, copied exactly from a message they typed in this thread, that approve this. Without it the request waits for them on the Champion page.",
-});
-export const ChampionAgentAcceptInput = Schema.Struct({
-  id: ChampionId,
-  proposalId: ChampionLabel,
-  approvalQuote: ApprovalQuote,
 });
 export const ChampionHistoryInput = Schema.Struct({
   id: ChampionId,

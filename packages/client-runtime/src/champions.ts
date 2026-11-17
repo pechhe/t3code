@@ -58,7 +58,6 @@ function effectiveHealth(sample: ChampionLatestSample, nowMs: number) {
 }
 
 export type ChampionStatus =
-  | "review"
   | "attention"
   | "setting-up"
   | "checking"
@@ -73,7 +72,6 @@ export type ChampionStatus =
   | "retired";
 
 export const CHAMPION_STATUS_LABELS: Record<ChampionStatus, string> = {
-  review: "Review metrics",
   attention: "Needs attention",
   "setting-up": "Setting up",
   checking: "Checking",
@@ -93,7 +91,7 @@ const isSettingUp = (champion: ChampionSummary) =>
 
 export function championNeedsAttention(champion: ChampionSummary): boolean {
   if (champion.lifecycle === "retired") return false;
-  return champion.pendingProposal || (!isSettingUp(champion) && champion.attention.length > 0);
+  return !isSettingUp(champion) && champion.attention.length > 0;
 }
 
 export function visibleChampions<T>(
@@ -124,7 +122,6 @@ function evidenceStatus(champion: ChampionSummary, nowMs: number): ChampionStatu
 
 export function championStatus(champion: ChampionSummary, nowMs: number): ChampionStatus {
   if (champion.lifecycle === "retired") return "retired";
-  if (champion.pendingProposal) return "review";
   if (isSettingUp(champion)) return "setting-up";
   if (champion.attention.length > 0) return "attention";
   if (champion.lifecycle === "paused") return "paused";
@@ -198,20 +195,6 @@ export function formatChampionCommand(collect: ReadonlyArray<string>): string {
     else text += text === "" || text.endsWith("\n") ? part : ` ${part}`;
   }
   return text.trimEnd();
-}
-
-/** Whether accepting this metric makes the server run a command it does not run today. */
-export function championCommandChange(
-  metric: Pick<ChampionMetricInput, "id" | "collect">,
-  current: ReadonlyArray<Pick<ChampionMetric, "id" | "collect">>,
-): "new" | "changed" | null {
-  if (metric.collect === undefined) return null;
-  const old = current.find((candidate) => candidate.id === metric.id)?.collect;
-  if (old === undefined) return "new";
-  return old.length === metric.collect.length &&
-    old.every((part, index) => part === metric.collect![index])
-    ? null
-    : "changed";
 }
 
 export const CHAMPION_ROUTE_LABELS = {
@@ -315,7 +298,6 @@ export type ChampionAction =
   | "check"
   | "lifecycle"
   | "metrics"
-  | "discard"
   | "finding"
   | "decision";
 
@@ -325,14 +307,13 @@ const CONFLICT_MESSAGES: Partial<Record<ChampionAction, string>> = {
   learning: "This learning has a newer revision. Read the current revision before replacing it.",
   finding: "A repair is still running on this. Wait for it to finish, then try again.",
   decision: "This decision has changed. Check its current state.",
-  metrics: "There is no proposal to accept any more.",
   "cancel-setup": "Setup is still starting, so it can't be cancelled yet. Try again shortly.",
 };
 
 const INVALID_MESSAGES: Partial<Record<ChampionAction, string>> = {
   save: "The chosen project or model can't be used on this machine.",
   setup: "The chosen project or model can't be used on this machine.",
-  lifecycle: "Accept metrics before starting this champion.",
+  lifecycle: "Add metrics before starting this champion.",
   metrics: "The machine refused these metrics. Check their targets.",
   decision: "That answer can't be used. Keep it to 500 characters.",
 };

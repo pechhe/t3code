@@ -9084,8 +9084,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         SELECT json_extract(document_json, '$.champion.ownerThreadId') AS owner_thread_id,
           json_extract(document_json, '$.champion.setupThreadId') AS setup_thread_id,
           id, json_array_length(json_extract(document_json, '$.champion.attention')) AS attention,
-          CASE WHEN json_extract(document_json, '$.champion.pendingProposal') = 1 OR
-            EXISTS (SELECT 1 FROM json_each(document_json, '$.champion.attention') WHERE value LIKE 'Setup %')
+          CASE WHEN EXISTS (SELECT 1 FROM json_each(document_json, '$.champion.attention') WHERE value LIKE 'Setup %')
             THEN 1 ELSE 0 END AS setup_attention
         FROM champions
         WHERE json_extract(document_json, '$.champion.ownerThreadId') IN (SELECT value FROM target_threads)

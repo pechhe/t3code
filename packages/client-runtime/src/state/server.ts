@@ -1931,13 +1931,9 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:champions:RunCheck",
       tag: WS_METHODS.championsRunCheck,
     }),
-    proposeChampionMetrics: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:champions:Propose",
-      tag: WS_METHODS.championsPropose,
-    }),
-    discardChampionProposal: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:champions:discard-proposal",
-      tag: WS_METHODS.championsDiscardProposal,
+    changeChampionMetrics: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:champions:change-metrics",
+      tag: WS_METHODS.championsChangeMetrics,
     }),
     cancelChampionSetup: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:champions:cancel-setup",
@@ -1946,10 +1942,6 @@ export function createServerEnvironmentAtoms<R, E>(
     startChampionMetricsLead: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:champions:start-metrics-lead",
       tag: WS_METHODS.championsStartMetricsLead,
-    }),
-    acceptChampionMetrics: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:champions:Accept",
-      tag: WS_METHODS.championsAccept,
     }),
     championFindingAction: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:champions:FindingAction",

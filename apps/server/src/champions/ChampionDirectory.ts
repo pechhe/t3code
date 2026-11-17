@@ -37,7 +37,6 @@ export const ChampionDirectoryResult = Schema.Struct({
       lastCheckAt: ChampionSummary.fields.lastCheckAt,
       attention: ChampionSummary.fields.attention,
       openFindingCount: ChampionSummary.fields.openFindingCount,
-      pendingProposal: ChampionSummary.fields.pendingProposal,
       updatedAt: ChampionSummary.fields.updatedAt,
       environmentId: Schema.optional(EnvironmentId),
       environmentLabel: Schema.optional(Schema.String),

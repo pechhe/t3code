@@ -28,6 +28,7 @@ import {
   metricTargetLabel,
   metricTrend,
   readingFreshness,
+  recentMetricChange,
   sparklineGeometry,
   type MetricTrend,
 } from "./champions.logic";
@@ -105,6 +106,9 @@ function DetailRow(props: { readonly label: string; readonly children: React.Rea
   );
 }
 
+const shortDate = (at: string) =>
+  new Date(at).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+
 function readingText(sample: ChampionSample): string {
   if (sample.status === "measured" && sample.value !== null) {
     return formatChampionValue(sample.value, sample.unit);
@@ -167,7 +171,11 @@ function MetricDetail(props: {
           {metric.staleAfterMs === undefined ? ", twice the check cadence" : ""}
         </DetailRow>
         <DetailRow label="Version">
-          Version {metric.version}. {metric.reason}
+          Version {metric.version}
+          {metric.definedAt
+            ? `, ${metric.version === 1 ? "added" : "changed"} ${shortDate(metric.definedAt)}`
+            : ""}
+          . {metric.reason}
         </DetailRow>
         {latest ? (
           <>
@@ -273,6 +281,8 @@ export function ChampionMetricRow(props: {
   const off = reading?.kind === "measured" && reading.health === "breached";
   const stale = reading?.kind === "measured" && reading.health === "stale";
   const note = reading === null ? null : championReadingNote(reading);
+  // A metric no longer tracked is history, not news.
+  const recent = props.latestSamples === null ? null : recentMetricChange(metric, nowMs);
   const current = metricSeries(metric, [], samples).find((view) => view.current)?.samples ?? [];
   const Chevron = open ? ChevronDownIcon : ChevronRightIcon;
   return (
@@ -286,6 +296,7 @@ export function ChampionMetricRow(props: {
         <span className="flex min-w-0 flex-col gap-0.5">
           <span className="flex flex-wrap items-baseline gap-x-2">
             <span className="font-medium text-sm">{metric.name}</span>
+            {recent ? <Badge variant="info">{recent === "new" ? "New" : "Updated"}</Badge> : null}
             <TrendLabel trend={trend} />
             {(metric.required ?? true) ? null : <Badge variant="outline">Optional</Badge>}
             {stale ? <Badge variant="warning">Out of date</Badge> : null}

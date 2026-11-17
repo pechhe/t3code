@@ -54,7 +54,6 @@ const champion = (id: string): ChampionSummary => ({
   outstandingSetupId: null,
   attention: [],
   openFindingCount: 0,
-  pendingProposal: false,
   updatedAt: "2026-11-01T00:00:00.000Z",
 });
 

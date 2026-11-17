@@ -110,11 +110,9 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.championsSetLifecycle]: AuthOrchestrationOperateScope,
   [WS_METHODS.championsSetup]: AuthOrchestrationOperateScope,
   [WS_METHODS.championsRunCheck]: AuthOrchestrationOperateScope,
-  [WS_METHODS.championsPropose]: AuthOrchestrationOperateScope,
-  [WS_METHODS.championsDiscardProposal]: AuthOrchestrationOperateScope,
+  [WS_METHODS.championsChangeMetrics]: AuthOrchestrationOperateScope,
   [WS_METHODS.championsCancelSetup]: AuthOrchestrationOperateScope,
   [WS_METHODS.championsStartMetricsLead]: AuthOrchestrationOperateScope,
-  [WS_METHODS.championsAccept]: AuthOrchestrationOperateScope,
   [WS_METHODS.championsFindingAction]: AuthOrchestrationOperateScope,
   // Starts an agent session on this environment that can read its logs and database.
   [WS_METHODS.serverPrepareTriage]: AuthOrchestrationOperateScope,

@@ -80,11 +80,9 @@ describe("command permissions", () => {
     WS_METHODS.championsSetLifecycle,
     WS_METHODS.championsSetup,
     WS_METHODS.championsRunCheck,
-    WS_METHODS.championsPropose,
-    WS_METHODS.championsDiscardProposal,
+    WS_METHODS.championsChangeMetrics,
     WS_METHODS.championsCancelSetup,
     WS_METHODS.championsStartMetricsLead,
-    WS_METHODS.championsAccept,
     WS_METHODS.championsFindingAction,
   ])("authorizes champion mutations against the destination environment: %s", (method) =>
     Effect.scoped(

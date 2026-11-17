@@ -168,7 +168,6 @@ const champion = (id: string, name: string, projectId: string): ChampionSummary 
   outstandingSetupId: null,
   attention: [],
   openFindingCount: 0,
-  pendingProposal: false,
   updatedAt: "2026-11-01T00:00:00.000Z",
 });
 
@@ -891,7 +890,9 @@ describe("the champion form's roles", () => {
     await expect
       .element(page.getByText(/Nothing eligible for this role\.\s+Nothing was switched/))
       .toBeVisible();
-    await expect.element(page.getByRole("button", { name: "Propose metrics" })).toBeDisabled();
+    await expect
+      .element(page.getByRole("button", { name: "Set up metrics with AI" }))
+      .toBeDisabled();
     await expect.element(page.getByRole("button", { name: "Add metrics myself" })).toBeDisabled();
     expect(fixtures.commands.get("champion save")).not.toHaveBeenCalled();
   });
@@ -900,7 +901,9 @@ describe("the champion form's roles", () => {
     reset();
     answering(choices([], "Agent class policy is unavailable on this machine."));
     await using _screen = await render(<ChampionForm existing={null} onDone={() => {}} />);
-    await expect.element(page.getByRole("button", { name: "Propose metrics" })).toBeDisabled();
+    await expect
+      .element(page.getByRole("button", { name: "Set up metrics with AI" }))
+      .toBeDisabled();
     await expect
       .element(page.getByText(/Agent class policy is unavailable on this machine\.\s+Nothing/))
       .toBeVisible();

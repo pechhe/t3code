@@ -33,9 +33,7 @@ import {
   type ChampionLatestSample,
   ChampionDetail,
   ChampionMetric,
-  ChampionPendingProposal,
-  type ChampionProposal,
-  type ChampionAcceptInput,
+  ChampionMetricChange,
   type ChampionRelayedApproval,
   ChampionFinding,
   ChampionRoute,
@@ -44,7 +42,7 @@ import {
   ChampionCharter,
   ChampionError,
   CHAMPION_METRIC_LIMIT,
-  championProposalResult,
+  championMetricChangeResult,
   DEFAULT_CHAMPION_INSTRUCTIONS,
   CommandId,
   MessageId,
@@ -105,10 +103,11 @@ const sameFinding = Schema.toEquivalence(ChampionFinding);
 const Document = Schema.Struct({
   champion: ChampionSummary,
   metrics: Schema.Array(ChampionMetric),
-  proposal: Schema.NullOr(ChampionPendingProposal),
   findings: Schema.Array(ChampionFinding),
 });
 type Document = typeof Document.Type;
+/** A metric change filed before changes applied at once; retire once no stored champion holds one. */
+const decodeWaitingProposal = Schema.decodeEffect(Schema.fromJsonString(ChampionMetricChange));
 const Check = Schema.Struct({
   id: Schema.String,
   championId: Schema.String,
@@ -201,8 +200,15 @@ const decodeActivity = Schema.decodeEffect(Schema.fromJsonString(ChampionActivit
 const decodeMetric = Schema.decodeEffect(Schema.fromJsonString(ChampionMetric));
 const encodeCharter = Schema.encodeSync(Schema.fromJsonString(ChampionCharter));
 const encodeFindings = Schema.encodeSync(Schema.fromJsonString(Schema.Array(ChampionFinding)));
-const PROPOSAL_RULE =
-  "A proposal keeps every accepted metric it does not list: list only metrics to add or change, and to stop tracking one, name its id in retires. Prefer a command to a method an agent re-derives: where a metric is a plain read, give it collect, the argument list of a read-only command the server runs itself at each check (see t3_champions_proposal), and run it once yourself first to prove it prints the value.";
+const METRIC_RULE =
+  "A metric change applies at once, with no acceptance, and keeps every metric it does not list: list only metrics to add or change, and to stop tracking one, name its id in retires. Prove each new metric works. Prefer a command to a method an agent re-derives: where a metric is a plain read, give it collect, the argument list of a read-only command the server runs itself at each check (see t3_champions_metrics); the server runs a new command once and refuses the change if it fails. Measure a metric without collect once yourself before adding it.";
+const NEEDS_METRICS = "Add metrics before enabling checks.";
+/** Attention that only waited for metrics, cleared once a change installs them. */
+const WAITING_FOR_METRICS: ReadonlySet<string> = new Set([
+  NEEDS_METRICS,
+  "Accept metric definitions before enabling checks.",
+  "Metric proposal awaits acceptance.",
+]);
 const metricInputOf = (metric: ChampionMetricInput): ChampionMetricInput => ({
   id: metric.id,
   name: metric.name,
@@ -320,13 +326,12 @@ export class ChampionService extends Context.Service<
     readonly startMetricsLead: (input: {
       readonly id: string;
     }) => Effect.Effect<{ readonly threadId: ThreadId }, ChampionError>;
-    readonly propose: DetailOperation<{ id: string } & ChampionProposal>;
-    /** Without `relay` the user accepts; with it an agent does, quoting the user's own words. */
-    readonly accept: (
-      input: ChampionAcceptInput,
-      relay?: ChampionRelay,
+    /** Applies at once; `by` is the thread that made the change, `prove: false` skips reading new commands. */
+    readonly changeMetrics: (
+      input: { id: string } & ChampionMetricChange,
+      by?: ThreadId,
+      options?: { readonly prove?: boolean },
     ) => Effect.Effect<ChampionDetail, ChampionError>;
-    readonly discardProposal: DetailOperation<{ id: string }>;
     readonly cancelSetup: DetailOperation<{ id: string }>;
     readonly completeSetup: (
       caller: Caller,
@@ -339,9 +344,9 @@ export class ChampionService extends Context.Service<
     readonly checkContext: (
       caller: Caller,
     ) => Effect.Effect<typeof ChampionCheckContext.Type, ChampionError>;
-    readonly proposeFromSetup: (
+    readonly changeMetricsFromCheck: (
       caller: Caller,
-      input: ChampionProposal,
+      input: ChampionMetricChange,
     ) => Effect.Effect<ChampionDetail, ChampionError>;
     readonly report: (
       caller: Caller,
@@ -528,7 +533,6 @@ const make = Effect.gen(function* () {
             .map((f) => `Repair: ${f.repairAttention}`),
         ]),
       ],
-      pendingProposal: doc.proposal !== null,
       openFindingCount: doc.findings.filter((f) => !["verified", "dismissed"].includes(f.status))
         .length,
       updatedAt: yield* now,
@@ -933,13 +937,11 @@ const make = Effect.gen(function* () {
                     lastCheckAt: null,
                     outstandingCheckId: null,
                     outstandingSetupId: null,
-                    attention: ["Accept metric definitions before enabling checks."],
+                    attention: [NEEDS_METRICS],
                     openFindingCount: 0,
-                    pendingProposal: false,
                     updatedAt: yield* now,
                   },
                   metrics: [],
-                  proposal: null,
                   findings: [],
                 }
               : {
@@ -1020,9 +1022,9 @@ const make = Effect.gen(function* () {
   const routinePrompt = (doc: Document, check: Check) =>
     [
       `You own champion ${doc.champion.name} in this project. Your goal: ${doc.champion.purpose}`,
-      `Work towards the goal, not the metrics. Metrics are your instruments for seeing progress; when they cannot show it (blank, insufficient, or measuring the wrong thing), say so and propose a better metric with t3_champions_proposal action submit for the user to accept. ${PROPOSAL_RULE}`,
+      `Work towards the goal, not the metrics. Metrics are your instruments for seeing progress; when they cannot show it (blank, insufficient, or measuring the wrong thing), say so and change it with t3_champions_metrics action submit. ${METRIC_RULE}`,
       check.kind === "setup"
-        ? 'SETUP: inspect the actual product and propose measurable metrics that show progress towards the goal with t3_champions_proposal action submit, or call t3_champions_report with only a summary for a no-change summary. Name each metric in plain words someone outside engineering understands ("How long common screens take to become usable", not "Sentinel usable readiness"), and start its description with one plain sentence on what it tells the user about the goal; method detail follows. Renaming or rewording a metric keeps its series, so fix unclear names on any setup. Proposals require user acceptance. Do not edit the shared root or delegate repairs during setup.'
+        ? 'SETUP: inspect the actual product and set measurable metrics that show progress towards the goal with t3_champions_metrics action submit, or call t3_champions_report with only a summary for a no-change summary. Name each metric in plain words someone outside engineering understands ("How long common screens take to become usable", not "Sentinel usable readiness"), and start its description with one plain sentence on what it tells the user about the goal; method detail follows. Renaming or rewording a metric keeps its series, so fix unclear names on any setup. Do not edit the shared root or delegate repairs during setup.'
         : "CHECK: call t3_champions_check_context, then ask what most stands in the way of the goal right now. Collect honest observations and call t3_champions_report before finishing; its summary opens with one or two plain sentences on progress towards the goal, then the readings. Dispatch alone is not completion.",
       check.kind === "setup"
         ? null
@@ -1459,200 +1461,158 @@ const make = Effect.gen(function* () {
       ),
     );
   });
-  const propose: ChampionService["Service"]["propose"] = Effect.fn("ChampionService.propose")(
-    function* (input) {
-      return yield* mutate(
-        Effect.gen(function* () {
-          const doc = yield* read(input.id);
-          const retires = input.retires ?? [];
-          const invalid = (detail?: string) =>
-            new ChampionError({ reason: "invalid", ...(detail === undefined ? {} : { detail }) });
-          if (
-            new Set(input.metrics.map((m) => m.id)).size !== input.metrics.length ||
-            new Set(retires).size !== retires.length
-          )
-            return yield* invalid();
-          if (input.metrics.length === 0 && retires.length === 0)
-            return yield* invalid(
-              "The proposal changes nothing: list each metric to add or change, or name an accepted metric in retires to stop tracking it.",
-            );
-          for (const metric of input.metrics)
-            if (
-              metric.minimum !== null &&
-              metric.maximum !== null &&
-              metric.minimum > metric.maximum
-            )
-              return yield* invalid();
-          for (const retired of retires) {
-            if (input.metrics.some((m) => m.id === retired))
-              return yield* invalid(
-                `${retired} is both listed and named in retires. List a metric to change it, or name it in retires to stop tracking it, not both.`,
-              );
-            if (!doc.metrics.some((m) => m.id === retired))
-              return yield* invalid(
-                `${retired} is not an accepted metric, so there is nothing to retire. Read the champion for its accepted metric ids.`,
-              );
-          }
-          // Stored whole, so the pending proposal is exactly what acceptance installs.
-          const metrics = championProposalResult(doc.metrics, input).map(metricInputOf);
-          if (metrics.length > CHAMPION_METRIC_LIMIT)
-            return yield* invalid(
-              `Accepting this would track ${metrics.length} metrics; a champion tracks at most ${CHAMPION_METRIC_LIMIT}. Name metrics to stop tracking in retires, or propose fewer.`,
-            );
-          if (metrics.length === 0)
-            return yield* invalid(
-              "This would retire every metric; a champion keeps at least one. Propose a replacement alongside the retirement.",
-            );
-          const saved = yield* write({
-            ...doc,
-            proposal: {
-              id: yield* uuid,
-              proposedAt: yield* now,
-              metrics,
-              retires,
-              reason: input.reason,
-            },
-            champion: {
-              ...doc.champion,
-              attention: [
-                ...new Set([...doc.champion.attention, "Metric proposal awaits acceptance."]),
-              ],
-            },
-          });
-          yield* activity(input.id, "metric-proposal", input.reason);
-          return saved;
-        }),
+  /** The metrics `input` leaves tracked, or why it cannot apply to `doc`. */
+  const metricChangeResult = Effect.fn("ChampionService.metricChangeResult")(function* (
+    doc: Document,
+    input: ChampionMetricChange,
+  ) {
+    const retires = input.retires ?? [];
+    const invalid = (detail?: string) =>
+      new ChampionError({ reason: "invalid", ...(detail === undefined ? {} : { detail }) });
+    if (
+      new Set(input.metrics.map((m) => m.id)).size !== input.metrics.length ||
+      new Set(retires).size !== retires.length
+    )
+      return yield* invalid();
+    if (input.metrics.length === 0 && retires.length === 0)
+      return yield* invalid(
+        "The change does nothing: list each metric to add or change, or name a tracked metric in retires to stop tracking it.",
       );
-    },
-  );
-  const discardProposal: ChampionService["Service"]["discardProposal"] = Effect.fn(
-    "ChampionService.discardProposal",
-  )(function* ({ id }) {
+    for (const metric of input.metrics)
+      if (metric.minimum !== null && metric.maximum !== null && metric.minimum > metric.maximum)
+        return yield* invalid();
+    for (const retired of retires) {
+      if (input.metrics.some((m) => m.id === retired))
+        return yield* invalid(
+          `${retired} is both listed and named in retires. List a metric to change it, or name it in retires to stop tracking it, not both.`,
+        );
+      if (!doc.metrics.some((m) => m.id === retired))
+        return yield* invalid(
+          `${retired} is not a tracked metric, so there is nothing to retire. Read the champion for its metric ids.`,
+        );
+    }
+    const metrics = championMetricChangeResult(doc.metrics, input);
+    if (metrics.length > CHAMPION_METRIC_LIMIT)
+      return yield* invalid(
+        `This would track ${metrics.length} metrics; a champion tracks at most ${CHAMPION_METRIC_LIMIT}. Name metrics to stop tracking in retires, or add fewer.`,
+      );
+    if (metrics.length === 0)
+      return yield* invalid(
+        "This would retire every metric; a champion keeps at least one. Add a replacement alongside the retirement.",
+      );
+    return metrics;
+  });
+  /** Reads each new or changed command once, so no change installs a metric its command cannot read. */
+  const proveCommands = Effect.fn("ChampionService.proveCommands")(function* (
+    doc: Document,
+    input: ChampionMetricChange,
+  ) {
+    const commands = input.metrics.filter(
+      (metric) =>
+        metric.collect !== undefined &&
+        JSON.stringify(doc.metrics.find((m) => m.id === metric.id)?.collect) !==
+          JSON.stringify(metric.collect),
+    );
+    if (commands.length === 0) return new Map<string, number>();
+    const project = yield* projects.getById(doc.champion.projectId).pipe(Effect.mapError(failure));
+    if (Option.isNone(project)) return yield* new ChampionError({ reason: "not-found" });
+    const root = project.value.workspaceRoot;
+    const readings = yield* Effect.forEach(
+      commands,
+      (metric) => collectReading(processes, metric.collect!, root),
+      { concurrency: "unbounded" },
+    );
+    const failed = commands.flatMap((metric, index) =>
+      readings[index]!.value === null ? [`${metric.name}: ${readings[index]!.evidence}`] : [],
+    );
+    if (failed.length > 0)
+      return yield* new ChampionError({
+        reason: "invalid",
+        detail: `Nothing changed. Each new or changed command must print its metric's value before the change applies. ${failed.join(" ")}`,
+      });
+    return new Map(commands.map((metric, index) => [metric.id, readings[index]!.value!]));
+  });
+  const changeMetrics: ChampionService["Service"]["changeMetrics"] = Effect.fn(
+    "ChampionService.changeMetrics",
+  )(function* (input, by, options) {
+    const before = yield* read(input.id);
+    yield* metricChangeResult(before, input);
+    const readings =
+      options?.prove === false ? new Map<string, number>() : yield* proveCommands(before, input);
     return yield* mutate(
       Effect.gen(function* () {
-        const doc = yield* read(id);
-        yield* activity(
-          id,
-          "proposal-discarded",
-          "Discarded the pending proposal; accepted definitions are unchanged.",
+        const doc = yield* read(input.id);
+        const resulting = yield* metricChangeResult(doc, input);
+        const added: string[] = [];
+        const changed: string[] = [];
+        const metrics = yield* Effect.forEach(
+          resulting,
+          Effect.fn("ChampionService.installMetric")(function* (metric) {
+            const current = doc.metrics.find((m) => m.id === metric.id);
+            if (current !== undefined && sameDefinition(current, metric)) return current;
+            const reading = readings.get(metric.id);
+            (current === undefined ? added : changed).push(
+              reading === undefined
+                ? metric.name
+                : `${metric.name} (read ${reading} ${metric.unit} when added)`,
+            );
+            const stored = yield* sql<{
+              version: number;
+              document_json: string;
+            }>`SELECT version, document_json FROM champion_metric_definitions WHERE champion_id = ${input.id} AND metric_id = ${metric.id} ORDER BY version DESC LIMIT 1`.pipe(
+              Effect.mapError(failure),
+            );
+            const previous =
+              current ??
+              (stored[0] === undefined
+                ? undefined
+                : yield* decodeMetric(stored[0].document_json).pipe(Effect.mapError(failure)));
+            const at = yield* now;
+            const definition = {
+              ...metricInputOf(metric),
+              version: (stored[0]?.version ?? 0) + 1,
+              seriesId:
+                previous !== undefined && sameSeries(previous, metric)
+                  ? previous.seriesId
+                  : yield* uuid,
+              reason: input.reason,
+              definedAt: at as NonNullable<ChampionMetric["definedAt"]>,
+            };
+            const json = yield* encodeMetric(definition).pipe(Effect.mapError(failure));
+            yield* sql`INSERT INTO champion_metric_definitions (champion_id, metric_id, version, created_at, document_json) VALUES (${input.id}, ${metric.id}, ${definition.version}, ${at}, ${json})`.pipe(
+              Effect.mapError(failure),
+            );
+            return definition;
+          }),
         );
-        return yield* write({
+        const stopped = doc.metrics
+          .filter((metric) => !metrics.some((m) => m.id === metric.id))
+          .map((metric) => metric.name);
+        const waiting = doc.champion.attention.filter((a) => !WAITING_FOR_METRICS.has(a));
+        if (added.length + changed.length + stopped.length === 0) return doc;
+        const saved = yield* write({
           ...doc,
-          proposal: null,
-          champion: {
-            ...doc.champion,
-            attention: doc.champion.attention.filter(
-              (a) => a !== "Metric proposal awaits acceptance.",
-            ),
-          },
+          metrics,
+          champion: { ...doc.champion, attention: waiting },
         });
+        const list = (label: string, names: ReadonlyArray<string>) =>
+          names.length === 0 ? [] : [`${label} ${names.join(", ")}.`];
+        yield* activity(
+          input.id,
+          "metrics-changed",
+          [
+            ...list("Added", added),
+            ...list("Changed", changed),
+            ...list("Stopped tracking", stopped),
+            input.reason,
+          ].join(" "),
+          undefined,
+          by,
+        );
+        return saved;
       }),
     );
   });
-  const accept: ChampionService["Service"]["accept"] = Effect.fn("ChampionService.accept")(
-    function* ({ id, proposalId }, relay) {
-      const pending = relay === undefined ? null : (yield* read(id)).proposal;
-      if (relay !== undefined && pending !== null && pending.id === undefined)
-        return yield* new ChampionError({
-          reason: "conflict",
-          detail:
-            "This proposal was filed before proposals had ids, so it can only be accepted on the Champion page. Ask the user to accept it there, or file it again with t3_champions_proposal.",
-        });
-      const approval =
-        relay === undefined
-          ? undefined
-          : yield* relayedApproval(
-              relay,
-              "The proposal waits for them on the Champion page: ask them to accept it there, or pass approvalQuote with their exact words from a message they typed in this thread.",
-              pending?.proposedAt,
-            );
-      return yield* mutate(
-        sql
-          .withTransaction(
-            Effect.gen(function* () {
-              const doc = yield* read(id);
-              if (doc.proposal === null)
-                return yield* new ChampionError({
-                  reason: "conflict",
-                  detail: "There is no pending metric proposal to accept.",
-                });
-              if (proposalId !== undefined && doc.proposal.id !== proposalId)
-                return yield* new ChampionError({
-                  reason: "conflict",
-                  detail:
-                    "The pending proposal was replaced after it was read. Read the champion again and accept the current proposal by its id.",
-                });
-              const proposal = doc.proposal;
-              // Proposals filed before retirement was explicit list only changes; keep what they omit.
-              const resulting = championProposalResult(doc.metrics, proposal);
-              if (resulting.length > CHAMPION_METRIC_LIMIT)
-                return yield* new ChampionError({
-                  reason: "conflict",
-                  detail: `Accepting this proposal would track ${resulting.length} metrics; a champion tracks at most ${CHAMPION_METRIC_LIMIT}. Edit it to stop tracking some first.`,
-                });
-              const metrics = yield* Effect.forEach(
-                resulting,
-                Effect.fn("ChampionService.acceptMetric")(function* (metric) {
-                  const current = doc.metrics.find((m) => m.id === metric.id);
-                  if (current !== undefined && sameDefinition(current, metric)) return current;
-                  const stored = yield* sql<{
-                    version: number;
-                    document_json: string;
-                  }>`SELECT version, document_json FROM champion_metric_definitions WHERE champion_id = ${id} AND metric_id = ${metric.id} ORDER BY version DESC LIMIT 1`.pipe(
-                    Effect.mapError(failure),
-                  );
-                  const previous =
-                    current ??
-                    (stored[0] === undefined
-                      ? undefined
-                      : yield* decodeMetric(stored[0].document_json).pipe(
-                          Effect.mapError(failure),
-                        ));
-                  const definition = {
-                    ...metricInputOf(metric),
-                    version: (stored[0]?.version ?? 0) + 1,
-                    seriesId:
-                      previous !== undefined && sameSeries(previous, metric)
-                        ? previous.seriesId
-                        : yield* uuid,
-                    reason: proposal.reason,
-                  };
-                  const at = yield* now;
-                  const json = yield* encodeMetric(definition).pipe(Effect.mapError(failure));
-                  yield* sql`INSERT INTO champion_metric_definitions (champion_id, metric_id, version, created_at, document_json) VALUES (${id}, ${metric.id}, ${definition.version}, ${at}, ${json})`.pipe(
-                    Effect.mapError(failure),
-                  );
-                  return definition;
-                }),
-              );
-              const saved = yield* write({
-                ...doc,
-                metrics,
-                proposal: null,
-                champion: {
-                  ...doc.champion,
-                  attention: doc.champion.attention.filter(
-                    (a) =>
-                      a !== "Metric proposal awaits acceptance." &&
-                      a !== "Accept metric definitions before enabling checks.",
-                  ),
-                },
-              });
-              yield* activity(
-                id,
-                "metrics-accepted",
-                doc.proposal.reason,
-                undefined,
-                approval?.threadId,
-                approval,
-              );
-              return saved;
-            }),
-          )
-          .pipe(Effect.mapError((cause) => (isChampionError(cause) ? cause : failure(cause)))),
-      );
-    },
-  );
   const authenticateLive = Effect.fn("ChampionService.authenticateLive")(function* (
     caller: Caller,
   ) {
@@ -1745,34 +1705,43 @@ const make = Effect.gen(function* () {
       measureOnly: check.measureOnly || doc.champion.lifecycle !== "active",
     };
   });
-  const proposeFromSetup: ChampionService["Service"]["proposeFromSetup"] = Effect.fn(
-    "ChampionService.proposeFromSetup",
+  const changeMetricsFromCheck: ChampionService["Service"]["changeMetricsFromCheck"] = Effect.fn(
+    "ChampionService.changeMetricsFromCheck",
   )(function* (caller, input) {
-    const { check } = yield* authenticate(caller);
-    const result = yield* propose({ id: check.championId, ...input });
-    // A routine check still owes its report; only setup ends with its proposal.
+    const { doc: before, check } = yield* authenticate(caller);
+    const result = yield* changeMetrics({ id: check.championId, ...input }, check.threadId);
+    // A routine check still owes its report; only setup ends with its change.
     if (check.kind === "check") return result;
-    yield* mutate(
-      sql
-        .withTransaction(
-          Effect.gen(function* () {
-            const current = yield* readCheck(check.id);
-            if (current.reported) return;
-            yield* saveCheck({ ...current, reported: true });
-            const doc = yield* read(check.championId);
-            yield* write({
-              ...doc,
-              champion: {
-                ...doc.champion,
-                outstandingSetupId: null,
-                attention: doc.champion.attention.filter((a) => !a.startsWith("Setup ")),
-              },
-            });
-          }),
-        )
-        .pipe(Effect.mapError((cause) => (isChampionError(cause) ? cause : failure(cause)))),
+    return yield* mutate(
+      Effect.gen(function* () {
+        const current = yield* readCheck(check.id);
+        if (!current.reported) yield* saveCheck({ ...current, reported: true });
+        const doc = yield* read(check.championId);
+        // Setting up a new champion is asking for it to run, so its first metrics start it.
+        const start =
+          before.metrics.length === 0 &&
+          doc.metrics.length > 0 &&
+          doc.champion.lifecycle === "paused";
+        const saved = yield* write({
+          ...doc,
+          champion: {
+            ...doc.champion,
+            outstandingSetupId: null,
+            attention: doc.champion.attention.filter((a) => !a.startsWith("Setup ")),
+            ...(start
+              ? { lifecycle: "active" as const, nextCheckAt: yield* nextDue(doc.champion) }
+              : {}),
+          },
+        });
+        if (start)
+          yield* activity(
+            check.championId,
+            "lifecycle",
+            "Champion active. Setup added its first metrics, so checks start on schedule.",
+          );
+        return saved;
+      }),
     );
-    return { ...result, champion: { ...result.champion, outstandingSetupId: null } };
   });
   const completeSetup: ChampionService["Service"]["completeSetup"] = Effect.fn(
     "ChampionService.completeSetup",
@@ -2066,7 +2035,7 @@ const make = Effect.gen(function* () {
               ? {
                   outstandingCheckId: null,
                   lastCheckAt: at as ChampionSample["collectedAt"],
-                  attention: doc.proposal === null ? [] : ["Metric proposal awaits acceptance."],
+                  attention: [],
                 }
               : {}),
           },
@@ -2235,7 +2204,6 @@ const make = Effect.gen(function* () {
                 ...(findingsLimited
                   ? ["Open finding limit reached. Reconcile existing findings before opening more."]
                   : []),
-                ...(doc.proposal === null ? [] : ["Metric proposal awaits acceptance."]),
 
                 ...(stored.some(
                   (s) =>
@@ -2388,7 +2356,7 @@ const make = Effect.gen(function* () {
             `The user asked you to fix the metrics of the ${doc.champion.name} champion (id ${doc.champion.id}). Its goal: ${doc.champion.purpose}`,
             `Its metrics now:\n${metricLines.join("\n") || "- none"}`,
             `What looks wrong:\n${problems.map((line) => `- ${line}`).join("\n") || "- nothing recorded; judge from the metrics above"}`,
-            `Work out which metrics fail to show honest progress towards the goal: ones that cannot be collected here, that measure the wrong thing, or whose names a non-engineer would not understand. Shape the fix as a Spec with the shape skill and lead it with the lead skill. Read current state with t3_champions_get. Give new or changed definitions to the champion with t3_champions_proposal; the user accepts them on its page, and renaming keeps a metric's history. ${PROPOSAL_RULE} Do not change the champion's checks or findings directly.`,
+            `Work out which metrics fail to show honest progress towards the goal: ones that cannot be collected here, that measure the wrong thing, or whose names a non-engineer would not understand. Shape the fix as a Spec with the shape skill and lead it with the lead skill. Read current state with t3_champions_get. Change the champion's definitions with t3_champions_metrics; renaming keeps a metric's history. ${METRIC_RULE} Do not change the champion's checks or findings directly.`,
           ].join("\n\n"),
           attachments: [],
         },
@@ -4383,6 +4351,55 @@ const make = Effect.gen(function* () {
     ),
     Effect.forkScoped,
   );
+  const applyWaitingProposals = Effect.gen(function* () {
+    const rows = yield* sql<{
+      id: string;
+      proposal_json: string;
+    }>`SELECT id, json_extract(document_json, '$.proposal') AS proposal_json FROM champions WHERE json_type(document_json, '$.proposal') = 'object'`;
+    for (const row of rows) {
+      const outcome = yield* decodeWaitingProposal(row.proposal_json).pipe(
+        Effect.mapError(failure),
+        Effect.flatMap((proposal) =>
+          changeMetrics(
+            {
+              id: row.id,
+              ...proposal,
+              reason: `Applied a change that was waiting for acceptance: ${proposal.reason}`,
+            },
+            undefined,
+            { prove: false },
+          ),
+        ),
+        Effect.result,
+      );
+      // Rewriting the document drops the stored proposal, applied or not.
+      yield* mutate(
+        Effect.gen(function* () {
+          const doc = yield* read(row.id);
+          yield* write({
+            ...doc,
+            champion: {
+              ...doc.champion,
+              attention: doc.champion.attention.filter(
+                (a) => a !== "Metric proposal awaits acceptance.",
+              ),
+            },
+          });
+          if (outcome._tag === "Failure")
+            yield* activity(
+              row.id,
+              "metrics-changed",
+              `A metric change that was waiting for acceptance could not be applied: ${outcome.failure.detail ?? outcome.failure.reason}`,
+            );
+        }),
+      );
+    }
+  }).pipe(
+    Effect.catch((error) =>
+      Effect.logWarning("Champion waiting proposals could not be applied.", error),
+    ),
+  );
+  yield* applyWaitingProposals;
   yield* scheduler.register("champions", runDue);
   const authenticateOwner = Effect.fn("ChampionService.authenticateOwner")(function* (
     caller: Caller,
@@ -4553,9 +4570,7 @@ const make = Effect.gen(function* () {
     get,
     upsert,
     setLifecycle,
-    propose,
-    accept,
-    discardProposal,
+    changeMetrics,
     completeSetup,
     cancelSetup,
     findingAction,
@@ -4563,7 +4578,7 @@ const make = Effect.gen(function* () {
     runCheck: Effect.fn("ChampionService.runCheck")((input) => start(input.id, "check")),
     startMetricsLead,
     checkContext,
-    proposeFromSetup,
+    changeMetricsFromCheck,
     report,
     journeysStart,
     journeyCandidate,

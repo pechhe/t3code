@@ -1,19 +1,8 @@
 import { useAtomValue } from "@effect/atom-react";
-import {
-  championCommandChange,
-  championStatus,
-  formatChampionCommand,
-  pendingChampionDecision,
-} from "@t3tools/client-runtime/champions";
+import { championStatus, pendingChampionDecision } from "@t3tools/client-runtime/champions";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { threadRuntimeIsActive } from "@t3tools/client-runtime/state/models";
-import {
-  championProposalResult,
-  championProposalRetiring,
-  type ChampionDetail,
-  type ChampionSummary,
-  type EnvironmentId,
-} from "@t3tools/contracts";
+import { type ChampionDetail, type ChampionSummary, type EnvironmentId } from "@t3tools/contracts";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   ArchiveIcon,
@@ -55,8 +44,6 @@ import {
   championActivityView,
   championCurrentThreadId,
   latestGoalProgress,
-  metricChange,
-  metricTargetLabel,
   retiredMetrics,
 } from "./champions.logic";
 import { statusBadge } from "./championsPresentation";
@@ -70,8 +57,8 @@ import {
 const MACHINE_NOT_CONNECTED = "This machine isn't connected right now.";
 const SETUP_DISPATCH_FAILED_PREFIX = "Setup dispatch unavailable.";
 const STAGE_ATTENTION: ReadonlySet<string> = new Set([
+  "Add metrics before enabling checks.",
   "Accept metric definitions before enabling checks.",
-  "Metric proposal awaits acceptance.",
 ]);
 
 function SectionHeading(props: { readonly title: string; readonly children?: React.ReactNode }) {
@@ -93,209 +80,6 @@ function ReasonedTooltip(props: {
       <TooltipTrigger render={<span className="inline-flex" />}>{props.children}</TooltipTrigger>
       <TooltipPopup side="top">{props.reason}</TooltipPopup>
     </Tooltip>
-  );
-}
-
-function ProposalCard(props: {
-  readonly environmentId: EnvironmentId;
-  readonly detail: ChampionDetail;
-  readonly setupRunning: boolean;
-  readonly onEdit: () => void;
-}) {
-  const { environmentId, detail } = props;
-  const { champion, proposal, metrics } = detail;
-  const { busy, error, run } = useChampionAction();
-  const accept = useAtomCommand(serverEnvironment.acceptChampionMetrics, {
-    label: "champion accept metrics",
-    reportFailure: false,
-  });
-  const setup = useAtomCommand(serverEnvironment.setupChampion, {
-    label: "champion setup",
-    reportFailure: false,
-  });
-  const discard = useAtomCommand(serverEnvironment.discardChampionProposal, {
-    label: "champion discard proposal",
-    reportFailure: false,
-  });
-  const setLifecycle = useAtomCommand(serverEnvironment.setChampionLifecycle, {
-    label: "champion lifecycle",
-    reportFailure: false,
-  });
-  const canDiscard = useChampionCommandAllowed(
-    serverEnvironment.discardChampionProposal,
-    environmentId,
-  );
-  const canAccept = useChampionCommandAllowed(
-    serverEnvironment.acceptChampionMetrics,
-    environmentId,
-  );
-  const canSetup = useChampionCommandAllowed(serverEnvironment.setupChampion, environmentId);
-  const canSetLifecycle = useChampionCommandAllowed(
-    serverEnvironment.setChampionLifecycle,
-    environmentId,
-  );
-  if (proposal === null) return null;
-  const initial = metrics.length === 0;
-  const installs = championProposalResult(metrics, proposal);
-  const retiring = championProposalRetiring(metrics, proposal);
-  const { id } = champion;
-  const acceptStep = () =>
-    accept({
-      environmentId,
-      input: { id, ...(proposal.id === undefined ? {} : { proposalId: proposal.id }) },
-    });
-  return (
-    <div className="flex flex-col gap-3 rounded-lg border p-3 text-sm">
-      <div className="flex flex-col gap-1">
-        <p className="font-medium">
-          {initial ? "Proposed metrics" : "Proposed changes to these metrics"}
-        </p>
-        <p className="text-muted-foreground text-xs">{proposal.reason}</p>
-      </div>
-      <ul className="flex flex-col gap-2">
-        {installs.map((metric) => {
-          const change = metricChange(metric, metrics);
-          const command = championCommandChange(metric, metrics);
-          return (
-            <li key={metric.id} className="flex flex-col gap-0.5">
-              <span className="flex flex-wrap items-baseline gap-x-2">
-                <span className="font-medium">{metric.name}</span>
-                <span className="text-muted-foreground text-xs">
-                  {metric.unit} · {metricTargetLabel(metric)}
-                  {(metric.required ?? true) ? "" : " · Optional"}
-                </span>
-                {initial ? null : change === "new" ? (
-                  <Badge variant="info">New</Badge>
-                ) : change === "new-series" ? (
-                  <Badge variant="warning">New series</Badge>
-                ) : null}
-              </span>
-              {metric.description ? (
-                <span className="text-muted-foreground text-xs">{metric.description}</span>
-              ) : null}
-              <span className="text-muted-foreground text-xs">Source: {metric.source}</span>
-              {metric.collect ? (
-                <span className="mt-1 flex flex-col gap-1">
-                  <span className="flex flex-wrap items-baseline gap-x-2 text-xs">
-                    <span>The server will run this command in the project at each check</span>
-                    {command === null ? null : (
-                      <Badge variant="warning">
-                        {command === "new" ? "New command" : "Changed command"}
-                      </Badge>
-                    )}
-                  </span>
-                  <code className="whitespace-pre-wrap break-all rounded-md bg-muted px-2 py-1.5 font-mono text-xs">
-                    {formatChampionCommand(metric.collect)}
-                  </code>
-                </span>
-              ) : null}
-            </li>
-          );
-        })}
-        {retiring.map((metric) => (
-          <li key={metric.id} className="flex flex-col gap-0.5">
-            <span className="flex flex-wrap items-baseline gap-x-2">
-              <span className="font-medium">{metric.name}</span>
-              <span className="text-muted-foreground text-xs">
-                {metric.unit} · {metricTargetLabel(metric)}
-              </span>
-              <Badge variant="warning">Stops tracking</Badge>
-            </span>
-          </li>
-        ))}
-      </ul>
-      {!initial && installs.some((metric) => metricChange(metric, metrics) === "new-series") ? (
-        <p className="text-muted-foreground text-xs">
-          A new series measures something different. Current readings stay as history and aren't
-          joined to it.
-        </p>
-      ) : null}
-      {installs.some((metric) => championCommandChange(metric, metrics) !== null) ? (
-        <p className="text-warning-foreground text-xs">
-          Accepting lets the server run each new or changed command by itself, with no agent reading
-          it first. Read them before you accept.
-        </p>
-      ) : null}
-      {retiring.length > 0 ? (
-        <p className="text-muted-foreground text-xs">
-          A metric that stops tracking keeps its readings as history, and a running check finishes
-          measuring it.
-        </p>
-      ) : null}
-      <div className="flex flex-wrap gap-2">
-        {initial ? (
-          <>
-            <Button
-              size="sm"
-              disabled={busy !== null || !canAccept || !canSetLifecycle}
-              onClick={() =>
-                void run("start", "metrics", [
-                  acceptStep,
-                  () => setLifecycle({ environmentId, input: { id, lifecycle: "active" } }),
-                ])
-              }
-            >
-              Accept and start
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={busy !== null || !canAccept}
-              onClick={() => void run("accept", "metrics", [acceptStep])}
-            >
-              Accept, stay paused
-            </Button>
-          </>
-        ) : (
-          <Button
-            size="sm"
-            disabled={busy !== null || !canAccept}
-            onClick={() => void run("accept", "metrics", [acceptStep])}
-          >
-            Accept changes
-          </Button>
-        )}
-        <Button size="sm" variant="ghost" disabled={busy !== null} onClick={props.onEdit}>
-          Edit metrics
-        </Button>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={busy !== null || !canSetup || props.setupRunning}
-                onClick={() =>
-                  void run("propose", "setup", [() => setup({ environmentId, input: { id } })])
-                }
-              >
-                {busy === "propose" ? "Starting…" : "Ask AI to propose again"}
-              </Button>
-            }
-          />
-          <TooltipPopup side="top">
-            {props.setupRunning
-              ? "A new proposal is already being prepared."
-              : "Runs metric setup again. Its proposal replaces this one, and nothing changes until you accept."}
-          </TooltipPopup>
-        </Tooltip>
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={busy !== null || !canDiscard}
-          onClick={() =>
-            void run("discard", "discard", [() => discard({ environmentId, input: { id } })])
-          }
-        >
-          {initial ? "Discard proposal" : "Keep current metrics"}
-        </Button>
-      </div>
-      {error ? (
-        <p role="alert" className="text-destructive-foreground text-xs">
-          {error}
-        </p>
-      ) : null}
-    </div>
   );
 }
 
@@ -341,7 +125,7 @@ function SetupStatus(props: {
       </div>
       {props.hasMetrics ? (
         <p className="text-muted-foreground text-xs">
-          Routine checks carry on, and your metrics stay as they are until you accept a change.
+          Routine checks carry on. Any metric changes it makes show here when it finishes.
         </p>
       ) : null}
       <div className="flex flex-wrap items-center gap-2">
@@ -362,7 +146,7 @@ function SetupStatus(props: {
             Open its thread
           </Button>
         ) : null}
-        <ReasonedTooltip reason="Runs metric setup again. Metric definitions stay as they are until you accept a change.">
+        <ReasonedTooltip reason="Runs metric setup again.">
           <Button
             size="xs"
             variant="ghost-muted"
@@ -492,7 +276,6 @@ export function ChampionDetailPage(props: {
   const detail = detailQuery.data;
   const champion: ChampionSummary = summary;
   const metrics = detail?.metrics ?? [];
-  const proposal = detail?.proposal ?? null;
   const retired = champion.lifecycle === "retired";
   const hasMetrics = metrics.length > 0;
   const setupRunning = (champion.outstandingSetupId ?? null) !== null;
@@ -552,14 +335,14 @@ export function ChampionDetailPage(props: {
   };
 
   const switchDisabledReason = !hasMetrics
-    ? "Accept metrics first"
+    ? "Add metrics first"
     : !machineConnected
       ? MACHINE_NOT_CONNECTED
       : !canSetLifecycle
         ? "This device can't change champions on this machine"
         : null;
   const runDisabledReason = !hasMetrics
-    ? "Accept metrics first"
+    ? "Add metrics first"
     : !machineConnected
       ? MACHINE_NOT_CONNECTED
       : !canRunCheck
@@ -571,9 +354,7 @@ export function ChampionDetailPage(props: {
       ? "This device can't start metric reviews on this machine"
       : setupRunning
         ? "A metric review is already running."
-        : proposal !== null
-          ? "Accept or discard the current proposal first."
-          : "Runs this champion's metric setup to suggest changes. Your metric definitions stay as they are until you accept.";
+        : "Runs this champion's metric setup, which changes the metrics where they don't show progress towards the goal.";
 
   const decisionsSection = (
     <section className="flex flex-col gap-2" aria-label="Your decisions">
@@ -609,7 +390,7 @@ export function ChampionDetailPage(props: {
               <Button
                 size="xs"
                 variant="ghost-muted"
-                disabled={!canSetup || setupRunning || proposal !== null || busy !== null}
+                disabled={!canSetup || setupRunning || busy !== null}
                 onClick={() => void startSetup()}
               >
                 {busy === "setup" ? "Starting…" : "Ask AI to review metrics"}
@@ -621,7 +402,7 @@ export function ChampionDetailPage(props: {
                   ? MACHINE_NOT_CONNECTED
                   : !canStartLead
                     ? "This device can't start threads on this machine"
-                    : "Starts a Spec lead thread that works out what's wrong with these metrics, plans a fix and builds it. You accept any new metrics here."
+                    : "Starts a Spec lead thread that works out what's wrong with these metrics, plans a fix and builds it."
               }
             >
               <Button
@@ -658,14 +439,6 @@ export function ChampionDetailPage(props: {
           }
         />
       ) : null}
-      {detail && !retired ? (
-        <ProposalCard
-          environmentId={environmentId}
-          detail={detail}
-          setupRunning={setupRunning}
-          onEdit={openMetricsEditor}
-        />
-      ) : null}
       {detailQuery.error && detail === null ? (
         <Alert variant="error">
           <AlertTitle>Metrics couldn't load</AlertTitle>
@@ -697,17 +470,17 @@ export function ChampionDetailPage(props: {
             />
           ))}
         </div>
-      ) : proposal === null && !setupRunning && !retired ? (
+      ) : !setupRunning && !retired ? (
         <div className="flex flex-col gap-2 rounded-lg border p-3 text-sm">
           <p className="text-muted-foreground">No metrics yet.</p>
           <div className="flex flex-wrap gap-2">
-            <ReasonedTooltip reason="Runs this champion's metric setup. Nothing starts until you accept its proposal.">
+            <ReasonedTooltip reason="Runs this champion's metric setup. It starts checking once its metrics are in.">
               <Button
                 size="sm"
                 disabled={!canSetup || busy !== null}
                 onClick={() => void startSetup()}
               >
-                {busy === "setup" ? "Starting…" : "Ask AI to propose metrics"}
+                {busy === "setup" ? "Starting…" : "Ask AI to set up metrics"}
               </Button>
             </ReasonedTooltip>
             <Button size="sm" variant="ghost" onClick={openMetricsEditor}>

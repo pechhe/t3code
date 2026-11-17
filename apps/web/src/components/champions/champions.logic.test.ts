@@ -32,14 +32,15 @@ import {
   metricSeries,
   metricTargetLabel,
   metricTrend,
-  metricsMatchProposal,
   mergeHistoryPages,
   modelSelectionProblem,
   orderChampions,
   parseMetricDrafts,
   emptyMetricDraft,
   metricDraftOf,
+  metricInputsOf,
   readingFreshness,
+  recentMetricChange,
   recommendationSupport,
   resolveChampionClass,
   resolveChampionSelection,
@@ -73,7 +74,6 @@ const summary = (patch: Partial<ChampionSummary> = {}): ChampionSummary => ({
   outstandingSetupId: null,
   attention: [],
   openFindingCount: 0,
-  pendingProposal: false,
   updatedAt: "2026-11-01T00:00:00.000Z",
   ...patch,
 });
@@ -232,7 +232,7 @@ describe("orderChampions", () => {
       [
         { environmentId: ENV, champion: summary({ id: "r", lifecycle: "retired" }) },
         { environmentId: ENV, champion: summary({ id: "h" }) },
-        { environmentId: ENV, champion: summary({ id: "p", pendingProposal: true }) },
+        { environmentId: ENV, champion: summary({ id: "p", attention: ["Look"] }) },
       ],
       RECENT,
     );
@@ -530,29 +530,16 @@ describe("parseMetricDrafts", () => {
     expect(parseMetricDrafts([{ ...valid, baseline: "abc" }]).ok).toBe(false);
   });
 
-  it("round-trips an untouched proposal so accepting does not re-propose it", () => {
-    const proposed = metric();
-    const parsed = parseMetricDrafts([metricDraftOf(proposed)]);
-    if (!parsed.ok) throw new Error("expected valid");
-    expect(metricsMatchProposal(parsed.metrics, [], { metrics: [proposed], reason: "r" })).toBe(
-      true,
-    );
-    expect(metricsMatchProposal(parsed.metrics, [], null)).toBe(false);
-    const collected = { ...proposed, collect: ["df", "-k", "/"] };
-    const kept = parseMetricDrafts([{ ...metricDraftOf(collected), name: "Renamed" }]);
-    expect(kept.ok && kept.metrics[0]?.collect).toEqual(["df", "-k", "/"]);
-    expect(metricsMatchProposal([collected], [], { metrics: [proposed], reason: "r" })).toBe(false);
-    const retiring = { metrics: [proposed], retires: ["old"], reason: "r" };
-    expect(metricsMatchProposal(parsed.metrics, ["old"], retiring)).toBe(true);
-    expect(metricsMatchProposal(parsed.metrics, [], retiring)).toBe(false);
-    expect(metricsMatchProposal(parsed.metrics, ["old", "other"], retiring)).toBe(false);
-
-    const explicit = metric({ required: false, baseline: 40, staleAfterMs: 7_200_000 });
-    const reparsed = parseMetricDrafts([metricDraftOf(explicit)]);
-    if (!reparsed.ok) throw new Error("expected valid");
-    expect(metricsMatchProposal(reparsed.metrics, [], { metrics: [explicit], reason: "r" })).toBe(
-      true,
-    );
+  it("round-trips an untouched metric so saving it changes nothing", () => {
+    for (const input of [
+      metric(),
+      metric({ collect: ["df", "-k", "/"] }),
+      metric({ required: false, baseline: 40, staleAfterMs: 7_200_000 }),
+    ]) {
+      const parsed = parseMetricDrafts([metricDraftOf(input)]);
+      if (!parsed.ok) throw new Error("expected valid");
+      expect(parsed.metrics).toEqual(metricInputsOf([input]));
+    }
   });
 });
 
@@ -563,6 +550,17 @@ describe("metricChange", () => {
     expect(metricChange(metric({ name: "Renamed", maximum: 5 }), current)).toBe("same-series");
     expect(metricChange(metric({ unit: "s" }), current)).toBe("new-series");
     expect(metricChange(metric({ context: "changed" }), current)).toBe("new-series");
+  });
+});
+
+describe("recentMetricChange", () => {
+  it("marks a definition from the last week as new or updated, and nothing older or undated", () => {
+    const now = Date.parse("2026-11-20T00:00:00.000Z");
+    const definedAt = "2026-11-18T00:00:00.000Z";
+    expect(recentMetricChange(metric({ definedAt, version: 1 }), now)).toBe("new");
+    expect(recentMetricChange(metric({ definedAt }), now)).toBe("updated");
+    expect(recentMetricChange(metric({ definedAt: "2026-11-01T00:00:00.000Z" }), now)).toBeNull();
+    expect(recentMetricChange(metric(), now)).toBeNull();
   });
 });
 

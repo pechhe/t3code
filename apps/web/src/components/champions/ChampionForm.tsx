@@ -566,7 +566,7 @@ function ChampionFormFields(props: {
               disabled={disabled || !canSave || !canSetup || newDraftBlocked || newDraftPending}
               onClick={() => void submitNew("propose")}
             >
-              {busy === "propose" ? "Starting…" : "Propose metrics"}
+              {busy === "propose" ? "Starting…" : "Set up metrics with AI"}
             </Button>
             <Button
               variant="ghost"
@@ -587,9 +587,8 @@ function ChampionFormFields(props: {
             ) : (
               "The setup role"
             )}{" "}
-            reads your remit and the evidence available in this project, then proposes what to
-            track. It runs at setup and for later reviews, not on routine checks. Nothing starts
-            until you accept.
+            reads your remit and the evidence available in this project, then sets what to track and
+            starts the champion. It runs at setup and for later reviews, not on routine checks.
           </p>
         </div>
       ) : null}

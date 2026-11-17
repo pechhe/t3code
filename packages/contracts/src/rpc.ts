@@ -32,8 +32,7 @@ import {
   ChampionHistoryResult,
   ChampionUpsertInput,
   ChampionLifecycleInput,
-  ChampionProposeInput,
-  ChampionAcceptInput,
+  ChampionMetricChangeInput,
   ChampionFindingActionInput,
   ChampionError,
 } from "./champions.ts";
@@ -761,11 +760,9 @@ export const WS_METHODS = {
   championsSetLifecycle: "champions.setLifecycle",
   championsSetup: "champions.setup",
   championsRunCheck: "champions.runCheck",
-  championsPropose: "champions.propose",
-  championsDiscardProposal: "champions.discardProposal",
+  championsChangeMetrics: "champions.changeMetrics",
   championsCancelSetup: "champions.cancelSetup",
   championsStartMetricsLead: "champions.startMetricsLead",
-  championsAccept: "champions.accept",
   championsFindingAction: "champions.findingAction",
   scheduledTasksList: "scheduledTasks.list",
   scheduledTasksSubscribe: "scheduledTasks.subscribe",
@@ -2668,13 +2665,8 @@ const WsChampionsRunCheckRpc = Rpc.make(WS_METHODS.championsRunCheck, {
   success: ChampionDetail,
   error: Schema.Union([ChampionError, EnvironmentAuthorizationError]),
 });
-const WsChampionsProposeRpc = Rpc.make(WS_METHODS.championsPropose, {
-  payload: ChampionProposeInput,
-  success: ChampionDetail,
-  error: Schema.Union([ChampionError, EnvironmentAuthorizationError]),
-});
-const WsChampionsDiscardProposalRpc = Rpc.make(WS_METHODS.championsDiscardProposal, {
-  payload: ChampionGetInput,
+const WsChampionsChangeMetricsRpc = Rpc.make(WS_METHODS.championsChangeMetrics, {
+  payload: ChampionMetricChangeInput,
   success: ChampionDetail,
   error: Schema.Union([ChampionError, EnvironmentAuthorizationError]),
 });
@@ -2686,11 +2678,6 @@ const WsChampionsCancelSetupRpc = Rpc.make(WS_METHODS.championsCancelSetup, {
 const WsChampionsStartMetricsLeadRpc = Rpc.make(WS_METHODS.championsStartMetricsLead, {
   payload: ChampionGetInput,
   success: ChampionMetricsLeadResult,
-  error: Schema.Union([ChampionError, EnvironmentAuthorizationError]),
-});
-const WsChampionsAcceptRpc = Rpc.make(WS_METHODS.championsAccept, {
-  payload: ChampionAcceptInput,
-  success: ChampionDetail,
   error: Schema.Union([ChampionError, EnvironmentAuthorizationError]),
 });
 const WsChampionsFindingActionRpc = Rpc.make(WS_METHODS.championsFindingAction, {
@@ -3200,9 +3187,7 @@ export const WsChampionsRpcGroup = RpcGroup.make(
   WsChampionsSetLifecycleRpc,
   WsChampionsSetupRpc,
   WsChampionsRunCheckRpc,
-  WsChampionsProposeRpc,
-  WsChampionsAcceptRpc,
-  WsChampionsDiscardProposalRpc,
+  WsChampionsChangeMetricsRpc,
   WsChampionsCancelSetupRpc,
   WsChampionsStartMetricsLeadRpc,
   WsChampionsFindingActionRpc,

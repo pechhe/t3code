@@ -735,8 +735,11 @@ const definitions = Effect.fn("test.championDefinitions")(function* (
   service: Champions.ChampionService["Service"],
 ) {
   yield* service.upsert(config);
-  yield* service.propose({ id: config.id, metrics: [metric], reason: "Measure errors" });
-  return yield* service.accept({ id: config.id });
+  return yield* service.changeMetrics({
+    id: config.id,
+    metrics: [metric],
+    reason: "Measure errors",
+  });
 });
 const unquotedAgent = { threadId: undefined, quote: undefined };
 const refusedWith = <A>(effect: Effect.Effect<A, ChampionError>, detail: string) =>
@@ -781,8 +784,7 @@ it.effect(
         );
         assert.equal((yield* service.checkContext(scope!.thread)).champion.champion.id, config.id);
         const proposal = { metrics: [metric], reason: "Authenticated setup" };
-        yield* service.proposeFromSetup(scope!.thread, proposal);
-        yield* service.accept({ id: config.id });
+        yield* service.changeMetricsFromCheck(scope!.thread, proposal);
         yield* service.runCheck({ id: config.id });
         const prior = f.caller();
         yield* f.rotateCredential();
@@ -967,38 +969,36 @@ it.effect(
     ),
 );
 
-it.effect(
-  "does not flag completed setup proposals or no-change completion as missing reports",
-  () =>
-    withFixture((f, service) =>
-      Effect.gen(function* () {
-        yield* service.upsert(config);
-        yield* service.setup({ id: config.id });
-        yield* service.proposeFromSetup(f.caller(), {
-          metrics: [metric],
-          reason: "Initial measurement",
-        });
-        f.completeRun(true);
-        f.endRun();
-        yield* service.runDue;
-        assert.isFalse(
-          (yield* service.get({ id: config.id })).champion.attention.some((a) =>
-            a.includes("ended without"),
-          ),
-        );
-        f.completeRun(false);
-        yield* service.setup({ id: config.id });
-        yield* service.completeSetup(f.caller(), { summary: "No changes needed" });
-        f.completeRun(true);
-        f.endRun();
-        yield* service.runDue;
-        assert.isFalse(
-          (yield* service.get({ id: config.id })).champion.attention.some((a) =>
-            a.includes("ended without"),
-          ),
-        );
-      }),
-    ),
+it.effect("does not flag completed setup changes or no-change completion as missing reports", () =>
+  withFixture((f, service) =>
+    Effect.gen(function* () {
+      yield* service.upsert(config);
+      yield* service.setup({ id: config.id });
+      yield* service.changeMetricsFromCheck(f.caller(), {
+        metrics: [metric],
+        reason: "Initial measurement",
+      });
+      f.completeRun(true);
+      f.endRun();
+      yield* service.runDue;
+      assert.isFalse(
+        (yield* service.get({ id: config.id })).champion.attention.some((a) =>
+          a.includes("ended without"),
+        ),
+      );
+      f.completeRun(false);
+      yield* service.setup({ id: config.id });
+      yield* service.completeSetup(f.caller(), { summary: "No changes needed" });
+      f.completeRun(true);
+      f.endRun();
+      yield* service.runDue;
+      assert.isFalse(
+        (yield* service.get({ id: config.id })).champion.attention.some((a) =>
+          a.includes("ended without"),
+        ),
+      );
+    }),
+  ),
 );
 
 it.effect(
@@ -1007,129 +1007,138 @@ it.effect(
     withFixture((_f, service) =>
       Effect.gen(function* () {
         const first = yield* definitions(service);
-        yield* service.propose({
+        const wording = yield* service.changeMetrics({
           id: config.id,
           metrics: [{ ...metric, name: "Observed errors", maximum: 1 }],
           reason: "Tighter target",
         });
-        const wording = yield* service.accept({ id: config.id });
         assert.equal(wording.metrics[0]!.seriesId, first.metrics[0]!.seriesId);
         assert.equal(wording.metrics[0]!.version, 2);
-        yield* service.propose({
+        const unit = yield* service.changeMetrics({
           id: config.id,
           metrics: [{ ...metric, unit: "percent" }],
           reason: "Use error rate",
         });
-        const unit = yield* service.accept({ id: config.id });
         assert.notEqual(unit.metrics[0]!.seriesId, wording.metrics[0]!.seriesId);
-        yield* service.propose({
+        const source = yield* service.changeMetrics({
           id: config.id,
           metrics: [{ ...metric, source: "synthetic" }],
           reason: "Change measurement source",
         });
-        const source = yield* service.accept({ id: config.id });
         assert.notEqual(source.metrics[0]!.seriesId, first.metrics[0]!.seriesId);
       }),
     ),
 );
 
-it.effect("keeps accepted metrics a proposal leaves out and retires only those it names", () =>
-  withFixture((_f, service) =>
-    Effect.gen(function* () {
-      const latency = { ...metric, id: "latency", name: "Latency", unit: "ms", maximum: 500 };
-      yield* service.upsert(config);
-      yield* service.propose({ id: config.id, metrics: [metric, latency], reason: "Start" });
-      const before = yield* service.accept({ id: config.id });
-      const crashes = { ...metric, id: "crashes", name: "Crashes" };
-      const pending = yield* service.propose({
-        id: config.id,
-        metrics: [crashes],
-        reason: "Add crashes",
-      });
-      assert.deepEqual(
-        pending.proposal?.metrics.map((m) => m.id),
-        ["errors", "latency", "crashes"],
-      );
-      const added = yield* service.accept({ id: config.id });
-      assert.deepEqual(
-        added.metrics.map(({ id, version, seriesId }) => ({ id, version, seriesId })),
-        [
-          ...before.metrics.map(({ id, version, seriesId }) => ({ id, version, seriesId })),
-          { id: "crashes", version: 1, seriesId: added.metrics[2]!.seriesId },
-        ],
-      );
+it.effect(
+  "a metric change applies at once, keeps metrics it leaves out and retires only those it names",
+  () =>
+    withFixture((_f, service) =>
+      Effect.gen(function* () {
+        const latency = { ...metric, id: "latency", name: "Latency", unit: "ms", maximum: 500 };
+        yield* service.upsert(config);
+        const before = yield* service.changeMetrics({
+          id: config.id,
+          metrics: [metric, latency],
+          reason: "Start",
+        });
+        assert.notInclude(before.champion.attention, "Add metrics before enabling checks.");
+        const crashes = { ...metric, id: "crashes", name: "Crashes" };
+        const added = yield* service.changeMetrics(
+          { id: config.id, metrics: [crashes], reason: "Add crashes" },
+          ThreadId.make("work-thread"),
+        );
+        assert.deepEqual(
+          added.metrics.map(({ id, version, seriesId }) => ({ id, version, seriesId })),
+          [
+            ...before.metrics.map(({ id, version, seriesId }) => ({ id, version, seriesId })),
+            { id: "crashes", version: 1, seriesId: added.metrics[2]!.seriesId },
+          ],
+        );
+        assert.isDefined(added.metrics[2]!.definedAt);
+        const announced = (yield* service.history({ id: config.id })).activity.find(
+          (event) => event.kind === "metrics-changed" && event.text.includes("Add crashes"),
+        );
+        assert.equal(announced?.text, "Added Crashes. Add crashes");
+        assert.equal(announced?.threadId, "work-thread");
 
-      const retiring = yield* service.propose({
-        id: config.id,
-        metrics: [],
-        retires: ["latency"],
-        reason: "Latency is measured elsewhere",
-      });
-      assert.deepEqual(retiring.proposal?.retires, ["latency"]);
-      assert.deepEqual(
-        retiring.proposal?.metrics.map((m) => m.id),
-        ["errors", "crashes"],
-      );
-      const retired = yield* service.accept({ id: config.id });
-      assert.deepEqual(
-        retired.metrics.map(({ id, version }) => ({ id, version })),
-        [
-          { id: "errors", version: 1 },
-          { id: "crashes", version: 1 },
-        ],
-      );
-      yield* refusedWith(
-        service.propose({ id: config.id, metrics: [], retires: ["latency"], reason: "Again" }),
-        "not an accepted metric",
-      );
+        const retired = yield* service.changeMetrics({
+          id: config.id,
+          metrics: [],
+          retires: ["latency"],
+          reason: "Latency is measured elsewhere",
+        });
+        assert.deepEqual(
+          retired.metrics.map(({ id, version }) => ({ id, version })),
+          [
+            { id: "errors", version: 1 },
+            { id: "crashes", version: 1 },
+          ],
+        );
+        yield* refusedWith(
+          service.changeMetrics({
+            id: config.id,
+            metrics: [],
+            retires: ["latency"],
+            reason: "Again",
+          }),
+          "not a tracked metric",
+        );
 
-      const restored = yield* service.propose({
-        id: config.id,
-        metrics: [{ ...latency, name: "Page latency" }],
-        reason: "Bring latency back",
-      });
-      assert.deepEqual(restored.proposal?.retires, []);
-      const back = yield* service.accept({ id: config.id });
-      const latencyBack = back.metrics.find((m) => m.id === "latency")!;
-      assert.equal(latencyBack.seriesId, before.metrics[1]!.seriesId);
-      assert.equal(latencyBack.version, 2);
-    }),
-  ),
+        const back = yield* service.changeMetrics({
+          id: config.id,
+          metrics: [{ ...latency, name: "Page latency" }],
+          reason: "Bring latency back",
+        });
+        const latencyBack = back.metrics.find((m) => m.id === "latency")!;
+        assert.equal(latencyBack.seriesId, before.metrics[1]!.seriesId);
+        assert.equal(latencyBack.version, 2);
+      }),
+    ),
 );
 
-it.effect("refuses a proposal that would track more than 32 metrics and accepts exactly 32", () =>
+it.effect("refuses a change that would track more than 32 metrics and applies exactly 32", () =>
   withFixture((f, service) =>
     Effect.gen(function* () {
       const numbered = (n: number) => ({ ...metric, id: `m${n}`, name: `Metric ${n}` });
       yield* service.upsert(config);
-      yield* service.propose({
+      yield* service.changeMetrics({
         id: config.id,
         metrics: Array.from({ length: 31 }, (_, n) => numbered(n)),
         reason: "Start",
       });
-      yield* service.accept({ id: config.id });
       yield* refusedWith(
-        service.propose({ id: config.id, metrics: [numbered(31), numbered(32)], reason: "Two" }),
+        service.changeMetrics({
+          id: config.id,
+          metrics: [numbered(31), numbered(32)],
+          reason: "Two",
+        }),
         "at most 32",
       );
-      yield* service.propose({ id: config.id, metrics: [numbered(31)], reason: "One more" });
-      const full = yield* service.accept({ id: config.id });
+      const full = yield* service.changeMetrics({
+        id: config.id,
+        metrics: [numbered(31)],
+        reason: "One more",
+      });
       assert.equal(full.metrics.length, 32);
       yield* refusedWith(
-        service.propose({ id: config.id, metrics: [numbered(32)], reason: "Too many" }),
+        service.changeMetrics({ id: config.id, metrics: [numbered(32)], reason: "Too many" }),
         "at most 32",
       );
-      const swapped = yield* service.propose({
+      const swapped = yield* service.changeMetrics({
         id: config.id,
         metrics: [numbered(32)],
         retires: ["m0"],
         reason: "Swap",
       });
-      assert.equal(swapped.proposal?.metrics.length, 32);
-      yield* service.discardProposal({ id: config.id });
+      assert.equal(swapped.metrics.length, 32);
       yield* service.runCheck({ id: config.id });
       yield* service.report(f.caller(), {
-        samples: Array.from({ length: 32 }, (_, n) => ({ ...sample, metricId: `m${n}`, value: 1 })),
+        samples: Array.from({ length: 32 }, (_, n) => ({
+          ...sample,
+          metricId: `m${n + 1}`,
+          value: 1,
+        })),
         findings: [],
         summary: "All 32 measured",
       });
@@ -1155,9 +1164,103 @@ const accepted = Effect.fn("test.championAccepted")(function* (
   champion = config,
 ) {
   yield* service.upsert(champion);
-  yield* service.propose({ id: champion.id, metrics, reason: "Measure" });
-  return yield* service.accept({ id: champion.id });
+  // Unproved, as a command that worked when added can break later.
+  return yield* service.changeMetrics({ id: champion.id, metrics, reason: "Measure" }, undefined, {
+    prove: false,
+  });
 });
+
+it.effect(
+  "reads a new or changed command once before a metric change applies and refuses the whole change when it fails",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        const reading = NodePath.join(f.realProjectRoot(), "reading");
+        yield* service.upsert(config);
+        yield* refusedWith(
+          service.changeMetrics({
+            id: config.id,
+            metrics: [
+              metric,
+              collectedMetric(node("console.error('no table');process.exit(2)"), "rows"),
+            ],
+            reason: "Add rows",
+          }),
+          "rows: Collection failed: the command exited with 2. no table",
+        );
+        assert.deepEqual((yield* service.get({ id: config.id })).metrics, []);
+
+        NodeFS.writeFileSync(reading, "7");
+        yield* service.changeMetrics({
+          id: config.id,
+          metrics: [collectedMetric(printsFile(reading), "rows")],
+          reason: "Add rows",
+        });
+        const added = (yield* service.history({ id: config.id })).activity.find(
+          (event) => event.kind === "metrics-changed",
+        );
+        assert.equal(added?.text, "Added rows (read 7 count when added). Add rows");
+
+        // An unchanged command is not read again, so a change elsewhere never waits on it.
+        NodeFS.rmSync(reading);
+        const renamed = yield* service.changeMetrics({
+          id: config.id,
+          metrics: [{ ...collectedMetric(printsFile(reading), "rows"), name: "Rows stored" }],
+          reason: "Clearer name",
+        });
+        assert.equal(renamed.metrics[0]!.name, "Rows stored");
+      }),
+    ),
+);
+
+it.effect("starts a new champion once setup adds its first metrics", () =>
+  withFixture((f, service) =>
+    Effect.gen(function* () {
+      const created = yield* service.upsert(config);
+      assert.deepEqual(created.champion.attention, ["Add metrics before enabling checks."]);
+      yield* service.setup({ id: config.id });
+      const started = yield* service.changeMetricsFromCheck(f.caller(), {
+        metrics: [metric],
+        reason: "Initial measurement",
+      });
+      assert.equal(started.champion.lifecycle, "active");
+      assert.isNotNull(started.champion.nextCheckAt);
+      assert.isNull(started.champion.outstandingSetupId);
+      assert.deepEqual(started.champion.attention, []);
+    }),
+  ),
+);
+
+it.effect("applies a metric change left waiting for acceptance when the service starts", () =>
+  withFixture((f, service) =>
+    Effect.gen(function* () {
+      yield* definitions(service);
+      const sql = yield* SqlClient.SqlClient;
+      const waiting = JSON.stringify({
+        id: "proposal-1",
+        proposedAt: "1970-01-01T00:00:00.000Z",
+        metrics: [{ ...metric, maximum: 1 }],
+        retires: [],
+        reason: "Tighter goal",
+      });
+      yield* sql`UPDATE champions SET document_json = json_set(document_json, '$.proposal', json(${waiting}), '$.champion.pendingProposal', json('true'), '$.champion.attention', json('["Metric proposal awaits acceptance."]')) WHERE id = ${config.id}`.pipe(
+        Effect.orDie,
+      );
+      const restarted = yield* Effect.gen(function* () {
+        return yield* (yield* Champions.ChampionService).get({ id: config.id });
+      }).pipe(Effect.provide(Layer.fresh(f.layer)));
+      assert.equal(restarted.metrics[0]!.maximum, 1);
+      assert.equal(restarted.metrics[0]!.version, 2);
+      assert.deepEqual(restarted.champion.attention, []);
+      const stored = yield* sql<{
+        waiting: number;
+      }>`SELECT json_type(document_json, '$.proposal') IS NOT NULL AS waiting FROM champions WHERE id = ${config.id}`.pipe(
+        Effect.orDie,
+      );
+      assert.equal(stored[0]!.waiting, 0);
+    }),
+  ),
+);
 
 it.effect(
   "finishes a check whose metrics are all read by command and in target without an agent, and runs the next one normally",
@@ -1619,12 +1722,11 @@ it.effect(
             { samples: [sample], findings: [], summary: "spoof" },
           ),
         );
-        yield* service.propose({
+        yield* service.changeMetrics({
           id: config.id,
           metrics: [{ ...metric, unit: "percent" }],
           reason: "Change later checks",
         });
-        yield* service.accept({ id: config.id });
         assert.equal((yield* service.checkContext(f.caller())).metrics[0]!.unit, "count");
         const input = {
           samples: [sample],
@@ -1842,12 +1944,11 @@ it.effect(
           evidence: "No later measurement on delivered revision",
         });
         assert.equal(inconclusive.findings[0]!.status, "inconclusive");
-        yield* service.propose({
+        yield* service.changeMetrics({
           id: config.id,
           metrics: [{ ...metric, maximum: 4 }],
           reason: "Relax target without changing series",
         });
-        yield* service.accept({ id: config.id });
         yield* TestClock.adjust("1 second");
         yield* service.runCheck({ id: config.id });
         yield* service.report(f.caller(), {
@@ -1945,7 +2046,7 @@ it.effect(
 );
 
 it.effect(
-  "keeps setup separate from the routine owner and preserves pending user acceptance without freezing the routine check",
+  "keeps setup separate from the routine owner and applies its change without freezing the routine check",
   () =>
     withFixture((f, service) =>
       Effect.gen(function* () {
@@ -1958,14 +2059,14 @@ it.effect(
         assert.notEqual(setup.champion.setupThreadId, setup.champion.ownerThreadId);
         assert.equal(f.launchRequests[0]!.model, "cheap");
         assert.equal(f.launchRequests[1]!.model, "strong");
-        const proposal = yield* service.proposeFromSetup(f.caller(), {
+        const changed = yield* service.changeMetricsFromCheck(f.caller(), {
           metrics: [{ ...metric, maximum: 1 }],
-          reason: "Stronger setup proposes a tighter goal",
+          reason: "Stronger setup sets a tighter goal",
         });
-        assert.isTrue(proposal.champion.pendingProposal);
-        assert.isNull(proposal.champion.outstandingSetupId);
-        assert.equal(proposal.champion.outstandingCheckId, routine.champion.outstandingCheckId);
-        assert.equal(proposal.metrics[0]!.maximum, 2);
+        assert.isNull(changed.champion.outstandingSetupId);
+        assert.equal(changed.champion.outstandingCheckId, routine.champion.outstandingCheckId);
+        assert.equal(changed.metrics[0]!.maximum, 1);
+        assert.equal(changed.metrics[0]!.version, 2);
       }),
     ),
 );
@@ -2459,8 +2560,7 @@ it.effect("refuses a second Spec lead for a champion while one is running", () =
         ...config,
         charter: { ...config.charter, maxConcurrentRepairs: 2 },
       });
-      yield* service.propose({ id: config.id, metrics: [metric], reason: "Measure errors" });
-      yield* service.accept({ id: config.id });
+      yield* service.changeMetrics({ id: config.id, metrics: [metric], reason: "Measure errors" });
       yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
       yield* service.runCheck({ id: config.id });
       const [first, second] = (yield* service.report(f.caller(), {
@@ -2593,7 +2693,7 @@ it.effect(
 );
 
 it.effect(
-  "publishes accepted definitions and reports only after committed data is visible to a real subscriber",
+  "publishes changed definitions and reports only after committed data is visible to a real subscriber",
   () =>
     withFixture((f, service) =>
       Effect.gen(function* () {
@@ -2604,13 +2704,11 @@ it.effect(
           Effect.forkScoped,
         );
         yield* Queue.take(queue);
-        yield* service.propose({
+        yield* service.changeMetrics({
           id: config.id,
           metrics: [metric],
-          reason: "Accept these metrics",
+          reason: "Track these metrics",
         });
-        yield* Queue.take(queue);
-        yield* service.accept({ id: config.id });
         yield* Queue.take(queue);
         assert.equal((yield* service.get({ id: config.id })).metrics[0]!.version, 1);
         yield* service.runCheck({ id: config.id });
@@ -2724,12 +2822,11 @@ it.effect(
         yield* TestClock.adjust("3 minutes");
         assert.equal((yield* service.list({})).champions[0]!.latestSamples![0]!.health, "stale");
         assert.equal((yield* service.get({ id: config.id })).latestSamples![0]!.health, "stale");
-        yield* service.propose({
+        yield* service.changeMetrics({
           id: config.id,
           metrics: [{ ...metric, required: false, baseline: 5, staleAfterMs: 1000 }],
           reason: "Optional goal with an explicit baseline",
         });
-        yield* service.accept({ id: config.id });
         assert.equal((yield* service.get({ id: config.id })).latestSamples![0]!.health, "outdated");
         yield* service.runCheck({ id: config.id });
         const optional = yield* service.report(f.caller(), {
@@ -2740,12 +2837,11 @@ it.effect(
         assert.deepEqual(optional.champion.attention, []);
         assert.equal(optional.metrics[0]!.baseline, 5);
         assert.equal(optional.metrics[0]!.required, false);
-        yield* service.propose({
+        yield* service.changeMetrics({
           id: config.id,
           metrics: [{ ...metric, maximum: null }],
           reason: "Watch without a target",
         });
-        yield* service.accept({ id: config.id });
         yield* service.runCheck({ id: config.id });
         const watched = yield* service.report(f.caller(), {
           samples: [
@@ -2766,44 +2862,35 @@ it.effect(
 );
 
 it.effect(
-  "discards proposals without changing accepted versions and completes or cancels setup without fabricating a proposal",
+  "completes or cancels setup without changing metrics, and a later setup changes them",
   () =>
     withFixture((f, service) =>
       Effect.gen(function* () {
         const accepted = yield* definitions(service);
-        yield* service.propose({
-          id: config.id,
-          metrics: [{ ...metric, maximum: 1 }],
-          reason: "Pending tighter goal",
-        });
-        const discarded = yield* service.discardProposal({ id: config.id });
-        assert.isNull(discarded.proposal);
-        assert.deepEqual(discarded.metrics, accepted.metrics);
         const setup = yield* service.setup({ id: config.id });
         assert.isNotNull(setup.champion.outstandingSetupId);
         const complete = yield* service.completeSetup(f.caller(), {
           summary: "Existing accepted definitions remain appropriate.",
         });
         assert.isNull(complete.champion.outstandingSetupId);
-        assert.isNull(complete.proposal);
         assert.deepEqual(complete.metrics, accepted.metrics);
         yield* service.setup({ id: config.id });
         const cancelled = yield* service.cancelSetup({ id: config.id });
         assert.isNull(cancelled.champion.outstandingSetupId);
         assert.deepEqual(cancelled.metrics, accepted.metrics);
         yield* refused(
-          service.proposeFromSetup(f.caller(), {
+          service.changeMetricsFromCheck(f.caller(), {
             metrics: [metric],
             reason: "Old cancelled caller",
           }),
         );
         yield* service.setup({ id: config.id });
-        const proposed = yield* service.proposeFromSetup(f.caller(), {
+        const changed = yield* service.changeMetricsFromCheck(f.caller(), {
           metrics: [{ ...metric, maximum: 1 }],
-          reason: "A later setup may propose again",
+          reason: "A later setup may change them again",
         });
-        assert.isNotNull(proposed.proposal);
-        assert.deepEqual(proposed.metrics, accepted.metrics);
+        assert.equal(changed.metrics[0]!.maximum, 1);
+        assert.equal(changed.champion.lifecycle, "paused");
       }),
     ),
 );
@@ -3985,16 +4072,9 @@ it.effect("starts a metrics lead thread on the lead role's current model and rec
       assert.equal(started?.threadId, threadId);
       // The brief is the server's words under a reserved id, so the lead can never quote it.
       assert.match(f.launchRequests[0]!.messageId, /^champion-metrics-lead:/);
-      f.addMessage(threadId, f.launchRequests[0]!.text, {
-        id: MessageId.make(f.launchRequests[0]!.messageId),
-      });
-      yield* service.propose({ id: config.id, metrics: [metric], reason: "Lead's fix" });
-      yield* refusedWith(
-        service.accept(
-          { id: config.id, proposalId: (yield* service.get({ id: config.id })).proposal!.id! },
-          { threadId, quote: "The user asked you to fix the metrics" },
-        ),
-        "not word for word",
+      yield* service.changeMetrics(
+        { id: config.id, metrics: [metric], reason: "Lead's fix" },
+        threadId,
       );
 
       // Agents start a lead with t3_thread_launch now, so the launch goes through the
@@ -4010,7 +4090,6 @@ it.effect("starts a metrics lead thread on the lead role's current model and rec
       );
 
       // A breach's advisor runs on the setup class's selection, whatever the caller's role policy picks.
-      yield* service.accept({ id: config.id });
       yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
       yield* service.runCheck({ id: config.id });
       const breach = (yield* service.report(f.caller(), {
@@ -4096,8 +4175,11 @@ it.effect(
       yield* Effect.gen(function* () {
         const service = yield* Champions.ChampionService;
         yield* service.upsert({ ...config, classes: yield* decodeClasses({}).pipe(Effect.orDie) });
-        yield* service.propose({ id: config.id, metrics: [metric], reason: "Measure errors" });
-        yield* service.accept({ id: config.id });
+        yield* service.changeMetrics({
+          id: config.id,
+          metrics: [metric],
+          reason: "Measure errors",
+        });
         const resolved = Effect.gen(function* () {
           const attempts = (yield* service.runtimeState({ id: config.id })).attempts;
           return attempts.filter((a) => a.kind === "check").map((a) => a.resolvedSelection.model);
@@ -4541,83 +4623,59 @@ it.effect(
 
 const agentThread = ThreadId.make("thread:performance-pass");
 
-it.effect(
-  "lets an agent accept metrics only with words the person typed in its thread, naming the proposal",
-  () =>
-    withFixture((f, service) =>
-      Effect.gen(function* () {
-        yield* service.upsert(config);
-        const first = yield* service.propose({
-          id: config.id,
-          metrics: [metric],
-          reason: "Measure errors",
-        });
-        const proposalId = first.proposal!.id!;
-        f.installAgentThread(agentThread, "Performance pass");
-        f.addMessage(agentThread, "Can you do all of that for me?");
-        f.addMessage(agentThread, "Accept every metric now.", { creationSource: "server" });
-        f.addMessage(agentThread, "Approve the metrics.", {
-          createdBy: "agent",
-          creationSource: "mcp",
-        });
-        f.addMessage(agentThread, "Accept them all.", {
-          scheduledTaskId: "task:nightly" as never,
-        });
-        const relay = (quote: string | undefined) => ({ threadId: agentThread, quote });
-
-        yield* refusedWith(
-          service.accept({ id: config.id, proposalId }, relay(undefined)),
-          "waits for them on the Champion page",
-        );
-        assert.isNotNull((yield* service.get({ id: config.id })).proposal);
-        for (const quote of [
-          "Accept every metric now.",
-          "Approve the metrics.",
-          "Accept them all.",
-          "do all of th",
-        ])
-          yield* refusedWith(
-            service.accept({ id: config.id, proposalId }, relay(quote)),
-            "not word for word",
-          );
-        yield* refusedWith(
-          service.accept({ id: config.id, proposalId }, { threadId: undefined, quote: "Can you" }),
-          "only from a thread the user typed in",
-        );
-        yield* refusedWith(
-          service.accept({ id: config.id, proposalId: "replaced" }, relay("do all of that")),
-          "replaced",
-        );
-        assert.isNotNull((yield* service.get({ id: config.id })).proposal);
-
-        const accepted = yield* service.accept(
-          { id: config.id, proposalId },
-          relay("can   you do all of that for me?".replace("can", "Can")),
-        );
-        assert.isNull(accepted.proposal);
-        const entry = (yield* service.history({ id: config.id })).activity.find(
-          (event) => event.kind === "metrics-accepted",
-        )!;
-        assert.deepEqual(
-          { ...entry.approval, approvedAt: undefined },
-          {
-            quote: "Can   you do all of that for me?",
-            threadId: agentThread,
-            threadTitle: "Performance pass",
-            model: "agent-model",
-            approvedAt: undefined,
-          },
-        );
-        assert.equal(entry.threadId, agentThread);
-      }),
-    ),
-);
-
-it.effect("accepts a source-verified approval for several earlier requests but no later one", () =>
+it.effect("takes an approval quote only from words a person typed in the calling thread", () =>
   withFixture((f, service) =>
     Effect.gen(function* () {
       yield* service.upsert(config);
-      const first = yield* service.propose({ id: config.id, metrics: [metric], reason: "First" });
+      f.installAgentThread(agentThread, "Performance pass");
+      f.addMessage(agentThread, "Can you do all of that for me?");
+      f.addMessage(agentThread, "Accept every metric now.", { creationSource: "server" });
+      f.addMessage(agentThread, "Approve the metrics.", {
+        createdBy: "agent",
+        creationSource: "mcp",
+      });
+      f.addMessage(agentThread, "Accept them all.", {
+        scheduledTaskId: "task:nightly" as never,
+      });
+      const relay = (quote: string | undefined) => ({ threadId: agentThread, quote });
+
+      yield* refusedWith(service.verifyApproval(relay(undefined)), "needs the user's approval");
+      for (const quote of [
+        "Accept every metric now.",
+        "Approve the metrics.",
+        "Accept them all.",
+        "do all of th",
+      ])
+        yield* refusedWith(service.verifyApproval(relay(quote)), "not word for word");
+      yield* refusedWith(
+        service.verifyApproval({ threadId: undefined, quote: "Can you" }),
+        "only from a thread the user typed in",
+      );
+
+      const proof = yield* service.verifyApproval(
+        relay("can   you do all of that for me?".replace("can", "Can")),
+      );
+      assert.deepEqual(
+        { quote: proof.quote, threadId: proof.threadId, threadTitle: proof.threadTitle },
+        {
+          quote: "Can   you do all of that for me?",
+          threadId: agentThread,
+          threadTitle: "Performance pass",
+        },
+      );
+      assert.equal(proof.model, "agent-model");
+    }),
+  ),
+);
+
+it.effect("records a source-verified approval relayed from another machine on the decision", () =>
+  withFixture((f, service) =>
+    Effect.gen(function* () {
+      const finding = yield* activeFinding(f, service, "decision");
+      const requested = yield* service.findingAction(
+        { id: config.id, findingId: finding.id, action: "decision", reason: "Ship it?" },
+        unquotedAgent,
+      );
       f.installAgentThread(agentThread, "Source thread");
       yield* TestClock.adjust("1 minute");
       f.addMessage(agentThread, "Yes, go ahead.", { createdAt: DateTime.makeUnsafe(60_000) });
@@ -4626,39 +4684,27 @@ it.effect("accepts a source-verified approval for several earlier requests but n
         quote: "Yes, go ahead.",
       });
       assert.isString(proof.messageId);
-      const relay = {
-        threadId: proof.threadId,
-        quote: proof.quote,
-        forwarded: {
-          ...proof,
-          sourceEnvironment: { id: EnvironmentId.make("source-machine"), label: "Mac" },
+      const resolved = yield* service.findingAction(
+        {
+          id: config.id,
+          findingId: finding.id,
+          action: "resolve_decision",
+          decisionId: requested.findings[0]!.decision!.id,
+          reason: "Ship it.",
         },
-      };
-      const accepted = yield* service.accept(
-        { id: config.id, proposalId: first.proposal!.id! },
-        relay,
+        {
+          threadId: proof.threadId,
+          quote: proof.quote,
+          forwarded: {
+            ...proof,
+            sourceEnvironment: { id: EnvironmentId.make("source-machine"), label: "Mac" },
+          },
+        },
       );
-      assert.isNull(accepted.proposal);
-      const activity = (yield* service.history({ id: config.id })).activity.find(
-        (event) => event.approval !== undefined,
-      )!;
-      assert.deepEqual(activity.approval!.sourceEnvironment, {
+      assert.deepEqual(resolved.findings[0]!.decision!.approval!.sourceEnvironment, {
         id: "source-machine",
         label: "Mac",
       });
-      // The source message is not consumed by acceptance.
-      const sameTime = yield* service.propose({
-        id: config.id,
-        metrics: [metric],
-        reason: "Second",
-      });
-      yield* service.accept({ id: config.id, proposalId: sameTime.proposal!.id! }, relay);
-      yield* TestClock.adjust("1 minute");
-      const later = yield* service.propose({ id: config.id, metrics: [metric], reason: "Later" });
-      yield* refusedWith(
-        service.accept({ id: config.id, proposalId: later.proposal!.id! }, relay),
-        "before this request was filed",
-      );
     }),
   ),
 );
@@ -4712,30 +4758,28 @@ it.effect(
     ),
 );
 
-it.effect("lets a routine check file a metric proposal that waits for the person", () =>
+it.effect("lets a routine check change its metrics at once and still report", () =>
   withFixture((f, service) =>
     Effect.gen(function* () {
       yield* activeFinding(f, service);
       yield* service.runCheck({ id: config.id });
-      const proposed = yield* service.proposeFromSetup(f.caller(), {
+      const changed = yield* service.changeMetricsFromCheck(f.caller(), {
         metrics: [{ ...metric, name: "Errors people see" }],
         reason: "Clearer name",
       });
-      const firstId = proposed.proposal!.id!;
-      assert.include(proposed.champion.attention, "Metric proposal awaits acceptance.");
-      yield* service.report(f.caller(), { samples: [sample], findings: [], summary: "Measured" });
-      assert.isNotNull((yield* service.get({ id: config.id })).proposal);
-      const replaced = yield* service.propose({
-        id: config.id,
-        metrics: [{ ...metric, name: "Visible errors" }],
-        reason: "Edited by you.",
+      assert.equal(changed.metrics[0]!.name, "Errors people see");
+      assert.isNotNull(changed.champion.outstandingCheckId);
+      const reported = yield* service.report(f.caller(), {
+        samples: [sample],
+        findings: [],
+        summary: "Measured",
       });
-      yield* refusedWith(service.accept({ id: config.id, proposalId: firstId }), "replaced");
-      const accepted = yield* service.accept({
-        id: config.id,
-        proposalId: replaced.proposal!.id!,
-      });
-      assert.equal(accepted.metrics[0]!.name, "Visible errors");
+      assert.isNull(reported.champion.outstandingCheckId);
+      const entry = (yield* service.history({ id: config.id })).activity.find((event) =>
+        event.text.endsWith("Clearer name"),
+      );
+      assert.equal(entry?.text, "Changed Errors people see. Clearer name");
+      assert.equal(entry?.threadId, f.caller().threadId);
     }),
   ),
 );
@@ -4757,8 +4801,6 @@ it.effect("marks the messages the server writes so they can never be quoted as t
         reason: "Yes, ship it.",
       });
       const delivery = f.sent.find((x) => x.commandId === `champion-decision:${decisionId}`)!;
-      yield* service.propose({ id: config.id, metrics: [metric], reason: "Retune" });
-      const proposalId = (yield* service.get({ id: config.id })).proposal!.id!;
       f.installAgentThread(agentThread, "Fix metrics: Quality");
       // The decision delivery and a check prompt, as the server writes them into a thread.
       // The delivery keeps client provenance, so it still resumes a held queue.
@@ -4771,17 +4813,11 @@ it.effect("marks the messages the server writes so they can never be quoted as t
         creationSource: "mcp",
       });
       yield* refusedWith(
-        service.accept(
-          { id: config.id, proposalId },
-          { threadId: agentThread, quote: "Yes, ship it." },
-        ),
+        service.verifyApproval({ threadId: agentThread, quote: "Yes, ship it." }),
         "not word for word",
       );
       yield* refusedWith(
-        service.accept(
-          { id: config.id, proposalId },
-          { threadId: agentThread, quote: "Accept the proposal." },
-        ),
+        service.verifyApproval({ threadId: agentThread, quote: "Accept the proposal." }),
         "not word for word",
       );
     }),
@@ -4902,43 +4938,30 @@ it.effect(
     }),
 );
 
-it.effect(
-  "refuses an approval typed before its request was filed, and a proposal without an id",
-  () =>
-    withFixture((f, service) =>
-      Effect.gen(function* () {
-        const finding = yield* activeFinding(f, service, "decision");
-        f.installAgentThread(agentThread, "Performance pass");
-        f.addMessage(agentThread, "Yes, go ahead.");
-        yield* TestClock.adjust("1 minute");
-        const requested = yield* service.findingAction(
-          { id: config.id, findingId: finding.id, action: "decision", reason: "Ship it?" },
-          unquotedAgent,
-        );
-        const answer = {
-          id: config.id,
-          findingId: finding.id,
-          action: "resolve_decision" as const,
-          decisionId: requested.findings[0]!.decision!.id,
-          reason: "Ship it.",
-        };
-        const relay = { threadId: agentThread, quote: "Yes, go ahead." };
-        yield* refusedWith(service.findingAction(answer, relay), "before this request was filed");
-        f.addMessage(agentThread, "Yes, go ahead.", { createdAt: DateTime.makeUnsafe(120_000) });
-        yield* service.findingAction(answer, relay);
-
-        yield* service.propose({ id: config.id, metrics: [metric], reason: "Older proposal" });
-        const sql = yield* SqlClient.SqlClient;
-        yield* sql`UPDATE champions SET document_json = json_remove(document_json, '$.proposal.id') WHERE id = ${config.id}`.pipe(
-          Effect.orDie,
-        );
-        yield* refusedWith(
-          service.accept({ id: config.id, proposalId: "anything" }, relay),
-          "filed before proposals had ids",
-        );
-        assert.isNull((yield* service.accept({ id: config.id })).proposal);
-      }),
-    ),
+it.effect("refuses an approval typed before its request was filed", () =>
+  withFixture((f, service) =>
+    Effect.gen(function* () {
+      const finding = yield* activeFinding(f, service, "decision");
+      f.installAgentThread(agentThread, "Performance pass");
+      f.addMessage(agentThread, "Yes, go ahead.");
+      yield* TestClock.adjust("1 minute");
+      const requested = yield* service.findingAction(
+        { id: config.id, findingId: finding.id, action: "decision", reason: "Ship it?" },
+        unquotedAgent,
+      );
+      const answer = {
+        id: config.id,
+        findingId: finding.id,
+        action: "resolve_decision" as const,
+        decisionId: requested.findings[0]!.decision!.id,
+        reason: "Ship it.",
+      };
+      const relay = { threadId: agentThread, quote: "Yes, go ahead." };
+      yield* refusedWith(service.findingAction(answer, relay), "before this request was filed");
+      f.addMessage(agentThread, "Yes, go ahead.", { createdAt: DateTime.makeUnsafe(120_000) });
+      yield* service.findingAction(answer, relay);
+    }),
+  ),
 );
 
 describe("a journey check", () => {
@@ -5046,8 +5069,7 @@ describe("a journey check", () => {
     draft: ChampionConfig,
   ) {
     yield* service.upsert(draft);
-    yield* service.propose({ id: config.id, metrics: [metric], reason: "Measure errors" });
-    yield* service.accept({ id: config.id });
+    yield* service.changeMetrics({ id: config.id, metrics: [metric], reason: "Measure errors" });
   });
   const walk = Effect.fn("test.walkJourney")(function* (
     policy: JourneyBrowserPolicy.JourneyBrowserPolicy["Service"],
@@ -6612,12 +6634,11 @@ describe("owner measurement on a live check", () => {
           );
           yield* Deferred.await(gate.reached);
           // The real cancellation: accepted definitions change, the run ends, the next check supersedes.
-          yield* w.service.propose({
+          yield* w.service.changeMetrics({
             id: config.id,
             metrics: [{ ...coverage, description: "Stricter coverage" }],
             reason: "Change",
           });
-          yield* w.service.accept({ id: config.id });
           w.f.endRun();
           yield* w.service.runCheck({ id: config.id });
           assert.equal(yield* checkStatus(w, w.checkId), "cancelled");

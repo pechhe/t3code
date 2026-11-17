@@ -2,27 +2,22 @@ import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
 import { ProjectId } from "./baseSchemas.ts";
-import {
-  championProposalResult,
-  championProposalRetiring,
-  ChampionLearningRevision,
-} from "./champions.ts";
+import { championMetricChangeResult, ChampionLearningRevision } from "./champions.ts";
 
 const encodeRevision = Schema.encodeSync(Schema.fromJsonString(ChampionLearningRevision));
 const decodeRevision = Schema.decodeSync(Schema.fromJsonString(ChampionLearningRevision));
 
-describe("championProposalRetiring", () => {
-  const accepted = [{ id: "errors" }, { id: "latency" }, { id: "crashes" }];
+describe("championMetricChangeResult", () => {
+  const current = [{ id: "errors" }, { id: "latency" }, { id: "crashes" }];
 
-  it("names only the accepted metrics a proposal retires, never the ones it omits", () => {
-    const proposal = { metrics: [{ id: "errors" }, { id: "uptime" }], retires: ["latency"] };
-    expect(championProposalRetiring(accepted, proposal)).toEqual([{ id: "latency" }]);
-    expect(championProposalResult(accepted, proposal).map((m) => m.id)).toEqual([
+  it("drops only the metrics a change retires, never the ones it omits", () => {
+    const change = { metrics: [{ id: "errors" }, { id: "uptime" }], retires: ["latency"] };
+    expect(championMetricChangeResult(current, change).map((m) => m.id)).toEqual([
       "errors",
       "crashes",
       "uptime",
     ]);
-    expect(championProposalRetiring(accepted, { metrics: [{ id: "uptime" }] })).toEqual([]);
+    expect(championMetricChangeResult(current, { metrics: [{ id: "uptime" }] })).toHaveLength(4);
   });
 });
 

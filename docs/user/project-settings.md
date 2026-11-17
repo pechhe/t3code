@@ -92,34 +92,39 @@ Use **Champions** to give an agent an ongoing responsibility for a project, such
 as keeping page loads fast or tests reliable. Each champion shows the measurements
 it tracks and an activity feed of findings, work and results.
 
-Create a champion with a goal and project, then ask it to propose metrics. The goal
-says what good looks like; each check starts from it, treats the metrics as evidence
-of progress and proposes better metrics when they can't show it. The champion page
+Create a champion with a goal and project, then let AI set up its metrics; the
+champion starts checking once they are in. The goal says what good looks like; each
+check starts from it, treats the metrics as evidence of progress and changes the
+metrics itself when they can't show it. The champion page
 is a one-screen dashboard: the goal, the latest check's progress, when it runs and
 which roles do its checks and harder work, then decisions for you beside its metrics
 and recent activity. **How it works** in the Champions list explains what every
 champion does.
 Setup and recurring checks follow separate agent classes from your role policy.
-Changing that policy updates future attempts; work already accepted keeps its original selection. Review the suggested metrics,
-edit them if needed, and accept them before enabling checks. Advanced settings
+Changing that policy updates future attempts; work already accepted keeps its original selection. To set
+metrics yourself, choose **Add metrics myself**. Advanced settings
 control the cadence, agent classes and the limits on automatic repairs. Older
 fixed-model champions keep their choices until you select **Follow role policy instead**.
 
-Expand a metric to inspect its source and history. Missing measurements are
-unknown, not zero. Changing what a metric measures starts a separate series;
-earlier readings remain available. **Ask AI to review metrics** asks the setup model for a
-new proposal without silently changing the accepted definitions. **Fix with a lead**
-starts a Spec lead thread that works out what is wrong with the metrics and plans and
-builds a fix; any new definitions still come to you to accept.
+Metric changes apply at once, whoever makes them: you on the page, the champion's
+own checks, or an agent you ask in any thread ("add a metric for cold start time to
+the Performance champion"). Nothing waits for you to accept it. The activity feed
+records each change, what it added, changed or stopped tracking, and links the
+thread that made it; a metric added or changed in the last week is marked **New** or
+**Updated**, and its details say when. Expand a metric to inspect its source and
+history. Missing measurements are unknown, not zero. Changing what a metric measures
+starts a separate series; earlier readings remain available. **Ask AI to review
+metrics** runs the setup model to improve them. **Fix with a lead** starts a Spec
+lead thread that works out what is wrong with the metrics and plans and builds a fix.
 
 A metric can name a command that produces its value. The server then runs that
 command itself at each check, in the project folder, and records what it printed;
 no agent measures or reports that metric. A check whose metrics are all read this
 way, all inside their targets, with no open finding, finishes without starting an
-agent at all. The command is part of the metric you accept: a proposal shows it in
-full and marks a new or changed one, so read it before accepting. A command that
-fails, runs longer than 30 seconds or prints something other than a number is
-recorded as a failed reading, never as zero. A value whose metric has no target
+agent at all. The server runs a new or changed command once when the metric is
+saved, and refuses the change if it does not print a value, so a metric that cannot
+be read is never added. A command that later fails, runs longer than 30 seconds or
+prints something other than a number is recorded as a failed reading, never as zero. A value whose metric has no target
 reads **No target**, and one read under a definition you have since changed reads
 **Earlier definition**.
 
@@ -155,12 +160,11 @@ reduced or could not finish. Set one up through its project's agent, which suppl
 the commands that start and stop the copy.
 
 Agents you work with can do anything on the Champion page for you, such as pausing a
-champion, running **Check now** or starting **Fix with a lead**. Accepting metrics and
-answering a decision stay yours: an agent either leaves the request waiting for you on
-the page, or completes it with your own words, quoted from a message you typed in its
-thread. Those show **Approved by you**, the thread it came through, when, and your
-words. Replacing a metric proposal after it was read means accepting the old one is
-refused, from the page or an agent.
+champion, changing its metrics, running **Check now** or starting **Fix with a lead**.
+Answering a decision stays yours: an agent either leaves it waiting for you on the
+page, or answers it with your own words, quoted from a message you typed in its
+thread. That shows **Approved by you**, the thread it came through, when, and your
+words.
 
 What a champion learns builds up on its **Learnings** tab, beside the dashboard, and
 also appears as dated activity notes. Each learning leads with one plain sentence;
@@ -171,8 +175,8 @@ threads can contribute learnings too: a contribution counts at once; on its next
 the champion confirms it or replaces it with a reason, and the original stays in its
 history. Agents on a linked environment can search and read these learnings and
 contribute their own, and with a full-access link they can read and act on the
-champions themselves: list them across every linked machine, accept a metric proposal
-or answer a decision, using your approval typed in their own thread. Older conclusions stay available; a learning due for review is
+champions themselves: list them across every linked machine, change their metrics,
+or answer a decision using your approval typed in their own thread. Older conclusions stay available; a learning due for review is
 uncertain, not deleted, and does not start another investigation by itself. A returned change or a landing alone
 does not prove improvement: the champion needs comparable measurements of the
 running version.

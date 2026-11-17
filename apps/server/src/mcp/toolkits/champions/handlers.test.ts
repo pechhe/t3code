@@ -134,7 +134,6 @@ const detail: ChampionDetail = {
     outstandingCheckId: null,
     attention: [],
     openFindingCount: 0,
-    pendingProposal: false,
     updatedAt: "2026-11-07T00:00:00.000Z",
   },
   latestSamples: [
@@ -156,7 +155,6 @@ const detail: ChampionDetail = {
   ],
   metrics: [],
   findings: [],
-  proposal: null,
 };
 
 const proof = {
@@ -184,7 +182,6 @@ const harness = Effect.sync(() => {
   const findingActions: Array<unknown> = [];
   const deliveries: Array<unknown> = [];
   const controls: Array<unknown> = [];
-  const approvals: Array<unknown> = [];
   const cancelled: Array<unknown> = [];
   const proposed: Array<unknown> = [];
   const measured: Array<{ caller: unknown; input: unknown }> = [];
@@ -230,7 +227,7 @@ const harness = Effect.sync(() => {
     findingAction: (input, approval) =>
       Effect.sync(() => {
         findingActions.push({ input, approval });
-        return {} as never;
+        return detail;
       }),
     updateDelivery: (_caller, input) =>
       Effect.sync(() => {
@@ -247,7 +244,7 @@ const harness = Effect.sync(() => {
         cancelled.push(input);
         return {} as never;
       }),
-    propose: (input) =>
+    changeMetrics: (input) =>
       Effect.sync(() => {
         proposed.push(input);
         return detail;
@@ -265,18 +262,13 @@ const harness = Effect.sync(() => {
         } as const;
       }),
     verifyApproval: () => Effect.succeed(proof),
-    accept: (_input, relay) =>
-      Effect.sync(() => {
-        approvals.push(relay);
-        return detail;
-      }),
     runtimeState: () => Effect.succeed({ attempts: [], investigations: [], recommendations: [] }),
   });
   const forwarding = Layer.mock(PeerForwarding.PeerForwarding)({
     call: (_scope, tool, environmentId, params) =>
       Effect.sync(() => {
         forwarded.push({ environmentId, tool: tool.name, params });
-        return tool.name === "t3_champions_control" || tool.name === "t3_champions_accept"
+        return tool.name === "t3_champions_control" || tool.name === "t3_champions_finding_action"
           ? (detail as never)
           : ({ forwarded: true } as never);
       }),
@@ -300,7 +292,6 @@ const harness = Effect.sync(() => {
     findingActions,
     deliveries,
     controls,
-    approvals,
     cancelled,
     proposed,
     measured,
@@ -608,8 +599,15 @@ it.effect(
     Effect.gen(function* () {
       const h = yield* harness;
       yield* Effect.gen(function* () {
-        const input = { id: "champion:gate", proposalId: "proposal:1", approvalQuote: proof.quote };
-        const remote = yield* call("t3_champions_accept", threadScope(leadThread), {
+        const input = {
+          id: "champion:gate",
+          findingId: "finding:1",
+          action: "resolve_decision",
+          decisionId: "decision:1",
+          reason: "Ship it.",
+          approvalQuote: proof.quote,
+        };
+        const remote = yield* call("t3_champions_finding_action", threadScope(leadThread), {
           ...input,
           environmentId: box,
         });
@@ -621,20 +619,24 @@ it.effect(
           { ...fullLinkScope, client: { ...fullLinkScope.client!, senderThread: undefined } },
           { ...fullLinkScope, client: { ...fullLinkScope.client!, linked: false } },
         ]) {
-          const denied = yield* call("t3_champions_accept", scope, {
+          const denied = yield* call("t3_champions_finding_action", scope, {
             ...input,
             forwardedApproval: proof,
           });
           expect(denied.isError).toBe(true);
         }
-        expect(h.approvals).toEqual([]);
-        const allowed = yield* call("t3_champions_accept", fullLinkScope, {
+        expect(h.findingActions).toEqual([]);
+        const allowed = yield* call("t3_champions_finding_action", fullLinkScope, {
           ...input,
           forwardedApproval: proof,
         });
         expect(allowed.isError, allowed.text).toBe(false);
-        expect(h.approvals).toMatchObject([
-          { forwarded: { ...proof, sourceEnvironment: { id: here, label: "peach-live" } } },
+        expect(h.findingActions).toMatchObject([
+          {
+            approval: {
+              forwarded: { ...proof, sourceEnvironment: { id: here, label: "peach-live" } },
+            },
+          },
         ]);
       }).pipe(Effect.provide(h.layer));
     }),
@@ -666,12 +668,12 @@ it.effect(
         };
         // Over a full-access link a non-owner cancels as the Champion page does; a read-only link is refused.
         yield* call("t3_champions_investigation", full, cancel);
-        expect((yield* call("t3_champions_proposal", full, edit)).isError).toBe(false);
+        expect((yield* call("t3_champions_metrics", full, edit)).isError).toBe(false);
         expect(h.cancelled).toHaveLength(1);
         expect(h.proposed).toHaveLength(1);
         for (const [tool, args] of [
           ["t3_champions_investigation", cancel],
-          ["t3_champions_proposal", edit],
+          ["t3_champions_metrics", edit],
         ] as const)
           expect((yield* call(tool, linkScope, args)).text).toContain("capability_denied");
         expect(h.cancelled).toHaveLength(1);
@@ -680,13 +682,13 @@ it.effect(
           ...cancel,
           environmentId: box,
         });
-        yield* call("t3_champions_proposal", threadScope(leadThread), {
+        yield* call("t3_champions_metrics", threadScope(leadThread), {
           ...edit,
           environmentId: box,
         });
         expect(h.forwarded.map(({ tool }) => tool)).toEqual([
           "t3_champions_investigation",
-          "t3_champions_proposal",
+          "t3_champions_metrics",
         ]);
         for (const refused of [
           {
@@ -694,7 +696,7 @@ it.effect(
             args: { action: "start", id: "champion:gate", environmentId: box },
           },
           {
-            tool: "t3_champions_proposal",
+            tool: "t3_champions_metrics",
             args: { action: "submit", metrics: [], reason: "x", environmentId: box },
           },
         ]) {

@@ -1,9 +1,5 @@
 import { championCadenceMs, formatChampionDuration } from "@t3tools/client-runtime/champions";
-import {
-  championProposalResult,
-  type ChampionDetail,
-  type EnvironmentId,
-} from "@t3tools/contracts";
+import type { ChampionDetail, EnvironmentId } from "@t3tools/contracts";
 import { PlusIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 
@@ -21,7 +17,6 @@ import {
   metricDraftOf,
   type MetricDraft,
   metricInputsOf,
-  metricsMatchProposal,
   parseMetricDrafts,
 } from "./champions.logic";
 import { ChampionMachineNotice } from "./ChampionMachineNotice";
@@ -159,33 +154,22 @@ export function ChampionMetricsEditor(props: {
   readonly onDone: () => void;
 }) {
   const { environmentId, detail } = props;
-  const { champion, metrics, proposal } = detail;
+  const { champion, metrics } = detail;
   const [drafts, setDrafts] = useState<ReadonlyArray<MetricDraft>>(() =>
-    (proposal === null
-      ? metricInputsOf(metrics)
-      : championProposalResult(metricInputsOf(metrics), proposal)
-    ).map(metricDraftOf),
+    metricInputsOf(metrics).map(metricDraftOf),
   );
   const [errors, setErrors] = useState<Readonly<Record<string, string>>>({});
   const { busy, error, run } = useChampionAction();
-  const propose = useAtomCommand(serverEnvironment.proposeChampionMetrics, {
-    label: "champion propose metrics",
-    reportFailure: false,
-  });
-  const accept = useAtomCommand(serverEnvironment.acceptChampionMetrics, {
-    label: "champion accept metrics",
+  const changeMetrics = useAtomCommand(serverEnvironment.changeChampionMetrics, {
+    label: "champion change metrics",
     reportFailure: false,
   });
   const setLifecycle = useAtomCommand(serverEnvironment.setChampionLifecycle, {
     label: "champion lifecycle",
     reportFailure: false,
   });
-  const canPropose = useChampionCommandAllowed(
-    serverEnvironment.proposeChampionMetrics,
-    environmentId,
-  );
-  const canAccept = useChampionCommandAllowed(
-    serverEnvironment.acceptChampionMetrics,
+  const canChange = useChampionCommandAllowed(
+    serverEnvironment.changeChampionMetrics,
     environmentId,
   );
   const canSetLifecycle = useChampionCommandAllowed(
@@ -219,27 +203,11 @@ export function ChampionMetricsEditor(props: {
     setErrors({});
     const id = champion.id;
     const retires = removed.map((metric) => metric.id);
-    const unchanged = metricsMatchProposal(parsed.metrics, retires, proposal);
-    const reason = proposal ? `${proposal.reason} Edited by you.` : "Edited by you.";
-    // Accept exactly the proposal shown, or the one this save just filed.
-    let proposalId = unchanged ? proposal?.id : undefined;
     const ok = await run("save", "metrics", [
-      ...(unchanged
-        ? []
-        : [
-            () =>
-              propose({
-                environmentId,
-                input: { id, metrics: parsed.metrics, retires, reason },
-              }).then((result) => {
-                if (result._tag === "Success") proposalId = result.value.proposal?.id;
-                return result;
-              }),
-          ]),
       () =>
-        accept({
+        changeMetrics({
           environmentId,
-          input: { id, ...(proposalId === undefined ? {} : { proposalId }) },
+          input: { id, metrics: parsed.metrics, retires, reason: "Edited by you." },
         }),
       ...(start
         ? [() => setLifecycle({ environmentId, input: { id, lifecycle: "active" as const } })]
@@ -248,15 +216,15 @@ export function ChampionMetricsEditor(props: {
     if (ok) props.onDone();
   };
 
-  const disabled = busy !== null || !canPropose || !canAccept;
+  const disabled = busy !== null || !canChange;
   return (
     <div className="mx-auto flex max-w-180 flex-col gap-4 p-4 sm:p-6">
       <div className="flex flex-col gap-1">
         <h2 className="font-semibold text-lg">Metrics for {champion.name}</h2>
         <p className="text-muted-foreground text-xs">
           {initial
-            ? "Nothing runs until you accept. Edit anything."
-            : "Changing a unit, source, measurement or direction starts a new series. Old readings stay as history and aren't joined to it."}
+            ? "Nothing runs until you start it. The server runs any command once when you save, to check it reads a value."
+            : "Changing a unit, source, measurement or direction starts a new series. Old readings stay as history and aren't joined to it. The server runs a new or changed command once when you save."}
         </p>
       </div>
       <ChampionMachineNotice environmentId={environmentId} draft />
@@ -318,15 +286,15 @@ export function ChampionMetricsEditor(props: {
         {initial ? (
           <>
             <Button variant="outline" disabled={disabled} onClick={() => void save(false)}>
-              Accept, stay paused
+              Save, stay paused
             </Button>
             <Button disabled={disabled || !canSetLifecycle} onClick={() => void save(true)}>
-              Accept and start
+              Save and start
             </Button>
           </>
         ) : (
           <Button disabled={disabled} onClick={() => void save(false)}>
-            Accept changes
+            {busy === "save" ? "Saving…" : "Save changes"}
           </Button>
         )}
       </div>

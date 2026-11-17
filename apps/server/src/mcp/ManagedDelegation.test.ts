@@ -670,7 +670,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         });
         scope = { ...scope, thread: { ...scope.thread!, threadId: doc.champion.ownerThreadId } };
         parent = { ...parent, thread: { ...parent.thread, id: doc.champion.ownerThreadId } };
-        yield* service.propose({
+        yield* service.changeMetrics({
           id: doc.champion.id,
           reason: "Measure health",
           metrics: [
@@ -687,7 +687,6 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
             },
           ],
         });
-        yield* service.accept({ id: doc.champion.id });
         yield* service.setLifecycle({ id: doc.champion.id, lifecycle: "active" });
         yield* service.runCheck({ id: doc.champion.id });
         yield* mcpSessions.set({

@@ -8,7 +8,6 @@ import {
   CHAMPION_ROUTE_LABELS,
   championApprovalAnswer,
   championApprovalWhen,
-  championCommandChange,
   championFailureMessage,
   championFindingRuntime,
   championLoadFailureMessage,
@@ -16,7 +15,6 @@ import {
   championReadingLabel,
   championReadingNote,
   type ChampionResearchView,
-  formatChampionCommand,
   championStatus,
   learningNoteProse,
   pendingChampionDecision,
@@ -36,12 +34,7 @@ import type {
   EnvironmentId,
   ThreadId,
 } from "@t3tools/contracts";
-import {
-  AGENT_ROLE_TITLE_LABEL,
-  championProposalResult,
-  championProposalRetiring,
-  resolveEnvironmentMachineKind,
-} from "@t3tools/contracts";
+import { AGENT_ROLE_TITLE_LABEL, resolveEnvironmentMachineKind } from "@t3tools/contracts";
 import { useFocusEffect, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { AsyncResult, type Atom } from "effect/reactivity";
 import { useState } from "react";
@@ -550,8 +543,6 @@ function ChampionControls(props: {
   readonly environmentId: EnvironmentId;
   readonly champion: ChampionSummary;
   readonly hasMetrics: boolean;
-  readonly hasProposal: boolean;
-  readonly proposalId: string | undefined;
 }) {
   const { environmentId, champion } = props;
   const { id } = champion;
@@ -562,14 +553,6 @@ function ChampionControls(props: {
   });
   const runCheck = useAtomCommand(serverEnvironment.runChampionCheck, {
     label: "champion check",
-    reportFailure: false,
-  });
-  const accept = useAtomCommand(serverEnvironment.acceptChampionMetrics, {
-    label: "champion accept metrics",
-    reportFailure: false,
-  });
-  const discard = useAtomCommand(serverEnvironment.discardChampionProposal, {
-    label: "champion discard proposal",
     reportFailure: false,
   });
   const setup = useAtomCommand(serverEnvironment.setupChampion, {
@@ -586,12 +569,10 @@ function ChampionControls(props: {
   });
   const selectDetail = useSelectWorkspaceDetail();
   const canStartLead = useCommandAllowed(serverEnvironment.startChampionMetricsLead, environmentId);
-  const canDiscard = useCommandAllowed(serverEnvironment.discardChampionProposal, environmentId);
   const canSetup = useCommandAllowed(serverEnvironment.setupChampion, environmentId);
   const canCancelSetup = useCommandAllowed(serverEnvironment.cancelChampionSetup, environmentId);
   const canSetLifecycle = useCommandAllowed(serverEnvironment.setChampionLifecycle, environmentId);
   const canRunCheck = useCommandAllowed(serverEnvironment.runChampionCheck, environmentId);
-  const canAccept = useCommandAllowed(serverEnvironment.acceptChampionMetrics, environmentId);
   const act = async (
     action: ChampionAction,
     steps: ReadonlyArray<() => Promise<AtomCommandResult<unknown, unknown>>>,
@@ -618,37 +599,9 @@ function ChampionControls(props: {
       />
     );
   }
-  const initial = props.hasProposal && !props.hasMetrics;
   const setupRunning = (champion.outstandingSetupId ?? null) !== null;
   return (
     <View className="flex-row flex-wrap gap-2">
-      {props.hasProposal ? (
-        <Button
-          label={initial ? "Accept and start" : "Accept changes"}
-          disabled={!canAccept || busy || (initial && !canSetLifecycle)}
-          onPress={() =>
-            void act("metrics", [
-              () =>
-                accept({
-                  environmentId,
-                  input: {
-                    id,
-                    ...(props.proposalId === undefined ? {} : { proposalId: props.proposalId }),
-                  },
-                }),
-              ...(initial ? [lifecycleStep("active")] : []),
-            ])
-          }
-        />
-      ) : null}
-      {props.hasProposal ? (
-        <Button
-          label={initial ? "Discard proposal" : "Keep current metrics"}
-          tone="secondary"
-          disabled={!canDiscard || busy}
-          onPress={() => void act("discard", [() => discard({ environmentId, input: { id } })])}
-        />
-      ) : null}
       {setupRunning ? (
         <Button
           label="Cancel setup"
@@ -660,13 +613,7 @@ function ChampionControls(props: {
         />
       ) : (
         <Button
-          label={
-            props.hasProposal
-              ? "Ask AI to propose again"
-              : props.hasMetrics
-                ? "Ask AI to review metrics"
-                : "Ask AI to propose metrics"
-          }
+          label={props.hasMetrics ? "Ask AI to review metrics" : "Ask AI to set up metrics"}
           tone="secondary"
           disabled={!canSetup || busy}
           onPress={() => void act("setup", [() => setup({ environmentId, input: { id } })])}
@@ -675,7 +622,7 @@ function ChampionControls(props: {
       {props.hasMetrics ? (
         <Button
           label="Fix with a lead"
-          accessibilityHint="Starts a Spec lead thread that plans and builds a fix for these metrics. You accept any new metrics here."
+          accessibilityHint="Starts a Spec lead thread that plans and builds a fix for these metrics."
           tone="secondary"
           disabled={!canStartLead || busy}
           onPress={() =>
@@ -931,8 +878,6 @@ function ChampionDetailContent(props: {
                 environmentId={environmentId}
                 champion={data.champion}
                 hasMetrics={data.metrics.length > 0}
-                hasProposal={data.proposal !== null}
-                proposalId={data.proposal?.id}
               />
               <View className="flex-row flex-wrap gap-2">
                 {data.champion.lastCheckAt !== null || data.champion.outstandingCheckId !== null ? (
@@ -965,50 +910,6 @@ function ChampionDetailContent(props: {
             />
             {tab === "learnings" ? (
               <ChampionLearningsSection environmentId={environmentId} championId={id} />
-            ) : null}
-            {tab === "dashboard" && data.proposal ? (
-              <SettingsSection title="Proposed metrics">
-                <Text className="px-4 pt-4 text-sm text-foreground-muted">
-                  {data.proposal.reason}
-                </Text>
-                {championProposalResult(data.metrics, data.proposal).map((metric) => {
-                  const command = championCommandChange(metric, data.metrics);
-                  return (
-                    <View key={metric.id} className="gap-1 px-4 py-3">
-                      <Text className="text-base font-t3-medium text-foreground">
-                        {metric.name}
-                      </Text>
-                      <Text className="text-sm text-foreground-muted">
-                        {metric.unit} · {metric.source}
-                        {(metric.required ?? true) ? "" : " · Optional"}
-                      </Text>
-                      {metric.collect ? (
-                        <>
-                          <Text className="text-sm text-foreground">
-                            {command === "new"
-                              ? "New command. The"
-                              : command === "changed"
-                                ? "Changed command. The"
-                                : "The"}{" "}
-                            server will run this in the project at each check:
-                          </Text>
-                          <Text className="font-mono text-sm text-foreground" selectable>
-                            {formatChampionCommand(metric.collect)}
-                          </Text>
-                        </>
-                      ) : null}
-                    </View>
-                  );
-                })}
-                {championProposalRetiring(data.metrics, data.proposal).map((metric) => (
-                  <View key={metric.id} className="gap-1 px-4 py-3">
-                    <Text className="text-base font-t3-medium text-foreground">{metric.name}</Text>
-                    <Text className="text-sm text-foreground-muted">
-                      {metric.unit} · {metric.source} · Stops tracking
-                    </Text>
-                  </View>
-                ))}
-              </SettingsSection>
             ) : null}
             {tab === "dashboard" ? (
               <SettingsSection title="Metrics">

@@ -22,7 +22,6 @@ import {
   championFindingRuntime,
   championLoadFailureMessage,
   championNeedsAttention,
-  championCommandChange,
   championReading,
   championReadingLabel,
   championReadingNote,
@@ -76,7 +75,6 @@ const summary = (patch: Partial<ChampionSummary> = {}): ChampionSummary => ({
   outstandingSetupId: null,
   attention: [],
   openFindingCount: 0,
-  pendingProposal: false,
   latestSamples: [sample()],
   updatedAt: PAST,
   ...patch,
@@ -131,7 +129,6 @@ describe("championStatus", () => {
   });
 
   it("puts what someone must act on above what the readings say", () => {
-    expect(championStatus(summary({ pendingProposal: true }), NOW)).toBe("review");
     expect(championStatus(summary({ attention: ["Look"] }), NOW)).toBe("attention");
     expect(championStatus(summary({ lifecycle: "paused" }), NOW)).toBe("paused");
     expect(championStatus(summary({ openFindingCount: 1 }), NOW)).toBe("working");
@@ -147,7 +144,6 @@ describe("championNeedsAttention", () => {
       ),
     ).toBe(false);
     expect(championNeedsAttention(summary({ attention: ["x"] }))).toBe(true);
-    expect(championNeedsAttention(summary({ pendingProposal: true }))).toBe(true);
   });
 });
 
@@ -229,14 +225,7 @@ describe("championReading", () => {
 });
 
 describe("collected metric commands", () => {
-  it("marks a command the server does not run today, and sets apart an argument a shell would split", () => {
-    const current = [{ id: "disk", collect: ["df", "-k", "/"] }, { id: "agent" }];
-    expect(championCommandChange({ id: "disk", collect: ["df", "-k", "/"] }, current)).toBeNull();
-    expect(championCommandChange({ id: "disk", collect: ["df", "-k", "/home"] }, current)).toBe(
-      "changed",
-    );
-    expect(championCommandChange({ id: "agent", collect: ["uptime"] }, current)).toBe("new");
-    expect(championCommandChange({ id: "agent" }, current)).toBeNull();
+  it("sets apart an argument a shell would split", () => {
     expect(formatChampionCommand(["sh", "-c", "echo it's $HOME", "--", "x"])).toBe(
       "sh -c\n  echo it's $HOME\n-- x",
     );
