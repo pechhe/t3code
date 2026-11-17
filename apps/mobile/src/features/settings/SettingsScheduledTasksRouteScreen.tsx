@@ -904,28 +904,13 @@ function TaskForm({
             actions={
               saving || dictationPending || environmentUnavailable || draft.task?.threadId != null
                 ? []
-                : [
-                    ...(draft.task?.agentRole === null
-                      ? [
-                          {
-                            id: "explicit-model",
-                            title: "Explicit model",
-                            state: draft.agentRole === null ? ("on" as const) : undefined,
-                          },
-                        ]
-                      : []),
-                    ...AgentRole.literals.map((role) => ({
-                      id: role,
-                      title: AGENT_ROLE_TITLE_LABEL[role],
-                      state: role === draft.agentRole ? ("on" as const) : undefined,
-                    })),
-                  ]
+                : AgentRole.literals.map((role) => ({
+                    id: role,
+                    title: AGENT_ROLE_TITLE_LABEL[role],
+                    state: role === draft.agentRole ? "on" : undefined,
+                  }))
             }
             onSelect={(id) => {
-              if (id === "explicit-model") {
-                setDraft({ ...draft, agentRole: null });
-                return;
-              }
               const role = AgentRole.literals.find((candidate) => candidate === id);
               if (role) setDraft({ ...draft, agentRole: role });
             }}

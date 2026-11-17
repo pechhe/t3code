@@ -1295,7 +1295,7 @@ export const OrchestratorMcpUpdateScheduledTaskInput = Schema.Struct({
   bindToCurrentThread: Schema.optional(Schema.Boolean),
   agentRole: Schema.optional(Schema.NullOr(StoredAgentRole)).annotate({
     description:
-      "Switch back to role selection. Cannot combine a role with modelSelection. Omit both to keep the current choice.",
+      "A role switches to role selection; null keeps the saved model as the task's model. Cannot combine a role with modelSelection. Omit both to keep the current choice.",
   }),
   modelSelection: Schema.optional(ModelSelection).annotate({
     description:
