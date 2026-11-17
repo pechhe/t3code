@@ -478,3 +478,47 @@ it.effect.each([
       }).pipe(Effect.provide(f.layer));
     }),
 );
+
+// Admission owns no process, so a gone controller can settle it without stop proof; an execution
+// obligation in the same epoch still needs that proof, which keeps the epoch retained.
+it.effect.each(["admission-only", "with-execution"] as const)(
+  "settles a controller-lost epoch whose admission owned no process: %s",
+  (scenario) =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      yield* Effect.gen(function* () {
+        const custody = yield* WorkspaceCustody.WorkspaceCustody;
+        const journal = yield* Journal.WorkspaceCustody;
+        const epoch = yield* custody.prepare({ ownerRef: scenario, projectRoot: "/source" });
+        yield* custody.acquireExisting(epoch.id, "/source/worktree");
+        yield* custody.register(epoch.id, { id: "admission", kind: "allocation" });
+        if (scenario === "with-execution")
+          yield* custody.register(epoch.id, {
+            id: "execution",
+            kind: "provider-turn",
+            processIds: [{ pid: 456 }],
+          });
+        yield* Ref.set(f.controllerStart, "new-controller");
+        // Admission-only: no process to prove. With execution: the provider still runs under the
+        // identity it registered, so its stop stays unproved and the epoch must remain retained.
+        yield* Ref.set(
+          f.processStarts,
+          new Map([[456, scenario === "with-execution" ? "first-start" : null]]),
+        );
+        yield* custody.reconcile;
+        const settled = yield* journal.get(epoch.id);
+        const admission = settled.obligations.find((item) => item.id === "admission");
+        assert.isNotNull(admission?.acknowledgement);
+        if (scenario === "admission-only") {
+          assert.equal(settled.phase, "released");
+          assert.equal(yield* Ref.get(f.releases), 1);
+        } else {
+          assert.equal(settled.phase, "recovery-required");
+          assert.equal(yield* Ref.get(f.releases), 0);
+          assert.isNull(
+            settled.obligations.find((item) => item.id === "execution")?.acknowledgement,
+          );
+        }
+      }).pipe(Effect.provide(f.layer));
+    }),
+);

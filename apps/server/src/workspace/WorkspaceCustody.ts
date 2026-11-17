@@ -562,6 +562,24 @@ const make = Effect.gen(function* () {
             let reason: string | null = null;
             for (const obligation of epoch.obligations) {
               if (obligation.acknowledgement !== null) continue;
+              // Admission records no process at all, because nothing is ever launched under it: it
+              // holds only the claim that admission needed. Requiring a stop identity would retain
+              // such an epoch for ever once its controller is gone. Every other kind can outlive the
+              // server, so it still needs proof that its processes stopped.
+              if (obligation.kind === "allocation") {
+                yield* journal
+                  .acknowledge(
+                    epoch.id,
+                    obligation.id,
+                    `controller-gone-allocation:${epoch.producer.controller.pid}`,
+                  )
+                  .pipe(
+                    Effect.mapError(
+                      (cause) => new WorkspaceCustodyError({ stage: "journal", cause }),
+                    ),
+                  );
+                continue;
+              }
               if (obligation.stopIdentityUnknown || (obligation.stopProcesses ?? []).length === 0) {
                 reason = `stop-identity-unrecorded:${obligation.id}`;
                 continue;
