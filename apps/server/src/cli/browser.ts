@@ -12,6 +12,7 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as PreviewBrowserHost from "../preview/PreviewBrowserHost.ts";
 import { resolveBaseDir } from "../os-jank.ts";
 import { browserReportCommand } from "./browserReport.ts";
+import { browserRunCommand } from "./browserRun.ts";
 import { baseDirFlag } from "./config.ts";
 import { resolveRootCliCommand } from "./invocation.ts";
 
@@ -256,5 +257,5 @@ const browserSetupCommand = Command.make("setup", { baseDir: baseDirFlag }).pipe
 
 export const browserCommand = Command.make("browser").pipe(
   Command.withDescription("Manage T3's headless browser on this host."),
-  Command.withSubcommands([browserSetupCommand, browserReportCommand]),
+  Command.withSubcommands([browserSetupCommand, browserRunCommand, browserReportCommand]),
 );

@@ -979,6 +979,8 @@ export function acpMcpContext(
           // here because this package cannot reach apps/server).
           processEnvironment: {
             T3CODE_THREAD_ID: session.threadId,
+            // `t3 browser run` reaches only the browser-run endpoint, never this session's tools.
+            ...McpProviderSession.agentCommandEnvironment(session),
             T3_ACP_MCP_ENDPOINT: session.endpoint,
             T3_ACP_MCP_AUTHORIZATION: session.authorizationHeader,
             T3_ACP_MCP_NODE: self.command,

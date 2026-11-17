@@ -375,7 +375,7 @@ const checkChanged = Effect.fn("checkChanged")(function* (input: {
   const { affected, outputs } = decide(files, packages, false);
 
   // Changed test files, and the test files beside a changed source file
-  // (foo.ts -> foo.test.ts, foo.browser.test.tsx). Vitest's import-graph
+  // (foo.ts -> foo.test.ts). Vitest's import-graph
   // `related` reaches most of a package: one leaf server file pulled in 252 of
   // 406 server test files and took 7 minutes. CI runs the rest.
   const tests = new Set(code.filter((file) => TEST.test(file)));
@@ -425,7 +425,7 @@ const checkChanged = Effect.fn("checkChanged")(function* (input: {
       // Test names keep the repo-relative path.
       name: (file: string) => file,
       compiled: (file: string) =>
-        /\.tsx?$/.test(file) && !/\.(test|browser)\.tsx?$/.test(file) && !file.endsWith(".gen.ts"),
+        /\.tsx?$/.test(file) && !/\.test\.tsx?$/.test(file) && !file.endsWith(".gen.ts"),
       // Web has only per-file cases.
       always: [],
     },

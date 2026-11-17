@@ -3,6 +3,7 @@ import * as NodeHttp from "node:http";
 import * as NodeNet from "node:net";
 import { chromium } from "playwright-core";
 import { expect, it } from "vite-plus/test";
+import { pinnedBrowser } from "../testUtils/pinnedBrowser.ts";
 import { ManagedBrowserProxy } from "./ManagedBrowserProxy.ts";
 
 const listen = async (server: NodeHttp.Server) => {
@@ -21,107 +22,115 @@ const close = (server: NodeHttp.Server) =>
     server.close(() => resolve());
   });
 
-it("enforces redirects, subresources, popup, fetch, WebSockets, aliases and CONNECT below Chromium", async () => {
-  let deniedHits = 0;
-  const denied = NodeHttp.createServer((_request, response) => {
-    deniedHits++;
-    response.end("should never be reached");
-  });
-  const deniedPort = await listen(denied);
-  const blocked = `http://127.0.0.1:${deniedPort}`;
-  const allowed = NodeHttp.createServer((request, response) => {
-    if (request.url === "/redirect") response.writeHead(302, { location: `${blocked}/redirected` });
-    else response.setHeader("Content-Type", "text/html");
-    response.end(
-      request.url === "/subresource"
-        ? `<img src="${blocked}/image">`
-        : "<title>Allowed preview</title><button>Ready</button>",
-    );
-  });
-  const allowedPort = await listen(allowed);
-  let policy: ReadonlyArray<string> | null = [
-    `127.0.0.1:${allowedPort}`,
-    `public.example.test:${allowedPort}`,
-  ];
-  const proxy = await ManagedBrowserProxy.start({
-    serverPort: 9999,
-    policy: async () => policy,
-    // Offline public-page stub uses a second allowed hostname; a non-allowed alias still resolves to private and is refused.
-    resolve: async () => [{ address: "127.0.0.1", family: 4 }],
-  });
-  const browser = await chromium.launch({
-    headless: true,
-    proxy: { server: "per-context" },
-    args: [
-      "--proxy-bypass-list=<-loopback>",
-      "--disable-quic",
-      "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
-    ],
-  });
-  try {
-    const context = await browser.newContext({
-      proxy: { ...proxy.configuration, bypass: "<-loopback>" },
-      serviceWorkers: "block",
+const executable = await pinnedBrowser();
+
+it.skipIf(executable === null)(
+  "enforces redirects, subresources, popup, fetch, WebSockets, aliases and CONNECT below Chromium",
+  async () => {
+    const executablePath = executable!;
+    let deniedHits = 0;
+    const denied = NodeHttp.createServer((_request, response) => {
+      deniedHits++;
+      response.end("should never be reached");
     });
-    const page = await context.newPage();
-    const origin = `http://127.0.0.1:${allowedPort}`;
-    await page.goto(origin);
-    expect(await page.title()).toBe("Allowed preview");
-    expect((await page.goto(`${blocked}/direct`))?.status()).toBe(403);
-    expect(await page.textContent("body")).toContain(`127.0.0.1:${deniedPort}`);
-    expect((await page.goto(`${origin}/redirect`))?.status()).toBe(403);
-    const beforeImage = proxy.refusalCount;
-    await page.goto(`${origin}/subresource`);
-    expect(proxy.refusalCount).toBeGreaterThan(beforeImage);
-    expect(proxy.refusals).toContain(`Managed browser blocked address 127.0.0.1:${deniedPort}.`);
-    const popupCreated = context.waitForEvent("page");
-    await page.evaluate(`window.open(${JSON.stringify(`${blocked}/popup`)})`);
-    const popup = await popupCreated;
-    await popup.waitForLoadState();
-    expect(await popup.textContent("body")).toContain(`127.0.0.1:${deniedPort}`);
-    await page.goto(origin);
-    const count = proxy.refusals.length;
-    await page.evaluate(async (url) => {
-      await fetch(url).catch(() => undefined);
-    }, `${blocked}/fetch`);
-    expect(proxy.refusals.length).toBeGreaterThan(count);
-    const beforeSocket = proxy.refusalCount;
-    await page.evaluate(
-      (url) =>
-        new Promise<void>((resolve) => {
-          const socket = new WebSocket(url);
-          socket.addEventListener("error", () => resolve(), { once: true });
-          socket.addEventListener(
-            "open",
-            () => {
-              socket.close();
-              resolve();
-            },
-            { once: true },
-          );
-        }),
-      `ws://127.0.0.1:${deniedPort}/socket`,
-    );
-    expect(proxy.refusalCount).toBeGreaterThan(beforeSocket);
-    expect(proxy.refusals.at(-1)).toContain(`127.0.0.1:${deniedPort}`);
-    expect((await page.goto(`http://rebound.example.test:${deniedPort}/`))?.status()).toBe(403);
-    expect(proxy.refusals.at(-1)).toContain(`rebound.example.test:${deniedPort}`);
-    const tlsPage = await context.newPage();
-    await expect(tlsPage.goto(`https://127.0.0.1:${deniedPort}/`)).rejects.toThrow();
-    await tlsPage.close();
-    expect(proxy.refusals.at(-1)).toContain(`127.0.0.1:${deniedPort}`);
-    expect(deniedHits).toBe(0);
-    await page.goto(`http://public.example.test:${allowedPort}/`);
-    expect(await page.title()).toBe("Allowed preview");
-    policy = [];
-    expect((await page.goto(`${origin}/revoked`))?.status()).toBe(403);
-    expect(proxy.refusals.at(-1)).toContain(`127.0.0.1:${allowedPort}`);
-  } finally {
-    await browser.close();
-    await proxy.close();
-    await Promise.all([close(allowed), close(denied)]);
-  }
-});
+    const deniedPort = await listen(denied);
+    const blocked = `http://127.0.0.1:${deniedPort}`;
+    const allowed = NodeHttp.createServer((request, response) => {
+      if (request.url === "/redirect")
+        response.writeHead(302, { location: `${blocked}/redirected` });
+      else response.setHeader("Content-Type", "text/html");
+      response.end(
+        request.url === "/subresource"
+          ? `<img src="${blocked}/image">`
+          : "<title>Allowed preview</title><button>Ready</button>",
+      );
+    });
+    const allowedPort = await listen(allowed);
+    let policy: ReadonlyArray<string> | null = [
+      `127.0.0.1:${allowedPort}`,
+      `public.example.test:${allowedPort}`,
+    ];
+    const proxy = await ManagedBrowserProxy.start({
+      serverPort: 9999,
+      policy: async () => policy,
+      // Offline public-page stub uses a second allowed hostname; a non-allowed alias still resolves to private and is refused.
+      resolve: async () => [{ address: "127.0.0.1", family: 4 }],
+    });
+    const browser = await chromium.launch({
+      executablePath,
+      headless: true,
+      proxy: { server: "per-context" },
+      args: [
+        "--proxy-bypass-list=<-loopback>",
+        "--disable-quic",
+        "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+      ],
+    });
+    try {
+      const context = await browser.newContext({
+        proxy: { ...proxy.configuration, bypass: "<-loopback>" },
+        serviceWorkers: "block",
+      });
+      const page = await context.newPage();
+      const origin = `http://127.0.0.1:${allowedPort}`;
+      await page.goto(origin);
+      expect(await page.title()).toBe("Allowed preview");
+      expect((await page.goto(`${blocked}/direct`))?.status()).toBe(403);
+      expect(await page.textContent("body")).toContain(`127.0.0.1:${deniedPort}`);
+      expect((await page.goto(`${origin}/redirect`))?.status()).toBe(403);
+      const beforeImage = proxy.refusalCount;
+      await page.goto(`${origin}/subresource`);
+      expect(proxy.refusalCount).toBeGreaterThan(beforeImage);
+      expect(proxy.refusals).toContain(`Managed browser blocked address 127.0.0.1:${deniedPort}.`);
+      const popupCreated = context.waitForEvent("page");
+      await page.evaluate(`window.open(${JSON.stringify(`${blocked}/popup`)})`);
+      const popup = await popupCreated;
+      await popup.waitForLoadState();
+      expect(await popup.textContent("body")).toContain(`127.0.0.1:${deniedPort}`);
+      await page.goto(origin);
+      const count = proxy.refusals.length;
+      await page.evaluate(async (url) => {
+        await fetch(url).catch(() => undefined);
+      }, `${blocked}/fetch`);
+      expect(proxy.refusals.length).toBeGreaterThan(count);
+      const beforeSocket = proxy.refusalCount;
+      await page.evaluate(
+        (url) =>
+          new Promise<void>((resolve) => {
+            const socket = new WebSocket(url);
+            socket.addEventListener("error", () => resolve(), { once: true });
+            socket.addEventListener(
+              "open",
+              () => {
+                socket.close();
+                resolve();
+              },
+              { once: true },
+            );
+          }),
+        `ws://127.0.0.1:${deniedPort}/socket`,
+      );
+      expect(proxy.refusalCount).toBeGreaterThan(beforeSocket);
+      expect(proxy.refusals.at(-1)).toContain(`127.0.0.1:${deniedPort}`);
+      expect((await page.goto(`http://rebound.example.test:${deniedPort}/`))?.status()).toBe(403);
+      expect(proxy.refusals.at(-1)).toContain(`rebound.example.test:${deniedPort}`);
+      const tlsPage = await context.newPage();
+      await expect(tlsPage.goto(`https://127.0.0.1:${deniedPort}/`)).rejects.toThrow();
+      await tlsPage.close();
+      expect(proxy.refusals.at(-1)).toContain(`127.0.0.1:${deniedPort}`);
+      expect(deniedHits).toBe(0);
+      await page.goto(`http://public.example.test:${allowedPort}/`);
+      expect(await page.title()).toBe("Allowed preview");
+      policy = [];
+      expect((await page.goto(`${origin}/revoked`))?.status()).toBe(403);
+      expect(proxy.refusals.at(-1)).toContain(`127.0.0.1:${allowedPort}`);
+    } finally {
+      await browser.close();
+      await proxy.close();
+      await Promise.all([close(allowed), close(denied)]);
+    }
+  },
+);
 
 const proxyRequest = (proxy: ManagedBrowserProxy, url: string, authenticate = true) =>
   new Promise<{ status: number; body: string }>((resolve, reject) => {

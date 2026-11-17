@@ -29,6 +29,11 @@ import { SessionControl } from "./SessionControl.ts";
 
 const decodeEvaluateInput = Schema.decodeUnknownSync(PreviewAutomationEvaluateInput);
 import { PHI_ANY_VISIBLE_MATCH } from "./PhiBrowserProtocol.ts";
+import { pinnedBrowser } from "../testUtils/pinnedBrowser.ts";
+
+// The page-level suites below launch a real browser, so they run only when T3's pinned shell
+// resolved; a host that cannot install it skips them instead of launching Playwright's copy.
+const browserPath = await pinnedBrowser();
 
 describe("server browser capture deadlines", () => {
   it("releases control after an unanswered capture and ignores its late reply", async () => {
@@ -74,14 +79,14 @@ describe("server browser capture deadlines", () => {
   });
 });
 
-describe("server browser element refs", () => {
+describe.skipIf(browserPath === null)("server browser element refs", () => {
   let browser: Browser;
   let context: BrowserContext;
   let page: Page;
   let cdp: CDPSession;
 
   beforeAll(async () => {
-    browser = await chromium.launch({ headless: true });
+    browser = await chromium.launch({ executablePath: browserPath!, headless: true });
   });
   afterAll(async () => {
     await browser?.close();
@@ -663,13 +668,14 @@ describe("server browser element refs", () => {
   });
 });
 
-describe("server browser snapshot screenshot", () => {
+describe.skipIf(browserPath === null)("server browser snapshot screenshot", () => {
   let browser: Browser;
   let context: BrowserContext;
 
   beforeAll(async () => {
     // ServerBrowserContexts launches with these, and the capture scale depends on them.
     browser = await chromium.launch({
+      executablePath: browserPath!,
       headless: true,
       args: ["--disable-gpu", "--force-device-scale-factor=2"],
     });
@@ -839,7 +845,7 @@ describe("server browser snapshot screenshot", () => {
   });
 });
 
-describe("server browser drag", () => {
+describe.skipIf(browserPath === null)("server browser drag", () => {
   it("fails the drag, not the server, when it times out while the cursor is still moving", async () => {
     const timedOut = new Error("locator.dragTo: Timeout 30000ms exceeded.");
     const box = { x: 0, y: 0, width: 20, height: 20 };
@@ -880,7 +886,7 @@ describe("server browser drag", () => {
   });
 
   it("moves the mouse after dragstart, so pages that track a drag with mousemove see it", async () => {
-    const browser = await chromium.launch({ headless: true });
+    const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
     try {
       const page = await browser.newPage();
       await page.setContent(`
@@ -1071,12 +1077,12 @@ describe("server browser net errors", () => {
   });
 });
 
-describe("server browser saved logins", () => {
+describe.skipIf(browserPath === null)("server browser saved logins", () => {
   let browser: Browser;
   let context: BrowserContext;
 
   beforeAll(async () => {
-    browser = await chromium.launch();
+    browser = await chromium.launch({ executablePath: browserPath! });
     context = await browser.newContext({ viewport: { width: 640, height: 400 } });
   });
   afterAll(async () => {

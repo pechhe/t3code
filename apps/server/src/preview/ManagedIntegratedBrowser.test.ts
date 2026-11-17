@@ -5,9 +5,9 @@ import * as NodeHttp from "node:http";
 import * as NodeNet from "node:net";
 import { HttpServer } from "effect/http";
 import * as NetAddress from "effect/net/NetAddress";
-import { chromium, type BrowserContext, type Page } from "playwright-core";
+import type { BrowserContext, Page } from "playwright-core";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { expect, it, vi } from "@effect/vitest";
+import { describe, expect, it, vi } from "@effect/vitest";
 import {
   EnvironmentId,
   ProjectId,
@@ -35,6 +35,11 @@ import * as ServerBrowser from "./ServerBrowser.ts";
 import { ServerBrowserContexts } from "./ServerBrowserContexts.ts";
 import type { McpThreadInvocationScope } from "../mcp/McpInvocationContext.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
+import { pinnedBrowser } from "../testUtils/pinnedBrowser.ts";
+
+// This suite launches a real browser, so it runs only when T3's pinned shell resolved; a host
+// that cannot install it skips rather than launching Playwright's own copy.
+const browserPath = await pinnedBrowser();
 
 const scope: McpThreadInvocationScope = {
   environmentId: EnvironmentId.make("managed-integration"),
@@ -59,8 +64,8 @@ const dependencies = Layer.mergeAll(
     getDescriptor: Effect.die("unused"),
   }),
   Layer.succeed(PreviewBrowser.PreviewBrowser, {
-    executable: Effect.succeed(chromium.executablePath()),
-    installed: Effect.succeedSome(chromium.executablePath()),
+    executable: Effect.succeed(browserPath!),
+    installed: Effect.succeedSome(browserPath!),
   }),
   Layer.mock(DesktopChannel.DesktopBrowserChannel)({
     available: false,
@@ -74,253 +79,258 @@ const dependencies = Layer.mergeAll(
   Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
 );
 
-it.live.each(["access", "backend", "allow-list"] as const)(
-  "isolates ownership and storage, captures evidence and closes contexts on %s revocation",
-  (revocation) =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const server = NodeHttp.createServer((request, response) => {
-          if (request.url === "/dev/login?next=%2F") {
-            response.writeHead(302, {
-              location: "/",
-              "set-cookie": "preview-auth=owner; Path=/; HttpOnly",
+describe.skipIf(browserPath === null)("managed integrated browser", () => {
+  it.live.each(["access", "backend", "allow-list"] as const)(
+    "isolates ownership and storage, captures evidence and closes contexts on %s revocation",
+    (revocation) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const server = NodeHttp.createServer((request, response) => {
+            if (request.url === "/dev/login?next=%2F") {
+              response.writeHead(302, {
+                location: "/",
+                "set-cookie": "preview-auth=owner; Path=/; HttpOnly",
+              });
+              response.end();
+              return;
+            }
+            if (request.url === "/" && !request.headers.cookie?.includes("preview-auth=owner")) {
+              response.writeHead(401);
+              response.end("Sign in first");
+              return;
+            }
+            if (request.url === "/bad-status") {
+              response.writeHead(503);
+              response.end("unavailable");
+              return;
+            }
+            if (request.url === "/failed-request") {
+              response.destroy();
+              return;
+            }
+            response.setHeader("Content-Type", "text/html");
+            response.end(
+              `<title>Managed fixture</title><button onclick="document.cookie='task=one';localStorage.setItem('task','one');document.querySelector('output').textContent='saved'">Save</button><output>${request.headers.cookie ?? "no cookies"}</output><p id="storage"></p><p id="network"></p><p id="appearance"></p><script>const media=matchMedia('(prefers-color-scheme: dark)');const appearance=()=>document.querySelector('#appearance').textContent=media.matches?'dark mode':'light mode';appearance();media.addEventListener('change',appearance);document.querySelector('#storage').textContent=localStorage.getItem('task')??'no storage';${request.url === "/clean" ? "" : "console.error('fixture console error');Promise.allSettled([fetch('/bad-status'),fetch('/failed-request')]).then(()=>document.querySelector('#network').textContent='network settled');"}</script>`,
+            );
+          });
+          yield* Effect.promise(async () => {
+            await new Promise<void>((resolve, reject) => {
+              server.once("error", reject);
+              server.listen(0, "127.0.0.1", () => {
+                server.off("error", reject);
+                resolve();
+              });
             });
-            response.end();
-            return;
-          }
-          if (request.url === "/" && !request.headers.cookie?.includes("preview-auth=owner")) {
-            response.writeHead(401);
-            response.end("Sign in first");
-            return;
-          }
-          if (request.url === "/bad-status") {
-            response.writeHead(503);
-            response.end("unavailable");
-            return;
-          }
-          if (request.url === "/failed-request") {
-            response.destroy();
-            return;
-          }
-          response.setHeader("Content-Type", "text/html");
-          response.end(
-            `<title>Managed fixture</title><button onclick="document.cookie='task=one';localStorage.setItem('task','one');document.querySelector('output').textContent='saved'">Save</button><output>${request.headers.cookie ?? "no cookies"}</output><p id="storage"></p><p id="network"></p><p id="appearance"></p><script>const media=matchMedia('(prefers-color-scheme: dark)');const appearance=()=>document.querySelector('#appearance').textContent=media.matches?'dark mode':'light mode';appearance();media.addEventListener('change',appearance);document.querySelector('#storage').textContent=localStorage.getItem('task')??'no storage';${request.url === "/clean" ? "" : "console.error('fixture console error');Promise.allSettled([fetch('/bad-status'),fetch('/failed-request')]).then(()=>document.querySelector('#network').textContent='network settled');"}</script>`,
-          );
-        });
-        yield* Effect.promise(async () => {
-          await new Promise<void>((resolve, reject) => {
-            server.once("error", reject);
-            server.listen(0, "127.0.0.1", () => {
-              server.off("error", reject);
-              resolve();
-            });
           });
-        });
-        yield* Effect.addFinalizer(() =>
-          Effect.promise(
-            () =>
-              new Promise<void>((resolve) => {
-                server.closeAllConnections();
-                server.close(() => resolve());
-              }),
-          ),
-        );
-        const port = (server.address() as NodeNet.AddressInfo).port;
-        const settingsLayer = Layer.effect(
-          ServerSettings.ServerSettingsService,
-          Effect.gen(function* () {
-            const base = yield* ServerSettings.ServerSettingsService;
-            const changes = yield* PubSub.unbounded<import("@t3tools/contracts").ServerSettings>();
-            return {
-              ...base,
-              updateSettings: (patch: import("@t3tools/contracts").ServerSettingsPatch) =>
-                base
-                  .updateSettings(patch)
-                  .pipe(Effect.tap((settings) => PubSub.publish(changes, settings))),
-              streamChanges: Stream.fromPubSub(changes),
-              subscribeChanges: PubSub.subscribe(changes).pipe(Effect.map(Stream.fromSubscription)),
-            };
-          }),
-        ).pipe(
-          Layer.provide(
-            ServerSettings.layerTest({ agentBrowserLoopbackAllow: [`127.0.0.1:${port}`] }),
-          ),
-        );
-        const runtime = ServerBrowser.layer.pipe(
-          Layer.provideMerge(dependencies),
-          Layer.provideMerge(settingsLayer),
-        );
-        yield* Effect.gen(function* () {
-          yield* ServerBrowser.ServerBrowser;
-          const broker = yield* Broker.PreviewAutomationBroker;
-          const manager = yield* Manager.PreviewManager;
-          yield* Effect.yieldNow;
-          const { managedBrowser: _managed, ...ordinary } = scope;
-          const ordinaryScope = {
-            ...ordinary,
-            thread: { ...scope.thread, providerSessionId: "ordinary-profile" },
-          };
-          const ordinaryTab = yield* broker.invoke<PreviewAutomationStatus>({
-            scope: ordinaryScope,
-            operation: "open",
-            input: { profileId: "default", url: `http://127.0.0.1:${port}/clean` },
-          });
-          yield* broker.invoke({
-            scope: ordinaryScope,
-            tabId: PreviewTabId.make(ordinaryTab.tabId!),
-            operation: "click",
-            input: { selector: "button" },
-          });
-          const opened = yield* broker.invoke<PreviewAutomationStatus>({
-            scope,
-            operation: "open",
-            input: { url: `http://127.0.0.1:${port}/dev/login?next=%2F` },
-          });
-          const tabId = PreviewTabId.make(opened.tabId!);
-          const invoke = <A>(
-            operation: Parameters<typeof broker.invoke>[0]["operation"],
-            input: unknown = {},
-          ) => broker.invoke<A>({ scope, tabId, operation, input });
-          yield* invoke("waitFor", { text: "network settled" });
-          const snapshot = yield* invoke<PreviewAutomationSnapshot>("snapshot");
-          expect(snapshot.url).toBe(`http://127.0.0.1:${port}/`);
-          expect(snapshot.visibleText).toContain("preview-auth=owner");
-          expect(snapshot.visibleText).not.toContain("task=one");
-          expect(snapshot.visibleText).toContain("no storage");
-          expect(snapshot.networkEntries).toContainEqual(
-            expect.objectContaining({
-              url: `http://127.0.0.1:${port}/bad-status`,
-              status: 503,
-              failed: true,
-            }),
-          );
-          expect(snapshot.networkEntries).toContainEqual(
-            expect.objectContaining({
-              url: `http://127.0.0.1:${port}/failed-request`,
-              failed: true,
-            }),
-          );
-          expect(snapshot.networkEntries).toContainEqual(
-            expect.objectContaining({ status: 200, failed: false }),
-          );
-          expect(snapshot.interactiveElements.length).toBeGreaterThan(0);
-          expect(snapshot.accessibilityTree).toBeTruthy();
-          expect(snapshot.captureStatus).toEqual({
-            console: true,
-            network: true,
-            actionTimeline: true,
-          });
-          expect(snapshot.consoleEntries).toContainEqual(
-            expect.objectContaining({ level: "error", text: "fixture console error" }),
-          );
-          expect(snapshot.screenshot!.data.length).toBeGreaterThan(0);
-          yield* invoke("click", { selector: "button" });
-          yield* invoke("waitFor", { text: "saved" });
-          yield* invoke("resize", { mode: "freeform", width: 375, height: 667 });
-          const phone = yield* invoke<PreviewAutomationSnapshot>("snapshot");
-          // The agent's image is the tab's CSS width; the saved file keeps the device pixels.
-          expect(phone.screenshot!.width).toBe(375);
-          yield* invoke("setColorScheme", { colorScheme: "dark" });
-          yield* invoke("waitFor", { text: "dark mode" });
-          yield* invoke("recordingStart");
-          yield* invoke("snapshot");
-          const recording = yield* invoke<PreviewAutomationRecordingArtifact>("recordingStop");
-          const recordingFs = yield* FileSystem.FileSystem;
-          expect(yield* recordingFs.exists(recording.path)).toBe(true);
-          for (let attempt = 0; attempt < 2; attempt++) {
-            const refused = yield* invoke<PreviewAutomationStatus>("navigate", {
-              url: `http://localhost:${port}/blocked`,
-            }).pipe(Effect.flip);
-            expect(refused.message).toContain(`blocked address localhost:${port}`);
-          }
-          const refusedTunnel = yield* broker
-            .invoke<PreviewAutomationStatus>({
-              scope: { ...scope, thread: { ...scope.thread, providerSessionId: "task-tunnel" } },
-              operation: "open",
-              input: { url: `https://localhost:${port}/blocked` },
-            })
-            .pipe(Effect.flip);
-          expect(refusedTunnel.message).toContain(`blocked address localhost:${port}`);
-          yield* invoke("navigate", { url: `http://127.0.0.1:${port}/` });
-          const second: McpThreadInvocationScope = {
-            ...scope,
-            thread: { ...scope.thread, providerSessionId: "task-two" },
-          };
-          const other = yield* broker.invoke<PreviewAutomationStatus>({
-            scope: second,
-            operation: "open",
-            input: { url: `http://127.0.0.1:${port}/clean` },
-          });
-          const secondSnapshot = yield* broker.invoke<PreviewAutomationSnapshot>({
-            scope: second,
-            tabId: PreviewTabId.make(other.tabId!),
-            operation: "snapshot",
-            input: {},
-          });
-          expect(secondSnapshot.visibleText).toContain("no cookies");
-          expect(secondSnapshot.visibleText).toContain("no storage");
-          expect(secondSnapshot.consoleEntries.filter((entry) => entry.level === "error")).toEqual(
-            [],
-          );
-          expect(secondSnapshot.networkEntries.filter((entry) => entry.failed)).toEqual([]);
-          expect(secondSnapshot.networkEntries.length).toBeGreaterThan(0);
-          for (const operation of ["status", "snapshot", "click", "close"] as const) {
-            const failure = yield* broker
-              .invoke<PreviewAutomationStatus>({ scope: second, tabId, operation, input: {} })
-              .pipe(Effect.flip);
-            expect(failure._tag).toBe("PreviewAutomationBackendError");
-          }
-          expect((yield* broker.list({ scope: second })).sessions.map((tab) => tab.tabId)).toEqual([
-            other.tabId,
-          ]);
-          expect(
-            (yield* broker
-              .invoke<PreviewAutomationStatus>({
-                scope,
-                operation: "open",
-                input: { profileId: "default" },
-              })
-              .pipe(Effect.flip))._tag,
-          ).toBe("PreviewAutomationBackendError");
-          yield* invoke("recordingStart");
-          const events = yield* manager.subscribeEvents;
-          const settings = yield* ServerSettings.ServerSettingsService;
-          yield* settings.updateSettings(
-            revocation === "access"
-              ? { enableAgentBrowserAccess: false }
-              : revocation === "backend"
-                ? { agentBrowserBackends: { enabled: ["phi"], default: "phi" } }
-                : { agentBrowserLoopbackAllow: [] },
-          );
-          const closed = yield* Stream.fromSubscription(events).pipe(
-            Stream.filter((event) => event.type === "closed"),
-            Stream.take(2),
-            Stream.runCollect,
-          );
-          expect(closed).toHaveLength(2);
-          expect(
-            (yield* manager.list({ threadId: scope.thread.threadId })).sessions.map(
-              (tab) => tab.tabId,
+          yield* Effect.addFinalizer(() =>
+            Effect.promise(
+              () =>
+                new Promise<void>((resolve) => {
+                  server.closeAllConnections();
+                  server.close(() => resolve());
+                }),
             ),
-          ).toEqual([ordinaryTab.tabId]);
-          const config = yield* ServerConfig.ServerConfig;
-          const fs = yield* FileSystem.FileSystem;
-          const artifacts = yield* fs
-            .readDirectory(config.browserArtifactsDir)
-            .pipe(Effect.orElseSucceed(() => []));
-          expect(artifacts).toEqual([]);
-        }).pipe(Effect.provide(runtime));
-      }),
-    ).pipe(
-      Effect.provide(
-        Layer.mergeAll(NodeServices.layer, NodeCrypto.layer).pipe(
-          Layer.provideMerge(Layer.mergeAll(ContextPreviewAgentActivity.layer)),
+          );
+          const port = (server.address() as NodeNet.AddressInfo).port;
+          const settingsLayer = Layer.effect(
+            ServerSettings.ServerSettingsService,
+            Effect.gen(function* () {
+              const base = yield* ServerSettings.ServerSettingsService;
+              const changes =
+                yield* PubSub.unbounded<import("@t3tools/contracts").ServerSettings>();
+              return {
+                ...base,
+                updateSettings: (patch: import("@t3tools/contracts").ServerSettingsPatch) =>
+                  base
+                    .updateSettings(patch)
+                    .pipe(Effect.tap((settings) => PubSub.publish(changes, settings))),
+                streamChanges: Stream.fromPubSub(changes),
+                subscribeChanges: PubSub.subscribe(changes).pipe(
+                  Effect.map(Stream.fromSubscription),
+                ),
+              };
+            }),
+          ).pipe(
+            Layer.provide(
+              ServerSettings.layerTest({ agentBrowserLoopbackAllow: [`127.0.0.1:${port}`] }),
+            ),
+          );
+          const runtime = ServerBrowser.layer.pipe(
+            Layer.provideMerge(dependencies),
+            Layer.provideMerge(settingsLayer),
+          );
+          yield* Effect.gen(function* () {
+            yield* ServerBrowser.ServerBrowser;
+            const broker = yield* Broker.PreviewAutomationBroker;
+            const manager = yield* Manager.PreviewManager;
+            yield* Effect.yieldNow;
+            const { managedBrowser: _managed, ...ordinary } = scope;
+            const ordinaryScope = {
+              ...ordinary,
+              thread: { ...scope.thread, providerSessionId: "ordinary-profile" },
+            };
+            const ordinaryTab = yield* broker.invoke<PreviewAutomationStatus>({
+              scope: ordinaryScope,
+              operation: "open",
+              input: { profileId: "default", url: `http://127.0.0.1:${port}/clean` },
+            });
+            yield* broker.invoke({
+              scope: ordinaryScope,
+              tabId: PreviewTabId.make(ordinaryTab.tabId!),
+              operation: "click",
+              input: { selector: "button" },
+            });
+            const opened = yield* broker.invoke<PreviewAutomationStatus>({
+              scope,
+              operation: "open",
+              input: { url: `http://127.0.0.1:${port}/dev/login?next=%2F` },
+            });
+            const tabId = PreviewTabId.make(opened.tabId!);
+            const invoke = <A>(
+              operation: Parameters<typeof broker.invoke>[0]["operation"],
+              input: unknown = {},
+            ) => broker.invoke<A>({ scope, tabId, operation, input });
+            yield* invoke("waitFor", { text: "network settled" });
+            const snapshot = yield* invoke<PreviewAutomationSnapshot>("snapshot");
+            expect(snapshot.url).toBe(`http://127.0.0.1:${port}/`);
+            expect(snapshot.visibleText).toContain("preview-auth=owner");
+            expect(snapshot.visibleText).not.toContain("task=one");
+            expect(snapshot.visibleText).toContain("no storage");
+            expect(snapshot.networkEntries).toContainEqual(
+              expect.objectContaining({
+                url: `http://127.0.0.1:${port}/bad-status`,
+                status: 503,
+                failed: true,
+              }),
+            );
+            expect(snapshot.networkEntries).toContainEqual(
+              expect.objectContaining({
+                url: `http://127.0.0.1:${port}/failed-request`,
+                failed: true,
+              }),
+            );
+            expect(snapshot.networkEntries).toContainEqual(
+              expect.objectContaining({ status: 200, failed: false }),
+            );
+            expect(snapshot.interactiveElements.length).toBeGreaterThan(0);
+            expect(snapshot.accessibilityTree).toBeTruthy();
+            expect(snapshot.captureStatus).toEqual({
+              console: true,
+              network: true,
+              actionTimeline: true,
+            });
+            expect(snapshot.consoleEntries).toContainEqual(
+              expect.objectContaining({ level: "error", text: "fixture console error" }),
+            );
+            expect(snapshot.screenshot!.data.length).toBeGreaterThan(0);
+            yield* invoke("click", { selector: "button" });
+            yield* invoke("waitFor", { text: "saved" });
+            yield* invoke("resize", { mode: "freeform", width: 375, height: 667 });
+            const phone = yield* invoke<PreviewAutomationSnapshot>("snapshot");
+            // The agent's image is the tab's CSS width; the saved file keeps the device pixels.
+            expect(phone.screenshot!.width).toBe(375);
+            yield* invoke("setColorScheme", { colorScheme: "dark" });
+            yield* invoke("waitFor", { text: "dark mode" });
+            yield* invoke("recordingStart");
+            yield* invoke("snapshot");
+            const recording = yield* invoke<PreviewAutomationRecordingArtifact>("recordingStop");
+            const recordingFs = yield* FileSystem.FileSystem;
+            expect(yield* recordingFs.exists(recording.path)).toBe(true);
+            for (let attempt = 0; attempt < 2; attempt++) {
+              const refused = yield* invoke<PreviewAutomationStatus>("navigate", {
+                url: `http://localhost:${port}/blocked`,
+              }).pipe(Effect.flip);
+              expect(refused.message).toContain(`blocked address localhost:${port}`);
+            }
+            const refusedTunnel = yield* broker
+              .invoke<PreviewAutomationStatus>({
+                scope: { ...scope, thread: { ...scope.thread, providerSessionId: "task-tunnel" } },
+                operation: "open",
+                input: { url: `https://localhost:${port}/blocked` },
+              })
+              .pipe(Effect.flip);
+            expect(refusedTunnel.message).toContain(`blocked address localhost:${port}`);
+            yield* invoke("navigate", { url: `http://127.0.0.1:${port}/` });
+            const second: McpThreadInvocationScope = {
+              ...scope,
+              thread: { ...scope.thread, providerSessionId: "task-two" },
+            };
+            const other = yield* broker.invoke<PreviewAutomationStatus>({
+              scope: second,
+              operation: "open",
+              input: { url: `http://127.0.0.1:${port}/clean` },
+            });
+            const secondSnapshot = yield* broker.invoke<PreviewAutomationSnapshot>({
+              scope: second,
+              tabId: PreviewTabId.make(other.tabId!),
+              operation: "snapshot",
+              input: {},
+            });
+            expect(secondSnapshot.visibleText).toContain("no cookies");
+            expect(secondSnapshot.visibleText).toContain("no storage");
+            expect(
+              secondSnapshot.consoleEntries.filter((entry) => entry.level === "error"),
+            ).toEqual([]);
+            expect(secondSnapshot.networkEntries.filter((entry) => entry.failed)).toEqual([]);
+            expect(secondSnapshot.networkEntries.length).toBeGreaterThan(0);
+            for (const operation of ["status", "snapshot", "click", "close"] as const) {
+              const failure = yield* broker
+                .invoke<PreviewAutomationStatus>({ scope: second, tabId, operation, input: {} })
+                .pipe(Effect.flip);
+              expect(failure._tag).toBe("PreviewAutomationBackendError");
+            }
+            expect(
+              (yield* broker.list({ scope: second })).sessions.map((tab) => tab.tabId),
+            ).toEqual([other.tabId]);
+            expect(
+              (yield* broker
+                .invoke<PreviewAutomationStatus>({
+                  scope,
+                  operation: "open",
+                  input: { profileId: "default" },
+                })
+                .pipe(Effect.flip))._tag,
+            ).toBe("PreviewAutomationBackendError");
+            yield* invoke("recordingStart");
+            const events = yield* manager.subscribeEvents;
+            const settings = yield* ServerSettings.ServerSettingsService;
+            yield* settings.updateSettings(
+              revocation === "access"
+                ? { enableAgentBrowserAccess: false }
+                : revocation === "backend"
+                  ? { agentBrowserBackends: { enabled: ["phi"], default: "phi" } }
+                  : { agentBrowserLoopbackAllow: [] },
+            );
+            const closed = yield* Stream.fromSubscription(events).pipe(
+              Stream.filter((event) => event.type === "closed"),
+              Stream.take(2),
+              Stream.runCollect,
+            );
+            expect(closed).toHaveLength(2);
+            expect(
+              (yield* manager.list({ threadId: scope.thread.threadId })).sessions.map(
+                (tab) => tab.tabId,
+              ),
+            ).toEqual([ordinaryTab.tabId]);
+            const config = yield* ServerConfig.ServerConfig;
+            const fs = yield* FileSystem.FileSystem;
+            const artifacts = yield* fs
+              .readDirectory(config.browserArtifactsDir)
+              .pipe(Effect.orElseSucceed(() => []));
+            expect(artifacts).toEqual([]);
+          }).pipe(Effect.provide(runtime));
+        }),
+      ).pipe(
+        Effect.provide(
+          Layer.mergeAll(NodeServices.layer, NodeCrypto.layer).pipe(
+            Layer.provideMerge(Layer.mergeAll(ContextPreviewAgentActivity.layer)),
+          ),
         ),
       ),
-    ),
-);
+  );
+});
 
-it.live(
+it.live.skipIf(browserPath === null)(
   "closes the tab, context and recording of an integrated task whose credential expires",
   () =>
     Effect.scoped(
@@ -441,6 +451,154 @@ it.live(
               { timeout: 10_000, interval: 50 },
             ),
           );
+        }).pipe(Effect.provide(runtime));
+      }),
+    ).pipe(
+      Effect.provide(
+        Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, ContextPreviewAgentActivity.layer),
+      ),
+    ),
+);
+
+it.live.skipIf(browserPath === null)(
+  "shares one context across a browser run's tabs, runs its page code before load, and keeps page code and saved logins apart",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const server = NodeHttp.createServer((request, response) => {
+          if (request.url?.startsWith("/dev/agent-login")) {
+            response.writeHead(303, {
+              location: "/",
+              "set-cookie": "agent=admin; Path=/; HttpOnly",
+            });
+            response.end();
+            return;
+          }
+          response.setHeader("Content-Type", "text/html");
+          response.end(
+            `<title>Run fixture</title><output>${request.headers.cookie ?? "no cookies"}</output><input type="password" id="secret"><script>throw new Error("fixture broke")</script>`,
+          );
+        });
+        yield* Effect.promise(
+          () =>
+            new Promise<void>((resolve) => {
+              server.listen(0, "127.0.0.1", () => resolve());
+            }),
+        );
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            server.closeAllConnections();
+            server.close();
+          }),
+        );
+        const port = (server.address() as NodeNet.AddressInfo).port;
+        const runtime = ServerBrowser.layer.pipe(
+          Layer.provideMerge(dependencies),
+          Layer.provideMerge(
+            ServerSettings.layerTest({ agentBrowserLoopbackAllow: [`127.0.0.1:${port}`] }),
+          ),
+        );
+        yield* Effect.gen(function* () {
+          const browser = yield* ServerBrowser.ServerBrowser;
+          const broker = yield* Broker.PreviewAutomationBroker;
+          yield* Effect.yieldNow;
+          const run = (runId: string): McpThreadInvocationScope => ({
+            ...scope,
+            thread: { ...scope.thread, providerSessionId: "run-session" },
+            browserLane: "run",
+            browserRunId: runId,
+          });
+          const open = (runScope: McpThreadInvocationScope, path: string) =>
+            broker
+              .invoke<PreviewAutomationStatus>({
+                scope: runScope,
+                operation: "open",
+                input: { url: `http://127.0.0.1:${port}${path}`, reuseExistingTab: false },
+              })
+              .pipe(Effect.map((status) => PreviewTabId.make(status.tabId!)));
+          const text = (runScope: McpThreadInvocationScope, tabId: PreviewTabId) =>
+            broker
+              .invoke<PreviewAutomationSnapshot>({
+                scope: runScope,
+                tabId,
+                operation: "snapshot",
+                input: {},
+              })
+              .pipe(Effect.map((snapshot) => snapshot.visibleText));
+          const evaluate = (runScope: McpThreadInvocationScope, tabId: PreviewTabId) =>
+            broker.invoke<string>({
+              scope: runScope,
+              tabId,
+              operation: "evaluate",
+              input: { expression: "window.early ?? 'not set'" },
+            });
+
+          const first = run("run-one");
+          const signedIn = yield* open(first, "/dev/agent-login?as=admin&next=%2F");
+          expect(yield* text(first, signedIn)).toContain("agent=admin");
+          yield* browser.addRunInitScript({
+            agentSessionId: Broker.hostAssignmentKey(first),
+            script: "window.early = 'before load';",
+          });
+          const second = yield* open(first, "/");
+          expect(yield* text(first, second)).toContain("agent=admin");
+          expect(yield* evaluate(first, second)).toBe("before load");
+          const errors = yield* broker
+            .invoke<PreviewAutomationSnapshot>({
+              scope: first,
+              tabId: second,
+              operation: "snapshot",
+              input: {},
+            })
+            .pipe(Effect.map((snapshot) => snapshot.consoleEntries));
+          expect(errors).toContainEqual(
+            expect.objectContaining({ level: "pageerror", text: "Error: fixture broke" }),
+          );
+
+          // Another run starts empty, and a managed task's own tab still runs no page code.
+          const other = run("run-two");
+          const fresh = yield* open(other, "/");
+          expect(yield* text(other, fresh)).toContain("no cookies");
+          expect(yield* evaluate(other, fresh)).toBe("not set");
+          const managed = yield* broker
+            .invoke<PreviewAutomationStatus>({
+              scope,
+              operation: "open",
+              input: { url: `http://127.0.0.1:${port}/` },
+            })
+            .pipe(Effect.map((status) => PreviewTabId.make(status.tabId!)));
+          expect((yield* evaluate(scope, managed).pipe(Effect.flip))._tag).toBe(
+            "PreviewAutomationControlInterruptedError",
+          );
+
+          // A run that has run page code types no saved login, and one that typed a login runs none.
+          const login = (runScope: McpThreadInvocationScope, tabId: PreviewTabId) =>
+            browser.holdTaskLogin({
+              threadId: runScope.thread.threadId,
+              tabId,
+              agentSessionId: Broker.hostAssignmentKey(runScope),
+              key: "BROWSER_LOGIN_FIXTURE",
+              value: "fixture-password-value",
+              origins: [`http://127.0.0.1:${port}`],
+            });
+          expect((yield* login(first, second).pipe(Effect.flip)).message).toContain(
+            "refused in a browser run that has run page code",
+          );
+          const signing = run("run-three");
+          const loginTab = yield* open(signing, "/");
+          const otherTab = yield* open(signing, "/");
+          yield* login(signing, loginTab);
+          expect((yield* evaluate(signing, otherTab).pipe(Effect.flip)).message).toContain(
+            "after a saved login was typed in it",
+          );
+          expect(
+            (yield* browser
+              .addRunInitScript({
+                agentSessionId: Broker.hostAssignmentKey(signing),
+                script: "window.early = 'too late';",
+              })
+              .pipe(Effect.flip)).message,
+          ).toContain("after a saved login was typed in it");
         }).pipe(Effect.provide(runtime));
       }),
     ).pipe(

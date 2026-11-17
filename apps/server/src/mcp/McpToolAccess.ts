@@ -23,6 +23,8 @@ import {
   DispatchModeLimit,
   type DispatchModeRefusal,
 } from "../orchestration-v2/DispatchModeLimit.ts";
+import { usingRun } from "../browserRuns/BrowserRunAccess.ts";
+import type * as BrowserRuns from "../browserRuns/BrowserRuns.ts";
 import * as BrowserTaskCalls from "../browserTasks/BrowserTaskCalls.ts";
 import * as PeerForwarding from "../peer/PeerForwarding.ts";
 import { assertNotLinked, assertSameLink, callerLinkOrigin } from "./linkOrigin.ts";
@@ -371,6 +373,64 @@ export const cleansUpAsBoundedBrowser = <P, A, E, R>(
       ),
     undefined,
   );
+
+/** A result's size against a browser run's output limit; screenshot bytes go to files, not output. */
+const browserRunResultBytes = (result: unknown): number => {
+  try {
+    return Buffer.byteLength(
+      JSON.stringify(result, (key, value) =>
+        key === "screenshot" || key === "fullScreenshot" ? undefined : value,
+      ) ?? "",
+    );
+  } catch {
+    return 0;
+  }
+};
+
+/**
+ * A call inside a browser run acts with the run's own scope (its lane, its tabs and context), after
+ * the caller and its run are rechecked; its result counts against the run's output limit.
+ */
+export const inBrowserRun = <P, A, E, R>(
+  runs: BrowserRuns.BrowserRuns["Service"],
+  handle: (params: P) => Effect.Effect<A, E, R>,
+) =>
+  declare(
+    (params: P) =>
+      usingRun(runs, { checkSettings: true }).pipe(
+        Effect.flatMap((run) =>
+          Effect.provideService(
+            handle(params),
+            McpInvocationContext.McpInvocationContext,
+            run.scope,
+          ).pipe(Effect.tap((result) => runs.charge(run.runId, browserRunResultBytes(result)))),
+        ),
+      ),
+    undefined,
+  );
+
+/** Closing a run's tab stays possible after browser access is turned off. */
+export const cleansUpInBrowserRun = <P, A, E, R>(
+  runs: BrowserRuns.BrowserRuns["Service"],
+  handle: (params: P) => Effect.Effect<A, E, R>,
+) =>
+  declare(
+    (params: P) =>
+      usingRun(runs, { checkSettings: false }).pipe(
+        Effect.flatMap((run) =>
+          Effect.provideService(
+            handle(params),
+            McpInvocationContext.McpInvocationContext,
+            run.scope,
+          ),
+        ),
+      ),
+    undefined,
+  );
+
+/** Opening and closing a run: the handler checks the caller itself (`BrowserRunAccess.ts`). */
+export const managesBrowserRun = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
+  declare(handle, undefined);
 
 /** External clients read their owned tasks; T3 callers retain the existing live-run gate. */
 export const readsTask = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>

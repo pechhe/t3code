@@ -5,7 +5,7 @@ import { type RefObject, useEffect, useSyncExternalStore } from "react";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { readThreadShells } from "../../state/entities";
 
-export const THREAD_CONTEXT_DROP_EVENT = "t3-thread-context-drop";
+const THREAD_CONTEXT_DROP_EVENT = "t3-thread-context-drop";
 
 export function useThreadContextDrop(
   targetRef: RefObject<EventTarget | null>,

@@ -444,6 +444,42 @@ describe("AcpMcpStdioBridge", () => {
     }),
   );
 
+  it.effect("reads extra headers per request, so a run can name itself after it opens", () =>
+    Effect.gen(function* () {
+      const headers: Headers[] = [];
+      let named: Readonly<Record<string, string>> = {};
+      const session = yield* mcpToolSession({
+        endpoint: "http://127.0.0.1:1/mcp",
+        authorization: "Bearer bridge-test",
+        clientName: "t3-browser-run-cli",
+        extraHeaders: () => named,
+        fetchImplementation: async (_url, init) => {
+          if (init?.method === "DELETE") return new Response(null, { status: 204 });
+          headers.push(new Headers(init?.headers));
+          const message = JSON.parse(String(init?.body)) as { id?: string; method: string };
+          if (message.method === "initialize") {
+            return Response.json(
+              { jsonrpc: "2.0", id: message.id, result: { protocolVersion: "2025-06-18" } },
+              { headers: { "mcp-session-id": "session-42" } },
+            );
+          }
+          if (message.method !== "tools/call") return new Response(null, { status: 202 });
+          return Response.json({ jsonrpc: "2.0", id: message.id, result: { content: [] } });
+        },
+      });
+      yield* session.call("t3_browser_run_open", {});
+      // Nothing to name before the run exists.
+      expect(headers.every((header) => header.get("t3-browser-run") === null)).toBe(true);
+
+      named = { "t3-browser-run": "run-1" };
+      yield* session.call("preview_status", {});
+      expect(headers.at(-1)?.get("t3-browser-run")).toBe("run-1");
+      named = {};
+      yield* session.call("preview_status", {});
+      expect(headers.at(-1)?.get("t3-browser-run")).toBeNull();
+    }).pipe(Effect.scoped),
+  );
+
   it.effect("aborts the pending fetch when the stdio bridge is interrupted", () =>
     Effect.gen(function* () {
       const started = yield* Deferred.make<AbortSignal | undefined>();

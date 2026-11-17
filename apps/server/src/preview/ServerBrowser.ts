@@ -91,6 +91,7 @@ import * as ServerConfig from "../config.ts";
 import { resolveRootCliCommand } from "../cli/invocation.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as PreviewAutomationBroker from "../mcp/PreviewAutomationBroker.ts";
+import { BrowserRunContexts } from "./BrowserRunContexts.ts";
 import * as DesktopBrowserChannel from "./DesktopBrowserChannel.ts";
 import * as PreviewAgentActivity from "./PreviewAgentActivity.ts";
 import * as PreviewManager from "./Manager.ts";
@@ -395,6 +396,13 @@ export class ServerBrowser extends Context.Service<
     readonly clearTaskLogins: (
       input: TaskLeaseInput & { readonly timeoutMs: number },
     ) => Effect.Effect<void, ServerBrowserTaskError>;
+    /** Page code a browser run installs before each load in its own context (`BrowserRunContexts`). */
+    readonly addRunInitScript: (input: {
+      readonly agentSessionId: string;
+      readonly script: string;
+    }) => Effect.Effect<void, ServerBrowserTaskError>;
+    /** Forgets a browser run's page code and login state once the run has ended. */
+    readonly endRun: (input: { readonly agentSessionId: string }) => Effect.Effect<void>;
     readonly captureTaskScreenshot: (
       input: TaskLeaseInput & {
         readonly framing: "viewport" | "full-page" | "target";
@@ -534,6 +542,8 @@ interface TabStart {
   readonly deadlineMs?: number;
   /** The caller's lane: a bounded task's own tab is never reused, so it ages out sooner. */
   readonly bounded?: boolean;
+  /** A browser run's tab, which shares its run's one context. */
+  readonly run?: boolean;
 }
 
 /** Read-only operations remain available during human control; evaluate requires control because scripts can mutate the page. */
@@ -695,6 +705,7 @@ const make = Effect.gen(function* () {
     ? yield* settingsService.value.getSettings.pipe(Effect.orElseSucceed(() => undefined))
     : undefined;
   const managedSessions = new Map<string, ProjectId>();
+  const runContexts = new BrowserRunContexts();
   /** A Champion check's journey sessions, by agent session; the broker sets them from the server's own record. */
   const journeySessions = new Map<
     string,
@@ -1273,13 +1284,20 @@ const make = Effect.gen(function* () {
             snapshot.profileId ?? "default",
             isolatedContext ? key : undefined,
           )
-        : await contexts.managedContext(
-            managedContextOptions(
-              snapshot,
-              managedProject,
-              start.deadlineMs === undefined
-                ? undefined
-                : Math.max(0, start.deadlineMs - performance.now()),
+        : await (
+            start.run === true && snapshot.automationOwner !== undefined
+              ? (create: () => Promise<BrowserContext>) =>
+                  runContexts.contextFor(snapshot.automationOwner!, create)
+              : (create: () => Promise<BrowserContext>) => create()
+          )(() =>
+            contexts.managedContext(
+              managedContextOptions(
+                snapshot,
+                managedProject,
+                start.deadlineMs === undefined
+                  ? undefined
+                  : Math.max(0, start.deadlineMs - performance.now()),
+              ),
             ),
           ));
     // Ownership starts before any setup await, so a sibling tab closing cannot
@@ -1498,6 +1516,15 @@ const make = Effect.gen(function* () {
         timestamp: new Date().toISOString(),
       });
     });
+    // A browser run's script reads its pages' uncaught errors beside their console.
+    if (runContexts.holds(page.context()))
+      page.on("pageerror", (error) => {
+        pushBounded(tab.consoleEntries, {
+          level: "pageerror",
+          text: `${error.name}: ${error.message}`.slice(0, 2_000),
+          timestamp: new Date().toISOString(),
+        });
+      });
     page.on("dialog", (dialog) => {
       // Closing is already decided, so an unsaved-changes guard must not keep the page open.
       if (tab.closing && dialog.type() === "beforeunload") {
@@ -2833,7 +2860,24 @@ const make = Effect.gen(function* () {
         );
         return statusWithTitle(own, request.agentSessionId);
       }
-      if (["evaluate", "upload", "dialog", "handoff", "resume"].includes(request.operation))
+      // A browser run's script may run page code and upload, but no page code once a saved
+      // login is held on the tab: redaction cannot follow a value the page code transformed.
+      const runLaneOperation =
+        request.browserLane === "run" && ["evaluate", "upload"].includes(request.operation);
+      if (runLaneOperation && request.operation === "evaluate") {
+        try {
+          runContexts.usePageCode(request.agentSessionId);
+        } catch (error) {
+          throw new ServerBrowserPage.ServerBrowserOperationError({
+            tag: "PreviewAutomationExecutionError",
+            message: (error as Error).message,
+          });
+        }
+      }
+      if (
+        !runLaneOperation &&
+        ["evaluate", "upload", "dialog", "handoff", "resume"].includes(request.operation)
+      )
         throw new BrowserControlInterrupted({
           message: "This operation is not available to a managed integrated task.",
         });
@@ -2942,7 +2986,8 @@ const make = Effect.gen(function* () {
                 {
                   reclaimIdleSlot: true,
                   deadlineMs,
-                  bounded: request.browserLane === "bounded",
+                  bounded: request.browserLane === "bounded" || request.browserLane === "run",
+                  run: request.browserLane === "run",
                 },
               ),
             ),
@@ -4230,6 +4275,7 @@ const make = Effect.gen(function* () {
         const tab = tabs.get(tabKey(input.threadId, input.tabId));
         if (tab?.control.agentId !== input.agentSessionId)
           throw new Error("This tab is not open under the calling session.");
+        if (runContexts.holds(tab.page.context())) runContexts.useLogin(input.agentSessionId);
         tab.logins.set(input.key, { value: input.value, origins: input.origins });
       },
       catch: taskError,
@@ -4290,7 +4336,18 @@ const make = Effect.gen(function* () {
       catch: (cause) => new PreviewClearProfileError({ profileId, cause }),
     });
 
+  const addRunInitScript = (input: { readonly agentSessionId: string; readonly script: string }) =>
+    Effect.tryPromise({
+      try: () => runContexts.addInitScript(input.agentSessionId, input.script),
+      catch: taskError,
+    });
+
+  const endRun = (input: { readonly agentSessionId: string }) =>
+    Effect.sync(() => runContexts.forget(input.agentSessionId));
+
   return ServerBrowser.of({
+    addRunInitScript,
+    endRun,
     attachViewer,
     clearProfile,
     acquireTaskLease,

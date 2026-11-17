@@ -116,6 +116,9 @@ const DEFAULT_LIVENESS_WINDOW_MS = 24 * 60 * 60 * 1_000;
 /** The only endpoint a managed browser task's credential reaches. */
 export const MANAGED_BROWSER_MCP_PATH = "/mcp/browser";
 
+/** The only endpoint a browser-run credential reaches: `t3 browser run`'s, never an agent's listing. */
+export const BROWSER_RUN_MCP_PATH = McpProviderSession.BROWSER_RUN_PATH;
+
 const bytesToHex = (bytes: Uint8Array): string =>
   Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 
@@ -136,6 +139,19 @@ export const mcpEndpointOrigin = (address: HttpServer.HttpServer["Service"]["add
   NetAddress.isInetAddress(address)
     ? `http://${getHttpMcpEndpointHost(address.address)}:${address.port}`
     : "http://127.0.0.1";
+
+/** What a browser-run credential carries: the thread's identity and its bounded-browser grant. */
+const browserRunScope = (
+  scope: McpInvocationContext.McpThreadInvocationScope,
+): McpInvocationContext.McpThreadInvocationScope => {
+  const { endpointKey: _endpointKey, ...rest } = scope;
+  return {
+    ...rest,
+    capabilities: new Set<McpInvocationContext.McpCapability>(["preview"]),
+    boundedBrowser: true,
+    browserRunCredential: true,
+  };
+};
 
 const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
   options: McpSessionRegistryOptions = {},
@@ -212,6 +228,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
   const origin = mcpEndpointOrigin(httpServer.address);
   const endpoint = `${origin}/mcp`;
   const managedBrowserEndpoint = `${origin}${MANAGED_BROWSER_MCP_PATH}`;
+  const browserRunEndpoint = `${origin}${BROWSER_RUN_MCP_PATH}`;
   const sessionEndpoints = Object.fromEntries(
     Object.entries(SESSION_TOOL_ENDPOINTS).map(([key, endpoint]) => [
       key,
@@ -325,9 +342,27 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
           ? {}
           : { phiBrowserSkillDirectory: request.phiBrowserSkillDirectory }),
       };
+      // The agent's own commands get a second credential that reaches only the browser-run
+      // endpoint, so a token in its shell cannot call any other T3 tool. It shares the provider
+      // session, so revoking the session revokes it too.
+      const runCredential = boundedBrowser
+        ? yield* Effect.gen(function* () {
+            const raw = yield* random
+              .randomBytes(32)
+              .pipe(Effect.map(tokenFromBytes), Effect.orDie);
+            return { raw, hash: yield* hashToken(raw) };
+          })
+        : undefined;
       yield* SynchronizedRef.update(state, ({ records }) => {
         const next = new Map(records);
         next.set(tokenHash, { tokenHash, scope, lastAlive: issuedAlive, expired: false });
+        if (runCredential !== undefined)
+          next.set(runCredential.hash, {
+            tokenHash: runCredential.hash,
+            scope: browserRunScope(scope),
+            lastAlive: issuedAlive,
+            expired: false,
+          });
         return { records: next };
       });
       return {
@@ -345,6 +380,14 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
           browserToolsAvailable: scope.capabilities.has("preview"),
           ...(managedBrowser ? { managedBrowser: true } : {}),
           ...(boundedBrowser ? { boundedBrowser: true } : {}),
+          // The endpoint alone still marks an agent's command, so `t3 browser run` refuses there
+          // instead of signing in as the machine's owner.
+          browserRunEnvironment: {
+            [McpProviderSession.BROWSER_RUN_URL_ENV]: browserRunEndpoint,
+            ...(runCredential === undefined
+              ? {}
+              : { [McpProviderSession.BROWSER_RUN_TOKEN_ENV]: runCredential.raw }),
+          },
           ...(request.delegated === true ? { delegated: true } : {}),
           ...(request.agentRole === undefined ? {} : { delegatedRole: request.agentRole }),
           ...Option.match(yield* agentPolicyRoot, {

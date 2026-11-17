@@ -166,8 +166,9 @@ render from the whole text, such as file-link resolution, must be cached by cont
 than by `text`, or every token rebuilds it and the finished blocks re-render. The React Compiler
 memoises by `text`, so it does not prevent this.
 
-`ChatMarkdown.browser.test.tsx` replays a long reply token by token against a render budget
-that a whole-message render exceeds about twofold, and by more as the reply grows.
+A long reply used to be replayed token by token against a render budget in a browser test that a
+whole-message render exceeded about twofold, by more as the reply grew; T3-760 removed that suite,
+so the guarantee now rests on the source and offsets above and a real-client spot check.
 
 ## Mobile looping animations
 

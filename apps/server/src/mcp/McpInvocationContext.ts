@@ -159,8 +159,18 @@ export interface McpInvocationScope {
    * the `t3_browser_*` tools; each call still rechecks the live thread, task and project.
    */
   readonly boundedBrowser?: true;
-  /** Set only on the derived scope bounded tools act with, so their tabs have their own owner. */
-  readonly browserLane?: "bounded";
+  /**
+   * Set only on the derived scope bounded tools or a browser run act with, so their tabs have
+   * their own owner. A run's lane also names the run, so each run owns its tabs and context.
+   */
+  readonly browserLane?: "bounded" | "run";
+  readonly browserRunId?: string;
+  /**
+   * Minted beside a bounded-browser thread credential for `t3 browser run` in the agent's shell
+   * (`BrowserRuns.ts`). It reaches only the browser-run endpoint, which refuses every other
+   * credential of a thread.
+   */
+  readonly browserRunCredential?: true;
   /** The session tool endpoint this credential may use; absent on external client credentials. */
   readonly endpointKey?: string;
   /** The thread's listing profile; absent on external client credentials, which keep the full list. */
@@ -213,11 +223,14 @@ export const listsBoundedBrowser = (): boolean => {
  * session's own preview tools.
  */
 export const browserOwnerKey = (
-  scope: Pick<McpThreadInvocationScope, "environmentId" | "thread" | "browserLane">,
+  scope: Pick<
+    McpThreadInvocationScope,
+    "environmentId" | "thread" | "browserLane" | "browserRunId"
+  >,
 ): string =>
   `${scope.environmentId}\u0000${scope.thread.providerSessionId}\u0000${scope.thread.threadId}${
     scope.browserLane === undefined ? "" : `\u0000${scope.browserLane}`
-  }`;
+  }${scope.browserLane === "run" ? `\u0000${scope.browserRunId ?? ""}` : ""}`;
 
 /**
  * `McpSchema.EnabledWhen` for the device tools. A managed browser task lists them only with the

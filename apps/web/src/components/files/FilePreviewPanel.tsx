@@ -232,7 +232,7 @@ function WorkspaceImagePreview(props: {
   );
 }
 
-export function WorkspaceBrowserPreview(props: {
+function WorkspaceBrowserPreview(props: {
   readonly environmentId: EnvironmentId;
   readonly threadRef: ScopedThreadRef;
   readonly draft: boolean;
@@ -1735,7 +1735,7 @@ export default function FilePreviewPanel({
 }
 
 const LargeTextViewer = lazy(() => import("./LargeTextViewer"));
-export function WorkspaceLargeTextPreview(props: {
+function WorkspaceLargeTextPreview(props: {
   environmentId: EnvironmentId;
   threadRef: ScopedThreadRef;
   absolutePath: string;

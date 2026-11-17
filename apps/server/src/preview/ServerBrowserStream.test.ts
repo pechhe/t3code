@@ -27,6 +27,8 @@ import * as ServerBrowser from "./ServerBrowser.ts";
 import { routeLayer } from "./ServerBrowserStream.ts";
 
 const unusedTaskLease = {
+  addRunInitScript: () => Effect.die("unused"),
+  endRun: () => Effect.die("unused"),
   acquireTaskLease: () => Effect.die("unused"),
   abandonTaskLease: () => Effect.die("unused"),
   releaseTaskLease: () => Effect.die("unused"),

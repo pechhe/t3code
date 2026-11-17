@@ -717,6 +717,8 @@ export interface ClaudeAgentSdkQueryOpenInput {
   readonly options: ClaudeAgentSdkQueryOptions;
   readonly threadId: ThreadId;
   readonly providerSessionId: OrchestrationV2ProviderSession["id"];
+  /** The agent's own commands' browser-run endpoint and credential, when the session has them. */
+  readonly agentCommandEnvironment: Readonly<Record<string, string>>;
 }
 
 export interface ClaudeAgentSdkQuerySession {
@@ -1436,6 +1438,8 @@ export const layerQueryRunner: Layer.Layer<
             env: {
               ...(sdkOptions.env ?? hostEnvironment),
               [PortScanner.AGENT_THREAD_ENV]: input.threadId,
+              // `t3 browser run` reaches only the browser-run endpoint; its credential is not this session's.
+              ...input.agentCommandEnvironment,
             },
           };
           // The SDK can prepend a scope wrapper to native binaries; script entries run through node.
@@ -12775,6 +12779,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             threadId: turnInput.threadId,
             providerSessionId: input.providerSessionId,
             options: queryOptions,
+            agentCommandEnvironment: McpProviderSession.agentCommandEnvironment(t3McpSession),
           });
           // The SDK spawns the CLI per turn, so only the open waits for a provider update.
           const querySession = yield* (

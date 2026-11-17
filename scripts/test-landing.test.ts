@@ -34,6 +34,7 @@ import {
   type LandingWorkspace,
   type Quarantine,
 } from "./test-landing.ts";
+import { globMatcher, removedPathFiles, removedUpstreamPaths } from "./lib/fork-removed-paths.ts";
 import {
   BUILD_ONLY_EDGES,
   EXTRA_EDGES,
@@ -61,7 +62,7 @@ const FIXTURE: ReadonlyArray<LandingWorkspace> = [
   }),
   workspace("apps/server", "t3", ["@t3tools/shared", "@t3tools/contracts"], { flags: [] }),
   workspace("apps/web", "@t3tools/web", ["@t3tools/client-runtime"], {
-    flags: ["--passWithNoTests", "--project", "unit", "--project", "browser"],
+    flags: ["--passWithNoTests", "--project", "unit"],
   }),
   { name: "@t3tools/marketing", directory: "apps/marketing", dependencies: [], test: undefined },
 ];
@@ -258,13 +259,6 @@ describe("tests the import graph cannot see", () => {
     );
   });
 
-  it("maps the office preview worker to its browser integration test", () => {
-    assert.include(
-      files("apps/web/src/components/files/officePreview.worker.ts"),
-      "apps/web/src/components/files/AttachmentFilePreview.office.browser.test.tsx",
-    );
-  });
-
   it("runs a workspace's complete suite when its tests lint in a child process", () => {
     const plan = selectLandingTests(
       { changed: ["oxlint-plugin-t3code/rules/no-test-in-loop.ts"], deleted: [] },
@@ -291,10 +285,22 @@ describe("tests the import graph cannot see", () => {
     }
   });
 
+  it("keeps every upstream path the fork removed out of the working tree", () => {
+    const paths = removedUpstreamPaths(REPOSITORY_ROOT);
+    const matchers = paths.map(globMatcher);
+    assert.deepStrictEqual(
+      repositoryFiles().filter((file) => matchers.some((matches) => matches(file))),
+      [],
+    );
+    assert.deepStrictEqual(removedPathFiles(REPOSITORY_ROOT, paths), []);
+  });
+
   // A test with one of these patterns reads a file or spawns source by a path the graph never
   // sees. Map it in INPUT_RULES, or list it here with the reason nothing needs mapping.
   const READS_BY_PATH = /new URL\([^)]*import\.meta\.url|import\.meta\.dirname|\b__dirname\b/;
   const REVIEWED_UNMAPPED: Readonly<Record<string, string>> = {
+    "apps/server/src/cli/browserRun.test.ts":
+      "runs browserRun.ts in a child process, a module the test also imports",
     "apps/server/src/decisionEvaluations/contextRanking/contextRanking.test.ts":
       "reads pool bodies as they stood at the retained run's commit",
     "apps/server/src/serviceLauncher.test.ts":
@@ -408,13 +414,7 @@ describe("failing closed", () => {
         "apps/web",
       ],
     );
-    assert.deepStrictEqual(request(commands[4]!).flags, [
-      "--passWithNoTests",
-      "--project",
-      "unit",
-      "--project",
-      "browser",
-    ]);
+    assert.deepStrictEqual(request(commands[4]!).flags, ["--passWithNoTests", "--project", "unit"]);
     assert.isUndefined(request(commands[4]!).files);
   });
 

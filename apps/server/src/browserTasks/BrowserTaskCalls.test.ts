@@ -15,8 +15,14 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as SqlClient from "effect/sql/SqlClient";
 
-import { readTaskCallRows, summarizeTaskCalls } from "../cli/browserReport.ts";
+import {
+  readBrowserRunRows,
+  readTaskCallRows,
+  summarizeBrowserRuns,
+  summarizeTaskCalls,
+} from "../cli/browserReport.ts";
 import type { McpInvocationScope } from "../mcp/McpInvocationContext.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import * as BrowserTaskCalls from "./BrowserTaskCalls.ts";
@@ -53,6 +59,70 @@ describe("PREVIEW_TASK_REASON_FAULT", () => {
   it("gives every reason exactly one of the four faults", () => {
     for (const fault of Object.values(PREVIEW_TASK_REASON_FAULT))
       expect(["request", "page-changed", "page-defect", "limit"]).toContain(fault);
+  });
+});
+
+describe("browser runs in the report", () => {
+  it.effect("counts each run by harness and outcome, with the median duration", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const dir = yield* fs.makeTempDirectoryScoped();
+      const filename = path.join(dir, "state.sqlite");
+
+      yield* Effect.gen(function* () {
+        yield* runMigrations();
+        const sql = yield* SqlClient.SqlClient;
+        // The table arrives with migration 139; an older database simply has no rows to count.
+        for (const [harness, outcome, durationMs] of [
+          ["claudeAgent", "succeeded", 100],
+          ["claudeAgent", "succeeded", 300],
+          ["claudeAgent", "time-limit", 200],
+          ["codex", "failed", 50],
+          ["client", "succeeded", 900],
+        ] as const)
+          yield* sql`INSERT INTO browser_script_runs (
+            recorded_at, harness, thread_id, project_id, outcome, duration_ms, tabs, output_bytes
+          ) VALUES (
+            ${"2026-01-01T00:00:00.000Z"}, ${harness}, ${null}, ${"project"}, ${outcome},
+            ${durationMs}, ${1}, ${8}
+          )`;
+      }).pipe(
+        Effect.provide(
+          NodeSqliteClient.layer({ filename }).pipe(Layer.provide(NodeServices.layer)),
+        ),
+      );
+
+      const since = "1900-01-01T00:00:00.000Z";
+      const summary = summarizeBrowserRuns(readBrowserRunRows(filename, since));
+      expect(summary.runs).toBe(5);
+      expect(summary.byHarness).toEqual([
+        {
+          key: "claudeAgent",
+          runs: 3,
+          medianMs: 200,
+          outcomes: { succeeded: 2, failed: 0, "time-limit": 1, "output-limit": 0 },
+        },
+        {
+          key: "client",
+          runs: 1,
+          medianMs: 900,
+          outcomes: { succeeded: 1, failed: 0, "time-limit": 0, "output-limit": 0 },
+        },
+        {
+          key: "codex",
+          runs: 1,
+          medianMs: 50,
+          outcomes: { succeeded: 0, failed: 1, "time-limit": 0, "output-limit": 0 },
+        },
+      ]);
+      expect(readBrowserRunRows(filename, "2999-01-01T00:00:00.000Z")).toEqual([]);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
+  it("reports no runs for a database without the table", () => {
+    expect(readBrowserRunRows("/nonexistent/state.sqlite", "1900-01-01T00:00:00.000Z")).toEqual([]);
+    expect(summarizeBrowserRuns([])).toEqual({ runs: 0, byHarness: [] });
   });
 });
 
@@ -142,6 +212,7 @@ describe("BrowserTaskCalls", () => {
       ]);
       // Nothing is read from a window the calls fall outside.
       expect(readTaskCallRows(filename, "2999-01-01T00:00:00.000Z")).toEqual([]);
+      expect(readBrowserRunRows(filename, "2999-01-01T00:00:00.000Z")).toEqual([]);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 });

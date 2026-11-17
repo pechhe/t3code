@@ -110,6 +110,9 @@ import { OrchestratorToolkit } from "./toolkits/orchestrator/tools.ts";
 import * as PreviewHandlers from "./toolkits/preview/handlers.ts";
 import * as ManagedBrowserHandlers from "./toolkits/managedBrowser/handlers.ts";
 import * as BoundedBrowserHandlers from "./toolkits/boundedBrowser/handlers.ts";
+import * as BrowserRunHandlers from "./toolkits/browserRun/handlers.ts";
+import { BrowserRunSnapshotToolkit, BrowserRunToolkit } from "./toolkits/browserRun/tools.ts";
+import * as BrowserRuns from "../browserRuns/BrowserRuns.ts";
 import {
   BoundedBrowserSnapshotTool,
   BoundedBrowserSnapshotToolkit,
@@ -289,7 +292,10 @@ const linkedEnvironmentsOff = HttpServerResponse.jsonUnsafe(
 );
 
 const makeMcpAuthMiddleware = Effect.fn("McpHttpServer.makeAuthMiddleware")(
-  (endpoint: "general" | "managed-browser" | "session", sessionEndpoint?: SessionEndpointKey) =>
+  (
+    endpoint: "general" | "managed-browser" | "browser-run" | "session",
+    sessionEndpoint?: SessionEndpointKey,
+  ) =>
     Effect.gen(function* () {
       const registry = yield* McpSessionRegistry.McpSessionRegistry;
       const clients = yield* Effect.serviceOption(McpClientAuthenticator);
@@ -326,12 +332,19 @@ const makeMcpAuthMiddleware = Effect.fn("McpHttpServer.makeAuthMiddleware")(
             offerOAuth: Option.isSome(clients) && !looksLikeProviderToken(token),
           });
         }
+        // A browser-run credential reaches only its endpoint, which also takes an outside
+        // client's session (`t3 browser run` outside a thread) and no other thread credential.
         const onRightEndpoint =
-          endpoint === "managed-browser"
-            ? invocation.managedBrowser === true
-            : endpoint === "general"
-              ? invocation.managedBrowser !== true && invocation.endpointKey === undefined
-              : invocation.managedBrowser !== true && invocation.endpointKey === sessionEndpoint;
+          endpoint === "browser-run"
+            ? invocation.browserRunCredential === true ||
+              (invocation.thread === undefined && invocation.client !== undefined)
+            : invocation.browserRunCredential !== true &&
+              (endpoint === "managed-browser"
+                ? invocation.managedBrowser === true
+                : endpoint === "general"
+                  ? invocation.managedBrowser !== true && invocation.endpointKey === undefined
+                  : invocation.managedBrowser !== true &&
+                    invocation.endpointKey === sessionEndpoint);
         if (!onRightEndpoint) {
           yield* Effect.logWarning("rejected MCP request on the wrong endpoint", {
             endpoint,
@@ -339,7 +352,17 @@ const makeMcpAuthMiddleware = Effect.fn("McpHttpServer.makeAuthMiddleware")(
           });
           return unauthorized({ request, presentedToken: true, offerOAuth: false });
         }
-        const asked = withModeLimit(withSenderThread(invocation, request), request);
+        const runId =
+          endpoint === "browser-run" ? request.headers[BrowserRuns.BROWSER_RUN_HEADER] : undefined;
+        const asked = withModeLimit(
+          withSenderThread(
+            runId === undefined || runId.length === 0 || runId.length > 128
+              ? invocation
+              : { ...invocation, browserRunId: runId },
+            request,
+          ),
+          request,
+        );
         if (asked === undefined) return invalidModeLimit;
         const limited = McpInvocationContext.withRuntimeModeCeiling(asked, runtimeModeCeiling);
         const linkedEnvironments = yield* linksEnabled;
@@ -365,6 +388,10 @@ const layerMcpAuthMiddleware = HttpRouter.middleware<{
 const layerManagedBrowserAuthMiddleware = HttpRouter.middleware<{
   provides: McpInvocationContext.McpInvocationContext;
 }>()(makeMcpAuthMiddleware("managed-browser")).layer;
+
+const layerBrowserRunAuthMiddleware = HttpRouter.middleware<{
+  provides: McpInvocationContext.McpInvocationContext;
+}>()(makeMcpAuthMiddleware("browser-run")).layer;
 
 const layerSessionAuthMiddleware = (key: SessionEndpointKey) =>
   HttpRouter.middleware<{
@@ -1714,6 +1741,25 @@ export const layerManagedBrowserToolkit = Layer.fresh(
     }).pipe(Layer.provide(layerManagedBrowserAuthMiddleware)),
   ),
 );
+/** `t3 browser run`'s endpoint: browser runs only, for a run credential or an outside client. */
+export const layerBrowserRunToolkit = Layer.fresh(
+  Layer.mergeAll(
+    toolkitRegistration(BrowserRunToolkit, BrowserRunHandlers.layer),
+    imageToolRegistration(
+      registerPreviewSnapshot(BrowserRunSnapshotToolkit, PreviewSnapshotTool),
+      BrowserRunHandlers.layerSnapshot,
+    ),
+  ).pipe((registrations) =>
+    McpServer.layerHttp({
+      name: "T3 Code browser run",
+      version: packageJson.version,
+      path: McpSessionRegistry.BROWSER_RUN_MCP_PATH,
+      protocols: [McpProtocol.v2025_06_18],
+      allowSessionTermination: true,
+      registrations,
+    }).pipe(Layer.provide(layerBrowserRunAuthMiddleware)),
+  ),
+);
 const layerGuardToolkit = toolkitRegistration(GuardToolkit, GuardHandlers.layer).pipe(
   Layer.provide(GuardHandlers.guardLayer),
 );
@@ -1778,8 +1824,10 @@ export const layer = Layer.mergeAll(
   RunSetupReportHttp.layer,
   Layer.fresh(layerMcpTransport(layerTools)),
   layerManagedBrowserToolkit,
+  layerBrowserRunToolkit,
   ...sessionEndpointLayers,
 ).pipe(
+  Layer.provide(BrowserRuns.layer),
   Layer.provide(BrowserTaskService.layer.pipe(Layer.provide(ChampionJourneys.layerBrowserPolicy))),
   Layer.provide(BrowserTaskCalls.layer),
   Layer.provide(DelegationModelShadow.layer),

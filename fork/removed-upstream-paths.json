@@ -1,0 +1,13 @@
+{
+  "$comment": "Upstream paths the fork deleted and must keep deleting. scripts/fork-reconcile.ts drop removes any working-tree file matching these globs after an upstream merge, and scripts/test-landing.ts fails the landing gate while one is present. Add a path here when a fork change removes upstream code that upstream may bring back. See fork/differences.md.",
+  "paths": [
+    "apps/web/**/*.browser.test.ts",
+    "apps/web/**/*.browser.test.tsx",
+    "apps/web/test/*.renders.tsx",
+    "apps/web/test/render.tsx",
+    "apps/web/test/renderCounter.ts",
+    "apps/web/test/browserSetup.ts",
+    "apps/web/test/fakeEnvironment.ts",
+    "apps/web/scripts/verify-built-boot.ts"
+  ]
+}

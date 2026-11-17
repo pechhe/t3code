@@ -30,6 +30,7 @@ import {
   INVARIANT_GUARDS,
   type InputRule,
 } from "./lib/test-landing-inputs.ts";
+import { removedPathFiles } from "./lib/fork-removed-paths.ts";
 import { listTests, mapConcurrently, runCommand, VITEST_FLAGS } from "./lib/test-landing-vitest.ts";
 import {
   changedModulePaths,
@@ -1098,6 +1099,15 @@ async function run(args: ReadonlyArray<string>) {
   const quarantine = audit
     ? []
     : readQuarantine(NodeFS.readFileSync(NodePath.join(ROOT, "tests/quarantine.json"), "utf8"));
+  // A nightly merge restores the upstream paths the fork deleted; the drop list is small and
+  // already settled, so cheapness and ordering (before any test spawns) decide this step.
+  const restored = removedPathFiles(ROOT);
+  if (restored.length > 0) {
+    console.error(
+      `Upstream paths the fork removed are present; run \`node scripts/fork-reconcile.ts drop\`:\n${restored.join("\n")}`,
+    );
+    return 1;
+  }
   console.log("Landing quarantine exclusions:", JSON.stringify(quarantine));
   const workspaces = snapshot?.workspaces ?? checkoutWorkspaces();
   let runs: ReadonlyArray<TestRun> = plannedRuns(plan, workspaces);

@@ -657,6 +657,50 @@ describe("CodexAdapterV2 process spawning", () => {
   });
 });
 
+describe("CodexAdapterV2 agent command environment", () => {
+  it("puts a thread's browser-run credential in its shells beside the thread id", () => {
+    const mcpSession = {
+      environmentId: EnvironmentId.make("environment-codex-browser-run"),
+      threadId: ThreadId.make("thread-codex-browser-run"),
+      providerSessionId: "mcp-session-codex-browser-run",
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      endpoint: "http://127.0.0.1:43123/mcp",
+      authorizationHeader: "Bearer secret-codex-token",
+      browserToolsAvailable: true,
+      browserRunEnvironment: {
+        T3_BROWSER_RUN_URL: "http://127.0.0.1:43123/mcp/browser-run",
+        T3_BROWSER_RUN_TOKEN: "browser-run-token",
+      },
+    };
+    const config = CodexAdapterV2.codexThreadRuntimeParams({
+      threadId: mcpSession.threadId,
+      mcpSession,
+    }).config;
+    assert.equal(
+      config["shell_environment_policy.set.T3CODE_THREAD_ID"],
+      "thread-codex-browser-run",
+    );
+    assert.equal(
+      config["shell_environment_policy.set.T3_BROWSER_RUN_URL"],
+      "http://127.0.0.1:43123/mcp/browser-run",
+    );
+    assert.equal(config["shell_environment_policy.set.T3_BROWSER_RUN_TOKEN"], "browser-run-token");
+
+    // A session without the run lane carries nothing extra, and never the session's own bearer.
+    const { browserRunEnvironment: _runs, ...sessionWithoutRuns } = mcpSession;
+    const withoutRuns = CodexAdapterV2.codexThreadRuntimeParams({
+      threadId: ThreadId.make("thread-codex-no-runs"),
+      mcpSession: sessionWithoutRuns,
+    }).config;
+    assert.isUndefined(withoutRuns["shell_environment_policy.set.T3_BROWSER_RUN_TOKEN"]);
+    // The session's own bearer stays in the MCP server config, never in a shell's environment.
+    assert.notInclude(
+      Object.keys(withoutRuns).filter((key) => key.startsWith("shell_environment_policy")),
+      "secret-codex-token",
+    );
+  });
+});
+
 describe("CodexAdapterV2 native protocol logging", () => {
   it.effect("logs decoded app-server frames once with credentials redacted", () =>
     Effect.gen(function* () {

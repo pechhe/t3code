@@ -34,7 +34,8 @@ Reuse a stable \`clientRequestId\` for a retry of \`t3_thread_launch\`. Retain i
 - T3 tools may load late, or appear under a harness-normalized MCP prefix such as \`mcp__t3_code__delegate_task\`. Try the name once before you conclude that cross-provider delegation is unavailable; in Codex code mode, call \`tools.mcp__t3_code__orchestrator_capabilities({})\` first. Keep wait loops bounded, do not duplicate active work, and use stable \`clientRequestId\` values when retrying a tool that accepts one.`,
   `### Visuals and preview
 
-- Answer data with a trend or comparison with a chart, and show any visual the user asks for here: pass the path to an HTML file, or inline HTML to \`html_preview\`, then \`html_render\` before your final reply. The reader sees the page above that reply, so don't announce or restate it: add only what it doesn't say. A screenshot on disk or a text description does not show it. Never start a server for it. Page tools write only on user request. Never use them to show results. Asked for an image to post, send, or use elsewhere: a \`.png\` file and its path, never \`html_render\`.`,
+- Answer data with a trend or comparison with a chart, and show any visual the user asks for here: pass the path to an HTML file, or inline HTML to \`html_preview\`, then \`html_render\` before your final reply. The reader sees the page above that reply, so don't announce or restate it: add only what it doesn't say. A screenshot on disk or a text description does not show it. Never start a server for it. Page tools write only on user request. Never use them to show results. Asked for an image to post, send, or use elsewhere: a \`.png\` file and its path, never \`html_render\`.
+- When browser work needs a script (loops over many pages, page code, timings taken in the page, a check to re-run), write it for \`t3 browser run <file>\` on T3's headless browser (see its \`--help\`), never Playwright or another browser in the shell. Looking at pages or walking a flow stays with the browser tools.`,
 ];
 
 export const T3_CODE_ORCHESTRATION_SECTIONS = orchestrationSections(true);
@@ -63,7 +64,7 @@ You are a child agent working on one delegated task inside T3 Code. The thread t
 export const T3_CODE_CHILD_HTML_SECTION = `- When a chart, table, diagram, image collage or mockup says more than prose, call \`html_preview\` to check it and then \`html_render\` to show it in the thread above your reply. Never restate what the page says.`;
 
 /** Only for a child whose listing carries the preview family. */
-export const T3_CODE_CHILD_PREVIEW_SECTION = `- The \`preview_*\` tools are T3's own browser for this thread: \`preview_status\` first, then \`preview_open\`, \`preview_navigate\`, \`preview_snapshot\` and the interaction tools, preferring snapshot locators over coordinates. Do not reach for Playwright, agent-browser or a shell browser while they work.`;
+export const T3_CODE_CHILD_PREVIEW_SECTION = `- The \`preview_*\` tools are T3's own browser for this thread: \`preview_status\` first, then \`preview_open\`, \`preview_navigate\`, \`preview_snapshot\` and the interaction tools, preferring snapshot locators over coordinates. Do not reach for Playwright, agent-browser or a shell browser while they work; a job that needs a script (loops, page code, in-page timings) runs it with \`t3 browser run <file>\` (see its \`--help\`).`;
 
 /**
  * The child text, with the visuals and browser guidance only where the child's

@@ -260,12 +260,19 @@ function normalizeThreadRequest(frame: unknown, ignoredConfigKeys: ReadonlySet<s
       ([key]) =>
         key !== "mcp_servers" &&
         !key.startsWith("mcp_servers.") &&
-        key !== "shell_environment_policy.set.T3CODE_THREAD_ID",
+        !T3_OWNED_ENVIRONMENT_KEYS.has(key),
     ),
   );
   for (const key of ignoredConfigKeys) delete owned[key];
   return { ...record, params: { ...params, config: owned } };
 }
+
+/** Per-thread values T3 sets in Codex's shell environment; the token differs every session. */
+const T3_OWNED_ENVIRONMENT_KEYS = new Set(
+  ["T3CODE_THREAD_ID", "T3_BROWSER_RUN_URL", "T3_BROWSER_RUN_TOKEN"].map(
+    (name) => `shell_environment_policy.set.${name}`,
+  ),
+);
 
 function sameFrame(
   left: unknown,

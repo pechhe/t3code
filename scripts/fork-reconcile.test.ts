@@ -4,7 +4,15 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import { expect, it } from "vite-plus/test";
-import { conflictFiles, reconciliationFiles, requireRepositoryNode } from "./fork-reconcile.ts";
+import {
+  conflictFiles,
+  dropUpstreamRemovals,
+  reconciliationFiles,
+  requireRepositoryNode,
+} from "./fork-reconcile.ts";
+import { globMatcher, removedPathFiles, removedUpstreamPaths } from "./lib/fork-removed-paths.ts";
+
+const REPOSITORY_ROOT = NodePath.resolve(import.meta.dirname, "..");
 
 function fixture() {
   const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-reconcile-scratch"));
@@ -23,8 +31,10 @@ function fixture() {
         GIT_CONFIG_VALUE_2: "false",
       },
     }).trim();
-  const write = (file: string, content: string) =>
+  const write = (file: string, content: string) => {
+    NodeFS.mkdirSync(NodePath.dirname(NodePath.join(dir, file)), { recursive: true });
     NodeFS.writeFileSync(NodePath.join(dir, file), content);
+  };
   const commit = () => {
     git("add", ".");
     git("commit", "-m", "fixture");
@@ -127,4 +137,35 @@ it("names the exact repository Node version before checks can run on another ver
   expect(() => requireRepositoryNode(f.dir)).toThrow("require Node 0.0.1");
   f.write("package.json", JSON.stringify({ engines: { node: process.versions.node } }));
   expect(() => requireRepositoryNode(f.dir)).not.toThrow();
+});
+
+it("deletes a restored upstream path, and its test file, once the fork dropped them", () => {
+  using f = fixture();
+  f.write("apps/web/src/components/Kept.test.tsx", "export {};\n");
+  f.write("apps/web/src/components/Kept.browser.test.tsx", "export {};\n");
+  f.write("apps/web/test/render.tsx", "export {};\n");
+  f.write("apps/web/src/components/Kept.browser.helper.tsx", "export {};\n");
+  f.commit();
+  const dropped = dropUpstreamRemovals(f.dir, removedUpstreamPaths(REPOSITORY_ROOT));
+  expect(dropped).toEqual([
+    "apps/web/src/components/Kept.browser.test.tsx",
+    "apps/web/test/render.tsx",
+  ]);
+  expect(f.git("status", "--porcelain")).toBe(
+    ["D  apps/web/src/components/Kept.browser.test.tsx", "D  apps/web/test/render.tsx"].join("\n"),
+  );
+  expect(removedPathFiles(f.dir, ["apps/web/src/components/Kept.browser.test.tsx"])).toEqual([]);
+  expect(dropUpstreamRemovals(f.dir, ["apps/web/test/render.tsx"])).toEqual([]);
+});
+
+it("keeps the mobile unit-run browser test file, and reports a kept upstream path", () => {
+  using f = fixture();
+  f.write("apps/web/src/components/Restored.browser.test.ts", "export {};\n");
+  const paths = removedUpstreamPaths(REPOSITORY_ROOT);
+  expect(removedPathFiles(f.dir, paths)).toEqual([
+    "apps/web/src/components/Restored.browser.test.ts",
+  ]);
+  expect(globMatcher("apps/web/**/*.browser.test.ts")("apps/mobile/src/x.browser.test.ts")).toBe(
+    false,
+  );
 });

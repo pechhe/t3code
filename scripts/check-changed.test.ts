@@ -358,6 +358,7 @@ function launcherFixture(extra: Record<string, string> = {}) {
     "scripts/check-changed-command.ts",
     "scripts/fork-reconcile.ts",
     "scripts/fork-upstream-receipt.ts",
+    "scripts/lib/fork-removed-paths.ts",
     "scripts/lib/test-selection.ts",
     ".github/scripts/ci-changes.cjs",
   ]) {

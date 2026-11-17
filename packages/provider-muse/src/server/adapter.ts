@@ -1781,7 +1781,7 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
         const readOnly = ProviderAdapter.isManagedReadOnlyRuntimePolicy(input.runtimePolicy);
         const mcpSession = yield* mcpSessions.read(input.threadId);
         const environment = McpProviderSession.withAgentDeviceEnvironment(
-          options.environment,
+          { ...options.environment, ...McpProviderSession.agentCommandEnvironment(mcpSession) },
           mcpSession,
         );
         const launch = yield* agentScope.wrap({

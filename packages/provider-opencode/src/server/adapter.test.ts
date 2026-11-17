@@ -11,6 +11,7 @@ import type { OpencodeClient, ToolPart } from "@opencode-ai/sdk/v2";
 import { toolOutputImages } from "@t3tools/shared/toolOutput";
 import {
   CheckpointId,
+  EnvironmentId,
   NodeId,
   ProjectId,
   ProviderInstanceId,
@@ -320,6 +321,7 @@ describe("OpenCodeAdapterV2", () => {
   it.effect("adds the thread's agent servers and lets their tools run without asking", () =>
     Effect.gen(function* () {
       const added: Array<unknown> = [];
+      const serverEnvironments: Array<NodeJS.ProcessEnv | undefined> = [];
       const created: Array<{ readonly permission?: ReturnType<typeof openCodePermissionRules> }> =
         [];
       const nativeEvents = asyncEventStream();
@@ -357,8 +359,10 @@ describe("OpenCodeAdapterV2", () => {
       }).pipe(
         Effect.provide(NodeServices.layer),
         Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, {
-          connectToOpenCodeServer: () =>
-            Effect.succeed({ url: "http://test.invalid", external: false, exitCode: null }),
+          connectToOpenCodeServer: (input: { readonly environment?: NodeJS.ProcessEnv }) => {
+            serverEnvironments.push(input.environment);
+            return Effect.succeed({ url: "http://test.invalid", external: false, exitCode: null });
+          },
           createOpenCodeSdkClient: () => client,
         } as unknown as OpenCodeRuntime.OpenCodeRuntime["Service"]),
         Effect.provideService(ProviderHost.ProviderHost, {
@@ -371,6 +375,20 @@ describe("OpenCodeAdapterV2", () => {
         ),
       );
       const threadId = ThreadId.make("thread-opencode-agent-servers");
+      const t3 = {
+        environmentId: EnvironmentId.make("environment-opencode"),
+        threadId,
+        providerSessionId: "session-opencode-agent-servers",
+        providerInstanceId: ProviderInstanceId.make("opencode-agent-servers-test"),
+        endpoint: "http://127.0.0.1:43123/mcp",
+        authorizationHeader: "Bearer thread-t3-credential",
+        browserToolsAvailable: true,
+        browserRunEnvironment: {
+          T3_BROWSER_RUN_URL: "http://127.0.0.1:43123/mcp/browser-run",
+          T3_BROWSER_RUN_TOKEN: "run-token",
+        },
+      };
+      yield* (yield* McpProviderSessions.McpProviderSessions).set(t3);
       const modelSelection = {
         instanceId: ProviderInstanceId.make("opencode-agent-servers-test"),
         model: "anthropic/claude-sonnet",
@@ -384,7 +402,24 @@ describe("OpenCodeAdapterV2", () => {
         runtimePolicy: policy,
       });
       yield* runtime.ensureThread({ threadId, modelSelection, runtimePolicy: policy });
+      // The session's own server, and so the agent's commands, carry the thread's run variables.
+      assert.deepEqual(serverEnvironments, [
+        {
+          T3CODE_THREAD_ID: threadId,
+          T3_BROWSER_RUN_URL: "http://127.0.0.1:43123/mcp/browser-run",
+          T3_BROWSER_RUN_TOKEN: "run-token",
+        },
+      ]);
       assert.deepEqual(added, [
+        {
+          name: "t3-code",
+          config: {
+            type: "remote",
+            url: t3.endpoint,
+            headers: { Authorization: t3.authorizationHeader },
+            oauth: false,
+          },
+        },
         {
           name: "weave",
           config: {

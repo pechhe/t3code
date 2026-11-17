@@ -245,9 +245,12 @@ vp lint <files>
 vp run --filter <package> typecheck
 ```
 
-In `apps/web`, a test that renders React or touches the DOM is named `*.browser.test.{ts,tsx}`
-and runs in headless Chromium with the React Compiler on, like the app. There is no jsdom; other
-`*.test.ts` files run in Node.
+`apps/web` runs its `*.test.{ts,tsx}` files in Node and renders nothing: DOM-level component
+behaviour has no automated test lane, so it is covered through the logic a component calls
+(`*.logic.test.ts`) and a real-client pass. The server's own real-Chromium suites launch T3's
+pinned chrome-headless-shell from `~/.cache/t3code`, which
+[apps/server/src/testUtils/pinnedBrowser.ts](../../apps/server/src/testUtils/pinnedBrowser.ts)
+installs once per machine and which they skip without.
 
 TypeScript workspaces typecheck with `effect-tsgo tsrs --noEmit` from `@effect/tsgo`: the
 [tsrs](https://github.com/oxc-project/tsrs) checker with Effect diagnostics, quick fixes, and

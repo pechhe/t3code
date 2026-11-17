@@ -199,10 +199,10 @@ export function workEntryIconName(workEntry: TimelineWorkEntry): WorkEntryIconNa
 // This is bounded lookahead, not document-wide Markdown parity: a closing delimiter
 // or reference definition beyond this prefix remains unresolved by the parser.
 export const THOUGHT_PREVIEW_SOURCE_MAX_LENGTH = 8_192;
-export const THOUGHT_PREVIEW_MAX_LENGTH = 2_048;
+const THOUGHT_PREVIEW_MAX_LENGTH = 2_048;
 
 /** Compact reasoning keeps formulas while flattening other Markdown into label text. */
-export function remarkThoughtPreview(fallback: string) {
+function remarkThoughtPreview(fallback: string) {
   return (tree: Root) => {
     const children: RootContent[] = [];
     let remaining = THOUGHT_PREVIEW_MAX_LENGTH;

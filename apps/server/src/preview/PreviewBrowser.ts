@@ -17,6 +17,7 @@ import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 import * as NodeCrypto from "node:crypto";
+import * as NodePath from "node:path";
 
 import * as ServerConfig from "../config.ts";
 import { openZipArchive } from "../zipArchive.ts";
@@ -75,7 +76,8 @@ export interface PreviewBrowserRelease {
   readonly sha256: string;
 }
 
-const previewBrowserRelease = (
+/** The pinned chrome-headless-shell release for a platform, or null where Chrome for Testing has none. */
+export const previewBrowserRelease = (
   platform: NodeJS.Platform,
   arch: NodeJS.Architecture,
 ): PreviewBrowserRelease | null => {
@@ -143,6 +145,14 @@ export interface PreviewBrowserOptions {
 }
 
 const DOWNLOAD_TIMEOUT = "15 minutes";
+
+/** Where a base directory keeps every install of the pinned shell: `<baseDir>/tools/chrome-headless-shell`. */
+export const previewBrowserToolsDir = (baseDir: string) =>
+  NodePath.join(baseDir, "tools", "chrome-headless-shell");
+
+/** The executable inside an install root for one release. */
+export const previewBrowserExecutableName = (platform: NodeJS.Platform) =>
+  platform === "win32" ? "chrome-headless-shell.exe" : "chrome-headless-shell";
 const STAGING_STALE_AFTER_MS = 60 * 60_000;
 
 const wrapFailure = (detail: string) => (cause: unknown) =>
@@ -171,13 +181,10 @@ export const makePreviewBrowser = Effect.fn("PreviewBrowser.make")(function* (
     options.release === undefined ? previewBrowserRelease(platform, arch) : options.release;
   const wait = options.wait ?? "45 seconds";
   const installRoot = path.join(
-    options.baseDir,
-    "tools",
-    "chrome-headless-shell",
+    previewBrowserToolsDir(options.baseDir),
     release?.platform ?? `${platform}-${arch}`,
   );
-  const executableName =
-    platform === "win32" ? "chrome-headless-shell.exe" : "chrome-headless-shell";
+  const executableName = previewBrowserExecutableName(platform);
   const gate = yield* Semaphore.make(1);
   let state: InstallState = { _tag: "idle" };
   const progress = { downloadedBytes: 0, unpacking: false };

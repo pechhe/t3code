@@ -151,6 +151,7 @@ import Migration0135 from "./Migrations/135_WorkspaceCustodyStopIdentities.ts";
 import Migration0136 from "./Migrations/136_ProviderSessionEventCompaction.ts";
 import Migration0137 from "./Migrations/137_ThreadDetailExpiry.ts";
 import Migration0138 from "./Migrations/138_ThreadWatchesToWaits.ts";
+import Migration0139 from "./Migrations/139_BrowserScriptRuns.ts";
 
 const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -292,6 +293,7 @@ const migrationEntries = [
   [136, "ProviderSessionEventCompaction", Migration0136],
   [137, "ThreadDetailExpiry", Migration0137],
   [138, "ThreadWatchesToWaits", Migration0138],
+  [139, "BrowserScriptRuns", Migration0139],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

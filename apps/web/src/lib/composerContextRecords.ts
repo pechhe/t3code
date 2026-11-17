@@ -1,4 +1,3 @@
-import type { ScopedThreadRef } from "@t3tools/contracts";
 import {
   capitalizeTerm,
   sourceControlClients,
@@ -166,11 +165,6 @@ export function previewAnnotationContextReference(
   };
 }
 
-/** One record per thread: attaching the same thread twice reuses the chip. Two environments may reuse an id. */
-function threadContextId(ref: ScopedThreadRef): ComposerContextId {
-  return toKindScopedComposerContextId("thread", `${ref.environmentId}:${ref.threadId}`);
-}
-
 export function threadContextReference(record: ThreadContextRecord): ComposerContextReference {
   return { kind: "thread", contextId: record.contextId, label: record.label };
 }
@@ -218,19 +212,6 @@ export function environmentContextReference(
   record: EnvironmentContextRecord,
 ): ComposerContextReference {
   return { kind: "environment", contextId: record.contextId, label: record.label };
-}
-
-export function threadContextRecord(ref: ScopedThreadRef, title: string): ThreadContextRecord {
-  const label = sanitizeComposerContextLabel(title, "thread");
-  return {
-    version: 1,
-    kind: "thread",
-    contextId: threadContextId(ref),
-    label,
-    environmentId: ref.environmentId,
-    threadId: ref.threadId,
-    title: label,
-  };
 }
 
 export function environmentContextRecord(

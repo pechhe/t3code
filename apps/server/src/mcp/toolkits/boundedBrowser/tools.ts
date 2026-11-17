@@ -35,7 +35,7 @@ const bounded = <T extends Tool.Any>(tool: T): T =>
 const OpenTool = bounded(
   Tool.make("t3_browser_open", {
     description:
-      "Open a fresh tab for bounded browser work. It is always headless on the integrated browser, whatever the project's browser setting; preview_open follows that setting. New isolated storage, no cookies from elsewhere. Returns its `tabId`; pass it to every other t3_browser_* call, and `logins`, the saved login keys a task may type on this origin. Each call opens another tab, and only this session can use it. Use it for a page you need to check or a form you were given values for; close the tab when done. `viewport` fixes the tab's size for its life, for a whole journey at one width such as a phone's; only the integrated backend honours it.",
+      "Open a fresh tab for bounded browser work. It is always headless on the integrated browser, whatever the project's browser setting; preview_open follows that setting. New isolated storage, no cookies from elsewhere. Returns its `tabId`; pass it to every other t3_browser_* call, and `logins`, the saved login keys a task may type on this origin. Each call opens another tab only this session can use; close it when done. For a job that needs a script (loops, page code, in-page timings), run one with `t3 browser run <file>` in your shell (see its --help). `viewport` fixes the tab's size for its life; only the integrated backend honours it.",
     parameters: Schema.Struct({
       url: PreviewAutomationOpenInput.fields.url,
       viewport: Schema.optional(PreviewViewportSize).annotate({

@@ -9,8 +9,10 @@ const KEPT_ENV = new Set([
   "T3CODE_TRANSFER_BUDGET_REPORT_PATH",
   "T3CODE_TRANSFER_BUDGET_RESULT_PATH",
   "T3CODE_TRANSFER_BUDGET_SCENARIOS_PATH",
-  // Opt-in: points the HtmlRender tests at a headless browser, which they skip without.
+  // Opt-in: points the tests that launch a real browser at T3's pinned shell, which they skip
+  // without (`none` asks for a run without one).
   "T3CODE_TEST_HEADLESS_SHELL",
+  "T3CODE_TEST_BROWSER",
 ]);
 
 if (process.env.T3CODE_TEST_KEEP_PROVIDER_ENV !== "1") {

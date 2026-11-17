@@ -480,6 +480,30 @@ describe("MuseAdapterV2", () => {
       }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
 
+  it.effect("gives the Muse host its thread's browser-run credential", () =>
+    Effect.gen(function* () {
+      yield* (yield* McpProviderSessions.McpProviderSessions).set({
+        environmentId: EnvironmentId.make("test-environment"),
+        threadId: THREAD_ID,
+        providerSessionId: "test-session",
+        providerInstanceId: INSTANCE_ID,
+        endpoint: "http://127.0.0.1:43210/mcp",
+        authorizationHeader: "Bearer thread-scoped-test-token",
+        browserToolsAvailable: true,
+        browserRunEnvironment: {
+          T3_BROWSER_RUN_URL: "http://127.0.0.1:43210/mcp/browser-run",
+          T3_BROWSER_RUN_TOKEN: "browser-run-token",
+        },
+      });
+      const fake = yield* makeFakeMuse();
+      fake.host.initializeResult.grantedCapabilities.push("sessionMcp");
+      const harness = yield* makeHarness(fake);
+      const environment = harness.hostOptions[0]?.environment;
+      assert.strictEqual(environment?.T3_BROWSER_RUN_URL, "http://127.0.0.1:43210/mcp/browser-run");
+      assert.strictEqual(environment?.T3_BROWSER_RUN_TOKEN, "browser-run-token");
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
   it.effect("connects the thread's MCP credential on native start and resume", () =>
     Effect.gen(function* () {
       yield* (yield* McpProviderSessions.McpProviderSessions).set({

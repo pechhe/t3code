@@ -28,6 +28,10 @@ import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import { signalProcessGroup } from "@t3tools/provider-core/server/processGroup";
 import * as PortScanner from "../../preview/PortScanner.ts";
 import {
+  BROWSER_RUN_TOKEN_ENV,
+  BROWSER_RUN_URL_ENV,
+} from "@t3tools/provider-core/server/mcpSession";
+import {
   ClaudeAgentSdkQueryRunner,
   type ClaudeAgentSdkQueryOpenInput,
   layerQueryRunner,
@@ -222,6 +226,7 @@ const realQueryRunner = layerQueryRunner.pipe(
 const resumedMcpQueryInput = {
   threadId: ThreadId.make("thread-restart-registration"),
   providerSessionId: ProviderSessionId.make("session-restart-registration"),
+  agentCommandEnvironment: {},
   options: {
     resume: FORK_SESSION_ID,
     model: "claude-sonnet-4-6",
@@ -558,12 +563,13 @@ function fakeClaudeCli(script: string): string {
   return cli;
 }
 
-const openFakeCli = (cli: string) =>
+const openFakeCli = (cli: string, agentCommandEnvironment: Record<string, string> = {}) =>
   Effect.gen(function* () {
     const runner = yield* ClaudeAgentSdkQueryRunner;
     return yield* runner.open({
       threadId: ThreadId.make("thread-fake-cli"),
       providerSessionId: ProviderSessionId.make("session-fake-cli"),
+      agentCommandEnvironment,
       options: {
         sessionId: "native-session-fake-cli",
         model: "claude-sonnet-4-6",
@@ -853,23 +859,39 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("Claude CLI pro
         [
           'dir=$(dirname "$0")',
           `printf '%s' "$${PortScanner.AGENT_THREAD_ENV}" > "$dir/thread"`,
+          `printf '%s' "$${BROWSER_RUN_URL_ENV}" > "$dir/run-url"`,
+          `printf '%s' "$${BROWSER_RUN_TOKEN_ENV}" > "$dir/run-token"`,
           "cat > /dev/null",
         ].join("\n"),
       );
       const dir = NodePath.dirname(cli);
-      NodeChildProcess.execFileSync("mkfifo", [NodePath.join(dir, "thread")]);
+      for (const name of ["thread", "run-url", "run-token"])
+        NodeChildProcess.execFileSync("mkfifo", [NodePath.join(dir, name)]);
       yield* Effect.addFinalizer(() =>
         Effect.sync(() => NodeFS.rmSync(dir, { recursive: true, force: true })),
       );
-      const threadRead = new Promise<string>((resolve) => {
-        let thread = "";
-        NodeFS.createReadStream(NodePath.join(dir, "thread"), "utf8")
-          .on("data", (chunk) => (thread += chunk))
-          .once("end", () => resolve(thread));
-      });
+      const readFifo = (name: string) =>
+        new Promise<string>((resolve) => {
+          let text = "";
+          NodeFS.createReadStream(NodePath.join(dir, name), "utf8")
+            .on("data", (chunk) => (text += chunk))
+            .once("end", () => resolve(text));
+        });
+      const threadRead = readFifo("thread");
+      const runUrlRead = readFifo("run-url");
+      const runTokenRead = readFifo("run-token");
 
-      const session = yield* openFakeCli(cli);
+      const session = yield* openFakeCli(cli, {
+        T3_BROWSER_RUN_URL: "http://127.0.0.1:43123/mcp/browser-run",
+        T3_BROWSER_RUN_TOKEN: "browser-run-token",
+      });
       assert.equal(yield* Effect.promise(() => threadRead), "thread-fake-cli");
+      // The agent's shells reach the browser-run endpoint, and only it.
+      assert.equal(
+        yield* Effect.promise(() => runUrlRead),
+        "http://127.0.0.1:43123/mcp/browser-run",
+      );
+      assert.equal(yield* Effect.promise(() => runTokenRead), "browser-run-token");
       assert.equal(runningAgents, 1);
       yield* session.close;
       yield* Effect.promise(() => agentReleased);

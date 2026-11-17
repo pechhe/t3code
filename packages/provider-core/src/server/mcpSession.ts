@@ -44,8 +44,27 @@ export interface McpProviderSessionConfig {
   /** Capabilities the credential grants ("preview", "device"). */
   readonly capabilities?: ReadonlySet<string>;
   readonly agentDeviceEnvironment?: Readonly<Record<string, string>>;
+  /**
+   * For the agent's own commands: the browser-run endpoint (`BROWSER_RUN_URL_ENV`), and where the
+   * session may run bounded browser tasks a credential that reaches only it
+   * (`BROWSER_RUN_TOKEN_ENV`), so `t3 browser run` acts as this thread or refuses.
+   */
+  readonly browserRunEnvironment?: Readonly<Record<string, string>>;
   /** True while a delegated task this thread started will wake it with its result. */
   readonly hasPendingWake?: Effect.Effect<boolean>;
+}
+
+/** Where `t3 browser run` in an agent's command reaches the server, and as whom. */
+export const BROWSER_RUN_URL_ENV = "T3_BROWSER_RUN_URL";
+export const BROWSER_RUN_TOKEN_ENV = "T3_BROWSER_RUN_TOKEN";
+/** The server path `t3 browser run` talks to, with either credential. */
+export const BROWSER_RUN_PATH = "/mcp/browser-run";
+
+/** The variables an agent's own commands get beside the provider's environment. */
+export function agentCommandEnvironment(
+  config: Pick<McpProviderSessionConfig, "browserRunEnvironment"> | undefined,
+): Readonly<Record<string, string>> {
+  return config?.browserRunEnvironment ?? {};
 }
 
 export function withAgentDeviceEnvironment(

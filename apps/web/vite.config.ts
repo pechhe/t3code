@@ -1,15 +1,12 @@
-// @effect-diagnostics-next-line nodeBuiltinImport:off -- Vite config runs before any Effect runtime.
-import * as NodeFSP from "node:fs/promises";
+// @effect-diagnostics nodeBuiltinImport:off -- Vite config runs before any Effect runtime.
 import * as NodeZlib from "node:zlib";
 
 import react from "@vitejs/plugin-react";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import compression from "compression";
-import { playwright } from "vite-plus/test/browser-playwright";
 import { defineProject, type TestProjectInlineConfiguration } from "vite-plus/test/config";
 import "vite-plus/test/config";
 import { defineConfig, type Connect, type Plugin } from "vite-plus";
-import * as Hash from "effect/Hash";
 import pkg from "./package.json" with { type: "json" };
 import pdfjsPkg from "pdfjs-dist/package.json" with { type: "json" };
 
@@ -93,95 +90,12 @@ const unitTestProject = {
     name: "unit",
     sequence: { groupOrder: 0 },
     include: ["src/**/*.test.{ts,tsx}"],
-    exclude: ["src/**/*.browser.test.{ts,tsx}"],
     hookTimeout: 15_000,
     testTimeout: 15_000,
     setupFiles: [
       "../../packages/shared/src/testing/longTempDir.ts",
       "../../packages/shared/src/testing/providerEnv.ts",
     ],
-  },
-} satisfies TestProjectInlineConfiguration;
-
-// Hash checkout paths to ports 61000-64999; Vitest's fixed port collides under inherited strictPort.
-const browserTestApiPort = 61_000 + ((Hash.string(import.meta.dirname) >>> 0) % 4_000);
-
-const browserTestProject = {
-  extends: true,
-  // Pre-bundle lazy browser and worker dependencies to avoid mid-run reloads.
-  optimizeDeps: {
-    include: [
-      "vite-plus/test/browser",
-      "@base-ui/react/autocomplete",
-      "saxes",
-      "@betteroffice/docx/editor",
-      "@betteroffice/docx/layout",
-      "@betteroffice/docx/layout/render",
-      "@betteroffice/docx/yrs",
-      "@betteroffice/fonts",
-      "@betteroffice/pptx",
-      "@betteroffice/xlsx",
-      "@betteroffice/xlsx/headless",
-      "fast-xml-parser",
-      "entities",
-      "dompurify",
-      "heic-to/next",
-      "jszip",
-      "pdfjs-dist",
-      "sql.js",
-      "tiff",
-    ],
-  },
-  test: {
-    name: "browser",
-    sequence: { groupOrder: 1 },
-    include: ["src/**/*.browser.test.{ts,tsx}"],
-    hookTimeout: 15_000,
-    testTimeout: 15_000,
-    setupFiles: ["./test/browserSetup.ts"],
-    api: { port: browserTestApiPort, strictPort: false },
-    browser: {
-      enabled: true,
-      headless: true,
-      provider: playwright(),
-      instances: [{ browser: "chromium" }],
-      screenshotFailures: false,
-      commands: {
-        // Playwright's mouse outlives each test, so whatever mounts under its last
-        // position starts hovered. test/browserSetup.ts parks it off the page before each test.
-        resetPointer: async ({ page }) => {
-          await page.mouse.move(-1, -1);
-        },
-      },
-    },
-  },
-} satisfies TestProjectInlineConfiguration;
-
-// Render scenarios count React commits; they run only through scripts/render-metrics.ts,
-// which reads the per-scenario reports this command writes.
-const renderScenariosProject = {
-  ...browserTestProject,
-  test: {
-    ...browserTestProject.test,
-    name: "renders",
-    include: ["test/*.renders.tsx"],
-    // App scenarios mount the whole app per test, which outlasts 15s on a loaded machine.
-    hookTimeout: 60_000,
-    testTimeout: 60_000,
-    setupFiles: ["./test/renderCounter.ts", ...browserTestProject.test.setupFiles],
-    browser: {
-      ...browserTestProject.test.browser,
-      // Vitest names each instance in place, so a shared array would clash with the browser project.
-      instances: [{ browser: "chromium" }],
-      commands: {
-        ...browserTestProject.test.browser.commands,
-        writeRenderReport: async (_context, scenario: string, json: string) => {
-          const directory = process.env.T3CODE_RENDER_REPORT_DIR;
-          if (!directory) throw new Error("T3CODE_RENDER_REPORT_DIR is not set");
-          await NodeFSP.writeFile(`${directory}/${scenario}.json`, json);
-        },
-      },
-    },
   },
 } satisfies TestProjectInlineConfiguration;
 
@@ -377,7 +291,6 @@ export default defineConfig(({ command, mode }) => {
       strictPort: true,
       allowedHosts,
       // Warm modules before the first tailnet request; bundled dev has its own plugin.
-      // Tests skip warmup so the browser server does not compile the app under T3-338's 60 s limit.
       // Use mode because the landing runner's createVitest does not set process.env.VITEST.
       warmup: {
         clientFiles: mode === "test" ? [] : ["./src/main.tsx"],
@@ -431,11 +344,7 @@ export default defineConfig(({ command, mode }) => {
     },
     worker: { format: "es" },
     test: {
-      projects: [
-        defineProject(unitTestProject),
-        defineProject(browserTestProject),
-        defineProject(renderScenariosProject),
-      ],
+      projects: [defineProject(unitTestProject)],
     },
   };
 });

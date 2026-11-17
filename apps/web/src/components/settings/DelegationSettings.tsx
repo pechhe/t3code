@@ -469,7 +469,7 @@ function PolicyEditor({
 }
 
 /** The installed agent-config revision, its unlanded state and how far it trails main. */
-export function describeCheckout(checkout: NonNullable<AgentPolicySettings["checkout"]>) {
+function describeCheckout(checkout: NonNullable<AgentPolicySettings["checkout"]>) {
   const revision =
     checkout.revision === null
       ? "agent-config unknown"

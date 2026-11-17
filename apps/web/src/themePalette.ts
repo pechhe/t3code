@@ -422,7 +422,7 @@ const STANDARD_WEB_PAINTED_COLORS: Record<ThemeAppearance, Partial<ThemeColors>>
 };
 
 /** The standard theme as index.css paints it, for solves that measure the page. */
-export function getStandardPaintedThemeColors(appearance: ThemeAppearance): ThemeColors {
+function getStandardPaintedThemeColors(appearance: ThemeAppearance): ThemeColors {
   return { ...getStandardThemeColors(appearance), ...STANDARD_WEB_PAINTED_COLORS[appearance] };
 }
 

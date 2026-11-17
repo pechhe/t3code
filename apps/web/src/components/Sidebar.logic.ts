@@ -73,7 +73,7 @@ export function shouldNavigateAfterThreadPark(input: {
   );
 }
 
-export const THREAD_JUMP_HINT_SHOW_DELAY_MS = 200;
+const THREAD_JUMP_HINT_SHOW_DELAY_MS = 200;
 
 export function resolveSidebarRowAccessibility(input: {
   readonly title: string;

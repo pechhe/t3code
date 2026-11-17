@@ -8,6 +8,11 @@ import { StoredAgentRole } from "@t3tools/contracts";
 import type { AgentMcpServer } from "@t3tools/provider-core/server/AgentMcpServers";
 import type { McpProviderSessionConfig } from "@t3tools/provider-core/server/mcpSession";
 import {
+  BROWSER_RUN_TOKEN_ENV,
+  BROWSER_RUN_URL_ENV,
+  agentCommandEnvironment,
+} from "@t3tools/provider-core/server/mcpSession";
+import {
   T3_MCP_AGENT_SERVERS_ENV,
   PI_T3_MCP_EXTENSION_FILENAME,
   PI_T3_MCP_EXTENSION_SOURCE,
@@ -378,6 +383,8 @@ export function buildPiRpcLaunch(input: {
   delete environment[T3_PI_INSTRUCTIONS_ENV];
   delete environment[T3_PI_AGENT_ROLE_ENV];
   delete environment[T3_PI_AGENT_CONFIG_ROOT_ENV];
+  delete environment[BROWSER_RUN_URL_ENV];
+  delete environment[BROWSER_RUN_TOKEN_ENV];
 
   return {
     args,
@@ -418,6 +425,9 @@ export function buildPiRpcLaunch(input: {
       ...(agentServers.length > 0
         ? { [T3_MCP_AGENT_SERVERS_ENV]: JSON.stringify(agentServers) }
         : {}),
+      // Pi's own bash tool inherits these, so `t3 browser run` reaches the thread's browser-run
+      // endpoint without exposing the session's full MCP bearer to a shell.
+      ...(hasT3Mcp ? agentCommandEnvironment(input.mcpSession) : {}),
     },
   };
 }

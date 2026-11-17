@@ -185,14 +185,6 @@ export const INPUT_RULES: ReadonlyArray<InputRule> = [
     reason: "test compiles the layout with Babel from disk",
   },
   {
-    when: /^apps\/web\/src\/components\/files\/(?:binary|office)Preview\.worker\.ts$/,
-    select: [
-      "apps/web/src/components/files/AttachmentFilePreview.browser.test.tsx",
-      "apps/web/src/components/files/AttachmentFilePreview.office.browser.test.tsx",
-    ],
-    reason: "workers built from a URL the import graph does not follow",
-  },
-  {
     when: /^packages\/provider-grok\/src\/server\/testFixtures\//,
     select: ["packages/provider-grok/src/server/adapter.test.ts"],
     reason: "mock Grok agent loaded from disk and spawned by the adapter test",
@@ -358,21 +350,6 @@ export const INPUT_RULES: ReadonlyArray<InputRule> = [
       "apps/web/src/terminal/ghostty/surface.test.ts",
     ],
     reason: "WebAssembly imported with ?inline, or read from disk",
-  },
-  {
-    when: /^apps\/web\/src\/(?:index\.css|components\/(?:chat\/device\/(?:deviceComposer|themeCharacter)|sidebarDevice|chat\/imageAnnotator)\.css)$/,
-    select: [
-      "apps/web/src/components/Sidebar.browser.test.tsx",
-      "apps/web/src/components/files/FilePreviewPanel.browser.test.tsx",
-      "apps/web/src/lib/workspaceFocus.browser.test.ts",
-    ],
-    reason: "the app stylesheet and the CSS it imports, imported with ?inline",
-  },
-  {
-    when: /^apps\/web\/src\/components\/files\/office\/(?:spreadsheet\.worker|sheet-fonts|sheet-frame|fonts)\.ts$/,
-    select: ["apps/web/src/components/files/office/sheet-resize.browser.test.ts"],
-    reason:
-      "the test spawns the spreadsheet worker from a URL; these are the modules only it imports",
   },
   {
     when: /^apps\/web\/index\.html$/,

@@ -18,7 +18,7 @@ const wasm = import.meta.glob<string>("../../../node_modules/pdfjs-dist/wasm/*.{
   import: "default",
   eager: true,
 });
-export class BinaryDataFactory {
+class BinaryDataFactory {
   async fetch({ kind, filename }: { kind: string; filename: string }) {
     const assets = kind === "cMapUrl" ? cMaps : kind === "wasmUrl" ? wasm : standardFonts;
     const directory = kind === "cMapUrl" ? "cmaps" : kind === "wasmUrl" ? "wasm" : "standard_fonts";

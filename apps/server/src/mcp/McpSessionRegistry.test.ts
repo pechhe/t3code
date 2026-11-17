@@ -379,6 +379,43 @@ it.effect(
     }),
 );
 
+it.effect(
+  "gives a bounded-browser session a browser-run credential that ends with the session",
+  () =>
+    Effect.gen(function* () {
+      const registry = yield* makeRegistry(() => 1_000);
+      const plain = yield* registry.issue({
+        threadId: ThreadId.make("thread-no-browser-run"),
+        providerInstanceId: ProviderInstanceId.make("codex"),
+      });
+      // Only the endpoint, which tells `t3 browser run` it is in an agent's thread.
+      expect(plain.config.browserRunEnvironment).toEqual({
+        T3_BROWSER_RUN_URL: "http://127.0.0.1:43123/mcp/browser-run",
+      });
+      const issued = yield* registry.issue({
+        threadId: ThreadId.make("thread-browser-run"),
+        providerInstanceId: ProviderInstanceId.make("claudeAgent"),
+        toolProfile: "source-reader",
+        agentRole: "reviewer",
+        readOnly: true,
+        boundedBrowser: true,
+      });
+      const environment = issued.config.browserRunEnvironment!;
+      expect(environment.T3_BROWSER_RUN_URL).toBe("http://127.0.0.1:43123/mcp/browser-run");
+      const runToken = environment.T3_BROWSER_RUN_TOKEN!;
+      expect(`Bearer ${runToken}`).not.toBe(issued.config.authorizationHeader);
+      const resolved = yield* registry.resolve(runToken);
+      // The thread's identity and bounded grant, with no session endpoint and nothing but the browser.
+      expect(resolved?.thread?.providerSessionId).toBe(issued.config.providerSessionId);
+      expect(resolved?.browserRunCredential).toBe(true);
+      expect(resolved?.boundedBrowser).toBe(true);
+      expect(resolved?.endpointKey).toBeUndefined();
+      expect(resolved?.capabilities).toEqual(new Set(["preview"]));
+      yield* registry.revokeProviderSession(issued.config.providerSessionId);
+      expect(yield* registry.resolve(runToken)).toBeUndefined();
+    }),
+);
+
 it.effect("closes a thread's browser tabs and leaves its credential valid", () =>
   Effect.gen(function* () {
     const released: Array<string> = [];

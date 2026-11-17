@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NetService from "@t3tools/shared/Net";
 import { expect, it } from "@effect/vitest";
@@ -100,7 +101,13 @@ const runSetupAsRoot = (input: { readonly profile: string | undefined }) => {
     Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
     Effect.provideService(FileSystem.FileSystem, fileSystem),
     Effect.provide(
-      Layer.mergeAll(NodeServices.layer, NetService.layer, Layer.fresh(TestConsole.layer)),
+      Layer.mergeAll(
+        NodeServices.layer,
+        NetService.layer,
+        // `t3 browser run` beside `setup` signs in to a server with these.
+        NodeCrypto.layer,
+        Layer.fresh(TestConsole.layer),
+      ),
     ),
   );
 };

@@ -341,14 +341,6 @@ export default defineConfig({
         rules: { "t3code/no-sparkles-icon": "error" },
       },
       {
-        files: ["apps/web/**/*.test.{ts,tsx}"],
-        rules: { "t3code/require-disposable-render": "error" },
-      },
-      {
-        files: ["apps/web/src/**/*.browser.test.{ts,tsx}"],
-        rules: { "t3code/no-frame-waits-in-browser-tests": "error" },
-      },
-      {
         files: ["apps/**/src/**", "packages/**/src/**"],
         rules: { "t3code/no-dom-test-environment": "error" },
       },

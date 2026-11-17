@@ -70,6 +70,11 @@ export interface McpToolSessionOptions {
   readonly endpoint: string;
   readonly authorization: string;
   readonly clientName: string;
+  /**
+   * Headers to send on each request, read every time: the browser-run endpoint names the run in
+   * one, and a run exists only after `t3_browser_run_open` has answered.
+   */
+  readonly extraHeaders?: () => Readonly<Record<string, string>>;
   readonly fetchImplementation?: (url: string, init?: RequestInit) => Promise<Response>;
 }
 
@@ -96,6 +101,7 @@ export const mcpToolSession = (
   const headers = () => ({
     accept: "application/json, text/event-stream",
     authorization: options.authorization,
+    ...options.extraHeaders?.(),
     ...(sessionId === null ? {} : { "mcp-session-id": sessionId }),
     ...(protocolVersion === null ? {} : { "mcp-protocol-version": protocolVersion }),
   });

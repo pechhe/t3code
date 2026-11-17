@@ -109,7 +109,7 @@ function normalizeModifierKey(key: string): keyof ShortcutModifierState | null {
   }
 }
 
-export function shortcutModifierStateAfterKeyboardEvent(
+function shortcutModifierStateAfterKeyboardEvent(
   currentState: ShortcutModifierState,
   event: KeyboardEvent,
 ): ShortcutModifierState {

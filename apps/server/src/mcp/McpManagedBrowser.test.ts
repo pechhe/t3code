@@ -29,6 +29,10 @@ import * as BrowserLogins from "../secrets/BrowserLogins.ts";
 import * as DeviceService from "../device/DeviceService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import { DeviceStandardToolkit } from "./toolkits/device/tools.ts";
+import { BrowserRunSnapshotToolkit, BrowserRunToolkit } from "./toolkits/browserRun/tools.ts";
+import * as BrowserRuns from "../browserRuns/BrowserRuns.ts";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
+import * as ServerBrowser from "../preview/ServerBrowser.ts";
 
 const environmentId = EnvironmentId.make("environment-managed-browser");
 const scopeFor = (managedBrowser: boolean): McpInvocationContext.McpThreadInvocationScope => ({
@@ -49,6 +53,7 @@ const tokens = {
   general: "generalTokenWithoutDots",
   bounded: "boundedTokenWithoutDots",
   device: "deviceTokenWithoutDots",
+  run: "browserRunTokenWithoutDots",
 };
 const registry = Layer.mock(McpSessionRegistry.McpSessionRegistry)({
   resolve: (presented) =>
@@ -61,7 +66,14 @@ const registry = Layer.mock(McpSessionRegistry.McpSessionRegistry)({
             ? { ...scopeFor(true), boundedBrowser: true as const }
             : presented === tokens.device
               ? { ...scopeFor(true), capabilities: new Set(["preview", "device"] as const) }
-              : undefined,
+              : presented === tokens.run
+                ? {
+                    ...scopeFor(false),
+                    capabilities: new Set(["preview"] as const),
+                    boundedBrowser: true as const,
+                    browserRunCredential: true as const,
+                  }
+                : undefined,
     ),
 });
 const services = Layer.mergeAll(
@@ -180,6 +192,12 @@ it.effect("serves a managed browser task only the narrow endpoint, and only its 
           Layer.provide(Layer.mock(DeviceService.DeviceService)({})),
           Layer.provide(Layer.mock(ProjectService.ProjectService)({})),
         ),
+        McpHttpServer.layerBrowserRunToolkit.pipe(
+          Layer.provide(Layer.mock(BrowserRuns.BrowserRuns)({})),
+          Layer.provide(Layer.mock(ServerBrowser.ServerBrowser)({})),
+          Layer.provide(Layer.mock(BrowserLogins.BrowserLogins)({})),
+          Layer.provide(Layer.mock(ProjectStore.ProjectStoreV2)({})),
+        ),
         McpHttpServer.layerMcpTransport(McpHttpServer.layerPreviewToolkit),
       ).pipe(Layer.provide(registry), Layer.provide(services));
       yield* HttpRouter.serve(both, { disableListenLog: true, disableLogger: true }).pipe(
@@ -208,6 +226,20 @@ it.effect("serves a managed browser task only the narrow endpoint, and only its 
       expect((yield* listTools("/mcp/browser", tokens.general)).status).toBe(401);
       expect((yield* listTools("/mcp", tokens.managed)).status).toBe(401);
       expect((yield* listTools("/mcp/browser", "unknownTokenWithoutDots")).status).toBe(401);
+
+      // A browser-run credential reaches only its own endpoint, and no other credential reaches it.
+      const runs = yield* listTools("/mcp/browser-run", tokens.run);
+      expect(runs.status).toBe(200);
+      expect([...runs.names].sort()).toEqual(
+        [
+          ...Object.keys(BrowserRunToolkit.tools),
+          ...Object.keys(BrowserRunSnapshotToolkit.tools),
+        ].sort(),
+      );
+      expect((yield* listTools("/mcp", tokens.run)).status).toBe(401);
+      expect((yield* listTools("/mcp/browser", tokens.run)).status).toBe(401);
+      for (const other of [tokens.general, tokens.managed, tokens.bounded])
+        expect((yield* listTools("/mcp/browser-run", other)).status).toBe(401);
 
       // A browser task granted bounded tasks lists them beside its own browser, and nothing else.
       const bounded = yield* listTools("/mcp/browser", tokens.bounded);

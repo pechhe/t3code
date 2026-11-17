@@ -9,7 +9,7 @@ export function attachSidebarTree(element: HTMLElement | null) {
  * Arrow keys move focus between rows without opening them, as in VS Code's list commands.
  * Rows stay ordinary buttons in the Tab order so screen readers can browse the list.
  */
-export function installSidebarTree(root: HTMLElement) {
+function installSidebarTree(root: HTMLElement) {
   let focusedId: string | undefined;
   let focusedParent: string | undefined;
   let focusedIndex = -1;

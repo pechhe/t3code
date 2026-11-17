@@ -50,6 +50,87 @@ export const readTaskCallRows = (databasePath: string, since: string): readonly 
 
 const OUTCOMES = ["passed", "blocked", "failed", "refused", "cancelled"] as const;
 
+const RUN_OUTCOMES = ["succeeded", "failed", "time-limit", "output-limit"] as const;
+
+export interface BrowserRunRow {
+  readonly harness: string;
+  readonly outcome: string;
+  readonly durationMs: number;
+}
+
+/** `browser_script_runs` since `since`; none when the database or its table is missing. */
+export const readBrowserRunRows = (
+  databasePath: string,
+  since: string,
+): readonly BrowserRunRow[] => {
+  if (!NodeFS.existsSync(databasePath)) return [];
+  const db = new NodeSqlite.DatabaseSync(databasePath, { readOnly: true });
+  try {
+    const recorded = db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'browser_script_runs'")
+      .get();
+    if (recorded === undefined) return [];
+    return db
+      .prepare(
+        `SELECT harness, outcome, duration_ms
+         FROM browser_script_runs WHERE recorded_at >= ?`,
+      )
+      .all(since)
+      .map((row) => ({
+        harness: String(row.harness),
+        outcome: String(row.outcome),
+        durationMs: Number(row.duration_ms),
+      }));
+  } finally {
+    db.close();
+  }
+};
+
+export interface BrowserRunGroup {
+  readonly key: string;
+  readonly runs: number;
+  readonly medianMs: number;
+  readonly outcomes: Readonly<Record<(typeof RUN_OUTCOMES)[number], number>>;
+}
+
+export interface BrowserRunSummary {
+  readonly runs: number;
+  readonly byHarness: readonly BrowserRunGroup[];
+}
+
+/** The middle duration, or the mean of the middle two, so one slow run does not move it. */
+const median = (values: readonly number[]) => {
+  if (values.length === 0) return 0;
+  const sorted = values.toSorted((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return Math.round(
+    sorted.length % 2 === 1 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2,
+  );
+};
+
+export const summarizeBrowserRuns = (rows: readonly BrowserRunRow[]): BrowserRunSummary => {
+  const groups = new Map<string, { durations: number[]; outcomes: Record<string, number> }>();
+  for (const row of rows) {
+    const group = groups.get(row.harness) ?? { durations: [], outcomes: {} };
+    group.durations.push(row.durationMs);
+    group.outcomes[row.outcome] = (group.outcomes[row.outcome] ?? 0) + 1;
+    groups.set(row.harness, group);
+  }
+  return {
+    runs: rows.length,
+    byHarness: [...groups]
+      .map(([key, group]) => ({
+        key,
+        runs: group.durations.length,
+        medianMs: median(group.durations),
+        outcomes: Object.fromEntries(
+          RUN_OUTCOMES.map((outcome) => [outcome, group.outcomes[outcome] ?? 0]),
+        ) as BrowserRunGroup["outcomes"],
+      }))
+      .toSorted((a, b) => b.runs - a.runs || a.key.localeCompare(b.key)),
+  };
+};
+
 export interface TaskCallGroup {
   readonly key: string;
   readonly calls: number;
@@ -121,8 +202,33 @@ const formatTaskCallReport = (summary: TaskCallSummary, window: string) =>
         table("fault", summary.byFault),
       ].join("\n\n");
 
-const formatTaskCallJson = (since: string, summary: TaskCallSummary) =>
-  JSON.stringify({ since, ...summary }, null, 2);
+const formatRunJson = (since: string, summary: TaskCallSummary, runs: BrowserRunSummary) =>
+  JSON.stringify({ since, ...summary, browserRuns: runs }, null, 2);
+
+const tableRuns = (groups: readonly BrowserRunGroup[]) => {
+  const width = Math.max("harness".length, ...groups.map((group) => group.key.length));
+  return [
+    [
+      "harness".padEnd(width),
+      "runs".padStart(6),
+      "median".padStart(8),
+      ...RUN_OUTCOMES.map((o) => o.padStart(12)),
+    ].join("  "),
+    ...groups.map((group) =>
+      [
+        group.key.padEnd(width),
+        String(group.runs).padStart(6),
+        `${group.medianMs}ms`.padStart(8),
+        ...RUN_OUTCOMES.map((outcome) => String(group.outcomes[outcome]).padStart(12)),
+      ].join("  "),
+    ),
+  ].join("\n");
+};
+
+const formatBrowserRunReport = (summary: BrowserRunSummary, window: string) =>
+  summary.runs === 0
+    ? `No browser runs on this environment in the ${window}.`
+    : `Browser runs on this environment in the ${window}: ${summary.runs}.\n\n${tableRuns(summary.byHarness)}`;
 
 export const browserReportCommand = Command.make("report", {
   baseDir: baseDirFlag,
@@ -136,7 +242,7 @@ export const browserReportCommand = Command.make("report", {
   ),
 }).pipe(
   Command.withDescription(
-    "Report how agents' bounded browser tasks went on this environment: passed, blocked, failed and refused calls by harness, mode and fault.",
+    "Report how agents' bounded browser work went on this environment: passed, blocked, failed and refused task calls by harness, mode and fault, and the browser runs scripts made.",
   ),
   Command.withHandler(({ baseDir, hours, json }) =>
     Effect.gen(function* () {
@@ -146,10 +252,14 @@ export const browserReportCommand = Command.make("report", {
       const now = yield* DateTime.now;
       const since = DateTime.formatIso(DateTime.subtractDuration(now, Duration.hours(hours)));
       const summary = summarizeTaskCalls(readTaskCallRows(config.dbPath, since));
+      const runs = summarizeBrowserRuns(readBrowserRunRows(config.dbPath, since));
       yield* Console.log(
         json
-          ? formatTaskCallJson(since, summary)
-          : formatTaskCallReport(summary, `last ${hours} hours`),
+          ? formatRunJson(since, summary, runs)
+          : [
+              formatTaskCallReport(summary, `last ${hours} hours`),
+              formatBrowserRunReport(runs, `last ${hours} hours`),
+            ].join("\n\n"),
       );
     }),
   ),

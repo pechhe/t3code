@@ -580,7 +580,7 @@ function AccessGatedProviderSettings({
 const NO_PROJECT_IDS: readonly ProjectId[] = [];
 const NO_FAVORITES: UnifiedSettings["favorites"] = [];
 
-export function EnvironmentProviderSettings({
+function EnvironmentProviderSettings({
   environmentId,
   environmentLabel,
   readOnly = false,

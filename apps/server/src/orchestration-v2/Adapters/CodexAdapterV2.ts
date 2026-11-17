@@ -1629,6 +1629,7 @@ export function codexThreadRuntimeParams(input: {
       ...(input.threadId == null
         ? {}
         : { [`shell_environment_policy.set.${PortScanner.AGENT_THREAD_ENV}`]: input.threadId }),
+      ...(input.threadId == null ? {} : codexAgentCommandEnvironmentConfig(mcpSession)),
       ...(compactLimit === undefined
         ? {}
         : {
@@ -1723,6 +1724,20 @@ function readCodexProtocolPath(value: unknown, ...path: ReadonlyArray<string>): 
 }
 
 const CODEX_THREAD_ENV_CONFIG_KEY = `shell_environment_policy.set.${PortScanner.AGENT_THREAD_ENV}`;
+
+/**
+ * The agent's own commands' browser-run endpoint and credential, set beside the thread id so
+ * `t3 browser run` acts as this thread. Never the session's own MCP bearer.
+ */
+const codexAgentCommandEnvironmentConfig = (
+  mcpSession: McpProviderSession.McpProviderSessionConfig | undefined,
+): Readonly<Record<string, string>> =>
+  Object.fromEntries(
+    Object.entries(McpProviderSession.agentCommandEnvironment(mcpSession)).map(([name, value]) => [
+      `shell_environment_policy.set.${name}`,
+      value,
+    ]),
+  );
 
 /**
  * One app-server serves every Codex thread on an instance, so each frame is routed to the

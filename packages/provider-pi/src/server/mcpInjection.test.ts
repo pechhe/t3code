@@ -75,6 +75,38 @@ describe("pi T3 MCP injection", () => {
       assert.isUndefined(standalone.env[T3_PI_INSTRUCTIONS_ENV]);
     },
   );
+  it("passes the thread's browser-run credential to the Pi process and drops an inherited one", () => {
+    const launch = buildPiRpcLaunch({
+      launchArgs: [],
+      environment: {
+        T3_BROWSER_RUN_URL: "http://127.0.0.1:9999/stale",
+        T3_BROWSER_RUN_TOKEN: "stale-token",
+      },
+      mcpSession: {
+        ...mcpSession,
+        browserRunEnvironment: {
+          T3_BROWSER_RUN_URL: "http://127.0.0.1:43123/mcp/browser-run",
+          T3_BROWSER_RUN_TOKEN: "browser-run-token",
+        },
+      },
+      extensionPath: "/tmp/cache/pi-t3-mcp-extension.ts",
+    });
+    // Pi's bash tool inherits these, so `t3 browser run` acts as this thread.
+    assert.equal(launch.env.T3_BROWSER_RUN_URL, "http://127.0.0.1:43123/mcp/browser-run");
+    assert.equal(launch.env.T3_BROWSER_RUN_TOKEN, "browser-run-token");
+
+    const withoutRuns = buildPiRpcLaunch({
+      launchArgs: [],
+      environment: {
+        T3_BROWSER_RUN_URL: "http://127.0.0.1:9999/stale",
+        T3_BROWSER_RUN_TOKEN: "stale-token",
+      },
+      mcpSession,
+      extensionPath: "/tmp/cache/pi-t3-mcp-extension.ts",
+    });
+    assert.isUndefined(withoutRuns.env.T3_BROWSER_RUN_URL);
+    assert.isUndefined(withoutRuns.env.T3_BROWSER_RUN_TOKEN);
+  });
   it("always adds the permission bridge and configures MCP when available", () => {
     const resolvedArgs = resolvePiLaunchArgs(
       "--extension=/home/user/.pi/agent/extensions/demo.ts --session-dir=/tmp/pi-sessions --provider=anthropic --model=claude-sonnet --tools='' --name=-review --extension-flag=kept",

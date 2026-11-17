@@ -4,6 +4,7 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
+import { removedPathFiles } from "./lib/fork-removed-paths.ts";
 import { requireRepositoryNode } from "./fork-upstream-receipt.ts";
 
 export { requireRepositoryNode };
@@ -85,13 +86,44 @@ export function conflictFiles(repo: string, fork: string, upstream: string): rea
   return result.stdout.trim().split("\n").slice(1).filter(Boolean);
 }
 
+// Deletes the files the fork removed from upstream, which an upstream merge restores. In a Git
+// checkout the deletion is staged too, so it settles a modify/delete conflict; a jj workspace
+// records the deletion itself.
+export function dropUpstreamRemovals(
+  repo: string,
+  paths?: ReadonlyArray<string>,
+): ReadonlyArray<string> {
+  const files = removedPathFiles(repo, paths);
+  if (files.length === 0) return files;
+  for (const file of files) NodeFS.rmSync(NodePath.join(repo, file), { force: true });
+  if (NodeFS.existsSync(NodePath.join(repo, ".git"))) {
+    NodeChildProcess.execFileSync(
+      "git",
+      ["-C", repo, "rm", "--quiet", "--force", "--cached", "--", ...files],
+      {
+        stdio: "ignore",
+      },
+    );
+  }
+  return files;
+}
+
 if (import.meta.main) {
   try {
-    const [fork, upstream, repo = process.cwd()] = process.argv.slice(2);
-    requireRepositoryNode(repo, true);
-    if (!fork || !upstream)
-      throw new Error("usage: fork-reconcile.ts <fork commit> <upstream commit> [repository]");
-    for (const file of conflictFiles(repo, fork, upstream)) process.stdout.write(`${file}\n`);
+    const [first, second] = process.argv.slice(2);
+    if (first === "drop") {
+      const repo = second ?? process.cwd();
+      requireRepositoryNode(repo, true);
+      for (const file of dropUpstreamRemovals(repo)) process.stdout.write(`${file}\n`);
+    } else {
+      const [fork, upstream, repo = process.cwd()] = process.argv.slice(2);
+      requireRepositoryNode(repo, true);
+      if (!fork || !upstream)
+        throw new Error(
+          "usage: fork-reconcile.ts <fork commit> <upstream commit> [repository] | drop [repository]",
+        );
+      for (const file of conflictFiles(repo, fork, upstream)) process.stdout.write(`${file}\n`);
+    }
   } catch (error) {
     process.stderr.write(`${(error as Error).message}\n`);
     process.exitCode = 1;

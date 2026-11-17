@@ -62,6 +62,47 @@ describe("ACP MCP context", () => {
     assert.equal(context.processEnvironment?.T3_ACP_MCP_AUTHORIZATION, "Bearer t3-credential");
   });
 
+  it("gives the agent's shells its thread's browser-run credential, never its own bearer", () => {
+    const withRuns = acpMcpContext(
+      {
+        environmentId: EnvironmentId.make("environment-acp-browser-run"),
+        threadId: ThreadId.make("thread-acp-browser-run"),
+        providerSessionId: "mcp-session-acp-browser-run",
+        providerInstanceId: ProviderInstanceId.make("grok"),
+        endpoint: "http://127.0.0.1:43123/mcp",
+        authorizationHeader: "Bearer t3-credential",
+        browserToolsAvailable: true,
+        browserRunEnvironment: {
+          T3_BROWSER_RUN_URL: "http://127.0.0.1:43123/mcp/browser-run",
+          T3_BROWSER_RUN_TOKEN: "browser-run-token",
+        },
+      },
+      self,
+      true,
+    );
+    assert.equal(withRuns.processEnvironment?.T3CODE_THREAD_ID, "thread-acp-browser-run");
+    assert.equal(
+      withRuns.processEnvironment?.T3_BROWSER_RUN_URL,
+      "http://127.0.0.1:43123/mcp/browser-run",
+    );
+    assert.equal(withRuns.processEnvironment?.T3_BROWSER_RUN_TOKEN, "browser-run-token");
+
+    const withoutRuns = acpMcpContext(
+      {
+        environmentId: EnvironmentId.make("environment-acp-browser-run"),
+        threadId: ThreadId.make("thread-acp-browser-run"),
+        providerSessionId: "mcp-session-acp-browser-run",
+        providerInstanceId: ProviderInstanceId.make("grok"),
+        endpoint: "http://127.0.0.1:43123/mcp",
+        authorizationHeader: "Bearer t3-credential",
+        browserToolsAvailable: true,
+      },
+      self,
+      true,
+    );
+    assert.isUndefined(withoutRuns.processEnvironment?.T3_BROWSER_RUN_TOKEN);
+  });
+
   it("bridges agent servers for a thread without a T3 session", () => {
     const context = acpMcpContext(undefined, self, false, [weave]);
     assert.deepEqual(

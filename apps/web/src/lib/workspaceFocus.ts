@@ -97,7 +97,7 @@ function revealInScrollers(target: HTMLElement) {
 }
 
 /** Keeps area focus local, like VS Code's layout service focusPart/visible-neighbour actions. */
-export function createWorkspaceFocusController(doc: Document) {
+function createWorkspaceFocusController(doc: Document) {
   const lastFocused = new Map<string, HTMLElement>();
   let lastArea: string | undefined;
   // An area that took focus itself from the keyboard, or the non-tabbable default (the
