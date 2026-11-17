@@ -344,6 +344,57 @@ it("compares against an explicit ref instead of the closest remote main", async 
   assert.strictEqual(result.ref, "origin/main");
 });
 
+// A SlipJay workspace is a jj workspace without a .git of its own, so Git there resolves the
+// integration checkout's store: its HEAD, index and work tree belong to that other change.
+it("lists a SlipJay jj workspace's change against the integration branch", () => {
+  // The workspace is a sibling of the repository, as SlipJay's are, so no ancestor .git
+  // stands in for the one it does not have.
+  const parent = NodeFS.realpathSync(
+    NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-check-changed-jj-")),
+  );
+  const root = NodePath.join(parent, "repo");
+  try {
+    const write = (dir: string, file: string, content: string) => {
+      NodeFS.mkdirSync(NodePath.dirname(NodePath.join(dir, file)), { recursive: true });
+      NodeFS.writeFileSync(NodePath.join(dir, file), content);
+    };
+    const git = (...args: Array<string>) =>
+      NodeChildProcess.execFileSync("git", args, { cwd: root, encoding: "utf8", env }).trim();
+    const jj = (...args: Array<string>) =>
+      NodeChildProcess.execFileSync("jj", args, {
+        cwd: root,
+        encoding: "utf8",
+        env,
+        stdio: "pipe",
+      }).trim();
+    NodeFS.mkdirSync(root);
+    write(root, "package.json", JSON.stringify({ engines: { node: process.versions.node } }));
+    write(root, "slipjay.json", JSON.stringify({ integrationBranch: "t3peach", remote: "origin" }));
+    write(root, "edited.ts", "export const edited = 1;\n");
+    git("init");
+    git("add", ".");
+    git("commit", "-m", "integration");
+    const integration = git("rev-parse", "HEAD");
+    git("update-ref", "refs/remotes/origin/t3peach", integration);
+    jj("git", "init", "--colocate");
+    const workspace = NodePath.join(parent, "workspace");
+    jj("workspace", "add", workspace, "-r", integration);
+    NodeFS.rmSync(NodePath.join(workspace, ".git"), { recursive: true, force: true });
+    write(workspace, "edited.ts", "export const edited = 2;\n");
+    write(workspace, "added.ts", "export const added = 1;\n");
+
+    const result = NodeChildProcess.spawnSync(
+      process.execPath,
+      [NodePath.join(import.meta.dirname, "check-changed.ts"), "--repo", workspace, "--list"],
+      { encoding: "utf8", env },
+    );
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(result.stdout.trim().split("\n")).toEqual(["added.ts", "edited.ts"]);
+  } finally {
+    NodeFS.rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 function launcherFixture(extra: Record<string, string> = {}) {
   const root = NodeFS.realpathSync(
     NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3 checks & (fixture) ")),

@@ -41,7 +41,13 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import { decide, readWorkspace } from "../.github/scripts/ci-changes.cjs";
 import { vitePlusCommand } from "./check-changed-command.ts";
-import { gitRepository, reconciliationFiles, requireRepositoryNode } from "./fork-reconcile.ts";
+import {
+  gitRepository,
+  reconciliationFiles,
+  requireRepositoryNode,
+  sharedStoreWorkspace,
+  workspaceRevision,
+} from "./fork-reconcile.ts";
 import { importerTests, TEST_FILE_WORKERS } from "./lib/test-selection.ts";
 
 const GiB = 1024 ** 3;
@@ -177,23 +183,29 @@ export const comparisonBase = Effect.fn("checkChanged.comparisonBase")(function*
   root: string,
   explicitRef: Option.Option<string>,
 ) {
+  // Git in a SlipJay workspace would compare the store's HEAD, which is the integration
+  // checkout's; the change under test is the workspace's revision.
+  const store = gitRepository(root);
+  const head = sharedStoreWorkspace(root) ? workspaceRevision(root) : "HEAD";
   const configured = Option.isSome(explicitRef) ? Option.none() : yield* slipJayRef(root);
   const candidates = Option.isSome(explicitRef)
     ? [{ ref: explicitRef.value, rev: explicitRef.value }]
     : Option.isSome(configured)
       ? [{ ref: configured.value, rev: "refs/remotes/" + configured.value }]
-      : (yield* gitLines(root, ["remote"])).map((name) => ({
+      : (yield* gitLines(store, ["remote"])).map((name) => ({
           ref: name + "/main",
           rev: "refs/remotes/" + name + "/main",
         }));
   let closest: { ref: string; base: string; ahead: number } | undefined;
   for (const { ref, rev } of candidates) {
-    const base = yield* git(root, ["merge-base", "HEAD", rev]).pipe(
+    const base = yield* git(store, ["merge-base", head, rev]).pipe(
       Effect.map((stdout) => stdout.toString().trim()),
       Effect.orElseSucceed(() => undefined),
     );
     if (!base) continue;
-    const ahead = Number((yield* git(root, ["rev-list", "--count", base + "..HEAD"])).toString());
+    const ahead = Number(
+      (yield* git(store, ["rev-list", "--count", base + ".." + head])).toString(),
+    );
     if (!closest || ahead < closest.ahead) closest = { ref, base, ahead };
   }
   if (!closest) {
@@ -285,13 +297,20 @@ const checkChanged = Effect.fn("checkChanged")(function* (input: {
   const { ref, base } = reconciliation
     ? { ref: "reconciliation", base: reconciliation.merge }
     : yield* comparisonBase(root, input.ref);
+  // A SlipJay workspace's change is its jj revision: the store holds no work tree for it, and
+  // jj records every unignored file already, so nothing there is untracked.
+  const jjHead =
+    reconciliation === undefined && sharedStoreWorkspace(root)
+      ? workspaceRevision(root)
+      : undefined;
   // --no-renames lists a rename as its old and new path, as CI does.
   const changedFiles = reconciliation
     ? Effect.succeed(reconciliation.files)
-    : lines("diff", "--name-only", "--no-renames", base, "--");
-  const untrackedFiles = reconciliation
-    ? Effect.succeed([] as string[])
-    : lines("ls-files", "--others", "--exclude-standard");
+    : lines("diff", "--name-only", "--no-renames", base, ...(jjHead ? [jjHead] : []), "--");
+  const untrackedFiles =
+    reconciliation || jjHead
+      ? Effect.succeed([] as string[])
+      : lines("ls-files", "--others", "--exclude-standard");
   const files = [...new Set([...(yield* changedFiles), ...(yield* untrackedFiles)])].sort();
 
   if (input.list) {
@@ -312,6 +331,12 @@ const checkChanged = Effect.fn("checkChanged")(function* (input: {
     const hash = NodeCrypto.createHash("sha256");
     // CI changes test behavior (vite.config.ts rejects .only under CI).
     hash.update(`${process.version}\0${base}\0${ci}\0`);
+    // jj rewrites the revision on any edit, a new untracked file included.
+    hash.update(
+      jjHead
+        ? yield* Effect.try({ try: () => workspaceRevision(root), catch: () => jjHead })
+        : "HEAD",
+    );
     hash.update(
       yield* git(store, [
         "diff",
@@ -320,6 +345,7 @@ const checkChanged = Effect.fn("checkChanged")(function* (input: {
         "--no-ext-diff",
         "--no-textconv",
         base,
+        ...(jjHead ? [jjHead] : []),
         ...(reconciliation ? [reconciliation.rev] : []),
         "--",
         ...(reconciliation ? files : []),
@@ -328,6 +354,8 @@ const checkChanged = Effect.fn("checkChanged")(function* (input: {
     const ignored = reconciliation
       ? []
       : yield* lines(
+          // The store's work tree is the integration checkout; these files are read here.
+          ...(jjHead ? [`--work-tree=${root}`] : []),
           "ls-files",
           "--others",
           "--ignored",
@@ -393,10 +421,12 @@ const checkChanged = Effect.fn("checkChanged")(function* (input: {
   const testDirs = packages
     .filter((pkg) => pkg.hasTest && affected.includes(pkg.name))
     .map((pkg) => pkg.dir);
+  // A jj workspace has no index of its own to list from, so read its revision's tree.
+  const candidateRevision = reconciliation?.rev ?? jjHead;
   const candidates = (
     testDirs.length > 0
-      ? reconciliation
-        ? yield* lines("ls-tree", "-r", "--name-only", reconciliation.rev, "--", ...testDirs)
+      ? candidateRevision
+        ? yield* lines("ls-tree", "-r", "--name-only", candidateRevision, "--", ...testDirs)
         : yield* lines("ls-files", "--", ...testDirs)
       : []
   ).filter((file) => TEST.test(file) && !tests.has(file));

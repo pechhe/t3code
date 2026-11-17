@@ -34,6 +34,14 @@ export function repositoryGit(repo: string, args: readonly string[]): string {
   ).trim();
 }
 
+// A SlipJay workspace is a jj workspace without a Git checkout of its own: Git there reads the
+// store's HEAD, index and work tree, which belong to the integration checkout, not to this change.
+export function sharedStoreWorkspace(repo: string): boolean {
+  return (
+    !NodeFS.existsSync(NodePath.join(repo, ".git")) && NodeFS.existsSync(NodePath.join(repo, ".jj"))
+  );
+}
+
 export function workspaceRevision(repo: string): string {
   if (!NodeFS.existsSync(NodePath.join(repo, ".jj")))
     return repositoryGit(repo, ["rev-parse", "HEAD"]);
