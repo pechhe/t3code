@@ -28,16 +28,6 @@
   ],
   "requiredLandingVerification": [
     {
-      "executable": "pnpm",
-      "args": [
-        "exec",
-        "playwright",
-        "install",
-        "chromium"
-      ],
-      "cwd": "apps/web"
-    },
-    {
       "executable": "node",
       "args": [
         "scripts/test-landing.ts"
