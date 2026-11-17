@@ -414,7 +414,10 @@ describe("t3 browser run command", () => {
         "--",
         "two",
         "--three",
-      ]);
+      ]).pipe(
+        // An agent's own environment can carry a run credential, which outranks --base-dir.
+        Effect.provideService(HostProcess.Environment, {}),
+      );
       // Parsing succeeded: only the missing server is reported, as one JSON object and exit 1.
       const output = yield* decodeOutput(written.trim()).pipe(Effect.orDie);
       assert.isFalse(output.ok);
