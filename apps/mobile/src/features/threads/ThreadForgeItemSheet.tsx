@@ -4,13 +4,17 @@ import {
   forgeItemLabel,
   forgeItemNumberHint,
   buildSessionLabel,
-  buildStatusLabel,
   buildStatusTone,
   describeForgeWait,
   presentForgeCardKind,
   presentSpecTickets,
 } from "@t3tools/client-runtime/state/forge-work-items";
-import type { ForgeWorkItemCard, EnvironmentId, ThreadId } from "@t3tools/contracts";
+import {
+  buildStatusLabel,
+  type ForgeWorkItemCard,
+  type EnvironmentId,
+  type ThreadId,
+} from "@t3tools/contracts";
 import { formatThreadLink } from "@t3tools/shared/threadLinks";
 import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { type ReactNode, useState } from "react";

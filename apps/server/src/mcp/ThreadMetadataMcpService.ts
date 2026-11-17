@@ -107,16 +107,6 @@ function metadataCommand(input: {
         threadId: input.threadId,
         linkedPullRequest: null,
       };
-    case "set_workflow":
-      return {
-        type: "thread.metadata.update",
-        commandId: input.commandId,
-        threadId: input.threadId,
-        workflow:
-          input.update.workflow == null
-            ? null
-            : { kind: input.update.workflow.kind, unattended: false },
-      };
   }
 }
 
@@ -126,14 +116,7 @@ function resultFromThread(input: {
   readonly sequence: number;
   readonly thread: Pick<
     OrchestrationV2AppThread,
-    | "id"
-    | "title"
-    | "titleRegeneration"
-    | "linkedPullRequest"
-    | "workflow"
-    | "workItem"
-    | "arcRun"
-    | "updatedAt"
+    "id" | "title" | "titleRegeneration" | "linkedPullRequest" | "workItem" | "arcRun" | "updatedAt"
   >;
 }): ThreadMetadataMcpUpdateResult {
   return {
@@ -150,7 +133,6 @@ function resultFromThread(input: {
             startedAt: DateTime.formatIso(input.thread.titleRegeneration.startedAt),
           },
     linkedPullRequest: input.thread.linkedPullRequest ?? null,
-    workflow: input.thread.workflow ?? null,
     workItem: input.thread.workItem ?? null,
     ...(input.thread.arcRun === undefined ? {} : { arcRun: input.thread.arcRun }),
     updatedAt: DateTime.formatIso(input.thread.updatedAt),

@@ -11,7 +11,6 @@ import {
   type OrchestrationV2ProviderThread,
   type OrchestrationV2TurnItem,
   OrchestrationV2StoredEvent,
-  OrchestrationV2ThreadWorkflow,
   ProviderThreadId,
   RunAttemptId,
   RunId,
@@ -44,10 +43,6 @@ import * as EventStore from "./EventStore.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
-
-const decodeWorkflow = Schema.decodeUnknownEffect(
-  Schema.fromJsonString(OrchestrationV2ThreadWorkflow),
-);
 
 /**
  * ERRORS
@@ -571,14 +566,11 @@ const layerBase: Layer.Layer<
             const rows = yield* sql<{
               readonly status: string;
               readonly active_attempt_id: string | null;
-              readonly workflow_json: string | null;
             }>`
             SELECT
               r.status,
-              json_extract(r.payload_json, '$.activeAttemptId') AS active_attempt_id,
-              json_extract(t.payload_json, '$.workflow') AS workflow_json
+              json_extract(r.payload_json, '$.activeAttemptId') AS active_attempt_id
             FROM orchestration_v2_projection_runs r
-            LEFT JOIN orchestration_v2_projection_threads t ON t.thread_id = r.thread_id
             WHERE r.run_id = ${input.runId}
               AND r.thread_id = ${input.threadId}
             LIMIT 1
@@ -613,26 +605,10 @@ const layerBase: Layer.Layer<
               }
             }
 
-            // A starting run records the thread's workflow, read inside this commit so
-            // no metadata update can land between the read and the start.
-            const workflow =
-              current.workflow_json === null
-                ? null
-                : yield* decodeWorkflow(current.workflow_json).pipe(
-                    Effect.orElseSucceed(() => null),
-                  );
-            const events = input.events.map((event) =>
-              event.type === "run.updated" &&
-              event.payload.id === input.runId &&
-              event.payload.status === "running" &&
-              input.expectedStatus !== "running"
-                ? { ...event, payload: { ...event.payload, workflow } }
-                : event,
-            );
             const normalized = yield* normalizeEvents(
               input.guardPendingUserInputCancellations === true
-                ? yield* guardUserInputCancellations(events)
-                : events,
+                ? yield* guardUserInputCancellations(input.events)
+                : input.events,
             );
             const storedEvents = yield* eventStore.append({
               ...(input.commandId === undefined ? {} : { commandId: input.commandId }),

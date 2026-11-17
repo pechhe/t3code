@@ -6242,13 +6242,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               ...(command.keepSideChat === true
                 ? { sideChat: false, lineage: { ...thread.lineage, sideChat: false } }
                 : {}),
-              // Away is environment-wide now; an older client may still send a per-thread stance.
-              ...(command.workflow === undefined
-                ? {}
-                : {
-                    workflow:
-                      command.workflow === null ? null : { ...command.workflow, unattended: false },
-                  }),
               ...(command.workItem === undefined ? {} : { workItem: command.workItem }),
               ...(command.workspaceReplaced === undefined
                 ? {}

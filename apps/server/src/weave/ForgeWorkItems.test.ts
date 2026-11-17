@@ -6,6 +6,7 @@ import {
   type OrchestrationV2ThreadWorkItem,
   ThreadId,
 } from "@t3tools/contracts";
+import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -270,8 +271,9 @@ const makeHarness = Effect.gen(function* () {
         return { sequence: dispatched.length, storedEvents: [] };
       }),
   });
-  const service = yield* Effect.service(ForgeWorkItems.ForgeWorkItems).pipe(
-    Effect.provide(
+  // Built in the test's scope, which background reads run under, as the server's scope in production.
+  const service = Context.get(
+    yield* Layer.build(
       ForgeWorkItems.layer.pipe(
         Layer.provide(
           Layer.mergeAll(
@@ -282,6 +284,7 @@ const makeHarness = Effect.gen(function* () {
         ),
       ),
     ),
+    ForgeWorkItems.ForgeWorkItems,
   );
   const buildReads = () =>
     harness.weave.toolCalls.filter((call) => call.args.itemId !== undefined).length;
@@ -575,6 +578,73 @@ it.effect("keeps the last known item when Weave is unreachable or the observer i
     assert.isTrue(revoked?.unavailable);
     assert.strictEqual(revoked?.item?.status, "in_progress");
     assertNoSecretsIn(unreachable, revoked);
+  }),
+);
+
+it.effect("gives a turn only what clients' reads left in the cache, never reading Weave", () =>
+  Effect.gen(function* () {
+    const { weave, service, add, connections } = yield* makeHarness;
+    add(item(1_000_078, "spec", "Show the Forge item", "in_progress"));
+    const { workItem } = yield* service.link({ threadId, reference: "#1000078" });
+    const link = workItem!;
+    const calls = weave.toolCalls.length;
+    assert.isTrue(Option.isNone(yield* service.cachedSummary(link)));
+    assert.strictEqual(weave.toolCalls.length, calls);
+
+    yield* service.view(threadId);
+    const read = weave.toolCalls.length;
+    const cached = Option.getOrNull(yield* service.cachedSummary(link));
+    assert.deepStrictEqual(
+      { title: cached?.title, status: cached?.status },
+      { title: "Show the Forge item", status: "in_progress" },
+    );
+    assert.strictEqual(weave.toolCalls.length, read);
+
+    // Older than a shown item can be: the server's longest back-off plus one client re-request.
+    yield* TestClock.adjust(5 * 60_000 + 1);
+    assert.isTrue(Option.isNone(yield* service.cachedSummary(link)));
+
+    weave.state.unreachable = true;
+    yield* service.view(threadId);
+    assert.isTrue(Option.isNone(yield* service.cachedSummary(link)));
+
+    weave.state.unreachable = false;
+    yield* TestClock.adjust(60_000);
+    yield* service.view(threadId);
+    assert.isTrue(Option.isSome(yield* service.cachedSummary(link)));
+    yield* connections.connect({ origin: otherOrigin, delegation: `yshqd_${"e".repeat(43)}` });
+    assert.isTrue(Option.isNone(yield* service.cachedSummary(link)));
+  }),
+);
+
+it.effect("warms a cold item in the background at a client's cadence, swallowing failures", () =>
+  Effect.gen(function* () {
+    const { weave, service, add, buildReads, connections } = yield* makeHarness;
+    add(item(1_000_078, "spec", "Show the Forge item", "in_progress"));
+    const { workItem } = yield* service.link({ threadId, reference: "#1000078" });
+    const link = workItem!;
+    assert.isTrue(Option.isNone(yield* service.cachedSummary(link)));
+
+    yield* Fiber.join(yield* service.warmSummary(link));
+    assert.strictEqual(Option.getOrNull(yield* service.cachedSummary(link))?.status, "in_progress");
+    const reads = buildReads();
+    // Within the view's once-a-minute cadence a second warm reads nothing.
+    yield* Fiber.join(yield* service.warmSummary(link));
+    assert.strictEqual(buildReads(), reads);
+
+    // A failed read is swallowed and leaves no summary for a turn to state.
+    weave.state.unreachable = true;
+    yield* TestClock.adjust(5 * 60_000 + 1);
+    yield* Fiber.join(yield* service.warmSummary(link));
+    assert.isTrue(Option.isNone(yield* service.cachedSummary(link)));
+
+    // A link made against another Weave reads nothing there.
+    weave.state.unreachable = false;
+    yield* connections.connect({ origin: otherOrigin, delegation: `yshqd_${"e".repeat(43)}` });
+    const calls = weave.toolCalls.length;
+    yield* TestClock.adjust(5 * 60_000);
+    yield* Fiber.join(yield* service.warmSummary(link));
+    assert.strictEqual(weave.toolCalls.length, calls);
   }),
 );
 

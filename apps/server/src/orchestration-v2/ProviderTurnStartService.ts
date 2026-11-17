@@ -13,7 +13,10 @@ import {
 } from "@t3tools/shared/providerPools";
 import { projectComposerContextForProvider } from "@t3tools/shared/composerContextReferences";
 import {
+  buildStatusLabel,
   CommandId,
+  type ForgeWorkItemKind,
+  type ForgeWorkItemSummary,
   latestProviderTurnForAttempt,
   resolveClaudeCompactionSetting,
   type OrchestrationV2ContextHandoff,
@@ -64,6 +67,7 @@ import * as ServerConfig from "../config.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import { delegationStanceNote } from "../agents/delegationStanceNote.ts";
+import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
@@ -165,6 +169,26 @@ const workspacesNote = (workspaces: ReadonlyArray<TurnWorkspace>, managed = fals
  */
 const projectFolderNote = (folder: string): string =>
   `This project is the \`${folder}\` folder of its repository. This turn starts at the repository root so it can also change shared code. Work on that folder's product and read the instruction files in \`${folder}\` before changing it.`;
+
+const FORGE_KIND_LABELS: Record<ForgeWorkItemKind, string> = {
+  spec: "Spec",
+  ticket: "Ticket",
+  arc: "Arc",
+};
+
+/**
+ * The Forge item a thread is linked to, stated as facts on every turn so it survives compaction.
+ * Without a summary T3 already holds, only the number: a turn never waits on Weave for it.
+ */
+const linkedForgeItemNote = (
+  number: number,
+  summary: Option.Option<ForgeWorkItemSummary>,
+): string =>
+  Option.match(summary, {
+    onNone: () => `This thread is linked to Forge item #${number}.`,
+    onSome: (item) =>
+      `This thread is linked to ${FORGE_KIND_LABELS[item.kind]} ${item.ref ?? `#${number}`} "${item.title}" (${buildStatusLabel(item.status)}).`,
+  });
 
 /**
  * Sent with the turn that runs in a SlipJay workspace allocated after SlipJay removed the
@@ -349,6 +373,8 @@ export const layer: Layer.Layer<
     const providerRegistry = yield* Effect.serviceOption(ProviderRegistry.ProviderRegistry);
     // Optional: a layer without managed agents has no chore worker to fall back on.
     const managedAgents = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
+    // Optional: a layer without Forge links states only the linked item's number.
+    const forgeWorkItems = yield* Effect.serviceOption(ForgeWorkItems.ForgeWorkItems);
     const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
     const providerSessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
     const runExecution = yield* RunExecutionService.RunExecutionServiceV2;
@@ -2494,6 +2520,23 @@ export const layer: Layer.Layer<
                   .pipe(Effect.orDie)).stance,
                 projection.thread.agentTask?.sourceAccess === "read-only",
               );
+        const workItem = projection.thread.workItem ?? null;
+        const workItemSummary =
+          slashCommand || workItem === null || Option.isNone(forgeWorkItems)
+            ? Option.none()
+            : yield* forgeWorkItems.value.cachedSummary(workItem);
+        // A thread nobody has open has no cached read: start one so a later turn has the details.
+        if (
+          !slashCommand &&
+          workItem !== null &&
+          Option.isSome(forgeWorkItems) &&
+          Option.isNone(workItemSummary)
+        )
+          yield* forgeWorkItems.value.warmSummary(workItem).pipe(Effect.ignoreCause);
+        const workItemNote =
+          slashCommand || workItem === null
+            ? ""
+            : linkedForgeItemNote(workItem.number, workItemSummary);
         const arcRunNote =
           projection.thread.arcRun === undefined ||
           goalCommand ||
@@ -2528,6 +2571,7 @@ export const layer: Layer.Layer<
                 : sideChatHandoff.summaryText;
             const context = [
               compact ? "" : stanceNote,
+              compact ? "" : workItemNote,
               delivery.context,
               sideChatContext,
               restartNote,
@@ -2621,6 +2665,7 @@ export const layer: Layer.Layer<
         );
         const deliverySession =
           stanceNote === "" &&
+          workItemNote === "" &&
           effectiveHandoffs.length === 0 &&
           retryHandoff.length === 0 &&
           sideChatHandoff === undefined &&

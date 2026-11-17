@@ -1,5 +1,6 @@
 import {
   WS_METHODS,
+  buildStatusLabel,
   type ForgeArcRunDetail,
   type ForgeArcRunSpec,
   type ForgeArcRunSummary,
@@ -125,22 +126,6 @@ export function buildStatusTone(item: { readonly status: string } | null): Forge
       return "unknown";
   }
 }
-
-const BUILD_STATUS_LABELS: Record<string, string> = {
-  inbox: "Inbox",
-  shaping: "Shaping",
-  ready: "Ready",
-  in_progress: "In progress",
-  landed: "Landed",
-  accepted: "Accepted",
-  open: "Open",
-  achieved: "Achieved",
-  dropped: "Dropped",
-  proposed: "Proposed",
-  superseded: "Superseded",
-};
-
-export const buildStatusLabel = (status: string) => BUILD_STATUS_LABELS[status] ?? status;
 
 const buildKindGlyph = (kind: ForgeWorkItemSummary["kind"] | undefined) =>
   kind === "ticket" ? "▢" : kind === "arc" ? "◈" : "◇";

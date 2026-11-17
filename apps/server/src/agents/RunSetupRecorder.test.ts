@@ -43,7 +43,6 @@ const run = {
   id: RunId.make("run:setup:1"),
   threadId,
   modelSelection: { instanceId: "codex", model: "gpt-6.1-sol" },
-  workflow: { kind: "lead", unattended: false },
 } as never;
 const thread = {
   lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
@@ -142,7 +141,7 @@ describe("captureRunSetup", () => {
         policyRevision: "2026-10-15.4",
       });
       assert.deepEqual(record.experimentAssignments, [{ experimentId: "trial", variantId: "a" }]);
-      assert.deepEqual(record.workflow, { kind: "lead", unattended: true });
+      assert.isTrue(record.away);
       // No effort was chosen, so the provider default is what the run used.
       assert.deepEqual(record.effectiveOptions, [{ id: "reasoningEffort", value: "medium" }]);
     }).pipe(Effect.scoped, Effect.provide(layer)),
@@ -213,7 +212,6 @@ describe("setupReport", () => {
       ordinal,
       status: startedAt === null ? "cancelled" : "completed",
       modelSelection: { instanceId, model: "m" },
-      workflow: null,
       requestedAt: started,
       startedAt,
     }) as never as OrchestrationV2Run;
@@ -293,6 +291,32 @@ describe("setupReport", () => {
     }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );
 
+  it.effect("reports Away from a record, from an older record's workflow, or as unknown", () =>
+    Effect.gen(function* () {
+      const runs = [runOf(3, "codex"), runOf(2, "codex"), runOf(1, "codex")];
+      const legacy = decodeStored(
+        JSON.stringify({
+          ...RunSetup.uncapturedRunSetup(runs[1]!, "2026-10-16T00:00:01.000Z"),
+          workflow: { kind: "chat", unattended: true },
+        }),
+      );
+      const report = yield* RunSetup.setupReport({
+        runs,
+        records: [
+          { ...RunSetup.uncapturedRunSetup(runs[0]!, "2026-10-16T00:00:01.000Z"), away: false },
+          legacy,
+        ],
+        turnItems: [],
+        driverOf,
+      });
+      assert.deepEqual(
+        report.map((entry) => entry.away),
+        [false, true, null],
+      );
+      assert.notProperty(report[1]!, "workflow");
+    }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
+  );
+
   it.effect("summarises files by count and digest and lists them only on request", () =>
     Effect.gen(function* () {
       const runs = [runOf(3, "claude"), runOf(2, "claude"), runOf(1, "claude")];
@@ -338,7 +362,6 @@ describe("setupReport size", () => {
             ordinal: index + 1,
             status: "completed",
             modelSelection: { instanceId: "claude", model: "m" },
-            workflow: null,
             requestedAt: started,
             startedAt: started,
           }) as never as OrchestrationV2Run,
@@ -448,7 +471,6 @@ describe("RunSetupStore", () => {
             ordinal: 1,
             status: "running",
             modelSelection: stored!.modelSelection,
-            workflow: null,
             requestedAt: DateTime.makeUnsafe("2026-10-15T10:00:00Z"),
             startedAt: null,
           },
@@ -541,7 +563,6 @@ describe("RunSetupRecorder.record", () => {
       id: RunId.make(`run:setup:${ordinal}`),
       threadId,
       modelSelection: { instanceId: "codex", model: "gpt-6.1-sol" },
-      workflow: { kind: "lead", unattended: false },
     }) as never;
 
   it.effect("gives each run its own record once", () =>
@@ -564,7 +585,7 @@ describe("RunSetupRecorder.record", () => {
         "run:setup:1",
         "run:setup:2",
       ]);
-      assert.deepEqual(records[0]?.workflow, { kind: "lead", unattended: true });
+      assert.isTrue(records[0]?.away);
       const first = records.find((record) => record.runId === "run:setup:1");
       assert.deepEqual(first?.composedPrompt, composed);
       assert.isArray(first?.instructions);

@@ -29,6 +29,7 @@ import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
@@ -46,6 +47,8 @@ import * as WeaveAgentConnections from "./WeaveAgentConnections.ts";
  */
 export const BUILD_REREAD_INTERVAL_MS = 60_000;
 export const BUILD_MAX_REREAD_INTERVAL_MS = 4 * BUILD_REREAD_INTERVAL_MS;
+/** As old as a shown item gets: the server's longest back-off plus one client re-request. */
+const CACHED_SUMMARY_MAX_AGE_MS = BUILD_MAX_REREAD_INTERVAL_MS + BUILD_REREAD_INTERVAL_MS;
 
 /**
  * `fresh` reads Forge now instead of answering from the cache. Writes made outside T3's own Weave
@@ -325,6 +328,23 @@ export class ForgeWorkItems extends Context.Service<
       threadId: ThreadId,
     ) => Effect.Effect<ForgeWorkItemReadResult, ForgeWorkItemError>;
     /**
+     * The linked item's summary from what clients' reads left in the cache, never reading Weave:
+     * none before a read, after a failed one, once it is older than a shown item can be, or for a
+     * link made against another Weave.
+     */
+    readonly cachedSummary: (
+      workItem: OrchestrationV2ThreadWorkItem,
+    ) => Effect.Effect<Option.Option<ForgeWorkItemSummary>>;
+    /**
+     * Starts the read a client's view makes, in the background under the service's scope, so a
+     * later `cachedSummary` has the item. It keeps the view's cadence, swallows every failure and
+     * reads nothing without a connection or for a link made against another Weave. The fiber is
+     * returned only so a caller can await it; a turn never does.
+     */
+    readonly warmSummary: (
+      workItem: OrchestrationV2ThreadWorkItem,
+    ) => Effect.Effect<Fiber.Fiber<void>>;
+    /**
      * The card for an item read from T3's Weave: its summary, Tickets or delivery,
      * and who works on it. A new `open` reads Forge at once; repeating it reads at most once a
      * minute.
@@ -402,6 +422,7 @@ const make = Effect.gen(function* () {
   const numberCache = new Map<string, CachedNumber>();
   const cardCache = new Map<string, CachedCard>();
   const readLock = yield* KeyedLock.make<string>();
+  const serviceScope = yield* Effect.scope;
 
   const shellOf = (threadId: ThreadId) =>
     threads.getThreadShell(threadId).pipe(
@@ -511,6 +532,34 @@ const make = Effect.gen(function* () {
         };
       return yield* summaryView(connection, workItem);
     },
+  );
+
+  const cachedSummary: ForgeWorkItems["Service"]["cachedSummary"] = Effect.fn(
+    "ForgeWorkItems.cachedSummary",
+  )(function* (workItem) {
+    const connection = yield* readConnection.pipe(Effect.orElseSucceed(() => null));
+    if (connection === null || !sameWeaveAddress(workItem.origin, connection.origin))
+      return Option.none();
+    const cached = cache.get(`${connection.connection}\n${workItem.itemId}`);
+    const now = yield* Clock.currentTimeMillis;
+    return cached === undefined ||
+      cached.unavailable ||
+      cached.item === null ||
+      cached.readAt === null ||
+      now - cached.readAt > CACHED_SUMMARY_MAX_AGE_MS
+      ? Option.none()
+      : Option.some(cached.item);
+  });
+
+  const warmSummary: ForgeWorkItems["Service"]["warmSummary"] = Effect.fn(
+    "ForgeWorkItems.warmSummary",
+  )(
+    function* (workItem) {
+      const connection = yield* readConnection;
+      if (connection === null || !sameWeaveAddress(workItem.origin, connection.origin)) return;
+      yield* summaryView(connection, workItem);
+    },
+    (read) => Effect.forkIn(Effect.ignoreCause(read), serviceScope),
   );
 
   /**
@@ -908,6 +957,8 @@ const make = Effect.gen(function* () {
 
   return ForgeWorkItems.of({
     view,
+    cachedSummary,
+    warmSummary,
     card,
     mentions,
     resolve,

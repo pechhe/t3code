@@ -1,8 +1,6 @@
 import { attachThreadsToComposer } from "../chat/threadContextDrag";
 import { backgroundWorkIsOnlyWatches } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { ProjectChip } from "../ProjectChip";
-import { ThreadWorkflowChip } from "../ThreadWorkflowChip";
-import { visibleThreadWorkflow } from "@t3tools/client-runtime/thread-workflow";
 import { toastManager } from "../ui/toast";
 import { useAtomMount } from "@effect/atom-react";
 import { asLaunchingThread } from "@t3tools/client-runtime/state/thread-inbox";
@@ -288,7 +286,6 @@ function SidebarThreadTooltip({
     .filter((instanceId) => instanceId !== modelInstanceId)
     .map((instanceId) => providerEntryByInstanceId.get(instanceId)?.displayName ?? instanceId);
   const supportsMultiplePullRequests = useSupportsMultiplePullRequests(thread.environmentId);
-  const workflowChip = visibleThreadWorkflow(thread.workflow);
   return (
     <ThreadHoverCardPopup side="right" align="start" sideOffset={4}>
       <ThreadHoverCard
@@ -301,16 +298,13 @@ function SidebarThreadTooltip({
           ) : null
         }
       >
-        {projectDisplayName || workflowChip ? (
+        {projectDisplayName ? (
           <div className="flex min-w-0 items-center gap-2">
-            {project && projectDisplayName ? (
+            {project ? (
               <ProjectChip project={project} label={projectDisplayName} />
-            ) : projectDisplayName ? (
+            ) : (
               <div className="min-w-0 truncate text-foreground/75">{projectDisplayName}</div>
-            ) : null}
-            {workflowChip ? (
-              <ThreadWorkflowChip kind={workflowChip.kind} className="shrink-0" />
-            ) : null}
+            )}
           </div>
         ) : null}
         {environmentLabel ? (

@@ -466,6 +466,8 @@ export const layerProduction = Layer.mergeAll(
   ),
   layerWithoutInstructionOverlay.pipe(
     Layer.provide(layerProjectService),
+    // A turn names its linked Forge item from the cache the clients' reads fill.
+    Layer.provide(layerForgeWorkItems),
     Layer.provide(
       ThreadLaunchService.layerReleasedWorkspacePreparation.pipe(
         Layer.provide(layerThreadLaunchProvided),

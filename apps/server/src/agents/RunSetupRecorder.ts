@@ -130,7 +130,7 @@ const skillsIn = Effect.fn("RunSetupRecorder.skillsIn")(function* (
  * left out; capture never fails, so a missing agent-config checkout cannot stop a run.
  */
 export const captureRunSetup = Effect.fn("RunSetupRecorder.captureRunSetup")(function* (input: {
-  readonly run: Pick<OrchestrationV2Run, "id" | "threadId" | "modelSelection" | "workflow"> &
+  readonly run: Pick<OrchestrationV2Run, "id" | "threadId" | "modelSelection"> &
     Partial<Pick<OrchestrationV2Run, "ordinal">>;
   readonly thread: Pick<OrchestrationV2AppThread, "lineage" | "creationSource">;
   readonly workingDirectory: string | null;
@@ -142,7 +142,7 @@ export const captureRunSetup = Effect.fn("RunSetupRecorder.captureRunSetup")(fun
   }>;
   readonly instructionOverlay: InstructionOverlay.AssignedInstructionOverlay | null;
   readonly policy: (root: string) => Effect.Effect<{ hash: string; sourceRevision: string } | null>;
-  /** Whether Away was on as the run started; a thread's own workflow no longer carries it. */
+  /** Whether Away was on as the run started. */
   readonly away: boolean;
 }) {
   const path = yield* Path.Path;
@@ -182,7 +182,7 @@ export const captureRunSetup = Effect.fn("RunSetupRecorder.captureRunSetup")(fun
               selections: input.run.modelSelection.options,
             }),
           ) ?? []),
-    workflow: input.run.workflow == null ? null : { ...input.run.workflow, unattended: input.away },
+    away: input.away,
     instructionOverlay:
       input.instructionOverlay === null
         ? null
@@ -199,7 +199,7 @@ export const captureRunSetup = Effect.fn("RunSetupRecorder.captureRunSetup")(fun
 
 /** The record kept when capture failed outright: only what the run itself carries is known. */
 export function uncapturedRunSetup(
-  run: Pick<OrchestrationV2Run, "id" | "threadId" | "modelSelection" | "workflow"> &
+  run: Pick<OrchestrationV2Run, "id" | "threadId" | "modelSelection"> &
     Partial<Pick<OrchestrationV2Run, "ordinal">>,
   capturedAt: string,
 ): RunSetupRecord {
@@ -215,7 +215,6 @@ export function uncapturedRunSetup(
     policy: null,
     modelSelection: run.modelSelection,
     effectiveOptions: null,
-    workflow: run.workflow ?? null,
     experimentAssignments: null,
   };
 }
@@ -265,14 +264,7 @@ export function invokedSkills(items: ReadonlyArray<OrchestrationV2TurnItem>, run
 
 type ReportRun = Pick<
   OrchestrationV2Run,
-  | "id"
-  | "threadId"
-  | "ordinal"
-  | "status"
-  | "modelSelection"
-  | "workflow"
-  | "requestedAt"
-  | "startedAt"
+  "id" | "threadId" | "ordinal" | "status" | "modelSelection" | "requestedAt" | "startedAt"
 >;
 
 /**
@@ -331,6 +323,8 @@ export const setupReport = Effect.fn("RunSetupRecorder.setupReport")(function* (
       instructions,
       skills,
       runOrdinal: _runOrdinal,
+      away,
+      workflow,
       ...record
     } = stored.get(run.id) ??
     uncapturedRunSetup(run, DateTime.formatIso(run.startedAt ?? run.requestedAt));
@@ -339,6 +333,7 @@ export const setupReport = Effect.fn("RunSetupRecorder.setupReport")(function* (
       ...record,
       composedPrompt: record.composedPrompt ?? null,
       runOrdinal: run.ordinal,
+      away: away ?? workflow?.unattended ?? null,
       driver,
       status: run.status,
       startedAt: run.startedAt === null ? null : DateTime.formatIso(run.startedAt),

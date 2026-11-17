@@ -21,6 +21,23 @@ export const ForgeItemStatus = Schema.Literals([
 ]);
 export type ForgeItemStatus = typeof ForgeItemStatus.Type;
 
+const BUILD_STATUS_LABELS: Record<string, string> = {
+  inbox: "Inbox",
+  shaping: "Shaping",
+  ready: "Ready",
+  in_progress: "In progress",
+  landed: "Landed",
+  accepted: "Accepted",
+  open: "Open",
+  achieved: "Achieved",
+  dropped: "Dropped",
+  proposed: "Proposed",
+  superseded: "Superseded",
+};
+
+/** A status in the words Forge shows a person; an unknown one as it came. */
+export const buildStatusLabel = (status: string) => BUILD_STATUS_LABELS[status] ?? status;
+
 /**
  * How an agent names a Forge item: its canonical number, or a string in any form T3 reads, such
  * as a friendly ref `YS-12`, `#<number>` or a Forge URL. The server resolves it to the number.

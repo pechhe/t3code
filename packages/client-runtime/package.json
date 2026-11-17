@@ -571,10 +571,6 @@
       "types": "./src/threadWorkspaces.ts",
       "default": "./src/threadWorkspaces.ts"
     },
-    "./thread-workflow": {
-      "types": "./src/threadWorkflow.ts",
-      "default": "./src/threadWorkflow.ts"
-    },
     "./champions": {
       "types": "./src/champions.ts",
       "default": "./src/champions.ts"

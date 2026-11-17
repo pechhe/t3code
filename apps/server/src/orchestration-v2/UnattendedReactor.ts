@@ -49,10 +49,9 @@ const SUBAGENT_DONE = new Set(["completed", "failed", "cancelled", "interrupted"
  */
 const SWEEP_WINDOW_MS = 10 * 60 * 1000;
 
-/** Away covers every top-level thread and Spec lead but a Chat, which has no work to carry on. */
+/** Away covers every top-level thread and Spec lead. */
 function isCovered(thread: OrchestrationV2AppThread, now: DateTime.Utc) {
   return (
-    thread.workflow?.kind !== "chat" &&
     ((thread.lineage.parentThreadId === null && thread.agentTask === undefined) ||
       thread.agentTask?.role === "lead") &&
     thread.archivedAt === null &&
@@ -274,7 +273,6 @@ const make = Effect.gen(function* () {
         json_extract(payload_json, '$.lineage.parentThreadId') IS NULL
         OR json_extract(payload_json, '$.agentTask.role') = 'lead'
       )
-      AND COALESCE(json_extract(payload_json, '$.workflow.kind'), '') <> 'chat'
       AND (
         EXISTS (
           SELECT 1 FROM orchestration_v2_projection_runtime_requests AS request

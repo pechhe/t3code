@@ -1,4 +1,4 @@
-import { updateProject, updateThreadMetadata } from "./commands.ts";
+import { updateProject } from "./commands.ts";
 import {
   CheckpointId,
   CheckpointRef,
@@ -703,39 +703,6 @@ describe("V2 environment commands", () => {
               ],
         );
       }).pipe(Effect.provide(layerTestRandom)),
-  );
-
-  it.effect("sends a workflow set or clear through the metadata command", () =>
-    Effect.gen(function* () {
-      const commands: OrchestrationV2Command[] = [];
-      const supervisor = yield* makeSupervisor({ commands, projects: [] });
-
-      yield* updateThreadMetadata({
-        commandId: CommandId.make("set-workflow"),
-        threadId: v2ThreadId,
-        workflow: { kind: "shape", unattended: true },
-      }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
-      yield* updateThreadMetadata({
-        commandId: CommandId.make("clear-workflow"),
-        threadId: v2ThreadId,
-        workflow: null,
-      }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
-
-      expect(commands).toEqual([
-        {
-          type: "thread.metadata.update",
-          commandId: "set-workflow",
-          threadId: v2ThreadId,
-          workflow: { kind: "shape", unattended: true },
-        },
-        {
-          type: "thread.metadata.update",
-          commandId: "clear-workflow",
-          threadId: v2ThreadId,
-          workflow: null,
-        },
-      ]);
-    }).pipe(Effect.provide(layerTestRandom)),
   );
 
   it.effect("validates identified checkpoints locally for older servers", () =>

@@ -3038,81 +3038,60 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
     }).pipe(Effect.provide(Layer.fresh(layerTest))),
   );
 
-  it.effect("stamps a starting run with the workflow in force at its start commit", () =>
+  it.effect("reads a thread and run stored with the retired workflow", () =>
     Effect.gen(function* () {
       const eventSink = yield* EventSink.EventSinkV2;
       const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
+      const sql = yield* SqlClient.SqlClient;
       const now = yield* DateTime.now;
-      const threadId = ThreadId.make("thread:foundation-run-workflow");
-      const runId = RunId.make("run:foundation-run-workflow");
-      const attemptId = RunAttemptId.make("run-attempt:foundation-run-workflow");
-      const thread: OrchestrationV2AppThread = {
-        ...makeThread(threadId, now),
-        workflow: { kind: "lead", unattended: false },
-      };
-      const startingRun: OrchestrationV2Run = {
+      const threadId = ThreadId.make("thread:foundation-legacy-workflow");
+      const runId = RunId.make("run:foundation-legacy-workflow");
+      const thread = makeThread(threadId, now);
+      const run: OrchestrationV2Run = {
         id: runId,
         threadId,
         ordinal: 1,
         providerInstanceId,
         modelSelection,
         providerThreadId: null,
-        userMessageId: MessageId.make("message:foundation-run-workflow"),
+        userMessageId: MessageId.make("message:foundation-legacy-workflow"),
         rootNodeId: null,
-        activeAttemptId: attemptId,
-        status: "starting",
+        activeAttemptId: null,
+        status: "completed",
         queuePosition: null,
         requestedAt: now,
-        startedAt: null,
-        completedAt: null,
+        startedAt: now,
+        completedAt: now,
         checkpointId: null,
         contextHandoffId: null,
       };
       yield* eventSink.write({
         events: [
-          threadCreatedEvent({ id: "event:foundation-run-workflow:thread", thread, now }),
+          threadCreatedEvent({ id: "event:foundation-legacy-workflow:thread", thread, now }),
           {
-            id: EventId.make("event:foundation-run-workflow:run"),
+            id: EventId.make("event:foundation-legacy-workflow:run"),
             type: "run.created",
             threadId,
             runId,
             providerInstanceId,
             occurredAt: now,
-            payload: startingRun,
-          },
-          // The owner changes the workflow while the provider session is opening.
-          {
-            id: EventId.make("event:foundation-run-workflow:metadata"),
-            type: "thread.metadata-updated",
-            threadId,
-            providerInstanceId,
-            occurredAt: now,
-            payload: { ...thread, workflow: { kind: "shape", unattended: true } },
+            payload: run,
           },
         ],
       });
+      const workflow = JSON.stringify({ kind: "chat", unattended: true });
+      yield* sql`UPDATE orchestration_v2_projection_threads
+        SET payload_json = json_set(payload_json, '$.workflow', json(${workflow}))
+        WHERE thread_id = ${threadId}`;
+      yield* sql`UPDATE orchestration_v2_projection_runs
+        SET payload_json = json_set(payload_json, '$.workflow', json(${workflow}))
+        WHERE run_id = ${runId}`;
 
-      const start = yield* eventSink.writeIfRunCurrent({
-        threadId,
-        runId,
-        activeAttemptId: attemptId,
-        expectedStatus: "starting",
-        events: [
-          {
-            id: EventId.make("event:foundation-run-workflow:running"),
-            type: "run.updated",
-            threadId,
-            runId,
-            providerInstanceId,
-            occurredAt: now,
-            payload: { ...startingRun, status: "running", startedAt: now },
-          },
-        ],
-      });
-
-      assert.isTrue(start.committed);
       const projection = yield* projectionStore.getThreadProjection(threadId);
-      assert.deepEqual(projection.runs[0]?.workflow, { kind: "shape", unattended: true });
+      assert.equal(projection.thread.title, thread.title);
+      assert.equal(projection.runs[0]?.id, runId);
+      assert.isFalse("workflow" in projection.thread);
+      assert.isFalse("workflow" in projection.runs[0]!);
     }).pipe(Effect.provide(Layer.fresh(layerTest))),
   );
 

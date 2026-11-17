@@ -1,7 +1,6 @@
 import {
   AuthOrchestrationOperateScope,
   type EnvironmentId,
-  type OrchestrationV2ThreadWorkflow,
   type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -33,7 +32,6 @@ import { useAtomValue } from "@effect/atom-react";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
 import { ProjectChip } from "../ProjectChip";
-import { ThreadWorkflowMenu } from "./ThreadWorkflowMenu";
 import { ForgeWorkItemSegment } from "../forgeItem/ForgeWorkItemSegment";
 import { ArcRunChip } from "../arcRun/ArcRunChip";
 import { useThreadShell } from "../../state/entities";
@@ -57,8 +55,6 @@ interface ChatHeaderProps {
   activeThreadLinkOrigin?: string | null | undefined;
   isServerThread: boolean;
   activeProject: EnvironmentProject | null;
-  /** The thread's governing workflow; unset or null when none is recorded. */
-  workflow?: OrchestrationV2ThreadWorkflow | null | undefined;
   parentThreadLink: { threadId: ThreadId; title: string } | null;
   onOpenThread: (threadId: ThreadId) => void;
   rightPanelOpen: boolean;
@@ -90,7 +86,6 @@ export const ChatHeader = memo(function ChatHeader({
   activeThreadLinkOrigin,
   isServerThread,
   activeProject,
-  workflow,
   parentThreadLink,
   onOpenThread,
   rightPanelOpen,
@@ -168,7 +163,6 @@ export const ChatHeader = memo(function ChatHeader({
       document.fonts.removeEventListener("loadingdone", measure);
       stopObserving();
     };
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- labels and font changes invalidate measured breadcrumb geometry
   }, [activeProjectName, activeThreadTitle, parentThreadLink, interfaceFont, isRenamingTitle]);
   const renameCommittedRef = useRef(false);
   const startRename = () => {
@@ -230,7 +224,6 @@ export const ChatHeader = memo(function ChatHeader({
     () => () => {
       cancelPendingTitleClick();
     },
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- a thread switch must cancel the prior title clipboard timer
     [activeThreadEnvironmentId, activeThreadId, cancelPendingTitleClick],
   );
   const openTitleMenu = () => {
@@ -325,16 +318,6 @@ export const ChatHeader = memo(function ChatHeader({
                 <TooltipPopup side="top">New thread in {activeProjectName}</TooltipPopup>
               </Tooltip>
             </WorkspaceBreadcrumbItem>
-            {isServerThread && parentThreadLink === null ? (
-              <WorkspaceBreadcrumbItem className="shrink-0">
-                <ThreadWorkflowMenu
-                  environmentId={activeThreadEnvironmentId}
-                  threadId={activeThreadId}
-                  workflow={workflow}
-                  canEdit={canOperateThread}
-                />
-              </WorkspaceBreadcrumbItem>
-            ) : null}
             <WorkspaceBreadcrumbSeparator>
               <WorkspaceBreadcrumbText>/</WorkspaceBreadcrumbText>
             </WorkspaceBreadcrumbSeparator>

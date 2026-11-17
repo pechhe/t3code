@@ -154,8 +154,6 @@ export interface UpdateThreadMetadataInput extends ThreadCommandInput {
   readonly worktreePath?: string | null;
   readonly regenerateTitle?: boolean;
   readonly linkedPullRequest?: ThreadLinkedPullRequest | null;
-  /** Set (object) or clear (null) the thread's governing workflow. */
-  readonly workflow?: import("@t3tools/contracts").OrchestrationV2ThreadWorkflow | null;
   /** Apply only while no message or run has landed on the thread. */
   readonly expectedEmpty?: boolean;
 }
@@ -183,8 +181,6 @@ interface StartThreadBootstrap {
     readonly branch: string | null;
     readonly worktreePath: string | null;
     readonly createdAt: string;
-    /** Set when the person started the thread with Away on. */
-    readonly workflow?: import("@t3tools/contracts").OrchestrationV2ThreadWorkflow;
   };
   readonly prepareWorktree?: {
     readonly requireWorktree?: boolean;
@@ -760,8 +756,7 @@ export const updateThreadMetadata = Effect.fn("EnvironmentCommands.updateThreadM
       input.worktreePath !== undefined ||
       input.regenerateTitle !== undefined ||
       input.linkedPullRequest !== undefined ||
-      input.limitRecovery !== undefined ||
-      input.workflow !== undefined
+      input.limitRecovery !== undefined
     ) {
       result = yield* dispatch({
         type: "thread.metadata.update",
@@ -776,7 +771,6 @@ export const updateThreadMetadata = Effect.fn("EnvironmentCommands.updateThreadM
         ...(input.linkedPullRequest === undefined
           ? {}
           : { linkedPullRequest: input.linkedPullRequest }),
-        ...(input.workflow === undefined ? {} : { workflow: input.workflow }),
       });
     }
     if (input.modelSelection !== undefined) {
@@ -879,7 +873,6 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
       interactionMode: input.interactionMode,
       ...(bootstrap?.stanceChoice === undefined ? {} : { stanceChoice: bootstrap.stanceChoice }),
       workspaceStrategy,
-      ...(bootstrap?.workflow === undefined ? {} : { workflow: bootstrap.workflow }),
       initialMessage: {
         messageId: input.message.messageId,
         text: input.message.text,

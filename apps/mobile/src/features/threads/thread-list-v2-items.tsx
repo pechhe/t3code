@@ -93,7 +93,6 @@ import {
   layoutThreadListV2RowMenuActions,
   type ThreadListV2Status,
 } from "./threadListV2";
-import { ThreadWorkflowBadge } from "./ThreadWorkflowBadge";
 import { QueuedMessageIcon } from "./queued-message-icon";
 import { shouldRecedeThreadRow } from "./thread-row-emphasis";
 import { ThreadSearchMatchExcerpt } from "./thread-search-match";
@@ -1257,7 +1256,6 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           {thread.title}
         </Text>
         <View className="flex-row items-center gap-1.5" style={{ minHeight: titleLineHeight }}>
-          <ThreadWorkflowBadge workflow={thread.workflow} />
           {props.hasQueuedMessages ? <QueuedMessageIcon selected={selected} /> : null}
           {pinnedRow ? (
             <SymbolView

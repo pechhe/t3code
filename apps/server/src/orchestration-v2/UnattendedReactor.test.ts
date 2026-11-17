@@ -18,6 +18,7 @@ import {
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as SqlClient from "effect/sql/SqlClient";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
@@ -58,16 +59,11 @@ const layerTest = UnattendedReactor.layer.pipe(
 
 const CONTINUATION = "message:unattended-continuation:";
 
-type Workflow = { kind: "lead" | "chat"; unattended: boolean } | null;
-
 const setAway = Effect.fn(function* (away: boolean) {
   return yield* (yield* UnattendedReactor.UnattendedReactor).setAway(away);
 });
 
-const setup = Effect.fn(function* (
-  name: string,
-  workflow: Workflow = { kind: "lead", unattended: false },
-) {
+const setup = Effect.fn(function* (name: string) {
   const orchestrator = yield* Orchestrator.OrchestratorV2;
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const threadId = ThreadId.make(`thread:${name}`);
@@ -85,13 +81,6 @@ const setup = Effect.fn(function* (
     createdBy: "user",
     creationSource: "web",
   });
-  if (workflow !== null)
-    yield* orchestrator.dispatch({
-      type: "thread.metadata.update",
-      commandId: CommandId.make(`workflow:${name}`),
-      threadId,
-      workflow,
-    });
   yield* orchestrator.dispatch({
     type: "message.dispatch",
     commandId: CommandId.make(`start:${name}`),
@@ -190,12 +179,11 @@ it.layer(layerTest)("UnattendedReactor", (it) => {
     }),
   );
 
-  it.effect("ignores a thread's own retired stance, and leaves a failed or interrupted run", () =>
+  it.effect("leaves a run while Away is off, and a failed or interrupted run", () =>
     Effect.gen(function* () {
       const reactor = yield* UnattendedReactor.UnattendedReactor;
       yield* setAway(false);
-      // Older events recorded the stance per thread; with Away off it no longer counts.
-      const attended = yield* setup("attended", { kind: "lead", unattended: true });
+      const attended = yield* setup("attended");
       yield* reactor.handle(yield* finish(attended.run));
       assert.equal((yield* continuations(attended.threadId)).length, 0);
       yield* setAway(true);
@@ -563,16 +551,27 @@ it.layer(layerTest)("UnattendedReactor", (it) => {
       }),
   );
 
-  it.effect("covers a thread with no workflow, but not a Chat", () =>
+  it.effect("covers a thread that older data marks as a Chat", () =>
     Effect.gen(function* () {
       const reactor = yield* UnattendedReactor.UnattendedReactor;
+      const sql = yield* SqlClient.SqlClient;
+      const markChat = (threadId: ThreadId) =>
+        sql`UPDATE orchestration_v2_projection_threads
+          SET payload_json = json_set(payload_json, '$.workflow', json('{"kind":"chat","unattended":false}'))
+          WHERE thread_id = ${threadId}`;
       yield* setAway(true);
-      const plain = yield* setup("plain", null);
-      yield* reactor.handle(yield* finish(plain.run));
-      assert.equal((yield* continuations(plain.threadId)).length, 1);
-      const chat = yield* setup("chat", { kind: "chat", unattended: false });
-      yield* reactor.handle(yield* finish(chat.run));
-      assert.equal((yield* continuations(chat.threadId)).length, 0);
+      const handled = yield* setup("chat-handled");
+      const ended = yield* finish(handled.run);
+      yield* markChat(handled.threadId);
+      yield* reactor.handle(ended);
+      assert.equal((yield* continuations(handled.threadId)).length, 1);
+
+      yield* setAway(false);
+      const swept = yield* setup("chat-swept");
+      yield* finish(swept.run);
+      yield* markChat(swept.threadId);
+      yield* setAway(true);
+      assert.equal((yield* continuations(swept.threadId)).length, 1);
     }),
   );
 

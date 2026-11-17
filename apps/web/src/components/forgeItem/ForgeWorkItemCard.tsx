@@ -2,13 +2,15 @@ import { buildSessionThreadLink } from "@t3tools/client-runtime/build-session-th
 import {
   type ForgeStatusTone,
   buildSessionLabel,
-  buildStatusLabel,
   buildStatusTone,
   describeForgeWait,
   presentForgeCardKind,
   presentSpecTickets,
 } from "@t3tools/client-runtime/state/forge-work-items";
-import type { ForgeWorkItemCard as ForgeWorkItemCardData } from "@t3tools/contracts";
+import {
+  buildStatusLabel,
+  type ForgeWorkItemCard as ForgeWorkItemCardData,
+} from "@t3tools/contracts";
 import type { ReactNode } from "react";
 
 import { cn } from "~/lib/utils";

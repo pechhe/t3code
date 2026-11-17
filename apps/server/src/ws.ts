@@ -857,7 +857,6 @@ export function clientThreadLaunchInput(
     runtimeMode: input.runtimeMode,
     interactionMode: input.interactionMode,
     workspaceStrategy: input.workspaceStrategy,
-    ...(input.workflow === undefined ? {} : { workflow: input.workflow }),
     // Clients offer no checkout choice in a SlipJay project.
     rootIsDefault: true,
     ...(input.initialMessage === undefined

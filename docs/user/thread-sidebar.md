@@ -144,8 +144,8 @@ open.
 
 Press the Away key (the moon beside T3 Peach at the top of the sidebar) when you step away, and
 again when you are back. On a phone it is in the thread list's header, and the command palette
-toggles it too. Away covers every thread on every machine you are connected to, except Chat
-threads and subagents. If one machine was offline when you pressed it, `1/2` shows beside the key;
+toggles it too. Away covers every thread on every machine you are connected to, except
+subagents. If one machine was offline when you pressed it, `1/2` shows beside the key;
 press it again to turn Away on everywhere. You can also tell an agent you are stepping away: it
 turns Away on for this machine and every machine linked to it, and turns it off only when you ask.
 

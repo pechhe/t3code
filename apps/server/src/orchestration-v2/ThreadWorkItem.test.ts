@@ -29,82 +29,14 @@ const layerTest = Layer.mergeAll(
   layerDatabase,
   ProjectionStore.layer.pipe(Layer.provide(layerDatabase)),
   ProviderReplayHarness.layerWithRegistry(
-    { name: "thread-workflow" },
+    { name: "thread-work-item" },
     ProviderAdapterRegistry.layerFromAdapters([adapter]),
     { databaseLayer: layerDatabase, runEffectWorker: false },
   ),
 );
 
-it.layer(layerTest)("thread workflow", (it) => {
-  it.effect("the owner's metadata command sets, keeps, changes and clears it", () =>
-    Effect.gen(function* () {
-      const orchestrator = yield* Orchestrator.OrchestratorV2;
-      const projections = yield* ProjectionStore.ProjectionStoreV2;
-      const threadId = ThreadId.make("thread:workflow");
-      yield* orchestrator.dispatch({
-        type: "thread.create",
-        commandId: CommandId.make("create"),
-        threadId,
-        projectId: ProjectId.make("project:workflow"),
-        title: "Workflow",
-        modelSelection: { instanceId, model: "gpt-5" },
-        runtimeMode: "approval-required",
-        interactionMode: "default",
-        branch: null,
-        worktreePath: null,
-        createdBy: "user",
-        creationSource: "web",
-      });
-      assert.equal((yield* projections.getThreadShell(threadId))?.workflow, null);
-
-      const set = yield* orchestrator.dispatch({
-        type: "thread.metadata.update",
-        commandId: CommandId.make("set"),
-        threadId,
-        workflow: { kind: "lead", unattended: false },
-      });
-      // The event payload is what reaches every connected client.
-      const event = set.storedEvents.find(
-        (stored) => stored.event.type === "thread.metadata-updated",
-      )?.event;
-      assert.ok(event?.type === "thread.metadata-updated");
-      assert.deepEqual(event.payload.workflow, { kind: "lead", unattended: false });
-
-      yield* orchestrator.dispatch({
-        type: "thread.metadata.update",
-        commandId: CommandId.make("rename"),
-        threadId,
-        title: "Renamed",
-      });
-      assert.deepEqual((yield* projections.getThreadShell(threadId))?.workflow, {
-        kind: "lead",
-        unattended: false,
-      });
-
-      yield* orchestrator.dispatch({
-        type: "thread.metadata.update",
-        commandId: CommandId.make("change"),
-        threadId,
-        workflow: { kind: "solo", unattended: true },
-      });
-      // An older client's per-thread stance is not kept: Away is environment-wide.
-      assert.deepEqual((yield* orchestrator.getThreadProjection(threadId)).thread.workflow, {
-        kind: "solo",
-        unattended: false,
-      });
-
-      yield* orchestrator.dispatch({
-        type: "thread.metadata.update",
-        commandId: CommandId.make("clear"),
-        threadId,
-        workflow: null,
-      });
-      assert.equal((yield* projections.getThreadShell(threadId))?.workflow, null);
-      assert.equal((yield* orchestrator.getThreadProjection(threadId)).thread.workflow, null);
-    }),
-  );
-
-  it.effect("the Build item link is set, replaced, kept and cleared like the workflow", () =>
+it.layer(layerTest)("thread work item", (it) => {
+  it.effect("the Build item link is set, replaced, kept and cleared", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
       const projections = yield* ProjectionStore.ProjectionStoreV2;

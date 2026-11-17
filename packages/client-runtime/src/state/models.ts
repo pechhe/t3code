@@ -208,8 +208,6 @@ export interface EnvironmentThreadShell {
   readonly autoSettleDisabledAt?: string | null;
   /** This thread's own compact-at point in context tokens; null follows the provider's setting. */
   readonly compactAt?: number | null;
-  /** Governing workflow and unattended stance the thread's agent last recorded. */
-  readonly workflow?: import("@t3tools/contracts").OrchestrationV2ThreadWorkflow | null;
   /** The Build Spec, Ticket or Arc the thread is linked to. */
   readonly workItem?: import("@t3tools/contracts").OrchestrationV2ThreadWorkItem | null;
   readonly arcRun?: import("@t3tools/contracts").OrchestrationV2ThreadArcRun | null;
@@ -389,7 +387,6 @@ export function presentThreadShell(
     pinnedAt: nullableIso(thread.pinnedAt ?? null),
     autoSettleDisabledAt: nullableIso(thread.autoSettleDisabledAt ?? null),
     compactAt: thread.compactAt ?? null,
-    workflow: thread.workflow ?? null,
     workItem: thread.workItem ?? null,
     arcRun: thread.arcRun ?? null,
     projectSuggestion: thread.projectSuggestion

@@ -2,8 +2,7 @@
 
 When T3 Code is connected to Weave, a thread in any project can show the Forge Spec, Ticket or
 Arc it works on.
-The item's title and status sit in the thread header, between the workflow and the thread's
-title. Hover it to see a card with the item's current state from Forge: a Spec's Tickets and
+The item's title and status sit in the thread header, before the thread's title. Hover it to see a card with the item's current state from Forge: a Spec's Tickets and
 progress, an Arc's summary, holds, what blocks a Ticket, and the thread leading or working on
 it. Click it to open the item in Weave.
 

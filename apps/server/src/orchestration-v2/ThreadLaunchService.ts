@@ -20,7 +20,6 @@ import {
   type OrchestrationV2ReplacedWorkspaceOutcome,
   type OrchestrationV2WorkspaceReplacement,
   type OrchestrationV2ThreadProjection,
-  type OrchestrationV2ThreadWorkflow,
   type ProviderDriverKind,
   type ProviderInteractionMode,
   ProjectId,
@@ -123,8 +122,6 @@ export interface ThreadLaunchInput {
   readonly initialMessage?: ThreadLaunchInitialMessage;
   /** A thread that watches the new one, from before its first message, so no finish is missed. */
   readonly watchedBy?: ThreadId;
-  /** Set before the first message, so the agent's first turn already runs under it. */
-  readonly workflow?: OrchestrationV2ThreadWorkflow;
   readonly importedNativeThread?: {
     readonly ref: {
       readonly driver: ProviderDriverKind;
@@ -1570,17 +1567,6 @@ const make = Effect.gen(function* () {
               expectedMs: DEFAULT_WAIT_MS,
             })
             .pipe(Effect.mapError(mapError(input, "watch-thread", threadId)));
-        }
-
-        if (input.workflow !== undefined) {
-          yield* threads
-            .dispatch({
-              type: "thread.metadata.update",
-              commandId: CommandId.make(`${input.commandId}:workflow`),
-              threadId,
-              workflow: input.workflow,
-            })
-            .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
         }
 
         // A launch whose first message is refused never runs, so its watch would wait forever.

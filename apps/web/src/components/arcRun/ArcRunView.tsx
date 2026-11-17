@@ -1,12 +1,16 @@
 import {
   type ArcRunPresentation,
   type ArcRunRow,
-  buildStatusLabel,
   buildStatusTone,
   forgeItemLabel,
   presentArcRun,
 } from "@t3tools/client-runtime/state/forge-work-items";
-import type { OrchestrationV2ThreadArcRun, ScopedThreadRef, ThreadId } from "@t3tools/contracts";
+import {
+  buildStatusLabel,
+  type OrchestrationV2ThreadArcRun,
+  type ScopedThreadRef,
+  type ThreadId,
+} from "@t3tools/contracts";
 import { useState } from "react";
 
 import { cn } from "~/lib/utils";

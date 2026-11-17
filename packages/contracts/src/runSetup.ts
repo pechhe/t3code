@@ -9,7 +9,7 @@ import {
 } from "./baseSchemas.ts";
 import { ProviderOptionSelection } from "./model.ts";
 import { ModelSelection } from "./modelSelection.ts";
-import { OrchestrationV2RunStatus, OrchestrationV2ThreadWorkflow } from "./orchestrationV2.ts";
+import { OrchestrationV2RunStatus } from "./orchestrationV2.ts";
 
 /** A file the agent could read at run start, with its content hash or null when unreadable. */
 export const RunSetupFile = Schema.Struct({
@@ -77,8 +77,10 @@ export const RunSetupRecord = Schema.Struct({
   modelSelection: ModelSelection,
   /** Every model option the run used, provider defaults included; null when the model's options are unknown. */
   effectiveOptions: Schema.NullOr(Schema.Array(ProviderOptionSelection)),
-  /** The thread's governing workflow and stance, stamped on the run as it started. */
-  workflow: Schema.NullOr(OrchestrationV2ThreadWorkflow),
+  /** Whether Away was on as the run started; absent when capture failed or the record predates it. */
+  away: Schema.optional(Schema.Boolean),
+  /** Legacy, read-only: older records kept Away here, beside a thread workflow kind T3 dropped. */
+  workflow: Schema.optional(Schema.NullOr(Schema.Struct({ unattended: Schema.Boolean }))),
   /** Legacy, read-only: rollover thresholds recorded by the removed context rollover. */
   rollover: Schema.optional(
     Schema.NullOr(
@@ -123,7 +125,14 @@ export const RunSetupFileSummary = Schema.Struct({
 });
 export type RunSetupFileSummary = typeof RunSetupFileSummary.Type;
 
-const { instructions, skills, runOrdinal: _runOrdinal, ...recordFields } = RunSetupRecord.fields;
+const {
+  instructions,
+  skills,
+  runOrdinal: _runOrdinal,
+  away: _away,
+  workflow: _workflow,
+  ...recordFields
+} = RunSetupRecord.fields;
 
 /**
  * What `t3_thread_setup` reports for one run: its record with the instruction and skill
@@ -133,6 +142,8 @@ const { instructions, skills, runOrdinal: _runOrdinal, ...recordFields } = RunSe
 export const RunSetupReportEntry = Schema.Struct({
   ...recordFields,
   runOrdinal: PositiveInt,
+  /** Whether Away was on as the run started; null when unknown. */
+  away: Schema.NullOr(Schema.Boolean),
   /** The driver kind behind the run's provider instance; null when the instance is unknown. */
   driver: Schema.NullOr(Schema.String),
   status: OrchestrationV2RunStatus,

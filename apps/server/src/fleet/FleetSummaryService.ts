@@ -205,7 +205,7 @@ const make = Effect.gen(function* () {
               title: projectById.get(thread.projectId)?.title ?? thread.projectId,
             },
             environmentId: descriptor.environmentId,
-            workflow: thread.workflow ?? null,
+            workflow: null,
             parentThreadId: thread.lineage.parentThreadId,
             relationshipToParent: thread.lineage.relationshipToParent,
             forgeItem:

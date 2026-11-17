@@ -80,7 +80,7 @@ const EnvironmentSetAwayTool = Tool.make("t3_environment_set_away", {
     PeerEnvironments.PeerEnvironments,
   ],
   description:
-    "Turn Away on or off for every thread but a Chat on this environment and every linked one: while it is on, T3 answers their free-text questions with the away answer and continues their finished turns. Turn it on when the person says they are stepping away, and off only when they ask. Live full-access or default caller thread only.",
+    "Turn Away on or off for every thread on this environment and every linked one: while it is on, T3 answers their free-text questions with the away answer and continues their finished turns. Turn it on when the person says they are stepping away, and off only when they ask. Live full-access or default caller thread only.",
   parameters: Schema.Struct({ away: Schema.Boolean }),
   success: Schema.Struct({
     environments: Schema.Array(

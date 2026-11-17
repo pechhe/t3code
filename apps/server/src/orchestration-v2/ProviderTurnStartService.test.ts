@@ -2,7 +2,7 @@ import * as ContextSlipJayLandings from "../project/SlipJayLandings.ts";
 import * as ContextWorkspaceProvider from "../project/WorkspaceProvider.ts";
 import * as NodeChildProcessSpawner from "@effect/platform-node/NodeChildProcessSpawner";
 import * as HostProcess from "@t3tools/shared/HostProcess";
-import type { ChatAttachment } from "@t3tools/contracts";
+import type { ChatAttachment, ForgeWorkItemSummary } from "@t3tools/contracts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as VideoFrames from "../videoFrames/VideoFrames.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
@@ -67,6 +67,7 @@ import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import { delegationStanceNote } from "../agents/delegationStanceNote.ts";
+import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -479,6 +480,8 @@ function makeLocalCommandHarness(input: {
   /** The thread's session is replaced by another turn while the summariser writes. */
   readonly sessionMovedDuringSummary?: boolean;
   readonly backgroundTasks?: number;
+  /** What the Forge cache holds for the thread's linked item; absent runs without Forge links. */
+  readonly forgeSummary?: ForgeWorkItemSummary | null;
   /** Another account that can summarise this thread's compaction. */
   readonly summariser?: {
     readonly instanceId: ProviderInstanceId;
@@ -515,6 +518,7 @@ function makeLocalCommandHarness(input: {
   };
 }) {
   const settledRuns: Array<string> = [];
+  const warmedForgeItems: Array<number> = [];
   const now = DateTime.makeUnsafe("2026-09-04T12:00:00Z");
   const threadId = ThreadId.make("thread-native-account-command");
   const runId = RunId.make("run-native-account-command");
@@ -1491,6 +1495,16 @@ function makeLocalCommandHarness(input: {
                 ],
           ),
         }),
+        input.forgeSummary === undefined
+          ? Layer.empty
+          : Layer.mock(ForgeWorkItems.ForgeWorkItems)({
+              cachedSummary: () => Effect.succeed(Option.fromNullishOr(input.forgeSummary)),
+              // The background read fails; the turn must neither wait on it nor fail with it.
+              warmSummary: (workItem) =>
+                Effect.sync(() => warmedForgeItems.push(workItem.number)).pipe(
+                  Effect.andThen(Effect.die("Weave unreachable")),
+                ),
+            }),
         Layer.mock(ManagedAgent.ManagedAgentService)({
           resolveStance: ({ thread }) =>
             Effect.succeed({
@@ -1514,6 +1528,7 @@ function makeLocalCommandHarness(input: {
   );
   return {
     settledRuns,
+    warmedForgeItems,
     getThreadRecords,
     getTurnStartContext,
     generateCompactionSummary,
@@ -1577,6 +1592,90 @@ effectIt.effect("uses the current stance on each turn of a thread with native hi
     expect(harness.startTurn.mock.calls[1]?.[0].message.text).not.toContain(
       "Delegation stance: orchestrate",
     );
+  }),
+);
+
+effectIt.effect.each([
+  {
+    name: "a linked item T3 has read",
+    linked: true,
+    forgeSummary: {
+      kind: "spec",
+      ref: "T3-712",
+      title: "Role policy hides tools",
+      status: "in_progress",
+      holds: [],
+      waits: [],
+    },
+    line: 'This thread is linked to Spec T3-712 "Role policy hides tools" (In progress).',
+  },
+  {
+    name: "a linked item without a ref",
+    linked: true,
+    forgeSummary: { kind: "arc", title: "Roles", status: "open", holds: [], waits: [] },
+    line: 'This thread is linked to Arc #1000712 "Roles" (Open).',
+  },
+  {
+    name: "a linked item T3 holds no read of",
+    linked: true,
+    forgeSummary: null,
+    line: "This thread is linked to Forge item #1000712.",
+    warmed: [1_000_712],
+  },
+  {
+    name: "a linked item without Forge links",
+    linked: true,
+    line: "This thread is linked to Forge item #1000712.",
+  },
+  { name: "no linked item", linked: false, forgeSummary: null, line: null },
+] as const satisfies ReadonlyArray<{
+  name: string;
+  linked: boolean;
+  forgeSummary?: ForgeWorkItemSummary | null;
+  line: string | null;
+  warmed?: ReadonlyArray<number>;
+}>)("states the linked Forge item after the stance: $name", ({ linked, line, warmed, ...forge }) =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({ text: "Continue", deliverTurn: true, ...forge });
+    const initial = harness.projection();
+    const workItem = {
+      itemId: "item-712",
+      number: 1_000_712,
+      origin: "https://weave.example.test",
+    };
+    harness.setProjection({
+      ...initial,
+      thread: { ...initial.thread, ...(linked ? { workItem } : {}) },
+    });
+    yield* harness.start;
+    expect(harness.startTurn.mock.calls[0]?.[0].message.text).toBe(
+      [delegationStanceNote("flexible"), line, "User message:\nContinue"]
+        .filter((part) => part !== null)
+        .join("\n\n"),
+    );
+    // Only a cold cache starts a background read, and its failure leaves the short form.
+    expect(harness.warmedForgeItems).toEqual(warmed ?? []);
+  }),
+);
+
+effectIt.effect("leaves the linked Forge item out of a native slash command", () =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({
+      text: "/review the diff",
+      deliverTurn: true,
+      forgeSummary: null,
+    });
+    harness.tryHandlePromptCommand.mockReturnValue(Effect.succeed(false));
+    const initial = harness.projection();
+    harness.setProjection({
+      ...initial,
+      thread: {
+        ...initial.thread,
+        workItem: { itemId: "item-712", number: 1_000_712, origin: "https://weave.example.test" },
+      },
+    });
+    yield* harness.start;
+    expect(harness.startTurn.mock.calls[0]?.[0].message.text).toBe("/review the diff");
   }),
 );
 

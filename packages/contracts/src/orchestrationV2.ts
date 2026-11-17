@@ -539,29 +539,6 @@ export const OrchestrationV2LimitRecoveryUpdate = Schema.Struct({
 export type OrchestrationV2LimitRecoveryUpdate = typeof OrchestrationV2LimitRecoveryUpdate.Type;
 
 /**
- * The workflow governing a thread, as the agent's own instructions define them. Absent or null
- * means none recorded.
- */
-export const OrchestrationV2ThreadWorkflowKind = Schema.Literals([
-  "lead",
-  "shape",
-  "solo",
-  "chat",
-  "worker",
-]);
-export type OrchestrationV2ThreadWorkflowKind = typeof OrchestrationV2ThreadWorkflowKind.Type;
-
-export const OrchestrationV2ThreadWorkflow = Schema.Struct({
-  kind: OrchestrationV2ThreadWorkflowKind,
-  /**
-   * Away is environment-wide (`ServerSettings.away`). A thread's workflow always carries false so
-   * older clients and peers still decode it; a run setup record carries Away as the run started.
-   */
-  unattended: Schema.Boolean,
-});
-export type OrchestrationV2ThreadWorkflow = typeof OrchestrationV2ThreadWorkflow.Type;
-
-/**
  * The Weave Forge item a thread works on: a Spec, its Ticket or an Arc. T3 stores only the
  * reference; the item itself is always read from the Weave it was resolved against.
  */
@@ -939,7 +916,6 @@ export const OrchestrationV2AppThread = Schema.Struct({
   guestShare: Schema.optional(Schema.NullOr(ThreadGuestShare)),
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
-  workflow: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkflow)),
   workItem: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkItem)),
   /** When T3 replaced the thread's SlipJay workspace after SlipJay removed it; the next turn says so. */
   workspaceReplacedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
@@ -1229,8 +1205,6 @@ export const OrchestrationV2Run = Schema.Struct({
   providerInstanceId: ProviderInstanceId,
   modelSelection: ModelSelection,
   providerThreadId: Schema.NullOr(ProviderThreadId),
-  /** The thread's governing workflow when this run started; absent before it started. */
-  workflow: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkflow)),
   userMessageId: MessageId,
   rootNodeId: Schema.NullOr(NodeId),
   activeAttemptId: Schema.NullOr(RunAttemptId),
@@ -2930,7 +2904,6 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   limitRecovery: Schema.optional(Schema.NullOr(OrchestrationV2LimitRecovery)),
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
-  workflow: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkflow)),
   workItem: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkItem)),
   projectSuggestion: Schema.optional(Schema.NullOr(OrchestrationV2ThreadProjectSuggestion)),
   compactAt: Schema.optional(Schema.NullOr(PositiveInt)),
@@ -3967,8 +3940,6 @@ export const OrchestrationV2Command = Schema.Union([
     linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
     /** Keep a side chat as an ordinary fork. A thread cannot become a side chat. */
     keepSideChat: Schema.optional(Schema.Literal(true)),
-    /** Set (object) or clear (null) the governing workflow; absent leaves it unchanged. */
-    workflow: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkflow)),
     /** Link (object) or unlink (null) the thread's Forge item; absent leaves it unchanged. */
     workItem: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkItem)),
     /** Records that the new worktreePath replaces a SlipJay workspace SlipJay removed. */
@@ -4882,7 +4853,6 @@ export const OrchestrationV2ThreadLaunchInput = Schema.Struct({
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
   workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy,
-  workflow: Schema.optional(OrchestrationV2ThreadWorkflow),
   initialMessage: Schema.optional(
     Schema.Struct({
       messageId: Schema.optional(MessageId),

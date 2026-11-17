@@ -3,7 +3,7 @@ import { EnvironmentId, ProjectId, ThreadId } from "./baseSchemas.ts";
 import { HostResourcesSnapshot } from "./resourceTelemetry.ts";
 import { SlipJayRunnerOperation } from "./git.ts";
 import { ReleaseVerificationStatus } from "./releaseApproval.ts";
-import { OrchestrationV2ThreadStanding, OrchestrationV2ThreadWorkflow } from "./orchestrationV2.ts";
+import { OrchestrationV2ThreadStanding } from "./orchestrationV2.ts";
 
 export const FleetSummaryInput = Schema.Struct({
   /** Opaque cursor returned by the previous sweep; omit for a full snapshot. */
@@ -42,7 +42,8 @@ const ThreadFields = {
   title: Schema.String,
   project: Schema.Struct({ id: ProjectId, title: Schema.String }),
   environmentId: EnvironmentId,
-  workflow: Schema.NullOr(OrchestrationV2ThreadWorkflow),
+  /** Legacy: always null, as older peers require the key; accepts the object they still send. */
+  workflow: Schema.optionalKey(Schema.Unknown),
   parentThreadId: Schema.NullOr(ThreadId),
   relationshipToParent: Schema.NullOr(Schema.Literals(["fork", "subagent"])),
   forgeItem: Schema.NullOr(
