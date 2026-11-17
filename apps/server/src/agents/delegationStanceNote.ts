@@ -6,7 +6,7 @@ const notes: Record<DelegationStance, string> = {
   flexible:
     "Delegation stance: flexible. Hand off bounded pieces with a settled interface and build the coupled parts yourself.",
   implement:
-    "Delegation stance: implement. Build everything yourself; read-only helpers (scout, researcher, browser, reviewer, advisor) are fine. T3 refuses to start an implementer or lead task for this thread.",
+    "Delegation stance: implement. Build everything yourself; read-only helpers (scout, researcher, browser, reviewer, advisor) are fine. T3 refuses to start an implementer for this thread.",
 };
 
 export const delegationStanceNote = (stance: DelegationStance, readOnly = false): string =>

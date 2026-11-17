@@ -330,7 +330,7 @@ const make = Effect.gen(function* () {
         return yield* new OrchestratorMcpFailure({
           code: "invalid_request",
           message:
-            "A `lead` runs only in its own environment. Launch a thread there with t3_thread_launch and its forgeItem, or lead the Spec here.",
+            "A Spec (an `implementer` given forgeItem) runs only in its own environment. Launch a thread there with t3_thread_launch and its forgeItem, or hand the Spec out here.",
         });
       }
       if (

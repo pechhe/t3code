@@ -836,9 +836,27 @@ export const AgentTaskLinkedRequest = Schema.Struct({
 });
 export type AgentTaskLinkedRequest = typeof AgentTaskLinkedRequest.Type;
 
+/**
+ * The roles `delegate_task` offers. `implementer` with a `forgeItem` hands over a whole Spec,
+ * so `lead` is not offered; it, `ui-verifier` and the retired names still decode.
+ */
+const OFFERED_AGENT_ROLES = [
+  "implementer",
+  "browser",
+  "advisor",
+  "reviewer",
+  "researcher",
+  "scout",
+] as const satisfies ReadonlyArray<AgentRole>;
+const isAgentRoleName = Schema.is(Schema.Union([AgentRole, RetiredRole]));
 export const AgentTaskWireRequest = Schema.Struct({
   ...agentTaskRequestFields,
-  role: Schema.Union([AgentRole, RetiredRole]),
+  role: Schema.String.check(
+    Schema.makeFilter(isAgentRoleName, {
+      expected: "an agent role",
+      toJsonSchema: () => ({ enum: [...OFFERED_AGENT_ROLES] }),
+    }),
+  ),
 });
 export type AgentTaskWireRequest = typeof AgentTaskWireRequest.Type;
 

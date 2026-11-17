@@ -107,6 +107,7 @@ import {
   AGENT_ROLE_COARSE_KIND,
   type AgentTaskRequest,
   isReviewerRole,
+  isDelegatedAppThread,
   modelMaker,
   type OrchestratorMcpCouncilRoster,
   type OrchestratorMcpReviewCouncil,
@@ -392,6 +393,15 @@ const isThreadManagementError = Schema.is(ThreadManagementService.ThreadManageme
 function failure(code: OrchestratorMcpFailure["code"], message: string): OrchestratorMcpFailure {
   return new OrchestratorMcpFailure({ code, message });
 }
+
+/**
+ * Callers ask for one writing role: an `implementer` handed a Forge item owns that whole Spec,
+ * which T3 runs, stores and labels as the internal role `lead`. A `lead` request still works.
+ */
+const asSpecOwner = (input: OrchestratorMcpDelegateTaskInput): OrchestratorMcpDelegateTaskInput =>
+  input.agentTask?.role === "implementer" && input.forgeItem !== undefined
+    ? { ...input, agentTask: { ...input.agentTask, role: "lead" } }
+    : input;
 
 function threadManagementFailure(error: unknown): OrchestratorMcpFailure {
   if (!isThreadManagementError(error)) return failure("orchestration_error", errorMessage(error));
@@ -3439,12 +3449,15 @@ const make = Effect.gen(function* () {
               .pipe(Effect.mapError(threadManagementFailure));
       return {
         ...result,
+        // A Spec owner is asked for as `implementer` with forgeItem; its `lead` row picks the model.
+        roles: result.roles.filter((entry) => entry.role !== "lead"),
         ...(stance === undefined ? {} : { stance }),
         environmentId: scope.environmentId,
       };
     }),
     delegateTask: Effect.fn("OrchestratorMcpService.delegateTask")(
-      function* (callerScope, input) {
+      function* (callerScope, requested) {
+        let input = asSpecOwner(requested);
         if (input.task === undefined && input.followup === undefined)
           return yield* failure(
             "invalid_request",
@@ -3508,13 +3521,13 @@ const make = Effect.gen(function* () {
           return yield* failure(
             "invalid_request",
             specLead
-              ? "A `lead` task runs one Spec: pass its Forge item as forgeItem."
-              : "forgeItem applies only to agentTask role `lead`.",
+              ? "A Spec owner needs its Spec: pass the Forge item as forgeItem, with agentTask role `implementer`."
+              : "forgeItem hands a whole Spec to agentTask role `implementer`; other roles take none.",
           );
         if (specLead && input.agentTask?.workspaceAssignment === "isolated")
           return yield* failure(
             "invalid_request",
-            "A `lead` task works in its Forge item's own workspace: omit workspaceAssignment.",
+            "An implementer given a forgeItem works in that Spec's own workspace: omit workspaceAssignment.",
           );
         if (callerScope.client !== undefined && callerScope.thread === undefined) {
           const service = yield* external;
@@ -3563,6 +3576,15 @@ const make = Effect.gen(function* () {
             ...(input.followup === undefined ? [] : [input.followup.taskId]),
           ]),
         };
+        // A Spec owner is a top-level thread's to hand out; a delegated task never starts one.
+        if (
+          specLead &&
+          (parent.thread.agentTask !== undefined || isDelegatedAppThread(parent.thread))
+        )
+          return yield* failure(
+            "capability_denied",
+            "Only a top-level thread hands out a whole Spec, and this thread is itself a delegated task. Build the work yourself, or hand out a piece as an `implementer` without forgeItem.",
+          );
         if (input.followup === undefined && input.agentTask !== undefined) {
           const managed = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
           if (Option.isSome(managed))

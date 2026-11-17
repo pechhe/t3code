@@ -103,7 +103,7 @@ export class ManagedAgentError extends Schema.TaggedError<ManagedAgentError>()(
 ) {
   override get message(): string {
     if (this.reason === "stance")
-      return "Delegation stance is implement: do the work yourself, or ask the owner to move the lever before starting an implementer or lead task.";
+      return "Delegation stance is implement: do the work yourself, or ask the owner to move the lever before starting an implementer.";
     if (this.reason === "hard-link")
       return `Managed writer refused: regular file has multiple hard links: ${this.path}.`;
     const refusal = `Managed agent dispatch refused (${this.reason}${refusalDetail(this.cause, this.detail)}).`;

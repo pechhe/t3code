@@ -4,13 +4,19 @@ import { Tool } from "effect/ai";
 
 import { advertisedJsonSchema } from "./advertisedJsonSchema.ts";
 
-it("drops JSON noise, merges tagged unions, and keeps null where it is required", () => {
+it("drops JSON noise, merges tagged unions, flattens check fragments, and keeps null where it is required", () => {
   const Every = Schema.Struct({ ms: Schema.Int });
   const tool = Tool.make("example", {
     parameters: Schema.Struct({
       threadId: Schema.optional(Schema.NullOr(Schema.String)),
       beforeRunId: Schema.NullOr(Schema.String),
       limit: Schema.optional(Schema.Int),
+      // Accepts more than it advertises, as delegate_task's role does.
+      role: Schema.String.check(
+        Schema.makeFilter((value: string) => value.length > 0, {
+          toJsonSchema: () => ({ enum: ["offered"] }),
+        }),
+      ),
       every: Schema.Union([Every, Schema.fromJsonString(Every)]),
       target: Schema.optional(
         Schema.NullOr(
@@ -29,6 +35,7 @@ it("drops JSON noise, merges tagged unions, and keeps null where it is required"
       threadId: { type: "string" },
       beforeRunId: { anyOf: [{ type: "string" }, { type: "null" }] },
       limit: { type: "integer" },
+      role: { type: "string", enum: ["offered"] },
       every: { type: "object", properties: { ms: { type: "integer" } }, required: ["ms"] },
       target: {
         type: "object",
@@ -40,6 +47,6 @@ it("drops JSON noise, merges tagged unions, and keeps null where it is required"
         required: ["kind"],
       },
     },
-    required: ["beforeRunId", "every"],
+    required: ["beforeRunId", "role", "every"],
   });
 });

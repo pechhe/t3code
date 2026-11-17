@@ -145,7 +145,7 @@ export const ROLE_DESCRIPTIONS: Record<AgentRole, string> = {
   "ui-verifier": "Checks the running app",
   researcher: "Researches docs and the web",
   scout: "Maps the codebase",
-  lead: "Runs one Spec for an Arc lead",
+  lead: "Owns one whole Spec and lands it",
 };
 
 /** Which of T3's two permission classes a role's tasks are in. */

@@ -219,7 +219,9 @@ the editor says so.
   has seven roles — implementer, lead, scout, researcher, browser, reviewer and
   advisor — which differ by what they may do, not by which models may take their
   work: any model a role lists can take its UI work, and a note on a model says
-  what it is good at. A task saved under an old role name still runs as the
+  what it is good at. Agents ask for one writing role: an implementer handed a whole
+  Spec runs as that Spec's lead, so give the lead the implementer's model list and
+  Settings shows them as one job. A task saved under an old role name still runs as the
   implementer.
 
 Every task here is a long-running routine. A one-off look-again an agent used to

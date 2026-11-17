@@ -121,7 +121,7 @@ const AgentSessionAttachTool = Tool.make("agent_session_attach", {
   .annotate(Tool.Idempotent, true);
 const AgentRolesTool = Tool.make("agent_roles", {
   description:
-    "Discover role candidates, notes, effort, availability and refusals; no launch authority. Choose by task fit, not order, and pass delegate_task's target.model. Multi-model pools have no default, even during outages; a sole driver/model can be inferred (accounts/aliases aren't choices). Pass model to check eligibility; usageLimited lists exhausted accounts. Browser defaults integrated; browser.backend='phi' checks Phi. reviewScope=spec checks the Spec-review pool; default is change.",
+    "Discover role candidates, notes, effort, availability and refusals; no launch authority. Choose by task fit, not order, and pass delegate_task's target.model. `implementer` also serves a whole Spec (delegate_task forgeItem). Multi-model pools have no default, even during outages; a sole driver/model can be inferred (accounts/aliases aren't choices). Pass model to check eligibility; usageLimited lists exhausted accounts. Browser defaults integrated; browser.backend='phi' checks Phi. reviewScope=spec checks the Spec-review pool; default is change.",
   parameters: Schema.Struct({
     environmentId: OrchestratorMcpEnvironmentTarget,
     projectId: Schema.optional(
@@ -195,7 +195,7 @@ const AdvicePeerTool = Tool.make("t3_advice_peer", {
 
 const DelegateTaskTool = Tool.make("delegate_task", {
   description:
-    "Start one child agent with only `task`: no parent history. Call `agent_roles` first; choose target.model explicitly for multi-model pools. Supply agentTask (role, taskClass, workId, attemptId, workspacePath) and clientRequestId. Browser defaults integrated; choose browser.backend='phi' and optional phiLane. Reviews need sourceRevision and scope. Isolated workspaceAssignment returns a handoff. Pass only `followup` (a `taskId`, `changes`) to continue that conversation.",
+    "Start one child agent with only `task`: no parent history. Call `agent_roles` first; choose target.model explicitly for multi-model pools. Supply agentTask (role, taskClass, workId, attemptId, workspacePath) and clientRequestId. One writing role, `implementer`: with `forgeItem` it owns a whole Spec; without, it builds a piece in your workspace for you to land. Browser defaults integrated; choose browser.backend='phi' and optional phiLane. Reviews need sourceRevision and scope. Isolated workspaceAssignment returns a handoff. Pass only `followup` (a `taskId`, `changes`) to continue that conversation.",
   parameters: OrchestratorMcpDelegateTaskWireInput,
   success: OrchestratorMcpDelegateTaskResult,
   failure: OrchestratorMcpFailure,

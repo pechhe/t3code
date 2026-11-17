@@ -39,8 +39,8 @@ it("states t3_thread_read page size limits in the parameter descriptions", () =>
   }
 });
 
-// Legacy role names stay callable in the compact request schema.
-it("advertises delegate_task's agentTask fields once, with the retired role as a value", () => {
+// The schema offers one writing role; `lead` and retired names stay callable without being shown.
+it("advertises delegate_task's agentTask fields once, offering only the current roles", () => {
   const schema = Tool.getJsonSchema(OrchestratorToolkit.tools.delegate_task) as {
     readonly properties: Readonly<Record<string, unknown>>;
   };
@@ -50,9 +50,44 @@ it("advertises delegate_task's agentTask fields once, with the retired role as a
     agentTask.split('"workspacePath":').length - 1,
     "agentTask fields are advertised once",
   ).toBe(1);
-  expect(agentTask).toContain('"ticket-reviewer"');
-  expect(agentTask).toContain('"spec-reviewer"');
-  expect(agentTask).toContain('"reviewer"');
+  const offered = /"role":\{"type":"string","allOf":\[\{"enum":(\[[^\]]*\])/.exec(agentTask)?.[1];
+  expect(JSON.parse(offered ?? "null")).toEqual([
+    "implementer",
+    "browser",
+    "advisor",
+    "reviewer",
+    "researcher",
+    "scout",
+  ]);
+  const decode = Schema.decodeUnknownExit(OrchestratorToolkit.tools.delegate_task.parametersSchema);
+  for (const role of ["lead", "ui-verifier", "spec-reviewer", "chore-worker", "implementer"])
+    expect(
+      Exit.isSuccess(
+        decode({
+          agentTask: {
+            role,
+            taskClass: "non-ui",
+            workId: "w",
+            attemptId: "a",
+            workspacePath: "/w",
+          },
+        }),
+      ),
+      role,
+    ).toBe(true);
+  expect(
+    Exit.isSuccess(
+      decode({
+        agentTask: {
+          role: "lead-ish",
+          taskClass: "non-ui",
+          workId: "w",
+          attemptId: "a",
+          workspacePath: "/w",
+        },
+      }),
+    ),
+  ).toBe(false);
 });
 
 // A managed task continues in its own conversation, and a review round never continues by

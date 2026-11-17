@@ -75,7 +75,7 @@ export const admitLinkedRole = Effect.fn("LinkedRoleAdmission.admit")(function* 
   const policy = managed.value;
   if (input.request.role === "lead")
     return yield* refuse(
-      "A `lead` runs only in its own environment. Delegate the Spec lead here, or launch a thread there with t3_thread_launch.",
+      "A Spec (an `implementer` given forgeItem) runs only in its own environment. Hand it out there, or launch a thread there with t3_thread_launch.",
     );
   const project = yield* (yield* ProjectService.ProjectService).getById(input.projectId).pipe(
     Effect.map(Option.getOrUndefined),

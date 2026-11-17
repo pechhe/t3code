@@ -1833,41 +1833,89 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
   it.effect("starts a Spec lead in its Forge item's workspace, and lets it delegate leaves", () =>
     Effect.gen(function* () {
       const h = yield* harness();
-      const specLead = (extra: { readonly forgeItem?: number } = {}) => ({
+      const specLead = (
+        role: "lead" | "implementer",
+        extra: { readonly forgeItem?: number; readonly workspaceAssignment?: "isolated" } = {},
+      ) => ({
         task: "Run T3-9",
-        clientRequestId: `spec-lead-${extra.forgeItem ?? "none"}`,
+        clientRequestId: `spec-${role}-${extra.forgeItem ?? "none"}-${extra.workspaceAssignment ?? ""}`,
         target: { model: codexModel },
         agentTask: request({
-          role: "lead",
+          role,
           taskClass: "mixed",
           workspacePath: h.lead,
-          workId: "T3-9",
+          workId: `T3-9-${role}`,
+          ...(extra.workspaceAssignment === undefined
+            ? {}
+            : { workspaceAssignment: extra.workspaceAssignment }),
         }),
-        ...extra,
+        ...(extra.forgeItem === undefined ? {} : { forgeItem: extra.forgeItem }),
       });
-      expect((yield* h.delegate(specLead())).code).toBe("invalid_request");
-      const worker = {
-        task: "Implement the importer",
-        clientRequestId: "worker-with-item",
-        agentTask: request({ workspacePath: h.lead }),
+      expect((yield* h.delegate(specLead("lead"))).code).toBe("invalid_request");
+      // forgeItem hands a whole Spec only to the writing role.
+      const scoutWithItem = {
+        task: "Map the importer",
+        clientRequestId: "scout-with-item",
+        agentTask: request({ role: "scout", workspacePath: h.lead }),
         forgeItem: 9,
       };
-      expect((yield* h.delegate(worker)).code).toBe("invalid_request");
+      expect((yield* h.delegate(scoutWithItem)).code).toBe("invalid_request");
+      // A Spec owner works in the Spec's own workspace, however it is asked for.
+      for (const role of ["lead", "implementer"] as const)
+        expect(
+          (yield* h.delegate(specLead(role, { forgeItem: 9, workspaceAssignment: "isolated" })))
+            .code,
+        ).toBe("invalid_request");
       expect(h.dispatched).toHaveLength(0);
-      yield* h.delegate(specLead({ forgeItem: 9 }));
-      expect(h.dispatched).toHaveLength(1);
-      const command = h.dispatched[0] as {
-        workspaceStrategy?: unknown;
-        title?: string;
-        agentTask?: { role: string };
+      // `implementer` with forgeItem starts the same Spec owner `lead` does; `lead` still works.
+      yield* h.delegate(specLead("lead", { forgeItem: 9 }));
+      yield* h.delegate(specLead("implementer", { forgeItem: 9 }));
+      expect(h.dispatched).toHaveLength(2);
+      for (const dispatched of h.dispatched) {
+        const command = dispatched as {
+          workspaceStrategy?: unknown;
+          title?: string;
+          agentTask?: { role: string; workspaceAssignment?: string };
+        };
+        expect(command.agentTask?.role).toBe("lead");
+        expect(command.title).toBe("Spec lead · Run T3-9");
+        expect(command.workspaceStrategy).toEqual({
+          type: "worktree",
+          baseRef: "HEAD",
+          forgeItem: 9,
+        });
+      }
+      const binding = (command: unknown) => {
+        const {
+          workId: _workId,
+          requestFingerprint: _fingerprint,
+          ...rest
+        } = (command as { agentTask: AgentTaskBinding }).agentTask;
+        return rest;
       };
-      expect(command.agentTask?.role).toBe("lead");
-      expect(command.title).toBe("Spec lead · Run T3-9");
-      expect(command.workspaceStrategy).toEqual({
-        type: "worktree",
-        baseRef: "HEAD",
-        forgeItem: 9,
-      });
+      expect(binding(h.dispatched[1])).toEqual(binding(h.dispatched[0]));
+      // agent_roles offers the one writing role; a Spec owner's model still comes from its `lead` row.
+      const offered = (yield* h.roles()).roles.map((entry) => entry.role);
+      expect(offered).toContain("implementer");
+      expect(offered).not.toContain("lead");
+
+      // Only a top-level thread hands out a whole Spec: a delegated task builds it or hands out a piece.
+      for (const parentTask of [{ role: "lead" }, { role: "implementer" }] as const) {
+        const nested = yield* harness(undefined, true, {
+          parentTask,
+          parentLineage: { parentThreadId: "top-level", relationshipToParent: "subagent" },
+          ancestors: [
+            { id: "top-level", lineage: { parentThreadId: null, relationshipToParent: null } },
+          ],
+        });
+        const refused = yield* nested.delegate({
+          ...specLead("implementer", { forgeItem: 9 }),
+          agentTask: request({ taskClass: "mixed", workspacePath: nested.lead, workId: "T3-9" }),
+        });
+        expect(refused.code).toBe("capability_denied");
+        expect(refused.message).toContain("top-level");
+        expect(nested.dispatched).toHaveLength(0);
+      }
 
       // A Spec lead delegates its own leaves.
       const child = yield* harness(undefined, true, { parentTask: { role: "lead" } });

@@ -195,7 +195,7 @@ account's model has its own default.
 A message that is a slash command, such as `/goal`, is sent unchanged and carries no
 stance guidance; the agent takes its stance from the thread's ordinary messages.
 Helpers follow their role instead of a model default: an implementer builds its piece
-itself, and a delegated lead is Flexible. A thread running an Arc orchestrates.
+itself, and a Spec lead (an implementer handed a whole Spec) is Flexible. A thread running an Arc orchestrates.
 
 ## Quote an assistant response
 

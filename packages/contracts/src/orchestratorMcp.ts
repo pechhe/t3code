@@ -240,13 +240,16 @@ export const OrchestratorMcpDelegateTaskInput = Schema.Struct({
       "Omit unless asked for a supervised child; narrow modes pause for approval, not read-only. Above yours rejects.",
   }),
   interactionMode: Schema.optional(OrchestratorMcpInteractionMode),
-  forgeItem: Schema.optional(ForgeItemReferenceInput),
+  forgeItem: Schema.optional(ForgeItemReferenceInput).annotate({
+    description:
+      "Top-level threads only: a Forge Spec (number or ref) the `implementer` owns in its own workspace and lands.",
+  }),
 });
 export type OrchestratorMcpDelegateTaskInput = typeof OrchestratorMcpDelegateTaskInput.Type;
 
 /**
- * The wire form advertises `agentTask` once, including the two legacy reviewer role values;
- * the handler decodes it with `AgentTaskRequest` before the service sees it.
+ * The wire form advertises `agentTask` once, offering only the current roles while accepting
+ * `lead` and retired names; the handler decodes it with `AgentTaskRequest` before the service sees it.
  */
 export const OrchestratorMcpDelegateTaskWireInput = Schema.Struct({
   ...OrchestratorMcpDelegateTaskInput.fields,

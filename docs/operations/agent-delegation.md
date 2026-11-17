@@ -34,7 +34,11 @@ On web and desktop, **Settings → Delegation** edits the configured source
 policy. Settings permission is required; agents have no MCP tool to edit it.
 The policy has seven roles: `implementer`, `lead`, `scout`, `researcher`, `browser`,
 `reviewer` and `advisor`. The implementer and lead are editors; the other five are
-read-only. They differ by brief and permissions, not by which models may take their
+read-only. Callers ask for one writing role, `implementer`: handed a Forge Spec as
+`forgeItem` it runs as the internal `lead` (the Spec lead), so `agent_roles` lists no
+`lead` and its policy row only picks that child's model. Point the `lead` row at the
+implementer's list, as the shipped policy does, so both sizes offer the same models
+and Settings shows them as one job. They differ by brief and permissions, not by which models may take their
 work: any model a role lists may take that role's UI work as well as its other work.
 The implementer takes every task class, and hands its work back as a pinned revision
 unless its brief or the request tells it to land, install or publish.
@@ -201,21 +205,24 @@ its revision and the role names, or the reason the policy is refused.
   (calls omitting `offPolicyReason` are still refused, even when the configured
   policy is unreadable). Without a configured policy, unmanaged delegation is
   unchanged.
-- A `lead` task is the one delegated task with a top-level thread's lifecycle: any editor starts
-  it with the Spec as `forgeItem`, and it runs in that item's SlipJay workspace with
+- A Spec lead (internal role `lead`) is the one delegated task with a top-level thread's
+  lifecycle. A top-level thread starts it as an `implementer` with the Spec as `forgeItem`;
+  a `lead` request is still accepted. A delegated task cannot start one: it builds the
+  work or hands out a piece without `forgeItem`. Callers with no thread (an outside MCP
+  client) and Champion and scheduled-task threads, which are top-level, may. It runs in that item's SlipJay workspace with
   exactly a top-level thread's runtime mode and instructions. The item's own repository decides the project the
   child belongs to; when that is another registered project, where the caller
   holds no checkout, the child still belongs to it and runs in the item's own
   workspace, allocated or resumed there, so the caller's `workspacePath` only has
-  to be a checkout of that project. A `lead` whose item belongs to a different
+  to be a checkout of that project. A Spec lead whose item belongs to a different
   project than the request resolved is refused, naming both repositories, before
   any child exists; an item, or a project's repository, that T3 cannot read is
   never refused on that ground. It is still a subagent: it wakes its parent when it
-  finishes, shows only among its parent's subagents, and cannot start another `lead`. Like
+  finishes, and shows only among its parent's subagents. Like
   `researcher` and `scout`, the role is optional in a policy.
 - An agent working inside a thread that starts a top-level thread with
   `t3_thread_launch` or `create_threads` must say in `whyNotDelegated` why that
-  thread beats a `delegate_task` child, including a `lead` in another project.
+  thread beats a `delegate_task` child, including a whole Spec in another project.
   Without it the call is refused as an invalid request before any thread,
   receipt or workspace exists. The server logs the reason on acceptance
   (`orchestrator-mcp.thread.launched-instead-of-delegated`) rather than record

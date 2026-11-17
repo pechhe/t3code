@@ -4870,7 +4870,7 @@ it.effect("names the cause of each refused champion delegation", () =>
           clientRequestId: "lead",
           forgeItem: 1,
         }),
-        "A lead runs only for a finding with a Forge Spec",
+        "An implementer takes a whole Spec only for a finding with a Forge Spec",
       );
       f.installChild(first, "handoff", "implementer", "running");
       yield* refusedWith(

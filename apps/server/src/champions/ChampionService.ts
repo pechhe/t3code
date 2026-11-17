@@ -1038,7 +1038,7 @@ const make = Effect.gen(function* () {
       "For metric breaches the server creates deterministic findings. Reconcile qualitative observations with known open findings: supply existingFindingId instead of paraphrasing a duplicate. Read history on demand, never fabricate a measurement.",
       "After reporting, call t3_champions_check_context to read finding workId/attemptId. Use these exact identities in delegate_task, and existing role policy and SlipJay. If Forge/SlipJay is unavailable, report it explicitly as attention; never claim a repair was delivered without a revision.",
       "DIAGNOSE BEFORE YOU ACT on a metric breach. A new or reopened breach first gets one read-only advisor (delegate_task role advisor, readOnly true, the finding's workId and attemptId): ask it for the cause, the evidence, and which route fits: repair (a bounded fix one implementer can make and a later reading can verify), spec (larger or open work), or decision (a product trade-off, look and feel, or a change to checks, permissions or spend, which only the user settles). Record its conclusion with t3_champions_finding_action action diagnosis: diagnosis is what it found, route what it recommends, evidence one line of why. A repair, a Spec and a decision request are each refused until then, and each must match the recorded route; to take another, record why first with action reroute. If the advisor is refused because no model is eligible, the finding records that and you may proceed without it; never run it on another model. A qualitative finding needs no diagnosis.",
-      "Route repair: delegate an implementer. Route spec: file an ordinary Forge Spec through your own Weave connection, with the diagnosis as its body and the finding named as its source, record it with t3_champions_finding_action action spec and specUrl, then delegate a lead with forgeItem set to that Spec. You lead one Spec at a time and never review or accept it. If you have no Weave connection, say so as attention; do not fall back to a repair. Route decision: request it with action decision.",
+      "Route repair: delegate an implementer. Route spec: file an ordinary Forge Spec through your own Weave connection, with the diagnosis as its body and the finding named as its source, record it with t3_champions_finding_action action spec and specUrl, then delegate an implementer with forgeItem set to that Spec, which becomes its Spec lead. You lead one Spec at a time and never review or accept it. If you have no Weave connection, say so as attention; do not fall back to a repair. Route decision: request it with action decision.",
       "t3_champions_check_context may list handedOff findings: bugs a journey champion in this project confirmed and handed to you. Delegate and record repairs for them exactly as for your own, within your own limits. They stay with that champion, whose re-test settles them: never dismiss, reopen, verify or ask a decision on one.",
       "Before a bounded investigation, call t3_champions_learning_search action query for its exact topic and retain the current retrieval receipt, including a legitimate empty result. Call t3_champions_investigation action start with distinct read-only hypotheses, then delegate only its returned branch workId/attemptId through normal managed roles in this project. At most three alternatives, two active branches, six admitted attempts per investigation and six per champion per rolling 24 hours; follow-ups count. Unknown launches hold capacity; replay the same identity instead of duplicating work.",
       CHAMPION_MEASUREMENT_GUIDANCE,
@@ -3671,27 +3671,27 @@ const make = Effect.gen(function* () {
           }
           if (!finding.specUrl)
             return yield* refuse(
-              "A lead runs only for a finding with a Forge Spec. Record the Spec with t3_champions_finding_action action spec first.",
+              "An implementer takes a whole Spec only for a finding with a Forge Spec. Record the Spec with t3_champions_finding_action action spec first.",
             );
           if (!followup && !forgeItem)
             return yield* refuse(
-              "Start a lead with forgeItem set to the finding's Spec, so the lead works in that Spec's workspace.",
+              "Pass forgeItem set to the finding's Spec, so the implementer works in that Spec's workspace.",
             );
           if (request.workspaceAssignment === "isolated")
             return yield* refuse(
-              "A lead allocates its own Spec workspace. Delegate again without workspaceAssignment isolated.",
+              "An implementer given a Spec works in that Spec's own workspace. Delegate again without workspaceAssignment isolated.",
             );
           const advice = yield* acceptedChild(holder, finding, "advice").pipe(Effect.option);
           if (Option.isNone(advice) || advice.value.task.status !== "completed")
             return yield* refuse(
-              "A lead starts only after an advisor on this finding attempt has completed. Delegate the advisor first and wait for it.",
+              "An implementer takes the Spec only after an advisor on this finding attempt has completed. Delegate the advisor first and wait for it.",
             );
         }
         if (phase === "review" || phase === "verification") {
           const proof = yield* acceptedChild(holder, finding).pipe(Effect.option);
           if (Option.isNone(proof) || proof.value.task.status !== "completed")
             return yield* refuse(
-              `${phase === "review" ? "Review" : "Verification"} starts only after this finding attempt's ${finding.specUrl === null ? "repair worker" : "lead"} has completed and handed back. Wait for it to finish.`,
+              `${phase === "review" ? "Review" : "Verification"} starts only after this finding attempt's ${finding.specUrl === null ? "repair worker" : "Spec implementer"} has completed and handed back. Wait for it to finish.`,
             );
         }
         const distinctSelection =
@@ -3733,14 +3733,14 @@ const make = Effect.gen(function* () {
             const binding = proof.value.shell.workItem;
             if (forgeItem !== undefined)
               return yield* refuse(
-                "A lead follow-up continues its own Spec; drop forgeItem from the follow-up.",
+                "A follow-up continues its own Spec; drop forgeItem from the follow-up.",
               );
             if (
               !binding ||
               forgeItemNumberFromUrl(finding.specUrl!, binding.origin) !== binding.number
             )
               return yield* refuse(
-                "That lead is no longer bound to the finding's recorded Spec, so it cannot be followed up for this finding.",
+                "That task is no longer bound to the finding's recorded Spec, so it cannot be followed up for this finding.",
               );
           }
           return distinctSelection ?? adviceSelection;

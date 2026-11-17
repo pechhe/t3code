@@ -176,7 +176,7 @@ export const requireWhyNotDelegated = (
         new OrchestratorMcpFailure({
           code: "invalid_request",
           message:
-            "Is this better as a delegated task? Use `delegate_task` for work this thread owns, including a `lead` in another project. If it must be its own thread, say why in `whyNotDelegated`.",
+            "Is this better as a delegated task? Use `delegate_task` for work this thread owns, including a whole Spec in another project (`implementer` with forgeItem). If it must be its own thread, say why in `whyNotDelegated`.",
         }),
       );
 
@@ -264,11 +264,7 @@ const resolveThreadId = (context: Caller, threadId: ThreadId | undefined) =>
 
 export const readThread = Effect.fn("mcp.readThread")(function* <
   K extends ProjectionRecordField = never,
->(
-  threadId?: ThreadId,
-  fields: ReadonlyArray<K> = [],
-  filter?: ProjectionRecordFilter,
-) {
+>(threadId?: ThreadId, fields: ReadonlyArray<K> = [], filter?: ProjectionRecordFilter) {
   const context = yield* readCaller();
   const targetId = yield* resolveThreadId(context, threadId);
   const shell = yield* context.threads.getThreadShell(targetId).pipe(Effect.mapError(unavailable));
