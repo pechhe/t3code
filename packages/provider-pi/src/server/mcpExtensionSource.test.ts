@@ -415,6 +415,53 @@ describe("Pi MCP tool exposure", () => {
     );
   });
 
+  it("activates codemode for deferred MCP tools, keeps namespaces, and honors -codemode opt-out", async () => {
+    const bridge = await loadMcpBridge({
+      modern: true,
+      codemodeAvailable: true,
+      instructions: "T3 Code orchestration and browser tools.\nUse delegate_task to delegate.",
+      agentServers: [
+        {
+          name: "weave",
+          url: "http://weave.invalid/mcp",
+          authorizationHeader: "Bearer weave-token",
+          tools: ["weave_forge_read"],
+          instructions: "Weave over MCP: you act as the signed-in person.\nRead before you write.",
+        },
+      ],
+    });
+    await bridge.handlers.get("session_start")!({ systemPrompt: "" }, discoveryContext);
+    assert.deepEqual(bridge.getActiveTools(), ["read", "codemode"]);
+    const snapshot = bridge.tools.find((tool) => tool.name === "mcp__t3-code__preview_snapshot");
+    assert.equal(snapshot?.exposure, "deferred");
+    assert.deepEqual(snapshot?.namespace, {
+      name: "mcp__t3-code",
+      aliases: ["t3-code"],
+      description: "T3 Code orchestration and browser tools.",
+      instructions: "T3 Code orchestration and browser tools.\nUse delegate_task to delegate.",
+    });
+    assert.isUndefined(
+      bridge.tools.find((tool) => tool.name === "mcp__t3_code__preview_snapshot")?.namespace,
+    );
+    const weaveRead = bridge.tools.find((tool) => tool.name === "mcp__weave__weave_forge_read");
+    assert.equal(weaveRead?.exposure, "deferred");
+    assert.deepEqual(weaveRead?.namespace, {
+      name: "mcp__weave",
+      aliases: ["weave"],
+      description: "Weave over MCP: you act as the signed-in person.",
+      instructions: "Weave over MCP: you act as the signed-in person.\nRead before you write.",
+    });
+
+    const optedOut = await loadMcpBridge({
+      modern: true,
+      toolSearchAvailable: true,
+      codemodeAvailable: true,
+      defaultTools: ["-codemode"],
+    });
+    await optedOut.handlers.get("session_start")!({ systemPrompt: "" }, discoveryContext);
+    assert.deepEqual(optedOut.getActiveTools(), ["read", "tool_search"]);
+  });
+
   it.each(["legacy Pi", "disabled tool search"])(
     "keeps tool execution available with %s",
     async (mode) => {

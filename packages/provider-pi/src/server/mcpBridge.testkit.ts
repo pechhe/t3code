@@ -13,6 +13,12 @@ interface RegisteredTool {
   readonly parameters: unknown;
   readonly outputSchema?: unknown;
   readonly exposure?: string;
+  readonly namespace?: {
+    readonly name: string;
+    readonly aliases?: ReadonlyArray<string>;
+    readonly description?: string;
+    readonly instructions?: string;
+  };
   readonly promptSnippet?: string;
   readonly promptGuidelines?: ReadonlyArray<string>;
   readonly execute: (
@@ -57,6 +63,8 @@ export async function loadMcpBridge(
     readonly toolSearchAvailable?: boolean;
     readonly toolSearchDisabled?: boolean;
     readonly codemodeAvailable?: boolean;
+    readonly defaultTools?: ReadonlyArray<string>;
+    readonly instructions?: string;
     readonly allowsTool?: (name: string) => boolean;
     readonly runtimeMode?: string;
     readonly environment?: NodeJS.ProcessEnv;
@@ -72,6 +80,7 @@ export async function loadMcpBridge(
       readonly url: string;
       readonly authorizationHeader: string;
       readonly tools: ReadonlyArray<string>;
+      readonly instructions?: string;
     }>;
   } = {},
 ) {
@@ -149,7 +158,13 @@ export async function loadMcpBridge(
           }
         : request.method === "tools/call"
           ? (options.result ?? { content: [{ type: "text", text: "browser snapshot" }] })
-          : {};
+          : request.method === "initialize"
+            ? {
+                ...((agentServer ? agentServer.instructions : options.instructions) === undefined
+                  ? {}
+                  : { instructions: agentServer ? agentServer.instructions : options.instructions }),
+              }
+            : {};
     return new Response(JSON.stringify({ jsonrpc: "2.0", id: request.id, result }), {
       headers: { "content-type": "application/json" },
     });
@@ -221,6 +236,9 @@ export async function loadMcpBridge(
           ? [{ name: "codemode", sourceInfo: { path: "builtin:codemode" } }]
           : []),
       ],
+      ...(options.defaultTools === undefined
+        ? {}
+        : { getSettings: () => ({ defaultTools: options.defaultTools }) }),
       ...(options.modern
         ? {
             registerMcpServer: (name: string, config: Record<string, unknown>) =>

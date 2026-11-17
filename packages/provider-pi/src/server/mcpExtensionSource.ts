@@ -511,7 +511,7 @@ function createMcpClient(
 
   return {
     async connect(signal?: AbortSignal) {
-      await request(
+      const init = (await request(
         "initialize",
         {
           protocolVersion: PROTOCOL,
@@ -520,8 +520,11 @@ function createMcpClient(
         },
         limits.controlMs,
         signal,
-      );
+      )) as { instructions?: unknown } | undefined;
       await notify("notifications/initialized", {}, signal).catch(() => undefined);
+      return typeof init?.instructions === "string" && init.instructions.trim().length > 0
+        ? init.instructions.trim()
+        : undefined;
     },
     async listTools(signal?: AbortSignal) {
       const tools: McpTool[] = [];
@@ -650,10 +653,16 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
   // A codemode script's own tool calls reach this hook under their own names, so the
   // container needs no allowance of its own. Its model calls reach no tool: they
   // answer from provider models and write nothing to the workspace.
-  const isCodemodeContainer = (name: string) =>
-    name === "codemode" &&
+  const hasBuiltinCodemode = () =>
     typeof pi.getAllTools === "function" &&
     pi.getAllTools().some((tool) => tool.name === "codemode" && tool.sourceInfo?.path === "builtin:codemode");
+
+  const isCodemodeOptedOut = () => {
+    const defaults = (pi as { getSettings?: () => { defaultTools?: unknown } }).getSettings?.()?.defaultTools;
+    return Array.isArray(defaults) && defaults.includes("-codemode");
+  };
+
+  const isCodemodeContainer = (name: string) => name === "codemode" && hasBuiltinCodemode();
 
   const isBuiltinReadOnlyTool = (name: string) => {
     if (!READ_ONLY_TOOLS.has(name)) return false;
@@ -783,6 +792,7 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
     readonly name: string;
     readonly agent: boolean;
     readonly client: ReturnType<typeof createMcpClient>;
+    instructions: string | undefined;
     catalog: ReadonlyArray<McpTool>;
     started: Promise<void> | undefined;
   };
@@ -790,6 +800,7 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
     name,
     agent,
     client: createMcpClient(endpoint, token),
+    instructions: undefined,
     catalog: [],
     started: undefined,
   });
@@ -844,6 +855,18 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
       const prefixes = (supportsExposure || server.agent) && canonicalPrefix !== publicPrefix
         ? [publicPrefix, canonicalPrefix]
         : [publicPrefix];
+      const namespace = supportsExposure
+        ? {
+            name: \`mcp__\${server.name}\`,
+            aliases: [server.name],
+            ...(server.instructions === undefined
+              ? {}
+              : {
+                  description: server.instructions.split(/\\r?\\n/, 1)[0],
+                  instructions: server.instructions,
+                }),
+          }
+        : undefined;
       for (const tool of server.catalog) {
         const name = tool.name;
         for (const prefix of prefixes) {
@@ -857,6 +880,7 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
             parameters: jsonSchemaToTypebox(tool.inputSchema),
             ...(supportsExposure ? { outputSchema: mcpOutputSchema(tool) } : {}),
             ...(supportsExposure ? { exposure } : {}),
+            ...(namespace !== undefined && exposure !== "hidden" ? { namespace } : {}),
             async execute(_toolCallId, params, signal) {
               const result = await server.client.callTool(
                 name,
@@ -884,7 +908,7 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
     if (server.started !== undefined) return server.started;
     const attempt = (async () => {
       const signal = AbortSignal.timeout(10_000);
-      await server.client.connect(signal);
+      server.instructions = await server.client.connect(signal);
       server.catalog = await server.client.listTools(signal);
       registerTools();
     })();
@@ -902,16 +926,21 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
 
   const reconcileDiscovery = () => {
     if (!supportsExposure) return;
-    // A disabled or replaced search builtin cannot discover deferred tools.
+    // A disabled or replaced search or codemode builtin cannot reach deferred tools.
     const hasToolSearch = hasBuiltinToolSearch();
-    const exposureChanged = deferOptionalTools !== hasToolSearch;
-    deferOptionalTools = hasToolSearch;
+    const hasCodemode = hasBuiltinCodemode() && !isCodemodeOptedOut();
+    const canDiscover = hasToolSearch || hasCodemode;
+    const exposureChanged = deferOptionalTools !== canDiscover;
+    deferOptionalTools = canDiscover;
     if (exposureChanged) registerTools();
     const active = pi.getActiveTools();
     // The server already lists the thread's full set, so a completions gateway
-    // needs no eager catalogue. Restore only the search builtin that discovers
-    // deferred tools; Pi still applies --tools/--exclude-tools.
-    const required = hasToolSearch ? ["tool_search"] : [];
+    // needs no eager catalogue. Restore the builtins that reach deferred tools;
+    // Pi still applies --tools/--exclude-tools.
+    const required = [
+      ...(hasToolSearch ? ["tool_search"] : []),
+      ...(hasCodemode ? ["codemode"] : []),
+    ];
     const missing = required.filter((name) => !active.includes(name));
     if (missing.length > 0) pi.setActiveTools([...active, ...missing]);
   };
