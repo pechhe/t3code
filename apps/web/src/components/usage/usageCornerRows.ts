@@ -107,14 +107,17 @@ function rowIdentity(pool: LimitPool): Pick<UsageCornerRow, "id" | "slotName" | 
   if (slot === undefined) {
     return { id: `driver:${pool.driver}`, slotName: null, icon: { driverKind: pool.driver } };
   }
-  const service = resolveSubProviderServiceDriver(slot.accountKey);
+  const service = resolveSubProviderServiceDriver(slot.service);
   return {
-    // The fingerprint keeps two logins under one sub-provider apart, and is the same on every machine.
-    id: `slot:${slot.accountKey}:${slot.account ?? account!.key}`,
-    slotName: slot.accountKey.replace(/^claude-subscription-/, ""),
+    // A lone login keeps its fingerprint id, the same on every machine; logins sharing a card share a row.
+    id:
+      pool.accounts.length === 1
+        ? `slot:${slot.accountKey}:${slot.account ?? account!.key}`
+        : `slot:${slot.service}`,
+    slotName: slot.service.replace(/^claude-subscription-/, ""),
     icon: service
       ? { driverKind: ProviderDriverKind.make(service) }
-      : { driverKind: pool.driver, subProvider: slot.accountKey },
+      : { driverKind: pool.driver, subProvider: slot.service },
   };
 }
 

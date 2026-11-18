@@ -1,4 +1,4 @@
-import { ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
+import { EnvironmentId, ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
 import { collectLimitPools, type LimitAccount } from "@t3tools/shared/usageLimits";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -152,25 +152,35 @@ describe("usageCornerRows", () => {
     );
   });
 
-  it("names a Pi account by its family or service, once however many machines report it", () => {
+  it("names a Pi account by its family or service, one row per service however many machines report it", () => {
     const slot = (accountKey: string, fingerprint: string, key = accountKey) => ({
       ...account(key, [session(10)], "pi"),
-      slot: { instanceId: ProviderInstanceId.make("pi"), accountKey, account: fingerprint },
+      slot: {
+        instanceId: ProviderInstanceId.make("pi"),
+        accountKey,
+        service: accountKey.split(":")[0]!,
+        account: fingerprint,
+      },
+    });
+    const on = (machine: string, checkedAt: string, usedPercent: number) => ({
+      environments: [{ environmentId: EnvironmentId.make(machine), label: machine }],
+      limits: { checkedAt, windows: [session(usedPercent)] },
     });
     const result = rows([
       account("c", [weekly(30)], "codex"),
       slot("claude-subscription-yardsmith", "ys"),
       slot("opencode-go", "go"),
-      // The same login seen from a second machine, read later, and a second login under one key.
+      // Two logins under one service, each seen from two machines; the later reading wins.
+      { ...slot("antigravity", "google-a", "mac-a"), ...on("mac", "2026-09-03T10:00:00.000Z", 10) },
       {
-        ...slot("openai-codex", "chatgpt-a", "mac"),
-        limits: { checkedAt: "2026-09-03T10:00:00.000Z", windows: [session(10)] },
+        ...slot("antigravity:petch777@gmail.com", "google-b", "mac-b"),
+        ...on("mac", "2026-09-03T10:00:00.000Z", 10),
       },
+      { ...slot("antigravity", "google-a", "vps-a"), ...on("vps", "2026-09-03T11:00:00.000Z", 60) },
       {
-        ...slot("openai-codex", "chatgpt-a", "vps"),
-        limits: { checkedAt: "2026-09-03T11:00:00.000Z", windows: [session(60)] },
+        ...slot("antigravity:petch777@gmail.com", "google-b", "vps-b"),
+        ...on("vps", "2026-09-03T11:00:00.000Z", 10),
       },
-      slot("openai-codex", "chatgpt-b", "second"),
     ]);
     expect(
       result.map(({ id, slotName, icon, remainingPercent }) => ({
@@ -194,16 +204,10 @@ describe("usageCornerRows", () => {
         remainingPercent: 90,
       },
       {
-        id: "slot:openai-codex:chatgpt-a",
-        slotName: "openai-codex",
-        icon: { driverKind: "pi", subProvider: "openai-codex" },
-        remainingPercent: 40,
-      },
-      {
-        id: "slot:openai-codex:chatgpt-b",
-        slotName: "openai-codex",
-        icon: { driverKind: "pi", subProvider: "openai-codex" },
-        remainingPercent: 90,
+        id: "slot:antigravity",
+        slotName: "antigravity",
+        icon: { driverKind: "antigravity" },
+        remainingPercent: 130,
       },
     ]);
   });

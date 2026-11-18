@@ -1847,7 +1847,7 @@ describe("collectLimitPools slot accounts", () => {
     email: undefined,
     plan: undefined,
     accentColor: undefined,
-    slot: { instanceId: ProviderInstanceId.make("pi"), accountKey },
+    slot: { instanceId: ProviderInstanceId.make("pi"), accountKey, service: accountKey },
     environments: [{ environmentId: EnvironmentId.make("env"), label: "Mac" }],
     sourceLabel: null,
     routes: [],
@@ -1864,6 +1864,55 @@ describe("collectLimitPools slot accounts", () => {
     expect(pools.map((pool) => pool.accounts.length)).toEqual([1, 1]);
     // Averaging these two would report 50% used and hide that one account is nearly out.
     expect(pools.map((pool) => pool.windows[0]?.usedPercent).toSorted()).toEqual([10, 90]);
+  });
+
+  it("puts a service's logins on one card per machine, naming the machine when it has several", () => {
+    const antigravity = (usedPercent: number) =>
+      provider({
+        driver: pi,
+        usageSlots: [
+          {
+            accountKey: "antigravity",
+            label: "antigravity · hfpetch@gmail.com",
+            account: "google-a",
+            usageLimits: { checkedAt, windows: [window("gemini-5h", usedPercent)] },
+          },
+          {
+            accountKey: "antigravity:petch777@gmail.com",
+            label: "antigravity · petch777@gmail.com",
+            account: "google-b",
+            usageLimits: { checkedAt, windows: [window("gemini-5h", 0)] },
+          },
+        ],
+      });
+    const presentations = new Map([
+      [
+        EnvironmentId.make("mac"),
+        { entry: { target: { label: "Mac" } }, serverConfig: { providers: [antigravity(40)] } },
+      ],
+      [
+        EnvironmentId.make("vps"),
+        { entry: { target: { label: "VPS" } }, serverConfig: { providers: [antigravity(40)] } },
+      ],
+    ]);
+    // Budgets and spend are each machine's own, so each machine keeps its own card.
+    const pools = collectLimitPools(collectLimitAccounts(presentations), now);
+    expect(pools.map((pool) => [pool.service, pool.machine])).toEqual([
+      ["antigravity", "Mac"],
+      ["antigravity", "VPS"],
+    ]);
+    for (const pool of pools) {
+      expect(pool.accounts.map((account) => account.displayName).toSorted()).toEqual([
+        "hfpetch@gmail.com",
+        "petch777@gmail.com",
+      ]);
+      expect(pool.windows.map((pooled) => pooled.columns.length)).toEqual([2]);
+    }
+    const [mac] = collectLimitPools(
+      collectLimitAccounts(new Map([...presentations].slice(0, 1))),
+      now,
+    );
+    expect(mac?.machine).toBeUndefined();
   });
 
   it("keeps an empty failed slot listed and shows its probe reason", () => {

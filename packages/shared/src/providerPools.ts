@@ -138,11 +138,8 @@ export const windowsUsableAgainMs = (
 };
 
 /** When an exhausted account can take a turn again: its last blocking window's reset. */
-export const usableAgainMs = (
-  provider: ServerProvider,
-  nowMs: number,
-  limitPercent = 100,
-): number => windowsUsableAgainMs(provider.usageLimits?.windows ?? [], nowMs, limitPercent);
+const usableAgainMs = (provider: ServerProvider, nowMs: number, limitPercent = 100): number =>
+  windowsUsableAgainMs(provider.usageLimits?.windows ?? [], nowMs, limitPercent);
 
 /** Whether an account has any usage reading to rank it by. */
 const hasUsageReading = (provider: ServerProvider): boolean =>

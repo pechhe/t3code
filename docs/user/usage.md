@@ -145,8 +145,11 @@ provider shows one figure: what is left in its tightest window (5-hour or weekly
 its accounts, so two Claude accounts can show up to 200%. With more than one account, each
 account's own figure sits beside it, marked with its accent colour or, without one, its initial. The figure turns amber when you are spending faster than an even rate to the
 reset, and reads **out** with a countdown when nothing is left. Click **Usage left** to open this page.
-Each account inside Pi gets its own row, named after it and marked with the model family or
-service it belongs to; one signed in on several machines shows once. To hide a row, click the
+Accounts inside Pi are grouped by the service they sign in to, so two Antigravity logins share one
+row here and one card on the Usage page, each login with its own segment; a service with one login
+gets a row named after it, marked with its model family or service. A service on several machines
+shows once here, from the freshest machine; the Usage page gives each machine its own card, because
+spend and monthly budgets are each machine's own. To hide a row, click the
 sliders button on the card and untick it; tick it again to bring it back.
 Filter with the environment dropdown to see what a single machine has.
 

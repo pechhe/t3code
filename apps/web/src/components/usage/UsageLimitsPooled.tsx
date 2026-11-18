@@ -662,16 +662,16 @@ function PoolSection({ pool, now }: { readonly pool: LimitPool; readonly now: nu
   const color = barColor(pool.driver);
   const label = providerClients.get(pool.driver)?.label ?? String(pool.driver);
   const windows = displayLimitWindows(pool);
-  // A slot is one account inside one instance, named by the account rather than the provider.
-  const heading =
-    pool.accounts.length === 1 && pool.accounts[0]?.slot !== undefined
-      ? (pool.accounts[0].displayName ?? label)
-      : label;
+  const service = pool.machine ? `${pool.service} · ${pool.machine}` : pool.service;
+  const heading = service ?? label;
+  // A card holding several logins says whose budget each control sets.
+  const named = pool.accounts.length > 1;
   return (
     <section className="flex flex-col gap-3">
       <h2 className="flex items-center gap-2 text-sm font-medium text-foreground">
         <ProviderInstanceIcon
           driverKind={pool.driver}
+          subProvider={pool.service}
           displayName={heading}
           indicatorBackground="var(--background)"
           className="size-5"
@@ -687,7 +687,7 @@ function PoolSection({ pool, now }: { readonly pool: LimitPool; readonly now: nu
             ? []
             : [
                 {
-                  accountKey: member.account.key,
+                  account: member.account,
                   environmentId: member.account.environments[0]?.environmentId ?? null,
                   slotId: member.account.slot
                     ? `${member.account.slot.instanceId}:${member.account.slot.accountKey}`
@@ -707,7 +707,10 @@ function PoolSection({ pool, now }: { readonly pool: LimitPool; readonly now: nu
               description={details?.description}
             />
             {dollars.map((entry) => (
-              <div key={entry.accountKey} className="flex flex-wrap items-center gap-3">
+              <div key={entry.account.key} className="flex flex-wrap items-center gap-3">
+                {named ? (
+                  <AccountName account={entry.account} className="text-xs text-muted-foreground" />
+                ) : null}
                 <UsageSlotBudgetEditor
                   environmentId={entry.environmentId}
                   slotId={entry.slotId}
@@ -730,6 +733,9 @@ function PoolSection({ pool, now }: { readonly pool: LimitPool; readonly now: nu
           const environmentId = account.environments[0]?.environmentId ?? null;
           return (
             <div key={account.key} className="flex flex-wrap items-center gap-3">
+              {named ? (
+                <AccountName account={account} className="text-xs text-muted-foreground" />
+              ) : null}
               <UsageSlotBudgetEditor environmentId={environmentId} slotId={slotId} />
             </div>
           );

@@ -279,6 +279,8 @@ export interface LimitAccount {
   readonly slot?: {
     readonly instanceId: ProviderInstanceId;
     readonly accountKey: string;
+    /** The sub-provider the account signs in to, such as `antigravity`; its logins share a card. */
+    readonly service: string;
     /** Fingerprint of the credential, the same on every machine that holds it. */
     readonly account?: string;
   };
@@ -415,16 +417,22 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
     for (const provider of presentation.serverConfig?.providers ?? []) {
       if (!provider.enabled || provider.usageSlots === undefined) continue;
       for (const slot of provider.usageSlots) {
+        const service = slot.accountKey.split(":")[0]!;
+        // Budgets and spend are each machine's own, so a login stays one account per machine.
         merge(`${environmentId}:${provider.instanceId}:${slot.accountKey}`, {
           key: `${environmentId}:${provider.instanceId}:${slot.accountKey}`,
           driver: provider.driver,
-          displayName: slot.label,
+          // The card is headed by the service, so each login is named by what follows it.
+          displayName: slot.label.startsWith(`${service} · `)
+            ? slot.label.slice(service.length + 3)
+            : slot.label,
           email: undefined,
           plan: undefined,
           accentColor: provider.accentColor,
           slot: {
             instanceId: provider.instanceId,
             accountKey: slot.accountKey,
+            service,
             ...(slot.account ? { account: slot.account } : {}),
           },
           environments: [{ environmentId, label }],
@@ -531,6 +539,10 @@ export interface LimitPoolWindow {
 
 export interface LimitPool {
   readonly driver: ServerProvider["driver"];
+  /** Set for a card of accounts inside one sub-provider, such as Pi's Antigravity logins. */
+  readonly service?: string;
+  /** The machine a sub-provider card reads, named when the service is on several machines. */
+  readonly machine?: string;
   readonly accounts: readonly LimitAccount[];
   readonly windows: readonly LimitPoolWindow[];
 }
@@ -586,24 +598,28 @@ export function collectLimitPools(
   accounts: readonly LimitAccount[],
   now: number,
 ): readonly LimitPool[] {
-  // A slot's windows belong to its own account, so pooling them with its instance's
+  // A slot's windows belong to its own sub-provider, so pooling them with its instance's
   // driver-wide windows would average two different allowances into one figure.
   const byDriver = new Map<ServerProvider["driver"], LimitAccount[]>();
-  const slotPools: LimitPool[] = [];
-  for (const account of accounts) {
-    if (account.slot !== undefined) {
-      slotPools.push({
-        driver: account.driver,
-        accounts: [account],
-        windows: poolWindows([account], now),
-      });
-      continue;
-    }
-    const list = byDriver.get(account.driver);
+  const byService = new Map<string, LimitAccount[]>();
+  const add = <K>(groups: Map<K, LimitAccount[]>, key: K, account: LimitAccount) => {
+    const list = groups.get(key);
     if (list) list.push(account);
-    else byDriver.set(account.driver, [account]);
+    else groups.set(key, [account]);
+  };
+  for (const account of accounts) {
+    if (account.slot === undefined) add(byDriver, account.driver, account);
+    else {
+      const machine = account.environments[0]?.environmentId;
+      add(byService, `${machine}:${account.driver}:${account.slot.service}`, account);
+    }
   }
-  const driverPools = [...byDriver].map(([driver, members]) => {
+  const serviceMachines = new Map<string, number>();
+  for (const [first] of byService.values()) {
+    const service = first!.slot!.service;
+    serviceMachines.set(service, (serviceMachines.get(service) ?? 0) + 1);
+  }
+  const sortPool = (driver: ServerProvider["driver"], members: readonly LimitAccount[]) => {
     const orderWindow = members
       .flatMap((account) => account.limits.windows)
       .sort((left, right) => WINDOW_KIND_ORDER[left.kind] - WINDOW_KIND_ORDER[right.kind])[0];
@@ -623,8 +639,19 @@ export function collectLimitPools(
         left.key.localeCompare(right.key),
     );
     return { driver, accounts: sorted, windows: poolWindows(sorted, now) };
-  });
-  return [...driverPools, ...slotPools];
+  };
+  return [
+    ...[...byDriver].map(([driver, members]) => sortPool(driver, members)),
+    ...[...byService.values()].map((members) => {
+      const service = members[0]!.slot!.service;
+      const machine = members[0]!.environments[0]?.label;
+      return {
+        ...sortPool(members[0]!.driver, members),
+        service,
+        ...(machine && serviceMachines.get(service)! > 1 ? { machine } : {}),
+      };
+    }),
+  ];
 }
 
 function accountSortName(account: LimitAccount): string {
