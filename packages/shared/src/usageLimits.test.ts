@@ -142,6 +142,24 @@ describe("new thread model fallback", () => {
       ),
     ).toBeDefined();
   });
+  it("reads a Pi Antigravity slot by model family", () => {
+    const pi = provider({
+      instanceId: ProviderInstanceId.make("pi"),
+      driver: ProviderDriverKind.make("pi"),
+      usageSlots: [
+        {
+          accountKey: "antigravity",
+          label: "Antigravity",
+          usageLimits: {
+            checkedAt: limited.checkedAt,
+            windows: [{ ...window, id: "3p-weekly", usedPercent: 100 }],
+          },
+        },
+      ],
+    });
+    expect(exhaustedUsageWindow(pi, now, "antigravity/gemini-4-hydrogen")).toBeUndefined();
+    expect(exhaustedUsageWindow(pi, now, "antigravity/claude-opus-5-5")?.id).toBe("3p-weekly");
+  });
   it("falls back when the selected Pi sub-provider slot is cooled", () => {
     const pi = provider({
       instanceId: ProviderInstanceId.make("pi"),

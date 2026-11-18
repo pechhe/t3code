@@ -13,6 +13,7 @@ import {
   adaptModelSelectionForSlot,
   pickModelPoolFailoverSlot,
   pickModelPoolSlot,
+  slotStanding,
 } from "./modelPools.ts";
 
 const NOW = Date.parse("2026-11-16T12:00:00.000Z");
@@ -230,5 +231,45 @@ describe("adaptModelSelectionForSlot", () => {
       poolId: "opus",
       options: [{ id: "effort", value: "high" }],
     });
+  });
+});
+
+describe("slotStanding on a Pi Antigravity slot", () => {
+  // As the account read on 18 Nov 2026: the shared Claude and GPT week spent, Gemini barely used.
+  const antigravity: ServerProvider = {
+    ...base("pi", "pi", ["antigravity/gemini-4-hydrogen", "antigravity/claude-opus-5-5"]),
+    usageSlots: [
+      {
+        accountKey: "antigravity",
+        label: "antigravity",
+        usageLimits: {
+          checkedAt: at(0),
+          windows: [
+            {
+              id: "3p-weekly",
+              kind: "weekly",
+              label: "Weekly",
+              usedPercent: 100,
+              resetsAt: at(48),
+            },
+            {
+              id: "gemini-weekly",
+              kind: "weekly",
+              label: "Weekly",
+              usedPercent: 19,
+              resetsAt: at(48),
+            },
+          ],
+        },
+      },
+    ],
+  };
+
+  it("leaves a Gemini model usable when only the Claude and GPT quota is spent", () => {
+    expect(slotStanding(antigravity, "antigravity/gemini-4-hydrogen", NOW)).toBe("available");
+  });
+
+  it("holds back a Claude model on the spent shared quota", () => {
+    expect(slotStanding(antigravity, "antigravity/claude-opus-5-5", NOW)).toBe("out");
   });
 });

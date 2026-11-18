@@ -441,6 +441,28 @@ export const piAccountKeyOf = (modelSlug: string): string | undefined => {
 };
 
 /**
+ * Whether an Antigravity quota window governs `model`: `gemini-*` windows govern Gemini,
+ * `3p-*` Claude and GPT, and a window naming no family every model. A Pi slug is read by its
+ * model part, so a spent Claude quota never holds back Gemini on the same account.
+ */
+export const antigravityWindowGoverns = (windowId: string, modelSlug: string): boolean => {
+  const family = modelSlug.slice(modelSlug.indexOf("/") + 1).match(/^(gemini|claude|gpt)-/)?.[1];
+  const pool = windowId.match(/^(gemini|claude|gpt|3p)-/)?.[1];
+  return (
+    pool === undefined ||
+    family === undefined ||
+    pool === family ||
+    (pool === "3p" && (family === "claude" || family === "gpt"))
+  );
+};
+
+/** The quota metering that governs `model` on `provider`: a Pi slot meters as its sub-provider. */
+export const usageMeterOf = (provider: Pick<ServerProvider, "driver">, modelSlug: string): string =>
+  provider.driver === "pi" && piAccountKeyOf(modelSlug) === "antigravity"
+    ? "antigravity"
+    : provider.driver;
+
+/**
  * Adds each limit a run reported to its account's reading, until that limit's reset, so every
  * pick treats the account as out even when a later read fails or still shows allowance.
  */

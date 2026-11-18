@@ -21,11 +21,13 @@ import {
 
 import {
   type AccountStanding,
+  antigravityWindowGoverns,
   isProviderRoutable,
   piAccountKeyOf,
   USAGE_REFRESH_NEAR_LIMIT_PERCENT,
   USAGE_REFRESH_STALE_MS,
   windowsSpendUrgency,
+  usageMeterOf,
   windowsUsableAgainMs,
 } from "./providerPools.ts";
 
@@ -76,24 +78,14 @@ export const applicableSlotUsageWindows = (
       (window.providerIds === undefined || window.providerIds.includes(model.split("/")[0] ?? "")),
   );
   if (provider === undefined) return windows;
-  switch (provider.driver) {
+  switch (usageMeterOf(provider, model)) {
     case "cursor": {
       const api = windows.filter((window) => window.id === "apiPercentUsed");
       const auto = windows.filter((window) => window.id === "autoPercentUsed");
       return /^(auto|default|grok|composer)/.test(model) ? [...auto, ...api] : api;
     }
-    case "antigravity": {
-      const family = model.match(/^(gemini|claude|gpt)-/)?.[1];
-      return windows.filter((window) => {
-        const pool = window.id.match(/^(gemini|claude|gpt|3p)-/)?.[1];
-        return (
-          pool === undefined ||
-          family === undefined ||
-          pool === family ||
-          (pool === "3p" && (family === "claude" || family === "gpt"))
-        );
-      });
-    }
+    case "antigravity":
+      return windows.filter((window) => antigravityWindowGoverns(window.id, model));
     case "codex": {
       const hasPlanWindows = windows.some(
         (window) => window.id === "primary" || window.id === "secondary",
