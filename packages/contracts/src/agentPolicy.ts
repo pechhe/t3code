@@ -1,6 +1,12 @@
 import * as Schema from "effect/Schema";
 import * as SchemaGetter from "effect/SchemaGetter";
-import { EnvironmentId, IsoDateTime, ProjectId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import {
+  EnvironmentId,
+  IsoDateTime,
+  PositiveInt,
+  ProjectId,
+  TrimmedNonEmptyString,
+} from "./baseSchemas.ts";
 import { DelegationStance, ResolvedDelegationStance, RuntimeMode } from "./providerPolicy.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
 import { BrowserBackend, PhiBrowserLane } from "./browserBackend.ts";
@@ -273,12 +279,10 @@ export const AgentListEntry = Schema.Struct({
   effort: Schema.optional(TrimmedNonEmptyString),
 });
 export type AgentListEntry = typeof AgentListEntry.Type;
-const RolePolicy = Schema.Struct({
+const roleFields = {
   guidance: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(500))),
   /** The model pool this role uses; roles naming the same list share it. */
   list: Alias,
-  /** Reviewer only: the Spec-review pool; council seating uses its stored order. */
-  specList: Schema.optional(Alias),
   brief: BriefPath,
   sourceAccess: SourceAccess,
   toolProfile: AgentToolProfile,
@@ -288,25 +292,56 @@ const RolePolicy = Schema.Struct({
   /** Reviewer roles: prefer a provider other than the author's. */
   preferOtherAuthorProvider: Schema.optional(Schema.Boolean),
   /**
-   * Reviewer only: a Spec review sits one member per model maker from `specList`, in list
-   * order, instead of one reviewer. Absent or false keeps one reviewer.
-   */
-  council: Schema.optional(Schema.Boolean),
-  /**
    * The role's tasks may run bounded browser tasks when their project allows agent browsing.
    * Orthogonal to source access and tool profile; absent keeps the role without them.
    */
   browserTasks: Schema.optional(Schema.Boolean),
+};
+/** Tool calls a reviewer task makes, with its turn running, before T3 asks it to report. */
+export const REVIEWER_WRAP_UP_TOOL_CALLS = 60;
+const RolePolicy = Schema.Struct({
+  ...roleFields,
+  /**
+   * A Spec list marks the shape before one reviewer list; such a policy decodes through
+   * `mergeReviewerLists`, so the current shape refuses the key rather than drop its models.
+   */
+  specList: Schema.optionalKey(Schema.Never),
+  /**
+   * Reviewer only: models on its list ticked for the review council. A Spec review seats one
+   * member per maker among them, in list order; ticks from fewer than two makers seat none.
+   */
+  council: Schema.optional(Schema.Array(Alias)),
+  /** Reviewer only: overrides `REVIEWER_WRAP_UP_TOOL_CALLS`. */
+  wrapUpAfterToolCalls: Schema.optional(PositiveInt),
 });
-const StoredRolePolicy = Schema.Union([
+/** A role before one reviewer list: the reviewer had a Spec list and a council switch. */
+const SplitRolePolicy = Schema.Struct({
+  ...roleFields,
+  /** Reviewer only: the Spec-review pool; council seating used its stored order. */
+  specList: Schema.optional(Alias),
+  /** Reviewer only: a Spec review sat one member per maker from `specList`. */
+  council: Schema.optional(Schema.Boolean),
+});
+/** A saved role may still name the retired Phi-driving writer profile; it reads as a writer. */
+const asWriter = <Saved extends object>(saved: Saved) => ({
+  ...saved,
+  toolProfile: "implementation" as const,
+  browserTasks: true,
+});
+const StoredCurrentRolePolicy = Schema.Union([
   RolePolicy,
   Schema.Struct({ ...RolePolicy.fields, toolProfile: RetiredWriterProfile }).pipe(
     Schema.decodeTo(RolePolicy, {
-      decode: SchemaGetter.transform((role) => ({
-        ...role,
-        toolProfile: "implementation" as const,
-        browserTasks: true,
-      })),
+      decode: SchemaGetter.transform(asWriter),
+      encode: SchemaGetter.forbidden(() => "implementation-phi is never written."),
+    }),
+  ),
+]);
+const StoredRolePolicy = Schema.Union([
+  SplitRolePolicy,
+  Schema.Struct({ ...SplitRolePolicy.fields, toolProfile: RetiredWriterProfile }).pipe(
+    Schema.decodeTo(SplitRolePolicy, {
+      decode: SchemaGetter.transform(asWriter),
       encode: SchemaGetter.forbidden(() => "implementation-phi is never written."),
     }),
   ),
@@ -361,21 +396,31 @@ export const hidesTool = (patterns: ReadonlyArray<string>, name: string): boolea
         .join(".*")}$`,
     ).test(name),
   );
-const Manifest = Schema.Struct({ ...manifestFields, roles: rolesRecord(StoredRolePolicy) });
+const Manifest = Schema.Struct({ ...manifestFields, roles: rolesRecord(StoredCurrentRolePolicy) });
+const SplitListManifest = Schema.Struct({
+  ...manifestFields,
+  roles: rolesRecord(StoredRolePolicy),
+});
 const WriterManifest = Schema.Struct({
   ...manifestFields,
   roles: writerRolesRecord(StoredRolePolicy),
 });
-type RolePolicy = typeof RolePolicy.Type;
+type AnyRolePolicy = typeof RolePolicy.Type | typeof SplitRolePolicy.Type;
 
-/** Structural authority is fixed; model identities and order belong to the versioned policy. */
-function validManifest(manifest: {
-  readonly models: typeof Manifest.Type.models;
-  readonly lists: typeof Manifest.Type.lists;
-  readonly roles: { readonly [name: string]: RolePolicy | undefined } & {
-    readonly [name in Exclude<AgentRole, "implementer">]?: RolePolicy | undefined;
-  };
-}): boolean {
+/**
+ * Structural authority is fixed; model identities and order belong to the versioned policy.
+ * `split` checks the shape before one reviewer list, which older stages still decode.
+ */
+function validManifest(
+  manifest: {
+    readonly models: typeof Manifest.Type.models;
+    readonly lists: typeof Manifest.Type.lists;
+    readonly roles: { readonly [name: string]: AnyRolePolicy | undefined } & {
+      readonly [name in Exclude<AgentRole, "implementer">]?: AnyRolePolicy | undefined;
+    };
+  },
+  split = false,
+): boolean {
   const { lists, models, roles } = manifest;
   // A model's effort is present exactly when the model exposes one, so a list cannot drop
   // it, or keep a stale value after the model loses its effort setting.
@@ -390,10 +435,24 @@ function validManifest(manifest: {
   for (const [name, role] of Object.entries(roles)) {
     if (role === undefined) continue;
     if (role.toolProfile === "web-research" && role.sourceAccess !== "read-only") return false;
-    if ((name === "reviewer") !== (role.specList !== undefined)) return false;
-    if (role.specList !== undefined && lists[role.specList] === undefined) return false;
     const list = lists[role.list]?.map((entry) => entry.model);
     if (list === undefined || role.brief !== `roles/${name}.md`) return false;
+    if (split) {
+      const specList = "specList" in role ? role.specList : undefined;
+      if ((name === "reviewer") !== (specList !== undefined)) return false;
+      if (specList !== undefined && lists[specList] === undefined) return false;
+    } else {
+      const council = role.council;
+      if (typeof council === "boolean") return false;
+      if (council !== undefined && !council.every((alias) => list.includes(alias))) return false;
+      if (new Set(council).size !== (council?.length ?? 0)) return false;
+    }
+    if (
+      "wrapUpAfterToolCalls" in role &&
+      role.wrapUpAfterToolCalls !== undefined &&
+      name !== "reviewer"
+    )
+      return false;
     for (const [caller, first] of Object.entries(role.callers ?? {}))
       if (models[caller] === undefined || !list.includes(first)) return false;
     if (role.preferOtherAuthorProvider !== undefined && !isReviewerRole(name as AgentRole))
@@ -412,7 +471,7 @@ function validManifest(manifest: {
       return false;
     if (role.council !== undefined && name !== "reviewer") return false;
   }
-  const readOnly = (role: RolePolicy | undefined, toolProfile: string) =>
+  const readOnly = (role: AnyRolePolicy | undefined, toolProfile: string) =>
     role?.sourceAccess === "read-only" && role.toolProfile === toolProfile;
   return (
     (roles.researcher === undefined || readOnly(roles.researcher, "web-research")) &&
@@ -425,8 +484,11 @@ function validManifest(manifest: {
     [roles.reviewer, roles.advisor].every((role) => readOnly(role, "source-reader"))
   );
 }
-const CurrentManifest = Manifest.check(Schema.makeFilter(validManifest));
-const CurrentWriterManifest = WriterManifest.check(Schema.makeFilter(validManifest));
+const validSplitManifest = (manifest: Parameters<typeof validManifest>[0]) =>
+  validManifest(manifest, true);
+const CurrentManifest = Manifest.check(Schema.makeFilter((manifest) => validManifest(manifest)));
+const CurrentSplitManifest = SplitListManifest.check(Schema.makeFilter(validSplitManifest));
+const CurrentWriterManifest = WriterManifest.check(Schema.makeFilter(validSplitManifest));
 /**
  * What a policy save may set: the current form only, without the retired `ui-verifier` role
  * or `implementation-phi` profile. A saved role it leaves out is dropped from the file.
@@ -435,7 +497,7 @@ const { "ui-verifier": _retired, ...editableRoles } = rolesRecord(RolePolicy).fi
 export const AgentPolicyManifestEdit = Schema.Struct({
   ...manifestFields,
   roles: Schema.Struct(editableRoles),
-}).check(Schema.makeFilter(validManifest));
+}).check(Schema.makeFilter((manifest) => validManifest(manifest)));
 
 /**
  * Version 1 kept fixed pools, per-class restrictions and per-role effort. Saved task
@@ -560,7 +622,9 @@ const mergeReviewers = (split: typeof SplitManifest.Type): typeof WriterManifest
  * `implementer` takes the retired `implementation-worker` entry, its list included, and every task
  * class. Its brief path is the new one; the loader reads the old brief while the new is missing.
  */
-const mergeWriters = (writer: typeof CurrentWriterManifest.Type): typeof Manifest.Encoded => {
+const mergeWriters = (
+  writer: typeof CurrentWriterManifest.Type,
+): typeof SplitListManifest.Encoded => {
   const {
     "chore-worker": chore,
     "implementation-worker": implementation,
@@ -601,7 +665,7 @@ const PreImplementerManifest = Schema.Union([
       ).every(([name, role]) => {
         return (
           role.brief === `roles/${name}.md` &&
-          validManifest({
+          validSplitManifest({
             ...split,
             roles: {
               ...roles,
@@ -624,14 +688,63 @@ const PreImplementerManifest = Schema.Union([
     }),
   ),
 ]);
-export const AgentPolicyManifest = Schema.Union([
-  CurrentManifest,
+const SpecListManifest = Schema.Union([
+  CurrentSplitManifest,
   PreImplementerManifest.pipe(
-    Schema.decodeTo(CurrentManifest, {
+    Schema.decodeTo(CurrentSplitManifest, {
       decode: SchemaGetter.transform(mergeWriters),
       encode: SchemaGetter.forbidden(
         () => "Policies with the retired writing roles are never written.",
       ),
+    }),
+  ),
+]);
+/**
+ * The reviewer's change and Spec lists become one list: the Spec list's models in order, then
+ * the change list's others, each at the Spec list's effort where both had it. A reviewer whose
+ * lists differed gets a list of its own, so another role sharing either keeps it unchanged. A
+ * council that was on ticks exactly the Spec list's models.
+ */
+const mergeReviewerLists = (policy: typeof CurrentSplitManifest.Type): typeof Manifest.Encoded => {
+  const { reviewer, ...splitRoles } = policy.roles;
+  // Only the reviewer may carry a Spec list or council, so other roles lose nothing.
+  const roles = Object.fromEntries(
+    Object.entries(splitRoles).map(([name, role]) => {
+      const { specList: _specList, council: _council, ...kept } = role!;
+      return [name, kept];
+    }),
+  ) as Omit<(typeof Manifest.Encoded)["roles"], "reviewer">;
+  const { specList = reviewer.list, council, ...rest } = reviewer;
+  const spec = policy.lists[specList]!;
+  const ticked = council === true ? { council: spec.map((entry) => entry.model) } : {};
+  if (specList === reviewer.list)
+    return { ...policy, roles: { ...roles, reviewer: { ...rest, ...ticked } } };
+  const usedByOthers = new Set(Object.values(roles).flatMap((role) => (role ? [role.list] : [])));
+  const lists: Record<string, ReadonlyArray<AgentListEntry>> = Object.fromEntries(
+    Object.entries(policy.lists).filter(
+      ([name]) => usedByOthers.has(name) || (name !== specList && name !== reviewer.list),
+    ),
+  );
+  let name = "reviewer";
+  for (let suffix = 2; usedByOthers.has(name); suffix += 1) name = `reviewer-${suffix}`;
+  lists[name] = [
+    ...spec,
+    ...policy.lists[reviewer.list]!.filter(
+      (entry) => !spec.some((candidate) => candidate.model === entry.model),
+    ),
+  ];
+  return {
+    ...policy,
+    lists,
+    roles: { ...roles, reviewer: { ...rest, list: name, ...ticked } },
+  };
+};
+export const AgentPolicyManifest = Schema.Union([
+  CurrentManifest,
+  SpecListManifest.pipe(
+    Schema.decodeTo(CurrentManifest, {
+      decode: SchemaGetter.transform(mergeReviewerLists),
+      encode: SchemaGetter.forbidden(() => "Policies with a reviewer Spec list are never written."),
     }),
   ),
 ]);
@@ -1010,7 +1123,7 @@ export const AgentRolesInput = Schema.Struct({
   model: Schema.optional(TrimmedNonEmptyString),
   /** The model that wrote the work a reviewer would check, as a review delegation states it. */
   authorModel: Schema.optional(TrimmedNonEmptyString),
-  /** Reviewer discovery defaults to the change list when omitted. */
+  /** The kind of review discovery describes; every kind uses the reviewer's one list. */
   reviewScope: Schema.optional(AgentReviewScope),
 });
 export type AgentRolesInput = typeof AgentRolesInput.Type;

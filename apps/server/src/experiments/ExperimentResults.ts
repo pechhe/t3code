@@ -538,11 +538,7 @@ const make = Effect.gen(function* () {
         const rolePolicy = manifest.roles[role];
         if (rolePolicy === undefined)
           return yield* refuse(experiment.id, `Delegation has no ${role} job.`);
-        const scope = experiment.eligibility.reviewScopes;
-        const listId =
-          scope?.length === 1 && scope[0] === "spec"
-            ? (rolePolicy.specList ?? rolePolicy.list)
-            : rolePolicy.list;
+        const listId = rolePolicy.list;
         const binding = Object.entries(manifest.models).find(
           ([, candidate]) => candidate.model === selection.model,
         );

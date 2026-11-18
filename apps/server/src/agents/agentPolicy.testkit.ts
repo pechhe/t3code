@@ -43,7 +43,7 @@ export function snapshot() {
       "read-only",
       "source-reader",
       ["non-ui", "ui", "mixed"],
-      { specList: "workhorse", preferOtherAuthorProvider: true },
+      { preferOtherAuthorProvider: true },
     ),
   };
   return decodeSnapshot({

@@ -100,16 +100,33 @@ const legacy = {
   reviewer: { prefer: ["sonnet", "sol"], requireDifferentProvider: true },
 };
 
+/** A current policy as it was saved before one reviewer list: a Spec list and a council switch. */
+const splitForm = (manifest: AgentPolicyManifestType, council?: boolean) => {
+  const encoded = encodeManifest(manifest);
+  const { council: _council, ...reviewer } = encoded.roles.reviewer;
+  return {
+    ...encoded,
+    roles: {
+      ...encoded.roles,
+      reviewer: {
+        ...reviewer,
+        specList: reviewer.list,
+        ...(council === undefined ? {} : { council }),
+      },
+    },
+  };
+};
+
 /** A current policy as it was saved before `implementer`: the three writing roles in its place. */
 const writerForm = (manifest: AgentPolicyManifestType) => {
-  const { implementer, ...roles } = encodeManifest(manifest).roles;
+  const { implementer, ...roles } = splitForm(manifest).roles;
   const writer = (name: string, taskClasses: ReadonlyArray<string>) => ({
     ...implementer,
     brief: `roles/${name}.md`,
     taskClasses,
   });
   return {
-    ...encodeManifest(manifest),
+    ...splitForm(manifest),
     roles: {
       ...roles,
       "chore-worker": writer("chore-worker", ["non-ui"]),
@@ -145,10 +162,11 @@ describe("AgentPolicyManifest", () => {
     // The reviewer keeps its order; a requirement becomes a preference.
     expect(manifest.lists["reviewer"]?.map((entry) => entry.model)).toEqual(["sonnet", "sol"]);
     expect(manifest.roles["reviewer"]).toMatchObject({
+      list: "reviewer",
       brief: "roles/reviewer.md",
-      specList: "reviewer",
       preferOtherAuthorProvider: true,
     });
+    expect(manifest.roles.reviewer).not.toHaveProperty("specList");
     // It is written back only in the current version.
     expect(encodeManifest(manifest).version).toBe(2);
   });
@@ -186,9 +204,15 @@ describe("AgentPolicyManifest", () => {
       },
     };
     const merged = decodeManifest(split);
-    expect(merged.lists).toEqual(split.lists);
-    expect(merged.roles.reviewer.list).toBe("changes");
-    expect(merged.roles.reviewer.specList).toBe("specs");
+    // The Spec list's models in order, then the change list's others, at the Spec list's effort.
+    expect(merged.lists[merged.roles.reviewer.list]).toEqual([
+      { model: "opus", effort: "high" },
+      { model: "sol", effort: "high" },
+      { model: "sonnet", effort: "low" },
+    ]);
+    expect(merged.lists).not.toHaveProperty("changes");
+    expect(merged.lists).not.toHaveProperty("specs");
+    expect(merged.roles.reviewer).not.toHaveProperty("council");
     expect(merged.roles.reviewer.preferOtherAuthorProvider).toBe(true);
     expect(encodeManifest(merged).roles).not.toHaveProperty("spec-reviewer");
     expect(encodeManifest(merged).roles).not.toHaveProperty("ticket-reviewer");
@@ -217,29 +241,83 @@ describe("AgentPolicyManifest", () => {
     ).toBe("Failure");
   });
 
-  it("requires a valid specList only on reviewer", () => {
+  it("reads a reviewer's change and Spec lists as one list, its council as ticks", () => {
     const manifest = decodeManifest(legacy);
+    const split = splitForm(manifest, true);
+    const lists = {
+      ...split.lists,
+      changes: [
+        { model: "haiku", effort: "low" },
+        { model: "sol", effort: "medium" },
+      ],
+      specs: [
+        { model: "sol", effort: "high" },
+        { model: "opus", effort: "high" },
+      ],
+    };
+    const policy = (council: boolean | undefined) => ({
+      ...split,
+      lists,
+      roles: {
+        ...split.roles,
+        // The advisor shares the change list, so it must keep it as it was.
+        advisor: { ...split.roles.advisor, list: "changes" },
+        reviewer: {
+          ...split.roles.reviewer,
+          list: "changes",
+          specList: "specs",
+          ...(council === undefined ? { council: undefined } : { council }),
+        },
+      },
+    });
+    const on = decodeManifest(policy(true));
+    expect(on.lists["changes"]).toEqual(lists.changes);
+    expect(on.lists).not.toHaveProperty("specs");
+    expect(on.roles.advisor.list).toBe("changes");
+    expect(on.roles.reviewer.list).not.toBe("changes");
+    expect(on.lists[on.roles.reviewer.list]).toEqual([
+      { model: "sol", effort: "high" },
+      { model: "opus", effort: "high" },
+      { model: "haiku", effort: "low" },
+    ]);
+    expect(on.roles.reviewer.council).toEqual(["sol", "opus"]);
+    expect(decodeManifest(policy(false)).roles.reviewer).not.toHaveProperty("council");
+    expect(decodeManifest(policy(undefined)).roles.reviewer).not.toHaveProperty("council");
+    // One shared list for both kinds of review stays where it is, every model ticked.
+    expect(decodeManifest(split).roles.reviewer).toMatchObject({
+      list: manifest.roles.reviewer.list,
+      council: manifest.lists[manifest.roles.reviewer.list]!.map((entry) => entry.model),
+    });
+    // The current shape never carries a Spec list, so it cannot silently drop one.
+    const current = encodeManifest(on);
+    expect(current.roles.reviewer).not.toHaveProperty("specList");
+    expect(
+      decodeManifestExit({
+        ...current,
+        roles: {
+          ...current.roles,
+          reviewer: { ...current.roles.reviewer, council: undefined, specList: "missing" },
+        },
+      })._tag,
+    ).toBe("Failure");
+  });
+
+  it("lets only the reviewer tick a council from its own list, or set a wrap-up", () => {
+    const manifest = encodeManifest(decodeManifest(legacy));
     const edit = (name: "reviewer" | "advisor", extra: object) =>
       decodeManifestExit({
         ...manifest,
         roles: { ...manifest.roles, [name]: { ...manifest.roles[name], ...extra } },
       })._tag;
-    expect(edit("reviewer", { specList: undefined })).toBe("Failure");
-    expect(edit("reviewer", { specList: "missing" })).toBe("Failure");
-    expect(edit("reviewer", { specList: "Invalid Alias" })).toBe("Failure");
-    expect(edit("advisor", { specList: "reviewer" })).toBe("Failure");
-    expect(manifest.roles.reviewer.specList).toBe(manifest.roles.reviewer.list);
-  });
-
-  it("lets only the reviewer sit a council", () => {
-    const manifest = encodeManifest(decodeManifest(legacy));
-    const edit = (name: "reviewer" | "advisor") =>
-      decodeManifestExit({
-        ...manifest,
-        roles: { ...manifest.roles, [name]: { ...manifest.roles[name], council: true } },
-      })._tag;
-    expect(edit("reviewer")).toBe("Success");
-    expect(edit("advisor")).toBe("Failure");
+    expect(edit("reviewer", { council: ["sonnet", "sol"] })).toBe("Success");
+    expect(edit("reviewer", { council: [] })).toBe("Success");
+    expect(edit("reviewer", { council: ["opus"] })).toBe("Failure");
+    expect(edit("reviewer", { council: ["sol", "sol"] })).toBe("Failure");
+    expect(edit("reviewer", { council: true })).toBe("Failure");
+    expect(edit("advisor", { council: ["opus"] })).toBe("Failure");
+    expect(edit("reviewer", { wrapUpAfterToolCalls: 40 })).toBe("Success");
+    expect(edit("reviewer", { wrapUpAfterToolCalls: 0 })).toBe("Failure");
+    expect(edit("advisor", { wrapUpAfterToolCalls: 40 })).toBe("Failure");
   });
 
   it("keeps change-role exceptions when old reviewers disagree", () => {
@@ -343,7 +421,7 @@ describe("AgentPolicyManifest", () => {
   });
 
   it("reads a saved Phi-driving UI writer as an implementation writer with bounded browser tasks", () => {
-    const manifest = encodeManifest(decodeManifest(legacy));
+    const manifest = splitForm(decodeManifest(legacy));
     const saved = {
       ...manifest,
       roles: {

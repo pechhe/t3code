@@ -187,9 +187,8 @@ uses SlipJay. T3 rejects paths on the wrong host or from another repository.
 The returned session key goes in subsequent role and task requests. A task carries
 a canonical role, task class, work ID, attempt ID and transport request ID;
 review tasks also pin the source revision. Role discovery explains unavailable
-models and unsupported execution boundaries before you submit. For Reviewer discovery,
-set `reviewScope` to `spec` to see the Spec model list; the default is `change`.
-A submitted review selects its list from `review.scope` automatically. Every writer runs
+models and unsupported execution boundaries before you submit. Every kind of review
+draws on the Reviewer's one model list. Every writer runs
 with shell networking and host filesystem access beyond the assigned checkout,
 so it can install packages, read credentials and commit to the repository store
 it shares; the task's authorised scope remains its assigned work. Claude writers

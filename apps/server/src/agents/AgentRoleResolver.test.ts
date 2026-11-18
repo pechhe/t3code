@@ -156,17 +156,23 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
         }
       }),
   );
-  it.effect("uses separate ordered candidates for change and Spec reviews", () =>
+  it.effect("lets change and Spec reviews each run on any model of the one reviewer list", () =>
     Effect.gen(function* () {
       const original = snapshot();
       const policy = {
         ...original,
         manifest: {
           ...original.manifest,
-          lists: { ...original.manifest.lists, specs: [{ model: "astra", effort: "high" }] },
+          lists: {
+            ...original.manifest.lists,
+            reviewers: [
+              { model: "astra", effort: "high" },
+              { model: "sonnet", effort: "high" },
+            ],
+          },
           roles: {
             ...original.manifest.roles,
-            reviewer: { ...original.manifest.roles.reviewer, specList: "specs" },
+            reviewer: { ...original.manifest.roles.reviewer, list: "reviewers" },
           },
         },
       };
@@ -179,14 +185,8 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
             review: { ...changeReview, scope, specRef: "spec", specRevision: "revision" },
           }),
         });
-        expect((yield* resolve(value)).model).toBe(
-          scope === "spec" ? "gpt-astra-test" : claudeModel,
-        );
-        const denied = yield* refusal({
-          ...value,
-          selection: { model: scope === "spec" ? claudeModel : "gpt-astra-test" },
-        });
-        expect(denied.reason).toBe("selection-denied");
+        for (const model of ["gpt-astra-test", claudeModel])
+          expect((yield* resolve({ ...value, selection: { model } })).model).toBe(model);
       }
     }),
   );

@@ -920,6 +920,23 @@ it.effect.each(
           },
         ],
       });
+      // A steer only for a running turn is refused here rather than deferred into a turn of its own.
+      const deferred = yield* orchestrator
+        .dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make("only-into-turn"),
+          threadId,
+          messageId: MessageId.make("message:only-into-turn"),
+          text: "report now",
+          attachments: [],
+          dispatchMode: { type: "steer_active", targetRunId: run.id },
+          onlyIntoActiveTurn: true,
+          createdBy: "agent",
+          creationSource: "server",
+        })
+        .pipe(Effect.flip);
+      assert.include(String(deferred.cause), "was only for its turn");
+      assert.equal((yield* orchestrator.getThreadProjection(threadId)).runs.length, 1);
       if (status === "preparing" && !direct) {
         yield* orchestrator.dispatch({
           type: "message.dispatch",
@@ -2585,6 +2602,26 @@ it.effect.each([
         });
         if (runSettled) yield* settleRun;
 
+        // A steer or restart meant only for that turn starts and queues nothing once it has ended.
+        for (const type of ["steer_active", "restart_active"] as const) {
+          const tooLate = yield* orchestrator
+            .dispatch({
+              type: "message.dispatch",
+              commandId: CommandId.make(`${type}-only-into-turn`),
+              threadId,
+              messageId: MessageId.make(`message:${type}-only-into-turn`),
+              text: "report now",
+              attachments: [],
+              modelSelection: runSelection,
+              dispatchMode: { type, targetRunId: first.runId },
+              onlyIntoActiveTurn: true,
+              createdBy: "agent",
+              creationSource: "server",
+            })
+            .pipe(Effect.flip);
+          assert.include(String(tooLate.cause), "was only for its turn", type);
+        }
+
         yield* orchestrator.dispatch({
           type: "message.dispatch",
           commandId: CommandId.make("restart"),
@@ -2860,12 +2897,13 @@ it.effect("starts a goal that names no model on the thread's model ahead of a qu
 
 it.effect("restarts by stopping the running turn when the provider cannot interrupt-restart", () =>
   Effect.gen(function* () {
-    const { started, steered, layer, startFirstTurn, send, read } = yield* goalHarness(
+    const { events, started, steered, layer, startFirstTurn, send, read } = yield* goalHarness(
       "restart-without-interrupt-restart",
     );
     yield* Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
       const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+      const executor = yield* ThreadCommandExecutor.ThreadCommandExecutor;
       const threadId = yield* startFirstTurn;
       yield* send("queued", "queued", "queue");
       yield* orchestrator.dispatch({
@@ -2888,6 +2926,115 @@ it.effect("restarts by stopping the running turn when the provider cannot interr
         started: ["first", "do this instead"],
         stopRequested: true,
       });
+
+      const parentRun = (yield* orchestrator.getThreadProjection(threadId)).runs.find(
+        (run) => run.status === "running",
+      )!;
+      const watchChild = (
+        childId: ThreadId,
+        predicate: (event: OrchestrationV2DomainEvent) => boolean,
+      ) =>
+        orchestrator.streamDomainEvents.pipe(
+          Stream.filter((event) => event.threadId === childId && predicate(event)),
+          Stream.take(1),
+          Stream.runDrain,
+          Effect.forkScoped({ startImmediately: true }),
+        );
+      yield* orchestrator.dispatch({
+        type: "delegated_task.request",
+        commandId: CommandId.make("delegate"),
+        parentThreadId: threadId,
+        parentRunId: parentRun.id,
+        parentNodeId: parentRun.rootNodeId!,
+        task: "child task",
+        modelSelection: runSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdBy: "agent",
+        creationSource: "mcp",
+      });
+      const childId = (yield* orchestrator.getThreadRecords(threadId, ["subagents"])).subagents[0]!
+        .childThreadId!;
+      const childRunning = yield* watchChild(
+        childId,
+        (event) => event.type === "provider-turn.updated" && event.payload.status === "running",
+      );
+      yield* worker.drain();
+      yield* Fiber.join(childRunning);
+      yield* executor.withLock(childId, Effect.void);
+
+      const childTurn = (yield* orchestrator.getThreadProjection(childId)).providerTurns[0]!;
+      const childRunOrdinal = started.find(
+        (turn) => turn.providerThread.appThreadId === childId,
+      )!.runOrdinal;
+      const childSettled = yield* watchChild(
+        childId,
+        (event) => event.type === "run.updated" && event.payload.status === "waiting",
+      );
+      yield* Queue.offer(events, {
+        type: "provider_turn.updated",
+        driver,
+        providerTurn: { ...childTurn, status: "completed", completedAt: yield* DateTime.now },
+      });
+      yield* Queue.offer(events, {
+        type: "turn.terminal",
+        driver,
+        providerThreadId: childTurn.providerThreadId,
+        providerTurnId: childTurn.id,
+        runOrdinal: childRunOrdinal,
+        status: "completed",
+        failure: null,
+        threadDisposition: "reusable",
+      });
+      yield* Fiber.join(childSettled);
+      yield* worker.drain();
+
+      const followupRunning = yield* watchChild(
+        childId,
+        (event) =>
+          event.type === "provider-turn.updated" &&
+          event.payload.status === "running" &&
+          event.payload.id !== childTurn.id,
+      );
+      yield* orchestrator.dispatch({
+        type: "message.dispatch",
+        commandId: CommandId.make("child-followup"),
+        threadId: childId,
+        messageId: MessageId.make("message:child-followup"),
+        text: "follow up on child",
+        attachments: [],
+        modelSelection: runSelection,
+        dispatchMode: { type: "start_immediately" },
+        createdBy: "user",
+        creationSource: "web",
+      });
+      yield* worker.drain();
+      yield* Fiber.join(followupRunning);
+      yield* executor.withLock(childId, Effect.void);
+
+      const followupRun = (yield* orchestrator.getThreadProjection(childId)).runs.find(
+        (run) => run.userMessageId === MessageId.make("message:child-followup"),
+      )!;
+      assert.isDefined(followupRun.delegatedTaskId);
+
+      yield* orchestrator.dispatch({
+        type: "message.dispatch",
+        commandId: CommandId.make("child-restart"),
+        threadId: childId,
+        messageId: MessageId.make("message:child-restart"),
+        text: "wrap up",
+        attachments: [],
+        modelSelection: runSelection,
+        dispatchMode: { type: "restart_active", targetRunId: followupRun.id },
+        createdBy: "agent",
+        creationSource: "server",
+      });
+      yield* worker.drain();
+
+      const continuedRun = (yield* orchestrator.getThreadProjection(childId)).runs.find(
+        (run) => run.userMessageId === MessageId.make("message:child-restart"),
+      );
+      assert.equal(continuedRun?.delegatedTaskId, followupRun.delegatedTaskId);
     }).pipe(Effect.provide(layer));
   }),
 );

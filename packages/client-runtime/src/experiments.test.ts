@@ -54,10 +54,9 @@ const manifest = {
       { model: "sol", effort: "medium" },
       { model: "opus", effort: "high" },
     ],
-    reviewSpec: [{ model: "opus", effort: "high" }],
   },
   roles: {
-    reviewer: { list: "reviewChange", specList: "reviewSpec" },
+    reviewer: { list: "reviewChange" },
     scout: { list: "fast" },
     browser: { list: "fast" },
     "ui-verifier": { list: "fast" },
@@ -266,10 +265,10 @@ describe("what a draft sends", () => {
     ]);
   });
 
-  it("reads variant A from the job's Delegation list, using the Spec list for Spec reviews", () => {
+  it("reads variant A from the job's Delegation list, the reviewer's one list for every review", () => {
     const instanceFor = () => instance;
     expect(currentJobSelection(manifest, "reviewer-change", instanceFor)).toEqual(sol("medium"));
-    expect(currentJobSelection(manifest, "reviewer-spec", instanceFor)?.model).toBe("claude-opus");
+    expect(currentJobSelection(manifest, "reviewer-spec", instanceFor)).toEqual(sol("medium"));
     expect(currentJobSelection(null, "scout", instanceFor)).toBeNull();
   });
 

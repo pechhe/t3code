@@ -44,17 +44,14 @@ function manifest() {
       browser: role("fast", "browser", "read-only", "phi"),
       "ui-verifier": role("fast", "ui-verifier", "read-only", "phi", ["ui"]),
       advisor: role("advisor", "advisor", "read-only", "source-reader"),
-      reviewer: {
-        ...role("workhorse", "reviewer", "read-only", "source-reader"),
-        specList: "workhorse",
-      },
+      reviewer: role("workhorse", "reviewer", "read-only", "source-reader"),
     },
   };
 }
 
 /** The same policy as saved before `implementer`, with the three writing roles in its place. */
 function writerManifest() {
-  const { implementer, ...current } = manifest().roles;
+  const { implementer, reviewer, ...current } = manifest().roles;
   const writer = (name: string, list: string, taskClasses: Array<string>) => ({
     ...implementer,
     list,
@@ -65,6 +62,7 @@ function writerManifest() {
     ...manifest(),
     roles: {
       ...current,
+      reviewer: { ...reviewer, specList: reviewer.list },
       "chore-worker": writer("chore-worker", "fast", ["non-ui"]),
       "implementation-worker": writer("implementation-worker", "workhorse", ["non-ui"]),
       "ui-worker": {
@@ -263,7 +261,7 @@ it.layer(testLayer)("immutable policy snapshots", (it) => {
       }),
   );
 
-  it.effect("loads split policies through the Spec brief and saves both reviewer lists", () =>
+  it.effect("loads split policies through the Spec brief and saves one reviewer list", () =>
     Effect.gen(function* () {
       const service = yield* AgentPolicy.AgentPolicyService;
       const fs = yield* FileSystem.FileSystem;
@@ -280,24 +278,37 @@ it.layer(testLayer)("immutable policy snapshots", (it) => {
           ...current,
           roles: {
             ...roles,
-            "ticket-reviewer": { ...reviewer, brief: "roles/ticket-reviewer.md" },
-            "spec-reviewer": { ...reviewer, list: "advisor", brief: "roles/spec-reviewer.md" },
+            "ticket-reviewer": {
+              ...reviewer,
+              specList: undefined,
+              brief: "roles/ticket-reviewer.md",
+            },
+            "spec-reviewer": {
+              ...reviewer,
+              specList: undefined,
+              list: "advisor",
+              brief: "roles/spec-reviewer.md",
+            },
           },
         }),
       );
       const first = yield* service.snapshot(root);
       expect(first.briefs.reviewer.text).toBe("Spec rubric\n");
       expect(first.manifest.roles.reviewer).not.toHaveProperty("large");
-      expect(first.manifest.roles.reviewer.list).toBe("workhorse");
-      expect(first.manifest.roles.reviewer.specList).toBe("advisor");
-      expect(first.manifest.lists).toEqual(current.lists);
+      // Both lists stay for the roles sharing them; the reviewer gets one list of its own.
+      expect(first.manifest.roles.reviewer.list).toBe("reviewer");
+      expect(first.manifest.lists).toEqual({
+        ...current.lists,
+        reviewer: [...current.lists["advisor"]!, ...current.lists["workhorse"]!],
+      });
       const saved = yield* service.save(root, {
         expectedHash: first.hash,
         manifest: first.manifest,
       });
       const written = JSON.parse(yield* fs.readFileString(`${root}/roles/policy.json`));
       expect(written.roles.reviewer.brief).toBe("roles/reviewer.md");
-      expect(written.roles.reviewer.specList).toBe("advisor");
+      expect(written.roles.reviewer).not.toHaveProperty("specList");
+      expect(written.roles.reviewer.list).toBe("reviewer");
       expect(written.roles).not.toHaveProperty("spec-reviewer");
       expect(yield* fs.exists(`${root}/roles/reviewer.md`)).toBe(false);
       expect((yield* service.snapshot(root)).hash).toBe(saved.snapshot.hash);

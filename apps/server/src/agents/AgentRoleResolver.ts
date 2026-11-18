@@ -255,9 +255,7 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
         );
   const list =
     treatment === undefined
-      ? (snapshot.manifest.lists[
-          reviewer && review?.scope === "spec" ? role.specList! : role.list
-        ] ?? [])
+      ? (snapshot.manifest.lists[role.list] ?? [])
       : treatmentAlias === undefined
         ? []
         : [

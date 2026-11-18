@@ -23,6 +23,7 @@ import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReact
 import * as PullRequestWatchReactor from "./orchestration-v2/PullRequestWatchReactor.ts";
 import * as DelegatedTaskQuestionReactor from "./orchestration-v2/DelegatedTaskQuestionReactor.ts";
 import * as UnattendedReactor from "./orchestration-v2/UnattendedReactor.ts";
+import * as ReviewerWrapUpReactor from "./orchestration-v2/ReviewerWrapUpReactor.ts";
 import * as ArcRunReactor from "./orchestration-v2/ArcRunReactor.ts";
 import * as ForgeWatchReactor from "./orchestration-v2/ForgeWatchReactor.ts";
 import * as StalledChildReactor from "./orchestration-v2/StalledChildReactor.ts";
@@ -795,6 +796,11 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
       yield* service.start();
     }),
   ).pipe(Layer.provide(DelegatedTaskQuestionReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
+  Layer.effectDiscard(
+    Effect.gen(function* () {
+      yield* (yield* ReviewerWrapUpReactor.ReviewerWrapUpReactor).start();
+    }),
+  ).pipe(Layer.provide(ReviewerWrapUpReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
   Layer.effectDiscard(
     Effect.gen(function* () {
       yield* (yield* UnattendedReactor.UnattendedReactor).start();

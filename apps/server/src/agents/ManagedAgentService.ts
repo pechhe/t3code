@@ -722,6 +722,7 @@ const make = Effect.gen(function* () {
       context.request,
     );
     const reviewScope = input.request.reviewScope ?? "change";
+    const unpinnedReview = isReviewerRole(role) && context.request.sourceRevision === undefined;
     const modelPools = yield* configuredModelPools;
     const result = yield* resolver.preview({
       ...context,
@@ -739,6 +740,8 @@ const make = Effect.gen(function* () {
         ...(!isReviewerRole(role)
           ? {}
           : {
+              // A missing pin is reported below; it says nothing about which models can start.
+              sourceRevision: context.request.sourceRevision ?? "capability-discovery",
               review: {
                 scope: reviewScope,
                 baseRevision: "capability-discovery",
@@ -760,12 +763,7 @@ const make = Effect.gen(function* () {
       input.request.readOnly === true
         ? readOnlyToolProfile(policy.toolProfile)
         : policy.toolProfile;
-    const list =
-      snapshot.manifest.lists[
-        isReviewerRole(role) && reviewScope === "spec"
-          ? (policy.specList ?? policy.list)
-          : policy.list
-      ] ?? [];
+    const list = snapshot.manifest.lists[policy.list] ?? [];
     // Out of allowance, or ruled out for this role, is not a model that can start now.
     const runnable = result.candidates.filter((candidate) =>
       RUNNABLE_CANDIDATE_REASONS.has(candidate.reason),
@@ -784,8 +782,8 @@ const make = Effect.gen(function* () {
       ...(result.executionBoundary === undefined
         ? {}
         : { executionBoundary: result.executionBoundary }),
-      selection: result.selection,
-      refusal: result.refusal,
+      selection: unpinnedReview ? null : result.selection,
+      refusal: unpinnedReview ? "source-pin-required" : result.refusal,
       models: list.map(({ model: alias, effort }) => {
         const binding = snapshot.manifest.models[alias]!;
         const pool = binding.poolId === undefined ? undefined : modelPools?.[binding.poolId];
@@ -1261,13 +1259,7 @@ const make = Effect.gen(function* () {
         current.manifest.roles[input.binding.role] ??
         (input.binding.role === "ui-verifier" ? current.manifest.roles.browser : undefined);
       if (role === undefined) return yield* new ManagedAgentError({ reason: "revoked" });
-      const allowed = (
-        current.manifest.lists[
-          input.binding.role === "reviewer" && input.binding.review?.scope === "spec"
-            ? role.specList!
-            : role.list
-        ] ?? []
-      ).map((entry) => entry.model);
+      const allowed = (current.manifest.lists[role.list] ?? []).map((entry) => entry.model);
       const offPolicyAllowed =
         input.binding.offPolicyReason !== undefined &&
         input.selection.model === input.binding.requested.model &&

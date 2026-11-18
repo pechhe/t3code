@@ -456,7 +456,7 @@ const servicesLayer = (input: {
                       { model: "sol", effort: "low" },
                     ],
                   },
-                  roles: { reviewer: { list: "change", specList: "spec" } },
+                  roles: { reviewer: { list: "spec" } },
                 },
               },
             } as never),

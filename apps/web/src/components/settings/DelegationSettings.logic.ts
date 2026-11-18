@@ -5,6 +5,7 @@ import {
   AGENT_ROLE_TITLE_LABEL,
   AgentPolicyManifest,
   AgentRole,
+  REVIEWER_WRAP_UP_TOOL_CALLS,
   type AgentPolicySettings,
   type EnvironmentId,
   type DelegationStance,
@@ -159,32 +160,23 @@ export const roleClassLabel = (policy: Pick<RolePolicy, "sourceAccess">) =>
 export interface RoleGroup {
   readonly list: string;
   readonly roles: ReadonlyArray<AgentRole>;
-  readonly bindings: ReadonlyArray<{
-    readonly role: AgentRole;
-    readonly field: "list" | "specList";
-  }>;
 }
 
 export function roleGroups(manifest: Manifest): RoleGroup[] {
   const groups: Array<{
     list: string;
     roles: AgentRole[];
-    bindings: Array<{ role: AgentRole; field: "list" | "specList" }>;
   }> = [];
   for (const role of ROLE_ORDER) {
     const policy = manifest.roles[role];
     if (policy === undefined) continue;
-    for (const field of ["list", "specList"] as const) {
-      const list = policy[field];
-      if (list === undefined) continue;
-      let group = groups.find((candidate) => candidate.list === list);
-      if (group === undefined) {
-        group = { list, roles: [], bindings: [] };
-        groups.push(group);
-      }
-      if (!group.roles.includes(role)) group.roles.push(role);
-      group.bindings.push({ role, field });
+    const list = policy.list;
+    let group = groups.find((candidate) => candidate.list === list);
+    if (group === undefined) {
+      group = { list, roles: [] };
+      groups.push(group);
     }
+    if (!group.roles.includes(role)) group.roles.push(role);
   }
   return groups;
 }
@@ -607,7 +599,7 @@ export function addEntry(manifest: Manifest, list: string, entry: AgentListEntry
   return withList(manifest, list, [...(manifest.lists[list] ?? []), entry]);
 }
 
-/** Removes a model from a list, and the exceptions of that list's roles that named it. */
+/** Removes a model from a list, its exceptions, and any reviewer council tick naming it. */
 export function removeEntry(manifest: Manifest, list: string, model: string): Manifest {
   let next = withList(
     manifest,
@@ -616,9 +608,17 @@ export function removeEntry(manifest: Manifest, list: string, model: string): Ma
   );
   for (const role of AgentRole.literals) {
     if (next.roles[role]?.list !== list) continue;
-    next = withRole(next, role, ({ callers, ...policy }) => {
+    next = withRole(next, role, ({ callers, council, ...policy }) => {
       const kept = Object.entries(callers ?? {}).filter(([, first]) => first !== model);
-      return { ...policy, ...(kept.length === 0 ? {} : { callers: Object.fromEntries(kept) }) };
+      const nextCouncil =
+        role === "reviewer" && council !== undefined
+          ? council.filter((alias) => alias !== model)
+          : council;
+      return {
+        ...policy,
+        ...(kept.length === 0 ? {} : { callers: Object.fromEntries(kept) }),
+        ...(nextCouncil === undefined || nextCouncil.length === 0 ? {} : { council: nextCouncil }),
+      };
     });
   }
   return next;
@@ -664,19 +664,24 @@ export function replaceEntry(
   );
   for (const role of AgentRole.literals) {
     if (next.roles[role]?.list !== list) continue;
-    next = withRole(next, role, ({ callers, ...policy }) => ({
-      ...policy,
-      ...(callers === undefined
-        ? {}
-        : {
-            callers: Object.fromEntries(
-              Object.entries(callers).map(([caller, first]) => [
-                caller,
-                first === from ? alias : first,
-              ]),
-            ),
-          }),
-    }));
+    next = withRole(next, role, ({ callers, council, ...policy }) => {
+      // A replaced model keeps its council tick.
+      const nextCouncil = council?.map((candidate) => (candidate === from ? alias : candidate));
+      return {
+        ...policy,
+        ...(nextCouncil === undefined ? {} : { council: [...new Set(nextCouncil)] }),
+        ...(callers === undefined
+          ? {}
+          : {
+              callers: Object.fromEntries(
+                Object.entries(callers).map(([caller, first]) => [
+                  caller,
+                  first === from ? alias : first,
+                ]),
+              ),
+            }),
+      };
+    });
   }
   return next;
 }
@@ -703,18 +708,15 @@ export function setPreferOtherAuthorProvider(manifest: Manifest, role: AgentRole
 export function splitGroup(manifest: Manifest, group: RoleGroup): Manifest {
   const entries = manifest.lists[group.list] ?? [];
   let next = manifest;
-  for (const { role, field } of group.bindings) {
-    const base = field === "specList" ? `${role}-spec` : role;
-    let list = base;
-    for (let suffix = 2; next.lists[list] !== undefined; suffix++) list = `${base}-${suffix}`;
+  for (const role of group.roles) {
+    let list: string = role;
+    for (let suffix = 2; next.lists[list] !== undefined; suffix++) list = `${role}-${suffix}`;
     next = withRole(withList(next, list, entries), role, (policy) => ({
       ...policy,
-      [field]: list,
+      list,
     }));
   }
-  const referenced = Object.values(next.roles).some(
-    (policy) => policy?.list === group.list || policy?.specList === group.list,
-  );
+  const referenced = Object.values(next.roles).some((policy) => policy?.list === group.list);
   if (referenced) return next;
   const { [group.list]: _shared, ...lists } = next.lists;
   return { ...next, lists };
@@ -726,65 +728,36 @@ export interface JobSection {
   readonly hint?: string;
 }
 
-/** A row on the page: roles sharing a list, or the Reviewer with its change and Spec lists. */
+/** A row on the page: roles sharing a list, with Reviewer shown in its own row. */
 export interface Job {
   readonly roles: ReadonlyArray<AgentRole>;
   readonly sections: ReadonlyArray<JobSection>;
   readonly splitGroups: ReadonlyArray<RoleGroup>;
 }
 
-const REVIEWER_SECTIONS = {
-  list: { title: "Change reviews", hint: "A chore or other work with no Spec" },
-  specList: { title: "Spec reviews", hint: "The integrated outcome of a Spec" },
-} as const;
-
 export function jobsFor(manifest: Manifest, groups: ReadonlyArray<RoleGroup>): Job[] {
   const reviewer = manifest.roles.reviewer;
   const jobs: Job[] = [];
-  const alsoUsedBy = (list: string, hint: string) => {
+  const alsoUsedBy = (list: string) => {
     const others = groups
       .find((group) => group.list === list)
       ?.roles.filter((role) => role !== "reviewer");
     return others?.length
-      ? `${hint}. Also used by ${others.map((role) => AGENT_ROLE_TITLE_LABEL[role]).join(", ")}`
-      : hint;
+      ? `Also used by ${others.map((role) => AGENT_ROLE_TITLE_LABEL[role]).join(", ")}`
+      : undefined;
   };
   for (const group of groups) {
     const roles = group.roles.filter((role) => role !== "reviewer");
-    const shared = group.bindings.length > 1 ? [group] : [];
+    const shared = group.roles.length > 1 ? [group] : [];
     if (roles.length > 0) {
       jobs.push({ roles, sections: [{ list: group.list }], splitGroups: shared });
     }
     if (reviewer === undefined || group.list !== reviewer.list) continue;
-    const specList = reviewer.specList ?? reviewer.list;
+    const hint = alsoUsedBy(reviewer.list);
     jobs.push({
       roles: ["reviewer"],
-      sections:
-        specList === reviewer.list
-          ? [
-              {
-                list: specList,
-                title: "Change and Spec reviews",
-                hint: alsoUsedBy(specList, "Both kinds of review use this list"),
-              },
-            ]
-          : [
-              {
-                list: reviewer.list,
-                title: REVIEWER_SECTIONS.list.title,
-                hint: alsoUsedBy(reviewer.list, REVIEWER_SECTIONS.list.hint),
-              },
-              {
-                list: specList,
-                title: REVIEWER_SECTIONS.specList.title,
-                hint: alsoUsedBy(specList, REVIEWER_SECTIONS.specList.hint),
-              },
-            ],
-      splitGroups: groups.filter(
-        (candidate) =>
-          candidate.bindings.length > 1 &&
-          candidate.bindings.some(({ role }) => role === "reviewer"),
-      ),
+      sections: [{ list: reviewer.list, ...(hint === undefined ? {} : { hint }) }],
+      splitGroups: shared,
     });
   }
   return jobs;
@@ -815,42 +788,50 @@ const MAKER_NAMES: Readonly<Record<string, string>> = {
 export const makerName = (maker: string) =>
   MAKER_NAMES[maker] ?? maker.charAt(0).toUpperCase() + maker.slice(1);
 
-/** An older policy without `council` reads as Off. */
-export const councilOn = (manifest: Manifest) => manifest.roles.reviewer.council === true;
+/** Whether a reviewer list model is ticked for the review council. */
+export const councilTicked = (manifest: Manifest, alias: string): boolean =>
+  manifest.roles.reviewer.council?.includes(alias) ?? false;
 
-/** On stores `true`; Off removes the key, so an Off policy matches one that never had it. */
-export function setCouncil(manifest: Manifest, on: boolean): Manifest {
-  return withRole(manifest, "reviewer", ({ council: _previous, ...policy }) =>
-    on ? { ...policy, council: true } : policy,
-  );
+/** Ticks or unticks a model on the reviewer's list for the review council; empty removes the key. */
+export function setCouncilTick(manifest: Manifest, alias: string, ticked: boolean): Manifest {
+  return withRole(manifest, "reviewer", ({ council, ...policy }) => {
+    const list = manifest.lists[policy.list] ?? [];
+    if (ticked && !list.some((entry) => entry.model === alias)) {
+      return council === undefined ? policy : { ...policy, council };
+    }
+    const current = new Set(council ?? []);
+    if (ticked) current.add(alias);
+    else current.delete(alias);
+    const ordered = list.map((entry) => entry.model).filter((model) => current.has(model));
+    return ordered.length === 0 ? policy : { ...policy, council: ordered };
+  });
 }
 
-/** The council's members: the reviewer's Spec-review list, each with its model's maker. */
+/** The council's ticked members in list order, each with its model's maker. */
 export function councilMembers(manifest: Manifest) {
   const reviewer = rolePolicy(manifest, "reviewer");
-  return (manifest.lists[reviewer.specList ?? reviewer.list] ?? []).flatMap((entry) => {
+  const ticked = new Set(reviewer.council ?? []);
+  return (manifest.lists[reviewer.list] ?? []).flatMap((entry) => {
+    if (!ticked.has(entry.model)) return [];
     const binding = manifest.models[entry.model];
     return binding === undefined ? [] : [{ ...entry, maker: modelMaker(binding) }];
   });
 }
 
-/** Why a council cannot be saved, or null: it needs at least two makers among its members. */
-export function councilIssue(manifest: Manifest): string | null {
-  if (!councilOn(manifest)) return null;
-  const makers = new Set(councilMembers(manifest).map((member) => member.maker));
-  return makers.size >= 2
-    ? null
-    : "A council needs Spec-review models from at least two makers. Add a model from another maker, or turn the council Off.";
-}
-
-/** What the council line says: how many of its makers have a member that can run now. */
+/** What the council line says: whether a council is seated and how many makers can run now. */
 export function councilSeating(
   manifest: Manifest,
   providers: ReadonlyArray<ServerProvider>,
   options: { now?: number } = {},
 ): string {
   const members = councilMembers(manifest);
-  const makers = new Set(members.map((member) => member.maker));
+  if (members.length === 0) {
+    return "Council off: tick models from two or more makers to seat a council.";
+  }
+  const makers = [...new Set(members.map((member) => member.maker))];
+  if (makers.length < 2) {
+    return `Council off: ticked models come from one maker (${makerName(makers[0]!)}), so each Spec review has one reviewer. Tick a model from another maker to seat a council.`;
+  }
   const ready = new Set(
     members
       .filter(
@@ -858,11 +839,28 @@ export function councilSeating(
       )
       .map((member) => member.maker),
   );
-  const noun = makers.size === 1 ? "maker" : "makers";
-  if (ready.size === makers.size) return `All ${makers.size} ${noun} can sit now.`;
+  const names = makers.map(makerName).join(", ");
+  if (ready.size === makers.length) return `${names}. All ${makers.length} makers can sit now.`;
   return ready.size >= 2
-    ? `${ready.size} of ${makers.size} ${noun} can sit now.`
-    : `${ready.size} of ${makers.size} ${noun} can sit now: the council won't form until another maker is available, so one reviewer runs.`;
+    ? `${names}. ${ready.size} of ${makers.length} makers can sit now.`
+    : `${names}. ${ready.size} of ${makers.length} makers can sit now: the council won't form until another maker is available, so one reviewer runs.`;
+}
+
+/** Tool calls a reviewer task makes before T3 asks it to report. */
+export const reviewerWrapUpToolCalls = (manifest: Manifest): number =>
+  manifest.roles.reviewer.wrapUpAfterToolCalls ?? REVIEWER_WRAP_UP_TOOL_CALLS;
+
+/** Sets the reviewer wrap-up tool call limit; the default value or undefined removes the key. */
+export function setReviewerWrapUpToolCalls(
+  manifest: Manifest,
+  calls: number | undefined,
+): Manifest {
+  if (calls !== undefined && (!Number.isInteger(calls) || calls < 1)) return manifest;
+  return withRole(manifest, "reviewer", ({ wrapUpAfterToolCalls: _previous, ...policy }) =>
+    calls === undefined || calls === REVIEWER_WRAP_UP_TOOL_CALLS
+      ? policy
+      : { ...policy, wrapUpAfterToolCalls: calls },
+  );
 }
 
 const sameManifest = Schema.toEquivalence(AgentPolicyManifest);

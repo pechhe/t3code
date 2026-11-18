@@ -121,7 +121,7 @@ const AgentSessionAttachTool = Tool.make("agent_session_attach", {
   .annotate(Tool.Idempotent, true);
 const AgentRolesTool = Tool.make("agent_roles", {
   description:
-    "Discover scout, researcher, browser, reviewer, advisor and implementer presets; `implementer` also serves a whole Spec (delegate_task forgeItem). Returns guidance, authority, models, notes, effort and availability, not launch authority. Pass role for its child instructions. Choose by task fit, not order; pass delegate_task target.model. Multi-model pools have no default, even during outages; a sole model may be inferred (accounts/aliases aren't choices). Pass model to check eligibility; usageLimited lists exhausted accounts. Browser defaults integrated; browser.backend='phi' checks Phi. reviewScope=spec selects Spec review; default change.",
+    "Discover scout, researcher, browser, reviewer, advisor and implementer presets; `implementer` also serves a whole Spec (delegate_task forgeItem). Returns guidance, authority, models, notes, effort and availability, not launch authority. Pass role for its child instructions. Choose by task fit, not order; pass delegate_task target.model. Multi-model pools have no default, even during outages; a sole model may be inferred (accounts/aliases aren't choices). Pass model to check eligibility; usageLimited lists exhausted accounts. Browser defaults integrated; browser.backend='phi' checks Phi. Every review kind (change, Spec, pre-mortem) uses the reviewer's one list.",
   parameters: Schema.Struct({
     environmentId: OrchestratorMcpEnvironmentTarget,
     projectId: Schema.optional(

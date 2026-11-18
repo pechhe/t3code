@@ -963,6 +963,18 @@ function metadataUpdateContinuation(
       };
 }
 
+/** A message only for a running turn starts nothing once that turn has ended. */
+const turnEndedError = (
+  command: Extract<OrchestrationV2Command, { readonly type: "message.dispatch" }>,
+) =>
+  Effect.fail(
+    new OrchestratorDispatchError({
+      commandId: command.commandId,
+      commandType: command.type,
+      cause: "The targeted turn is not running, and this message was only for its turn.",
+    }),
+  );
+
 // Provider wakes can start follow-up work; monitor updates only report progress.
 // Dispatch takes the parent's lock for follow-ups because intake writes the parent.
 // A managed advice answer races the same child result finalizer and uses that lock too.
@@ -8405,11 +8417,18 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       projection = applyToProjection(projection, event);
     }
 
-    // A run the thread queues for itself continues the task of the run that sent it.
+    // A run the thread queues for itself continues the task of the run that sent it, and a
+    // restart the provider runs as the next turn continues the task of the turn it stopped.
+    const continuedRunId =
+      command.restartContinuationOfRunId ??
+      command.manualContinuationOfRunId ??
+      (command.dispatchMode.type === "restart_active"
+        ? command.dispatchMode.targetRunId
+        : undefined);
     const continuedTaskId = projection.runs.find((run) =>
-      (command.restartContinuationOfRunId ?? command.manualContinuationOfRunId) === undefined
+      continuedRunId === undefined
         ? command.senderThreadId === command.threadId && isActiveRun(run)
-        : run.id === (command.restartContinuationOfRunId ?? command.manualContinuationOfRunId),
+        : run.id === continuedRunId,
     )?.delegatedTaskId;
 
     if (projection.thread.settledOverride !== null) {
@@ -8536,6 +8555,24 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       command.dispatchMode,
       command.deliveryIntent,
     );
+    // A message only for a running turn goes straight into it or nowhere: none of the
+    // conversions below (start, queue, steer when ready) may turn it into a turn of its own.
+    if (command.onlyIntoActiveTurn === true) {
+      const targetRunId =
+        dispatchMode.type === "steer_active" || dispatchMode.type === "restart_active"
+          ? dispatchMode.targetRunId
+          : undefined;
+      const target = projection.runs.find((run) => run.id === targetRunId);
+      if (
+        target === undefined ||
+        target.status !== "running" ||
+        !projection.providerTurns.some(
+          (turn) => turn.runAttemptId === target.activeAttemptId && turn.status === "running",
+        ) ||
+        (yield* stopReachedRun(command, command.threadId, target.id))
+      )
+        return yield* turnEndedError(command);
+    }
     if (dispatchMode.type === "steer_active" || dispatchMode.type === "restart_active") {
       const targetRunId = dispatchMode.targetRunId;
       const target = projection.runs.find((run) => run.id === targetRunId);

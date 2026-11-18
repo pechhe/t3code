@@ -14,10 +14,9 @@ import {
   catalogModels,
   listedModels,
   poolNote,
-  councilIssue,
   councilSeating,
   councilMembers,
-  councilOn,
+  councilTicked,
   effortFor,
   effortForModel,
   ensureModel,
@@ -30,19 +29,21 @@ import {
   readOnlyUnenforcedProviders,
   removeEntry,
   replaceEntry,
+  reviewerWrapUpToolCalls,
   roleGroups,
   editableManifest,
   runsFast,
   savePolicyToTargets,
   setCaller,
+  setCouncilTick,
   setEntryEffort,
-  setCouncil,
   setModelDefaultStance,
   setModelListedOnly,
   modelListedOnly,
   setModelFast,
   setModelNote,
   setModelOptions,
+  setReviewerWrapUpToolCalls,
   splitGroup,
   splitJob,
   unavailableReason,
@@ -94,7 +95,7 @@ const manifest = () =>
         brief: "roles/advisor.md",
         callers: { haiku: "opus" },
       }),
-      reviewer: role("workhorse", { brief: "roles/reviewer.md", specList: "workhorse" }),
+      reviewer: role("workhorse", { brief: "roles/reviewer.md" }),
     },
   });
 
@@ -221,87 +222,58 @@ describe("delegation settings", () => {
     expect(outcome.failure).toBe(message);
   });
 
-  it("edits and saves both reviewer lists without dropping their bindings", () => {
+  it("splits a shared reviewer list without dropping council ticks, and edits it", () => {
     const original = manifest();
-    const separate = {
-      ...original,
-      roles: { ...original.roles, reviewer: { ...original.roles.reviewer, specList: "advisor" } },
-    };
-    const group = roleGroups(separate).find((candidate) => candidate.list === "advisor")!;
-    expect(group.bindings).toContainEqual({ role: "reviewer", field: "specList" });
-    const split = splitGroup(separate, group);
-    expect(split.roles.reviewer.list).toBe("workhorse");
-    expect(split.roles.reviewer.specList).toBe("reviewer-spec");
-    expect(split.lists["reviewer-spec"]).toEqual(original.lists.advisor);
-    const edited = removeEntry(split, "reviewer-spec", "sol");
+    const sharedWithAdvisor = setCouncilTick(
+      {
+        ...original,
+        roles: { ...original.roles, reviewer: { ...original.roles.reviewer, list: "advisor" } },
+      },
+      "sol",
+      true,
+    );
+    const group = roleGroups(sharedWithAdvisor).find((candidate) => candidate.list === "advisor")!;
+    expect(group.roles).toEqual(["reviewer", "advisor"]);
+    const split = splitGroup(sharedWithAdvisor, group);
+    expect(split.roles.reviewer.list).toBe("reviewer");
+    expect(split.roles.reviewer.council).toEqual(["sol"]);
+    expect(split.roles.advisor.list).toBe("advisor-2");
+    expect(split.lists.reviewer).toEqual(original.lists.advisor);
+    const edited = removeEntry(split, "reviewer", "sol");
+    expect("council" in edited.roles.reviewer).toBe(false);
     const saved = decodeManifest(encodeManifest(edited));
     expect(saved).toEqual(edited);
     expect(saved.lists.workhorse).toEqual(original.lists.workhorse);
-    expect(saved.lists["reviewer-spec"]).toEqual([{ model: "opus", effort: "high" }]);
-    expect(isValid(removeEntry(saved, "reviewer-spec", "opus"))).toBe(false);
+    expect(saved.lists.reviewer).toEqual([{ model: "opus", effort: "high" }]);
+    expect(isValid(removeEntry(saved, "reviewer", "opus"))).toBe(false);
   });
 
-  it("shows the Reviewer as one job with a change list and a Spec list", () => {
+  it("shows the Reviewer as one job with one list and names other roles on a shared list", () => {
     const original = manifest();
-    const separate = {
-      ...original,
-      roles: { ...original.roles, reviewer: { ...original.roles.reviewer, specList: "advisor" } },
-    };
-    for (const policy of [separate]) {
-      const jobs = jobsFor(policy, roleGroups(policy));
-      const reviewers = jobs.filter((job) => job.roles.includes("reviewer"));
-      expect(reviewers).toHaveLength(1);
-      expect(reviewers[0]!.roles).toEqual(["reviewer"]);
-      expect(reviewers[0]!.sections.map((section) => section.title)).toEqual([
-        "Change reviews",
-        "Spec reviews",
-      ]);
-      expect(reviewers[0]!.sections.map((section) => section.list)).toEqual([
-        "workhorse",
-        policy.roles.reviewer.specList,
-      ]);
-      expect(jobs.flatMap((job) => job.roles).toSorted()).toEqual(
-        Object.keys(policy.roles).toSorted(),
-      );
-    }
-  });
-
-  it("edits a list both reviews share once, and names other roles on a Reviewer list", () => {
-    const original = manifest();
-    const policy = {
-      ...original,
-      roles: {
-        ...original.roles,
-        reviewer: { ...original.roles.reviewer, list: "workhorse", specList: "workhorse" },
-      },
-    };
-    const job = jobsFor(policy, roleGroups(policy)).find((candidate) =>
-      candidate.roles.includes("reviewer"),
-    )!;
-    expect(job.sections.map((section) => section.title)).toEqual(["Change and Spec reviews"]);
-    expect(job.sections[0]!.hint).toContain("Also used by Implementer");
-    expect(job.splitGroups.map((group) => group.list)).toEqual(["workhorse"]);
+    const jobs = jobsFor(original, roleGroups(original));
+    const reviewers = jobs.filter((job) => job.roles.includes("reviewer"));
+    expect(reviewers).toHaveLength(1);
+    expect(reviewers[0]!.roles).toEqual(["reviewer"]);
+    expect(reviewers[0]!.sections).toHaveLength(1);
+    expect(reviewers[0]!.sections[0]!.list).toBe("workhorse");
+    expect(reviewers[0]!.sections[0]!.title).toBeUndefined();
+    expect(reviewers[0]!.sections[0]!.hint).toContain("Also used by Implementer");
+    expect(reviewers[0]!.splitGroups.map((group) => group.list)).toEqual(["workhorse"]);
+    expect(jobs.flatMap((job) => job.roles).toSorted()).toEqual(
+      Object.keys(original.roles).toSorted(),
+    );
   });
 
   it("splitting the Reviewer job leaves separate lists for it and for the roles it shared with", () => {
-    const original = manifest();
+    const original = setCouncilTick(manifest(), "sol", true);
     const job = jobsFor(original, roleGroups(original)).find((candidate) =>
       candidate.roles.includes("reviewer"),
     )!;
     const split = splitJob(original, job);
     expect(isValid(split)).toBe(true);
     expect(split.roles.reviewer.list).toBe("reviewer");
-    expect(split.roles.reviewer.specList).toBe("reviewer-spec");
+    expect(split.roles.reviewer.council).toEqual(["sol"]);
     expect(split.roles.implementer.list).toBe("implementer");
-  });
-
-  it("splits both reviewer bindings when the scopes share a list", () => {
-    const original = manifest();
-    const group = roleGroups(original).find((candidate) => candidate.list === "workhorse")!;
-    const split = splitGroup(original, group);
-    expect(split.roles.reviewer.list).toBe("reviewer");
-    expect(split.roles.reviewer.specList).toBe("reviewer-spec");
-    expect(isValid(split)).toBe(true);
   });
 
   it("names only enabled providers that do not declare read-only enforcement", () => {
@@ -386,14 +358,23 @@ describe("delegation settings", () => {
     expect(isValid(setCaller(next, "advisor", created, "opus"))).toBe(true);
   });
 
-  it("swapping a listed model keeps its place and the exceptions that named it", () => {
+  it("swapping a listed model keeps its place, the exceptions and council tick that named it", () => {
     const [model] = catalogModels([provider()]);
     const fable = { ...model!, binding: { ...model!.binding, model: "claude-fable" } };
-    const next = replaceEntry(manifest(), "advisor", "opus", fable, "medium");
+    const original = manifest();
+    const ticked = {
+      ...original,
+      roles: {
+        ...original.roles,
+        reviewer: { ...original.roles.reviewer, list: "advisor", council: ["opus"] },
+      },
+    };
+    const next = replaceEntry(ticked, "advisor", "opus", fable, "medium");
     const alias = next.lists["advisor"]![1]!.model;
     expect(next.models[alias]?.model).toBe("claude-fable");
     expect(next.lists["advisor"]![1]!.effort).toBe("medium");
     expect(next.roles.advisor.callers).toEqual({ haiku: alias });
+    expect(next.roles.reviewer.council).toEqual([alias]);
     expect(isValid(next)).toBe(true);
     // A model already in the list is not listed twice.
     const sol = { ...model!, binding: manifest().models.sol! };
@@ -715,73 +696,119 @@ describe("delegation settings", () => {
   });
 
   describe("council", () => {
-    const separate = () => {
+    const withReviewerList = () => {
       const base = manifest();
       return {
         ...base,
         lists: {
           ...base.lists,
-          "reviewer-spec": [
+          reviewer: [
             { model: "sol", effort: "high" },
             { model: "opus", effort: "high" },
+            { model: "haiku", effort: "high" },
           ],
         },
         roles: {
           ...base.roles,
-          reviewer: { ...base.roles.reviewer, specList: "reviewer-spec" },
+          reviewer: { ...base.roles.reviewer, list: "reviewer" },
         },
       };
     };
 
-    it("reads an older policy without council as Off", () => {
-      expect(councilOn(manifest())).toBe(false);
-      expect(councilIssue(manifest())).toBeNull();
+    it("reads an older policy without council ticks as unticked", () => {
+      expect(councilTicked(manifest(), "sol")).toBe(false);
+      expect(councilMembers(manifest())).toEqual([]);
+      expect(councilSeating(manifest(), [provider()])).toBe(
+        "Council off: tick models from two or more makers to seat a council.",
+      );
     });
 
-    it("turning it On stores true, and Off removes the key", () => {
-      const on = setCouncil(manifest(), true);
-      expect(on.roles.reviewer.council).toBe(true);
-      expect(councilOn(on)).toBe(true);
-      expect(isValid(encodeManifest(on))).toBe(true);
-      const off = setCouncil(on, false);
-      expect("council" in off.roles.reviewer).toBe(false);
-      expect(encodeManifest(off)).toEqual(encodeManifest(manifest()));
+    it("ticking and unticking writes council and removes the key when empty", () => {
+      const first = setCouncilTick(withReviewerList(), "opus", true);
+      expect(first.roles.reviewer.council).toEqual(["opus"]);
+      expect(councilTicked(first, "opus")).toBe(true);
+      expect(councilTicked(first, "sol")).toBe(false);
+      // Ticking follows list order and never duplicates an already-ticked model.
+      const both = setCouncilTick(setCouncilTick(first, "sol", true), "sol", true);
+      expect(both.roles.reviewer.council).toEqual(["sol", "opus"]);
+      expect(isValid(encodeManifest(both))).toBe(true);
+
+      const oneLeft = setCouncilTick(both, "sol", false);
+      expect(oneLeft.roles.reviewer.council).toEqual(["opus"]);
+      expect(councilTicked(oneLeft, "sol")).toBe(false);
+
+      const empty = setCouncilTick(oneLeft, "opus", false);
+      expect("council" in empty.roles.reviewer).toBe(false);
+      expect(encodeManifest(empty)).toEqual(encodeManifest(withReviewerList()));
     });
 
-    it("names each Spec-review member's maker", () => {
-      expect(councilMembers(separate()).map(({ model, maker }) => [model, maker])).toEqual([
+    it("removing a ticked model drops its tick and remains valid", () => {
+      const ticked = setCouncilTick(setCouncilTick(withReviewerList(), "sol", true), "opus", true);
+      const removedOne = removeEntry(ticked, "reviewer", "sol");
+      expect(removedOne.roles.reviewer.council).toEqual(["opus"]);
+      expect(isValid(encodeManifest(removedOne))).toBe(true);
+
+      const removedLast = removeEntry(removedOne, "reviewer", "opus");
+      expect("council" in removedLast.roles.reviewer).toBe(false);
+      expect(isValid(encodeManifest(removedLast))).toBe(true);
+    });
+
+    it("names each ticked member's maker in list order", () => {
+      const ticked = setCouncilTick(setCouncilTick(withReviewerList(), "opus", true), "sol", true);
+      expect(councilMembers(ticked).map(({ model, maker }) => [model, maker])).toEqual([
         ["sol", "openai"],
         ["opus", "anthropic"],
       ]);
     });
 
-    it("says how many makers can sit now, and when the council will not form", () => {
-      const on = setCouncil(separate(), true);
-      // Only the Claude account is installed, so OpenAI's member cannot sit.
-      expect(councilSeating(on, [provider()])).toBe(
-        "1 of 2 makers can sit now: the council won't form until another maker is available, so one reviewer runs.",
+    it("says off for zero ticks and one maker, and lists makers when two or more are ticked", () => {
+      const base = withReviewerList();
+      expect(councilSeating(base, [provider()])).toBe(
+        "Council off: tick models from two or more makers to seat a council.",
       );
-      expect(councilSeating(on, [])).toMatch(/^0 of 2 makers can sit now/);
+      const oneMaker = setCouncilTick(setCouncilTick(base, "opus", true), "haiku", true);
+      expect(isValid(encodeManifest(oneMaker))).toBe(true);
+      expect(councilSeating(oneMaker, [provider()])).toBe(
+        "Council off: ticked models come from one maker (Anthropic), so each Spec review has one reviewer. Tick a model from another maker to seat a council.",
+      );
+
+      const twoMakers = setCouncilTick(setCouncilTick(base, "sol", true), "opus", true);
+      // Only the Claude account is installed, so OpenAI's member cannot sit.
+      expect(councilSeating(twoMakers, [provider()])).toBe(
+        "OpenAI, Anthropic. 1 of 2 makers can sit now: the council won't form until another maker is available, so one reviewer runs.",
+      );
+      expect(councilSeating(twoMakers, [])).toMatch(
+        /^OpenAI, Anthropic\. 0 of 2 makers can sit now/,
+      );
+      const codex = provider({
+        driver: "codex",
+        instanceId: "codex",
+        models: [{ slug: "gpt-sol", name: "Sol", isCustom: false, capabilities: null }],
+      });
+      expect(councilSeating(twoMakers, [provider(), codex])).toBe(
+        "OpenAI, Anthropic. All 2 makers can sit now.",
+      );
     });
 
-    it("needs at least two distinct makers while On", () => {
-      const two = setCouncil(separate(), true);
-      expect(councilIssue(two)).toBeNull();
-      const one = removeEntry(two, "reviewer-spec", "opus");
-      expect(councilIssue(one)).toMatch(/at least two makers/);
-      expect(councilIssue(setCouncil(one, false))).toBeNull();
-      const sameMaker = replaceEntry(
-        two,
-        "reviewer-spec",
-        "sol",
-        catalogModels([
-          provider({
-            models: [{ slug: "claude-haiku", name: "Haiku", isCustom: false, capabilities: null }],
-          }),
-        ])[0]!,
-        undefined,
-      );
-      expect(councilIssue(sameMaker)).toMatch(/at least two makers/);
+    it("round-trips the reviewer wrap-up tool call limit, defaulting to 60 when absent", () => {
+      const base = manifest();
+      expect(reviewerWrapUpToolCalls(base)).toBe(60);
+      expect("wrapUpAfterToolCalls" in base.roles.reviewer).toBe(false);
+
+      const raised = setReviewerWrapUpToolCalls(base, 90);
+      expect(raised.roles.reviewer.wrapUpAfterToolCalls).toBe(90);
+      expect(reviewerWrapUpToolCalls(raised)).toBe(90);
+      const roundTripped = decodeManifest(encodeManifest(raised));
+      expect(roundTripped.roles.reviewer.wrapUpAfterToolCalls).toBe(90);
+
+      // Invalid values are ignored rather than corrupting or clearing the setting.
+      expect(setReviewerWrapUpToolCalls(raised, 0)).toEqual(raised);
+      expect(setReviewerWrapUpToolCalls(raised, 12.5)).toEqual(raised);
+
+      const reset = setReviewerWrapUpToolCalls(raised, 60);
+      expect("wrapUpAfterToolCalls" in reset.roles.reviewer).toBe(false);
+      expect(reviewerWrapUpToolCalls(reset)).toBe(60);
+      expect(encodeManifest(reset)).toEqual(encodeManifest(base));
     });
   });
 });

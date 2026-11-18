@@ -2656,8 +2656,8 @@ const make = Effect.gen(function* () {
   });
 
   /**
-   * Sits a Spec review as a council when the policy turns it on: one reviewer per maker on
-   * the Spec list, in list order, never the author's own model. A request with
+   * Sits a Spec review as a council when the reviewer's ticked models cover two makers: one
+   * reviewer per maker among them, in list order, never the author's own model. A request with
    * `review.council: false` sits the role's ordinary choice alone, as a council of one.
    * Undefined leaves the review to the ordinary single reviewer path.
    */
@@ -2735,7 +2735,12 @@ const make = Effect.gen(function* () {
     if (Option.isNone(policy)) return undefined;
     const { manifest } = policy.value;
     const role = manifest.roles.reviewer;
-    if (role.council !== true) return undefined;
+    const ticked = new Set(role.council ?? []);
+    const councilList = (manifest.lists[role.list] ?? []).filter((entry) =>
+      ticked.has(entry.model),
+    );
+    const makers = new Set(councilList.map((entry) => modelMaker(manifest.models[entry.model]!)));
+    if (makers.size < 2) return undefined;
     const requestId = input.clientRequestId;
     if (requestId === undefined)
       return yield* failure(
@@ -2779,7 +2784,7 @@ const make = Effect.gen(function* () {
     const missing: Array<OrchestratorMcpReviewCouncil["missing"][number]> = [];
     const seated = new Set<string>();
     let launchFailure: OrchestratorMcpFailure | undefined;
-    const list = review.council === false ? [] : (manifest.lists[role.specList ?? role.list] ?? []);
+    const list = review.council === false ? [] : councilList;
     for (const entry of list) {
       const binding = manifest.models[entry.model]!;
       const maker = modelMaker(binding);

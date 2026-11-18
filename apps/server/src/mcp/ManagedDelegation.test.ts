@@ -1372,7 +1372,11 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         },
         roles: {
           ...manifest.roles,
-          reviewer: { ...manifest.roles.reviewer, specList: "council", council: true },
+          reviewer: {
+            ...manifest.roles.reviewer,
+            list: "council",
+            council: ["sonnet", "haiku", "sol", "astra", "gemini"],
+          },
         },
       });
       const h = yield* harness(() => [], true, {
@@ -1467,6 +1471,57 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
     ),
   );
 
+  it.effect("reviews a Spec alone when the council's ticks cover one maker", () =>
+    Effect.gen(function* () {
+      const h = yield* harness(() => [], true, {
+        providers: [codex, claude],
+        policy: (manifest) => ({
+          ...manifest,
+          lists: {
+            ...manifest.lists,
+            council: [
+              { model: "sonnet", effort: "high" },
+              { model: "haiku", effort: "high" },
+              { model: "astra", effort: "high" },
+            ],
+          },
+          roles: {
+            ...manifest.roles,
+            reviewer: { ...manifest.roles.reviewer, list: "council", council: ["sonnet", "haiku"] },
+          },
+        }),
+      });
+      const sat = yield* h.delegate({
+        task: "Review the Spec",
+        clientRequestId: "one-maker",
+        agentTask: request({
+          role: "reviewer",
+          workspacePath: h.lead,
+          readOnly: true,
+          sourceRevision: "source-pin",
+          authorModel: codexModel,
+          review: {
+            scope: "spec",
+            baseRevision: "base-commit",
+            includedChanges: ["reviewed-commit"],
+            coverage: "complete",
+            specRef: "#1",
+            specRevision: "3",
+          },
+        }),
+        target: { model: "gpt-astra-test" },
+      });
+      expect(sat.code).toBe("orchestration_error");
+      expect(h.dispatched).toHaveLength(1);
+      expect(
+        (h.dispatched[0] as { agentTask: { review: { councilSeat?: string } } }).agentTask.review
+          .councilSeat,
+      ).toBeUndefined();
+    }).pipe(
+      Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+    ),
+  );
+
   describe("recording the review council's roster in Forge", () => {
     const withCouncil = (manifest: AgentPolicyManifestType): AgentPolicyManifestType => ({
       ...manifest,
@@ -1480,7 +1535,11 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       },
       roles: {
         ...manifest.roles,
-        reviewer: { ...manifest.roles.reviewer, specList: "council", council: true },
+        reviewer: {
+          ...manifest.roles.reviewer,
+          list: "council",
+          council: ["sonnet", "astra", "sol"],
+        },
       },
     });
     const councilReview = (

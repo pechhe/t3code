@@ -1546,7 +1546,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         ...f.manifest,
         roles: {
           ...f.manifest.roles,
-          reviewer: { ...f.manifest.roles.reviewer, specList: "advisor" },
+          reviewer: { ...f.manifest.roles.reviewer, list: "advisor" },
         },
       });
       const reviewer = (reviewScope?: "change" | "spec") =>
@@ -1568,6 +1568,22 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
       expect((yield* reviewer("change")).selection).toBeNull();
       expect((yield* reviewer("spec")).selection).toBeNull();
       expect((yield* reviewer("spec")).refusal).toContain("choose a model");
+      // Without a source pin a review cannot start, but its models still show whether they can.
+      const unpinned = yield* f.service
+        .roles({
+          providers: [codex, claude],
+          ceiling: "full-access",
+          request: { taskClass: "non-ui" },
+        })
+        .pipe(
+          Effect.provideService(HostProcess.Environment, f.environment),
+          Effect.map((result) => result.roles.find((role) => role.role === "reviewer")!),
+        );
+      expect(unpinned.refusal).toBe("source-pin-required");
+      expect(unpinned.models.map((model) => model.available)).toEqual(
+        (yield* reviewer()).models.map((model) => model.available),
+      );
+      expect(unpinned.models.some((model) => model.available)).toBe(true);
       // Discovery names the permission class, and a tool profile only for the narrow web readers.
       expect((yield* reviewer()).permissionClass).toBe("read-only");
       expect((yield* reviewer()).toolProfile).toBeUndefined();

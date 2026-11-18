@@ -53,13 +53,16 @@ Each role has a model `list`, with effort for models that offer it. For ordinary
 delegation, the list is a pool of candidates, not a preference order. Roles
 naming the same list share it: the shipped policy gives `scout`, `researcher` and
 `browser` one list, so editing that list under any of the three edits the one list
-all three use. The Reviewer also requires `specList`, an alias into `lists` for Spec
-reviews; `review.scope` selects the list automatically. Other roles cannot set `specList`.
-With the Reviewer's `council` on, `delegate_task` sits a Spec review as a council:
-one read-only reviewer per model maker on `specList`, in list order, at most five,
-never the author's own model. A maker whose models cannot run is reported as
-missing, not replaced by a second model from a maker already sitting; with fewer
-than two makers one reviewer runs. The result's `council` names each member's task
+all three use. The Reviewer has one list for every kind of review (a change, a Spec,
+a pre-mortem), so the lead chooses the reviewer by its models' notes. Its `council`
+names the list's models ticked for the review council; when they cover at least two
+makers, `delegate_task` sits a Spec review as a council: one read-only reviewer per
+maker among them, in list order, at most five, never the author's own model. A maker
+whose models cannot run is reported as missing, not replaced by a second model from a
+maker already sitting; with fewer than two makers one reviewer runs. A reviewer task
+that makes the Reviewer's `wrapUpAfterToolCalls` (default 60) tool calls with its turn
+still running is told once to write its report now; at half as many again T3 interrupts
+and restarts its turn with the instruction to report without reading further. The result's `council` names each member's task
 and the `taskRef` it records its review under. T3 records the round's roster in Forge
 itself, as the lead, once the seats are launched; `council.roster` says whether it did.
 Only when `roster.recorded` is false does the lead record it by hand with
@@ -88,8 +91,12 @@ installed agent-config revision, whether it has uncommitted changes, and how far
 `origin/main` as last fetched.
 Unavailable accounts remain visible and are skipped. A policy still at version 1
 is read as one list per role (both reviewer scopes share it) and written as version 2
-on its first save. Split reviewer policies keep their exact change and Spec lists;
-the change role supplies `large` and `callers` if present.
+on its first save. A reviewer's change and Spec lists, split or under one Reviewer, read as
+one list: the Spec list's models in order, then the change list's others, at the Spec
+list's effort, in a list of the Reviewer's own when the two differed; a council that was
+on ticks the Spec list's models. The change role supplies `large` and `callers` if present.
+A T3 server from before this rejects a policy without a Spec list, so update every machine
+sharing agent-config before saving from Settings.
 Version 2 has no per-task-class restrictions: a version 1 restriction survives
 only when it covers every task class the role takes, and otherwise the role
 lists its whole pool for every class. The task class no longer chooses a model:
@@ -297,9 +304,7 @@ its revision and the role names, or the reason the policy is refused.
   gets no ordinary-task preference from it. After an explicit model choice, account
   routing still follows pool allowance; if no eligible account can serve that named
   model, the request is refused without switching models.
-  `agent_roles` resolves for the same caller; pass `reviewScope: "spec"` for the Spec list. Without it, discovery
-  shows the change list. Role-based schedules have no review scope and use that
-  change default.
+  `agent_roles` resolves for the same caller; every kind of review uses the Reviewer's one list.
 - A follow-up to a task launched on a source revision must state the revision
   its workspace is at now. A task launched without one, as outside a
   repository, continues without one. A message a person types into the task's

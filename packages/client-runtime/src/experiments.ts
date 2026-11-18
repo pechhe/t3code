@@ -271,7 +271,7 @@ export function selectionsMatch(left: ModelSelection | null, right: ModelSelecti
 function jobList(manifest: AgentPolicyManifest, job: TrialJobInfo): string | null {
   const policy = manifest.roles[job.role];
   if (policy === undefined) return null;
-  return job.reviewScope === "spec" ? (policy.specList ?? policy.list) : policy.list;
+  return policy.list;
 }
 
 /** What a job runs today: the first model in its Delegation list, with its effort. */
@@ -1180,9 +1180,7 @@ export function adoptionChange(
     );
   }
   const sharing = Object.entries(manifest.roles).flatMap(([role, policy]) =>
-    policy !== undefined && (policy.list === list || policy.specList === list)
-      ? [role as AgentRole]
-      : [],
+    policy?.list === list ? [role as AgentRole] : [],
   );
   const labels = sharing.map(input.roleLabel);
   return {

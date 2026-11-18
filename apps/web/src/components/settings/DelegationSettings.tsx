@@ -24,7 +24,15 @@ import { useAtomQueryRunner } from "../../state/use-atom-query-runner";
 import { Alert, AlertAction, AlertDescription } from "../ui/alert";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import { Checkbox } from "../ui/checkbox";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
+import {
+  NumberField,
+  NumberFieldDecrement,
+  NumberFieldGroup,
+  NumberFieldIncrement,
+  NumberFieldInput,
+} from "../ui/number-field";
 import { PreviewCard, PreviewCardPopup, PreviewCardTrigger } from "../ui/preview-card";
 import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
@@ -32,9 +40,9 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   addEntry,
   catalogModels,
-  councilIssue,
-  councilOn,
+  councilMembers,
   councilSeating,
+  councilTicked,
   effortForModel,
   ensureModel,
   makerName,
@@ -43,10 +51,11 @@ import {
   readOnlyUnenforcedProviders,
   removeEntry,
   replaceEntry,
+  reviewerWrapUpToolCalls,
   ROLE_DESCRIPTIONS,
   editableManifest,
   roleGroups,
-  setCouncil,
+  setCouncilTick,
   setEntryEffort,
   setModelDefaultStance,
   setModelListedOnly,
@@ -61,13 +70,13 @@ import {
   runsFast,
   setModelFast,
   setPreferOtherAuthorProvider,
+  setReviewerWrapUpToolCalls,
   roleClassLabel,
   rolePolicy,
   savePolicyToTargets,
   unavailableReason,
   type CatalogModel,
   type Job,
-  type JobSection,
   type PolicySaveAnswer,
   type PolicySaveTarget,
   jobsFor,
@@ -294,8 +303,7 @@ function PolicyEditor({
   // Set when a save reached the file but not the shared checkout's remote.
   const [publishNotice, setPublishNotice] = useState<string | null>(null);
   const jobs = jobsFor(draft, roleGroups(draft));
-  const issue = councilIssue(draft);
-  const blocked = !isValid(draft) || issue !== null || unsavedEnvironments > 0;
+  const blocked = !isValid(draft) || unsavedEnvironments > 0;
   const saveTo = async (
     target: PolicySaveTarget,
     expectedHash: string,
@@ -371,7 +379,7 @@ function PolicyEditor({
     setDraft(next);
     setHasEdits(true);
     queue.current.latest = next;
-    if (refused || !isValid(next) || councilIssue(next) !== null || unsavedEnvironments > 0) return;
+    if (refused || !isValid(next) || unsavedEnvironments > 0) return;
     if (!queue.current.running) queue.current.hashes = new Map(draftHashes);
     queue.current.next = next;
     void flush();
@@ -450,9 +458,7 @@ function PolicyEditor({
           <AlertDescription>
             {!isValid(draft)
               ? "Every list needs at least one model. Changes save once each has one."
-              : issue !== null
-                ? issue
-                : "Every selected environment needs a readable policy before changes save. Choose one environment to save to it alone."}
+              : "Every selected environment needs a readable policy before changes save. Choose one environment to save to it alone."}
           </AlertDescription>
           <AlertAction>
             <Button
@@ -537,6 +543,7 @@ function ListEditor({
   onChange,
   makers,
   ordered = false,
+  council,
   children,
 }: {
   environmentId: EnvironmentId;
@@ -545,10 +552,14 @@ function ListEditor({
   providers: ReadonlyArray<ServerProvider>;
   catalog: ReadonlyArray<CatalogModel>;
   onChange: (manifest: Manifest) => void;
-  /** Council members are labelled with their model's maker. */
+  /** Reviewer models are labelled with their model's maker. */
   makers?: boolean;
-  /** Council seating is the only list whose stored order remains intentional. */
+  /** Reviewer list keeps its stored order, which decides council seating per maker. */
   ordered?: boolean;
+  council?: {
+    readonly ticked: (alias: string) => boolean;
+    readonly onToggle: (alias: string, ticked: boolean) => void;
+  };
   children?: ReactNode;
 }) {
   const modelPools = useScopedSettings((settings) => settings.modelPools);
@@ -639,6 +650,16 @@ function ListEditor({
                 <Badge variant="outline">{makerName(modelMaker(binding))}</Badge>
               ) : null}
               <span className="min-w-0 flex-1 truncate text-xs text-warning">{reason}</span>
+              {council ? (
+                <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs">
+                  <Checkbox
+                    aria-label={`${label(entry.model)} on the council`}
+                    checked={council.ticked(entry.model)}
+                    onCheckedChange={(checked) => council.onToggle(entry.model, checked)}
+                  />
+                  Council
+                </label>
+              ) : null}
               {ordered ? (
                 <Button
                   size="icon-xs"
@@ -713,7 +734,7 @@ function JobRow({
   onChange: (manifest: Manifest) => void;
 }) {
   const primary = job.sections[0]!;
-  const sectioned = job.sections.length > 1;
+  const isReviewer = job.roles.includes("reviewer");
   const modelPools = useScopedSettings((settings) => settings.modelPools);
   const chip = (alias: string) => {
     const binding = manifest.models[alias];
@@ -730,39 +751,10 @@ function JobRow({
   };
   const labelFor = (alias: string) =>
     modelLabel(manifest.models[alias], alias, providers, modelPools);
-  const council = job.roles.includes("reviewer") && councilOn(manifest);
-  const councilSection = job.sections.at(-1)!;
-  const chips = (section: JobSection) => {
-    const configured = manifest.lists[section.list] ?? [];
-    const ordered = council && section === councilSection;
-    const entries = ordered
-      ? configured
-      : [...configured].sort((a, b) => labelFor(a.model).localeCompare(labelFor(b.model)));
-    const reasons = entries.map((entry) =>
-      unavailableReason(manifest.models[entry.model], providers, { modelPools }),
-    );
-    const firstAvailable = reasons.findIndex((reason) => reason === null);
-    return (
-      <>
-        {entries.map((entry, index) => (
-          <span
-            key={entry.model}
-            className={cn(
-              "flex min-w-0 items-center gap-1",
-              ordered && index !== firstAvailable && "opacity-60",
-              reasons[index] !== null && "line-through",
-            )}
-          >
-            {ordered && index > 0 ? <span className="text-xs text-muted-foreground">→</span> : null}
-            {chip(entry.model)}
-          </span>
-        ))}
-        {council && section === councilSection ? (
-          <span className="ms-2 text-xs text-muted-foreground">council on</span>
-        ) : null}
-      </>
-    );
-  };
+  const configured = manifest.lists[primary.list] ?? [];
+  const entries = isReviewer
+    ? configured
+    : [...configured].sort((a, b) => labelFor(a.model).localeCompare(labelFor(b.model)));
   const actions = (
     <>
       {job.splitGroups.length > 0 ? (
@@ -792,58 +784,61 @@ function JobRow({
                 )
                 .join(" · ")}
             </p>
-            {sectioned ? (
-              <div className="flex flex-col gap-1">
-                {job.sections.map((section) => (
-                  <div key={section.title} className="flex flex-wrap items-center gap-1">
-                    <span className="w-28 shrink-0 text-xs text-muted-foreground">
-                      {section.title}
+            <div className="flex flex-wrap items-center gap-1">
+              {entries.map((entry) => {
+                const reason = unavailableReason(manifest.models[entry.model], providers, {
+                  modelPools,
+                });
+                const ticked = isReviewer && councilTicked(manifest, entry.model);
+                return (
+                  <span key={entry.model} className="flex min-w-0 items-center gap-1">
+                    <span className={cn("min-w-0", reason !== null && "line-through")}>
+                      {chip(entry.model)}
                     </span>
-                    {chips(section)}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="flex flex-wrap items-center gap-1">{chips(primary)}</div>
-            )}
+                    {ticked ? (
+                      <Badge variant="info" size="sm">
+                        council
+                      </Badge>
+                    ) : null}
+                  </span>
+                );
+              })}
+            </div>
           </div>
           <ChevronRightIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform group-data-[panel-open]/job:rotate-90" />
         </CollapsibleTrigger>
         <CollapsiblePanel>
           <div className="flex flex-col gap-3 px-3 pb-4 sm:px-4">
-            {sectioned ? (
+            {isReviewer ? (
               <p className="text-xs text-muted-foreground">
-                The lead states on each review task whether it is reviewing a change or a Spec.
+                The lead picks a reviewer for each review, change, Spec or pre-mortem, from these
+                models by their notes. Ticked models form the council for a Spec review: one per
+                maker, never the author&apos;s own model.
               </p>
             ) : null}
-            {job.sections.map((section) => (
-              <div key={section.title ?? section.list} className="flex flex-col gap-3">
-                {section.title ? (
-                  <div className="flex flex-col">
-                    <p className="text-sm font-medium">{section.title}</p>
-                    <p className="text-xs text-muted-foreground">{section.hint}</p>
-                  </div>
-                ) : null}
-                <ListEditor
-                  environmentId={environmentId}
-                  list={section.list}
-                  manifest={manifest}
-                  providers={providers}
-                  catalog={catalog}
-                  onChange={onChange}
-                  makers={council && section === councilSection}
-                  ordered={council && section === councilSection}
-                >
-                  {sectioned ? null : actions}
-                </ListEditor>
-              </div>
-            ))}
-            {sectioned ? (
-              <div className="flex flex-wrap items-center gap-1.5">{actions}</div>
-            ) : null}
-            {job.roles.includes("reviewer") ? (
-              <CouncilBlock manifest={manifest} providers={providers} onChange={onChange} />
-            ) : null}
+            {primary.hint ? <p className="text-xs text-muted-foreground">{primary.hint}</p> : null}
+            <ListEditor
+              environmentId={environmentId}
+              list={primary.list}
+              manifest={manifest}
+              providers={providers}
+              catalog={catalog}
+              onChange={onChange}
+              makers={isReviewer}
+              ordered={isReviewer}
+              {...(isReviewer
+                ? {
+                    council: {
+                      ticked: (alias) => councilTicked(manifest, alias),
+                      onToggle: (alias, ticked) =>
+                        onChange(setCouncilTick(manifest, alias, ticked)),
+                    },
+                  }
+                : {})}
+            >
+              {actions}
+            </ListEditor>
+            {isReviewer ? <CouncilBlock manifest={manifest} providers={providers} /> : null}
             {job.roles.filter(isReviewerRole).map((role) => (
               <label key={role} className="flex items-center gap-2 text-xs">
                 <Switch
@@ -856,6 +851,12 @@ function JobRow({
                 different provider from the author for automatic council seating.
               </label>
             ))}
+            {isReviewer ? (
+              <ReviewerWrapUpField
+                value={reviewerWrapUpToolCalls(manifest)}
+                onSave={(calls) => onChange(setReviewerWrapUpToolCalls(manifest, calls))}
+              />
+            ) : null}
           </div>
         </CollapsiblePanel>
       </Collapsible>
@@ -863,45 +864,99 @@ function JobRow({
   );
 }
 
-/** Off or On for Spec reviews; the members are the Spec-review list edited above. */
+/** Shows whether the ticked reviewer models seat a council and which makers can sit now. */
 function CouncilBlock({
   manifest,
   providers,
-  onChange,
 }: {
   manifest: Manifest;
   providers: ReadonlyArray<ServerProvider>;
-  onChange: (manifest: Manifest) => void;
 }) {
-  const on = councilOn(manifest);
-  const issue = councilIssue(manifest);
+  const makers = new Set(councilMembers(manifest).map((member) => member.maker));
+  const seating = councilSeating(manifest, providers);
   return (
     <div
       data-council
-      className="flex flex-col gap-2 rounded-lg border border-border/60 bg-muted/40 p-2.5"
+      className="flex flex-col gap-1.5 rounded-lg border border-border/60 bg-muted/40 p-2.5"
     >
-      <label className="flex items-center gap-2 text-sm font-medium">
-        <Switch
-          checked={on}
-          aria-label="Council for Spec reviews"
-          onCheckedChange={(value) => onChange(setCouncil(manifest, value))}
-        />
-        Council
-        <span className="text-xs font-normal text-muted-foreground">{on ? "On" : "Off"}</span>
-      </label>
+      {makers.size >= 2 ? (
+        <>
+          <p className="text-xs">
+            <span className="font-medium text-foreground">Council:</span>{" "}
+            <span className="text-muted-foreground">{seating}</span>
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Tick models from two or more makers to seat a council; otherwise each Spec review has
+            one reviewer.
+          </p>
+        </>
+      ) : (
+        <p className="text-xs text-muted-foreground">{seating}</p>
+      )}
+    </div>
+  );
+}
+
+/** Tool call count before T3 asks a still-reading reviewer to write its report. */
+function ReviewerWrapUpField({
+  value,
+  onSave,
+}: {
+  value: number;
+  onSave: (calls: number) => void;
+}) {
+  const [draft, setDraft] = useState<number | null>(value);
+  const [shownValue, setShownValue] = useState(value);
+  if (shownValue !== value) {
+    setShownValue(value);
+    setDraft(value);
+  }
+  const inputId = useId();
+  const commit = (next: number | null) => {
+    const rounded = next === null ? null : Math.round(next);
+    if (rounded === null || !Number.isFinite(rounded) || rounded < 1) {
+      setDraft(value);
+      return;
+    }
+    setDraft(rounded);
+    if (rounded !== value) onSave(rounded);
+  };
+  return (
+    <div className="flex flex-col gap-1.5 rounded-lg border border-border/60 bg-muted/40 p-2.5">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <label htmlFor={inputId} className="font-medium text-foreground">
+          Ask for the report after
+        </label>
+        <NumberField
+          value={draft}
+          min={1}
+          step={1}
+          size="sm"
+          className="w-auto"
+          onValueChange={(next) => setDraft(next)}
+          onValueCommitted={(next) => commit(next)}
+        >
+          <NumberFieldGroup>
+            <NumberFieldDecrement aria-label="Fewer tool calls before wrap-up" />
+            <NumberFieldInput
+              id={inputId}
+              aria-label="Ask for the report after tool calls"
+              size={4}
+              className="w-12 text-center"
+              onKeyDown={(event) => {
+                if (event.key === "Enter") event.currentTarget.blur();
+              }}
+            />
+            <NumberFieldIncrement aria-label="More tool calls before wrap-up" />
+          </NumberFieldGroup>
+        </NumberField>
+        <span className="text-muted-foreground">tool calls</span>
+      </div>
       <p className="text-xs text-muted-foreground">
-        {on
-          ? "A Spec review sits one member per maker from the Spec reviews list above, in list order, skipping the author's own model."
-          : "A Spec review has one reviewer. Turn it on to have models from different makers review each Spec."}
+        A reviewer still reading at this point is told to write its report now with what it has,
+        marking what it did not trace as suspected. If it keeps reading for half as many again, T3
+        interrupts it and restarts its turn, telling it to write the report without reading further.
       </p>
-      {on ? (
-        <p className="text-xs text-muted-foreground">{councilSeating(manifest, providers)}</p>
-      ) : null}
-      {issue !== null ? (
-        <Alert variant="warning">
-          <AlertDescription role="alert">{issue}</AlertDescription>
-        </Alert>
-      ) : null}
     </div>
   );
 }
