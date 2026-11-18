@@ -595,10 +595,11 @@ export const OrchestratorMcpThreadListResult = Schema.Struct({
 });
 export type OrchestratorMcpThreadListResult = typeof OrchestratorMcpThreadListResult.Type;
 
+/** Every field is optional: a new advisor defaults to reading the caller's own workspace unpinned. */
 const OrchestratorMcpAdviceAdvisor = Schema.Struct({
-  workspacePath: TrimmedNonEmptyString,
-  sourceRevision: TrimmedNonEmptyString,
-  workId: TrimmedNonEmptyString,
+  workspacePath: Schema.optional(TrimmedNonEmptyString),
+  sourceRevision: Schema.optional(TrimmedNonEmptyString),
+  workId: Schema.optional(TrimmedNonEmptyString),
   taskId: Schema.optional(NodeId),
   target: Schema.optional(
     Schema.Struct({
@@ -632,7 +633,7 @@ export const OrchestratorMcpAskAdviceInput = Schema.Union([
     destination: Schema.Literal("advisor"),
     clientRequestId: OrchestratorMcpClientRequestId,
     ...adviceQuestionInputFields,
-    advisor: OrchestratorMcpAdviceAdvisor,
+    advisor: Schema.optional(OrchestratorMcpAdviceAdvisor),
   }),
   Schema.Struct({
     action: Schema.Literals(["read", "cancel"]),

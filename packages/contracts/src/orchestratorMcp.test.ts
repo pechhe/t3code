@@ -45,6 +45,15 @@ describe("orchestrator MCP contracts", () => {
       recommendation: "Keep v1.",
       blocking: false,
     });
+    // A thread with no checkout, such as one in No project, has no revision to pin.
+    expect(
+      decode({
+        action: "ask",
+        destination: "advisor",
+        clientRequestId: "contract",
+        question: "Which design?",
+      }),
+    ).toMatchObject({ destination: "advisor" });
   });
   it("decodes cross-provider delegated task requests and durable results", () => {
     const request = decodeDelegateTaskInput({

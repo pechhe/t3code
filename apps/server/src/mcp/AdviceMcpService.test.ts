@@ -66,6 +66,57 @@ const question = {
   advisor: { workId: "work", workspacePath: "/source", sourceRevision: "revision" },
 };
 
+it.effect("a new advisor defaults to reading the caller's own workspace unpinned", () => {
+  const launched: Array<unknown> = [];
+  const shell = (worktreePath: string | null) =>
+    Layer.mock(Threads.ThreadManagementService)({
+      getThreadShell: () => Effect.succeed({ ...liveThreadShell(workerId), worktreePath }),
+    });
+  const ask = (worktreePath: string | null) =>
+    Effect.gen(function* () {
+      const service = yield* AdviceMcp.AdviceMcpService;
+      const { advisor: _, ...bare } = question;
+      return yield* service.execute(scope, bare);
+    }).pipe(
+      Effect.provide(
+        AdviceMcp.layer.pipe(
+          Layer.provide(
+            Layer.mergeAll(
+              Layer.mock(Advice.AdviceService)({
+                advisor: () => Effect.undefined,
+                reserve: () => Effect.void,
+                recordAdvisor: () => Effect.void,
+                release: () => Effect.void,
+              }),
+              Layer.mock(Mcp.OrchestratorMcpService)({
+                delegateTask: (_scope, input) => {
+                  launched.push(input.agentTask);
+                  return Effect.succeed({ taskId: "task" } as never);
+                },
+              }),
+              shell(worktreePath),
+            ),
+          ),
+        ),
+      ),
+    );
+  return Effect.gen(function* () {
+    yield* ask("/scratch/thread");
+    expect(launched).toEqual([
+      {
+        role: "advisor",
+        taskClass: "non-ui",
+        workId: "advice",
+        attemptId: "advice",
+        workspacePath: "/scratch/thread",
+      },
+    ]);
+    const refused = yield* ask(null).pipe(Effect.flip);
+    expect(refused.message).toContain("pass advisor.workspacePath");
+    expect(launched).toHaveLength(1);
+  });
+});
+
 it.effect.each([
   question,
   { ...question, advisor: { ...question.advisor, taskId: "task" as never } },
