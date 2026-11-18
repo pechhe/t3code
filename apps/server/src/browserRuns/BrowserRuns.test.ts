@@ -131,6 +131,14 @@ it.effect("ends a run that goes over its output limit, and records a closed run'
       "output limit",
     );
     expect(yield* runs.use(caller, small.runId).pipe(Effect.flip)).toBeDefined();
+    // Its script's own close learns why it ended; no one else's does, and nothing is recorded twice.
+    expect(yield* runs.close(caller, small.runId, "failed")).toMatchObject({
+      outcome: "output-limit",
+      outputBytes: 12,
+    });
+    expect(
+      yield* runs.close(threadScope("session-two"), small.runId, "failed").pipe(Effect.flip),
+    ).toBeDefined();
 
     const closing = yield* open(1_000);
     const summary = yield* runs.close(caller, closing.runId, "failed");

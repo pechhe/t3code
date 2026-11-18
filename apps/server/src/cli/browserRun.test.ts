@@ -35,6 +35,7 @@ import {
   exitCodeFor,
   formatBrowserRunOutput,
   readToolOutcome,
+  SCRIPT_OUTLIVED_OUTPUT_LIMIT,
   SCRIPT_OUTLIVED_RUN,
   BrowserRunToolError,
   runBrowserScript,
@@ -323,6 +324,20 @@ describe("t3 browser run script", () => {
       assert.isFalse(output.ok);
       assert.include(output.error ?? "", "time limit");
       assert.equal(session.calls.at(-1)!.tool, "t3_browser_run_close");
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("names the output limit when the server ended the run on output", () =>
+    Effect.gen(function* () {
+      const deadline = yield* deadlineIn(-1_000);
+      const session = fakeSession((tool) =>
+        tool === "t3_browser_run_open"
+          ? OPEN(deadline)
+          : { structuredContent: { ...CLOSE.structuredContent, outcome: "output-limit" } },
+      );
+      const output = yield* runScript("export default async () => new Promise(() => {});", session);
+      assert.equal(output.error, SCRIPT_OUTLIVED_OUTPUT_LIMIT);
+      assert.equal(output.run?.outcome, "output-limit");
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 

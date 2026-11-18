@@ -93,6 +93,11 @@ export const readToolOutcome = (raw: unknown): ToolOutcome => {
 /** The script outlived its run; its own work may still be running in this process. */
 export const SCRIPT_OUTLIVED_RUN =
   "The script was stopped when the run's time limit passed. The server has closed its tabs.";
+/** As above, for a run the server ended early because its output passed the limit. */
+export const SCRIPT_OUTLIVED_OUTPUT_LIMIT =
+  "The script was stopped: its run passed the output limit, so the server ended it and closed its tabs. Raise --output-limit or return less.";
+const outlivedRun = (error: string | undefined) =>
+  error === SCRIPT_OUTLIVED_RUN || error === SCRIPT_OUTLIVED_OUTPUT_LIMIT;
 
 export const exitCodeFor = (output: BrowserRunOutput): number => (output.ok ? 0 : 1);
 
@@ -380,7 +385,9 @@ export const runBrowserScript = Effect.fn("cli.browserRun.runScript")(function* 
       return {
         ok: false,
         result: null,
-        error: SCRIPT_OUTLIVED_RUN,
+        // A script that swallows its failed calls outlives a run the server ended on output, too.
+        error:
+          summary?.outcome === "output-limit" ? SCRIPT_OUTLIVED_OUTPUT_LIMIT : SCRIPT_OUTLIVED_RUN,
         run: summary,
       } satisfies BrowserRunOutput;
     }
@@ -400,7 +407,7 @@ export const runBrowserScript = Effect.fn("cli.browserRun.runScript")(function* 
  * @public A test imports it from a generated script, which knip cannot see.
  */
 export const reportBrowserRunOutput = (output: BrowserRunOutput): Effect.Effect<void> =>
-  output.error === SCRIPT_OUTLIVED_RUN
+  outlivedRun(output.error)
     ? // Its promise cannot be cancelled, so the process ends with it once the report is out.
       Effect.callback<void>(() => {
         process.stdout.write(`${formatBrowserRunOutput(output)}\n`, () =>

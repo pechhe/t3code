@@ -63,6 +63,8 @@ interface RunState extends BrowserRun {
 }
 
 const KEEP_FOR = Duration.days(90);
+/** Recently ended runs kept so their opener's close still learns why one ended early. */
+const ENDED_KEPT = 64;
 
 const refuse = (message: string) =>
   new OrchestratorMcpFailure({ code: "capability_denied", message });
@@ -139,6 +141,9 @@ const make = Effect.gen(function* () {
   const adapters = yield* Effect.serviceOption(ProviderAdapterRegistry.ProviderAdapterRegistryV2);
   const timers = yield* FiberSet.make<void, never>();
   const runs = yield* SynchronizedRef.make<ReadonlyMap<string, RunState>>(new Map());
+  const ended = yield* SynchronizedRef.make<
+    ReadonlyMap<string, { readonly opener: string; readonly summary: BrowserRunSummary }>
+  >(new Map());
 
   const harnessOf = (scope: McpInvocationContext.McpInvocationScope) =>
     scope.thread === undefined
@@ -218,6 +223,14 @@ const make = Effect.gen(function* () {
         agentSessionId: McpInvocationContext.browserOwnerKey(run.scope),
       });
     yield* record(run, summary);
+    yield* SynchronizedRef.update(ended, (current) => {
+      const next = new Map(current).set(runId, { opener: run.opener, summary });
+      for (const oldest of next.keys()) {
+        if (next.size <= ENDED_KEPT) break;
+        next.delete(oldest);
+      }
+      return next;
+    });
     return summary;
   }, Effect.uninterruptible);
 
@@ -306,7 +319,15 @@ const make = Effect.gen(function* () {
     }),
     close: Effect.fn("BrowserRuns.close")(function* (caller, runId, outcome) {
       const run = runId === undefined ? undefined : (yield* SynchronizedRef.get(runs)).get(runId);
-      if (run === undefined || run.opener !== openerOf(caller)) return yield* notFound;
+      if (run === undefined) {
+        // The server already ended it (time or output limit): answer with what it recorded.
+        const gone =
+          runId === undefined ? undefined : (yield* SynchronizedRef.get(ended)).get(runId);
+        return gone !== undefined && gone.opener === openerOf(caller)
+          ? gone.summary
+          : yield* notFound;
+      }
+      if (run.opener !== openerOf(caller)) return yield* notFound;
       if (run.timer !== undefined) yield* Fiber.interrupt(run.timer);
       const summary = yield* end(run.runId, outcome);
       return summary ?? (yield* notFound);
