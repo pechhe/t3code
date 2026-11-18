@@ -22,6 +22,11 @@ that need a policy fail with `policy`, and unmanaged delegation behaves as
 before. Running trials are unaffected either way, and installing the code starts
 no trial.
 
+Every Settings → Delegation save commits and pushes `roles/policy.json`, so never point a dev
+server at the real checkout. Clone it with a local bare remote (`git clone --bare`, then clone
+that) and point the dev server there. To make a save as slow as a real push, set the clone's
+`origin` to `ext::sh -c sleep% 1.5;git% %s% /path/to/remote.git` with `protocol.ext.allow=always`.
+
 ## Conserve subscription allowance
 
 In Settings → Delegation → Subscription conservation, choose an account, a remaining-usage threshold, a reported window and the models to conserve, then save the rule. You can also edit that same rule in Settings → Providers → select an account → Subscription conservation; changes in either place apply to both views. At or below the threshold, those models are excluded from new managed subagents on that environment. Other eligible role models and pool accounts may still serve the task. Existing conversations and their follow-ups keep their models.

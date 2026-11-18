@@ -2,6 +2,8 @@ import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 import {
   AgentPolicyManifest,
+  type AgentPolicySettings,
+  EnvironmentId,
   ModelPoolId,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -31,6 +33,7 @@ import {
   roleGroups,
   editableManifest,
   runsFast,
+  savePolicyToTargets,
   setCaller,
   setEntryEffort,
   setCouncil,
@@ -125,7 +128,97 @@ const provider = (overrides: object = {}) =>
     ...overrides,
   });
 
+/** An environment's policy file: a save must name its current hash, as the server requires. */
+const policyStore = (initial: AgentPolicyManifest) => {
+  let writes = 0;
+  const store = {
+    manifest: initial,
+    hash: "h0",
+    settings: (): AgentPolicySettings =>
+      ({
+        snapshot: {
+          hash: store.hash,
+          sourceRevision: store.manifest.revision,
+          manifest: store.manifest,
+          briefs: {},
+        },
+        sourceRoot: "/agent-config",
+        uncommitted: false,
+        providers: [],
+      }) as unknown as AgentPolicySettings,
+    save: async (expectedHash: string, next: AgentPolicyManifest) => {
+      if (expectedHash !== store.hash)
+        return { ok: false as const, message: "The policy changed on disk.", stale: true };
+      writes += 1;
+      store.manifest = { ...next, revision: `fixture.${writes + 1}` };
+      store.hash = `h${writes}`;
+      return { ok: true as const, settings: store.settings() };
+    },
+  };
+  return store;
+};
+
 describe("delegation settings", () => {
+  it("saves every edit to environments that share one policy", async () => {
+    // Two machines on one agent-config: whatever one writes, the other then holds.
+    const shared = policyStore(manifest());
+    const targets = [
+      { environmentId: EnvironmentId.make("mac"), label: "Mac", hash: shared.hash },
+      { environmentId: EnvironmentId.make("vps"), label: "VPS", hash: shared.hash },
+    ];
+    const hashes = new Map(targets.map((target) => [target.environmentId, target.hash]));
+    const saveTo = (next: AgentPolicyManifest) =>
+      savePolicyToTargets({
+        manifest: next,
+        targets,
+        hashes,
+        save: (_target, expectedHash, manifest) => shared.save(expectedHash, manifest),
+        read: async () => shared.settings(),
+      });
+    const first = removeEntry(manifest(), "readers", "opus");
+    expect(await saveTo(first)).toEqual({ failure: null, notPushed: [] });
+    const second = removeEntry(first, "advisor", "opus");
+    expect(await saveTo(second)).toEqual({ failure: null, notPushed: [] });
+    expect(shared.manifest.lists).toEqual(second.lists);
+    expect([...hashes.values()]).toEqual([shared.hash, shared.hash]);
+  });
+
+  it("still refuses an environment whose policy changed to something else", async () => {
+    const mac = policyStore(manifest());
+    const vps = policyStore(manifest());
+    const targets = [
+      { environmentId: EnvironmentId.make("mac"), label: "Mac", hash: "h0" },
+      { environmentId: EnvironmentId.make("vps"), label: "VPS", hash: "h0" },
+    ];
+    await vps.save("h0", removeEntry(manifest(), "advisor", "sol"));
+    const edit = removeEntry(manifest(), "readers", "opus");
+    const outcome = await savePolicyToTargets({
+      manifest: edit,
+      targets,
+      hashes: new Map(),
+      save: (target, expectedHash) => (target.label === "Mac" ? mac : vps).save(expectedHash, edit),
+      read: async (target) => (target.label === "Mac" ? mac : vps).settings(),
+    });
+    expect(outcome.failure).toBe("VPS: The policy changed on disk.");
+    expect(vps.manifest.lists.advisor).toEqual([{ model: "opus", effort: "high" }]);
+  });
+
+  it("reports a refusal that needs repair even when the policy already holds the edit", async () => {
+    const shared = policyStore(manifest());
+    const edit = removeEntry(manifest(), "readers", "opus");
+    await shared.save("h0", edit);
+    const message =
+      "The policy folder is out of step with the shared copy and could not be updated.";
+    const outcome = await savePolicyToTargets({
+      manifest: edit,
+      targets: [{ environmentId: EnvironmentId.make("vps"), label: "VPS", hash: "h0" }],
+      hashes: new Map(),
+      save: async () => ({ ok: false, message, stale: false }),
+      read: async () => shared.settings(),
+    });
+    expect(outcome.failure).toBe(message);
+  });
+
   it("edits and saves both reviewer lists without dropping their bindings", () => {
     const original = manifest();
     const separate = {

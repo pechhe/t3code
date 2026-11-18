@@ -1,14 +1,17 @@
 import { isReasoningSelect } from "@t3tools/client-runtime/model-traits";
+import * as Schema from "effect/Schema";
 import {
   AGENT_ROLE_TITLE_LABEL,
+  AgentPolicyManifest,
   AgentRole,
+  type AgentPolicySettings,
+  type EnvironmentId,
   type DelegationStance,
   modelMaker,
   modelNote,
   isModelPoolSlotEnabled,
   resolveModelPoolEnabled,
   type AgentListEntry,
-  type AgentPolicyManifest,
   type ModelPoolConfig,
   type ModelPoolId,
   type ProviderOptionSelection,
@@ -829,4 +832,66 @@ export function councilSeating(
   return ready.size >= 2
     ? `${ready.size} of ${makers.size} ${noun} can sit now.`
     : `${ready.size} of ${makers.size} ${noun} can sit now: the council won't form until another maker is available, so one reviewer runs.`;
+}
+
+const sameManifest = Schema.toEquivalence(AgentPolicyManifest);
+
+/** One environment a policy save writes to, with the policy hash the page last read there. */
+export interface PolicySaveTarget {
+  readonly environmentId: EnvironmentId;
+  readonly label: string;
+  readonly hash: string;
+}
+
+export type PolicySaveAnswer =
+  | { readonly ok: true; readonly settings: AgentPolicySettings }
+  /** `stale`: refused only because the policy changed since `expectedHash`; nothing needs repair. */
+  | { readonly ok: false; readonly message: string; readonly stale: boolean };
+
+/**
+ * Writes `manifest` to each target in turn, against the hash the last write there left in
+ * `hashes`. Environments can share one policy (one agent-config remote, mirrored between
+ * machines), so an earlier target's write makes a later one stale: a target refused as stale that
+ * already holds `manifest` counts as saved.
+ */
+export async function savePolicyToTargets(input: {
+  readonly manifest: Manifest;
+  readonly targets: ReadonlyArray<PolicySaveTarget>;
+  readonly hashes: Map<EnvironmentId, string>;
+  readonly save: (
+    target: PolicySaveTarget,
+    expectedHash: string,
+    manifest: Manifest,
+  ) => Promise<PolicySaveAnswer>;
+  readonly read: (target: PolicySaveTarget) => Promise<AgentPolicySettings | null>;
+}): Promise<{ readonly failure: string | null; readonly notPushed: ReadonlyArray<string> }> {
+  const { manifest, targets, hashes } = input;
+  const named = (target: PolicySaveTarget, message: string) =>
+    targets.length > 1 ? `${target.label}: ${message}` : message;
+  // The server gives every write a new revision label; the content is what must match.
+  const holds = (settings: AgentPolicySettings) =>
+    sameManifest({ ...settings.snapshot.manifest, revision: manifest.revision }, manifest);
+  const notPushed: string[] = [];
+  for (const target of targets) {
+    const expectedHash = hashes.get(target.environmentId) ?? target.hash;
+    const answer = await input.save(target, expectedHash, manifest);
+    if (answer.ok) {
+      if (!holds(answer.settings))
+        return {
+          failure:
+            "The policy changed on disk. Your edit is kept here; reload the current values before saving.",
+          notPushed,
+        };
+      hashes.set(target.environmentId, answer.settings.snapshot.hash);
+      const publish = answer.settings.publish;
+      if (publish !== undefined && !publish.pushed)
+        notPushed.push(named(target, publish.detail ?? "no reason given"));
+      continue;
+    }
+    const current = answer.stale ? await input.read(target) : null;
+    if (current === null || !holds(current))
+      return { failure: named(target, answer.message), notPushed };
+    hashes.set(target.environmentId, current.snapshot.hash);
+  }
+  return { failure: null, notPushed };
 }

@@ -4,6 +4,7 @@ import { useEffect, useEffectEvent, useId, useRef, useState, type ReactNode } fr
 import * as Schema from "effect/Schema";
 import {
   AgentPolicyManifest,
+  AgentPolicySettingsError,
   type DelegationStance,
   isReviewerRole,
   modelMaker,
@@ -19,6 +20,7 @@ import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime"
 import { ArrowDownIcon, ArrowUpIcon, ChevronRightIcon, PlusIcon, XIcon } from "lucide-react";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { useAtomQueryRunner } from "../../state/use-atom-query-runner";
 import { Alert, AlertAction, AlertDescription } from "../ui/alert";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -59,10 +61,13 @@ import {
   setPreferOtherAuthorProvider,
   roleClassLabel,
   rolePolicy,
+  savePolicyToTargets,
   unavailableReason,
   type CatalogModel,
   type Job,
   type JobSection,
+  type PolicySaveAnswer,
+  type PolicySaveTarget,
   jobsFor,
   splitJob,
 } from "./DelegationSettings.logic";
@@ -79,7 +84,7 @@ import { useAgentPolicies } from "./useAgentPolicies";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
 
 const isValid = Schema.is(AgentPolicyManifest);
-const sameManifest = Schema.toEquivalence(AgentPolicyManifest);
+const isPolicySettingsError = Schema.is(AgentPolicySettingsError);
 type Manifest = AgentPolicyManifest;
 
 export function DelegationSettings() {
@@ -280,11 +285,41 @@ function PolicyEditor({
     hashes: new Map(draftHashes),
   });
   const save = useAtomCommand(serverEnvironment.agentPolicySave);
+  const readPolicy = useAtomQueryRunner(serverEnvironment.agentPolicyRead, {
+    refresh: true,
+    reportFailure: false,
+  });
   // Set when a save reached the file but not the shared checkout's remote.
   const [publishNotice, setPublishNotice] = useState<string | null>(null);
   const jobs = jobsFor(draft, roleGroups(draft));
   const issue = councilIssue(draft);
   const blocked = !isValid(draft) || issue !== null || unsavedEnvironments > 0;
+  const saveTo = async (
+    target: PolicySaveTarget,
+    expectedHash: string,
+    manifest: Manifest,
+  ): Promise<PolicySaveAnswer> => {
+    const result = await save({
+      environmentId: target.environmentId,
+      input: {
+        expectedHash,
+        manifest,
+        ...(target.environmentId === environmentId ? {} : { validateCatalog: false }),
+      },
+    });
+    if (result._tag === "Success") return { ok: true, settings: result.value };
+    const error = squashAtomCommandFailure(result);
+    return {
+      ok: false,
+      message: String(error),
+      stale:
+        isPolicySettingsError(error) && error.reason === "stale" && error.attention === undefined,
+    };
+  };
+  const readFrom = async (target: PolicySaveTarget) => {
+    const result = await readPolicy({ environmentId: target.environmentId, input: {} });
+    return result._tag === "Success" ? result.value : null;
+  };
   const flush = async () => {
     const state = queue.current;
     if (state.running) return;
@@ -300,47 +335,22 @@ function PolicyEditor({
       manifest = state.next
     ) {
       state.next = null;
-      const orderedTargets = [
-        ...targets.filter((target) => target.environmentId === environmentId),
-        ...targets.filter((target) => target.environmentId !== environmentId),
-      ];
-      for (const target of orderedTargets) {
-        // A fresh read cannot authorize a draft that was built from older content.
-        const expectedHash = state.hashes.get(target.environmentId) ?? target.hash;
-        const result = await save({
-          environmentId: target.environmentId,
-          input: {
-            expectedHash,
-            manifest,
-            ...(target.environmentId === environmentId ? {} : { validateCatalog: false }),
-          },
-        });
-        if (result._tag === "Success") {
-          if (
-            !sameManifest(
-              { ...result.value.snapshot.manifest, revision: manifest.revision },
-              manifest,
-            )
-          ) {
-            failures.push(
-              "The policy changed on disk. Your edit is kept here; reload the current values before saving.",
-            );
-            break;
-          }
-          state.hashes.set(target.environmentId, result.value.snapshot.hash);
-          setDraftHashes(new Map(state.hashes));
-          const publish = result.value.publish;
-          if (publish !== undefined && !publish.pushed) {
-            const detail = publish.detail ?? "no reason given";
-            notPushed.push(targets.length > 1 ? `${target.label}: ${detail}` : detail);
-          }
-        } else {
-          const message = String(squashAtomCommandFailure(result));
-          failures.push(targets.length > 1 ? `${target.label}: ${message}` : message);
-          break;
-        }
-      }
-      if (failures.length === 0) written = manifest;
+      // Each target saves against the hash the draft was built from or its own last write left,
+      // never a newer read's, which could authorize a draft built from older content.
+      const outcome = await savePolicyToTargets({
+        manifest,
+        targets: [
+          ...targets.filter((target) => target.environmentId === environmentId),
+          ...targets.filter((target) => target.environmentId !== environmentId),
+        ],
+        hashes: state.hashes,
+        save: saveTo,
+        read: readFrom,
+      });
+      setDraftHashes(new Map(state.hashes));
+      notPushed.push(...outcome.notPushed);
+      if (outcome.failure !== null) failures.push(outcome.failure);
+      else written = manifest;
     }
     state.next = null;
     state.running = false;
