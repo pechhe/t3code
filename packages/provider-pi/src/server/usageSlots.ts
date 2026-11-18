@@ -1,4 +1,5 @@
 import type { ServerProviderUsageSlot, ServerProviderUsageWindow } from "@t3tools/contracts";
+import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import {
   clampPercent,
   makeUnavailableUsageLimits,
@@ -18,9 +19,8 @@ import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
 
 /**
- * One Pi instance holds several accounts' credentials, so allowance is read per
- * `~/.pi/agent/auth.json` entry rather than per instance. Each provider exposes its own quota
- * endpoint, so the probe is chosen by sub-provider.
+ * Reads allowance per `~/.pi/agent/auth.json` entry (and `~/.pi/agent/antigravity-accounts.json`
+ * for linked Google accounts) rather than per Pi instance.
  *
  * @module usageSlots
  */
@@ -45,8 +45,31 @@ type ApiKeyCredential = typeof ApiKeyCredential.Type;
 type Credential = typeof Credential.Type;
 
 const AuthFile = Schema.Record(Schema.String, Schema.Unknown);
+const AntigravityStoredAccount = Schema.Struct({
+  accountId: Schema.optional(Schema.String),
+  access: Schema.optional(Schema.String),
+  refresh: Schema.optional(Schema.String),
+  expires: Schema.optional(Schema.Number),
+  email: Schema.optional(Schema.String),
+  projectId: Schema.optional(Schema.String),
+  addedAt: Schema.optional(Schema.Number),
+  lastUsedAt: Schema.optional(Schema.Number),
+});
+const AntigravityAccountsFile = Schema.Struct({
+  version: Schema.optional(Schema.Number),
+  activeAccountId: Schema.optional(Schema.String),
+  accounts: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+});
+const GoogleTokenResponse = Schema.Struct({
+  access_token: Schema.NonEmptyString,
+  expires_in: Schema.Number.check(Schema.isGreaterThan(0)),
+});
 
 const decodeAuthFile = Schema.decodeEffect(Schema.fromJsonString(AuthFile));
+const decodeAntigravityAccountsFile = Schema.decodeEffect(
+  Schema.fromJsonString(AntigravityAccountsFile),
+);
+const decodeAntigravityStoredAccount = Schema.decodeUnknownOption(AntigravityStoredAccount);
 const decodeCredential = Schema.decodeUnknownOption(Credential);
 
 /** Only an unexpired access token can be used; refreshing is Pi's job, not a probe's. */
@@ -59,11 +82,28 @@ const usableAccess = (credential: OauthCredential, nowMs: number): string | unde
 
 const AUTH_DIRECTORY = ".pi/agent";
 const AUTH_FILE = "auth.json";
+const ANTIGRAVITY_ACCOUNTS_FILE = "antigravity-accounts.json";
+const ANTIGRAVITY_OAUTH_RELATIVE_PATH = [
+  "npm",
+  "node_modules",
+  "pi-antigravity",
+  "src",
+  "auth",
+  "oauth.ts",
+] as const;
+const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const ANTIGRAVITY_DAILY = "https://daily-cloudcode-pa.googleapis.com";
 const ANTIGRAVITY_PROD = "https://cloudcode-pa.googleapis.com";
 const OPENCODE_GO_USAGE = "https://opencode.ai/zen/go/v1/usage";
 const ANTHROPIC_USAGE = "https://api.anthropic.com/api/oauth/usage";
 const OPENAI_CODEX_USAGE = "https://chatgpt.com/backend-api/wham/usage";
+
+export interface AntigravityCachedToken {
+  readonly access: string;
+  readonly expires: number;
+}
+
+const ANTIGRAVITY_TOKEN_REFRESH_SKEW_MS = 60_000;
 
 /** Matches the Antigravity client's own User-Agent so its quota host answers as it does for it. */
 const antigravityUserAgent = (platform: NodeJS.Platform, architecture: NodeJS.Architecture) =>
@@ -82,7 +122,12 @@ const Bucket = Schema.Struct({
 });
 const AntigravitySummary = Schema.Struct({
   groups: Schema.optional(
-    Schema.Array(Schema.Struct({ buckets: Schema.optional(Schema.Array(Bucket)) })),
+    Schema.Array(
+      Schema.Struct({
+        displayName: Schema.optional(Schema.String),
+        buckets: Schema.optional(Schema.Array(Bucket)),
+      }),
+    ),
   ),
   buckets: Schema.optional(Schema.Array(Bucket)),
 });
@@ -168,28 +213,57 @@ function iso(value: string | null | undefined): string | undefined {
 
 function antigravityWindows(summary: typeof AntigravitySummary.Type): ServerProviderUsageWindow[] {
   const windows = new Map<string, ServerProviderUsageWindow>();
-  const buckets = summary.groups?.some((group) => group.buckets?.length)
-    ? (summary.groups ?? []).flatMap((group) => group.buckets ?? [])
-    : (summary.buckets ?? []);
-  for (const bucket of buckets) {
-    if (bucket.disabled === true) continue;
-    const remaining = bucket.remainingFraction;
-    if (remaining === undefined || !Number.isFinite(remaining)) continue;
-    const session = bucket.window === "5h";
-    const weekly = bucket.window === "weekly";
-    const resetsAt = iso(bucket.resetTime);
-    windows.set(bucket.bucketId, {
-      id: bucket.bucketId,
-      kind: session ? "session" : weekly ? "weekly" : "other",
-      label: bucket.displayName ?? bucket.bucketId,
-      usedPercent: (1 - Math.max(0, Math.min(1, remaining))) * 100,
-      ...(session
-        ? { windowDurationMins: 5 * 60 }
-        : weekly
-          ? { windowDurationMins: 7 * 24 * 60 }
-          : {}),
-      ...(resetsAt === undefined ? {} : { resetsAt }),
-    });
+  const groups = summary.groups?.some((group) => group.buckets?.length)
+    ? (summary.groups ?? [])
+    : [{ displayName: undefined, buckets: summary.buckets ?? [] }];
+  for (const group of groups) {
+    const groupDisplayName = group.displayName?.trim();
+    for (const bucket of group.buckets ?? []) {
+      if (bucket.disabled === true) continue;
+      const remaining = bucket.remainingFraction;
+      if (remaining === undefined || !Number.isFinite(remaining)) continue;
+      const session = bucket.window === "5h";
+      const weekly = bucket.window === "weekly";
+      const resetsAt = iso(bucket.resetTime);
+      const family = bucket.bucketId.startsWith("gemini-argon-")
+        ? groupDisplayName && /argon/i.test(groupDisplayName)
+          ? groupDisplayName
+          : "Gemini 4 Argon"
+        : bucket.bucketId.startsWith("gemini-carbon-")
+          ? groupDisplayName && /carbon/i.test(groupDisplayName)
+            ? groupDisplayName
+            : "Gemini Carbon"
+          : bucket.bucketId.startsWith("gemini-")
+            ? "Gemini"
+            : bucket.bucketId.startsWith("3p-")
+              ? "Claude & GPT (shared)"
+              : groupDisplayName;
+      const cadence = weekly
+        ? "Weekly"
+        : session
+          ? "5-hour"
+          : bucket.displayName?.trim() || "Quota";
+      const label =
+        family === undefined
+          ? bucket.displayName?.trim() || bucket.bucketId
+          : !session &&
+              !weekly &&
+              bucket.displayName?.trim().toLowerCase().startsWith(family.toLowerCase())
+            ? bucket.displayName.trim()
+            : `${family} · ${cadence}`;
+      windows.set(bucket.bucketId, {
+        id: bucket.bucketId,
+        kind: session ? "session" : weekly ? "weekly" : "other",
+        label,
+        usedPercent: (1 - Math.max(0, Math.min(1, remaining))) * 100,
+        ...(session
+          ? { windowDurationMins: 5 * 60 }
+          : weekly
+            ? { windowDurationMins: 7 * 24 * 60 }
+            : {}),
+        ...(resetsAt === undefined ? {} : { resetsAt }),
+      });
+    }
   }
   return [...windows.values()];
 }
@@ -300,6 +374,135 @@ const withWindows = (
   usageLimits: makeUsageLimits({ checkedAt, windows }),
 });
 
+interface AntigravityAccountEntry {
+  readonly accountId: string;
+  readonly addedAt: number;
+  readonly credential: OauthCredential;
+  readonly fromAccountsStore: boolean;
+}
+
+function normalizedEmail(email: string | undefined): string | undefined {
+  const trimmed = email?.trim().toLowerCase();
+  return trimmed && trimmed.length > 0 ? trimmed : undefined;
+}
+
+function pickFresherCredential(a: OauthCredential, b: OauthCredential): OauthCredential {
+  const aHasAccess = typeof a.access === "string" && a.access.length > 0;
+  const bHasAccess = typeof b.access === "string" && b.access.length > 0;
+  const preferB =
+    (!aHasAccess && bHasAccess) || (bHasAccess && (b.expires ?? 0) > (a.expires ?? 0));
+  const primary = preferB ? b : a;
+  const secondary = preferB ? a : b;
+  return {
+    type: "oauth",
+    access: primary.access ?? secondary.access,
+    refresh: primary.refresh ?? secondary.refresh,
+    expires: primary.expires ?? secondary.expires,
+    accountId: primary.accountId ?? secondary.accountId,
+    email: primary.email ?? secondary.email,
+    projectId: primary.projectId ?? secondary.projectId,
+  };
+}
+
+function extractAtobConstant(source: string, constantName: string): string | undefined {
+  const match = new RegExp(
+    `export\\s+const\\s+${constantName}\\b[\\s\\S]*?atob\\(([\\s\\S]*?)\\)`,
+  ).exec(source);
+  if (!match?.[1]) return undefined;
+  const parts = [...match[1].matchAll(/["']([^"']+)["']/g)].map((part) => part[1]);
+  if (parts.length === 0) return undefined;
+  const decoded = Buffer.from(parts.join(""), "base64").toString("utf8").trim();
+  return decoded.length > 0 ? decoded : undefined;
+}
+
+function readAntigravityClientFromEnvironment(environment: NodeJS.ProcessEnv): {
+  readonly clientId: string | undefined;
+  readonly clientSecret: string | undefined;
+} {
+  return {
+    clientId: environment.ANTIGRAVITY_CLIENT_ID?.trim() || environment.NOAGY_CLIENT_ID?.trim(),
+    clientSecret:
+      environment.ANTIGRAVITY_CLIENT_SECRET?.trim() || environment.NOAGY_CLIENT_SECRET?.trim(),
+  };
+}
+
+function collectAntigravityAccounts(
+  storedRaw: typeof AntigravityAccountsFile.Type | undefined,
+  authAntigravity: Credential | undefined,
+): ReadonlyArray<AntigravityAccountEntry> {
+  const entries: Array<AntigravityAccountEntry> = [];
+  if (storedRaw?.accounts) {
+    for (const [key, raw] of Object.entries(storedRaw.accounts)) {
+      const parsed = decodeAntigravityStoredAccount(raw);
+      if (Option.isNone(parsed)) continue;
+      const account = parsed.value;
+      if (typeof account.refresh !== "string" || account.refresh.length === 0) continue;
+      const accountId = account.accountId?.trim() || normalizedEmail(account.email) || key.trim();
+      if (!accountId) continue;
+      const existingIndex = entries.findIndex(
+        (entry) =>
+          entry.accountId === accountId ||
+          entry.credential.refresh === account.refresh ||
+          (normalizedEmail(account.email) !== undefined &&
+            normalizedEmail(entry.credential.email) === normalizedEmail(account.email)),
+      );
+      const nextEntry: AntigravityAccountEntry = {
+        accountId,
+        addedAt: account.addedAt ?? 0,
+        fromAccountsStore: true,
+        credential: {
+          type: "oauth",
+          ...(account.access === undefined ? {} : { access: account.access }),
+          refresh: account.refresh,
+          ...(account.expires === undefined ? {} : { expires: account.expires }),
+          accountId,
+          ...(account.email === undefined ? {} : { email: account.email }),
+          ...(account.projectId === undefined ? {} : { projectId: account.projectId }),
+        },
+      };
+      if (existingIndex >= 0) {
+        const previous = entries[existingIndex]!;
+        entries[existingIndex] = {
+          ...previous,
+          addedAt: Math.min(previous.addedAt, nextEntry.addedAt),
+          credential: pickFresherCredential(previous.credential, nextEntry.credential),
+        };
+      } else {
+        entries.push(nextEntry);
+      }
+    }
+  }
+  entries.sort(
+    (left, right) => left.addedAt - right.addedAt || left.accountId.localeCompare(right.accountId),
+  );
+  if (authAntigravity?.type === "oauth") {
+    const authEmail = normalizedEmail(authAntigravity.email);
+    const matchIndex = entries.findIndex(
+      (entry) =>
+        (authAntigravity.refresh !== undefined &&
+          authAntigravity.refresh.length > 0 &&
+          entry.credential.refresh === authAntigravity.refresh) ||
+        (authEmail !== undefined && normalizedEmail(entry.credential.email) === authEmail),
+    );
+    if (matchIndex >= 0) {
+      const matched = entries[matchIndex]!;
+      entries[matchIndex] = {
+        ...matched,
+        credential: pickFresherCredential(matched.credential, authAntigravity),
+      };
+    } else {
+      const fallbackId = authEmail || authAntigravity.accountId?.trim() || "antigravity";
+      entries.push({
+        accountId: fallbackId,
+        addedAt: Number.MAX_SAFE_INTEGER,
+        fromAccountsStore: false,
+        credential: authAntigravity,
+      });
+    }
+  }
+  return entries;
+}
+
 /**
  * Reads each stored Pi credential and asks its provider what allowance is left. Providers with
  * no quota endpoint keep an `unsupported` reading rather than a guessed figure, and a failed
@@ -307,6 +510,7 @@ const withWindows = (
  */
 export const probePiUsageSlots = Effect.fn("PiUsageSlots.probePiUsageSlots")(function* (input: {
   readonly environment: NodeJS.ProcessEnv;
+  readonly antigravityTokenCache?: Map<string, AntigravityCachedToken>;
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -316,14 +520,22 @@ export const probePiUsageSlots = Effect.fn("PiUsageSlots.probePiUsageSlots")(fun
   const home =
     // Ki: probe the environment the provider runs with, so an instance's own home is honoured.
     input.environment.HOME ?? input.environment.USERPROFILE ?? (yield* HostProcess.HomeDirectory);
-  const authPath = path.join(home, AUTH_DIRECTORY, AUTH_FILE);
+  const configuredAgentDir = input.environment.PI_CODING_AGENT_DIR?.trim();
+  const agentDir = configuredAgentDir
+    ? path.resolve(expandHomePath(configuredAgentDir, home))
+    : path.join(home, AUTH_DIRECTORY);
+  const authPath = path.join(agentDir, AUTH_FILE);
+  const antigravityAccountsPath = path.join(agentDir, ANTIGRAVITY_ACCOUNTS_FILE);
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
   const nowMs = yield* Clock.currentTimeMillis;
+  const tokenCache = input.antigravityTokenCache ?? new Map<string, AntigravityCachedToken>();
   const fileOption = yield* fs.readFileString(authPath).pipe(
     Effect.flatMap((contents) => decodeAuthFile(contents)),
     Effect.catchTags({
       PlatformError: (error) =>
-        error.reason._tag === "NotFound" ? Effect.succeed({} as const) : Effect.fail(error),
+        error.reason._tag === "NotFound"
+          ? Effect.succeed<Record<string, unknown>>({})
+          : Effect.fail(error),
     }),
     Effect.asSome,
     Effect.catchCause(() => Effect.succeedNone),
@@ -332,15 +544,87 @@ export const probePiUsageSlots = Effect.fn("PiUsageSlots.probePiUsageSlots")(fun
     return null;
   }
   const file = fileOption.value;
+  const antigravityAccountsOption = yield* fs.readFileString(antigravityAccountsPath).pipe(
+    Effect.flatMap((contents) => decodeAntigravityAccountsFile(contents)),
+    Effect.asSome,
+    Effect.catchCause(() => Effect.succeedNone),
+  );
+
+  const resolveAntigravityClient = Effect.fn("PiUsageSlots.resolveAntigravityClient")(function* () {
+    const fromEnv = readAntigravityClientFromEnvironment(input.environment);
+    if (fromEnv.clientId && fromEnv.clientSecret) {
+      return { clientId: fromEnv.clientId, clientSecret: fromEnv.clientSecret };
+    }
+    const oauthPath = path.join(agentDir, ...ANTIGRAVITY_OAUTH_RELATIVE_PATH);
+    const oauthSource = yield* fs.readFileString(oauthPath).pipe(
+      Effect.asSome,
+      Effect.catchCause(() => Effect.succeedNone),
+    );
+    if (Option.isNone(oauthSource)) return undefined;
+    const clientId = fromEnv.clientId ?? extractAtobConstant(oauthSource.value, "CLIENT_ID");
+    const clientSecret =
+      fromEnv.clientSecret ?? extractAtobConstant(oauthSource.value, "CLIENT_SECRET");
+    return clientId && clientSecret ? { clientId, clientSecret } : undefined;
+  });
+
+  const resolveAntigravityAccess = Effect.fn("PiUsageSlots.resolveAntigravityAccess")(function* (
+    credential: OauthCredential,
+    fromAccountsStore: boolean,
+  ) {
+    const direct = usableAccess(credential, nowMs);
+    if (direct !== undefined) return direct;
+    // Only refresh idle multi-account store entries in memory; single auth.json entries remain owned by Pi.
+    if (!fromAccountsStore || !credential.refresh) return undefined;
+    const cached = tokenCache.get(credential.refresh);
+    if (cached !== undefined && cached.expires > nowMs + ANTIGRAVITY_TOKEN_REFRESH_SKEW_MS) {
+      return cached.access;
+    }
+    const clientCredentials = yield* resolveAntigravityClient();
+    if (clientCredentials === undefined) return undefined;
+    const refreshed = yield* client
+      .execute(
+        HttpClientRequest.post(GOOGLE_TOKEN_URL).pipe(
+          HttpClientRequest.bodyUrlParams({
+            client_id: clientCredentials.clientId,
+            client_secret: clientCredentials.clientSecret,
+            refresh_token: credential.refresh,
+            grant_type: "refresh_token",
+          }),
+        ),
+      )
+      .pipe(
+        Effect.flatMap(HttpClientResponse.schemaBodyJson(GoogleTokenResponse)),
+        Effect.timeout("10 seconds"),
+        Effect.asSome,
+        Effect.catchCause(() => Effect.succeedNone),
+      );
+    if (Option.isNone(refreshed)) return undefined;
+    tokenCache.set(credential.refresh, {
+      access: refreshed.value.access_token,
+      expires: nowMs + refreshed.value.expires_in * 1000,
+    });
+    return refreshed.value.access_token;
+  });
 
   const probeSlot = Effect.fn("PiUsageSlots.readSlot")(function* (
     base: { readonly accountKey: string; readonly label: string; readonly account: string },
     credential: Credential,
+    options?: { readonly isAntigravity?: boolean; readonly fromAccountsStore?: boolean },
   ) {
     const { accountKey } = base;
-    if (accountKey === "antigravity") {
-      const access = credential.type === "oauth" ? usableAccess(credential, nowMs) : undefined;
-      if (access === undefined || credential.type !== "oauth") {
+    if (options?.isAntigravity === true || accountKey === "antigravity") {
+      if (credential.type !== "oauth") {
+        return unavailable(
+          { ...base, checkedAt },
+          "probeFailed",
+          "Antigravity credentials are missing or expired. Run `pi` and sign in again.",
+        );
+      }
+      const access = yield* resolveAntigravityAccess(
+        credential,
+        options?.fromAccountsStore === true,
+      );
+      if (access === undefined) {
         return unavailable(
           { ...base, checkedAt },
           "probeFailed",
@@ -470,28 +754,80 @@ export const probePiUsageSlots = Effect.fn("PiUsageSlots.probePiUsageSlots")(fun
     );
   });
 
+  interface PreparedSlot {
+    readonly base: {
+      readonly accountKey: string;
+      readonly label: string;
+      readonly account: string;
+    };
+    readonly credential: Credential | null;
+    readonly isAntigravity?: boolean;
+    readonly fromAccountsStore?: boolean;
+  }
+
+  const rawAuthAntigravity = Object.hasOwn(file, "antigravity") ? file.antigravity : undefined;
+  const authAntigravityCredential =
+    rawAuthAntigravity === undefined ? Option.none() : decodeCredential(rawAuthAntigravity);
+  const antigravityAccounts = collectAntigravityAccounts(
+    Option.getOrUndefined(antigravityAccountsOption),
+    Option.getOrUndefined(authAntigravityCredential),
+  );
+
   const entries = Object.entries(file).filter(
-    ([accountKey]) => accountKey.trim().length > 0 && accountKey !== "agent",
+    ([accountKey]) =>
+      accountKey.trim().length > 0 && accountKey !== "agent" && accountKey !== "antigravity",
   );
-  const preparedEntries = yield* Effect.forEach(entries, ([accountKey, raw]) =>
-    Effect.gen(function* () {
-      const credential = decodeCredential(raw);
-      if (Option.isNone(credential)) {
+  const preparedAuthEntries: Array<PreparedSlot> = yield* Effect.forEach(
+    entries,
+    ([accountKey, raw]) =>
+      Effect.gen(function* () {
+        const credential = decodeCredential(raw);
+        if (Option.isNone(credential)) {
+          return {
+            base: { accountKey, label: accountKey, account: accountKey },
+            credential: null,
+          };
+        }
         return {
-          base: { accountKey, label: accountKey, account: accountKey },
-          credential: null,
-        } as const;
-      }
-      return {
-        base: {
-          accountKey,
-          label: slotLabel(accountKey, credential.value),
-          account: yield* accountFingerprint(accountKey, credential.value),
-        },
-        credential: credential.value,
-      } as const;
-    }),
+          base: {
+            accountKey,
+            label: slotLabel(accountKey, credential.value),
+            account: yield* accountFingerprint(accountKey, credential.value),
+          },
+          credential: credential.value,
+        };
+      }),
   );
+
+  const preparedAntigravityEntries: Array<PreparedSlot> =
+    antigravityAccounts.length === 0 && rawAuthAntigravity !== undefined
+      ? [
+          {
+            base: { accountKey: "antigravity", label: "antigravity", account: "antigravity" },
+            credential: null,
+            isAntigravity: true,
+          },
+        ]
+      : yield* Effect.forEach(antigravityAccounts, (entry, index) =>
+          Effect.gen(function* () {
+            const accountKey = index === 0 ? "antigravity" : `antigravity:${entry.accountId}`;
+            return {
+              base: {
+                accountKey,
+                label: slotLabel("antigravity", entry.credential),
+                account: yield* accountFingerprint("antigravity", entry.credential),
+              },
+              credential: entry.credential,
+              isAntigravity: true,
+              fromAccountsStore: entry.fromAccountsStore,
+            };
+          }),
+        );
+
+  const preparedEntries: Array<PreparedSlot> = [
+    ...preparedAntigravityEntries,
+    ...preparedAuthEntries,
+  ];
 
   const timedOutSlots = (): ReadonlyArray<ServerProviderUsageSlot> =>
     preparedEntries.map(({ base, credential }) =>
@@ -506,7 +842,7 @@ export const probePiUsageSlots = Effect.fn("PiUsageSlots.probePiUsageSlots")(fun
 
   return yield* Effect.forEach(
     preparedEntries,
-    ({ base, credential }) =>
+    ({ base, credential, isAntigravity, fromAccountsStore }) =>
       credential === null
         ? Effect.succeed(
             unavailable(
@@ -515,7 +851,10 @@ export const probePiUsageSlots = Effect.fn("PiUsageSlots.probePiUsageSlots")(fun
               "T3 cannot read this credential's format.",
             ),
           )
-        : probeSlot(base, credential).pipe(
+        : probeSlot(base, credential, {
+            ...(isAntigravity === undefined ? {} : { isAntigravity }),
+            ...(fromAccountsStore === undefined ? {} : { fromAccountsStore }),
+          }).pipe(
             Effect.timeout("12 seconds"),
             Effect.catchCause(() =>
               Effect.succeed(
@@ -533,6 +872,7 @@ export const probePiUsageSlots = Effect.fn("PiUsageSlots.probePiUsageSlots")(fun
 
 export const readPiUsageSlots = Effect.fn("PiUsageSlots.readPiUsageSlots")(function* (input: {
   readonly environment: NodeJS.ProcessEnv;
+  readonly antigravityTokenCache?: Map<string, AntigravityCachedToken>;
 }) {
   return (
     (yield* probePiUsageSlots(input).pipe(Effect.catchCause(() => Effect.succeed(null)))) ?? []

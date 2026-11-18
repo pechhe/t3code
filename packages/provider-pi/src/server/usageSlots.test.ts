@@ -10,7 +10,12 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as TestClock from "effect/testing/TestClock";
 
-import { probePiUsageSlots, readPiUsageSlots, retainPriorUsageSlots } from "./usageSlots.ts";
+import {
+  type AntigravityCachedToken,
+  probePiUsageSlots,
+  readPiUsageSlots,
+  retainPriorUsageSlots,
+} from "./usageSlots.ts";
 
 /** A fixed epoch keeps the probe off the wall clock; every credential here is unexpired. */
 const FUTURE_MS = 1_800_000_000_000;
@@ -444,6 +449,286 @@ describe("readPiUsageSlots", () => {
       expect(retained).toHaveLength(1);
       expect(retained[0]?.usageLimits.windows).toEqual(prior[0]?.usageLimits.windows);
       expect(retained[0]?.usageLimits.unavailable?.reason).toBe("probeFailed");
+    }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect("labels Gemini, Argon, and Claude & GPT Antigravity pools distinctly", () =>
+    Effect.gen(function* () {
+      const home = yield* writeAuth({
+        antigravity: {
+          type: "oauth",
+          access: "ag-token",
+          refresh: "ag-refresh",
+          expires: FUTURE_MS,
+          email: "petch777@gmail.com",
+        },
+      });
+      const slots = yield* readPiUsageSlots({ environment: { HOME: home } }).pipe(
+        Effect.provideService(
+          HttpClient.HttpClient,
+          HttpClient.make((request) =>
+            Effect.succeed(
+              HttpClientResponse.fromWeb(
+                request,
+                Response.json({
+                  groups: [
+                    {
+                      displayName: "Gemini",
+                      buckets: [
+                        {
+                          bucketId: "gemini-5h",
+                          displayName: "Five Hour Limit Remaining",
+                          window: "5h",
+                          remainingFraction: 1,
+                        },
+                        {
+                          bucketId: "gemini-weekly",
+                          displayName: "Weekly Limit Remaining",
+                          window: "weekly",
+                          remainingFraction: 1,
+                        },
+                        {
+                          bucketId: "gemini-argon-weekly",
+                          displayName: "Gemini 4 Argon Weekly Limit",
+                          window: "weekly",
+                          remainingFraction: 1,
+                        },
+                      ],
+                    },
+                    {
+                      displayName: "Claude & GPT",
+                      buckets: [
+                        {
+                          bucketId: "3p-5h",
+                          displayName: "Five Hour Limit Remaining",
+                          window: "5h",
+                          remainingFraction: 0.9,
+                        },
+                        {
+                          bucketId: "3p-weekly",
+                          displayName: "Weekly Limit Remaining",
+                          window: "weekly",
+                          remainingFraction: 0.8,
+                        },
+                      ],
+                    },
+                  ],
+                }),
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(slots).toHaveLength(1);
+      expect(slots[0]?.usageLimits.windows.map((window) => [window.id, window.label])).toEqual([
+        ["3p-5h", "Claude & GPT (shared) · 5-hour"],
+        ["gemini-5h", "Gemini · 5-hour"],
+        ["3p-weekly", "Claude & GPT (shared) · Weekly"],
+        ["gemini-argon-weekly", "Gemini 4 Argon · Weekly"],
+        ["gemini-weekly", "Gemini · Weekly"],
+      ]);
+    }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect(
+    "reads every account from antigravity-accounts.json, refreshes expired idle tokens in memory, and keeps slot keys stable across active-account switches",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const home = yield* writeAuth({
+          antigravity: {
+            type: "oauth",
+            access: "token-primary-fresh",
+            refresh: "refresh-1",
+            expires: FUTURE_MS,
+            projectId: "proj-1",
+            email: "petch777@gmail.com",
+          },
+        });
+        yield* fs.writeFileString(
+          `${home}/.pi/agent/antigravity-accounts.json`,
+          JSON.stringify({
+            version: 1,
+            activeAccountId: "petch777@gmail.com",
+            accounts: {
+              "petch777@gmail.com": {
+                accountId: "petch777@gmail.com",
+                email: "petch777@gmail.com",
+                access: "token-primary-stale",
+                refresh: "refresh-1",
+                expires: -1,
+                projectId: "proj-1",
+                addedAt: 1000,
+                lastUsedAt: 2000,
+              },
+              "backup@gmail.com": {
+                accountId: "backup@gmail.com",
+                email: "backup@gmail.com",
+                access: "token-backup-expired",
+                refresh: "refresh-2",
+                expires: -1,
+                projectId: "proj-2",
+                addedAt: 2000,
+                lastUsedAt: 2000,
+              },
+            },
+          }),
+        );
+
+        yield* fs.makeDirectory(`${home}/.pi/agent/npm/node_modules/pi-antigravity/src/auth`, {
+          recursive: true,
+        });
+        yield* fs.writeFileString(
+          `${home}/.pi/agent/npm/node_modules/pi-antigravity/src/auth/oauth.ts`,
+          [
+            `export const CLIENT_ID = atob("${Buffer.from("test-client-id").toString("base64")}");`,
+            `export const CLIENT_SECRET = atob("${Buffer.from("test-client-secret").toString("base64")}");`,
+          ].join("\n"),
+        );
+
+        const tokenCache = new Map<string, AntigravityCachedToken>();
+        let refreshCalls = 0;
+        const client = HttpClient.make((request) => {
+          if (request.url === "https://oauth2.googleapis.com/token") {
+            refreshCalls += 1;
+            const bodyText =
+              request.body._tag === "Uint8Array" ? new TextDecoder().decode(request.body.body) : "";
+            const token = bodyText.includes("refresh_token=refresh-1")
+              ? "token-primary-refreshed"
+              : "token-backup-refreshed";
+            return Effect.succeed(
+              HttpClientResponse.fromWeb(
+                request,
+                Response.json({ access_token: token, expires_in: 3600 }),
+              ),
+            );
+          }
+          if (request.url.includes("retrieveUserQuotaSummary")) {
+            const auth = request.headers.authorization;
+            if (
+              auth === "Bearer token-primary-fresh" ||
+              auth === "Bearer token-primary-refreshed"
+            ) {
+              return Effect.succeed(
+                HttpClientResponse.fromWeb(
+                  request,
+                  Response.json({
+                    groups: [
+                      {
+                        buckets: [{ bucketId: "gemini-5h", window: "5h", remainingFraction: 0.75 }],
+                      },
+                    ],
+                  }),
+                ),
+              );
+            }
+            if (auth === "Bearer token-backup-refreshed") {
+              return Effect.succeed(
+                HttpClientResponse.fromWeb(
+                  request,
+                  Response.json({
+                    groups: [
+                      {
+                        buckets: [{ bucketId: "gemini-5h", window: "5h", remainingFraction: 1 }],
+                      },
+                    ],
+                  }),
+                ),
+              );
+            }
+            return Effect.die(`Unexpected Antigravity bearer token: ${auth}`);
+          }
+          return Effect.die(`Unexpected request ${request.url}`);
+        });
+
+        const first = yield* readPiUsageSlots({
+          environment: { HOME: home },
+          antigravityTokenCache: tokenCache,
+        }).pipe(Effect.provideService(HttpClient.HttpClient, client));
+
+        expect(refreshCalls).toBe(1);
+        expect(first.map((slot) => [slot.accountKey, slot.label])).toEqual([
+          ["antigravity", "antigravity · petch777@gmail.com"],
+          ["antigravity:backup@gmail.com", "antigravity · backup@gmail.com"],
+        ]);
+        expect(first[0]?.account).not.toBe(first[1]?.account);
+        expect(first[0]?.usageLimits.windows[0]?.usedPercent).toBe(25);
+        expect(first[1]?.usageLimits.windows[0]?.usedPercent).toBe(0);
+
+        // Second poll reuses the in-memory refreshed token and survives active-account switch in auth.json.
+        yield* fs.writeFileString(
+          `${home}/.pi/agent/auth.json`,
+          JSON.stringify(
+            authFile({
+              antigravity: {
+                type: "oauth",
+                access: "token-backup-refreshed",
+                refresh: "refresh-2",
+                expires: FUTURE_MS,
+                projectId: "proj-2",
+                email: "backup@gmail.com",
+              },
+            }),
+          ),
+        );
+        const second = yield* readPiUsageSlots({
+          environment: { HOME: home },
+          antigravityTokenCache: tokenCache,
+        }).pipe(Effect.provideService(HttpClient.HttpClient, client));
+        expect(refreshCalls).toBe(2);
+        expect(second.map((slot) => [slot.accountKey, slot.label])).toEqual([
+          ["antigravity", "antigravity · petch777@gmail.com"],
+          ["antigravity:backup@gmail.com", "antigravity · backup@gmail.com"],
+        ]);
+        expect(second[0]?.usageLimits.windows[0]?.usedPercent).toBe(25);
+        expect(second[1]?.usageLimits.windows[0]?.usedPercent).toBe(0);
+
+        // Third poll reuses the cached refreshed token for the now-idle primary account.
+        const third = yield* readPiUsageSlots({
+          environment: { HOME: home },
+          antigravityTokenCache: tokenCache,
+        }).pipe(Effect.provideService(HttpClient.HttpClient, client));
+        expect(refreshCalls).toBe(2);
+        expect(third[0]?.usageLimits.windows[0]?.usedPercent).toBe(25);
+        expect(third[1]?.usageLimits.windows[0]?.usedPercent).toBe(0);
+      }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect("falls back to auth.json when antigravity-accounts.json is unreadable", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const home = yield* writeAuth({
+        antigravity: {
+          type: "oauth",
+          access: "ag-token",
+          refresh: "ag-refresh",
+          expires: FUTURE_MS,
+          email: "petch777@gmail.com",
+        },
+        "opencode-go": { type: "api_key", key: "oc-key" },
+      });
+      yield* fs.writeFileString(`${home}/.pi/agent/antigravity-accounts.json`, "{broken json");
+      const slots = yield* readPiUsageSlots({ environment: { HOME: home } }).pipe(
+        Effect.provideService(
+          HttpClient.HttpClient,
+          HttpClient.make((request) => {
+            if (request.url.includes("retrieveUserQuotaSummary")) {
+              return Effect.succeed(
+                HttpClientResponse.fromWeb(request, Response.json(antigravityAnswer)),
+              );
+            }
+            const window = { percent: 10, resetsAt: "2026-11-16T00:00:00Z" };
+            return Effect.succeed(
+              HttpClientResponse.fromWeb(
+                request,
+                Response.json({ usage: { rolling: window, weekly: window, monthly: window } }),
+              ),
+            );
+          }),
+        ),
+      );
+      expect(slots.map((slot) => slot.accountKey)).toEqual(["antigravity", "opencode-go"]);
+      expect(slots[0]?.label).toBe("antigravity · petch777@gmail.com");
     }).pipe(Effect.provide(layerTest)),
   );
 });
