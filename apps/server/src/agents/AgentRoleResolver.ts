@@ -691,6 +691,8 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
     }
   }
   const serves = (candidate: (typeof eligible)[number]) => !excluded.has(candidate);
+  const usageLimitedUntil = (entry: ReturnType<typeof excluded.get>) =>
+    entry?.reason === "usage-limited" ? entry.untilMs : Number.POSITIVE_INFINITY;
   /** The refusal when every account that could serve is out: it names the earliest return. */
   const allOut = (detail: string) => {
     const returns = [...excluded.values()].flatMap((entry) =>
@@ -757,10 +759,21 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
               sameOptions(sibling.selection, candidate.selection),
           );
     };
-    const requested =
+    const available =
       selection.instanceId === undefined || named.some(serves)
         ? named.filter(serves)
         : [...new Set(named.flatMap(substitutes))];
+    // A model the caller names is tried even when every account's reading says it is out: the
+    // reading can be stale or wrong, and the run itself reports a real limit.
+    const requested =
+      available.length > 0
+        ? available
+        : named
+            .filter((candidate) => excluded.get(candidate)?.reason === "usage-limited")
+            .toSorted(
+              (a, b) =>
+                usageLimitedUntil(excluded.get(a)) - usageLimitedUntil(excluded.get(b)) || 0,
+            );
     if (requested.length === 0)
       return yield* allOut(
         `${requestedName(selection)} is out of usage for ${request.role} and no account in its pool can run ${named[0]!.selection.model} with the same options`,

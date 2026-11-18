@@ -13,10 +13,7 @@ import { forkParked } from "../serverActivation.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
 
-/**
- * A retry in progress or a final failure that the provider reported as an overload, or a
- * usage limit with the time it resets.
- */
+/** A retry in progress or a final failure that the provider reported as an overload or a usage limit. */
 const accountSignal = (event: OrchestrationV2DomainEvent) => {
   if (
     event.type !== "turn-item.updated" ||
@@ -39,14 +36,13 @@ const accountSignal = (event: OrchestrationV2DomainEvent) => {
       kind: "usage-limit" as const,
       threadId,
       runId,
-      ...(failure.resetAt == null ? {} : { resetAt: failure.resetAt }),
     };
   return undefined;
 };
 
 /**
  * Marks the account and model a run used as overloaded whenever its provider says so, and
- * remembers an account as out of usage until the reset a usage-limit failure reports.
+ * re-reads an account's usage when a run reports a usage limit.
  */
 export const layer = Layer.effectDiscard(
   Effect.gen(function* () {
@@ -67,23 +63,12 @@ export const layer = Layer.effectDiscard(
         });
         return;
       }
+      // The account's own reading decides whether it is out, so a limit only asks for a fresh
+      // one; detached so a slow usage read never holds the event stream.
       if (Option.isSome(registry)) {
-        const providers = yield* registry.value.getProviders.pipe(
-          Effect.catchCause(() => Effect.succeed([])),
-        );
-        const matched = providers.find(
-          (provider) => provider.instanceId === run.modelSelection.instanceId,
-        );
-        const isPi =
-          matched !== undefined
-            ? matched.driver === "pi"
-            : run.modelSelection.instanceId === "pi" ||
-              run.modelSelection.instanceId.startsWith("pi:");
-        yield* registry.value.rememberUsageLimit({
-          instanceId: run.modelSelection.instanceId,
-          ...(signal.resetAt === undefined ? {} : { resetAt: signal.resetAt }),
-          ...(isPi ? { accountKey: run.modelSelection.model.split("/", 1)[0] } : {}),
-        });
+        yield* registry.value
+          .refreshInstanceUsage(run.modelSelection.instanceId)
+          .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach);
       }
     });
     yield* forkParked(

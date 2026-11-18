@@ -307,6 +307,16 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
     yield* PubSub.publish(changesPubSub, snapshot);
   });
 
+  const replaceUsageSlots = Effect.fn("replaceUsageSlots")(function* (
+    usageSlots: NonNullable<ServerProvider["usageSlots"]>,
+  ) {
+    const snapshot = yield* Ref.modify(snapshotStateRef, (state) => {
+      const next = { ...state.snapshot, usageSlots };
+      return [next, { ...state, snapshot: next }] as const;
+    });
+    yield* PubSub.publish(changesPubSub, snapshot);
+  });
+
   const refreshSnapshot = Effect.fn("refreshSnapshot")(function* () {
     const nextSettings = yield* input.getSettings;
     return yield* applySnapshot(nextSettings, { forceRefresh: true });
@@ -481,6 +491,7 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
       .pipe(Effect.andThen(refreshSnapshot), Effect.tapError(Effect.logError), Effect.orDie),
     applyUsageLimits,
     replaceUsageLimits,
+    replaceUsageSlots,
     refreshUsage: refreshUsage(),
     get streamChanges() {
       return Stream.fromPubSub(changesPubSub);

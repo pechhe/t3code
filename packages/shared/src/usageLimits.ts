@@ -49,7 +49,9 @@ export function exhaustedUsageWindow(
     provider?.driver === "pi"
       ? provider.usageSlots?.find((candidate) => candidate.accountKey === slotKey)
       : undefined;
-  const windows = slot?.usageLimits.windows ?? provider?.usageLimits?.windows ?? [];
+  const limits = slot?.usageLimits ?? provider?.usageLimits;
+  if (limits?.assumedAvailable === true) return undefined;
+  const windows = limits?.windows ?? [];
   const exhausted = windows.filter(
     (window) =>
       (window.usedPercent ?? 0) >= 100 &&
@@ -285,6 +287,14 @@ export interface LimitAccount {
     readonly label: string;
   }>;
   readonly sourceLabel: string | null;
+  /**
+   * Each environment's own name for this account in its `assumeUsageLeft` setting: an instance
+   * id, or `instanceId:accountKey` for one account inside an instance. Empty for a hub account.
+   */
+  readonly routes: ReadonlyArray<{
+    readonly environmentId: EnvironmentId;
+    readonly accountId: string;
+  }>;
   readonly redeem: {
     readonly environmentId: EnvironmentId;
     readonly input: ProviderConsumeResetCreditInput;
@@ -354,6 +364,12 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
       accentColor: previous.accentColor ?? next.accentColor,
       environments,
       sourceLabel: environments.length > 0 ? null : (previous.sourceLabel ?? next.sourceLabel),
+      routes: [
+        ...previous.routes,
+        ...next.routes.filter(
+          (route) => !previous.routes.some((seen) => seen.environmentId === route.environmentId),
+        ),
+      ],
       redeem:
         hubRedeems.get(key)?.redeem ??
         (creditSource ? creditSource.redeem : (winner.redeem ?? previous.redeem ?? next.redeem)),
@@ -386,6 +402,7 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
         accentColor: provider.accentColor,
         environments: [{ environmentId, label }],
         sourceLabel: null,
+        routes: [{ environmentId, accountId: provider.instanceId }],
         redeem: { environmentId, input: { instanceId: provider.instanceId } },
         limits: provider.usageLimits,
       });
@@ -412,6 +429,7 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
           },
           environments: [{ environmentId, label }],
           sourceLabel: null,
+          routes: [{ environmentId, accountId: `${provider.instanceId}:${slot.accountKey}` }],
           redeem: null,
           limits: slot.usageLimits,
         });
@@ -435,6 +453,7 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
           accentColor: undefined,
           environments: [],
           sourceLabel,
+          routes: [],
           redeem: account.usageLimits.resetCredits?.nextCreditId
             ? {
                 environmentId,

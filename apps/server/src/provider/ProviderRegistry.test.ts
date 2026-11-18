@@ -47,6 +47,7 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 import { deepMerge } from "@t3tools/shared/Struct";
 import { createModelCapabilities } from "@t3tools/shared/model";
 import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
+import { isProviderUsageExhausted } from "@t3tools/shared/providerPools";
 
 import {
   checkCodexProviderStatus,
@@ -384,6 +385,7 @@ const buildRegistryOverSnapshot = Effect.fn("buildRegistryOverSnapshot")(functio
   snapshot: Ref.Ref<ServerProvider>,
   prefix = "t3-provider-registry-update-state-",
   savedConfig?: ServerConfig.ServerConfig["Service"],
+  settings: Layer.Layer<never> = Layer.empty,
 ) {
   const driver = ProviderDriverKind.make("codex");
   const instance = {
@@ -427,7 +429,7 @@ const buildRegistryOverSnapshot = Effect.fn("buildRegistryOverSnapshot")(functio
           : ServerConfig.layer(savedConfig),
       ),
       Layer.provideMerge(layerBackgroundPolicyAlwaysRun),
-      Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+      Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, settings)),
     ),
   ).pipe(Scope.provide(scope));
 });
@@ -4232,125 +4234,44 @@ it.layer(
       );
     });
 
-    it.effect("persists and explicitly clears a Pi slot cooldown", () =>
-      Effect.gen(function* () {
-        const accountKey = "anthropic-hfpetch";
-        const slotSnapshot = () =>
-          Ref.make<ServerProvider>({
+    it.effect(
+      "routes an account the user assumes has usage left as available, until turned off",
+      () =>
+        Effect.gen(function* () {
+          const accountKey = "antigravity";
+          const spent = {
+            checkedAt: DateTime.formatIso(TEST_EPOCH),
+            windows: [{ id: "weekly", kind: "weekly" as const, label: "Weekly", usedPercent: 100 }],
+          };
+          const snapshot = yield* Ref.make<ServerProvider>({
             ...codexUpdateSnapshot("current"),
-            usageSlots: [
-              {
-                accountKey,
-                label: "Henry",
-                usageLimits: { checkedAt: DateTime.formatIso(TEST_EPOCH), windows: [] },
-              },
-            ],
+            usageLimits: spent,
+            usageSlots: [{ accountKey, label: "Google", usageLimits: spent }],
           });
-        const resetAt = DateTime.formatIso(
-          DateTime.addDuration(yield* DateTime.now, Duration.hours(2)),
-        );
-        const firstServices = yield* buildRegistryOverSnapshot(
-          yield* slotSnapshot(),
-          "t3-provider-registry-slot-cooldown-",
-        );
-        yield* Effect.gen(function* () {
-          const registry = yield* ProviderRegistry.ProviderRegistry;
-          expect(
-            yield* registry.clearUsageLimit({
-              instanceId: ProviderInstanceId.make("codex"),
-              accountKey,
-            }),
-          ).toEqual({ outcome: "nothingToClear" });
-          yield* registry.rememberUsageLimit({
-            instanceId: ProviderInstanceId.make("codex"),
-            accountKey,
-            resetAt,
+          const settings = yield* makeMutableServerSettingsService({
+            ...DEFAULT_SERVER_SETTINGS,
+            assumeUsageLeft: { codex: true, [`codex:${accountKey}`]: true },
           });
-          const config = yield* ServerConfig.ServerConfig;
-          const fs = yield* FileSystem.FileSystem;
-          const path = yield* Path.Path;
-          expect(
-            yield* fs.readFileString(
-              path.join(config.providerStatusCacheDir, "usage-slot-cooldowns.json"),
-            ),
-          ).toContain(accountKey);
-        }).pipe(Effect.provide(firstServices));
-
-        const savedConfig = yield* ServerConfig.ServerConfig.pipe(Effect.provide(firstServices));
-        const restartedSnapshot = yield* slotSnapshot();
-        const restartedServices = yield* buildRegistryOverSnapshot(
-          restartedSnapshot,
-          "t3-provider-registry-slot-cooldown-",
-          savedConfig,
-        );
-        yield* Effect.gen(function* () {
-          const registry = yield* ProviderRegistry.ProviderRegistry;
-          let [provider] = yield* registry.getProviders;
-          expect(provider?.usageLimits?.windows ?? []).not.toContainEqual(
-            expect.objectContaining({ id: "t3-usage-limit" }),
+          const services = yield* buildRegistryOverSnapshot(
+            snapshot,
+            "t3-provider-registry-assumed-usage-",
+            undefined,
+            Layer.succeed(ServerSettingsModule.ServerSettingsService, settings),
           );
-          expect(provider?.usageSlots?.[0]?.usageLimits.windows).toContainEqual(
-            expect.objectContaining({ id: "t3-usage-limit", resetsAt: resetAt }),
-          );
-          expect(
-            yield* registry.clearUsageLimit({
-              instanceId: ProviderInstanceId.make("codex"),
-              accountKey,
-            }),
-          ).toEqual({ outcome: "cleared" });
-          [provider] = yield* registry.refresh(ProviderDriverKind.make("codex"));
-          expect(provider?.usageSlots?.[0]?.usageLimits.windows).not.toContainEqual(
-            expect.objectContaining({ id: "t3-usage-limit" }),
-          );
-          expect(
-            yield* registry.clearUsageLimit({
-              instanceId: ProviderInstanceId.make("codex"),
-              accountKey,
-            }),
-          ).toEqual({ outcome: "nothingToClear" });
-
-          yield* registry.rememberUsageLimit({
-            instanceId: ProviderInstanceId.make("codex"),
-            accountKey,
-            resetAt,
-          });
-          const freshAt = (seconds: number) =>
-            Effect.map(DateTime.now, (now) =>
-              DateTime.formatIso(DateTime.addDuration(now, Duration.seconds(seconds))),
-            );
-          const reading = (checkedAt: string, session: number, weekly: number) => ({
-            ...codexUpdateSnapshot("current"),
-            usageSlots: [
-              {
-                accountKey,
-                label: "Henry",
-                usageLimits: {
-                  checkedAt,
-                  windows: [
-                    {
-                      id: "session",
-                      kind: "session" as const,
-                      label: "Session",
-                      usedPercent: session,
-                    },
-                    { id: "weekly", kind: "weekly" as const, label: "Weekly", usedPercent: weekly },
-                  ],
-                },
-              },
-            ],
-          });
-          yield* Ref.set(restartedSnapshot, reading(yield* freshAt(1), 100, 50));
-          [provider] = yield* registry.refresh(ProviderDriverKind.make("codex"));
-          expect(provider?.usageSlots?.[0]?.usageLimits.windows).toContainEqual(
-            expect.objectContaining({ id: "t3-usage-limit" }),
-          );
-          yield* Ref.set(restartedSnapshot, reading(yield* freshAt(2), 50, 50));
-          [provider] = yield* registry.refresh(ProviderDriverKind.make("codex"));
-          expect(provider?.usageSlots?.[0]?.usageLimits.windows).not.toContainEqual(
-            expect.objectContaining({ id: "t3-usage-limit" }),
-          );
-        }).pipe(Effect.provide(restartedServices));
-      }),
+          yield* Effect.gen(function* () {
+            const registry = yield* ProviderRegistry.ProviderRegistry;
+            const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
+            let [provider] = yield* registry.getProviders;
+            expect(isProviderUsageExhausted(provider!, nowMs)).toBe(false);
+            expect(provider?.usageSlots?.[0]?.usageLimits.assumedAvailable).toBe(true);
+            expect(provider?.usageLimits?.windows).toEqual(spent.windows);
+            yield* settings.updateSettings({
+              assumeUsageLeft: { codex: null, [`codex:${accountKey}`]: null },
+            });
+            [provider] = yield* registry.getProviders;
+            expect(isProviderUsageExhausted(provider!, nowMs)).toBe(true);
+          }).pipe(Effect.provide(services));
+        }),
     );
 
     it.effect("re-probes when settings change the codex binaryPath", () =>

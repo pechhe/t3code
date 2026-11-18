@@ -1672,10 +1672,6 @@ export function createServerEnvironmentAtoms<R, E>(
         key: ({ environmentId, input }) => JSON.stringify([environmentId, input]),
       },
     }),
-    clearUsageLimit: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:server:clear-usage-limit",
-      tag: WS_METHODS.providerClearUsageLimit,
-    }),
     refreshProviders: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:refresh-providers",
       tag: WS_METHODS.serverRefreshProviders,

@@ -1848,6 +1848,10 @@ export const ServerSettings = Schema.Struct({
   usageSlotBudgets: Schema.Record(TrimmedNonEmptyString, UsageSlotBudget).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
+  /** Accounts routed as having usage left whatever their reading says: `instanceId` or `instanceId:accountKey`. */
+  assumeUsageLeft: Schema.Record(TrimmedNonEmptyString, Schema.Literal(true)).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
   textGenerators: Schema.Record(ProviderInstanceId, TextGeneratorConfig).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
@@ -2405,6 +2409,10 @@ export const ServerSettingsPatch = Schema.Struct({
   usageSlotBudgets: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, Schema.NullOr(UsageSlotBudgetWrite)),
   ),
+  // Merge per account; null removes an entry.
+  assumeUsageLeft: Schema.optionalKey(
+    Schema.Record(TrimmedNonEmptyString, Schema.NullOr(Schema.Literal(true))),
+  ),
   // Merge per entry like usageLimitSources; null removes an entry.
   textGenerators: Schema.optionalKey(
     Schema.Record(ProviderInstanceId, Schema.NullOr(TextGeneratorConfig)),
@@ -2444,6 +2452,7 @@ export function requiredScopesForServerSettingsPatch(
       key === "modelPools" ||
       key === "usageLimitSources" ||
       key === "usageSlotBudgets" ||
+      key === "assumeUsageLeft" ||
       key === "textGenerators" ||
       key === "secretProviders"
     ) {

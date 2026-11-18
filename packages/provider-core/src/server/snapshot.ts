@@ -38,4 +38,8 @@ export interface ManagedServerProvider {
   readonly replaceUsageLimits: (
     usageLimits: NonNullable<ServerProvider["usageLimits"]>,
   ) => Effect.Effect<void>;
+  /** Publishes a fresh read of an instance's per-account readings, as Pi's, leaving the rest. */
+  readonly replaceUsageSlots?: (
+    usageSlots: NonNullable<ServerProvider["usageSlots"]>,
+  ) => Effect.Effect<void>;
 }

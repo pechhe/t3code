@@ -39,6 +39,7 @@ const account = (
   accentColor: undefined,
   environments: [],
   sourceLabel: null,
+  routes: [],
   redeem: null,
   limits: { checkedAt: "2026-09-03T11:00:00.000Z", windows },
 });

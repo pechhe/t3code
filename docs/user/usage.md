@@ -129,10 +129,13 @@ the bar show each account's quota, countdown, and credits. Tap a row to open its
 
 The same account signed in on more than one environment, or reported by a hub as well, counts once.
 
-When a run stops at a usage limit that says when it resets, T3 Code counts that account as out
-until then for every new thread and delegated task, even if a later reading still shows usage
-left, and Limits shows it as **Usage limit reached**. This lasts until the reset or a server
-restart. A rate-limit response without a reset time, an overloaded response or a connection error
+An account counts as out only while its latest reading says so. When a run stops at a usage
+limit, T3 Code reads that account's usage again at once, and a reset or signing in to another
+account frees it at the next reading. Naming a model yourself (in the
+composer, or by telling an agent to delegate to it) always tries it, even when its reading shows
+none left. To make T3 Code pick an account automatically whatever its reading says, open the
+account's details on Limits and turn on **Assume usage left**; its segment then reads **Assumed**
+until you turn it off. A rate-limit response without a reset time, an overloaded response or a connection error
 is treated as a passing error, not a limit. A subagent that hits one moves to its job's next model
 when there is one; otherwise it tries the same model again after about 30 seconds, up to three
 times, before the agent that delegated it hears the error.

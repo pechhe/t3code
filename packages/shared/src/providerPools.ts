@@ -12,7 +12,6 @@ import type {
   ServerProvider,
   ServerProviderUsageWindow,
 } from "@t3tools/contracts";
-import * as DateTime from "effect/DateTime";
 
 export interface ProviderPool {
   readonly instanceId: ProviderInstanceId;
@@ -41,13 +40,14 @@ export const isProviderRoutable = (provider: ServerProvider): boolean =>
 
 /**
  * A window at its limit (or at `limitPercent`, for a pool keeping a reserve)
- * counts until its reported reset has passed.
+ * counts until its reported reset has passed, unless the user assumes usage is left.
  */
 export const isProviderUsageExhausted = (
   provider: ServerProvider,
   nowMs: number,
   limitPercent = 100,
 ): boolean =>
+  provider.usageLimits?.assumedAvailable !== true &&
   provider.usageLimits?.windows.some(
     (window) =>
       window.usedPercent >= limitPercent &&
@@ -393,47 +393,6 @@ export const pickPoolSwitchMember = (input: {
   )?.instanceId;
 };
 
-/** The window a remembered usage limit adds to an account's reading. */
-export const REMEMBERED_LIMIT_WINDOW_ID = "t3-usage-limit";
-
-/**
- * Whether a refusal still blocks one account inside a provider instance. A Pi account is
- * addressed through the model slug, so a turn naming that account must be refused even
- * though its instance has other accounts with allowance.
- */
-export const isProviderSlotExhausted = (
-  provider: ServerProvider,
-  accountKey: string,
-  nowMs: number,
-): boolean =>
-  provider.usageSlots
-    ?.find((slot) => slot.accountKey === accountKey)
-    ?.usageLimits.windows.some(
-      (window) =>
-        window.id === REMEMBERED_LIMIT_WINDOW_ID &&
-        window.usedPercent >= 100 &&
-        (window.resetsAt === undefined || Date.parse(window.resetsAt) > nowMs),
-    ) === true;
-
-/**
- * When a refused account becomes usable again, from the same window the refusal came from.
- * The recovery worker waits for this instant, so a cooldown that extended later is refused
- * again at execution rather than resumed early.
- */
-export const providerSlotCooledUntil = (
-  provider: ServerProvider,
-  accountKey: string,
-  nowMs: number,
-): string | undefined =>
-  provider.usageSlots
-    ?.find((slot) => slot.accountKey === accountKey)
-    ?.usageLimits.windows.find(
-      (window) =>
-        window.id === REMEMBERED_LIMIT_WINDOW_ID &&
-        window.usedPercent >= 100 &&
-        (window.resetsAt === undefined || Date.parse(window.resetsAt) > nowMs),
-    )?.resetsAt;
-
 /** The Pi sub-provider a model slug names, which is its account key. */
 export const piAccountKeyOf = (modelSlug: string): string | undefined => {
   const separator = modelSlug.indexOf("/");
@@ -463,70 +422,32 @@ export const usageMeterOf = (provider: Pick<ServerProvider, "driver">, modelSlug
     : provider.driver;
 
 /**
- * Adds each limit a run reported to its account's reading, until that limit's reset, so every
- * pick treats the account as out even when a later read fails or still shows allowance.
+ * Marks each account the user said to treat as having usage left (`instanceId`, or
+ * `instanceId:accountKey` for one account inside an instance), so no usage check counts it out.
  */
-export const withRememberedLimits = (
+export const withAssumedUsage = (
   providers: ReadonlyArray<ServerProvider>,
-  limits: ReadonlyMap<string, number>,
-  nowMs: number,
+  assumeUsageLeft: Readonly<Record<string, true>>,
 ): ReadonlyArray<ServerProvider> => {
-  if (limits.size === 0) return providers;
+  if (Object.keys(assumeUsageLeft).length === 0) return providers;
   return providers.map((provider) => {
-    const resetMs = limits.get(provider.instanceId);
-    const slots = provider.usageSlots?.map((slot) => {
-      const slotResetMs = limits.get(`${provider.instanceId}:${slot.accountKey}`);
-      if (slotResetMs === undefined || slotResetMs <= nowMs) return slot;
-      const resetsAt = DateTime.formatIso(DateTime.makeUnsafe(slotResetMs));
-      return {
-        ...slot,
-        usageLimits: {
-          ...slot.usageLimits,
-          checkedAt: slot.usageLimits.checkedAt ?? resetsAt,
-          windows: [
-            ...slot.usageLimits.windows.filter(
-              (window) => window.id !== REMEMBERED_LIMIT_WINDOW_ID,
-            ),
-            {
-              id: REMEMBERED_LIMIT_WINDOW_ID,
-              kind: "other" as const,
-              label: "Usage limit reached",
-              usedPercent: 100,
-              resetsAt,
-            },
-          ],
-        },
+    let next = provider;
+    if (assumeUsageLeft[provider.instanceId] === true && provider.usageLimits)
+      next = { ...next, usageLimits: { ...provider.usageLimits, assumedAvailable: true } };
+    if (
+      provider.usageSlots?.some(
+        (slot) => assumeUsageLeft[`${provider.instanceId}:${slot.accountKey}`] === true,
+      )
+    )
+      next = {
+        ...next,
+        usageSlots: provider.usageSlots.map((slot) =>
+          assumeUsageLeft[`${provider.instanceId}:${slot.accountKey}`] === true
+            ? { ...slot, usageLimits: { ...slot.usageLimits, assumedAvailable: true } }
+            : slot,
+        ),
       };
-    });
-    const slotsChanged =
-      slots !== undefined && slots.some((slot, index) => slot !== provider.usageSlots?.[index]);
-    if ((resetMs === undefined || resetMs <= nowMs) && !slotsChanged) return provider;
-    const providerResetMs = resetMs !== undefined && resetMs > nowMs ? resetMs : undefined;
-    const resetsAt =
-      providerResetMs === undefined
-        ? undefined
-        : DateTime.formatIso(DateTime.makeUnsafe(providerResetMs));
-    const usage = provider.usageLimits;
-    if (providerResetMs === undefined)
-      return { ...provider, ...(slots === undefined ? {} : { usageSlots: slots }) };
-    return {
-      ...provider,
-      ...(slots === undefined ? {} : { usageSlots: slots }),
-      usageLimits: {
-        ...usage,
-        checkedAt: usage?.checkedAt ?? resetsAt!,
-        windows: [
-          ...(usage?.windows ?? []).filter((window) => window.id !== REMEMBERED_LIMIT_WINDOW_ID),
-          {
-            id: REMEMBERED_LIMIT_WINDOW_ID,
-            kind: "other",
-            label: "Usage limit reached",
-            usedPercent: 100,
-            resetsAt,
-          },
-        ],
-      },
-    };
+    return next;
   });
 };
 

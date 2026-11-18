@@ -590,6 +590,13 @@ describe("delegation settings", () => {
     );
     // Any one usable account is enough.
     expect(unavailableReason(opus, [limited, provider({ instanceId: "claude-2" })])).toBeNull();
+    // An account the user assumes has usage left is never rate limited.
+    const assumed = provider({
+      usageLimits: { ...limited.usageLimits!, assumedAvailable: true },
+    });
+    expect(
+      unavailableReason(opus, [assumed], { now: Date.parse("2026-10-15T01:00:00Z") }),
+    ).toBeNull();
   });
 
   it("keeps an effort the new model offers, else falls back to one it does", () => {

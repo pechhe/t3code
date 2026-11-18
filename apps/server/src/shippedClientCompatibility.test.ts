@@ -28,8 +28,6 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
 
-import { REMEMBERED_LIMIT_WINDOW_ID, withRememberedLimits } from "@t3tools/shared/providerPools";
-
 import { settingsForClient } from "./serverSettings.ts";
 import { rpcSerializationForClient } from "./clientRoleSerialization.ts";
 import {
@@ -707,42 +705,6 @@ it.effect(
       assert.strictEqual(sent(false).title, "implementer");
     }).pipe(Effect.provide(NodeServices.layer)),
 );
-
-it("a shipped client decodes the usage window that carries a remembered usage limit", () => {
-  // Frozen from upstream's ServerProviderUsageWindow; a new kind would fail shipped clients whole.
-  const shippedWindow = Schema.Struct({
-    id: Schema.String,
-    kind: Schema.Literals(["session", "weekly", "monthly", "other"]),
-    label: Schema.String,
-    usedPercent: Schema.Number,
-    resetsAt: Schema.optional(Schema.String),
-  });
-  const account = ProviderInstanceId.make("claudeAgent");
-  const [provider] = withRememberedLimits(
-    [
-      {
-        instanceId: account,
-        driver: ProviderDriverKind.make("claudeAgent"),
-        enabled: true,
-        installed: true,
-        version: "1.0.0",
-        status: "ready",
-        auth: { status: "authenticated" },
-        checkedAt: "2026-11-10T12:00:00.000Z",
-        models: [],
-        slashCommands: [],
-        skills: [],
-      },
-    ],
-    new Map([[account, Date.parse("2026-11-10T15:00:00.000Z")]]),
-    Date.parse("2026-11-10T12:00:00.000Z"),
-  );
-  const window = provider?.usageLimits?.windows.find(
-    (candidate) => candidate.id === REMEMBERED_LIMIT_WINDOW_ID,
-  );
-  assert.isDefined(window);
-  Schema.decodeSync(shippedWindow)(window!);
-});
 
 const encodeTurnItem = Schema.encodeSync(Schema.toCodecJson(OrchestrationV2TurnItem));
 

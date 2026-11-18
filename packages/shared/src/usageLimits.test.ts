@@ -160,7 +160,7 @@ describe("new thread model fallback", () => {
     expect(exhaustedUsageWindow(pi, now, "antigravity/gemini-4-hydrogen")).toBeUndefined();
     expect(exhaustedUsageWindow(pi, now, "antigravity/claude-opus-5-5")?.id).toBe("3p-weekly");
   });
-  it("falls back when the selected Pi sub-provider slot is cooled", () => {
+  it("falls back when the selected Pi sub-provider slot is out", () => {
     const pi = provider({
       instanceId: ProviderInstanceId.make("pi"),
       driver: ProviderDriverKind.make("pi"),
@@ -172,9 +172,9 @@ describe("new thread model fallback", () => {
             checkedAt: "2026-09-03T11:00:00.000Z",
             windows: [
               {
-                id: "t3-usage-limit",
-                kind: "other",
-                label: "Limited",
+                id: "five_hour",
+                kind: "session",
+                label: "Session",
                 usedPercent: 100,
                 resetsAt: "2026-09-03T14:00:00.000Z",
               },
@@ -351,6 +351,10 @@ describe("pools", () => {
     expect(accounts[0]).toMatchObject({
       key: "env-a:claude",
       sourceLabel: null,
+      routes: [
+        { environmentId: "env-a", accountId: "claude" },
+        { environmentId: "env-b", accountId: "claude" },
+      ],
       redeem: { environmentId: "env-b", input: { instanceId: "claude" } },
       environments: [
         { environmentId: "env-a", label: "Laptop" },
@@ -1070,6 +1074,7 @@ describe("pools", () => {
           accentColor: undefined,
           environments: [],
           sourceLabel: null,
+          routes: [],
           redeem: null,
           limits: {
             checkedAt,
@@ -1121,6 +1126,7 @@ describe("plan capacity", () => {
       accentColor: undefined,
       environments: [],
       sourceLabel: null,
+      routes: [],
       redeem: null,
       limits: { checkedAt: "2026-09-03T11:00:00.000Z", windows: [{ ...window, usedPercent }] },
     });
@@ -1152,6 +1158,7 @@ describe("pooled account columns", () => {
     accentColor: undefined,
     environments: [],
     sourceLabel: "Hub",
+    routes: [],
     redeem: null,
     limits: { checkedAt: "2026-09-03T11:00:00.000Z", windows },
   });
@@ -1843,6 +1850,7 @@ describe("collectLimitPools slot accounts", () => {
     slot: { instanceId: ProviderInstanceId.make("pi"), accountKey },
     environments: [{ environmentId: EnvironmentId.make("env"), label: "Mac" }],
     sourceLabel: null,
+    routes: [],
     redeem: null,
     limits: { checkedAt, windows: [window("five_hour", usedPercent)] },
   });

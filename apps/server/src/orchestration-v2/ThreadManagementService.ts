@@ -77,11 +77,7 @@ import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2Pend
 import * as LegacyV1ThreadImporter from "./legacy/LegacyV1ThreadImporter.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
-import {
-  isProviderSlotExhausted,
-  piAccountKeyOf,
-  pickPoolMember,
-} from "@t3tools/shared/providerPools";
+import { pickPoolMember } from "@t3tools/shared/providerPools";
 import {
   adaptModelSelectionForSlot,
   isSlotUsageExhausted,
@@ -698,43 +694,6 @@ const make = Effect.gen(function* () {
         ),
       );
 
-  /**
-   * A cooled Pi account must not receive work even when the selection names it explicitly:
-   * another account of the same instance is a different model, so failing the turn is the
-   * only honest answer here rather than silently running a model nobody picked.
-   */
-  const assertSlotNotCooled = (input: {
-    readonly instanceId: ProviderInstanceId;
-    readonly model: string;
-  }) =>
-    Option.isNone(providerRegistry)
-      ? Effect.void
-      : providerRegistry.value.getProviders.pipe(
-          Effect.catchCause(() => Effect.succeed([])),
-          Effect.flatMap((providers) =>
-            DateTime.now.pipe(
-              Effect.flatMap((now) => {
-                const provider = providers.find(
-                  (candidate) => candidate.instanceId === input.instanceId,
-                );
-                const accountKey =
-                  provider?.driver === "pi" ? piAccountKeyOf(input.model) : undefined;
-                const cooled =
-                  provider !== undefined &&
-                  accountKey !== undefined &&
-                  isProviderSlotExhausted(provider, accountKey, DateTime.toEpochMillis(now));
-                return cooled && accountKey !== undefined
-                  ? new Orchestrator.OrchestratorCommandRejectedError({
-                      commandId: CommandId.make("slot-cooled"),
-                      commandType: "message.dispatch",
-                      cause: `Pi account "${accountKey}" is out of allowance until its reset. Pick another account's model, or clear the cooldown in Usage.`,
-                    })
-                  : Effect.void;
-              }),
-            ),
-          ),
-        );
-
   const isProviderInstanceEnabledForProject: ThreadManagementServiceShape["isProviderInstanceEnabledForProject"] =
     (input) =>
       serverSettings.getSettings.pipe(
@@ -868,24 +827,13 @@ const make = Effect.gen(function* () {
             );
       case "message.dispatch":
         return orchestrator.getThreadRecords(command.threadId, []).pipe(
-          Effect.flatMap((projection) => {
-            const selection = command.modelSelection ?? projection.thread.modelSelection;
-            return assertProviderInstanceEnabled({
+          Effect.flatMap((projection) =>
+            assertProviderInstanceEnabled({
               projectId: projection.thread.projectId,
               commandId: command.commandId,
-              instanceId: selection.instanceId,
-            }).pipe(
-              // The cooled check follows the model the run will actually use. A manual
-              // continuation is no exception: its source run is exactly the one that just
-              // ran out, so excusing it would hand that same account another turn.
-              Effect.andThen(() =>
-                assertSlotNotCooled({
-                  instanceId: selection.instanceId,
-                  model: selection.model,
-                }),
-              ),
-            );
-          }),
+              instanceId: (command.modelSelection ?? projection.thread.modelSelection).instanceId,
+            }),
+          ),
         );
       case "delegated_task.request":
         return orchestrator.getThreadRecords(command.parentThreadId, []).pipe(
@@ -894,16 +842,7 @@ const make = Effect.gen(function* () {
               projectId: command.agentTask?.projectId ?? parent.thread.projectId,
               commandId: command.commandId,
               instanceId: command.modelSelection.instanceId,
-            }).pipe(
-              // A delegate is a turn like any other, and the child thread it starts is
-              // dispatched by the orchestrator without passing this chokepoint.
-              Effect.andThen(() =>
-                assertSlotNotCooled({
-                  instanceId: command.modelSelection.instanceId,
-                  model: command.modelSelection.model,
-                }),
-              ),
-            ),
+            }),
           ),
         );
       case "prepared-run.release":
@@ -919,16 +858,7 @@ const make = Effect.gen(function* () {
                     projectId: projection.thread.projectId,
                     commandId: command.commandId,
                     instanceId: run.providerInstanceId,
-                  }).pipe(
-                    // A run prepared before another thread cooled its account is released
-                    // later, so the reading is checked at release rather than at prepare.
-                    Effect.andThen(() =>
-                      assertSlotNotCooled({
-                        instanceId: run.modelSelection.instanceId,
-                        model: run.modelSelection.model,
-                      }),
-                    ),
-                  );
+                  });
             }),
           );
       default:

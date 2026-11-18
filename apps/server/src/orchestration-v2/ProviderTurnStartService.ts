@@ -6,11 +6,6 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import { checkoutOffset, checkoutRoot, repositoryWriteRoots } from "../agents/workspaceIdentity.ts";
 import * as VideoFrames from "../videoFrames/VideoFrames.ts";
 import { modelSelectionsEqual } from "@t3tools/shared/model";
-import {
-  isProviderSlotExhausted,
-  piAccountKeyOf,
-  providerSlotCooledUntil,
-} from "@t3tools/shared/providerPools";
 import { projectComposerContextForProvider } from "@t3tools/shared/composerContextReferences";
 import {
   buildStatusLabel,
@@ -71,7 +66,6 @@ import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
-import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { makeRestoreMissingWorktree } from "../workspace/restoreMissingWorktree.ts";
 import * as EventSink from "./EventSink.ts";
@@ -370,7 +364,6 @@ export const layer: Layer.Layer<
     const providerAuth = yield* ProviderAuthService.ProviderAuthService;
     const providerInstances = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
     // Optional: a layer without the registry has no accounts to cool.
-    const providerRegistry = yield* Effect.serviceOption(ProviderRegistry.ProviderRegistry);
     // Optional: a layer without managed agents has no chore worker to fall back on.
     const managedAgents = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
     // Optional: a layer without Forge links states only the linked item's number.
@@ -739,8 +732,6 @@ export const layer: Layer.Layer<
           readonly title: string;
           readonly error: Error;
           readonly message?: string;
-          /** A refusal that waits for an allowance window reports that limit, not a fault. */
-          readonly usageLimitResetAt?: string;
         }) {
           yield* settleRunStartup({
             signal: failed.signal,
@@ -754,44 +745,12 @@ export const layer: Layer.Layer<
               failure: makeProviderFailure({
                 cause: failed.error,
                 message: failed.message ?? startFailureMessage(failed.error),
-                class: failed.usageLimitResetAt === undefined ? "provider_error" : "usage_limit",
-                ...(failed.usageLimitResetAt === undefined
-                  ? {}
-                  : { resetAt: failed.usageLimitResetAt }),
+                class: "provider_error",
               }),
             },
           });
         },
       );
-      // Every turn start passes here, including ones the orchestrator creates itself, so this
-      // is the one place that can refuse a cooled Pi account for all of them.
-      if (Option.isSome(providerRegistry)) {
-        const providers = yield* providerRegistry.value.getProviders.pipe(
-          Effect.catchCause(() => Effect.succeed([] as ReadonlyArray<ServerProvider>)),
-        );
-        const piProvider = providers.find(
-          (provider) => provider.instanceId === run.providerInstanceId && provider.driver === "pi",
-        );
-        const accountKey =
-          piProvider === undefined ? undefined : piAccountKeyOf(run.modelSelection.model);
-        if (piProvider !== undefined && accountKey !== undefined) {
-          const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
-          const cooled = isProviderSlotExhausted(piProvider, accountKey, nowMs);
-          if (cooled) {
-            const resetAt = providerSlotCooledUntil(piProvider, accountKey, nowMs);
-            yield* settleStartFailure({
-              signal: "account-cooled",
-              title: `${accountKey} is out of allowance`,
-              error: new Error(
-                `Pi account "${accountKey}" is out of allowance until its reset. Pick another account's model, or clear the cooldown in Usage.`,
-              ),
-              message: `Pi account "${accountKey}" is out of allowance until its reset.`,
-              ...(resetAt === undefined ? {} : { usageLimitResetAt: resetAt }),
-            });
-            return;
-          }
-        }
-      }
       if (message.attachments.length === 0 && message.text.trimStart().startsWith("/")) {
         const isEmptyCompaction =
           message.text.trim().toLowerCase() === "/compact" && !projection.hasConversation;

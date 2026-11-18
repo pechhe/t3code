@@ -431,6 +431,7 @@ export function applyServerSettingsPatch(
     modelPools: modelPoolsPatch,
     usageLimitSources: usageLimitSourcesPatch,
     usageSlotBudgets: usageSlotBudgetsPatch,
+    assumeUsageLeft: assumeUsageLeftPatch,
     textGenerators: textGeneratorsPatch,
     secretProviders: secretProvidersPatch,
     sourceControlHosts: sourceControlHostsPatch,
@@ -671,6 +672,9 @@ export function applyServerSettingsPatch(
       : {}),
     ...(usageSlotBudgetsPatch !== undefined
       ? { usageSlotBudgets: mergeUsageSlotBudgets(current.usageSlotBudgets, usageSlotBudgetsPatch) }
+      : {}),
+    ...(assumeUsageLeftPatch !== undefined
+      ? { assumeUsageLeft: mergeSettingsEntries(current.assumeUsageLeft, assumeUsageLeftPatch) }
       : {}),
     ...(textGeneratorsPatch !== undefined
       ? { textGenerators: mergeSettingsEntries(current.textGenerators, textGeneratorsPatch) }

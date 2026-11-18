@@ -63,7 +63,6 @@ import {
 } from "../workspace/restoreMissingWorktree.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { layerRealGit } from "./ProviderTurnStartService.testkit.ts";
-import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import { delegationStanceNote } from "../agents/delegationStanceNote.ts";
@@ -459,10 +458,6 @@ function makeLocalCommandHarness(input: {
   readonly historyReadFailureAfterFallback?: unknown;
   /** Runs the turn on Pi with this model slug, whose prefix names the account. */
   readonly piModel?: string;
-  /** Overrides the Pi instance ID so named Pi instances can be exercised. */
-  readonly piInstanceId?: string;
-  /** A Pi account whose last refusal is still in force, as the registry would report it. */
-  readonly cooledPiAccountKey?: string;
   /** The opened provider session, whose resume decides between native resume and a fallback. */
   readonly resumeSession?: ProviderAdapter.ProviderAdapterV2SessionRuntime;
   /** The thread's stored history; a resume fallback summarises it into a handoff. */
@@ -530,7 +525,7 @@ function makeLocalCommandHarness(input: {
   const oldInstanceId = ProviderInstanceId.make("antigravity-personal");
   const newInstanceId = ProviderInstanceId.make(
     input.piModel !== undefined
-      ? (input.piInstanceId ?? "pi")
+      ? "pi"
       : input.claude
         ? (input.claude.instanceId ?? "claudeAgent")
         : "codex-personal",
@@ -1455,46 +1450,6 @@ function makeLocalCommandHarness(input: {
           getInstance: (requested) => Effect.succeed(summariserInstances.get(requested)),
           listInstances: Effect.succeed([...summariserInstances.values()]),
         }),
-        Layer.mock(ProviderRegistry.ProviderRegistry)({
-          getProviders: Effect.succeed(
-            input.cooledPiAccountKey === undefined
-              ? []
-              : [
-                  {
-                    instanceId: ProviderInstanceId.make(input.piInstanceId ?? "pi"),
-                    driver: ProviderDriverKind.make("pi"),
-                    displayName: "Pi",
-                    enabled: true,
-                    installed: true,
-                    version: "1.5.2",
-                    status: "ready",
-                    auth: { status: "authenticated" },
-                    checkedAt: "2026-10-15T00:00:00.000Z",
-                    models: [],
-                    slashCommands: [],
-                    skills: [],
-                    usageSlots: [
-                      {
-                        accountKey: input.cooledPiAccountKey,
-                        label: input.cooledPiAccountKey,
-                        usageLimits: {
-                          checkedAt: "2026-10-15T00:00:00.000Z",
-                          windows: [
-                            {
-                              id: "t3-usage-limit",
-                              kind: "other",
-                              label: "Usage limit reached",
-                              usedPercent: 100,
-                              resetsAt: "2999-01-01T00:00:00.000Z",
-                            },
-                          ],
-                        },
-                      },
-                    ],
-                  },
-                ],
-          ),
-        }),
         input.forgeSummary === undefined
           ? Layer.empty
           : Layer.mock(ForgeWorkItems.ForgeWorkItems)({
@@ -1676,74 +1631,6 @@ effectIt.effect("leaves the linked Forge item out of a native slash command", ()
     });
     yield* harness.start;
     expect(harness.startTurn.mock.calls[0]?.[0].message.text).toBe("/review the diff");
-  }),
-);
-
-effectIt.effect("refuses to start a turn on a Pi account that has run out", () =>
-  Effect.gen(function* () {
-    const harness = makeLocalCommandHarness({
-      text: "Carry on.",
-      piModel: "claude-subscription-hfpetch/claude-fable-5-2",
-      cooledPiAccountKey: "claude-subscription-hfpetch",
-    });
-
-    yield* harness.start;
-
-    // The turn never reaches the provider, and the run ends failed.
-    expect(harness.startTurn).not.toHaveBeenCalled();
-    expect(harness.projection().runs.at(-1)?.status).toBe("failed");
-    expect(harness.events).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          type: "turn-item.updated",
-          payload: expect.objectContaining({
-            title: "claude-subscription-hfpetch is out of allowance",
-          }),
-        }),
-      ]),
-    );
-    expect(harness.events).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          type: "run.updated",
-          payload: expect.objectContaining({ status: "failed" }),
-        }),
-      ]),
-    );
-    // A cooldown waits on an allowance window, so it reports a usage limit with its reset
-    // rather than an unexplained provider fault, and recovery and the client offer it.
-    const errorItem = harness.events.find(
-      (event): event is typeof event & { payload: { type: "error"; failure: unknown } } =>
-        event.type === "turn-item.updated" && event.payload.type === "error",
-    )?.payload;
-    expect(errorItem?.failure).toMatchObject({
-      class: "usage_limit",
-      resetAt: "2999-01-01T00:00:00.000Z",
-    });
-  }),
-);
-
-effectIt.effect("refuses to start a turn on a cooled slot of a named Pi instance", () =>
-  Effect.gen(function* () {
-    const harness = makeLocalCommandHarness({
-      text: "Carry on.",
-      piInstanceId: "pi_secondary",
-      piModel: "claude-subscription-hfpetch/claude-fable-5-2",
-      cooledPiAccountKey: "claude-subscription-hfpetch",
-    });
-
-    yield* harness.start;
-
-    expect(harness.startTurn).not.toHaveBeenCalled();
-    expect(harness.projection().runs.at(-1)?.status).toBe("failed");
-    const errorItem = harness.events.find(
-      (event): event is typeof event & { payload: { type: "error"; failure: unknown } } =>
-        event.type === "turn-item.updated" && event.payload.type === "error",
-    )?.payload;
-    expect(errorItem?.failure).toMatchObject({
-      class: "usage_limit",
-      resetAt: "2999-01-01T00:00:00.000Z",
-    });
   }),
 );
 

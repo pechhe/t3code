@@ -208,8 +208,6 @@ function makeRegistry(
       refreshInstance: () => Ref.get(providersRef),
       refreshInstanceUsage: () => Ref.get(providersRef),
       prepareConservation: (rows) => Effect.succeed(rows),
-      rememberUsageLimit: () => Effect.void,
-      clearUsageLimit: () => Effect.succeed({ outcome: "nothingToClear" }),
       reloadSecretsAndRefresh: () => Ref.get(providersRef),
       applySecretAndRefresh: () => Ref.get(providersRef),
       refreshAfterUpdate: () => {

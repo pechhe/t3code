@@ -25,7 +25,6 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.experimentsRecordOutcome]: AuthOrchestrationOperateScope,
   [WS_METHODS.experimentsImportHistorical]: AuthOrchestrationOperateScope,
   [WS_METHODS.providerAuthRemoveMethod]: AuthProvidersManageScope,
-  [WS_METHODS.providerClearUsageLimit]: AuthProvidersManageScope,
   [WS_METHODS.serverApplySharedProviderSetup]: AuthProvidersManageScope,
   [WS_METHODS.serverApplySharedModelPreferences]: AuthSettingsWriteScope,
   [WS_METHODS.serverSetProviderSetupSharing]: AuthProvidersManageScope,

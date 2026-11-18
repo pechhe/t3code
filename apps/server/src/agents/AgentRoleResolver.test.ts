@@ -12,7 +12,7 @@ import * as Effect from "effect/Effect";
 import * as TestClock from "effect/testing/TestClock";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import { makeProviderRegistryMock } from "../provider/testUtils/providerRegistryMock.ts";
-import { withRememberedLimits } from "@t3tools/shared/providerPools";
+import { withAssumedUsage } from "@t3tools/shared/providerPools";
 import * as Resolver from "./AgentRoleResolver.ts";
 import { providerOverloadKey } from "../provider/ProviderOverloads.ts";
 import {
@@ -1504,22 +1504,20 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       expect((yield* resolve(input({ snapshot: policy, providers: [withSlot(40)] }))).model).toBe(
         antigravityModel,
       );
-      // A quota failure's remembered limit keeps the account out to its reset, even though the
-      // reading still shows allowance.
-      const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
-      const cooled = withRememberedLimits(
-        [withSlot(40)],
-        new Map([[`${pi.instanceId}:antigravity`, Date.parse(resetsAt)]]),
-        nowMs,
-      );
-      const remembered = yield* resolver.preview(input({ snapshot: policy, providers: cooled }));
-      expect(remembered.selection).toBeNull();
-      expect(remembered.candidates).toContainEqual(
-        expect.objectContaining({
-          model: antigravityModel,
-          reason: "usage-limited",
-          until: resetsAt,
-        }),
+      // Named explicitly, the model is tried even though its reading says the account is out.
+      expect(
+        (yield* resolve(
+          input({
+            snapshot: policy,
+            providers: [withSlot(100)],
+            selection: { model: antigravityModel },
+          }),
+        )).model,
+      ).toBe(antigravityModel);
+      // An account the user assumes has usage left serves without being named.
+      const assumed = withAssumedUsage([withSlot(100)], { [`${pi.instanceId}:antigravity`]: true });
+      expect((yield* resolve(input({ snapshot: policy, providers: assumed }))).model).toBe(
+        antigravityModel,
       );
     }),
   );
@@ -1609,12 +1607,12 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
           }),
         )).instanceId,
       ).toBe(soon.instanceId);
-      // Outside a pool there is no sibling, so the call is refused rather than started.
-      const refused = yield* refusal(
-        claudeOnly([out, soon], { instanceId: out.instanceId, model: claudeModel }),
-      );
-      expect(refused).toMatchObject({ reason: "usage-limited" });
-      expect(refused.detail).toContain("2026-10-15T03:00:00.000Z");
+      // Outside a pool there is no sibling, so the named account is tried: its reading may be wrong.
+      expect(
+        (yield* resolve(
+          claudeOnly([out, soon], { instanceId: out.instanceId, model: claudeModel }),
+        )).instanceId,
+      ).toBe(out.instanceId);
     }),
   );
 

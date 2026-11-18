@@ -293,9 +293,9 @@ const dispatchToPiAccount = (input: {
           checkedAt: resetsAt,
           windows: [
             {
-              id: "t3-usage-limit",
-              kind: "other",
-              label: "Usage limit reached",
+              id: "seven_day",
+              kind: "weekly",
+              label: "Weekly",
               usedPercent: 100,
               resetsAt: "2999-01-01T00:00:00.000Z",
             },
@@ -384,65 +384,62 @@ const dispatchToPiAccount = (input: {
   }).pipe(Effect.provide(layerTest));
 };
 
-it.effect("refuses a dispatch to a cooled Pi account even when it is named explicitly", () =>
+it.effect("dispatches to a named Pi account even when its reading says it is out", () =>
   Effect.gen(function* () {
     const { result, dispatched } = yield* dispatchToPiAccount({
       model: "claude-subscription-hfpetch/claude-fable-5-2",
-    });
-    // Another account of the same instance has allowance, but a different account is a
-    // different model, so the turn is refused rather than silently run elsewhere.
-    expect(result._tag).toBe("Failure");
-    expect(result._tag === "Failure" ? result.failure : undefined).toMatchObject({
-      cause: expect.stringContaining("claude-subscription-hfpetch"),
-    });
-    expect(dispatched).toEqual([]);
-  }),
-);
-
-it.effect("routes a pool selection to the slot with allowance, skipping a cooled Pi account", () =>
-  Effect.gen(function* () {
-    const pi = ProviderInstanceId.make("pi");
-    const poolId = ModelPoolId.make("fable");
-    const { result, dispatched } = yield* dispatchToPiAccount({
-      model: "claude-subscription-hfpetch/claude-fable-5-2",
-      modelPools: {
-        [poolId]: {
-          displayName: "Fable",
-          policy: { strategy: "order" },
-          slots: [
-            { providerInstanceId: pi, model: "claude-subscription-hfpetch/claude-fable-5-2" },
-            { providerInstanceId: pi, model: "claude-subscription-yardsmith/claude-fable-5-2" },
-          ],
-        },
-      },
-      command: (commandId, threadId) =>
-        ({
-          type: "message.dispatch",
-          commandId,
-          threadId,
-          messageId: MessageId.make("message:thread-management:pi-pool"),
-          text: "Carry on.",
-          attachments: [],
-          modelSelection: {
-            instanceId: pi,
-            model: "claude-subscription-hfpetch/claude-fable-5-2",
-            poolId,
-          },
-          dispatchMode: { type: "queue_after_active" },
-          createdBy: "user",
-          creationSource: "web",
-        }) as unknown as OrchestrationV2ServerCommand,
     });
     expect(result._tag).toBe("Success");
     expect(dispatched).toHaveLength(1);
-    expect(dispatched[0]).toMatchObject({
-      modelSelection: {
-        instanceId: pi,
-        model: "claude-subscription-yardsmith/claude-fable-5-2",
-        poolId,
-      },
-    });
   }),
+);
+
+it.effect(
+  "routes a pool selection to the slot with allowance, skipping a Pi account that is out",
+  () =>
+    Effect.gen(function* () {
+      const pi = ProviderInstanceId.make("pi");
+      const poolId = ModelPoolId.make("fable");
+      const { result, dispatched } = yield* dispatchToPiAccount({
+        model: "claude-subscription-hfpetch/claude-fable-5-2",
+        modelPools: {
+          [poolId]: {
+            displayName: "Fable",
+            policy: { strategy: "order" },
+            slots: [
+              { providerInstanceId: pi, model: "claude-subscription-hfpetch/claude-fable-5-2" },
+              { providerInstanceId: pi, model: "claude-subscription-yardsmith/claude-fable-5-2" },
+            ],
+          },
+        },
+        command: (commandId, threadId) =>
+          ({
+            type: "message.dispatch",
+            commandId,
+            threadId,
+            messageId: MessageId.make("message:thread-management:pi-pool"),
+            text: "Carry on.",
+            attachments: [],
+            modelSelection: {
+              instanceId: pi,
+              model: "claude-subscription-hfpetch/claude-fable-5-2",
+              poolId,
+            },
+            dispatchMode: { type: "queue_after_active" },
+            createdBy: "user",
+            creationSource: "web",
+          }) as unknown as OrchestrationV2ServerCommand,
+      });
+      expect(result._tag).toBe("Success");
+      expect(dispatched).toHaveLength(1);
+      expect(dispatched[0]).toMatchObject({
+        modelSelection: {
+          instanceId: pi,
+          model: "claude-subscription-yardsmith/claude-fable-5-2",
+          poolId,
+        },
+      });
+    }),
 );
 
 it.effect("keeps a delegated task on the slot its role placed, never a conserved one", () =>
@@ -601,107 +598,6 @@ it.effect("refuses a pool with every account switched off", () =>
       cause: expect.stringContaining("no account switched on"),
     });
     expect(dispatched).toEqual([]);
-  }),
-);
-
-it.effect("refuses a manual continuation that resolves to a cooled Pi account", () =>
-  Effect.gen(function* () {
-    // The source run is the one that just ran out, so excusing a continuation would hand
-    // that same account another turn.
-    const { result, dispatched } = yield* dispatchToPiAccount({
-      model: "claude-subscription-hfpetch/claude-fable-5-2",
-      command: (commandId, threadId) =>
-        ({
-          type: "message.dispatch",
-          commandId,
-          threadId,
-          messageId: MessageId.make("message:thread-management:pi-continue"),
-          text: "Carry on.",
-          attachments: [],
-          manualContinuationOfRunId: RunId.make("run:thread-management:pi-continue"),
-          dispatchMode: { type: "start_immediately" },
-          createdBy: "user",
-          creationSource: "web",
-        }) as unknown as OrchestrationV2ServerCommand,
-    });
-    expect(result._tag).toBe("Failure");
-    expect(dispatched).toEqual([]);
-  }),
-);
-
-it.effect("refuses a delegate that names a cooled Pi account", () =>
-  Effect.gen(function* () {
-    // The orchestrator starts the child thread itself, so delegation has to be checked here.
-    const { result, dispatched } = yield* dispatchToPiAccount({
-      model: "claude-subscription-hfpetch/claude-fable-5-2",
-      command: (commandId, threadId) =>
-        ({
-          type: "delegated_task.request",
-          commandId,
-          parentThreadId: threadId,
-          modelSelection: {
-            instanceId: ProviderInstanceId.make("pi"),
-            model: "claude-subscription-hfpetch/claude-fable-5-2",
-          },
-          agentTask: { role: "implementer", taskClass: "non-ui" },
-          task: "Do the thing.",
-          dispatchMode: { type: "start_immediately" },
-          createdBy: "agent",
-          creationSource: "server",
-        }) as unknown as OrchestrationV2ServerCommand,
-    });
-    expect(result._tag).toBe("Failure");
-    expect(dispatched).toEqual([]);
-  }),
-);
-
-it.effect("refuses to release a prepared run whose Pi account has since cooled", () =>
-  Effect.gen(function* () {
-    // Prepared before the account cooled, released after: the reading is checked at release.
-    const { result, dispatched } = yield* dispatchToPiAccount({
-      model: "claude-subscription-hfpetch/claude-fable-5-2",
-      run: () => ({
-        id: RunId.make("run:thread-management:pi-slot"),
-        providerInstanceId: ProviderInstanceId.make("pi"),
-        modelSelection: {
-          instanceId: ProviderInstanceId.make("pi"),
-          model: "claude-subscription-hfpetch/claude-fable-5-2",
-        },
-      }),
-      command: (commandId, threadId) =>
-        ({
-          type: "prepared-run.release",
-          commandId,
-          threadId,
-          runId: RunId.make("run:thread-management:pi-slot"),
-        }) as unknown as OrchestrationV2ServerCommand,
-    });
-    expect(result._tag).toBe("Failure");
-    expect(dispatched).toEqual([]);
-  }),
-);
-
-it.effect("refuses a dispatch to a cooled slot on a named Pi instance", () =>
-  Effect.gen(function* () {
-    const { result, dispatched } = yield* dispatchToPiAccount({
-      instanceId: "pi_secondary",
-      model: "claude-subscription-hfpetch/claude-fable-5-2",
-    });
-    expect(result._tag).toBe("Failure");
-    expect(result._tag === "Failure" ? result.failure : undefined).toMatchObject({
-      cause: expect.stringContaining("claude-subscription-hfpetch"),
-    });
-    expect(dispatched).toEqual([]);
-  }),
-);
-
-it.effect("reaches the orchestrator when the named Pi account has allowance", () =>
-  Effect.gen(function* () {
-    const { result, dispatched } = yield* dispatchToPiAccount({
-      model: "claude-subscription-yardsmith/claude-fable-5-2",
-    });
-    expect(result._tag).toBe("Success");
-    expect(dispatched).toHaveLength(1);
   }),
 );
 

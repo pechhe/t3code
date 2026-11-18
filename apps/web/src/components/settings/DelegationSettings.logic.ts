@@ -1,4 +1,5 @@
 import { isReasoningSelect } from "@t3tools/client-runtime/model-traits";
+import { isSlotUsageExhausted } from "@t3tools/shared/modelPools";
 import * as Schema from "effect/Schema";
 import {
   AGENT_ROLE_TITLE_LABEL,
@@ -227,12 +228,7 @@ export function unavailableReason(
       return "unavailable";
     if (provider.auth.status !== "authenticated") return "signed out";
     if (!provider.models.some((model) => model.slug === binding.model)) return "model unavailable";
-    const limited = provider.usageLimits?.windows.some(
-      (window) =>
-        window.usedPercent >= 100 &&
-        (window.resetsAt === undefined || Date.parse(window.resetsAt) > now),
-    );
-    return limited ? "rate limited" : null;
+    return isSlotUsageExhausted(provider, binding.model, now) ? "rate limited" : null;
   });
   return reasons.includes(null) ? null : (reasons[0] ?? null);
 }

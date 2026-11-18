@@ -107,6 +107,7 @@ export const isSlotUsageExhausted = (
   nowMs: number,
   limitPercent = 100,
 ): boolean =>
+  slotUsageLimits(provider, model)?.assumedAvailable !== true &&
   applicableSlotUsageWindows(provider, model).some(
     (window) =>
       (window.usedPercent ?? 0) >= limitPercent &&

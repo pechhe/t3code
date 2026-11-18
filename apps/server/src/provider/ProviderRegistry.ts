@@ -71,8 +71,8 @@ import type { ProviderSnapshotSource } from "./builtInProviderCatalog.ts";
 import {
   needsUsageRefresh,
   USAGE_REFRESH_STALE_MS,
+  withAssumedUsage,
   withPoolSnapshots,
-  withRememberedLimits,
   type ProviderPool,
 } from "@t3tools/shared/providerPools";
 
@@ -80,15 +80,6 @@ export type ProviderMaintenanceActionKind = "update";
 
 /** Short so a turn waits little for a read that is only a refinement of the cached one. */
 export const USAGE_REFRESH_TIMEOUT = Duration.seconds(8);
-
-const SavedUsageCooldowns = Schema.fromJsonString(
-  Schema.Record(
-    Schema.String,
-    Schema.Struct({ untilMs: Schema.Number, markedAtMs: Schema.Number }),
-  ),
-);
-const decodeSavedUsageCooldowns = Schema.decodeUnknownEffect(SavedUsageCooldowns);
-const encodeSavedUsageCooldowns = Schema.encodeSync(SavedUsageCooldowns);
 
 export class ProviderRegistry extends Context.Service<
   ProviderRegistry,
@@ -132,20 +123,6 @@ export class ProviderRegistry extends Context.Service<
     readonly prepareConservation: (
       providers: ReadonlyArray<ServerProvider>,
     ) => Effect.Effect<ReadonlyArray<ServerProvider>>;
-
-    /**
-     * Counts an account as out until `resetAt` for every later pick, after a run reported a
-     * usage limit with that reset. Held in memory: after a restart the usage poll takes over.
-     */
-    readonly rememberUsageLimit: (input: {
-      readonly instanceId: ProviderInstanceId;
-      readonly accountKey?: string;
-      readonly resetAt?: string;
-    }) => Effect.Effect<void>;
-    readonly clearUsageLimit: (input: {
-      readonly instanceId: ProviderInstanceId;
-      readonly accountKey?: string;
-    }) => Effect.Effect<{ readonly outcome: "cleared" | "nothingToClear" }>;
 
     readonly refreshWorkspaceSnapshot: (input: {
       readonly instanceId: ProviderInstanceId;
@@ -497,9 +474,6 @@ export const layer = Layer.effect(
     const latestVersions = yield* ProviderLatestVersions.ProviderLatestVersions;
     const serviceScope = yield* Effect.scope;
     const config = yield* ServerConfig.ServerConfig;
-    const settingsService = yield* Effect.serviceOption(
-      ServerSettingsService.ServerSettingsService,
-    );
     const usageService = yield* Effect.serviceOption(UsageService.UsageService);
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
@@ -620,14 +594,6 @@ export const layer = Layer.effect(
         { readonly update?: ServerProviderUpdateState; readonly targetVersion?: string | undefined }
       >
     >(new Map());
-    const cooldownPath = path.join(config.providerStatusCacheDir, "usage-slot-cooldowns.json");
-    const savedCooldowns = yield* fileSystem.readFileString(cooldownPath).pipe(
-      Effect.flatMap(decodeSavedUsageCooldowns),
-      Effect.orElseSucceed(() => ({})),
-    );
-    const rememberedLimitsRef = yield* Ref.make<
-      ReadonlyMap<string, { readonly untilMs: number; readonly markedAtMs: number }>
-    >(new Map(Object.entries(savedCooldowns)));
     const budgetSummaryRef = yield* Ref.make<
       | { readonly key: string; readonly expiresAtMs: number; readonly summary: UsageSummaryValue }
       | undefined
@@ -1477,38 +1443,6 @@ export const layer = Layer.effect(
       const pools = yield* Ref.get(poolsRef);
       const now = yield* DateTime.now;
       const nowMs = DateTime.toEpochMillis(now);
-      let limits = yield* Ref.get(rememberedLimitsRef);
-      const cleared = new Map(limits);
-      for (const provider of providers) {
-        for (const slot of provider.usageSlots ?? []) {
-          const key = `${provider.instanceId}:${slot.accountKey}`;
-          const checkedAtMs = Date.parse(slot.usageLimits.checkedAt);
-          const cooldown = limits.get(key);
-          if (
-            cooldown !== undefined &&
-            checkedAtMs > cooldown.markedAtMs &&
-            nowMs - checkedAtMs <= USAGE_REFRESH_STALE_MS &&
-            slot.usageLimits.unavailable === undefined &&
-            slot.usageLimits.windows.some((window) => window.id !== "budget") &&
-            slot.usageLimits.windows
-              .filter((window) => window.id !== "budget")
-              .every(
-                (window) =>
-                  window.usedPercent < 100 ||
-                  (window.resetsAt !== undefined &&
-                    Number.isFinite(Date.parse(window.resetsAt)) &&
-                    Date.parse(window.resetsAt) <= nowMs),
-              )
-          ) {
-            cleared.delete(key);
-          }
-        }
-      }
-      if (cleared.size !== limits.size) {
-        limits = cleared;
-        yield* Ref.set(rememberedLimitsRef, cleared);
-        yield* persistCooldowns(cleared);
-      }
       const currentSettingsService = yield* Effect.serviceOption(
         ServerSettingsService.ServerSettingsService,
       );
@@ -1557,11 +1491,7 @@ export const layer = Layer.effect(
                 return result;
               }),
             );
-      let current = withRememberedLimits(
-        decorated,
-        new Map([...limits].map(([key, value]) => [key, value.untilMs])),
-        nowMs,
-      );
+      let current = decorated;
       if (settings !== undefined && Option.isSome(usageService)) {
         {
           const budgets = settings.usageSlotBudgets;
@@ -1719,21 +1649,10 @@ export const layer = Layer.effect(
           }
         }
       }
-      return withPoolSnapshots(current, pools, nowMs);
-    });
-
-    const persistCooldowns = Effect.fn("ProviderRegistry.persistCooldowns")(function* (
-      limits: ReadonlyMap<string, { readonly untilMs: number; readonly markedAtMs: number }>,
-    ) {
-      yield* writeFileStringAtomically({
-        filePath: cooldownPath,
-        contents: `${encodeSavedUsageCooldowns(Object.fromEntries(limits))}\n`,
-      }).pipe(
-        Effect.provideService(FileSystem.FileSystem, fileSystem),
-        Effect.provideService(Path.Path, path),
-        Effect.catchCause((cause) =>
-          Effect.logWarning("provider usage cooldown persistence failed", { cause }),
-        ),
+      return withPoolSnapshots(
+        settings === undefined ? current : withAssumedUsage(current, settings.assumeUsageLeft),
+        pools,
+        nowMs,
       );
     });
 
@@ -1782,8 +1701,8 @@ export const layer = Layer.effect(
         { concurrency: "unbounded", discard: true },
       );
       yield* withPools(yield* Ref.get(providersRef));
-      const finalRules =
-        (yield* settings.value.getSettings.pipe(Effect.orDie)).subagentConservation ?? {};
+      const finalSettings = yield* settings.value.getSettings.pipe(Effect.orDie);
+      const finalRules = finalSettings.subagentConservation ?? {};
       const finalPools = yield* Ref.get(poolsRef);
       const finalUnsupported = new Set(
         (yield* Ref.get(providersRef))
@@ -1847,80 +1766,10 @@ export const layer = Layer.effect(
           ];
         });
       return withPoolSnapshots(
-        withRememberedLimits(
-          merged,
-          new Map([...(yield* Ref.get(rememberedLimitsRef))].map(([k, v]) => [k, v.untilMs])),
-          now,
-        ),
+        withAssumedUsage(merged, finalSettings.assumeUsageLeft),
         finalPools.filter((pool) => suppliedIds.has(pool.instanceId)),
         now,
       );
-    });
-
-    const clearUsageLimit = Effect.fn("ProviderRegistry.clearUsageLimit")(function* (input: {
-      readonly instanceId: ProviderInstanceId;
-      readonly accountKey?: string;
-    }) {
-      const key =
-        input.accountKey === undefined
-          ? input.instanceId
-          : `${input.instanceId}:${input.accountKey}`;
-      const [outcome, updated] = yield* Ref.modify(
-        rememberedLimitsRef,
-        (
-          limits,
-        ): readonly [
-          readonly [
-            "cleared" | "nothingToClear",
-            ReadonlyMap<string, { readonly untilMs: number; readonly markedAtMs: number }>,
-          ],
-          ReadonlyMap<string, { readonly untilMs: number; readonly markedAtMs: number }>,
-        ] => {
-          if (!limits.has(key)) {
-            return [["nothingToClear", limits], limits];
-          }
-          const next = new Map(limits);
-          next.delete(key);
-          return [["cleared", next], next];
-        },
-      );
-      if (outcome === "cleared") {
-        yield* persistCooldowns(updated);
-        yield* PubSub.publish(changesPubSub, yield* Ref.get(providersRef));
-      }
-      return { outcome };
-    });
-
-    const rememberUsageLimit = Effect.fn("ProviderRegistry.rememberUsageLimit")(function* (input: {
-      readonly instanceId: ProviderInstanceId;
-      readonly accountKey?: string;
-      readonly resetAt?: string;
-    }) {
-      const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
-      const key =
-        input.accountKey === undefined
-          ? input.instanceId
-          : `${input.instanceId}:${input.accountKey}`;
-      let resetMs = input.resetAt === undefined ? Number.NaN : Date.parse(input.resetAt);
-      if (!Number.isFinite(resetMs) || resetMs <= nowMs) {
-        if (input.accountKey !== undefined && Option.isSome(settingsService)) {
-          const settings = yield* settingsService.value.getSettings.pipe(Effect.option);
-          const budget = Option.isSome(settings) ? settings.value.usageSlotBudgets[key] : undefined;
-          if (budget !== undefined)
-            resetMs = usageCycleBounds(nowMs, budget.resetDayOfMonth).nextResetMs;
-        }
-        if (!Number.isFinite(resetMs) || resetMs <= nowMs) resetMs = nowMs + 60 * 60 * 1000;
-      }
-      const updated = yield* Ref.modify(rememberedLimitsRef, (limits) => {
-        const next = new Map([...limits].filter(([, cooldown]) => cooldown.untilMs > nowMs));
-        next.set(key, {
-          untilMs: Math.max(resetMs, limits.get(key)?.untilMs ?? 0),
-          markedAtMs: nowMs,
-        });
-        return [next, next] as const;
-      });
-      yield* persistCooldowns(updated);
-      yield* PubSub.publish(changesPubSub, yield* Ref.get(providersRef));
     });
 
     return {
@@ -1935,8 +1784,6 @@ export const layer = Layer.effect(
       refreshInstanceUsage: (instanceId) =>
         refreshInstanceUsage(instanceId).pipe(Effect.flatMap(withPools)),
       prepareConservation,
-      rememberUsageLimit,
-      clearUsageLimit,
       reloadSecretsAndRefresh: (instanceId?: ProviderInstanceId) =>
         reloadSecretsAndRefresh(instanceId).pipe(
           Effect.catchCause(recoverRefreshFailure),

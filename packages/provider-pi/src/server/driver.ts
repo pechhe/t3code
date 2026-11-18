@@ -224,6 +224,19 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
       ),
     );
 
+    // Re-reads every account's allowance alone; a probe that cannot read credentials changes nothing.
+    const refreshUsage = Effect.gen(function* () {
+      if (!effectiveConfig.enabled) return;
+      const probed = yield* readUsageSlots.pipe(Effect.catchCause(() => Effect.succeed(null)));
+      if (probed === null) return;
+      const checkedAt = DateTime.formatIso(yield* DateTime.now);
+      const usageSlots = yield* Ref.modify(lastUsageSlotsRef, (previous) => {
+        const merged = retainPriorUsageSlots(previous, probed, checkedAt);
+        return [merged, merged] as const;
+      });
+      yield* snapshot.replaceUsageSlots?.(usageSlots) ?? Effect.void;
+    }).pipe(Effect.ignoreCause({ log: true }));
+
     return {
       instanceId,
       driverKind: DRIVER_KIND,
@@ -258,6 +271,7 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
             ),
       orchestrationAdapter,
       textGeneration,
+      refreshUsage,
     } satisfies ProviderInstance;
   }),
 };
