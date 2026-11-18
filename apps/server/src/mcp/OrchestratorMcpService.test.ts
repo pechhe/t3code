@@ -727,8 +727,14 @@ describe("OrchestratorMcpService", () => {
           Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
           Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
         );
+        const submitted: Array<unknown> = [];
         const externalWorkLayer = Layer.mock(ExternalAgentWork.ExternalAgentWorkService)({
-          submit: () => Effect.sync(() => calls.push("delegate")).pipe(Effect.as(result as never)),
+          session: () => Effect.succeed({ workspacePath: "/session/workspace" } as never),
+          submit: (_scope, input) =>
+            Effect.sync(() => {
+              calls.push("delegate");
+              submitted.push(input.agentTask);
+            }).pipe(Effect.as(result as never)),
           status: () => Effect.sync(() => calls.push("status")).pipe(Effect.as(result as never)),
           cancel: () =>
             Effect.sync(() => calls.push("cancel")).pipe(
@@ -740,9 +746,11 @@ describe("OrchestratorMcpService", () => {
           const service = yield* OrchestratorMcpService.OrchestratorMcpService;
           const delegated = yield* service.delegateTask(scope, {
             task: "Route this through the owned work service.",
+            externalSessionKey: "a".repeat(64),
+            agentTask: { role: "scout", taskClass: "non-ui", workId: "work", attemptId: "one" },
             mode: "wait",
             timeoutMs: 5,
-          } as never);
+          });
           const waited = yield* service.taskStatus(scope, taskId, 5);
           const status = yield* service.taskStatus(scope, taskId);
           const cancelled = yield* service.cancelTask(scope, { taskId } as never);
@@ -768,6 +776,16 @@ describe("OrchestratorMcpService", () => {
         );
 
         assert.deepEqual(outcomes, [true, true, taskId, "cancel_requested"]);
+        // A task that names no workspace works in its session's.
+        assert.deepEqual(submitted, [
+          {
+            role: "scout",
+            taskClass: "non-ui",
+            workId: "work",
+            attemptId: "one",
+            workspacePath: "/session/workspace",
+          },
+        ]);
         assert.deepEqual(calls, [
           "delegate",
           "wait",

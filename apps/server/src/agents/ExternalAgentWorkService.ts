@@ -12,6 +12,7 @@ import {
   ThreadId,
   type AgentSessionAttachInput,
   OrchestratorMcpDelegateTaskInput,
+  type OrchestratorMcpResolvedDelegateTaskInput,
   type OrchestratorMcpDelegateTaskResult,
   type OrchestratorMcpTaskCancelInput,
   type OrchestratorMcpTaskCancelResult,
@@ -97,7 +98,7 @@ export class ExternalAgentWorkService extends Context.Service<
     ) => Effect.Effect<AgentExternalSession, ExternalAgentWorkError>;
     readonly submit: (
       scope: McpInvocationScope,
-      input: OrchestratorMcpDelegateTaskInput,
+      input: OrchestratorMcpResolvedDelegateTaskInput,
     ) => Effect.Effect<OrchestratorMcpDelegateTaskResult, ExternalAgentWorkError>;
     readonly status: (
       scope: McpInvocationScope,
@@ -496,7 +497,7 @@ const make = Effect.gen(function* () {
         return session;
       }),
     );
-  const submit = (scope: McpInvocationScope, input: OrchestratorMcpDelegateTaskInput) =>
+  const submit = (scope: McpInvocationScope, input: OrchestratorMcpResolvedDelegateTaskInput) =>
     permit.withPermit(
       Effect.gen(function* () {
         const client = yield* activeClient(scope, true);

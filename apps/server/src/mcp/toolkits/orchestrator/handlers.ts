@@ -3,7 +3,7 @@ import * as AdviceMcpService from "../../AdviceMcpService.ts";
 import {
   OrchestratorMcpAskAdviceInput,
   OrchestratorMcpAskAdviceWireInput,
-  AgentTaskRequest,
+  AgentTaskCallerRequest,
   OrchestratorMcpFailure,
   OrchestratorMcpSchedule,
 } from "@t3tools/contracts";
@@ -33,7 +33,7 @@ const refuseCheckBack = new OrchestratorMcpFailure({
     "Scheduled tasks can no longer be check-backs. To look again later, wait with `watch`: a `target` of `{kind:'time', at}` (or the event itself, such as a Production release), `expectedMinutes` for an event, and a `note` to yourself. T3 wakes the thread then. Use `schedule_task` with purpose `long_running` only for work that repeats or runs without this thread.",
 });
 const decodeAdvice = Schema.decodeUnknownEffect(OrchestratorMcpAskAdviceInput);
-const decodeAgentTask = Schema.decodeUnknownEffect(AgentTaskRequest);
+const decodeAgentTask = Schema.decodeUnknownEffect(AgentTaskCallerRequest);
 
 const executeAdvice = Effect.fn("AdviceMcp.execute")(function* (
   input: typeof OrchestratorMcpAskAdviceWireInput.Type,
@@ -135,8 +135,7 @@ export const handlers = {
                 () =>
                   new OrchestratorMcpFailure({
                     code: "invalid_request",
-                    message:
-                      "agentTask must carry role, taskClass, workId, attemptId and workspacePath.",
+                    message: "agentTask must carry role, taskClass, workId and attemptId.",
                   }),
               ),
             );

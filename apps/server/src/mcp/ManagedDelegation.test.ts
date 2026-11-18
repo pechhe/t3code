@@ -23,6 +23,7 @@ import {
   ThreadId,
   RunId,
   NodeId,
+  OrchestratorMcpFailure,
   type OrchestrationV2ThreadProjection,
   type OrchestrationV2ThreadShell,
   type AgentTaskBinding,
@@ -108,6 +109,12 @@ const unlistedCodex = provider("codex", codex.instanceId, [
   "gpt-unlisted-test",
   "gpt-premium-test",
 ]);
+
+/** A task that names no workspace, so the caller's own is used. */
+const unnamed = (overrides: Parameters<typeof request>[0] = {}) => {
+  const { workspacePath: _, ...task } = request(overrides);
+  return task;
+};
 
 it.layer(services)("managed delegation experiment boundary", (it) => {
   it.effect(
@@ -1062,7 +1069,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           (yield* h.delegate({
             task: "Read package metadata",
             clientRequestId: "root-reader",
-            agentTask: request({ workspacePath: h.lead, readOnly: true }),
+            agentTask: unnamed({ readOnly: true }),
             target: { model: codexModel },
           })).code,
         ).toBe("orchestration_error");
@@ -2105,6 +2112,19 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       expect(command.agentTask?.workspacePath).toBe(h.helper);
       // The lead's own checkout is not an isolated workspace.
       expect((yield* h.delegate(isolatedTask(h.lead, "lead-path"))).code).toBe("capability_denied");
+      // Nor is a default: an isolated task names the workspace allocated for it.
+      const unallocated = yield* h.delegate({
+        ...isolatedTask(h.helper, "unallocated"),
+        agentTask: unnamed({ workspaceAssignment: "isolated", workId: "unallocated" }),
+      });
+      expect(unallocated.message).toContain("pass it as agentTask.workspacePath");
+      // A Spec lead is never isolated, which its own refusal says.
+      const isolatedLead = yield* h.delegate({
+        ...isolatedTask(h.helper, "isolated-lead"),
+        forgeItem: 7,
+        agentTask: unnamed({ workspaceAssignment: "isolated", workId: "isolated-lead" }),
+      });
+      expect(isolatedLead.message).toContain("omit workspaceAssignment");
       // A T3-created worktree would not be the workspace the binding validated.
       const worktree = yield* h.delegate({
         ...isolatedTask(h.helper, "t3-worktree"),
@@ -2181,6 +2201,76 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
     ),
   );
+  it.effect("keeps a retry that names no workspace on its task after the checkout moved", () =>
+    Effect.gen(function* () {
+      const h = yield* harness();
+      const delegated = {
+        task: "Read the importer",
+        clientRequestId: "unnamed-retry",
+        agentTask: unnamed({ workId: "unnamed-retry", readOnly: true }),
+        target: { model: codexModel },
+      };
+      yield* h.delegate(delegated);
+      const first = h.dispatched[0] as { commandId: CommandId; agentTask: AgentTaskBinding };
+      expect(first.agentTask.workspacePath).toBe(h.lead);
+      // The fingerprint is the caller's own text, without the path the server filled in.
+      const text = encodeDelegateTaskFingerprint({
+        ...delegated,
+        mode: undefined,
+        timeoutMs: undefined,
+      });
+      expect(first.agentTask.requestFingerprint).toBe(
+        Hex.encode(
+          yield* (yield* Digest.Digest).digest(
+            Digest.sha256,
+            new TextEncoder().encode(withRetiredFields(text)[0]!),
+          ),
+        ),
+      );
+      h.acceptDispatchedTask({ ...first.agentTask, workspacePath: "/moved/checkout" });
+      const retry = yield* h.delegate(delegated).pipe(Effect.flip);
+      expect(h.dispatched).toHaveLength(1);
+      expect(retry).toMatchObject({
+        taskId: deriveIds.delegatedTaskNode({ commandId: first.commandId }),
+      });
+    }).pipe(
+      Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+    ),
+  );
+
+  it.effect("sends a linked task without resolving a project only that environment has", () => {
+    const sent: Array<unknown> = [];
+    return Effect.gen(function* () {
+      const h = yield* harness();
+      const result = yield* h.delegate({
+        task: "Read it there",
+        clientRequestId: "linked-unnamed",
+        target: { environmentId: EnvironmentId.make("linked") },
+        agentTask: unnamed({
+          role: "scout",
+          readOnly: true,
+          projectId: ProjectId.make("project-only-there"),
+        }),
+      });
+      expect(result.message).toBe("reached the link");
+      expect(sent).toHaveLength(1);
+    }).pipe(
+      Effect.provide(
+        Layer.mock(ContextRemoteDelegation.RemoteDelegation)({
+          delegate: (_scope, input) => {
+            sent.push(input);
+            return Effect.fail(
+              new OrchestratorMcpFailure({
+                code: "orchestration_error",
+                message: "reached the link",
+              }),
+            );
+          },
+        }),
+      ),
+    );
+  });
+
   it.effect(
     "matches a managed task fingerprinted while the retired demanding flag was recorded",
     () =>
@@ -2477,12 +2567,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         task: "Advise on the approach",
         clientRequestId: "scratch-folder-advisor",
         target: { model: "claude-fable-test" },
-        agentTask: request({
-          role: "advisor",
-          workId: "folder-advice",
-          workspacePath: h.scratchFolder,
-          readOnly: true,
-        }),
+        agentTask: unnamed({ role: "advisor", workId: "folder-advice", readOnly: true }),
       });
       expect(commands[1]?.agentTask.workspacePath).toBe(h.scratchFolder);
       expect(commands[1]?.agentTask.projectId).toBeUndefined();
@@ -2590,6 +2675,18 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       });
       expect(elsewhere.message).toContain(`must use ${h.foreignHelper}`);
       expect(h.dispatched).toHaveLength(1);
+      // Naming only the project, a task works in the lead's workspace there.
+      yield* h.delegate({
+        task: "Read in the attached workspace",
+        clientRequestId: "attached-default",
+        target: { model: codexModel },
+        agentTask: unnamed({
+          workId: "attached-default",
+          projectId: ProjectId.make("foreign-project"),
+          readOnly: true,
+        }),
+      });
+      expect(commands[1]?.agentTask.workspacePath).toBe(h.foreignHelper);
     }).pipe(
       Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
     ),

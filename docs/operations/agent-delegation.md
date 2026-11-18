@@ -269,7 +269,10 @@ its revision and the role names, or the reason the policy is refused.
   allocated its SlipJay workspace from the shell), and its child thread runs
   there. It is refused while a writer is running there. An unpinned read-only task from an unbound thread runs only
   in the project's canonical root. A writer sharing the lead's checkout
-  requires the lead's explicit workspace binding.
+  requires the lead's explicit workspace binding. A task that names no
+  `workspacePath` gets the only one an unpinned task could use: the caller's
+  checkout in the task's project, that project's root without one, or an
+  outside client's session workspace.
 - A task in another registered project's repository belongs to that project:
   its child thread, provider enablement and browser settings are that
   project's, while the caller's runtime ceiling still bounds it. T3 resolves the

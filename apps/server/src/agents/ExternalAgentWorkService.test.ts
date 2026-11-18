@@ -13,6 +13,7 @@ import {
   type ExperimentDefinition,
   type OrchestrationV2ThreadShellSnapshot,
   OrchestratorMcpDelegateTaskInput,
+  type OrchestratorMcpResolvedDelegateTaskInput,
 } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
 import * as Context from "effect/Context";
@@ -460,7 +461,7 @@ function buildFixture(input: {
       const service = yield* External.ExternalAgentWorkService;
       return yield* service.session(scope(client), key);
     });
-  const submit = (client: AuthSessionId, value: OrchestratorMcpDelegateTaskInput) =>
+  const submit = (client: AuthSessionId, value: OrchestratorMcpResolvedDelegateTaskInput) =>
     Effect.gen(function* () {
       const service = yield* External.ExternalAgentWorkService;
       return yield* service.submit(scope(client), value);
@@ -483,7 +484,7 @@ function buildFixture(input: {
     });
   const submitInput = (
     external: AgentExternalSession,
-    overrides: Partial<OrchestratorMcpDelegateTaskInput> = {},
+    overrides: Partial<OrchestratorMcpResolvedDelegateTaskInput> = {},
   ) =>
     ({
       externalSessionKey: external.key,
@@ -491,7 +492,7 @@ function buildFixture(input: {
       task: "Implement the requested change.",
       clientRequestId: "request-one",
       ...overrides,
-    }) satisfies OrchestratorMcpDelegateTaskInput;
+    }) satisfies OrchestratorMcpResolvedDelegateTaskInput;
   const startModelExperiment = (id: string) =>
     Effect.gen(function* () {
       const experiments = yield* Experiments.ExperimentService;

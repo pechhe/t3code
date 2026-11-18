@@ -58,6 +58,7 @@ import {
   type AgentRolesInput,
   type AgentRolesResult,
   OrchestratorMcpDelegateTaskInput,
+  type OrchestratorMcpResolvedDelegateTaskInput,
   type OrchestratorMcpDelegateTaskResult,
   type OrchestratorMcpDeleteScheduledTaskInput,
   type OrchestratorMcpRequestReleaseApprovalInput,
@@ -106,6 +107,7 @@ import {
   type ServerProviderModel,
   ThreadId,
   AGENT_ROLE_COARSE_KIND,
+  type AgentTaskCallerRequest,
   type AgentTaskRequest,
   isReviewerRole,
   isDelegatedAppThread,
@@ -372,6 +374,8 @@ export interface OrchestratorMcpServiceShape {
   ) => Effect.Effect<OrchestratorMcpThreadWatchResult, OrchestratorMcpFailure>;
 }
 
+const namesWorkspace = (task: AgentTaskCallerRequest): task is AgentTaskRequest =>
+  task.workspacePath !== undefined;
 /**
  * The caller's checkout in a project: its primary workspace (null at its home project's main
  * checkout) or a live attachment elsewhere; undefined when it holds none there.
@@ -399,7 +403,9 @@ function failure(code: OrchestratorMcpFailure["code"], message: string): Orchest
  * Callers ask for one writing role: an `implementer` handed a Forge item owns that whole Spec,
  * which T3 runs, stores and labels as the internal role `lead`. A `lead` request still works.
  */
-const asSpecOwner = (input: OrchestratorMcpDelegateTaskInput): OrchestratorMcpDelegateTaskInput =>
+const asSpecOwner = (
+  input: OrchestratorMcpResolvedDelegateTaskInput,
+): OrchestratorMcpResolvedDelegateTaskInput =>
   input.agentTask?.role === "implementer" && input.forgeItem !== undefined
     ? { ...input, agentTask: { ...input.agentTask, role: "lead" } }
     : input;
@@ -1585,6 +1591,46 @@ const make = Effect.gen(function* () {
     } as const;
   });
 
+  /** A task that names no workspace works in its caller's own, in the task's project. */
+  const withTaskWorkspace = Effect.fn("OrchestratorMcpService.withTaskWorkspace")(function* (
+    callerScope: McpInvocationScope,
+    input: OrchestratorMcpDelegateTaskInput,
+  ) {
+    const { agentTask, ...rest } = input;
+    // A named task keeps its identity: the council recognises the seats it made by reference.
+    const done = (task?: AgentTaskRequest): OrchestratorMcpResolvedDelegateTaskInput =>
+      task === undefined ? rest : { ...rest, agentTask: task };
+    if (agentTask === undefined) return done();
+    if (namesWorkspace(agentTask)) return done(agentTask);
+    const resolved = (workspacePath: string) => done({ ...agentTask, workspacePath });
+    // A Spec lead is never isolated; its own check names that fix.
+    if (agentTask.workspaceAssignment === "isolated" && input.forgeItem === undefined)
+      return yield* failure(
+        "invalid_request",
+        "An isolated task names its own allocated workspace: pass it as agentTask.workspacePath.",
+      );
+    if (callerScope.thread === undefined) {
+      if (callerScope.client === undefined || input.externalSessionKey === undefined)
+        return yield* failure(
+          "invalid_request",
+          "An outside client delegates within its session: pass the externalSessionKey from `t3 agent attach`.",
+        );
+      const session = yield* (yield* external)
+        .session(callerScope, input.externalSessionKey)
+        .pipe(Effect.mapError(externalFailure));
+      return resolved(session.workspacePath);
+    }
+    const { parent } = yield* loadThreadCaller(callerScope, "delegate_task");
+    // A linked environment's task carries no path or project across the link.
+    const linked =
+      input.target?.environmentId !== undefined &&
+      PeerForwarding.remoteTarget(callerScope, input.target.environmentId) !== undefined;
+    const projectId = (linked ? undefined : agentTask.projectId) ?? parent.thread.projectId;
+    return resolved(
+      callerCheckoutIn(parent.thread, projectId) ??
+        (yield* requireProject(projectId)).workspaceRoot,
+    );
+  });
   const loadThreadCaller = Effect.fn("OrchestratorMcpService.loadThreadCaller")(function* (
     scope: McpInvocationScope,
     operation: string,
@@ -3536,7 +3582,7 @@ const make = Effect.gen(function* () {
     }),
     delegateTask: Effect.fn("OrchestratorMcpService.delegateTask")(
       function* (callerScope, requested) {
-        let input = asSpecOwner(requested);
+        let input = asSpecOwner(yield* withTaskWorkspace(callerScope, requested));
         if (input.task === undefined && input.followup === undefined)
           return yield* failure(
             "invalid_request",
@@ -4086,11 +4132,19 @@ const make = Effect.gen(function* () {
           if (configured)
             return yield* failure(
               "invalid_request",
-              "A role policy is configured: call agent_roles, then delegate_task with agentTask (role, taskClass, workId, attemptId, workspacePath). Supply offPolicyReason only if the user forces an off-list model or no configured role fits.",
+              "A role policy is configured: call agent_roles, then delegate_task with agentTask (role, taskClass, workId, attemptId). Supply offPolicyReason only if the user forces an off-list model or no configured role fits.",
             );
         }
+        // A path the server filled in is not the caller's request: a retry after the caller's
+        // checkout moved is still the same request.
+        const namedPath = requested.agentTask?.workspacePath !== undefined;
+        const callerTask: AgentTaskCallerRequest | undefined =
+          input.agentTask === undefined || namedPath
+            ? input.agentTask
+            : { ...input.agentTask, workspacePath: undefined };
         const fingerprintText = yield* encodeDelegateTaskFingerprint({
           ...input,
+          agentTask: callerTask,
           mode: undefined,
           timeoutMs: undefined,
         }).pipe(Effect.orDie);
@@ -4138,7 +4192,7 @@ const make = Effect.gen(function* () {
             prior.attemptId !== input.agentTask?.attemptId ||
             prior.role !== input.agentTask?.role ||
             prior.taskClass !== input.agentTask?.taskClass ||
-            prior.workspacePath !== input.agentTask?.workspacePath ||
+            (namedPath && prior.workspacePath !== input.agentTask?.workspacePath) ||
             prior.workspaceAssignment !== input.agentTask?.workspaceAssignment
           )
             return yield* failure(
@@ -4752,7 +4806,7 @@ const make = Effect.gen(function* () {
             if (Option.isNone(champions) || callerScope.thread === undefined) return Effect.void;
             const ownerThreadId = callerScope.thread.threadId;
             return Effect.gen(function* () {
-              let request = input.agentTask;
+              let request = (yield* withTaskWorkspace(callerScope, input)).agentTask;
               if (input.followup !== undefined) {
                 const records = yield* threadManagement.getThreadRecords(ownerThreadId, [
                   "subagents",

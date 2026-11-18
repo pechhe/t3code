@@ -837,6 +837,23 @@ export const AgentTaskRequest = Schema.Union([
   ),
 ]);
 export type AgentTaskRequest = typeof AgentTaskRequest.Type;
+/** What a caller sends: omitting `workspacePath` means its own workspace in the task's project. */
+const agentTaskCallerFields = {
+  ...agentTaskRequestFields,
+  ...offPolicyReasonField,
+  workspacePath: Schema.optional(TrimmedNonEmptyString),
+};
+const CurrentAgentTaskCallerRequest = Schema.Struct(agentTaskCallerFields);
+export const AgentTaskCallerRequest = Schema.Union([
+  CurrentAgentTaskCallerRequest,
+  Schema.Struct({ ...agentTaskCallerFields, role: RetiredRole }).pipe(
+    Schema.decodeTo(CurrentAgentTaskCallerRequest, {
+      decode: SchemaGetter.transform(withCurrentRole),
+      encode: SchemaGetter.forbidden(() => "Retired role names are never written."),
+    }),
+  ),
+]);
+export type AgentTaskCallerRequest = typeof AgentTaskCallerRequest.Type;
 
 /**
  * A managed role a linked environment asks this one to run. Caller paths, workspaces, projects,
@@ -879,7 +896,7 @@ const OFFERED_AGENT_ROLES = [
 ] as const satisfies ReadonlyArray<AgentRole>;
 const isAgentRoleName = Schema.is(Schema.Union([AgentRole, RetiredRole]));
 export const AgentTaskWireRequest = Schema.Struct({
-  ...agentTaskRequestFields,
+  ...agentTaskCallerFields,
   role: Schema.String.check(
     Schema.makeFilter(isAgentRoleName, {
       expected: "an agent role",

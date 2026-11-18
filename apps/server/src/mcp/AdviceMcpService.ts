@@ -63,7 +63,7 @@ const make = Effect.gen(function* () {
   const execute: AdviceMcpService["Service"]["execute"] = Effect.fn("AdviceMcpService.execute")(
     function* (scope, input) {
       if (input.action === "ask") {
-        const access = input.destination === "advisor" ? yield* advisorAccess(scope) : undefined;
+        if (input.destination === "advisor") yield* advisorAccess(scope);
         const pendingAdvisor = yield* advice.advisor(scope);
         if (pendingAdvisor !== undefined) {
           const task = yield* orchestrator.taskStatus(scope, pendingAdvisor.task.taskId);
@@ -89,7 +89,6 @@ const make = Effect.gen(function* () {
             if (task.agentTask?.role !== "advisor")
               return yield* invalid("Advisor follow-up must name an existing managed advisor.");
           }
-          const workspacePath = advisor.workspacePath ?? access?.caller?.worktreePath ?? undefined;
           const pin =
             advisor.sourceRevision === undefined ? {} : { sourceRevision: advisor.sourceRevision };
           const request =
@@ -101,23 +100,19 @@ const make = Effect.gen(function* () {
                     changes: input.newEvidence ?? input.evidence,
                   },
                 }
-              : workspacePath === undefined
-                ? undefined
-                : {
-                    agentTask: {
-                      role: "advisor" as const,
-                      taskClass: "non-ui" as const,
-                      workId: advisor.workId ?? input.clientRequestId,
-                      attemptId: input.clientRequestId,
-                      workspacePath,
-                      ...pin,
-                    },
-                    ...(advisor.target === undefined ? {} : { target: advisor.target }),
-                  };
-          if (request === undefined)
-            return yield* invalid(
-              "This thread has no workspace of its own: pass advisor.workspacePath, your project checkout.",
-            );
+              : {
+                  agentTask: {
+                    role: "advisor" as const,
+                    taskClass: "non-ui" as const,
+                    workId: advisor.workId ?? input.clientRequestId,
+                    attemptId: input.clientRequestId,
+                    ...(advisor.workspacePath === undefined
+                      ? {}
+                      : { workspacePath: advisor.workspacePath }),
+                    ...pin,
+                  },
+                  ...(advisor.target === undefined ? {} : { target: advisor.target }),
+                };
           const result = yield* orchestrator.delegateTask(scope, {
             ...request,
             clientRequestId: input.clientRequestId,

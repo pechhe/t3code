@@ -2,7 +2,8 @@ import { SecretStorage } from "./secretManagement.ts";
 import {
   AgentRole,
   StoredAgentRole,
-  AgentTaskRequest,
+  AgentTaskCallerRequest,
+  type AgentTaskRequest,
   AgentTaskBinding,
   AgentTaskHandoff,
   AgentTaskWireRequest,
@@ -201,7 +202,7 @@ export type OrchestratorMcpTerminalDelegatedTaskStatus =
 
 export const OrchestratorMcpDelegateTaskInput = Schema.Struct({
   externalSessionKey: Schema.optional(TrimmedNonEmptyString),
-  agentTask: Schema.optional(AgentTaskRequest),
+  agentTask: Schema.optional(AgentTaskCallerRequest),
   followup: Schema.optional(
     Schema.Struct({
       taskId: NodeId,
@@ -246,10 +247,15 @@ export const OrchestratorMcpDelegateTaskInput = Schema.Struct({
   }),
 });
 export type OrchestratorMcpDelegateTaskInput = typeof OrchestratorMcpDelegateTaskInput.Type;
+/** A `delegate_task` input once the server has filled in the task's workspace. */
+export type OrchestratorMcpResolvedDelegateTaskInput = Omit<
+  OrchestratorMcpDelegateTaskInput,
+  "agentTask"
+> & { readonly agentTask?: AgentTaskRequest | undefined };
 
 /**
  * The wire form advertises `agentTask` once, offering only the current roles while accepting
- * `lead` and retired names; the handler decodes it with `AgentTaskRequest` before the service sees it.
+ * `lead` and retired names; the handler decodes it with `AgentTaskCallerRequest` before the service sees it.
  */
 export const OrchestratorMcpDelegateTaskWireInput = Schema.Struct({
   ...OrchestratorMcpDelegateTaskInput.fields,
