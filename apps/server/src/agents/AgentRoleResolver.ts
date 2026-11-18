@@ -12,6 +12,7 @@ import type {
 } from "@t3tools/contracts";
 import {
   AgentPolicyCandidate,
+  isListedOnlyModel,
   isModelPoolSlotEnabled,
   isReviewerRole,
   managedExecution,
@@ -491,17 +492,25 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
     }
   }
   const requestedModel = input.selection?.model;
-  if (
+  const offList =
     request.offPolicyReason !== undefined &&
     requestedModel !== undefined &&
     !list.some((entry) => snapshot.manifest.models[entry.model]?.model === requestedModel)
-  ) {
-    const alias = `off-policy:${requestedModel}`;
+      ? requestedModel
+      : undefined;
+  if (offList !== undefined && isListedOnlyModel(snapshot.manifest, offList)) {
+    record(
+      `off-policy:${offList}`,
+      offList,
+      "listed-only: the policy never uses this model off a list; wait for a listed model instead",
+    );
+  } else if (offList !== undefined) {
+    const alias = `off-policy:${offList}`;
     const statedOptions = input.selection?.options ?? [];
     for (const provider of input.providers.filter(
       (candidate) => candidate.poolMembers === undefined,
     )) {
-      const skip = (reason: string) => record(alias, requestedModel, reason, provider.instanceId);
+      const skip = (reason: string) => record(alias, offList, reason, provider.instanceId);
       const writerRefusal = claudeWriterRefusal(provider.driver);
       if (writerRefusal !== undefined) {
         skip(writerRefusal);
@@ -527,7 +536,7 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
         skip("read-only-unenforced");
         continue;
       }
-      const model = provider.models.find((candidate) => candidate.slug === requestedModel);
+      const model = provider.models.find((candidate) => candidate.slug === offList);
       if (model === undefined) {
         skip("model-unavailable");
         continue;

@@ -38,6 +38,8 @@ import {
   setEntryEffort,
   setCouncil,
   setModelDefaultStance,
+  setModelListedOnly,
+  modelListedOnly,
   setModelFast,
   setModelNote,
   setModelOptions,
@@ -423,6 +425,12 @@ describe("delegation settings", () => {
     const unset = setModelDefaultStance(stanced, "claude-opus", undefined);
     expect(modelDefaultStance(unset, "claude-opus")).toBeUndefined();
     expect(unset.models.opus).toEqual(base.models.opus);
+
+    const kept = setModelListedOnly(twin, "claude-opus", true);
+    expect(modelListedOnly(kept, "claude-opus")).toBe(true);
+    expect(kept.models["opus-pi"]!.listedOnly).toBe(true);
+    expect(ensureModel(kept, elsewhere)[0].models[alias]!.listedOnly).toBe(true);
+    expect(setModelListedOnly(kept, "claude-opus", false).models.opus).toEqual(base.models.opus);
   });
 
   it("joins a model pool and its listed member slots into one row with one shared note", () => {

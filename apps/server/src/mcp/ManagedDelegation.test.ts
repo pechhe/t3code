@@ -106,6 +106,7 @@ const services = Layer.mergeAll(Managed.layer, Experiments.layer).pipe(
 const unlistedCodex = provider("codex", codex.instanceId, [
   ...codex.models.map((model) => model.slug),
   "gpt-unlisted-test",
+  "gpt-premium-test",
 ]);
 
 it.layer(services)("managed delegation experiment boundary", (it) => {
@@ -1227,7 +1228,16 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
     "requires a managed role where a policy is configured, allowing offPolicyReason only as an explicit fallback",
     () =>
       Effect.gen(function* () {
-        const h = yield* harness(() => [], true, { providers: [unlistedCodex, claude] });
+        const h = yield* harness(() => [], true, {
+          providers: [unlistedCodex, claude],
+          policy: (manifest) => ({
+            ...manifest,
+            models: {
+              ...manifest.models,
+              premium: { driverKind: codex.driver, model: "gpt-premium-test", listedOnly: true },
+            },
+          }),
+        });
         const raw = { task: "Do something", clientRequestId: "raw-1" };
         const refusal = yield* h.delegate(raw);
         expect(refusal.code).toBe("invalid_request");
@@ -1272,6 +1282,36 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           (h.dispatched[0] as { agentTask?: AgentTaskBinding }).agentTask?.offPolicyReason,
         ).toBe(offListReason);
 
+        // A model the policy keeps to its lists is never an off-list fallback, managed or not.
+        const listedOnlyReason = "Every listed model is unavailable.";
+        const managedPremium = yield* h.delegate({
+          ...raw,
+          clientRequestId: "off-list-listed-only",
+          offPolicyReason: listedOnlyReason,
+          agentTask: request({ workspacePath: h.lead }),
+          target: { model: "gpt-premium-test" },
+        });
+        expect(managedPremium.code).toBe("capability_denied");
+        expect(managedPremium.message).toContain("never uses this model off a list");
+        expect(
+          (yield* h.delegate({
+            ...raw,
+            clientRequestId: "raw-listed-only",
+            offPolicyReason: listedOnlyReason,
+            target: { model: "gpt-premium-test" },
+          })).code,
+        ).toBe("capability_denied");
+        // Nor through a linked environment, whose plain thread launch has no policy to ask.
+        expect(
+          (yield* h.delegate({
+            ...raw,
+            clientRequestId: "remote-listed-only",
+            offPolicyReason: listedOnlyReason,
+            target: { model: "gpt-premium-test", environmentId: EnvironmentId.make("linked-box") },
+          })).code,
+        ).toBe("capability_denied");
+        expect(h.dispatched).toHaveLength(1);
+
         // Unmanaged fallback succeeds when offPolicyReason explains why no role fits.
         yield* h.delegate({
           ...raw,
@@ -1286,6 +1326,15 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         expect((yield* h.delegate({ ...raw, clientRequestId: "raw-2" })).code).toBe(
           "invalid_request",
         );
+        // An unreadable policy cannot say which models it keeps to its lists, so none starts off-list.
+        expect(
+          (yield* h.delegate({
+            ...raw,
+            clientRequestId: "raw-unreadable-off-list",
+            offPolicyReason: "No canonical role fits a spike.",
+            target: { model: "gpt-unlisted-test" },
+          })).code,
+        ).toBe("capability_denied");
       }).pipe(
         Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
       ),

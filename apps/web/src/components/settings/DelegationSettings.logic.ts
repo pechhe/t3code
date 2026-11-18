@@ -377,10 +377,16 @@ export function ensureModel(
     pool === undefined
       ? modelDefaultStance(manifest, model.binding.model)
       : poolDefaultStance(manifest, pool, modelPools);
+  const listedOnly = modelListedOnly(
+    manifest,
+    pool === undefined ? model.binding.model : `pool:${pool}`,
+    modelPools,
+  );
   const binding = {
     ...model.binding,
     ...(note === undefined ? {} : { note }),
     ...(defaultStance === undefined ? {} : { defaultStance }),
+    ...(listedOnly ? { listedOnly } : {}),
   };
   const slug = model.poolId === undefined ? model.binding.model : `pool-${model.poolId}`;
   const base = `m-${slug.toLowerCase().replace(/[^a-z0-9-]+/g, "-")}`.slice(0, 60);
@@ -480,6 +486,25 @@ export function setModelOptions(
   };
 }
 
+/** Rewrites every binding a row covers: each alias of a model, or a pool (`pool:<id>`) and its slots. */
+function updateCovered(
+  manifest: Manifest,
+  model: string,
+  modelPools: ModelPools,
+  update: (binding: Binding) => Binding,
+): Manifest {
+  const poolId = model.startsWith("pool:") ? (model.slice(5) as ModelPoolId) : undefined;
+  const covers = (binding: Binding) =>
+    poolId === undefined ? binding.model === model : coveredByPool(binding, poolId, modelPools);
+  const models = Object.fromEntries(
+    Object.entries(manifest.models).map(([alias, binding]) => [
+      alias,
+      covers(binding) ? update(binding) : binding,
+    ]),
+  );
+  return { ...manifest, models };
+}
+
 /**
  * Sets what a model is good at on every alias binding it; an empty note removes it. A pool's
  * note (`model` given as `pool:<id>`) covers the pool and every member slot's binding.
@@ -491,17 +516,9 @@ export function setModelNote(
   modelPools: ModelPools = NO_POOLS,
 ): Manifest {
   const text = note.trim();
-  const poolId = model.startsWith("pool:") ? (model.slice(5) as ModelPoolId) : undefined;
-  const covers = (binding: Binding) =>
-    poolId === undefined ? binding.model === model : coveredByPool(binding, poolId, modelPools);
-  const models = Object.fromEntries(
-    Object.entries(manifest.models).map(([alias, binding]) => {
-      if (!covers(binding)) return [alias, binding];
-      const { note: _previous, ...rest } = binding;
-      return [alias, text === "" ? rest : { ...rest, note: text }];
-    }),
+  return updateCovered(manifest, model, modelPools, ({ note: _previous, ...rest }) =>
+    text === "" ? rest : { ...rest, note: text },
   );
-  return { ...manifest, models };
 }
 
 /**
@@ -514,17 +531,35 @@ export function setModelDefaultStance(
   defaultStance: DelegationStance | undefined,
   modelPools: ModelPools = NO_POOLS,
 ): Manifest {
-  const poolId = model.startsWith("pool:") ? (model.slice(5) as ModelPoolId) : undefined;
-  const covers = (binding: Binding) =>
-    poolId === undefined ? binding.model === model : coveredByPool(binding, poolId, modelPools);
-  const models = Object.fromEntries(
-    Object.entries(manifest.models).map(([alias, binding]) => {
-      if (!covers(binding)) return [alias, binding];
-      const { defaultStance: _previous, ...rest } = binding;
-      return [alias, defaultStance === undefined ? rest : { ...rest, defaultStance }];
-    }),
+  return updateCovered(manifest, model, modelPools, ({ defaultStance: _previous, ...rest }) =>
+    defaultStance === undefined ? rest : { ...rest, defaultStance },
   );
-  return { ...manifest, models };
+}
+
+/** Whether a row's model (or `pool:<id>`) is kept to its lists, never an off-list fallback. */
+export function modelListedOnly(
+  manifest: Manifest,
+  model: string,
+  modelPools: ModelPools = NO_POOLS,
+): boolean {
+  const poolId = model.startsWith("pool:") ? (model.slice(5) as ModelPoolId) : undefined;
+  return Object.values(manifest.models).some(
+    (binding) =>
+      binding.listedOnly === true &&
+      (poolId === undefined ? binding.model === model : coveredByPool(binding, poolId, modelPools)),
+  );
+}
+
+/** Keeps a model to its lists on every alias binding it, or lets it serve as an off-list fallback. */
+export function setModelListedOnly(
+  manifest: Manifest,
+  model: string,
+  listedOnly: boolean,
+  modelPools: ModelPools = NO_POOLS,
+): Manifest {
+  return updateCovered(manifest, model, modelPools, ({ listedOnly: _previous, ...rest }) =>
+    listedOnly ? { ...rest, listedOnly } : rest,
+  );
 }
 
 interface ListedModel {

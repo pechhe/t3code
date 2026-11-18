@@ -49,6 +49,8 @@ import {
   setCouncil,
   setEntryEffort,
   setModelDefaultStance,
+  setModelListedOnly,
+  modelListedOnly,
   setModelNote,
   modelDefaultStance,
   poolDefaultStance,
@@ -923,7 +925,9 @@ function ModelsSection({
     <SettingsSection id="delegation-models" title="Models">
       <p className="px-3 py-2.5 text-xs text-muted-foreground sm:px-4">
         One note and one default stance per model. Agents read the note when choosing a model. A new
-        thread starts on its model&apos;s default stance, or Flexible when it has none.
+        thread starts on its model&apos;s default stance, or Flexible when it has none. When every
+        model on a job&apos;s list is unavailable, an agent may fall back to another model, never to
+        one marked Never off-list.
       </p>
       {listedModels(manifest, jobs, modelPools).map(({ alias, model, poolId, roles }) => {
         const binding = manifest.models[alias]!;
@@ -991,6 +995,19 @@ function ModelsSection({
                         modelPools,
                       ),
                     )
+                  }
+                />
+              </div>
+              <div className="shrink-0">
+                <Choice
+                  label={`Off-list use of ${name}`}
+                  value={modelListedOnly(manifest, model, modelPools) ? "never" : "fallback"}
+                  values={[
+                    { value: "fallback", label: "Off-list fallback" },
+                    { value: "never", label: "Never off-list" },
+                  ]}
+                  onChange={(value) =>
+                    onChange(setModelListedOnly(manifest, model, value === "never", modelPools))
                   }
                 />
               </div>

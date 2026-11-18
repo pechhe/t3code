@@ -201,7 +201,22 @@ const ModelBinding = Schema.Struct({
   /** What the model is good at, which a delegating agent reads to choose it for a task. */
   note: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(MODEL_NOTE_MAX_LENGTH))),
   defaultStance: Schema.optional(DelegationStance),
+  /** Never chosen off a list: an `offPolicyReason` cannot select it, so it runs only where listed. */
+  listedOnly: Schema.optional(Schema.Boolean),
 });
+
+/** Whether the policy keeps a model to the lists that name it, refusing it as an off-list fallback. */
+export const isListedOnlyModel = (
+  manifest: {
+    readonly models: Readonly<
+      Record<string, { readonly model: string; readonly listedOnly?: boolean | undefined }>
+    >;
+  },
+  model: string,
+) =>
+  Object.values(manifest.models).some(
+    (binding) => binding.listedOnly === true && binding.model === model,
+  );
 
 const MAKER_FAMILIES: ReadonlyArray<readonly [string, string]> = [
   ["claude", "anthropic"],

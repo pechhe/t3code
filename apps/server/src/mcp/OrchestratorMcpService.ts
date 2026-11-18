@@ -3775,6 +3775,18 @@ const make = Effect.gen(function* () {
                 failure("orchestration_error", "Unable to read delegation settings."),
               ),
             );
+        // Role resolution holds a managed task to the same rule, here or at a linked destination.
+        if (
+          input.agentTask === undefined &&
+          input.offPolicyReason !== undefined &&
+          input.target?.model !== undefined
+        ) {
+          const policyService = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
+          const refusal = Option.isSome(policyService)
+            ? yield* policyService.value.offListRefusal(input.target.model)
+            : undefined;
+          if (refusal !== undefined) return yield* failure("capability_denied", refusal);
+        }
         const environmentId =
           input.target === undefined
             ? undefined

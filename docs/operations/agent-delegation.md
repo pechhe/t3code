@@ -210,8 +210,11 @@ its revision and the role names, or the reason the policy is refused.
   role's list while preserving the role's brief, permissions and workspace rules;
   without `agentTask`, it permits an unmanaged fallback only when no role fits
   (calls omitting `offPolicyReason` are still refused, even when the configured
-  policy is unreadable). Without a configured policy, unmanaged delegation is
-  unchanged.
+  policy is unreadable). Neither admits a model whose binding sets `listedOnly`
+  (Settings > Delegation > Models, Never off-list): the policy keeps such a model,
+  typically the most expensive, to the lists that name it; while a named policy
+  cannot be read, no unmanaged fallback naming a model starts. Without a configured
+  policy, unmanaged delegation is unchanged.
 - A Spec lead (internal role `lead`) is the one delegated task with a top-level thread's
   lifecycle. A top-level thread starts it as an `implementer` with the Spec as `forgeItem`;
   a `lead` request is still accepted. A delegated task cannot start one: it builds the

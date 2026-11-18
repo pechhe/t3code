@@ -32,6 +32,7 @@ import {
   type ThreadId,
   grantsBrowserTasks,
   isLeafAgentTask,
+  isListedOnlyModel,
   isReviewerRole,
   managedExecution,
   modelNote,
@@ -259,6 +260,11 @@ export class ManagedAgentService extends Context.Service<
     }) => Effect.Effect<ProjectId, ManagedAgentError | E>;
     /** Whether this environment names a policy, readable or not. */
     readonly configured: () => Effect.Effect<boolean>;
+    /**
+     * Why an unmanaged off-list delegation may not start on `model`: the policy keeps it to its
+     * lists, or a named policy cannot be read. `undefined` when it may.
+     */
+    readonly offListRefusal: (model: string) => Effect.Effect<string | undefined>;
     /** Serialises workspace occupancy checks with the launch they authorise, across routes. */
     readonly exclusive: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
     /**
@@ -887,6 +893,17 @@ const make = Effect.gen(function* () {
         Effect.orElseSucceed(() => false),
       ),
     ),
+    offListRefusal: Effect.fn("ManagedAgentService.offListRefusal")(function* (model: string) {
+      const root = yield* agentPolicyRoot.pipe(Effect.orElseSucceed(() => Option.none()));
+      if (Option.isNone(root)) return undefined;
+      // An outage must not open free choice.
+      const current = yield* currentPolicy.pipe(Effect.option);
+      if (Option.isNone(current))
+        return "The role policy cannot be read, so no off-list model may start; wait for it to be fixed.";
+      return isListedOnlyModel(current.value.manifest, model)
+        ? `The policy never uses ${model} off a list; wait for a listed model instead.`
+        : undefined;
+    }),
     exclusive: Effect.fn("ManagedAgentService.exclusive")((effect) =>
       isolatedLaunches.withPermit(effect),
     ),
