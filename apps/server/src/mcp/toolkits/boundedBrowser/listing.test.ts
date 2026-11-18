@@ -15,12 +15,12 @@ const listed = (tools: ReadonlyArray<Tool.Any>) =>
   );
 
 it("keeps the bounded browser task tools within their listing budget", () => {
-  // T3-571's guarded ordinal repeats at every target: task 16,348; full family 19,025.
-  expect(listed([BoundedBrowserToolkit.tools.t3_browser_task])).toBeLessThan(16_450);
+  // T3-571's guarded ordinal repeats at every target: task 16,513; full family 19,188.
+  expect(listed([BoundedBrowserToolkit.tools.t3_browser_task])).toBeLessThan(16_550);
   expect(
     listed([
       ...Object.values(BoundedBrowserToolkit.tools),
       ...Object.values(BoundedBrowserSnapshotToolkit.tools),
     ]),
-  ).toBeLessThan(19_150);
+  ).toBeLessThan(19_250);
 });

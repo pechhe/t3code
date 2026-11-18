@@ -1,6 +1,7 @@
 import { expect, it } from "@effect/vitest";
 import * as Schema from "effect/Schema";
 import { Tool } from "effect/ai";
+import { ProjectId, ThreadId, TrimmedString } from "@t3tools/contracts";
 
 import { advertisedJsonSchema } from "./advertisedJsonSchema.ts";
 
@@ -48,5 +49,31 @@ it("drops JSON noise, merges tagged unions, flattens check fragments, and keeps 
       },
     },
     required: ["beforeRunId", "role", "every"],
+  });
+});
+
+it("keeps descriptions of transformed parameters, such as ids built on TrimmedString", () => {
+  const tool = Tool.make("example", {
+    parameters: Schema.Struct({
+      threadId: ThreadId.annotate({ description: "Thread." }),
+      projectId: Schema.optional(ProjectId.annotate({ description: "Project." })),
+      threadIds: Schema.Array(ThreadId.annotate({ description: "One thread." })),
+      note: Schema.Struct({ text: TrimmedString.annotate({ description: "Text." }) }),
+    }),
+  });
+
+  expect(advertisedJsonSchema(tool)).toEqual({
+    type: "object",
+    properties: {
+      threadId: { type: "string", description: "Thread." },
+      projectId: { type: "string", description: "Project." },
+      threadIds: { type: "array", items: { type: "string", description: "One thread." } },
+      note: {
+        type: "object",
+        properties: { text: { type: "string", description: "Text." } },
+        required: ["text"],
+      },
+    },
+    required: ["threadId", "threadIds", "note"],
   });
 });

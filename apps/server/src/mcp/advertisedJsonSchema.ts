@@ -1,4 +1,5 @@
 import * as Predicate from "effect/Predicate";
+import * as SchemaAST from "effect/SchemaAST";
 import { Tool } from "effect/ai";
 
 type Json = unknown;
@@ -108,6 +109,36 @@ const compact = (schema: Json, optional: boolean): Json => {
   return result;
 };
 
+// `annotate` describes a transformed schema's decoded side, but JSON Schema shows its encoded
+// side, so a description on `TrimmedString` or an id built on it would never reach the agent.
+const withDecodedDescriptions = (ast: SchemaAST.AST, schema: Json): Json => {
+  if (!Predicate.isObject(schema)) return schema;
+  const result: JsonObject = { ...schema };
+  const description = SchemaAST.resolveDescription(ast);
+  if (description !== undefined && result.description === undefined)
+    result.description = description;
+  if (SchemaAST.isObjects(ast) && Predicate.isObject(result.properties)) {
+    const properties: JsonObject = { ...result.properties };
+    for (const { name, type } of ast.propertySignatures) {
+      if (typeof name === "string" && name in properties)
+        properties[name] = withDecodedDescriptions(type, properties[name]);
+    }
+    result.properties = properties;
+  } else if (
+    SchemaAST.isUnion(ast) &&
+    Array.isArray(result.anyOf) &&
+    result.anyOf.length === ast.types.length
+  ) {
+    const branches: Array<Json> = result.anyOf;
+    result.anyOf = branches.map((branch, index) =>
+      withDecodedDescriptions(ast.types[index]!, branch),
+    );
+  } else if (SchemaAST.isArrays(ast) && ast.elements.length === 0 && ast.rest.length === 1) {
+    result.items = withDecodedDescriptions(ast.rest[0]!, result.items);
+  }
+  return result;
+};
+
 /**
  * The input schema T3 advertises for a tool. Drops JSON noise that every thread pays for:
  * `additionalProperties: true`, safe-integer bounds, nested `anyOf`, JSON-string fallbacks, and
@@ -115,4 +146,7 @@ const compact = (schema: Json, optional: boolean): Json => {
  * Decoding still uses the full schema, so each tag's own required fields still apply.
  */
 export const advertisedJsonSchema = (tool: Tool.Any) =>
-  compact(Tool.getJsonSchema(tool), false) as ReturnType<typeof Tool.getJsonSchema>;
+  compact(
+    withDecodedDescriptions(tool.parametersSchema.ast, Tool.getJsonSchema(tool)),
+    false,
+  ) as ReturnType<typeof Tool.getJsonSchema>;
