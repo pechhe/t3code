@@ -506,7 +506,11 @@ const make = Effect.gen(function* () {
     const rows = yield* sql<{
       document_json: string;
     }>`SELECT document_json FROM champions WHERE id = ${id}`.pipe(Effect.mapError(failure));
-    if (rows[0] === undefined) return yield* new ChampionError({ reason: "not-found" });
+    if (rows[0] === undefined)
+      return yield* new ChampionError({
+        reason: "not-found",
+        detail: `No Champion has id "${id}" in this environment.`,
+      });
     return yield* decodeDocument(rows[0].document_json).pipe(Effect.mapError(failure));
   });
   const write = Effect.fn("ChampionService.write")(function* (doc: Document) {
