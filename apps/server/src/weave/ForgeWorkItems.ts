@@ -52,8 +52,13 @@ export const BUILD_MAX_REREAD_INTERVAL_MS = 4 * BUILD_REREAD_INTERVAL_MS;
 const CACHED_SUMMARY_MAX_AGE_MS = BUILD_MAX_REREAD_INTERVAL_MS + BUILD_REREAD_INTERVAL_MS;
 /** An item is read again this often even when no check saw it change. */
 export const SUMMARY_SAFETY_REFRESH_MS = 30 * 60_000;
-/** A check asks from this long before its watermark, so clock skew or a save in flight is not missed. */
-const CHANGE_CHECK_OVERLAP_MS = 60_000;
+/**
+ * A check asks from this long before its watermark, so a save stamped before it committed, or
+ * Weave's clock running behind T3's, is not missed. Items found again in the overlap are not reread.
+ */
+const CHANGE_CHECK_OVERLAP_MS = 5 * 60_000;
+/** A check that takes longer than this counts as failed, so a slow Weave holds no card back. */
+const CHANGE_CHECK_TIMEOUT = "10 seconds";
 const CHANGE_PAGE_LIMIT = 100;
 /** More pages than this and every item counts as changed for the round. */
 const CHANGE_MAX_PAGES = 5;
@@ -511,6 +516,29 @@ const make = Effect.gen(function* () {
     );
   };
 
+  /** Every item Forge saved since `since`, page by page; none when an answer fails or can't be read. */
+  const listChanges = Effect.fn("ForgeWorkItems.listChanges")(function* (since: number) {
+    const found = new Map<number, string>();
+    let offset = 0;
+    for (let page = 0; page < CHANGE_MAX_PAGES; page++) {
+      const answer = yield* weave
+        .observe("weave_forge_list", {
+          updatedSince: DateTime.formatIso(DateTime.makeUnsafe(since)),
+          limit: CHANGE_PAGE_LIMIT,
+          offset,
+        })
+        .pipe(Effect.option);
+      const decoded = Option.flatMap(answer, (result) => decodeChangeList(result.value));
+      if (Option.isNone(decoded)) return Option.none();
+      for (const entry of decoded.value.items) found.set(entry.number, entry.updatedAt);
+      if (!decoded.value.hasMore) return Option.some({ found, overflow: false });
+      const next = decoded.value.nextOffset;
+      if (next === undefined || next === null || next <= offset) return Option.none();
+      offset = next;
+    }
+    return Option.some({ found, overflow: true });
+  });
+
   /**
    * Asks Forge what changed since the last check, at most once an interval per connection. A
    * failed or unreadable answer leaves the watermark where it was and marks the round `ok: false`.
@@ -524,38 +552,22 @@ const make = Effect.gen(function* () {
         if (previous !== undefined && now - previous.attemptedAt < BUILD_REREAD_INTERVAL_MS)
           return previous;
         const since = Math.max(0, (previous?.watermark ?? now) - CHANGE_CHECK_OVERLAP_MS);
-        const found = new Map<number, string>();
-        let overflow = false;
-        let failed = false;
-        if (previous !== undefined) {
-          let offset = 0;
-          for (let page = 0; ; page++) {
-            if (page >= CHANGE_MAX_PAGES) {
-              overflow = true;
-              break;
-            }
-            const answer = yield* weave
-              .observe("weave_forge_list", {
-                updatedSince: DateTime.formatIso(DateTime.makeUnsafe(since)),
-                limit: CHANGE_PAGE_LIMIT,
-                offset,
-              })
-              .pipe(Effect.option);
-            const decoded = Option.flatMap(answer, (result) => decodeChangeList(result.value));
-            if (Option.isNone(decoded)) {
-              failed = true;
-              break;
-            }
-            for (const entry of decoded.value.items) found.set(entry.number, entry.updatedAt);
-            if (!decoded.value.hasMore) break;
-            const next = decoded.value.nextOffset;
-            if (next === undefined || next === null || next <= offset) {
-              failed = true;
-              break;
-            }
-            offset = next;
-          }
-        }
+        const listed =
+          previous === undefined
+            ? Option.some({ found: new Map<number, string>(), overflow: false })
+            : yield* listChanges(since).pipe(
+                Effect.timeoutOption(CHANGE_CHECK_TIMEOUT),
+                Effect.map(Option.flatten),
+              );
+        // A change is seen when Forge answered, not when the check began: an item read while the
+        // check was under way may predate a change the answer names, so it must still be reread.
+        const answeredAt = yield* Clock.currentTimeMillis;
+        const failed = Option.isNone(listed);
+        const found = Option.match(listed, {
+          onNone: () => new Map<number, string>(),
+          onSome: (answer) => answer.found,
+        });
+        const overflow = Option.isSome(listed) && listed.value.overflow;
         if (failed) yield* Effect.logWarning("Could not check Forge for changes");
         const changed = new Map<number, { updatedAt: string; seenAt: number }>();
         for (const [number, entry] of previous?.changed ?? [])
@@ -563,13 +575,13 @@ const make = Effect.gen(function* () {
         for (const [number, updatedAt] of found) {
           const known = changed.get(number);
           if (known === undefined || known.updatedAt !== updatedAt)
-            changed.set(number, { updatedAt, seenAt: now });
+            changed.set(number, { updatedAt, seenAt: answeredAt });
         }
         const next: ChangeFeed = {
           attemptedAt: now,
           watermark: failed ? (previous?.watermark ?? now) : now,
           ok: !failed,
-          allChangedAt: overflow ? now : (previous?.allChangedAt ?? -1),
+          allChangedAt: overflow ? answeredAt : (previous?.allChangedAt ?? -1),
           changed,
         };
         changeFeeds.set(connection.connection, next);

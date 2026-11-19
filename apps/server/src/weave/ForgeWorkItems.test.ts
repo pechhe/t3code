@@ -716,6 +716,22 @@ it.effect("falls back to rereading each interval while the change check fails", 
   }),
 );
 
+it.effect("rereads every shown item when more changed than the check pages through", () =>
+  Effect.gen(function* () {
+    const { views, buildReads, calls, add, touch } = yield* makeChangeCheckHarness;
+    const unshown = Array.from({ length: 501 }, (_, index) =>
+      item(2_000_000 + index, "ticket", `Unshown ${index}`, "ready"),
+    );
+    add(...unshown);
+    yield* Effect.forEach(unshown, touch);
+    yield* TestClock.adjust(60_000);
+    const before = buildReads();
+    yield* views();
+    assert.strictEqual(calls("weave_forge_list"), 5);
+    assert.strictEqual(buildReads() - before, 10);
+  }),
+);
+
 it.effect("rereads an unchanged item once the safety refresh lapses", () =>
   Effect.gen(function* () {
     const { views, buildReads, calls } = yield* makeChangeCheckHarness;
