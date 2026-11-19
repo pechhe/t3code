@@ -26,6 +26,7 @@ import {
   ThreadId,
   TurnItemId,
 } from "@t3tools/contracts";
+import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as TestClock from "effect/testing/TestClock";
 import * as Fiber from "effect/Fiber";
@@ -578,36 +579,61 @@ const makeForgeHarness = Effect.gen(function* () {
     unreachable: false,
   };
   const connection = { origin: "https://weave.example", connection: "test-connection" };
+  const changes = { seen: JSON.stringify(state.item), at: -1 };
   const weave = Layer.mock(WeaveAgentConnections.WeaveAgentConnections)({
     read: Effect.succeed(connection),
     buildWriteVersion: Effect.succeed(0),
     observe: (tool, args) =>
-      Effect.sync(() => {
-        if (tool === "weave_forge_waits") {
-          state.waits++;
-          return {
-            ...connection,
-            value: state.item.waits.map((wait) => ({
-              required: wait.required,
-              blocker: { number: wait.number, title: wait.title, status: wait.status },
-            })),
-          };
-        }
-        // An answer T3 cannot decode reads as Weave being unreachable for that number.
-        if (args.number === UNREACHABLE_BUILD_NUMBER) return { ...connection, value: {} };
-        if (args.number !== undefined) state.resolutions++;
-        else state.reads++;
-        if (state.unreachable && args.number === undefined) return { ...connection, value: {} };
-        return {
-          ...connection,
-          value: {
-            ...state.item,
-            id: "build-item",
-            number: 1000001,
-            holds: state.item.holds.map((hold) => ({ ...hold, clearedAt: null })),
-          },
-        };
-      }),
+      tool === "weave_forge_list"
+        ? // The change check: the item counts as saved when the check first sees it differ.
+          Clock.currentTimeMillis.pipe(
+            Effect.map((now) => {
+              const seen = JSON.stringify(state.item);
+              if (seen !== changes.seen) Object.assign(changes, { seen, at: now });
+              const since = Date.parse(String(args.updatedSince));
+              return {
+                ...connection,
+                value: {
+                  items:
+                    changes.at >= since
+                      ? [
+                          {
+                            number: 1000001,
+                            updatedAt: DateTime.formatIso(DateTime.makeUnsafe(changes.at)),
+                          },
+                        ]
+                      : [],
+                  hasMore: false,
+                },
+              };
+            }),
+          )
+        : Effect.sync(() => {
+            if (tool === "weave_forge_waits") {
+              state.waits++;
+              return {
+                ...connection,
+                value: state.item.waits.map((wait) => ({
+                  required: wait.required,
+                  blocker: { number: wait.number, title: wait.title, status: wait.status },
+                })),
+              };
+            }
+            // An answer T3 cannot decode reads as Weave being unreachable for that number.
+            if (args.number === UNREACHABLE_BUILD_NUMBER) return { ...connection, value: {} };
+            if (args.number !== undefined) state.resolutions++;
+            else state.reads++;
+            if (state.unreachable && args.number === undefined) return { ...connection, value: {} };
+            return {
+              ...connection,
+              value: {
+                ...state.item,
+                id: "build-item",
+                number: 1000001,
+                holds: state.item.holds.map((hold) => ({ ...hold, clearedAt: null })),
+              },
+            };
+          }),
   });
   const build = yield* Effect.service(ForgeWorkItems.ForgeWorkItems).pipe(
     Effect.provide(ForgeWorkItems.layer.pipe(Layer.provide(weave))),
@@ -1831,7 +1857,7 @@ it.layer(layerTest)("thread watches", (it) => {
   );
 
   it.effect(
-    "the Build reactor's own polling wakes on the backed-off cadence without thread events",
+    "the Build reactor's own polling wakes within a minute of a change without thread events",
     () =>
       Effect.gen(function* () {
         const h = yield* makeForgeHarness;
@@ -1853,9 +1879,7 @@ it.layer(layerTest)("thread watches", (it) => {
         yield* TestClock.adjust("1 minute");
         assert.lengthOf(yield* h.messages(watcher), 0);
         h.state.item = { ...h.state.item, waits: [] };
-        // The unchanged read at one minute backed the item off to two minutes.
-        yield* TestClock.adjust("1 minute");
-        assert.lengthOf(yield* h.messages(watcher), 0);
+        // The next minute's change check names the item, so it is read again and the watch wakes.
         yield* TestClock.adjust("1 minute");
         assert.lengthOf(yield* Fiber.join(fired), 1);
         assert.lengthOf(yield* h.messages(watcher), 1);

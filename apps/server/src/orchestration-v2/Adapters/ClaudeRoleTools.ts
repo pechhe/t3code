@@ -1,7 +1,7 @@
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 
 /** What a managed writer adds to the read-only set: the coding tools, nothing else from the preset. */
-const CLAUDE_MANAGED_WRITER_EXTRA_TOOLS = ["Write", "Edit", "Bash"] as const;
+export const CLAUDE_MANAGED_WRITER_EXTRA_TOOLS = ["Write", "Edit", "Bash"] as const;
 const CLAUDE_WEB_RESEARCH_TOOLS = ["WebSearch", "WebFetch"] as const;
 /** Off for every editor: T3's `delegate_task` and `web_search` replace them, and T3 can count the former. */
 export const CLAUDE_HARNESS_EXTRA_TOOLS = [

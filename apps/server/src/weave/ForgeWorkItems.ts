@@ -41,14 +41,27 @@ import * as ThreadManagementService from "../orchestration-v2/ThreadManagementSe
 import * as WeaveAgentConnections from "./WeaveAgentConnections.ts";
 
 /**
- * Forge has no change feed. Clients re-request a shown item on this cadence, and the server
- * starts at this interval and backs off unchanged results to four minutes, so with one client
- * re-request on top a change still shows within five. No timer reads Weave here.
+ * Clients re-request a shown item on this cadence. Per Weave connection, at most once an interval
+ * one `weave_forge_list` call asks which items changed since the last check, and only those, items
+ * waiting on them and items past the safety refresh are read again, so a change shows within about
+ * a minute however many items are shown. No timer reads Weave here.
  */
 export const BUILD_REREAD_INTERVAL_MS = 60_000;
 export const BUILD_MAX_REREAD_INTERVAL_MS = 4 * BUILD_REREAD_INTERVAL_MS;
-/** As old as a shown item gets: the server's longest back-off plus one client re-request. */
+/** A cached summary is shown without a fresh change check for this long. */
 const CACHED_SUMMARY_MAX_AGE_MS = BUILD_MAX_REREAD_INTERVAL_MS + BUILD_REREAD_INTERVAL_MS;
+/** An item is read again this often even when no check saw it change. */
+export const SUMMARY_SAFETY_REFRESH_MS = 30 * 60_000;
+/**
+ * A check asks from this long before its watermark, so a save stamped before it committed, or
+ * Weave's clock running behind T3's, is not missed. Items found again in the overlap are not reread.
+ */
+const CHANGE_CHECK_OVERLAP_MS = 5 * 60_000;
+/** A check that takes longer than this counts as failed, so a slow Weave holds no card back. */
+const CHANGE_CHECK_TIMEOUT = "10 seconds";
+const CHANGE_PAGE_LIMIT = 100;
+/** More pages than this and every item counts as changed for the round. */
+const CHANGE_MAX_PAGES = 5;
 
 /**
  * `fresh` reads Forge now instead of answering from the cache. Writes made outside T3's own Weave
@@ -292,12 +305,34 @@ const CARD_OPENS_REMEMBERED = 32;
 /** Cards kept for their last known state; the least recently asked for go first. */
 export const CARD_CACHE_LIMIT = 256;
 
-interface CachedItem extends ReadCadence {
+interface CachedItem {
   readonly item: ForgeWorkItemSummary | null;
+  readonly writeVersion: number;
   readonly readAt: number | null;
   readonly attemptedAt: number;
   readonly unavailable: boolean;
 }
+
+/** What one Weave connection's change checks have seen. */
+interface ChangeFeed {
+  /** When the last check started, successful or not. */
+  readonly attemptedAt: number;
+  /** When the last successful check started; the next asks from just before it. */
+  readonly watermark: number;
+  /** Whether the last check answered; when not, summaries fall back to the interval cadence. */
+  readonly ok: boolean;
+  /** Set when a check's changes overflowed the page cap: everything read earlier is stale. */
+  readonly allChangedAt: number;
+  /** Changed items by number: Forge's `updatedAt` and when T3 first saw that change. */
+  readonly changed: ReadonlyMap<number, { readonly updatedAt: string; readonly seenAt: number }>;
+}
+
+const ChangeList = Schema.Struct({
+  items: Schema.Array(Schema.Struct({ number: Schema.Number, updatedAt: Schema.String })),
+  hasMore: Schema.Boolean,
+  nextOffset: Schema.optionalKey(Schema.NullOr(Schema.Number)),
+});
+const decodeChangeList = Schema.decodeUnknownOption(ChangeList);
 
 /** Items kept for their last known summary, and numbers kept resolved, per Weave connection. */
 const ITEM_CACHE_LIMIT = 1024;
@@ -457,13 +492,111 @@ const make = Effect.gen(function* () {
 
   type Connection = { readonly origin: string; readonly connection: string };
 
-  /** An item as clients show it, on its adaptive cadence however many ask, or read now when `fresh`. */
+  const changeFeeds = new Map<string, ChangeFeed>();
+
+  /** Whether a cached summary may still be shown: nothing it names changed since it was read. */
+  const isCurrent = (
+    feed: ChangeFeed | undefined,
+    cached: CachedItem,
+    number: number,
+    now: number,
+  ) => {
+    if (
+      cached.unavailable ||
+      cached.item === null ||
+      cached.readAt === null ||
+      feed === undefined ||
+      !feed.ok
+    )
+      return now - cached.attemptedAt < BUILD_REREAD_INTERVAL_MS;
+    if (now - cached.readAt >= SUMMARY_SAFETY_REFRESH_MS) return false;
+    if (feed.allChangedAt > cached.attemptedAt) return false;
+    return ![number, ...cached.item.waits.map((wait) => wait.number)].some(
+      (changed) => (feed.changed.get(changed)?.seenAt ?? -1) > cached.attemptedAt,
+    );
+  };
+
+  /** Every item Forge saved since `since`, page by page; none when an answer fails or can't be read. */
+  const listChanges = Effect.fn("ForgeWorkItems.listChanges")(function* (since: number) {
+    const found = new Map<number, string>();
+    let offset = 0;
+    for (let page = 0; page < CHANGE_MAX_PAGES; page++) {
+      const answer = yield* weave
+        .observe("weave_forge_list", {
+          updatedSince: DateTime.formatIso(DateTime.makeUnsafe(since)),
+          limit: CHANGE_PAGE_LIMIT,
+          offset,
+        })
+        .pipe(Effect.option);
+      const decoded = Option.flatMap(answer, (result) => decodeChangeList(result.value));
+      if (Option.isNone(decoded)) return Option.none();
+      for (const entry of decoded.value.items) found.set(entry.number, entry.updatedAt);
+      if (!decoded.value.hasMore) return Option.some({ found, overflow: false });
+      const next = decoded.value.nextOffset;
+      if (next === undefined || next === null || next <= offset) return Option.none();
+      offset = next;
+    }
+    return Option.some({ found, overflow: true });
+  });
+
+  /**
+   * Asks Forge what changed since the last check, at most once an interval per connection. A
+   * failed or unreadable answer leaves the watermark where it was and marks the round `ok: false`.
+   */
+  const changeFeedOf = (connection: Connection) =>
+    readLock.withLock(
+      `changes\n${connection.connection}`,
+      Effect.gen(function* () {
+        const now = yield* Clock.currentTimeMillis;
+        const previous = changeFeeds.get(connection.connection);
+        if (previous !== undefined && now - previous.attemptedAt < BUILD_REREAD_INTERVAL_MS)
+          return previous;
+        const since = Math.max(0, (previous?.watermark ?? now) - CHANGE_CHECK_OVERLAP_MS);
+        const listed =
+          previous === undefined
+            ? Option.some({ found: new Map<number, string>(), overflow: false })
+            : yield* listChanges(since).pipe(
+                Effect.timeoutOption(CHANGE_CHECK_TIMEOUT),
+                Effect.map(Option.flatten),
+              );
+        // A change is seen when Forge answered, not when the check began: an item read while the
+        // check was under way may predate a change the answer names, so it must still be reread.
+        const answeredAt = yield* Clock.currentTimeMillis;
+        const failed = Option.isNone(listed);
+        const found = Option.match(listed, {
+          onNone: () => new Map<number, string>(),
+          onSome: (answer) => answer.found,
+        });
+        const overflow = Option.isSome(listed) && listed.value.overflow;
+        if (failed) yield* Effect.logWarning("Could not check Forge for changes");
+        const changed = new Map<number, { updatedAt: string; seenAt: number }>();
+        for (const [number, entry] of previous?.changed ?? [])
+          if (now - entry.seenAt < SUMMARY_SAFETY_REFRESH_MS) changed.set(number, entry);
+        for (const [number, updatedAt] of found) {
+          const known = changed.get(number);
+          if (known === undefined || known.updatedAt !== updatedAt)
+            changed.set(number, { updatedAt, seenAt: answeredAt });
+        }
+        const next: ChangeFeed = {
+          attemptedAt: now,
+          watermark: failed ? (previous?.watermark ?? now) : now,
+          ok: !failed,
+          allChangedAt: overflow ? answeredAt : (previous?.allChangedAt ?? -1),
+          changed,
+        };
+        changeFeeds.set(connection.connection, next);
+        return next;
+      }),
+    );
+
+  /** An item as clients show it: read again only when a change check, a write or the safety refresh says so, or when `fresh`. */
   const summaryView = Effect.fn("ForgeWorkItems.summaryView")(function* (
     connection: Connection,
     target: { readonly itemId: string; readonly number: number },
     options?: ForgeWorkItemReadOptions,
   ) {
     const key = `${connection.connection}\n${target.itemId}`;
+    const feed = yield* changeFeedOf(connection);
     const cached = yield* readLock.withLock(
       key,
       Effect.gen(function* () {
@@ -474,17 +607,14 @@ const make = Effect.gen(function* () {
           options?.fresh !== true &&
           previous !== undefined &&
           previous.writeVersion === writeVersion &&
-          now - previous.attemptedAt < previous.intervalMs
+          isCurrent(feed, previous, target.number, now)
         ) {
           remember(cache, key, previous, ITEM_CACHE_LIMIT);
           return previous;
         }
         const read = yield* readSummary(target.itemId);
-        const fingerprint = Option.isSome(read) ? fingerprintOf(read.value) : undefined;
         const next: CachedItem = {
-          fingerprint,
           writeVersion,
-          intervalMs: nextInterval(previous, fingerprint),
           ...Option.match(read, {
             onSome: (item) => ({ item, readAt: now, attemptedAt: now, unavailable: false }),
             onNone: () => ({
@@ -542,13 +672,22 @@ const make = Effect.gen(function* () {
       return Option.none();
     const cached = cache.get(`${connection.connection}\n${workItem.itemId}`);
     const now = yield* Clock.currentTimeMillis;
-    return cached === undefined ||
+    if (
+      cached === undefined ||
       cached.unavailable ||
       cached.item === null ||
-      cached.readAt === null ||
-      now - cached.readAt > CACHED_SUMMARY_MAX_AGE_MS
-      ? Option.none()
-      : Option.some(cached.item);
+      cached.readAt === null
+    )
+      return Option.none();
+    // An old read still stands while a recent change check saw nothing change it.
+    const feed = changeFeeds.get(connection.connection);
+    const stands =
+      now - cached.readAt <= CACHED_SUMMARY_MAX_AGE_MS ||
+      (feed !== undefined &&
+        feed.ok &&
+        now - feed.attemptedAt <= CACHED_SUMMARY_MAX_AGE_MS &&
+        isCurrent(feed, cached, workItem.number, now));
+    return stands ? Option.some(cached.item) : Option.none();
   });
 
   const warmSummary: ForgeWorkItems["Service"]["warmSummary"] = Effect.fn(
