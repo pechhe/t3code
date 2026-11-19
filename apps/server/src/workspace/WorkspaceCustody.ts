@@ -3,6 +3,7 @@ import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
@@ -51,6 +52,11 @@ const Release = Schema.Struct({
 const ReleaseRefusal = Schema.Struct({
   ok: Schema.Literals([false]),
   code: Schema.Literals(["CLAIM_NOT_FOUND", "CLAIM_GENERATION_MISMATCH", "CLAIM_ENDED"]),
+});
+const Refusal = Schema.Struct({
+  ok: Schema.Literals([false]),
+  code: Schema.String,
+  reason: Schema.optional(Schema.String),
 });
 const ClaimStatus = Schema.Struct({
   ok: Schema.Literals([true]),
@@ -149,6 +155,23 @@ const make = Effect.gen(function* () {
   const crypto = yield* SecureRandom.SecureRandom;
   const pid = yield* ControllerPid;
   const preparation = yield* Semaphore.make(1);
+  let installedEntry: string | null = null;
+
+  const failure = Effect.fn("WorkspaceCustody.failure")(function* (
+    output: ProcessRunner.ProcessRunOutput,
+  ) {
+    if (output.stdoutTruncated || output.stderrTruncated || output.stdoutInvalidUtf8)
+      return "SlipJay custody call returned incomplete output.";
+    // SlipJay never echoes request content or credentials in a refusal.
+    const refusal = yield* decodeJson(output.stdout.trim()).pipe(
+      Effect.flatMap(Schema.decodeUnknownEffect(Refusal)),
+      Effect.option,
+    );
+    if (Option.isSome(refusal))
+      return `SlipJay refused workspace custody (${refusal.value.code})${refusal.value.reason ? `: ${refusal.value.reason}` : "."}`;
+    const detail = output.stderr.trim().split("\n").at(-1)?.slice(0, 300);
+    return `SlipJay custody call exited with code ${output.code}${detail ? `: ${detail}` : "."}`;
+  });
 
   const call = Effect.fn("WorkspaceCustody.call")(function* (input: {
     readonly projectRoot: string;
@@ -164,10 +187,12 @@ const make = Effect.gen(function* () {
         : yield* encodeJson(input.payload).pipe(
             Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "transport", cause })),
           );
+    const entry =
+      input.entry === undefined ? undefined : yield* producerEntry(input.projectRoot, input.entry);
     const output = yield* processes
       .run({
-        command: input.entry === undefined ? "slipjay" : "bun",
-        args: input.entry === undefined ? input.args : [input.entry, ...input.args],
+        command: entry === undefined ? "slipjay" : "bun",
+        args: entry === undefined ? input.args : [entry, ...input.args],
         cwd: input.projectRoot,
         ...(stdin === undefined ? {} : { stdin }),
         timeout: "30 seconds",
@@ -197,12 +222,29 @@ const make = Effect.gen(function* () {
     ) {
       return yield* new WorkspaceCustodyError({
         stage: "transport",
-        cause: "Custody producer refused or returned incomplete output.",
+        cause: yield* failure(output),
       });
     }
     return yield* decodeJson(output.stdout.trim()).pipe(
       Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "reply", cause })),
     );
+  });
+  // SlipJay prunes old installs, but every install speaking this protocol shares the activation and
+  // custody records, so an epoch recorded against a pruned one is served by the current install.
+  const producerEntry = Effect.fn("WorkspaceCustody.producerEntry")(function* (
+    projectRoot: string,
+    recorded: string,
+  ): Effect.fn.Return<string, WorkspaceCustodyError> {
+    const present = (entry: string) => fs.exists(entry).pipe(Effect.orElseSucceed(() => false));
+    if (yield* present(recorded)) return recorded;
+    if (installedEntry !== null && (yield* present(installedEntry))) return installedEntry;
+    const capability = yield* call({ projectRoot, args: ["claims", "capability"] }).pipe(
+      Effect.flatMap(Schema.decodeUnknownEffect(Capability)),
+      Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "capability", cause })),
+    );
+    if (!capability.ok || !capability.supported || !capability.producerEntry) return recorded;
+    installedEntry = capability.producerEntry;
+    return installedEntry;
   });
   const get = Effect.fn("WorkspaceCustody.get")((id: string) =>
     journal
@@ -448,7 +490,10 @@ const make = Effect.gen(function* () {
       const stdin = yield* encodeJson(claimPayload(epoch)).pipe(
         Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "journal", cause })),
       );
-      return { producerEntry: epoch.producer.entry, stdin: Redacted.make(stdin) };
+      return {
+        producerEntry: yield* producerEntry(epoch.projectRoot, epoch.producer.entry),
+        stdin: Redacted.make(stdin),
+      };
     }),
     acquired,
     acquireExisting: Effect.fn("WorkspaceCustody.acquireExisting")(function* (id, path) {

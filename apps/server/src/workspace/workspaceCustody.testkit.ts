@@ -1,6 +1,9 @@
+import * as NodeURL from "node:url";
+
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
@@ -25,9 +28,11 @@ const decodeRelease = Schema.decodeEffect(
   ),
 );
 export const fixture = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem.pipe(Effect.provide(NodeServices.layer));
   const controllerStart = yield* Ref.make("first-start");
   const processStarts = yield* Ref.make<ReadonlyMap<number, string | null>>(new Map());
   const producerProtocol = yield* Ref.make(1);
+  const producerEntry = yield* Ref.make(NodeURL.fileURLToPath(import.meta.url));
   const workspaceRoot = yield* Ref.make<string | null>(null);
   const releases = yield* Ref.make(0);
   const releaseFailures = yield* Ref.make(0);
@@ -48,10 +53,25 @@ export const fixture = Effect.gen(function* () {
   const releasedRequests = new Set<string>();
   const acquisitionPath = yield* Ref.make<string | null>(null);
   const acquisitionGate = yield* Ref.make<Effect.Effect<void>>(Effect.void);
+  const acquisitionRefusal = yield* Ref.make<{ code: string; reason: string } | null>(null);
   const argumentsUsed = yield* Ref.make<ReadonlyArray<string>>([]);
   const processLayer = Layer.mock(ProcessRunner.ProcessRunner)({
     run: Effect.fn("custodyFixture.run")(function* (input) {
       yield* Ref.update(argumentsUsed, (all) => [...all, input.command, ...input.args]);
+      if (
+        input.command === "bun" &&
+        !(yield* fs.exists(input.args[0]!).pipe(Effect.orElseSucceed(() => false)))
+      )
+        return {
+          stdout: "",
+          stderr: `error: Module not found "${input.args[0]}"`,
+          code: ChildProcessSpawner.ExitCode(1),
+          timedOut: false,
+          stdoutTruncated: false,
+          stderrTruncated: false,
+          stdoutInvalidUtf8: false,
+          stderrInvalidUtf8: false,
+        };
       const args = input.command === "bun" ? input.args.slice(1) : input.args;
       if (input.command === "jj" && args[0] === "root")
         return {
@@ -74,7 +94,7 @@ export const fixture = Effect.gen(function* () {
             capability: "generation-bound-custody",
             protocol: yield* Ref.get(producerProtocol),
             supported: true,
-            producerEntry: "/producer/workspace.ts",
+            producerEntry: yield* Ref.get(producerEntry),
           };
           break;
         case "activate":
@@ -98,6 +118,12 @@ export const fixture = Effect.gen(function* () {
           break;
         case "acquire": {
           yield* yield* Ref.get(acquisitionGate);
+          const refusal = yield* Ref.get(acquisitionRefusal);
+          if (refusal !== null) {
+            code = 1;
+            reply = { ok: false, ...refusal };
+            break;
+          }
           const request = yield* decodeRequest(input.stdin ?? "");
           reply = {
             ok: true,
@@ -202,10 +228,12 @@ export const fixture = Effect.gen(function* () {
     controllerStart,
     processStarts,
     producerProtocol,
+    producerEntry,
     workspaceRoot,
     releases,
     argumentsUsed,
     acquisitionGate,
     acquisitionPath,
+    acquisitionRefusal,
   };
 });

@@ -73,6 +73,52 @@ it.effect("does not resume previous-controller custody from logical run identity
   }),
 );
 
+it.effect("names SlipJay's refusal instead of discarding it", () =>
+  Effect.gen(function* () {
+    const f = yield* fixture;
+    yield* Ref.set(f.acquisitionRefusal, {
+      code: "CLAIM_RETIRING",
+      reason: "Checkout retirement is in progress or requires recovery",
+    });
+    yield* Effect.gen(function* () {
+      const custody = yield* WorkspaceCustody.WorkspaceCustody;
+      const epoch = yield* custody.prepare({ ownerRef: "fenced", projectRoot: "/source" });
+      const result = yield* custody.acquireExisting(epoch.id, "/source/worktree").pipe(Effect.flip);
+      assert.equal(
+        result.cause,
+        "SlipJay refused workspace custody (CLAIM_RETIRING): Checkout retirement is in progress or requires recovery",
+      );
+    }).pipe(Effect.provide(f.layer));
+  }),
+);
+
+it.effect("serves an epoch recorded against a pruned SlipJay install through the current one", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const installs = yield* fs.makeTempDirectoryScoped();
+    const pruned = `${installs}/pruned/workspace.ts`;
+    const current = `${installs}/current/workspace.ts`;
+    yield* fs.makeDirectory(`${installs}/pruned`);
+    yield* fs.makeDirectory(`${installs}/current`);
+    yield* fs.writeFileString(pruned, "");
+    yield* fs.writeFileString(current, "");
+    const f = yield* fixture;
+    yield* Ref.set(f.producerEntry, pruned);
+    yield* Effect.gen(function* () {
+      const custody = yield* WorkspaceCustody.WorkspaceCustody;
+      const epoch = yield* custody.prepare({ ownerRef: "outlived", projectRoot: "/source" });
+      yield* custody.register(epoch.id, { id: "provider", kind: "provider-turn" });
+      yield* custody.acquireExisting(epoch.id, "/source/worktree");
+      yield* custody.acknowledge(epoch.id, "provider", "provider-stopped");
+      yield* custody.close(epoch.id);
+      yield* fs.remove(pruned);
+      yield* Ref.set(f.producerEntry, current);
+      yield* custody.releaseSettled(epoch.id);
+      assert.equal(yield* Ref.get(f.releases), 1);
+    }).pipe(Effect.provide(f.layer));
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
 it.effect.each([0, 2])(
   "refuses producer protocol %s before activation or acquisition",
   (protocol) =>
