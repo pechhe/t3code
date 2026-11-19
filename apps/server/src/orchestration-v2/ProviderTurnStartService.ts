@@ -13,7 +13,6 @@ import {
   type ForgeWorkItemKind,
   type ForgeWorkItemSummary,
   latestProviderTurnForAttempt,
-  resolveClaudeCompactionSetting,
   type OrchestrationV2ContextHandoff,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2ExecutionNode,
@@ -28,11 +27,8 @@ import {
   type ProjectId,
   isSideChatThread,
   isCompactionCommandMessage,
-  type ModelSelection,
-  type ServerProvider,
   parseGoalCommand,
   RunId,
-  TextGenerationError,
   RunAttemptId,
   NodeId,
   ThreadId,
@@ -64,7 +60,7 @@ import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import * as ServerConfig from "../config.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
-import { delegationStanceNote } from "../agents/delegationStanceNote.ts";
+import { threadStanceNote } from "../agents/delegationStanceNote.ts";
 import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
@@ -74,14 +70,8 @@ import { makeRestoreMissingWorktree } from "../workspace/restoreMissingWorktree.
 import * as EventSink from "./EventSink.ts";
 import * as ProviderUsageAnalytics from "../telemetry/ProviderUsageAnalytics.ts";
 import * as ContextHandoffService from "./ContextHandoffService.ts";
-import { planClaudeCompaction } from "./ClaudeCompactionPlan.ts";
-import {
-  clampCompactionSummary,
-  COMPACTION_SUMMARY_MAX_BYTES,
-  DEFAULT_COMPACTION_WINDOW_TOKENS,
-  COMPACTION_TRANSCRIPT_ITEM_TYPES,
-  renderCompactionTranscript,
-} from "./CompactionTranscript.ts";
+import * as ClaudeCompactionTurnStart from "./ClaudeCompactionTurnStart.ts";
+import { reopenWithCanonicalCatalogue } from "./agentMcpCatalogueReopen.ts";
 import { isActiveRun } from "./CommandPolicy.ts";
 import { contextBoundaryOrdinal } from "./contextBoundary.ts";
 import {
@@ -290,7 +280,6 @@ const NON_COMPLETING_TERMINAL_RUN_STATUSES: ReadonlySet<OrchestrationV2Run["stat
 ]);
 
 export const isProviderTurnStartError = Schema.is(ProviderTurnStartError);
-const isTextGenerationError = Schema.is(TextGenerationError);
 const isProviderAdapterProtocolError = Schema.is(ProviderAdapter.ProviderAdapterProtocolError);
 const isProviderAdapterOpenSessionError = Schema.is(
   ProviderAdapter.ProviderAdapterOpenSessionError,
@@ -441,13 +430,10 @@ export const layer: Layer.Layer<
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const serverConfig = yield* ServerConfig.ServerConfig;
-    const serverSettings = yield* ServerSettings.ServerSettingsService;
     const projects = yield* ProjectService.ProjectService;
     const processes = yield* ProcessRunner.make();
     const providerAuth = yield* ProviderAuthService.ProviderAuthService;
-    const providerInstances = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
-    // Optional: a layer without the registry has no accounts to cool.
-    // Optional: a layer without managed agents has no chore worker to fall back on.
+    // Optional: a layer without managed agents notes no delegation stance.
     const managedAgents = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
     // Optional: a layer without Forge links states only the linked item's number.
     const forgeWorkItems = yield* Effect.serviceOption(ForgeWorkItems.ForgeWorkItems);
@@ -456,6 +442,7 @@ export const layer: Layer.Layer<
     const runExecution = yield* RunExecutionService.RunExecutionServiceV2;
     const runtimePolicy = yield* RuntimePolicy.RuntimePolicyV2;
     const videoFramesService = yield* VideoFrames.VideoFrames;
+    const claudeCompaction = yield* ClaudeCompactionTurnStart.make;
     const restoreMissingWorktree = yield* makeRestoreMissingWorktree;
     const turnItemPositions = yield* TurnItemPositionStore.TurnItemPositionStoreV2;
 
@@ -1172,272 +1159,26 @@ export const layer: Layer.Layer<
       }
       const resolvedRuntimePolicy = resolvedPolicy.success;
       if (!(yield* isCurrentAttemptInStatus("starting"))) return;
-      // The server cannot tell a typed /compact from compact-on-send or idle compaction, so all
-      // of them follow the instance's "Compact with" setting.
-      const compactionUsages = projection.providerTurns.flatMap((turn) =>
-        turn.providerThreadId === providerThread.id && turn.tokenUsage !== undefined
-          ? [turn.tokenUsage]
-          : [],
-      );
-      const plannedCompaction =
-        providerThread.driver === "claudeAgent" &&
-        message.attachments.length === 0 &&
-        message.text.trim().toLowerCase() === "/compact"
-          ? planClaudeCompaction({
-              setting: resolveClaudeCompactionSetting(
-                yield* serverSettings.getSettings.pipe(
-                  Effect.orElseSucceed(() => ({ providerInstances: {} })),
-                ),
-                run.providerInstanceId,
-              ),
-              runInstanceId: run.providerInstanceId,
-              modelSelection: run.modelSelection,
-              usages: compactionUsages,
-              nowMs: DateTime.toEpochMillis(yield* DateTime.now),
-            })
-          : ({ kind: "conversation" } as const);
-      // The chore worker's models in the order its role would try them: the default summariser
-      // when no model is set, and the fallbacks when the chosen one fails.
-      const choreWorkerModels =
-        plannedCompaction.kind === "summary" || plannedCompaction.kind === "choreWorker"
-          ? yield* Effect.gen(function* () {
-              if (Option.isNone(managedAgents)) return [];
-              const providers = yield* Effect.forEach(
-                yield* providerInstances.listInstances,
-                (instance) =>
-                  instance.snapshot.getSnapshot.pipe(Effect.orElseSucceed(() => undefined)),
-              );
-              return yield* managedAgents.value.rankedTextModels({
-                providers: providers.filter(
-                  (provider): provider is ServerProvider => provider !== undefined,
-                ),
-              });
-            }).pipe(Effect.orElseSucceed(() => [] as ReadonlyArray<ModelSelection>))
-          : [];
-      const compactionPlan =
-        plannedCompaction.kind !== "choreWorker"
-          ? plannedCompaction
-          : choreWorkerModels[0] === undefined
-            ? ({ kind: "conversation" } as const)
-            : ({ kind: "summary", modelSelection: choreWorkerModels[0] } as const);
+      const plannedCompaction = yield* claudeCompaction.plan({
+        projection,
+        providerThread,
+        run,
+        message,
+      });
+      const compactionPlan = plannedCompaction.plan;
       if (compactionPlan.kind === "summary") {
-        const summariser = compactionPlan.modelSelection;
-        const modelName = summariser.model;
-        const busy =
-          (providerThread.pendingBackgroundTasks ?? []).length > 0 ||
-          projection.subagents.some(
-            (subagent) =>
-              subagent.providerThreadId === providerThread.id && subagent.status === "running",
-          );
-        const settledAt = yield* DateTime.now;
-        if (busy) {
-          yield* settleRunStartup({
-            signal: "compaction-session-busy",
-            status: "failed",
-            now: settledAt,
-            startedAt: settledAt,
-            providerInstanceId: run.providerInstanceId,
-            itemProviderThreadId: providerThread.id,
-            item: {
-              type: "error",
-              title: `Cannot compact with ${modelName} while this thread's work is running`,
-              failure: makeProviderFailure({
-                class: "validation_error",
-                message: `Stop this thread's background work, then compact again. A compaction on ${modelName} replaces the conversation's session, which the running work is using.`,
-              }),
-            },
-          });
-          return;
-        }
-        const writeSummary = Effect.fn("ProviderTurnStartService.writeCompactionSummary")(
-          function* (candidate: ModelSelection) {
-            const modelName = candidate.model;
-            const summariserInstance = yield* providerInstances.getInstance(candidate.instanceId);
-            if (summariserInstance === undefined) {
-              return yield* new ProviderTurnStartError({
-                runId,
-                cause: `The account chosen to compact this thread is no longer available.`,
-              });
-            }
-            const summariserSnapshot = yield* summariserInstance.snapshot.getSnapshot.pipe(
-              Effect.orElseSucceed(() => undefined),
-            );
-            const windowTokens =
-              summariserSnapshot?.models.find((model) => model.slug === candidate.model)
-                ?.contextWindowTokens ?? DEFAULT_COMPACTION_WINDOW_TOKENS;
-            // The turn-start projection holds only this run's items, so read the whole thread.
-            const history = yield* projectionStore.getTurnStartHistory(
-              projection.thread.id,
-              undefined,
-              COMPACTION_TRANSCRIPT_ITEM_TYPES,
-            );
-            const transcript = renderCompactionTranscript({
-              items: history.filter((item) => item.runId !== run.id),
-              windowTokens,
-            });
-            if (transcript.text === "") {
-              return yield* new ProviderTurnStartError({
-                runId,
-                cause: `There was no conversation to send ${modelName}, so the session was kept.`,
-              });
-            }
-            const threadTitle = projection.thread.title?.trim() ?? "";
-            const generated = yield* summariserInstance.textGeneration.generateCompactionSummary({
-              cwd: resolvedRuntimePolicy.cwd ?? "",
-              transcript: transcript.text,
-              ...(threadTitle === "" ? {} : { threadTitle }),
-              modelSelection: candidate,
-            });
-            const text = clampCompactionSummary(generated.summary, COMPACTION_SUMMARY_MAX_BYTES);
-            if (text === "") {
-              return yield* new ProviderTurnStartError({
-                runId,
-                cause: `${modelName} returned no summary.`,
-              });
-            }
-            return { summary: text, model: candidate.model };
-          },
-        );
-        // The chosen model first; when it fails (out of allowance, overloaded, gone), the chore
-        // worker's models in the order its role would try them.
-        const summariserCandidates = [
-          summariser,
-          ...choreWorkerModels.filter(
-            (candidate) =>
-              candidate.instanceId !== summariser.instanceId ||
-              candidate.model !== summariser.model,
-          ),
-        ];
-        // A failed run reports the chosen model's error, not a fallback's.
-        const summaryResult = yield* Effect.result(
-          summariserCandidates
-            .slice(1)
-            .reduce(
-              (previous, candidate) =>
-                previous.pipe(
-                  Effect.catch((firstError) =>
-                    writeSummary(candidate).pipe(Effect.mapError(() => firstError)),
-                  ),
-                ),
-              writeSummary(summariserCandidates[0]!),
-            ),
-        );
-        if (summaryResult._tag === "Failure") {
-          if (input.willRetry === true) return yield* summaryResult.failure;
-          const detail =
-            knownProviderFailureMessage(summaryResult.failure) ??
-            (isProviderTurnStartError(summaryResult.failure)
-              ? String(summaryResult.failure.cause)
-              : isTextGenerationError(summaryResult.failure)
-                ? summaryResult.failure.detail
-                : "The summary could not be written.");
-          yield* settleRunStartup({
-            signal: "compaction-summary-failed",
-            status: "failed",
-            now: settledAt,
-            startedAt: settledAt,
-            providerInstanceId: run.providerInstanceId,
-            itemProviderThreadId: providerThread.id,
-            item: {
-              type: "error",
-              title: `Compacting context with ${modelName} failed`,
-              failure: makeProviderFailure({ class: "provider_error", message: detail }),
-            },
-          });
-          return;
-        }
-        const summary = summaryResult.success.summary;
-        const summarisedBy = summaryResult.success.model;
-        // Dropping the session is decided on state read before a minutes-long model call, so
-        // re-read it: a turn that started meanwhile owns work this write must not strand.
-        const reread = yield* projectionStore
-          .getThreadRecords(projection.thread.id, ["providerThreads", "subagents"])
-          .pipe(Effect.orElseSucceed(() => undefined));
-        const currentThread =
-          reread?.providerThreads.find((candidate) => candidate.id === providerThread.id) ??
-          undefined;
-        const threadMoved =
-          currentThread === undefined ||
-          currentThread.nativeThreadRef?.nativeId !== providerThread.nativeThreadRef?.nativeId;
-        const threadBusy =
-          !threadMoved &&
-          ((currentThread.pendingBackgroundTasks ?? []).length > 0 ||
-            reread?.subagents.some(
-              (subagent) =>
-                subagent.providerThreadId === providerThread.id && subagent.status === "running",
-            ) === true);
-        if (threadMoved || threadBusy) {
-          yield* settleRunStartup({
-            signal: threadMoved ? "compaction-session-moved" : "compaction-session-busy",
-            status: "failed",
-            now: settledAt,
-            startedAt: settledAt,
-            providerInstanceId: run.providerInstanceId,
-            itemProviderThreadId: providerThread.id,
-            item: {
-              type: "error",
-              title: `Cannot compact with ${summarisedBy} while this thread's work is running`,
-              failure: makeProviderFailure({
-                class: "validation_error",
-                message: threadMoved
-                  ? `This conversation's session changed while ${summarisedBy} wrote the summary. Compact again.`
-                  : `Stop this thread's background work, then compact again. A compaction on ${summarisedBy} replaces the conversation's session, which the running work is using.`,
-              }),
-            },
-          });
-          return;
-        }
-        // The provider's own session still holds every token the summary replaces, so the next
-        // turn opens a fresh one and this handoff is the whole conversation it starts from.
-        const handoff = yield* contextHandoffService.prepareCompactionSummary({
-          threadId: projection.thread.id,
-          targetRunId: run.id,
-          fromProviderThreadIds: [providerThread.id],
-          toProviderThreadId: providerThread.id,
-          fromProviderInstanceId: providerThread.providerInstanceId,
-          toProviderInstanceId: run.providerInstanceId,
-          coveredRunOrdinals: {
-            from: projection.runs.at(0)?.ordinal ?? run.ordinal,
-            to: run.ordinal,
-          },
-          summaryText: summary,
-          createdAt: settledAt,
+        const outcome = yield* claudeCompaction.compactOnAnotherAccount({
+          projection,
+          providerThread,
+          run,
+          message,
+          planned: { ...plannedCompaction, plan: compactionPlan },
+          cwd: resolvedRuntimePolicy.cwd ?? "",
+          willRetry: input.willRetry === true,
+          startError: (cause) => new ProviderTurnStartError({ runId, cause }),
         });
-        yield* settleRunStartup({
-          signal: "compaction-on-another-account",
-          status: "completed",
-          now: settledAt,
-          startedAt: settledAt,
-          providerInstanceId: run.providerInstanceId,
-          itemProviderThreadId: providerThread.id,
-          item: {
-            type: "compaction",
-            driver: providerThread.driver,
-            title: `Context compacted with ${summarisedBy}`,
-            summary,
-            model: summarisedBy,
-            ...(compactionUsages.length === 0
-              ? {}
-              : {
-                  beforeTokenCount: compactionUsages.reduce(
-                    (latest, usage) =>
-                      Date.parse(usage.updatedAt) > Date.parse(latest.updatedAt) ? usage : latest,
-                    compactionUsages[0]!,
-                  ).usedTokens,
-                }),
-            afterTokenCount: Math.ceil(Buffer.byteLength(summary) / 4),
-          },
-          handoff,
-          providerThreadUpdate: {
-            ...currentThread,
-            nativeThreadRef: null,
-            nativeConversationHeadRef: null,
-            contextUsage: null,
-            status: "not_loaded",
-            handoffIds: [...currentThread.handoffIds, handoff.id],
-            updatedAt: settledAt,
-          },
-        });
+        if (outcome._tag === "Retry") return yield* outcome.error;
+        yield* settleRunStartup(outcome.settle);
         return;
       }
       const existingSessionProjection = projection.providerSessions.find(
@@ -2245,40 +1986,22 @@ export const layer: Layer.Layer<
                 : "resume_failed",
           errorTag: resumed._tag === "Failure" ? resumed.failure._tag : "ContextHandoffBudgetError",
         });
-        if (initialRegistration !== "canonical") {
-          // A launch-time MCP catalogue cannot change with only a new native thread id.
-          if (
-            session.providerSession?.capabilities.sessions
-              .supportsMultipleProviderThreadsPerSession !== true &&
-            session.hasPendingBackgroundWork !== undefined &&
-            (yield* session.hasPendingBackgroundWork)
-          ) {
-            if (input.willRetry === true && resumed._tag === "Failure")
-              return yield* resumed.failure;
-            yield* settleStartFailure({
-              signal: "provider-thread-load-failure",
-              title: "Provider turn failed to start",
-              error:
-                resumed._tag === "Failure"
-                  ? resumed.failure
-                  : new Error("Provider restart would abandon pending background work."),
-            });
-            return undefined;
-          }
-          if (!(yield* isCurrentAttemptInStatus("starting"))) return undefined;
-          const reopened = yield* Effect.result(openSession("canonical", true));
-          if (reopened._tag === "Failure") {
-            if (input.willRetry === true) return yield* reopened.failure;
-            yield* settleStartFailure({
-              signal: "provider-session-open-failure",
-              title: "Provider session failed to open",
-              error: reopened.failure,
-            });
-            return undefined;
-          }
-          session = reopened.success;
-          if (!(yield* isCurrentAttemptInStatus("starting"))) return undefined;
+        const catalogue = yield* reopenWithCanonicalCatalogue({
+          initialRegistration,
+          session,
+          pendingBackgroundWork: session.hasPendingBackgroundWork,
+          resumeFailure: resumed._tag === "Failure" ? resumed.failure : undefined,
+          isStarting: Effect.suspend(() => isCurrentAttemptInStatus("starting")),
+          openCanonical: Effect.suspend(() => openSession("canonical", true)),
+        });
+        if (catalogue._tag === "Stopped") return undefined;
+        if (catalogue._tag === "Refused") {
+          if (input.willRetry === true && catalogue.retry !== undefined)
+            return yield* catalogue.retry;
+          yield* settleStartFailure(catalogue);
+          return undefined;
         }
+        if (catalogue._tag === "Reopened") session = catalogue.session;
         const replacement = yield* loadFromProvider(
           session.ensureThread({
             threadId: projection.thread.id,
@@ -2692,15 +2415,12 @@ export const layer: Layer.Layer<
         const slashCommand =
           providerMessage.attachments.length === 0 &&
           providerMessage.text.trimStart().startsWith("/");
-        const stanceNote =
-          slashCommand || Option.isNone(managedAgents)
-            ? ""
-            : delegationStanceNote(
-                (yield* managedAgents.value
-                  .resolveStance({ thread: projection.thread, modelSelection: run.modelSelection })
-                  .pipe(Effect.orDie)).stance,
-                projection.thread.agentTask?.sourceAccess === "read-only",
-              );
+        const stanceNote = slashCommand
+          ? ""
+          : yield* threadStanceNote(managedAgents, {
+              thread: projection.thread,
+              modelSelection: run.modelSelection,
+            });
         const workItem = projection.thread.workItem ?? null;
         const workItemSummary =
           slashCommand || workItem === null || Option.isNone(forgeWorkItems)

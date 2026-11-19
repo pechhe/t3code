@@ -1,4 +1,14 @@
 import { AgentBrowserBackends, DEFAULT_AGENT_BROWSER_BACKENDS } from "./browserBackend.ts";
+import {
+  ClaudeCompactionSettingsFields,
+  type ProviderSettingsModelOptions,
+} from "./claudeCompactionSettings.ts";
+import { DEFAULT_SNAP_SHOT_OVERLAY_SHORTCUT } from "./snapShotOverlay.ts";
+import { SettleSound } from "./settleSound.ts";
+import {
+  resolveProjectProviderInstanceOverride,
+  SharedProviderSetupState,
+} from "./sharedProviderSetup.ts";
 import { EasDeviceHostConfigs, SimlockDeviceHostConfigs, SshDeviceHostConfigs } from "./device.ts";
 import {
   AuthOrchestrationOperateScope,
@@ -279,15 +289,6 @@ export function snapShotModifierPairLabel(modifier: SnapShotModifier, apple: boo
 const DEFAULT_SNAP_SHOT_SHORTCUT: SnapShotShortcut = {
   kind: "both-shift-keys",
 };
-// Shows or hides the SnapShot overlay's conversation without taking a snapshot.
-const DEFAULT_SNAP_SHOT_OVERLAY_SHORTCUT: SnapShotKeyChord = {
-  key: " ",
-  metaKey: false,
-  ctrlKey: false,
-  shiftKey: true,
-  altKey: true,
-  modKey: false,
-};
 
 export const NotificationMode = Schema.Literals([
   "off",
@@ -410,23 +411,7 @@ export type SendSound = typeof SendSound.Type;
 export const QueueSound = Schema.Literals(["latch", "drop"]);
 export type QueueSound = typeof QueueSound.Type;
 
-/** What plays once a thread settles; `seat` is the default, `whoosh` the metal recording ported from peach-pi. */
-export const SettleSound = Schema.Literals([
-  "off",
-  "seat",
-  "tick",
-  "press",
-  "pair",
-  "soft",
-  "detent",
-  "whoosh",
-  "filed",
-  "stamp",
-  "resolve",
-  "switch",
-  "tap",
-]);
-export type SettleSound = typeof SettleSound.Type;
+export { SettleSound } from "./settleSound.ts";
 
 export const VoiceShortcutMode = Schema.Literals(["auto", "hold", "toggle"]);
 export type VoiceShortcutMode = typeof VoiceShortcutMode.Type;
@@ -730,13 +715,7 @@ export interface ProviderSettingsFormAnnotation {
   readonly clearWhenEmpty?: "omit" | "persist" | undefined;
 
   readonly options?: ReadonlyArray<ProviderSettingsFormOption> | undefined;
-  /**
-   * A model choice, led by an empty choice with this label. With `instanceKey`, the sibling field
-   * that stores the chosen account, it spans every account; without, only this account's models.
-   */
-  readonly modelOptions?:
-    | { readonly emptyLabel: string; readonly instanceKey?: string | undefined }
-    | undefined;
+  readonly modelOptions?: ProviderSettingsModelOptions | undefined;
 }
 
 export function secretSettingsFields(schema: {
@@ -954,35 +933,7 @@ export const ClaudeSettings = makeProviderSettingsSchema(
         },
       }),
     ),
-    compactModel: TrimmedString.pipe(
-      Schema.withDecodingDefault(Effect.succeed("")),
-      Schema.annotateKey({
-        title: "Compact with",
-        description:
-          "The model that summarises a conversation when T3 Code compacts it. The conversation keeps its own model; a model on another account is written by that account and handed to this one. Unset, a compaction after the prompt cache has expired uses your Chore worker's models, and the next one if that one fails.",
-        providerSettingsForm: {
-          control: "model",
-          modelOptions: {
-            emptyLabel: "Chore worker (default)",
-            instanceKey: "compactModelInstanceId",
-          },
-          clearWhenEmpty: "omit",
-        },
-      }),
-    ),
-    /** The account `compactModel` runs on; absent means this Claude instance. */
-    compactModelInstanceId: Schema.optional(ProviderInstanceId).pipe(
-      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
-    ),
-    compactOnlyWhenCold: Schema.Boolean.pipe(
-      Schema.withDecodingDefault(Effect.succeed(true)),
-      Schema.annotateKey({
-        title: "Only when the prompt cache has expired",
-        description:
-          "While a conversation's prompt cache is warm, its own model compacts it at a tenth of the input price. Off uses the model above every time.",
-        providerSettingsForm: { control: "switch", clearWhenEmpty: "omit" },
-      }),
-    ),
+    ...ClaudeCompactionSettingsFields,
   },
   {
     order: [
@@ -1548,26 +1499,11 @@ const DelegationRuntimeSettingsPatch = Schema.Struct({
 });
 export type DelegationRuntimeSettings = typeof DelegationRuntimeSettings.Type;
 
-/** Where this environment stands in the provider setup it shares with others. */
-export const SharedProviderSetupState = Schema.Struct({
-  shared: Schema.Boolean,
-  /** Raised by each edit here, and taken from the winner when a setup is received. */
-  version: Schema.Number,
-  /** The version last agreed with others; lower than `version` while an edit is unspread. */
-  baseVersion: Schema.Number,
-  changedAt: Schema.String,
-  digest: Schema.String,
-  /** Per instance, the secrets its settings expect that this machine doesn't hold. */
-  missingSecrets: Schema.optionalKey(Schema.Record(Schema.String, Schema.Array(Schema.String))),
-  /** Recently removed instances, so a client still listing one can't bring it back. */
-  removedInstanceIds: Schema.optionalKey(Schema.Array(Schema.String)),
-  /** Same monotonic version/baseVersion/changedAt/digest state for model favorites and preferences. */
-  modelPreferencesVersion: Schema.optionalKey(Schema.Number),
-  modelPreferencesBaseVersion: Schema.optionalKey(Schema.Number),
-  modelPreferencesChangedAt: Schema.optionalKey(Schema.String),
-  modelPreferencesDigest: Schema.optionalKey(Schema.String),
-});
-export type SharedProviderSetupState = typeof SharedProviderSetupState.Type;
+export {
+  currentProviderInstanceId,
+  resolveProjectProviderInstanceOverride,
+  SharedProviderSetupState,
+} from "./sharedProviderSetup.ts";
 
 export const UsageSlotBudget = Schema.Struct({
   monthlyBudgetUsd: Schema.Number.check(Schema.isGreaterThan(0)),
@@ -1925,28 +1861,17 @@ export const resolveProviderInstanceEnabled = (
   return instance.enabled ?? configEnabled ?? defaultEnabledForDriver(instance.driver);
 };
 
-/** A thread on an id that joining a shared setup renamed runs as the instance it was renamed to. */
-export const currentProviderInstanceId = (
-  settings: Pick<ServerSettings, "providerInstances"> &
-    Partial<Pick<ServerSettings, "providerInstanceAliases">>,
-  instanceId: ProviderInstanceId,
-): ProviderInstanceId =>
-  Object.hasOwn(settings.providerInstances, instanceId)
-    ? instanceId
-    : (settings.providerInstanceAliases?.[instanceId] ?? instanceId);
-
 export const resolveProjectProviderInstanceEnabled = (
   settings: Pick<ServerSettings, "providerInstances" | "projectSettingsOverrides"> &
     Partial<Pick<ServerSettings, "providerInstanceAliases">>,
   projectId: ProjectId | null,
   requestedInstanceId: ProviderInstanceId,
 ): boolean => {
-  const instanceId = currentProviderInstanceId(settings, requestedInstanceId);
-  const overrides =
-    projectId === null
-      ? undefined
-      : settings.projectSettingsOverrides[projectId]?.providerInstances;
-  const override = overrides?.[instanceId]?.enabled ?? overrides?.[requestedInstanceId]?.enabled;
+  const { instanceId, enabled: override } = resolveProjectProviderInstanceOverride(
+    settings,
+    projectId,
+    requestedInstanceId,
+  );
   if (override !== undefined) return override;
   const instanceConfig = Object.hasOwn(settings.providerInstances, instanceId)
     ? settings.providerInstances[instanceId]
@@ -1977,7 +1902,7 @@ export const resolveTextGenerationSelectionEnabled = (
   textGeneratorForSelection(settings, instanceId)?.enabled ??
   resolveProjectProviderInstanceEnabled(settings, projectId, instanceId);
 
-const decodeClaudeSettings = Schema.decodeUnknownOption(ClaudeSettings);
+export const decodeClaudeSettings = Schema.decodeUnknownOption(ClaudeSettings);
 
 type IdleCompactionSettings = Pick<ServerSettings, "compactIdleThreads" | "idleCompaction">;
 
@@ -2024,31 +1949,6 @@ export const resolveIdleCompaction = (
     Option.getOrElse(() => "default" as const),
   );
   return override === "default" ? globalIdleCompaction(settings) : override;
-};
-
-/**
- * The instance's "Compact with" model, the account that runs it, and whether it applies only once
- * the prompt cache expired. `instanceId` is the account named by the setting, or this instance.
- */
-export const resolveClaudeCompactionSetting = (
-  settings: Pick<ServerSettings, "providerInstances">,
-  instanceId: ProviderInstanceId,
-): {
-  readonly model: string;
-  readonly instanceId: ProviderInstanceId;
-  readonly onlyWhenCold: boolean;
-} => {
-  const instance = Object.hasOwn(settings.providerInstances, instanceId)
-    ? settings.providerInstances[instanceId]
-    : undefined;
-  return decodeClaudeSettings(instance?.config ?? {}).pipe(
-    Option.map((config) => ({
-      model: config.compactModel,
-      instanceId: config.compactModelInstanceId ?? instanceId,
-      onlyWhenCold: config.compactOnlyWhenCold,
-    })),
-    Option.getOrElse(() => ({ model: "", instanceId, onlyWhenCold: true })),
-  );
 };
 
 export const ServerSettingsOperation = Schema.Literals([

@@ -1,4 +1,8 @@
 import { type DelegationStance } from "@t3tools/contracts";
+import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
+
+import type * as ManagedAgent from "./ManagedAgentService.ts";
 
 const notes: Record<DelegationStance, string> = {
   orchestrate:
@@ -11,3 +15,25 @@ const notes: Record<DelegationStance, string> = {
 
 export const delegationStanceNote = (stance: DelegationStance, readOnly = false): string =>
   readOnly ? "" : notes[stance];
+
+/**
+ * The stance note a thread's turn starts with (fork/differences.md `agent-policy-roles`): none
+ * without managed agents, and none for a read-only helper.
+ */
+export const threadStanceNote = (
+  managedAgents: Option.Option<ManagedAgent.ManagedAgentService["Service"]>,
+  input: Parameters<ManagedAgent.ManagedAgentService["Service"]["resolveStance"]>[0] & {
+    readonly thread: { readonly agentTask?: { readonly sourceAccess?: string } | undefined };
+  },
+): Effect.Effect<string> =>
+  Option.isNone(managedAgents)
+    ? Effect.succeed("")
+    : managedAgents.value.resolveStance(input).pipe(
+        Effect.orDie,
+        Effect.map((resolved) =>
+          delegationStanceNote(
+            resolved.stance,
+            input.thread.agentTask?.sourceAccess === "read-only",
+          ),
+        ),
+      );

@@ -1,12 +1,13 @@
 import { SettingsWriteAuthority } from "./orchestration-v2/DispatchModeLimit.ts";
 import * as SavedSecrets from "./secrets/SavedSecrets.ts";
-import * as Champions from "./champions/ChampionService.ts";
+import { layerWsChampionsRpc, listableThreads } from "./champions/ChampionsWsRpc.ts";
 import * as HostPowerMonitor from "./background/HostPowerMonitor.ts";
 import * as ExperimentService from "./experiments/ExperimentService.ts";
 import { rpcSerializationForClient } from "./clientRoleSerialization.ts";
 import * as ExperimentResults from "./experiments/ExperimentResults.ts";
 import * as AgentPolicySettings from "./agents/AgentPolicySettingsService.ts";
 import * as ManagedAgent from "./agents/ManagedAgentService.ts";
+import { readCompactionModel } from "./agents/compactionModel.ts";
 import { ForgeWorkItemError, OrchestrationDispatchCommandError } from "@t3tools/contracts";
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- A synchronous digest inside the pure provider mapping.
 import * as NodeCrypto from "node:crypto";
@@ -84,7 +85,6 @@ import {
   type OrchestrationProjectShell,
   type OrchestrationV2ShellSnapshot,
   type OrchestrationV2ShellStreamItem,
-  type OrchestrationV2ThreadShell,
   type OrchestrationV2ThreadStreamItem,
   type ApplicationStoredEvent,
   type ProjectEntriesFailure,
@@ -121,7 +121,6 @@ import {
   WS_METHODS,
   WsCoreRpcGroup,
   WsVcsRpcGroup,
-  WsChampionsRpcGroup,
   WsServerOperationsRpcGroup,
   WsThreadControlRpcGroup,
   WsGuestShareRpcGroup,
@@ -186,7 +185,6 @@ import {
   shellStreamItemsFromResumeSnapshot,
   shouldPublishShellApplicationEvent,
   skipUnchangedThreadShells,
-  championThreadHiddenFromList,
   toShellApplicationEvent,
   withoutChampionThreads,
   type ShellApplicationEvent,
@@ -774,7 +772,6 @@ const ServerWsRpcGroup = WsRpcGroup.middleware(RpcInstrumentation);
 // RpcGroup.toLayer derives each handler's requirements by scanning every RPC in the group, so
 // its type cost grows with handlers × RPCs; near 200 methods the layer's requirements degrade to
 // `any`. The contracts split the group by feature, and each part registers its own handler layer.
-const ServerWsChampionsRpcGroup = WsChampionsRpcGroup.middleware(RpcInstrumentation);
 const ServerWsCoreRpcGroup = WsCoreRpcGroup.middleware(RpcInstrumentation);
 const ServerWsVcsRpcGroup = WsVcsRpcGroup.middleware(RpcInstrumentation);
 const ServerWsPullRequestRpcGroup = WsPullRequestRpcGroup.middleware(RpcInstrumentation);
@@ -3571,15 +3568,7 @@ export const layerWsRpc = (
           }),
         [WS_METHODS.agentPolicyRead]: () => agentPolicySettings.read(),
         [WS_METHODS.agentPolicyCompactionModel]: () =>
-          Option.match(compactionManagedAgents, {
-            onNone: () => Effect.succeed({ selection: null }),
-            onSome: (managedAgents) =>
-              providerRegistry.getProviders.pipe(
-                Effect.flatMap((providers) => managedAgents.rankedTextModels({ providers })),
-                Effect.map((models) => ({ selection: models[0] ?? null })),
-                Effect.orElseSucceed(() => ({ selection: null })),
-              ),
-          }),
+          readCompactionModel(compactionManagedAgents, providerRegistry.getProviders),
         [WS_METHODS.agentPolicySave]: (input) => agentPolicySettings.save(input),
         [WS_METHODS.experimentsTransition]: (input) => experiments.transition(input),
         [WS_METHODS.experimentsList]: (_input) => experiments.list(),
@@ -3714,15 +3703,7 @@ const makeOmittableShellRowsReader = (
 const layerWsThreadStructureRpc = (championThreads: boolean) =>
   ServerWsThreadStructureRpcGroup.toLayer(
     Effect.gen(function* () {
-      const listable = <T extends { readonly threads: ReadonlyArray<OrchestrationV2ThreadShell> }>(
-        page: T,
-      ): T =>
-        championThreads
-          ? page
-          : {
-              ...page,
-              threads: page.threads.filter((thread) => !championThreadHiddenFromList(thread)),
-            };
+      const listable = listableThreads(championThreads);
       const threadManagement = yield* ThreadManagementService.ThreadManagementService;
       const applicationEvents = yield* OrchestrationEventStore.OrchestrationEventStore;
       const sql = yield* SqlClient.SqlClient;
@@ -3822,34 +3803,6 @@ const layerWsPeersRpc = ServerWsPeersRpcGroup.toLayer(
           ? peers.link({ code: input.code, routes: input.routes })
           : peers.unlink({ environmentId: input.environmentId })
         ).pipe(Effect.andThen(peers.list)),
-    });
-  }),
-);
-
-const layerWsChampionsRpc = ServerWsChampionsRpcGroup.toLayer(
-  Effect.gen(function* () {
-    const champions = yield* Champions.ChampionService;
-    return ServerWsChampionsRpcGroup.of({
-      [WS_METHODS.championsClassChoices]: (input) => champions.classChoices(input),
-      [WS_METHODS.championsRuntimeState]: (input) => champions.runtimeState(input),
-      [WS_METHODS.championsRecommendation]: (input) => champions.recommendation(input),
-      [WS_METHODS.championsLearningQuery]: (input) => champions.learningQuery(input),
-      [WS_METHODS.championsLearningSearch]: (input) => champions.learningSearch(input),
-      [WS_METHODS.championsLearningRead]: (input) => champions.learningRead(input),
-      [WS_METHODS.championsStartInvestigation]: (input) => champions.startInvestigation(input),
-      [WS_METHODS.championsCancelInvestigation]: (input) => champions.cancelInvestigation(input),
-      [WS_METHODS.championsList]: (input) => champions.list(input),
-      [WS_METHODS.championsSubscribe]: (input) => champions.subscribe(input),
-      [WS_METHODS.championsGet]: (input) => champions.get(input),
-      [WS_METHODS.championsHistory]: (input) => champions.history(input),
-      [WS_METHODS.championsUpsert]: (input) => champions.upsert(input),
-      [WS_METHODS.championsSetLifecycle]: (input) => champions.setLifecycle(input),
-      [WS_METHODS.championsSetup]: (input) => champions.setup(input),
-      [WS_METHODS.championsRunCheck]: (input) => champions.runCheck(input),
-      [WS_METHODS.championsChangeMetrics]: (input) => champions.changeMetrics(input),
-      [WS_METHODS.championsCancelSetup]: (input) => champions.cancelSetup(input),
-      [WS_METHODS.championsStartMetricsLead]: (input) => champions.startMetricsLead(input),
-      [WS_METHODS.championsFindingAction]: (input) => champions.findingAction(input),
     });
   }),
 );

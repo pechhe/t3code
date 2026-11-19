@@ -2,6 +2,7 @@ import { SecretStorage } from "./secretManagement.ts";
 import { AgentTaskBinding } from "./agentPolicy.ts";
 import { OrchestrationMessageContext } from "./composerContext.ts";
 import { withRecordIdTable } from "./orchestrationV2IdTable.ts";
+import { OrchestrationV2TurnItemDetailRemoved } from "./threadDetailExpiry.ts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -1414,16 +1415,6 @@ export const OrchestrationV2RemoteTaskChild = Schema.Struct({
   agentTask: Schema.optional(AgentTaskBinding),
 });
 export type OrchestrationV2RemoteTaskChild = typeof OrchestrationV2RemoteTaskChild.Type;
-
-/** Set when retention removed an item's or a subagent record's detail, leaving its timeline line. */
-export const OrchestrationV2TurnItemDetailRemoved = Schema.Struct({
-  at: IsoDateTime,
-  /** Days the thread had been settled when its detail went. */
-  afterDays: PositiveInt,
-  /** UTF-8 bytes of the removed command output, which context estimates still count. */
-  outputBytes: Schema.optionalKey(NonNegativeInt),
-});
-export type OrchestrationV2TurnItemDetailRemoved = typeof OrchestrationV2TurnItemDetailRemoved.Type;
 
 export const OrchestrationV2Subagent = Schema.Struct({
   id: NodeId,

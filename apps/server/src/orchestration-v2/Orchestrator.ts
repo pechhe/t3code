@@ -31,6 +31,7 @@ import {
 } from "../sourceControl/threadPullRequests.ts";
 import {
   currentProviderInstanceId,
+  resolveProjectProviderInstanceOverride,
   ORCHESTRATION_V2_WORKSPACE_PREPARATION_FAILURE_CODE,
   type ChatAttachment,
   CommandId,
@@ -141,6 +142,12 @@ import {
   resolveMessageDispatchIntent,
 } from "./CommandPolicy.ts";
 import { CommandReceiptStoreV2, type CommandReceiptV2 } from "./CommandReceiptStore.ts";
+import {
+  OrchestratorCommandReplayExpiredError,
+  refuseExpiredReplay,
+} from "./CommandReplayExpiry.ts";
+import { managedBrowserReleaseEffects } from "./managedBrowserRelease.ts";
+import { commandStanceChoice, commandStanceChoiceField } from "./stanceChoice.ts";
 import {
   ContextHandoffServiceV2,
   readForkHistoryItems,
@@ -437,20 +444,6 @@ export class OrchestratorCommandPreviouslyRejectedError extends Schema.TaggedErr
   }
 }
 
-export class OrchestratorCommandReplayExpiredError extends Schema.TaggedError<OrchestratorCommandReplayExpiredError>()(
-  "OrchestratorCommandReplayExpiredError",
-  {
-    commandId: CommandId,
-    commandType: Schema.String,
-    threadId: ThreadId,
-    expiredAt: Schema.DateTimeUtc,
-  },
-) {
-  override get message(): string {
-    return `Command ${this.commandId} already ran, but its original response was removed when thread ${this.threadId}'s detail expired on ${DateTime.formatIso(this.expiredAt)}.`;
-  }
-}
-
 export class OrchestratorCommandIdConflictError extends Schema.TaggedError<OrchestratorCommandIdConflictError>()(
   "OrchestratorCommandIdConflictError",
   {
@@ -676,9 +669,6 @@ export interface OrchestratorV2Shape {
   }) => Stream.Stream<OrchestrationV2StoredEvent, OrchestratorV2Error>;
   readonly streamDomainEvents: Stream.Stream<OrchestrationV2DomainEvent, OrchestratorV2Error>;
 }
-
-/** How long a finished managed task keeps its browser tabs for a follow-up to continue in. */
-const MANAGED_TAB_FOLLOWUP_GRACE_MINUTES = 10;
 
 export class OrchestratorV2 extends Context.Service<OrchestratorV2, OrchestratorV2Shape>()(
   "t3/orchestration-v2/Orchestrator/OrchestratorV2",
@@ -2706,12 +2696,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         failedRun?.workspacePreparation?.type === "worktree" &&
         projection.thread.worktreePath === null;
       const settings = yield* serverSettings.getSettings.pipe(Effect.orDie);
-      const queuedInstanceId = currentProviderInstanceId(settings, queuedRun.providerInstanceId);
-      const overrides =
-        settings.projectSettingsOverrides[projection.thread.projectId]?.providerInstances;
-      const projectOverride =
-        overrides?.[queuedInstanceId]?.enabled ??
-        overrides?.[queuedRun.providerInstanceId]?.enabled;
+      const { instanceId: queuedInstanceId, enabled: projectOverride } =
+        resolveProjectProviderInstanceOverride(
+          settings,
+          projection.thread.projectId,
+          queuedRun.providerInstanceId,
+        );
       const machineInstance = Object.hasOwn(settings.providerInstances, queuedInstanceId)
         ? settings.providerInstances[queuedInstanceId]
         : undefined;
@@ -4070,11 +4060,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const now = yield* DateTime.now;
     const emitEvent = emit(events, command);
     const thread: OrchestrationV2AppThread = {
-      ...(command.stanceChoice !== undefined
-        ? { stanceChoice: command.stanceChoice }
-        : command.agentTask?.stance === undefined
-          ? {}
-          : { stanceChoice: { stance: command.agentTask.stance, chosenBy: "parent" as const } }),
+      ...commandStanceChoiceField(command),
       ...(command.agentTask === undefined ? {} : { agentTask: command.agentTask }),
       createdBy: command.createdBy,
       creationSource: command.creationSource,
@@ -11310,11 +11296,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           creationSource: command.creationSource,
         }),
         ...(command.agentTask === undefined ? {} : { agentTask: command.agentTask }),
-        stanceChoice:
-          command.stanceChoice ??
-          (command.agentTask?.stance === undefined
-            ? undefined
-            : { stance: command.agentTask.stance, chosenBy: "parent" }),
+        stanceChoice: commandStanceChoice(command),
         // A task sent to another registered project belongs to it, so that project's
         // occupancy, settings and workspace preparation see it.
         ...(command.agentTask?.projectId === undefined
@@ -16922,23 +16904,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       ];
       const published = yield* writeSystemEvents(
         completionEvents,
-        // A managed task's browser tabs close when it ends: at once if it was cancelled, else
-        // after a grace period in which a follow-up can pick them up. The worker skips the
-        // release when a later run has started.
-        childControls.thread.agentTask === undefined
-          ? []
-          : [
-              {
-                id: `effect:system:browser-sessions.release:${childRun.id}`,
-                commandId: CommandId.make(`command:system:browser-sessions.release:${childRun.id}`),
-                threadId: childThreadId,
-                request: { type: "browser-sessions.release", sourceRunId: childRun.id },
-                availableAt:
-                  terminalStatus === "cancelled" || terminalStatus === "interrupted"
-                    ? now
-                    : DateTime.add(now, { minutes: MANAGED_TAB_FOLLOWUP_GRACE_MINUTES }),
-              },
-            ],
+        managedBrowserReleaseEffects({
+          managedTask: childControls.thread.agentTask !== undefined,
+          childThreadId,
+          childRunId: childRun.id,
+          terminalStatus,
+          now,
+        }),
         {
           updateDelegatedCompletionOnly: true,
           guardDelegatedCompletion: { threadId: childThreadId, runId: childRun.id },
@@ -18031,15 +18003,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           }),
       ),
     );
-    // Expiry keeps some of a thread's events, so a partial response is still a lost one.
-    if (receipt.replayExpiredAt !== undefined) {
-      return yield* new OrchestratorCommandReplayExpiredError({
-        commandId: command.commandId,
-        commandType: command.type,
-        threadId: receipt.threadId,
-        expiredAt: receipt.replayExpiredAt,
-      });
-    }
+    yield* refuseExpiredReplay(command, receipt);
     if (command.type === "queue.resume" || command.type === "queued-run.start") {
       yield* mapDispatchError(command)(
         startNextQueuedRun(command.threadId, {

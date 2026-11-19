@@ -64,6 +64,7 @@ import * as Stream from "effect/Stream";
 
 import * as CommandReceiptStore from "./CommandReceiptStore.ts";
 import * as Orchestrator from "./Orchestrator.ts";
+import { refuseChampionWorkspaceLoss } from "../champions/championThreadGuard.ts";
 import { PAUSED_TASK_RESUME_MESSAGE_PREFIX } from "./serverContinuation.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import { projectedRowEncodedBytes } from "./threadHistoryPaging.ts";
@@ -877,29 +878,7 @@ const make = Effect.gen(function* () {
     options?: DispatchOptions,
   ) {
     const command = yield* accountRouting.routeCommand(input, { placed: options?.placedByRole });
-    if (
-      command.type === "thread.archive" ||
-      command.type === "thread.delete" ||
-      (command.type === "thread.metadata.update" && command.worktreePath !== undefined)
-    ) {
-      const shell = yield* orchestrator.getThreadShell(command.threadId);
-      if (shell?.champion !== undefined) {
-        const { subagents } = yield* orchestrator.getThreadRecords(command.threadId, ["subagents"]);
-        if (
-          subagents.some(
-            (task) =>
-              task.origin === "app_owned" &&
-              task.childThreadId !== null &&
-              !["completed", "failed", "cancelled", "interrupted"].includes(task.status),
-          )
-        )
-          return yield* new Orchestrator.OrchestratorCommandRejectedError({
-            commandId: command.commandId,
-            commandType: command.type,
-            cause: "A champion owner with live children must retain its thread and workspace.",
-          });
-      }
-    }
+    yield* refuseChampionWorkspaceLoss(orchestrator, command);
     // Raw agent messages cannot bypass external work ownership. The owning
     // service may continue a validated task with its authenticated principal.
     if (
