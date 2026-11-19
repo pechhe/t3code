@@ -6,7 +6,9 @@ import {
   type OrchestrationV2ThreadWorkItem,
   ThreadId,
 } from "@t3tools/contracts";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -29,18 +31,15 @@ import {
 
 const threadId = ThreadId.make("thread-build");
 
-it.effect.each(["summary", "card"] as const)(
+it.effect.each(["card"] as const)(
   "%s backs off unchanged reads, resets on changes and observes agent writes",
-  (surface) =>
+  (_surface) =>
     Effect.gen(function* () {
       const { weave, service, add, connections } = yield* makeHarness;
       const spec = item(1_000_078, "spec", "Stable", "in_progress");
       add(spec);
       yield* service.link({ threadId, reference: "#1000078" });
-      const read = () =>
-        surface === "summary"
-          ? service.view(threadId)
-          : service.card({ threadId, itemId: spec.id, open: "same-opening" });
+      const read = () => service.card({ threadId, itemId: spec.id, open: "same-opening" });
       yield* read();
       for (const minutes of [1, 2, 4, 4, 4]) {
         const before = weave.toolCalls.length;
@@ -187,6 +186,16 @@ const makeHarness = Effect.gen(function* () {
   const attempts = new Map<string, unknown[]>();
   const acceptances = new Map<string, { acceptedAt: string }>();
   const add = (...added: FakeItem[]) => added.forEach((entry) => items.set(entry.number, entry));
+  /** When each item last changed, as `weave_forge_list` with `updatedSince` reports it. */
+  const updatedAt = new Map<number, string>();
+  const changeCheck = { failing: false };
+  /** An item saved now, as Forge stamps it. */
+  const touch = (entry: FakeItem) =>
+    Clock.currentTimeMillis.pipe(
+      Effect.map((now) =>
+        updatedAt.set(entry.number, DateTime.formatIso(DateTime.makeUnsafe(now))),
+      ),
+    );
   const byId = (id: unknown) => [...items.values()].find((entry) => entry.id === id);
   const viewOf = ({ waits: _waits, ...found }: FakeItem) => ({
     ...found,
@@ -211,6 +220,34 @@ const makeHarness = Effect.gen(function* () {
         return { status: "failed", code: "council_conflict" };
       councils.set(key, roster);
       return { status: "succeeded", value: roster };
+    }
+    if (name === "weave_forge_list" && args.updatedSince !== undefined) {
+      if (changeCheck.failing) return { status: "failed", code: "unavailable" };
+      const offset = Number(args.offset ?? 0);
+      const limit = Number(args.limit ?? 20);
+      const since = String(args.updatedSince);
+      const matching = [...items.values()]
+        .filter((entry) => (updatedAt.get(entry.number) ?? "") >= since)
+        .toSorted((a, b) => a.number - b.number);
+      const page = matching.slice(offset, offset + limit);
+      const hasMore = offset + limit < matching.length;
+      return {
+        status: "succeeded",
+        value: {
+          items: page.map((entry) => ({
+            id: entry.id,
+            number: entry.number,
+            status: entry.status,
+            revision: 1,
+            updatedAt: updatedAt.get(entry.number),
+          })),
+          limit,
+          offset,
+          hasMore,
+          ...(hasMore ? { nextOffset: offset + limit } : {}),
+          total: matching.length,
+        },
+      };
     }
     if (name === "weave_forge_list")
       return {
@@ -293,6 +330,8 @@ const makeHarness = Effect.gen(function* () {
     service,
     councils,
     add,
+    touch,
+    changeCheck,
     thread,
     dispatched,
     buildReads,
@@ -517,7 +556,7 @@ it.effect("resolves an Arc and shows it as an Arc, never as a Spec or a Ticket",
 
 it.effect("reads at once, then re-reads item and waits at most once a minute", () =>
   Effect.gen(function* () {
-    const { service, add, buildReads } = yield* makeHarness;
+    const { service, add, touch, buildReads } = yield* makeHarness;
     assert.isTrue((yield* service.connected).connected);
     const blocker = item(1_000_077, "spec", "Observer role", "landed");
     const ticket = item(1_000_079, "ticket", "Link and header", "ready");
@@ -548,12 +587,148 @@ it.effect("reads at once, then re-reads item and waits at most once a minute", (
     // Accepting the blocker moves only the blocker; the next minute's re-read sees it.
     blocker.status = "accepted";
     ticket.waits.length = 0;
+    yield* touch(blocker);
     yield* TestClock.adjust(30_000);
     assert.strictEqual((yield* service.view(threadId))?.item?.waits.length, 1);
     assert.strictEqual(buildReads(), 2);
     yield* TestClock.adjust(30_000);
     assert.strictEqual((yield* service.view(threadId))?.item?.waits.length, 0);
     assert.strictEqual(buildReads(), 4);
+  }),
+);
+
+/** Shown items, the first of which waits on a blocker, read once at the start. */
+const makeChangeCheckHarness = Effect.gen(function* () {
+  const harness = yield* makeHarness;
+  const { service, add, weave } = harness;
+  const blocker = item(1_000_077, "spec", "Blocker", "in_progress");
+  const waiter = item(1_000_079, "ticket", "Waiter", "ready");
+  waiter.waits.push({ required: "landed", blocker });
+  const others = [1_000_080, 1_000_081, 1_000_082].map((number) =>
+    item(number, "ticket", `Item ${number}`, "ready"),
+  );
+  add(blocker, waiter, ...others);
+  const shown = [waiter, blocker, ...others];
+  const views = () =>
+    Effect.forEach(shown, (entry) => service.mentions({ threadId, numbers: [entry.number] }), {
+      concurrency: 1,
+    });
+  const calls = (name: string) => weave.toolCalls.filter((call) => call.name === name).length;
+  yield* views();
+  return { ...harness, blocker, waiter, others, views, calls };
+});
+
+it.effect("an idle view makes one change check a minute and reads no item", () =>
+  Effect.gen(function* () {
+    const { views, calls, buildReads } = yield* makeChangeCheckHarness;
+    const reads = buildReads();
+    assert.strictEqual(reads, 10);
+    for (let minute = 1; minute <= 5; minute++) {
+      yield* TestClock.adjust(60_000);
+      yield* views();
+      yield* views();
+      assert.strictEqual(calls("weave_forge_list"), minute);
+    }
+    assert.strictEqual(buildReads(), reads);
+  }),
+);
+
+it.effect("rereads a changed item on the next check, and what waits on a changed blocker", () =>
+  Effect.gen(function* () {
+    const { views, buildReads, others, blocker, waiter, touch } = yield* makeChangeCheckHarness;
+    yield* TestClock.adjust(60_000);
+    const idle = buildReads();
+    others[0]!.status = "landed";
+    yield* touch(others[0]!);
+    const changed = yield* views();
+    assert.strictEqual(buildReads() - idle, 2);
+    assert.strictEqual(changed[2]?.items[0]?.item?.status, "landed");
+
+    yield* TestClock.adjust(60_000);
+    blocker.status = "landed";
+    waiter.waits[0]!.blocker = blocker;
+    yield* touch(blocker);
+    const before = buildReads();
+    const afterBlocker = yield* views();
+    // The blocker and the item waiting on it, 2 calls each; nothing else.
+    assert.strictEqual(buildReads() - before, 4);
+    assert.strictEqual(afterBlocker[0]?.items[0]?.item?.waits[0]?.status, "landed");
+  }),
+);
+
+it.effect("a T3 write rereads at once, without waiting for a change check", () =>
+  Effect.gen(function* () {
+    const { views, buildReads, connections, others, calls } = yield* makeChangeCheckHarness;
+    yield* TestClock.adjust(60_000);
+    yield* views();
+    const agent = yield* connections.connection(leadThread);
+    others[1]!.status = "landed";
+    yield* connections.forward({
+      authorization: agent!.authorizationHeader,
+      contentType: undefined,
+      accept: undefined,
+      protocolVersion: undefined,
+      body: new TextEncoder().encode(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: {
+            name: "weave_forge_set_status",
+            arguments: { itemId: others[1]!.id, status: "landed" },
+          },
+        }),
+      ),
+    });
+    const checks = calls("weave_forge_list");
+    const before = buildReads();
+    const result = yield* views();
+    assert.strictEqual(calls("weave_forge_list"), checks);
+    assert.strictEqual(buildReads() - before, 10);
+    assert.strictEqual(result[3]?.items[0]?.item?.status, "landed");
+  }),
+);
+
+it.effect("falls back to rereading each interval while the change check fails", () =>
+  Effect.gen(function* () {
+    const { views, buildReads, changeCheck, others } = yield* makeChangeCheckHarness;
+    changeCheck.failing = true;
+    yield* TestClock.adjust(60_000);
+    const before = buildReads();
+    others[2]!.status = "landed";
+    const result = yield* views();
+    assert.strictEqual(buildReads() - before, 10);
+    assert.strictEqual(result[4]?.items[0]?.item?.status, "landed");
+    // Within the interval nothing more is read; the next interval reads again.
+    yield* views();
+    assert.strictEqual(buildReads() - before, 10);
+    yield* TestClock.adjust(60_000);
+    yield* views();
+    assert.strictEqual(buildReads() - before, 20);
+    // Once the check answers again, unchanged items stay cached.
+    changeCheck.failing = false;
+    yield* TestClock.adjust(60_000);
+    yield* views();
+    const settled = buildReads();
+    yield* TestClock.adjust(60_000);
+    yield* views();
+    assert.strictEqual(buildReads(), settled);
+  }),
+);
+
+it.effect("rereads an unchanged item once the safety refresh lapses", () =>
+  Effect.gen(function* () {
+    const { views, buildReads, calls } = yield* makeChangeCheckHarness;
+    const before = buildReads();
+    for (let minute = 1; minute < 30; minute++) {
+      yield* TestClock.adjust(60_000);
+      yield* views();
+    }
+    assert.strictEqual(buildReads(), before);
+    yield* TestClock.adjust(60_000);
+    yield* views();
+    assert.strictEqual(buildReads() - before, 10);
+    assert.strictEqual(calls("weave_forge_list"), 30);
   }),
 );
 
@@ -1011,7 +1186,7 @@ it.effect("reads the items chat mentions by number, leaving out ones Forge doesn
 
 it.effect("re-reads mentioned items once a minute, sharing the linked item's reads", () =>
   Effect.gen(function* () {
-    const { weave, service, add, buildReads } = yield* makeHarness;
+    const { weave, service, add, touch, buildReads } = yield* makeHarness;
     const spec = item(1_000_078, "spec", "Show the Forge item", "in_progress");
     add(spec);
     const numberReads = () =>
@@ -1027,6 +1202,7 @@ it.effect("re-reads mentioned items once a minute, sharing the linked item's rea
 
     // Another chip, or another client, within the minute reads nothing.
     spec.title = "Renamed";
+    yield* touch(spec);
     yield* TestClock.adjust(30_000);
     const repeated = yield* service.mentions({ threadId, numbers: [1_000_078, 1_000_404] });
     assert.strictEqual(repeated.items[0]?.item?.title, "Show the Forge item");
