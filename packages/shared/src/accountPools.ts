@@ -306,23 +306,14 @@ const servingEntries = (
   return byKey;
 };
 
-/** Every model more than one account serves, each with its accounts in the user's order. */
-export const multiAccountModels = (
-  providers: ReadonlyArray<ServerProvider>,
-  settings: Pick<AccountRoutingSettings, "accountOrder" | "modelAccountsRemoved">,
+const shortestPlainName = (names: ReadonlyArray<string>): string =>
+  names
+    .map(plainModelName)
+    .reduce((shortest, name) => (name.length < shortest.length ? name : shortest));
+
+const disambiguateDisplayNames = (
+  pools: ReadonlyArray<PooledModel>,
 ): ReadonlyArray<PooledModel> => {
-  const pools = [...servingEntries(providers, settings)].flatMap(([key, entry]) => {
-    if (entry.accounts.length < 2) return [];
-    const accounts = orderAccounts(
-      entry.accounts,
-      settings.accountOrder,
-      (item) => item.account.id,
-    );
-    const displayName = entry.names
-      .map(plainModelName)
-      .reduce((shortest, name) => (name.length < shortest.length ? name : shortest));
-    return [{ key, displayName, accounts }];
-  });
   // Models kept apart (an alias beside its dated model) can share a name; the key tells them apart.
   const named = new Map<string, number>();
   for (const pool of pools) named.set(pool.displayName, (named.get(pool.displayName) ?? 0) + 1);
@@ -330,6 +321,54 @@ export const multiAccountModels = (
     named.get(pool.displayName)! > 1
       ? { ...pool, displayName: `${pool.displayName} (${pool.key})` }
       : pool,
+  );
+};
+
+/** Every model more than one account serves, each with its accounts in the user's order. */
+export const multiAccountModels = (
+  providers: ReadonlyArray<ServerProvider>,
+  settings: Pick<AccountRoutingSettings, "accountOrder" | "modelAccountsRemoved">,
+): ReadonlyArray<PooledModel> =>
+  disambiguateDisplayNames(
+    [...servingEntries(providers, settings)].flatMap(([key, entry]) =>
+      entry.accounts.length < 2
+        ? []
+        : [
+            {
+              key,
+              displayName: shortestPlainName(entry.names),
+              accounts: orderAccounts(
+                entry.accounts,
+                settings.accountOrder,
+                (item) => item.account.id,
+              ),
+            },
+          ],
+    ),
+  );
+
+/**
+ * Every model the user listed, including keys currently served by fewer than two enabled accounts,
+ * so Settings → Accounts always keeps a way to inspect and remove them. Routing uses `pooledModels`.
+ */
+export const listedPooledModels = (
+  providers: ReadonlyArray<ServerProvider>,
+  settings: Pick<
+    AccountRoutingSettings,
+    "accountOrder" | "pooledModelKeys" | "modelAccountsRemoved"
+  >,
+): ReadonlyArray<PooledModel> => {
+  const entries = servingEntries(providers, settings);
+  return disambiguateDisplayNames(
+    [...new Set(settings.pooledModelKeys ?? [])].map((key) => {
+      const entry = entries.get(key);
+      if (entry === undefined) return { key, displayName: key, accounts: [] };
+      return {
+        key,
+        displayName: shortestPlainName(entry.names),
+        accounts: orderAccounts(entry.accounts, settings.accountOrder, (item) => item.account.id),
+      };
+    }),
   );
 };
 

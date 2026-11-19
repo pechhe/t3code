@@ -127,7 +127,8 @@ export const layer = Layer.effectDiscard(
         provider === undefined || model === undefined
           ? undefined
           : pooledModelKeyOf(provider, model);
-      if (key === undefined) return yield* settings.getSettings;
+      const initial = yield* settings.getSettings;
+      if (key === undefined || !initial.pooledModelKeys?.includes(key)) return initial;
       const account = selectionAccountId(providers, run.modelSelection);
       const skip = skipAfterLimit({
         failureResetAt: input.failure.resetAt,

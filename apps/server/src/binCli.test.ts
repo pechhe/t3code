@@ -67,6 +67,8 @@ it.live("keeps migration warnings out of JSON thread output", () =>
                           threads: [],
                           nextCursor: null,
                           total: 0,
+                          environmentId: "environment-1",
+                          environments: [],
                         },
                 };
           response.writeHead(200, {

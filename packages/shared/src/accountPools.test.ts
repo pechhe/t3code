@@ -10,6 +10,7 @@ import {
   accountIdOf,
   firstAccount,
   listAccounts,
+  listedPooledModels,
   multiAccountModels,
   nextAccount,
   nextLocalMidnightMs,
@@ -313,13 +314,36 @@ describe("the models the user adds", () => {
     ["sonnet", "Sonnet"],
   ]);
 
-  it("pools only listed models, and finds every model several accounts serve to offer them", () => {
+  it("pools only listed models, finds multi-account candidates, and lists every configured key", () => {
+    const withSingle = [
+      a,
+      provider("b", "claudeAgent", [
+        ["opus", "Opus"],
+        ["sonnet", "Sonnet"],
+        ["haiku", "Haiku"],
+      ]),
+    ];
     expect(pooledModels([a, b], routing(["opus"])).map((model) => model.key)).toEqual(["opus"]);
     expect(pooledModels([a, b], routing())).toEqual([]);
     expect(multiAccountModels([a, b], routing()).map((model) => model.key)).toEqual([
       "opus",
       "sonnet",
     ]);
+
+    const listed = listedPooledModels(withSingle, {
+      accountOrder: [],
+      pooledModelKeys: ["opus", "haiku", "retired"],
+      modelAccountsRemoved: { haiku: ["b"] },
+    });
+    expect(listed.map((model) => [model.key, model.displayName, model.accounts.length])).toEqual([
+      ["opus", "Opus", 2],
+      ["haiku", "Haiku", 1],
+      ["retired", "retired", 0],
+    ]);
+    expect(listed[1]?.accounts[0]?.removed).toBe(true);
+    expect(
+      pooledModels(withSingle, routing(["opus", "haiku", "retired"])).map((model) => model.key),
+    ).toEqual(["opus"]);
   });
 
   it("seeds the models Henry uses: his favorites and the models his roles name", () => {

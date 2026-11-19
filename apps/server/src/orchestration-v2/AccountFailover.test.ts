@@ -133,6 +133,7 @@ const withFailover = <A, E, R>(
     readonly fail: (run: OrchestrationV2Run, resetAt?: number) => Effect.Effect<void>;
     readonly dispatched: Queue.Queue<OrchestrationV2Command>;
   }) => Effect.Effect<A, E, R>,
+  customProviders: ReadonlyArray<ServerProvider> = providers,
 ) =>
   Effect.gen(function* () {
     const events = yield* Queue.unbounded<OrchestrationV2DomainEvent>();
@@ -144,7 +145,10 @@ const withFailover = <A, E, R>(
         Layer.provide(
           Layer.mergeAll(
             Layer.succeed(ServerSettings.ServerSettingsService, settings),
-            Layer.succeed(ProviderRegistry.ProviderRegistry, makeProviderRegistryMock(providers)),
+            Layer.succeed(
+              ProviderRegistry.ProviderRegistry,
+              makeProviderRegistryMock(customProviders),
+            ),
             Layer.mock(Orchestrator.OrchestratorV2)({
               streamDomainEvents: Stream.fromQueue(events),
             }),
@@ -337,6 +341,8 @@ describe("accounts A, B and C serving one model, in that order", () => {
             );
         assert.strictEqual(yield* delegate({}), "B");
         assert.strictEqual(yield* delegate({ agentTask: { role: "reviewer" } }), "A");
+        yield* settings.updateSettings({ pooledModelKeys: [] });
+        assert.strictEqual(yield* delegate({}), "A");
       }).pipe(Effect.provide(settingsLayer)),
   );
 
@@ -344,7 +350,15 @@ describe("accounts A, B and C serving one model, in that order", () => {
     Effect.gen(function* () {
       yield* TestClock.setTime(NOW);
       const settings = yield* ServerSettings.ServerSettingsService;
-      yield* settings.updateSettings({ pooledModelKeys: [] });
+      const LISTED_MODEL = "claude-sonnet-5-5";
+      const bothModels = providers.map((provider) => ({
+        ...provider,
+        models: [
+          ...provider.models,
+          { slug: LISTED_MODEL, name: "Claude Sonnet 5.5", isCustom: false, capabilities: null },
+        ],
+      }));
+      yield* settings.updateSettings({ pooledModelKeys: [LISTED_MODEL] });
       // The same model on three accounts, picked on B: it runs on B and no limit moves it.
       assert.strictEqual(yield* newThreadAccount(on("B")), "B");
       assert.strictEqual(
@@ -356,6 +370,27 @@ describe("accounts A, B and C serving one model, in that order", () => {
         }),
         undefined,
       );
+
+      yield* withFailover(
+        ({ fail, dispatched }) =>
+          Effect.gen(function* () {
+            yield* fail(failedRun(threadA, on("B")));
+            // A later listed failure proves the unlisted one recorded no skip or continuation.
+            yield* fail(
+              failedRun(threadB, {
+                instanceId: ProviderInstanceId.make("B"),
+                model: LISTED_MODEL,
+              }),
+            );
+            const continuation = yield* Queue.take(dispatched);
+            assert.strictEqual(
+              continuation.type === "message.dispatch" && continuation.threadId,
+              threadB,
+            );
+          }),
+        bothModels,
+      );
+      assert.strictEqual((yield* settings.getSettings).accountSkips["B"]?.[MODEL], undefined);
     }).pipe(Effect.provide(settingsLayer)),
   );
 });

@@ -17,8 +17,8 @@ import {
 } from "@t3tools/contracts";
 import {
   listAccounts,
+  listedPooledModels,
   multiAccountModels,
-  pooledModels,
   type AccountInfo,
   type PooledModel,
 } from "@t3tools/shared/accountPools";
@@ -86,7 +86,7 @@ function EnvironmentAccounts({ environmentId }: { environmentId: EnvironmentId }
   const canManage = useEnvironmentScope(environmentId, AuthProvidersManageScope);
   const accounts = listAccounts(providers, settings.accountOrder);
   const listed = settings.pooledModelKeys ?? [];
-  const models = pooledModels(providers, settings).toSorted((a, b) =>
+  const models = listedPooledModels(providers, settings).toSorted((a, b) =>
     a.displayName.localeCompare(b.displayName),
   );
   const candidates = multiAccountModels(providers, settings)
@@ -285,11 +285,17 @@ function PooledModelsList(props: {
       ) : null}
       {props.models.map((model) => {
         const inUse = model.accounts.filter((entry) => !entry.removed).length;
+        const status =
+          model.accounts.length === 0
+            ? "No enabled accounts currently serve this model"
+            : model.accounts.length === 1
+              ? `${inUse} of 1 in use · needs 2 accounts to pool`
+              : `${inUse} of ${model.accounts.length} in use`;
         return (
           <SettingsRow
             key={model.key}
             title={model.displayName}
-            status={`${inUse} of ${model.accounts.length} in use`}
+            status={status}
             control={
               <RemoveModelButton
                 label={model.displayName}
@@ -298,30 +304,34 @@ function PooledModelsList(props: {
               />
             }
           >
-            <div className="mt-1.5 flex flex-wrap gap-1.5">
-              {model.accounts.map((entry) => (
-                <span
-                  key={entry.account.id}
-                  className={cn(
-                    "inline-flex items-center gap-1.5 rounded-md border border-border/60 py-0.5 ps-1.5 pe-0.5 text-xs",
-                    entry.removed && "text-muted-foreground line-through",
-                  )}
-                >
-                  <AccountIcon account={entry.account} />
-                  {entry.account.label}
-                  <Button
-                    type="button"
-                    size="icon-tiny"
-                    variant="ghost-muted"
-                    disabled={props.disabled}
-                    aria-label={`${entry.removed ? "Use" : "Don't use"} ${entry.account.label} for ${model.displayName}`}
-                    onClick={() => props.onSetRemoved(model.key, entry.account.id, !entry.removed)}
+            {model.accounts.length > 0 ? (
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {model.accounts.map((entry) => (
+                  <span
+                    key={entry.account.id}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-md border border-border/60 py-0.5 ps-1.5 pe-0.5 text-xs",
+                      entry.removed && "text-muted-foreground line-through",
+                    )}
                   >
-                    {entry.removed ? <PlusIcon /> : <XIcon />}
-                  </Button>
-                </span>
-              ))}
-            </div>
+                    <AccountIcon account={entry.account} />
+                    {entry.account.label}
+                    <Button
+                      type="button"
+                      size="icon-tiny"
+                      variant="ghost-muted"
+                      disabled={props.disabled}
+                      aria-label={`${entry.removed ? "Use" : "Don't use"} ${entry.account.label} for ${model.displayName}`}
+                      onClick={() =>
+                        props.onSetRemoved(model.key, entry.account.id, !entry.removed)
+                      }
+                    >
+                      {entry.removed ? <PlusIcon /> : <XIcon />}
+                    </Button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
           </SettingsRow>
         );
       })}
