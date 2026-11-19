@@ -51,7 +51,7 @@ export const BUILD_MAX_REREAD_INTERVAL_MS = 4 * BUILD_REREAD_INTERVAL_MS;
 /** A cached summary is shown without a fresh change check for this long. */
 const CACHED_SUMMARY_MAX_AGE_MS = BUILD_MAX_REREAD_INTERVAL_MS + BUILD_REREAD_INTERVAL_MS;
 /** An item is read again this often even when no check saw it change. */
-export const SUMMARY_SAFETY_REFRESH_MS = 30 * 60_000;
+const SUMMARY_SAFETY_REFRESH_MS = 30 * 60_000;
 /**
  * A check asks from this long before its watermark, so a save stamped before it committed, or
  * Weave's clock running behind T3's, is not missed. Items found again in the overlap are not reread.

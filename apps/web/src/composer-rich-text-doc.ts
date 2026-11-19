@@ -28,7 +28,7 @@ import {
   mergeAttributes,
 } from "@tiptap/core";
 import { isHistoryTransaction } from "@tiptap/pm/history";
-import { canJoin, findWrapping } from "@tiptap/pm/transform";
+import { Transform, canJoin, findWrapping } from "@tiptap/pm/transform";
 import { BulletList, ListItem, OrderedList } from "@tiptap/extension-list";
 import { Strike, inputRegex as strikeInputRegex } from "@tiptap/extension-strike";
 import { TaskItem } from "@tiptap/extension-task-item";
@@ -760,7 +760,18 @@ function listNormalizationPlugin(isComposing: () => boolean) {
         joinCompatibleLists(tr, pos);
       }
       pending = new Set([...pending].map((pos) => tr.mapping.map(pos, 1)));
-      return tr.docChanged ? tr : null;
+      if (!tr.docChanged) return null;
+      // Tiptap 3.34+ dispatches the typed text before running an input rule and skips the rule when
+      // this plugin has already converted it. Record the conversion as that rule's undo so Backspace
+      // right after it still restores the literal marker.
+      const inputRules = state.plugins.find((plugin) => plugin.spec.isInputRules);
+      if (inputRules) {
+        const transform = new Transform(state.doc);
+        for (const step of tr.steps) transform.step(step);
+        const caret = state.selection.from;
+        tr.setMeta(inputRules, { transform, from: caret, to: caret, text: "" });
+      }
+      return tr;
     },
   });
 }
