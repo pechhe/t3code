@@ -1,9 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off
 
 import {
-  providerVideoFrameLabel,
   readProviderVideoFrames,
-  videoFramesWithinByteBudget,
   isProviderNativeImageAttachment,
   providerMessageTextWithAttachmentPaths,
 } from "@t3tools/provider-core/server/attachmentPrompt";
@@ -115,6 +113,7 @@ import {
   unknownRecord,
 } from "./clientPolicy.ts";
 import { parseElicitationForm } from "./elicitationForm.ts";
+import { acpVideoFrameBlocks } from "./videoFramePrompt.ts";
 import {
   makeAcpClientTerminals,
   resolveEmbeddedTerminalContent,
@@ -8570,27 +8569,14 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               );
             attachmentBlocks.push(...blocks);
           }
-          if (supportsImagePrompts && loadedFrames.length > 0) {
-            const imageBytes = attachmentBlocks.reduce(
-              (sum, block) =>
-                sum + (block.type === "image" ? Buffer.byteLength(block.data, "base64") : 0),
-              0,
+          if (supportsImagePrompts) {
+            attachmentBlocks.push(
+              ...acpVideoFrameBlocks(
+                loadedFrames,
+                flavor.nativeAttachmentByteLimit,
+                attachmentBlocks,
+              ),
             );
-            const frames =
-              flavor.nativeAttachmentByteLimit === undefined
-                ? loadedFrames
-                : videoFramesWithinByteBudget(
-                    loadedFrames,
-                    flavor.nativeAttachmentByteLimit - imageBytes,
-                  );
-            for (const { frame, bytes } of frames) {
-              attachmentBlocks.push({ type: "text", text: providerVideoFrameLabel(frame) });
-              attachmentBlocks.push({
-                type: "image",
-                data: Buffer.from(bytes).toString("base64"),
-                mimeType: "image/jpeg",
-              });
-            }
           }
           // Read delivery state after the awaits above, so a compaction that lands
           // while the prompt is prepared still resends the notes in this prompt.

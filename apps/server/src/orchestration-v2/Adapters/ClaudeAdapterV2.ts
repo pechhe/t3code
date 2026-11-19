@@ -12,6 +12,12 @@ import {
   toolOutputImages,
 } from "@t3tools/shared/toolOutput";
 import { claudeTaskOutputRoot, tailClaudeTaskOutput } from "./ClaudeTaskOutputTail.ts";
+import * as ClaudeRoleTools from "./ClaudeRoleTools.ts";
+import {
+  claudeQuerySelection,
+  compactedWithUsage,
+  compactionItemModelFields,
+} from "../ClaudeCompactionPlan.ts";
 import {
   dynamicToolTitle,
   formatReadToolLabel,
@@ -251,8 +257,8 @@ import {
 import { turnScopedSelectionTransition } from "@t3tools/provider-core/server/selectionTransition";
 
 import {
-  providerVideoFrameLabel,
   readProviderVideoFrames,
+  videoFrameParts,
   providerMessageTextWithAttachmentPaths,
 } from "@t3tools/provider-core/server/attachmentPrompt";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
@@ -670,23 +676,7 @@ export interface ClaudeAgentSdkQueryPresetTools {
 export type ClaudeAgentSdkQueryTools = ClaudeAgentSdkQueryToolList | ClaudeAgentSdkQueryPresetTools;
 
 export const CLAUDE_READ_ONLY_ALLOWED_TOOLS = ["Read", "Glob", "Grep"] as const;
-export const CLAUDE_MANAGED_WRITER_TOOLS = [
-  ...CLAUDE_READ_ONLY_ALLOWED_TOOLS,
-  "Write",
-  "Edit",
-  "Bash",
-] as const;
-const CLAUDE_WEB_RESEARCH_TOOLS = ["WebSearch", "WebFetch"] as const;
-/** Off for every editor: T3's `delegate_task` and `web_search` replace them, and T3 can count the former. */
-export const CLAUDE_HARNESS_EXTRA_TOOLS = [
-  "Agent",
-  "ListAgents",
-  "Task",
-  ...CLAUDE_WEB_RESEARCH_TOOLS,
-] as const;
-// Claude Code defers MCP tool schemas only when ToolSearch is available. A restricted tool list
-// without it sends every schema up front: Weave alone added 50k+ tokens to each delegated session.
-const CLAUDE_TOOL_SEARCH_TOOL = "ToolSearch";
+export const CLAUDE_HARNESS_EXTRA_TOOLS = ClaudeRoleTools.CLAUDE_HARNESS_EXTRA_TOOLS;
 
 function claudeAgentSdkQueryToolsForSdk(
   tools: ClaudeAgentSdkQueryTools,
@@ -2333,18 +2323,14 @@ export function makeClaudeQueryOptions(input: {
     Object.keys(compiledSelection.settings).length === 0
       ? undefined
       : (compiledSelection.settings as ClaudeSdkSettings);
-  const managedSettings =
-    input.managedAgent === true
-      ? ({ ...selectionSettings, disableAllHooks: true } as ClaudeSdkSettings)
-      : selectionSettings;
   const querySettings =
     input.managedAgent === true
-      ? managedSettings
-      : managedSettings === undefined
+      ? (ClaudeRoleTools.managedClaudeSettings(selectionSettings) as ClaudeSdkSettings)
+      : selectionSettings === undefined
         ? input.sdkSettings
         : typeof input.sdkSettings === "object" && input.sdkSettings !== null
-          ? ({ ...input.sdkSettings, ...managedSettings } as ClaudeSdkSettings)
-          : managedSettings;
+          ? ({ ...input.sdkSettings, ...selectionSettings } as ClaudeSdkSettings)
+          : selectionSettings;
   const autoCompactWindow = claudeAutoCompactWindow(
     {
       ...(input.settings === undefined ? {} : { instanceWindow: input.settings.autoCompactWindow }),
@@ -2394,9 +2380,7 @@ export function makeClaudeQueryOptions(input: {
         } as ClaudeSdkSettings);
   const deviceInstructions = input.mcpServers !== undefined && input.deviceToolsAvailable === true;
   const options: ClaudeAgentSdkQueryOptions = {
-    ...(input.managedAgent === true
-      ? { settingSources: [], skills: [], plugins: [], strictMcpConfig: true }
-      : {}),
+    ...(input.managedAgent === true ? ClaudeRoleTools.managedClaudeQueryIsolation() : {}),
     model: compiledSelection.apiModelId,
     // T3 names threads; a supplied title skips Claude's redundant naming request.
     ...(input.title === undefined ? {} : { title: input.title }),
@@ -3411,20 +3395,13 @@ const makeClaudeUserMessageWithAttachments = Effect.fnUntraced(function* (input:
     if (image !== undefined) content.push(image);
   }
 
-  for (const { frame, bytes } of yield* readProviderVideoFrames(
-    input.fileSystem,
-    input.videoFrames,
-  )) {
-    content.push({ type: "text", text: providerVideoFrameLabel(frame) });
-    content.push({
-      type: "image",
-      source: {
-        type: "base64",
-        media_type: "image/jpeg",
-        data: Buffer.from(bytes).toString("base64"),
-      },
-    });
-  }
+  content.push(
+    ...videoFrameParts<ClaudeUserContentBlock>(
+      yield* readProviderVideoFrames(input.fileSystem, input.videoFrames),
+      (text) => ({ type: "text", text }),
+      (data) => ({ type: "image", source: { type: "base64", media_type: "image/jpeg", data } }),
+    ),
+  );
 
   // Images must precede the command block for skill expansion.
   if (dispatch) {
@@ -3594,19 +3571,12 @@ export function claudeRuntimeQueryPolicyForRuntimePolicy(
   runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy,
   availability: ClaudeBypassAvailability = CLAUDE_BYPASS_FULLY_AVAILABLE,
 ): ClaudeRuntimeQueryPolicy {
-  // Managed Claude has no supported workspace-write sandbox. Only an attested
-  // read-only profile or the explicitly admitted trusted route may reach its SDK.
-  if (
-    runtimePolicy.managedAgent === true &&
-    !(
-      sandboxPolicyKindForClaudeRuntimePolicy(runtimePolicy) === "readOnly" ||
-      (sandboxPolicyKindForClaudeRuntimePolicy(runtimePolicy) === "dangerFullAccess" &&
-        runtimePolicy.runtimeMode === "full-access" &&
-        runtimePolicy.approvalPolicy === "never")
-    )
-  ) {
-    throw new Error("Managed Claude requires read-only execution or admitted trusted host access.");
-  }
+  const toolSets = ClaudeRoleTools.claudeRoleToolSets({
+    runtimePolicy,
+    sandboxKind: sandboxPolicyKindForClaudeRuntimePolicy(runtimePolicy),
+    readOnlyAllowedTools: CLAUDE_READ_ONLY_ALLOWED_TOOLS,
+    allowsGlobalReads: readOnlyPolicyAllowsGlobalReads(runtimePolicy),
+  });
   const requestedMode = permissionModeForClaudeRuntimePolicy(runtimePolicy);
   const downgraded = requestedMode === "bypassPermissions" && availability.bypassDisabled;
   const permissionMode = downgraded
@@ -3614,26 +3584,6 @@ export function claudeRuntimeQueryPolicyForRuntimePolicy(
       ? "default"
       : "auto"
     : requestedMode;
-  const readOnly = sandboxPolicyKindForClaudeRuntimePolicy(runtimePolicy) === "readOnly";
-  const webTools = readOnly && runtimePolicy.webResearch === true ? CLAUDE_WEB_RESEARCH_TOOLS : [];
-  const readOnlyTools = readOnly ? CLAUDE_READ_ONLY_ALLOWED_TOOLS : undefined;
-  // A managed writer keeps the coding set: the preset's other built-ins cost a worker ~20 KB per
-  // first turn and do nothing T3's lazily loaded tools cannot (Henry, T3-532).
-  const restrictedTools =
-    readOnlyTools !== undefined
-      ? [...readOnlyTools, ...webTools]
-      : runtimePolicy.managedAgent === true
-        ? CLAUDE_MANAGED_WRITER_TOOLS
-        : undefined;
-  const tools = restrictedTools && [...restrictedTools, CLAUDE_TOOL_SEARCH_TOOL];
-  const disallowedTools = restrictedTools === undefined ? CLAUDE_HARNESS_EXTRA_TOOLS : undefined;
-  // Web tools need permission, so a web-research agent must pre-approve them.
-  const allowedTools =
-    readOnlyTools !== undefined && readOnlyPolicyAllowsGlobalReads(runtimePolicy)
-      ? [...readOnlyTools, ...webTools]
-      : webTools.length > 0
-        ? [...webTools]
-        : undefined;
   // acceptEdits approves edits before the callback; the callback must ask for everything else.
   const installPermissionCallback =
     downgraded ||
@@ -3645,9 +3595,7 @@ export function claudeRuntimeQueryPolicyForRuntimePolicy(
   if (permissionMode === "plan") {
     return {
       permissionMode,
-      ...(tools === undefined ? {} : { tools }),
-      ...(disallowedTools === undefined ? {} : { disallowedTools }),
-      ...(allowedTools === undefined ? {} : { allowedTools }),
+      ...toolSets,
       // Claude routes Plan-mode writes to the callback even in Auto or Full access.
       installPermissionCallback: true,
     };
@@ -3655,9 +3603,7 @@ export function claudeRuntimeQueryPolicyForRuntimePolicy(
 
   return {
     permissionMode,
-    ...(tools === undefined ? {} : { tools }),
-    ...(disallowedTools === undefined ? {} : { disallowedTools }),
-    ...(allowedTools === undefined ? {} : { allowedTools }),
+    ...toolSets,
     ...(permissionMode === "bypassPermissions" ? { allowDangerouslySkipPermissions: true } : {}),
     installPermissionCallback,
   };
@@ -5392,14 +5338,6 @@ interface ActiveClaudeSubagent {
   lastAssistantMessageId: string | null;
 }
 
-/** Marks the usage of a compaction a model other than the conversation's summarised. */
-function compactedWithUsage(context: {
-  readonly input: ProviderAdapter.ProviderAdapterV2TurnInput;
-}) {
-  const model = context.input.compaction?.modelSelection?.model;
-  return model === undefined ? {} : { compactedWith: model };
-}
-
 interface ClaudeLiveQueryContext {
   /** The conversation's model, which bounds the process's compaction window even while a compaction runs on another. */
   modelSelection: ModelSelection;
@@ -6687,7 +6625,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               status: "running",
               startedAt: context.startedAt,
               completedAt: null,
-              tokenUsage: { ...tokenUsage, ...compactedWithUsage(context) },
+              tokenUsage: { ...tokenUsage, ...compactedWithUsage(context.input.compaction) },
               ...(context.executedModel === undefined ? {} : { model: context.executedModel }),
             },
           });
@@ -11426,12 +11364,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 driver: CLAUDE_PROVIDER,
                 status: "running",
                 title: "Compacting context",
-                ...(context.input.compaction?.modelSelection === undefined
-                  ? {}
-                  : { model: context.input.compaction.modelSelection.model }),
-                ...(context.input.compaction?.windowTooSmall === true
-                  ? { windowTooSmall: true }
-                  : {}),
+                ...compactionItemModelFields(context.input.compaction),
                 startedAt: now,
                 completedAt: null,
                 updatedAt: now,
@@ -13220,9 +13153,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           const queryPolicyKey = `${claudeEffectiveQueryPolicyKey(queryPolicy, mcpOverrides)}:${
             turnInput.instructionOverlay?.sha256 ?? ""
           }:${turnInput.runtimePolicy.cwd ?? ""}`;
-          // A compaction on another model opens or switches the session for the summary only; the
-          // turn's own selection stays the conversation's.
-          const querySelection = turnInput.compaction?.modelSelection ?? turnInput.modelSelection;
+          const querySelection = claudeQuerySelection(turnInput);
           const resumeSessionAt = yield* getNativeConversationHeadId(turnInput.providerThread);
           const existing = yield* Ref.get(queryContext);
           // Continuations drain existing output without prompting; retain the live process regardless of selection.
@@ -13702,10 +13633,8 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             );
             const promptText = applyClaudePromptEffortPrefix(
               turnInput.message.text,
-              compileClaudeModelSelection(
-                turnInput.compaction?.modelSelection ?? turnInput.modelSelection,
-                modelCatalog,
-              ).promptEffort,
+              compileClaudeModelSelection(claudeQuerySelection(turnInput), modelCatalog)
+                .promptEffort,
             );
             const appContext = turnInput.appContext ?? [];
             const delivered = deliveredAppContext.get(nativeThreadId);

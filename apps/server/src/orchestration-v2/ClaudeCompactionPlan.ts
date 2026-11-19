@@ -12,6 +12,8 @@ import {
   getProviderOptionDescriptors,
 } from "@t3tools/shared/model";
 
+import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
+
 import {
   BUNDLED_CLAUDE_MODEL_CATALOG,
   getClaudeCatalogModelCapabilities,
@@ -100,3 +102,25 @@ export function planClaudeCompaction(input: {
     },
   };
 }
+
+type TurnCompaction = ProviderAdapter.ProviderAdapterV2TurnInput["compaction"];
+
+/**
+ * The selection a Claude turn's query runs on. A compaction on another model opens or switches
+ * the session for the summary only; the turn's own selection stays the conversation's.
+ */
+export const claudeQuerySelection = (
+  turnInput: Pick<ProviderAdapter.ProviderAdapterV2TurnInput, "compaction" | "modelSelection">,
+) => turnInput.compaction?.modelSelection ?? turnInput.modelSelection;
+
+/** Marks the usage of a compaction a model other than the conversation's summarised. */
+export const compactedWithUsage = (compaction: TurnCompaction) => {
+  const model = compaction?.modelSelection?.model;
+  return model === undefined ? {} : { compactedWith: model };
+};
+
+/** What a compaction item records about the model that summarised it. */
+export const compactionItemModelFields = (compaction: TurnCompaction) => ({
+  ...(compaction?.modelSelection === undefined ? {} : { model: compaction.modelSelection.model }),
+  ...(compaction?.windowTooSmall === true ? { windowTooSmall: true } : {}),
+});

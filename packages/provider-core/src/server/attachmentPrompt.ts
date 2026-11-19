@@ -188,6 +188,18 @@ export const readProviderVideoFrames = Effect.fnUntraced(function* (
   return loaded;
 });
 
+/** Each loaded frame as its label then its JPEG, in the block shapes of the provider's prompt. */
+export function videoFrameParts<Part>(
+  frames: ReadonlyArray<{ frame: ProviderAdapterV2VideoFrame; bytes: Uint8Array }>,
+  text: (label: string) => Part,
+  image: (jpegBase64: string) => Part,
+): Array<Part> {
+  return frames.flatMap(({ frame, bytes }) => [
+    text(providerVideoFrameLabel(frame)),
+    image(Buffer.from(bytes).toString("base64")),
+  ]);
+}
+
 // Resample from the original groups so repeated reductions do not cluster timestamps.
 export function videoFramesWithinByteBudget<
   T extends { frame: ProviderAdapterV2VideoFrame; bytes: Uint8Array },

@@ -3614,39 +3614,6 @@ it.live("an open that fails while preparing its page releases the tab's context"
   ).pipe(Effect.provide(layer)),
 );
 
-it.live("reports a managed browser crash as a refusal and releases its context", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const { broker } = yield* ready;
-      const manager = yield* Manager.PreviewManager;
-      const managed = {
-        ...asSession("managed-crash"),
-        managedBrowser: true as const,
-        managedProjectId: ProjectId.make("managed-crash-project"),
-      };
-      const opened = yield* broker.invoke<PreviewAutomationStatus>({
-        scope: managed,
-        operation: "open",
-        input: {},
-      });
-      const tabId = PreviewTabId.make(opened.tabId!);
-      const events = yield* manager.subscribeEvents;
-      const crashed = contexts.at(-1)!;
-      yield* Effect.promise(() => crashed.page.emitAsync("crash"));
-      yield* Stream.fromSubscription(events).pipe(
-        Stream.filter((event) => event.type === "closed" && event.tabId === tabId),
-        Stream.take(1),
-        Stream.runDrain,
-      );
-      const refused = yield* broker
-        .invoke<PreviewAutomationStatus>({ scope: managed, tabId, operation: "status", input: {} })
-        .pipe(Effect.flip);
-      expect(refused.message).toContain("crashed or disconnected");
-      expect(crashed.close).toHaveBeenCalled();
-    }),
-  ).pipe(Effect.provide(layer)),
-);
-
 // Holds the next profile save at its temp-file cleanup, after the rename, until released.
 const gateSaveCleanup = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;

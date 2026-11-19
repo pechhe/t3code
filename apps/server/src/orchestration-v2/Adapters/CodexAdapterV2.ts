@@ -1,7 +1,7 @@
 import * as ProcessGroupLedger from "@t3tools/provider-core/server/ProcessGroupLedger";
 import {
-  providerVideoFrameLabel,
   readProviderVideoFrames,
+  videoFrameParts,
   isProviderNativeImageAttachment,
   providerMessageTextWithAttachmentPaths,
 } from "@t3tools/provider-core/server/attachmentPrompt";
@@ -148,8 +148,9 @@ import { codexAppServerArgs, resolveCodexLaunchArgs } from "../../provider/codex
 import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
 import * as SlipJayGuard from "../../project/SlipJayGuard.ts";
-import { MANAGED_BROWSER_TOOL_NAMES } from "../../mcp/toolkits/managedBrowser/toolNames.ts";
-import { BOUNDED_BROWSER_TOOL_NAMES } from "../../mcp/toolkits/boundedBrowser/toolNames.ts";
+import { managedBrowserSessionTools } from "../../mcp/toolkits/managedBrowser/toolNames.ts";
+import { CODEX_HARNESS_EXTRAS_OFF, codexTurnInstructionListing } from "./CodexToolListing.ts";
+import { withManagedMcpServersDisabled, withStableUsageIdentity } from "./CodexManagedSession.ts";
 import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import {
@@ -1568,13 +1569,7 @@ export const CODEX_THREAD_CONFIG = {
   // Tool calls stop waiting on the detailed reasoning summary. Codex applies it only to its
   // built-in OpenAI provider and sends each summary section whole, not as token deltas.
   "features.concurrent_reasoning_summaries": true,
-  // Off for every agent: T3's `delegate_task`, browser and `web_search` tools replace them.
-  "features.multi_agent": false,
-  "features.apps": false,
-  "features.plugins": false,
-  "features.browser_use": false,
-  "features.computer_use": false,
-  web_search: "disabled",
+  ...CODEX_HARNESS_EXTRAS_OFF,
 } as const;
 
 // request_secret can wait an hour; keep Codex's MCP timeout above that.
@@ -1583,20 +1578,6 @@ const CODEX_T3_MCP_TOOL_TIMEOUT_SEC = 65 * 60;
 // `t3-code-direct.<tool>`; t3McpToolPresentation.ts must keep resolving that form.
 const CODEX_T3_DIRECT_MCP_SERVER = "t3-code-direct";
 const CODEX_DIRECT_ONLY_T3_TOOLS = ["t3_thread_wait", "delegate_task"];
-
-/**
- * What a turn's instructions may describe. It follows the endpoint's listing, not
- * the permission: a reader in a browser-enabled project lists no preview tool and
- * must not be told one exists.
- */
-export const codexTurnInstructionListing = (
-  mcpSession: McpProviderSession.McpProviderSessionConfig | undefined,
-) => ({
-  delegated: mcpSession?.delegated === true,
-  listsPreview: mcpSession?.listsPreview === true,
-  listsDevice: mcpSession?.listsDevice === true,
-  ...(mcpSession?.listsHtml === false ? { listsHtml: false } : {}),
-});
 
 export function codexThreadRuntimeParams(input: {
   readonly threadId?: ThreadId | null;
@@ -1615,6 +1596,7 @@ export function codexThreadRuntimeParams(input: {
 } {
   const { mcpSession } = input;
   const compactLimit = codexCompactLimit(input.runtimePolicy, input.autoCompactWindow);
+  const managedBrowserTools = managedBrowserSessionTools(mcpSession);
   const t3Server =
     mcpSession === undefined
       ? undefined
@@ -1626,14 +1608,7 @@ export function codexThreadRuntimeParams(input: {
           // it Codex asks for every call in a guarded workspace's full access (where the
           // command guard makes it ask) and denies them outright under `never`.
           default_tools_approval_mode: "approve",
-          ...(mcpSession.managedBrowser === true
-            ? {
-                enabled_tools: [
-                  ...MANAGED_BROWSER_TOOL_NAMES,
-                  ...(mcpSession.boundedBrowser === true ? BOUNDED_BROWSER_TOOL_NAMES : []),
-                ],
-              }
-            : {}),
+          ...(managedBrowserTools === undefined ? {} : { enabled_tools: managedBrowserTools }),
           http_headers: { Authorization: mcpSession.authorizationHeader },
         };
   const directWait =
@@ -2190,20 +2165,18 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             return [Math.max(0, live), next] as const;
           });
         const environment = resolvedRuntime?.environment ?? adapterOptions.environment;
-        const usageIdentityBefore = yield* adapterOptions.readUsageIdentity ?? Effect.undefined;
-        const client = yield* clientFactory.open({
-          instanceId: adapterOptions.instanceId,
-          threadId: input.threadId,
-          providerSessionId: input.providerSessionId,
-          runtimePolicy: input.runtimePolicy,
-          settings: resolvedRuntime?.config ?? adapterOptions.settings,
-          environment,
-        });
-        const usageIdentityAfter = yield* adapterOptions.readUsageIdentity ?? Effect.undefined;
-        const sessionUsageIdentity =
-          usageIdentityBefore !== undefined && usageIdentityBefore === usageIdentityAfter
-            ? usageIdentityAfter
-            : undefined;
+        const { value: client, usageIdentity: sessionUsageIdentity } =
+          yield* withStableUsageIdentity(
+            adapterOptions.readUsageIdentity,
+            clientFactory.open({
+              instanceId: adapterOptions.instanceId,
+              threadId: input.threadId,
+              providerSessionId: input.providerSessionId,
+              runtimePolicy: input.runtimePolicy,
+              settings: resolvedRuntime?.config ?? adapterOptions.settings,
+              environment,
+            }),
+          );
         const codexZone = codexTimeZone(resolvedRuntime?.environment ?? adapterOptions.environment);
         const additionalContextByThread = yield* Ref.make(
           new Map<string, NonNullable<CodexTurnStartParams["additionalContext"]>>(),
@@ -2329,18 +2302,14 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           request: Parameters<typeof codexThreadRuntimeParams>[0],
         ) {
           const params = { threadId: input.threadId, ...request, autoCompactWindow };
-          if (params.runtimePolicy?.managedAgent !== true) return codexThreadRuntimeParams(params);
-          yield* ensureInitialized;
-          const effective = yield* client.request("config/read", {
-            cwd: params.runtimePolicy.cwd,
-            includeLayers: false,
-          });
-          const servers = effective.config.mcp_servers;
-          const names =
-            servers !== null && typeof servers === "object" && !Array.isArray(servers)
-              ? Object.keys(servers)
-              : [];
-          return codexThreadRuntimeParams({ ...params, disabledMcpServers: names });
+          return codexThreadRuntimeParams(
+            yield* withManagedMcpServersDisabled(params, (cwd) =>
+              ensureInitialized.pipe(
+                Effect.andThen(client.request("config/read", { cwd, includeLayers: false })),
+                Effect.map((effective) => effective.config.mcp_servers),
+              ),
+            ),
+          );
         });
         const now = yield* DateTime.now;
         const session = providerSession({
@@ -4026,16 +3995,13 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             { concurrency: 1 },
           );
           inputItems.push(...attachmentItems);
-          for (const { frame, bytes } of yield* readProviderVideoFrames(
-            fileSystem,
-            turnInput.message.videoFrames,
-          )) {
-            inputItems.push({ type: "text", text: providerVideoFrameLabel(frame) });
-            inputItems.push({
-              type: "image",
-              url: `data:image/jpeg;base64,${Buffer.from(bytes).toString("base64")}`,
-            });
-          }
+          inputItems.push(
+            ...videoFrameParts<CodexSchema.V2TurnStartParams__UserInput>(
+              yield* readProviderVideoFrames(fileSystem, turnInput.message.videoFrames),
+              (text) => ({ type: "text", text }),
+              (data) => ({ type: "image", url: `data:image/jpeg;base64,${data}` }),
+            ),
+          );
           if (inputItems.length === 0) {
             return yield* toProtocolError("Turn requires non-empty text or attachments.");
           }
@@ -8040,8 +8006,6 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               modelSelection: turnInput.modelSelection,
               hasT3Mcp: mcpSession !== undefined,
               ...codexTurnInstructionListing(mcpSession),
-              delegated: mcpSession?.delegated === true,
-              ...(mcpSession?.listsHtml === false ? { listsHtml: false } : {}),
               omitServiceTier: adapterOptions.resolveRuntime !== undefined,
               guardToolCalls:
                 guardToolCalls &&

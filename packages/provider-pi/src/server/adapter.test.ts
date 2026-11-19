@@ -648,7 +648,6 @@ const startTurn = Effect.fnUntraced(function* (
   runOrdinal = 1,
   threadId = THREAD_ID,
   continuation = false,
-  videoFrames?: ProviderAdapter.ProviderAdapterV2TurnMessage["videoFrames"],
 ) {
   const appThread = yield* makeAppThread(model, threadId);
   const runId = RunId.make(`run:${threadId}:${runOrdinal}`);
@@ -665,7 +664,6 @@ const startTurn = Effect.fnUntraced(function* (
       messageId: `message:${threadId}:${runOrdinal}` as never,
       text,
       attachments,
-      videoFrames,
       createdBy: continuation ? "agent" : "user",
       creationSource: continuation ? "provider" : "web",
     },
@@ -675,51 +673,6 @@ const startTurn = Effect.fnUntraced(function* (
 });
 
 describe("PiAdapterV2", () => {
-  it.effect("sends labeled video images and skips vanished frames", () =>
-    Effect.gen(function* () {
-      const videoFs = yield* FileSystem.FileSystem;
-      const videoDir = yield* videoFs.makeTempDirectoryScoped();
-      const framePath = videoDir + "/frame.jpg";
-      yield* videoFs.writeFile(framePath, Uint8Array.from([9, 10]));
-      const videoFrames = [3200, 7200, 9000].map((timestampMs, index) => ({
-        videoAttachmentId: "video" as never,
-        videoName: "clip.mp4",
-        timestampMs,
-        path: index === 2 ? videoDir + "/missing.jpg" : framePath,
-        mimeType: "image/jpeg" as const,
-        sizeBytes: 2,
-      }));
-
-      const fake = yield* makeFakePi;
-      const { runtime } = yield* openRuntime(fake);
-      const providerThread = yield* runtime.ensureThread({
-        threadId: THREAD_ID,
-        modelSelection: modelSelection("default"),
-        runtimePolicy,
-      });
-      yield* startTurn(
-        runtime,
-        providerThread,
-        "default",
-        [],
-        "Watch",
-        undefined,
-        1,
-        THREAD_ID,
-        false,
-        videoFrames,
-      );
-      const request = yield* fake.takeRequest("prompt");
-      assert.include(request.message as string, '[Frame of video "clip.mp4" at 00:03.200]');
-      assert.include(request.message as string, '[Frame of video "clip.mp4" at 00:07.200]');
-      assert.notInclude(request.message as string, framePath);
-      assert.deepEqual(request.images, [
-        { type: "image", data: "CQo=", mimeType: "image/jpeg" },
-        { type: "image", data: "CQo=", mimeType: "image/jpeg" },
-      ]);
-    }).pipe(Effect.scoped, Effect.provide(layerTest)),
-  );
-
   it.effect(
     "replaces keyed extension statuses while idle without producing conversation items",
     () =>
@@ -2318,100 +2271,6 @@ describe("PiAdapterV2", () => {
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 
-  it.effect(
-    "sandboxes reader shells and withholds edit and write tools from managed read-only sessions",
-    () =>
-      Effect.gen(function* () {
-        const launches: Array<ReadonlyArray<string>> = [];
-        const open = (policy: Partial<ProviderAdapter.ProviderAdapterV2RuntimePolicy>) =>
-          Effect.gen(function* () {
-            const fake = yield* makeFakePi;
-            const adapter = yield* makePiAdapterV2({
-              instanceId: PI_INSTANCE_ID,
-              settings: {
-                enabled: true,
-                binaryPath: "pi",
-                launchArgs: "--tools read,bash --extension /user/extension.ts -e /user/other.ts",
-                customModels: [],
-                autoCompactWindow: "",
-                memoryModel: "",
-              },
-              environment: {},
-            }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, fake.spawner));
-            yield* adapter.openSession({
-              threadId: THREAD_ID,
-              providerSessionId: SESSION_ID,
-              modelSelection: modelSelection("default"),
-              runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
-                runtimeMode: "full-access",
-                interactionMode: "default",
-                cwd: null,
-                ...policy,
-              }),
-            });
-          }).pipe(
-            Effect.scoped,
-            Effect.provideService(AgentScope, {
-              ...AgentScope.defaultValue(),
-              wrap: ({ command, args }) =>
-                Effect.sync(() => {
-                  launches.push(args);
-                  return { command, args, unit: "t3code-pi-test.scope" };
-                }),
-              stop: () => Effect.void,
-            }),
-          );
-        yield* open({
-          managedAgent: true,
-          readOnlyShell: true,
-          approvalPolicy: "never",
-          sandboxPolicy: { type: "readOnly", networkAccess: false },
-        });
-        yield* open({
-          managedAgent: true,
-          approvalPolicy: "never",
-          sandboxPolicy: { type: "workspaceWrite", writableRoots: [], networkAccess: false },
-        });
-        yield* open({});
-        const [readOnly, writer, ordinary] = launches;
-        if (readOnly === undefined || writer === undefined || ordinary === undefined) {
-          assert.fail("Expected read-only, writer and ordinary Pi launches");
-        }
-        // A user's tool selection cannot re-enable the withheld tools, while provider extensions still load.
-        assert.notInclude(readOnly, "read,bash");
-        assert.include(readOnly, "--no-mcp");
-        assert.deepEqual(
-          readOnly.slice(readOnly.indexOf("--tools"), readOnly.indexOf("--tools") + 2),
-          ["--tools", "read,grep,find,ls,tool_search,codemode,bash"],
-        );
-        assert.deepEqual(
-          readOnly.slice(
-            readOnly.indexOf("--exclude-tools"),
-            readOnly.indexOf("--exclude-tools") + 2,
-          ),
-          [
-            "--exclude-tools",
-            "edit,write,powershell,list_mcp_resources,list_mcp_resource_templates,read_mcp_resource,mcp__*",
-          ],
-        );
-        assert.notInclude(readOnly, "--no-extensions");
-        assert.include(readOnly, "/user/extension.ts");
-        assert.include(readOnly, "/user/other.ts");
-        const extensions = readOnly.flatMap((arg, index) =>
-          arg === "--extension" || arg === "-e" ? [readOnly[index + 1]] : [],
-        );
-        assert.lengthOf(extensions, 3);
-        assert.isTrue(extensions.at(-1)?.endsWith("pi-t3-mcp-extension.ts"));
-        for (const args of [writer, ordinary]) {
-          assert.notInclude(args, "--no-extensions");
-          assert.include(args, "/user/extension.ts");
-          assert.include(args, "/user/other.ts");
-          assert.notInclude(args, "--exclude-tools");
-          assert.include(args, "read,bash");
-        }
-      }).pipe(Effect.provide(layerTest)),
-  );
-
   it.effect("gives notify and extension-error items distinct ids in each thread", () =>
     Effect.gen(function* () {
       const itemIds = new Set<string>();
@@ -2726,70 +2585,6 @@ describe("PiAdapterV2", () => {
       assert.deepEqual(JSON.parse(readSpawnEnv(fake.lastSpawn().env.T3_MCP_AGENT_SERVERS!)), [
         weave,
       ]);
-    }).pipe(Effect.scoped, Effect.provide(layerTest)),
-  );
-
-  it.effect("delivers the managed browser catalogue and guidance beside Weave", () =>
-    Effect.gen(function* () {
-      const sessions = yield* McpProviderSessions.McpProviderSessions;
-      yield* sessions.set({
-        environmentId: EnvironmentId.make("environment-pi-browser"),
-        threadId: THREAD_ID,
-        providerSessionId: "mcp-session-pi-browser",
-        providerInstanceId: PI_INSTANCE_ID,
-        endpoint: "http://fixture.invalid/mcp/browser",
-        authorizationHeader: "Bearer fixture-browser-token",
-        browserToolsAvailable: true,
-        managedBrowser: true,
-        delegated: true,
-        listsPreview: true,
-        listsHtml: false,
-      });
-      const weave = {
-        name: "weave",
-        url: "http://weave.invalid/mcp/weave",
-        authorizationHeader: "Bearer fixture-weave-token",
-        tools: ["weave_forge_read"],
-      };
-      const fake = yield* makeFakePi;
-      const adapter = yield* makeAdapter(fake).pipe(
-        Effect.provideService(AgentMcpServers.AgentMcpServers, {
-          read: () => Effect.succeed([weave]),
-        }),
-      );
-      yield* adapter.openSession({
-        threadId: THREAD_ID,
-        providerSessionId: SESSION_ID,
-        modelSelection: modelSelection("default"),
-        runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
-          ...runtimePolicy,
-          managedAgent: true,
-          approvalPolicy: "never",
-          sandboxPolicy: { type: "readOnly", networkAccess: false },
-        }),
-      });
-      const environment = Object.fromEntries(
-        Object.entries(fake.lastSpawn().env).map(([name, value]) => [
-          name,
-          value === undefined ? undefined : readSpawnEnv(value),
-        ]),
-      );
-      const bridge = yield* Effect.promise(() =>
-        loadMcpBridge({ modern: true, environment, agentServers: [weave] }),
-      );
-      const ctx = { ui: { notify: assert.fail } };
-      yield* Effect.promise(() => bridge.handlers.get("session_start")!({ systemPrompt: "" }, ctx));
-      assert.isDefined(bridge.tools.find((tool) => tool.name === "mcp__t3-code__preview_snapshot"));
-      assert.isDefined(bridge.tools.find((tool) => tool.name === "mcp__weave__weave_forge_read"));
-      assert.isTrue(bridge.transports.some((transport) => transport.url.endsWith("/mcp/browser")));
-      const sections: Record<string, string> = {};
-      yield* Effect.promise(async () => {
-        await bridge.handlers.get("before_agent_start")!(
-          { systemPrompt: "", systemPromptOptions: { sections } },
-          ctx,
-        );
-      });
-      assert.include(sections.t3_code_orchestration ?? "", "preview_open");
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 

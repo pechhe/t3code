@@ -92,6 +92,7 @@ const ACP_AGENT_SPAWNERS = [
     "orchestration-v2/Adapters/AcpRegistryAdapterV2.testkit.ts",
     "orchestration-v2/Adapters/GrokAdapterV2.testkit.ts",
     "orchestration-v2/Adapters/AcpAdapterV2.test.ts",
+    "orchestration-v2/Adapters/AcpAdapterV2.fork.test.ts",
     "orchestration-v2/Adapters/AcpRegistryAdapterV2.test.ts",
     "orchestration-v2/Adapters/AntigravityAdapterV2.test.ts",
     "orchestration-v2/Adapters/FxAdapterV2.test.ts",

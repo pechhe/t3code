@@ -17,10 +17,8 @@ import { expect, it } from "@effect/vitest";
 import { Tool } from "effect/ai";
 
 import { claudeMcpQueryOverrides } from "../orchestration-v2/Adapters/ClaudeAdapterV2.ts";
-import {
-  codexThreadRuntimeParams,
-  codexTurnInstructionListing,
-} from "../orchestration-v2/Adapters/CodexAdapterV2.ts";
+import { codexThreadRuntimeParams } from "../orchestration-v2/Adapters/CodexAdapterV2.ts";
+import { codexTurnInstructionListing } from "../orchestration-v2/Adapters/CodexToolListing.ts";
 import type * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
 import { buildCodexAdditionalContext } from "../provider/CodexDeveloperInstructions.ts";
 import {

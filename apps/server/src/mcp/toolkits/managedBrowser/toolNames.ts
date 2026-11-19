@@ -1,3 +1,5 @@
+import { BOUNDED_BROWSER_TOOL_NAMES } from "../boundedBrowser/toolNames.ts";
+
 /**
  * The tools a managed browser task's `/mcp/browser` endpoint serves. Adapters pre-approve exactly
  * these and nothing else; `McpManagedBrowser.test.ts` checks the list against the toolkit.
@@ -23,3 +25,14 @@ export const MANAGED_BROWSER_TOOL_NAMES = [
   "device_screenshot",
   "device_close",
 ] as const;
+
+/** The only tools a managed browser task's session may use, or undefined for any other session. */
+export const managedBrowserSessionTools = (
+  session: { readonly managedBrowser?: boolean; readonly boundedBrowser?: boolean } | undefined,
+): ReadonlyArray<string> | undefined =>
+  session?.managedBrowser === true
+    ? [
+        ...MANAGED_BROWSER_TOOL_NAMES,
+        ...(session.boundedBrowser === true ? BOUNDED_BROWSER_TOOL_NAMES : []),
+      ]
+    : undefined;
