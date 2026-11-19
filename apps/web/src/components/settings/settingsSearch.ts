@@ -27,6 +27,7 @@ export type SettingsPath =
   | "/settings/keybindings"
   | "/settings/snap-shot"
   | "/settings/providers"
+  | "/settings/accounts"
   | "/settings/experiments"
   | "/settings/delegation"
   | "/settings/decisions"
@@ -104,6 +105,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/keybindings": msg("Keybindings"),
   "/settings/snap-shot": msg("SnapShots"),
   "/settings/providers": msg("Providers"),
+  "/settings/accounts": msg("Accounts"),
   "/settings/experiments": msg("Experiments"),
   "/settings/delegation": msg("Delegation"),
   "/settings/decisions": msg("Decisions"),
@@ -145,6 +147,7 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
     heading: msg("Agents"),
     paths: [
       "/settings/providers",
+      "/settings/accounts",
       "/settings/delegation",
       "/settings/decisions",
       "/settings/experiments",
@@ -561,12 +564,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Snooze until limits reset",
     to: "/settings/threads",
     searchTerms: ["usage quota rate limit reset wake recover continue"],
-  },
-  {
-    id: "switch-pooled-account-on-limit",
-    title: "Switch pooled account on limit",
-    to: "/settings/general",
-    searchTerms: ["usage quota rate limit pool account claude failover next continue"],
   },
   {
     id: "auto-resume-limited-threads",
@@ -1105,11 +1102,11 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
-    id: "model-pools",
-    title: "Model pools",
-    to: "/settings/providers",
+    id: "accounts",
+    title: "Accounts",
+    to: "/settings/accounts",
     searchTerms: [
-      "model pool pools accounts allowance order spend lapse reserve switch limit failover pi sub-provider",
+      "account order pool pooled model several accounts subscriptions skip skipped usage limit try again failover next pi sub-provider",
     ],
     providerSettingsOnly: true,
   },
@@ -1552,6 +1549,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/snap-shot": null,
   "/settings/keybindings": null,
   "/settings/providers": null,
+  "/settings/accounts": msg("environment"),
   "/settings/threads": null,
   "/settings/browser": null,
   "/settings/devices": null,

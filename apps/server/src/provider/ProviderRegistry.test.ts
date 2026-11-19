@@ -47,7 +47,6 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 import { deepMerge } from "@t3tools/shared/Struct";
 import { createModelCapabilities } from "@t3tools/shared/model";
 import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
-import { isProviderUsageExhausted } from "@t3tools/shared/providerPools";
 
 import {
   checkCodexProviderStatus,
@@ -412,7 +411,6 @@ const buildRegistryOverSnapshot = Effect.fn("buildRegistryOverSnapshot")(functio
     getInstance: (instanceId) =>
       Effect.succeed(instanceId === instance.instanceId ? instance : undefined),
     listInstances: Effect.succeed([instance]),
-    listPools: Effect.succeed([]),
     listUnavailable: Effect.succeed([]),
     streamChanges: Stream.empty,
     subscribeChanges: Effect.flatMap(PubSub.unbounded<void>(), PubSub.subscribe),
@@ -1512,7 +1510,6 @@ it.layer(
                   Effect.succeed(id === instance.instanceId ? instance : undefined),
                 listInstances: Effect.succeed([instance]),
                 listUnavailable: Effect.succeed([]),
-                listPools: Effect.succeed([]),
                 streamChanges: Stream.empty,
                 subscribeChanges: Effect.flatMap(PubSub.unbounded<void>(), PubSub.subscribe),
               },
@@ -1656,7 +1653,6 @@ it.layer(
                 Effect.succeed(id === instance.instanceId ? instance : undefined),
               listInstances: Effect.succeed([instance]),
               listUnavailable: Effect.succeed([]),
-              listPools: Effect.succeed([]),
               streamChanges: Stream.empty,
               subscribeChanges: Effect.flatMap(PubSub.unbounded<void>(), PubSub.subscribe),
             },
@@ -1764,7 +1760,6 @@ it.layer(
                 Effect.succeed(id === instance.instanceId ? instance : undefined),
               listInstances: Effect.succeed([instance]),
               listUnavailable: Effect.succeed([]),
-              listPools: Effect.succeed([]),
               streamChanges: Stream.empty,
               subscribeChanges: Effect.flatMap(PubSub.unbounded<void>(), PubSub.subscribe),
             },
@@ -2088,7 +2083,6 @@ it.layer(
 
             streamChanges: Stream.empty,
             subscribeChanges: Effect.flatMap(PubSub.unbounded<void>(), PubSub.subscribe),
-            listPools: Effect.succeed([]),
           },
         );
         const layerModelManifest = Layer.succeed(ModelManifest.ModelManifest, {
@@ -2263,7 +2257,6 @@ it.layer(
 
               streamChanges: Stream.empty,
               subscribeChanges: Effect.flatMap(PubSub.unbounded<void>(), PubSub.subscribe),
-              listPools: Effect.succeed([]),
             },
           );
           const scope = yield* Scope.make();
@@ -2354,7 +2347,6 @@ it.layer(
               Effect.succeed(requestedId === instanceId ? instance : undefined),
             listInstances: Effect.succeed([instance]),
             listUnavailable: Effect.succeed([]),
-            listPools: Effect.succeed([]),
             streamChanges: Stream.empty,
             subscribeChanges: Effect.flatMap(PubSub.unbounded<void>(), PubSub.subscribe),
           },
@@ -2454,7 +2446,6 @@ it.layer(
 
             listInstances: Effect.succeed([instance]),
             listUnavailable: Effect.succeed([]),
-            listPools: Effect.succeed([]),
             streamChanges: Stream.empty,
             subscribeChanges: Effect.flatMap(PubSub.unbounded<void>(), PubSub.subscribe),
           },
@@ -2585,7 +2576,6 @@ it.layer(
               Effect.succeed(requestedId === instanceId ? instance : undefined),
             listInstances: Effect.succeed([instance]),
             listUnavailable: Effect.succeed([]),
-            listPools: Effect.succeed([]),
             streamChanges: Stream.empty,
             subscribeChanges: Effect.flatMap(PubSub.unbounded<void>(), PubSub.subscribe),
           },
@@ -2697,7 +2687,6 @@ it.layer(
               Effect.succeed(instances.find((instance) => instance.instanceId === requestedId)),
             listInstances: Effect.succeed(instances),
             listUnavailable: Effect.succeed([]),
-            listPools: Effect.succeed([]),
             streamChanges: Stream.empty,
             subscribeChanges: Effect.flatMap(PubSub.unbounded<void>(), PubSub.subscribe),
           },
@@ -2816,7 +2805,6 @@ it.layer(
 
               streamChanges: Stream.empty,
               subscribeChanges: PubSub.subscribe(changes),
-              listPools: Effect.succeed([]),
             },
           );
           const scope = yield* Scope.make();
@@ -2948,7 +2936,6 @@ it.layer(
 
             streamChanges: Stream.empty,
             subscribeChanges: Effect.flatMap(PubSub.unbounded<void>(), PubSub.subscribe),
-            listPools: Effect.succeed([]),
           },
         );
         const scope = yield* Scope.make();
@@ -3072,7 +3059,6 @@ it.layer(
               Effect.succeed(instanceId === cursorInstanceId ? instance : undefined),
             listInstances: Effect.succeed([instance]),
             listUnavailable: Effect.succeed([]),
-            listPools: Effect.succeed([]),
             streamChanges: Stream.empty,
             subscribeChanges: Effect.flatMap(PubSub.unbounded<void>(), (pubsub) =>
               PubSub.subscribe(pubsub),
@@ -3181,7 +3167,6 @@ it.layer(
             subscribeChanges: Effect.flatMap(PubSub.unbounded<void>(), (pubsub) =>
               PubSub.subscribe(pubsub),
             ),
-            listPools: Effect.succeed([]),
           },
         );
         const writeStarted = yield* Deferred.make<void>();
@@ -3369,7 +3354,6 @@ it.layer(
                 Effect.succeed(instanceId === openCodeInstanceId ? instance : undefined),
               listInstances: Effect.succeed([instance]),
               listUnavailable: Effect.succeed([]),
-              listPools: Effect.succeed([]),
               streamChanges: Stream.empty,
               subscribeChanges: Effect.flatMap(PubSub.unbounded<void>(), (pubsub) =>
                 PubSub.subscribe(pubsub),
@@ -3476,7 +3460,6 @@ it.layer(
               Effect.succeed(instanceId === codexInstanceId ? instance : undefined),
             listInstances: Effect.succeed([instance]),
             listUnavailable: Effect.succeed([]),
-            listPools: Effect.succeed([]),
             streamChanges: Stream.empty,
             subscribeChanges: Effect.flatMap(PubSub.unbounded<void>(), (pubsub) =>
               PubSub.subscribe(pubsub),
@@ -3524,15 +3507,13 @@ it.layer(
       "during-identity-account",
       "during-identity-instance",
     ] as const)(
-      "batch conservation uses the final account and pool state after a delayed sibling refresh: %s",
+      "batch conservation uses the final account state after a delayed sibling refresh: %s",
       (change) =>
         Effect.gen(function* () {
           const driver = ProviderDriverKind.make("codex");
           const a = ProviderInstanceId.make("batch-A"),
             b = ProviderInstanceId.make("batch-B"),
             c = ProviderInstanceId.make("batch-C");
-          const p = ProviderInstanceId.make("batch-pool"),
-            hidden = ProviderInstanceId.make("hidden-pool");
           const checkedAt = DateTime.formatIso(yield* DateTime.now);
           const rule = {
             enabled: true,
@@ -3628,10 +3609,6 @@ it.layer(
             orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
             textGeneration: {} as ProviderInstance["textGeneration"],
           }));
-          const pools = [
-            { instanceId: p, driver, enabled: true, members: [c, a] },
-            { instanceId: hidden, driver, enabled: true, members: [c, a] },
-          ];
           const instanceRegistry = Layer.succeed(
             ProviderInstanceRegistry.ProviderInstanceRegistry,
             {
@@ -3639,7 +3616,6 @@ it.layer(
                 Effect.succeed(instances.find((instance) => instance.instanceId === id)),
               listInstances: Effect.succeed(instances),
               listUnavailable: Effect.succeed([]),
-              listPools: Effect.succeed(pools),
               streamChanges: Stream.empty,
               subscribeChanges: PubSub.subscribe(yield* PubSub.unbounded<void>()),
             },
@@ -3662,19 +3638,17 @@ it.layer(
           ).pipe(Scope.provide(scope));
           yield* Effect.gen(function* () {
             const registry = yield* ProviderRegistry.ProviderRegistry;
-            const supplied = (yield* registry.getProviders)
-              .filter((provider) => provider.instanceId !== hidden)
-              .map((provider) => ({
-                ...provider,
-                models: [
-                  {
-                    slug: "workspace-model",
-                    name: "Workspace model",
-                    isCustom: false,
-                    capabilities: null,
-                  },
-                ],
-              }));
+            const supplied = (yield* registry.getProviders).map((provider) => ({
+              ...provider,
+              models: [
+                {
+                  slug: "workspace-model",
+                  name: "Workspace model",
+                  isCustom: false,
+                  capabilities: null,
+                },
+              ],
+            }));
             const pending = yield* registry.prepareConservation(supplied).pipe(Effect.forkChild);
             yield* Deferred.await(startedB);
             const next = yield* Stream.toPull(
@@ -3748,11 +3722,6 @@ it.layer(
               result.find((provider) => provider.instanceId === c)?.usageLimits?.windows[0]
                 ?.usedPercent,
               100,
-            );
-            assert.equal(result.find((provider) => provider.instanceId === p)?.auth.email, a);
-            assert.equal(
-              result.some((provider) => provider.instanceId === hidden),
-              false,
             );
             for (const provider of result)
               assert.equal(provider.models[0]?.slug, "workspace-model");
@@ -3844,7 +3813,6 @@ it.layer(
             getInstance: () => Effect.succeed(instance),
             listInstances: Effect.succeed([instance]),
             listUnavailable: Effect.succeed([]),
-            listPools: Effect.succeed([]),
             streamChanges: Stream.empty,
             subscribeChanges: PubSub.subscribe(yield* PubSub.unbounded<void>()),
           });
@@ -3980,7 +3948,6 @@ it.layer(
           getInstance: () => Ref.get(current),
           listInstances: Ref.get(current).pipe(Effect.map((instance) => [instance])),
           listUnavailable: Effect.succeed([]),
-          listPools: Effect.succeed([]),
           streamChanges: Stream.fromPubSub(changes),
           subscribeChanges: PubSub.subscribe(changes),
         });
@@ -4092,7 +4059,6 @@ it.layer(
                 Effect.succeed(instanceId === claudeInstanceId ? instance : undefined),
               listInstances: Effect.succeed([instance]),
               listUnavailable: Effect.succeed([]),
-              listPools: Effect.succeed([]),
               streamChanges: Stream.empty,
               subscribeChanges: Effect.flatMap(PubSub.unbounded<void>(), (pubsub) =>
                 PubSub.subscribe(pubsub),
@@ -4233,46 +4199,6 @@ it.layer(
           }),
       );
     });
-
-    it.effect(
-      "routes an account the user assumes has usage left as available, until turned off",
-      () =>
-        Effect.gen(function* () {
-          const accountKey = "antigravity";
-          const spent = {
-            checkedAt: DateTime.formatIso(TEST_EPOCH),
-            windows: [{ id: "weekly", kind: "weekly" as const, label: "Weekly", usedPercent: 100 }],
-          };
-          const snapshot = yield* Ref.make<ServerProvider>({
-            ...codexUpdateSnapshot("current"),
-            usageLimits: spent,
-            usageSlots: [{ accountKey, label: "Google", usageLimits: spent }],
-          });
-          const settings = yield* makeMutableServerSettingsService({
-            ...DEFAULT_SERVER_SETTINGS,
-            assumeUsageLeft: { codex: true, [`codex:${accountKey}`]: true },
-          });
-          const services = yield* buildRegistryOverSnapshot(
-            snapshot,
-            "t3-provider-registry-assumed-usage-",
-            undefined,
-            Layer.succeed(ServerSettingsModule.ServerSettingsService, settings),
-          );
-          yield* Effect.gen(function* () {
-            const registry = yield* ProviderRegistry.ProviderRegistry;
-            const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
-            let [provider] = yield* registry.getProviders;
-            expect(isProviderUsageExhausted(provider!, nowMs)).toBe(false);
-            expect(provider?.usageSlots?.[0]?.usageLimits.assumedAvailable).toBe(true);
-            expect(provider?.usageLimits?.windows).toEqual(spent.windows);
-            yield* settings.updateSettings({
-              assumeUsageLeft: { codex: null, [`codex:${accountKey}`]: null },
-            });
-            [provider] = yield* registry.getProviders;
-            expect(isProviderUsageExhausted(provider!, nowMs)).toBe(true);
-          }).pipe(Effect.provide(services));
-        }),
-    );
 
     it.effect("re-probes when settings change the codex binaryPath", () =>
       Effect.gen(function* () {

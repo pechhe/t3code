@@ -122,6 +122,26 @@ describe("serverSettings helpers", () => {
       threadDetailAfterDays: 14,
     });
   });
+  it("replaces the account order, and merges removals and skips per entry", () => {
+    const skip = { until: "2026-11-19T00:00:00.000Z", reportedReset: false };
+    const set = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      accountOrder: ["claudeAgent", "pi:antigravity", "codex"],
+      modelAccountsRemoved: { "claude-opus-5-5": ["pi:openrouter"] },
+      accountSkips: { claudeAgent: { "claude-opus-5-5": skip }, codex: { "gpt-6-2-sol": skip } },
+    });
+    const next = applyServerSettingsPatch(set, {
+      accountOrder: ["codex", "claudeAgent"],
+      modelAccountsRemoved: { "gpt-6-2-sol": ["pi:openrouter"] },
+      accountSkips: { claudeAgent: null },
+    });
+    expect(next.accountOrder).toEqual(["codex", "claudeAgent"]);
+    expect(next.modelAccountsRemoved).toEqual({
+      "claude-opus-5-5": ["pi:openrouter"],
+      "gpt-6-2-sol": ["pi:openrouter"],
+    });
+    expect(next.accountSkips).toEqual({ codex: { "gpt-6-2-sol": skip } });
+  });
+
   it("replaces the model compact points so a cleared model does not survive", () => {
     const set = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
       modelCompactAt: { haiku: 95_000, sonnet: 150_000 },

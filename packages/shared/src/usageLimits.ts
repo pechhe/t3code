@@ -19,7 +19,7 @@ import {
 
 import * as DateTime from "effect/DateTime";
 
-import { antigravityWindowGoverns, usageMeterOf } from "./providerPools.ts";
+import { antigravityWindowGoverns, usageMeterOf } from "./accountPools.ts";
 
 export function conservationModelsOf<A extends string | { readonly slug: string }>(
   provider: Pick<ServerProvider, "conservationScope">,
@@ -50,7 +50,6 @@ export function exhaustedUsageWindow(
       ? provider.usageSlots?.find((candidate) => candidate.accountKey === slotKey)
       : undefined;
   const limits = slot?.usageLimits ?? provider?.usageLimits;
-  if (limits?.assumedAvailable === true) return undefined;
   const windows = limits?.windows ?? [];
   const exhausted = windows.filter(
     (window) =>
@@ -290,8 +289,8 @@ export interface LimitAccount {
   }>;
   readonly sourceLabel: string | null;
   /**
-   * Each environment's own name for this account in its `assumeUsageLeft` setting: an instance
-   * id, or `instanceId:accountKey` for one account inside an instance. Empty for a hub account.
+   * Each environment's routing account (`accountIdOf`) this card's account belongs to: an instance
+   * id, or `instanceId:service` for a Pi sub-provider, whose logins share it. Empty for a hub account.
    */
   readonly routes: ReadonlyArray<{
     readonly environmentId: EnvironmentId;
@@ -437,7 +436,7 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
           },
           environments: [{ environmentId, label }],
           sourceLabel: null,
-          routes: [{ environmentId, accountId: `${provider.instanceId}:${slot.accountKey}` }],
+          routes: [{ environmentId, accountId: `${provider.instanceId}:${service}` }],
           redeem: null,
           limits: slot.usageLimits,
         });

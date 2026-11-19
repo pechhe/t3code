@@ -14,7 +14,6 @@ import {
   OrchestrationV2ThreadStanding,
   RunId,
   ProjectId,
-  ModelPoolId,
   ProviderInstanceId,
   ProviderDriverKind,
   ServerSettings,
@@ -115,19 +114,10 @@ const forkSettings = {
     },
   },
   responseStreamingMode: "live" as const,
-  modelPools: {
-    [ModelPoolId.make("opus")]: {
-      displayName: "Opus",
-      slots: [
-        { providerInstanceId: ProviderInstanceId.make("pi"), model: "hf/opus" },
-        {
-          providerInstanceId: ProviderInstanceId.make("claudeAgent"),
-          model: "opus",
-          enabled: false,
-        },
-      ],
-      policy: { strategy: "order" as const, reservePercent: 90, switchOnLimit: true },
-    },
+  accountOrder: ["claudeAgent", "pi:antigravity"],
+  modelAccountsRemoved: { "claude-opus-5-5": ["pi:openrouter"] },
+  accountSkips: {
+    claudeAgent: { "claude-opus-5-5": { until: "2026-11-19T13:40:00.000Z", reportedReset: true } },
   },
   projectSettingsOverrides: {
     [ProjectId.make("live")]: { responseStreamingMode: "live" as const },
@@ -307,6 +297,21 @@ const encodeForkShell = (extra: Record<string, unknown>) =>
   JSON.parse(
     JSON.stringify(Schema.encodeSync(forkShellJson)(decodeForkShell(forkThreadShell(extra)))),
   );
+
+it.effect("a shipped client decodes a thread whose model selection pins its account", () =>
+  Effect.gen(function* () {
+    const shipped = yield* loadShippedThreadShellSchema;
+    const sent = encodeForkShell({
+      modelSelection: { instanceId: "codex", model: "gpt-6.1-sol", pinned: true },
+    });
+    assert.deepEqual(sent.modelSelection, {
+      instanceId: "codex",
+      model: "gpt-6.1-sol",
+      pinned: true,
+    });
+    assert.deepEqual(violations(sent, shipped, "shell"), []);
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
 
 it.effect(
   "a shipped client decodes threads waiting on Production, a time, a thread or the owner",

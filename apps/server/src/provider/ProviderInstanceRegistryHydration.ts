@@ -3,7 +3,6 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   providerInstanceConfigEnabledFlag,
-  resolveProviderInstanceConfig,
   resolveProviderInstanceEnabled,
   type ProviderInstanceConfig,
   type ProviderInstanceConfigMap,
@@ -84,20 +83,7 @@ export const deriveProviderInstanceConfigMap = (
     }
   }
 
-  // Each ordinary instance runs with the settings it and its account pool resolve to, so the
-  // driver, its adapters and the registry's rebuild check all see one effective config. Pools
-  // are not started themselves and keep their stored entry.
-  const providerInstances = merged as Record<ProviderInstanceId, ProviderInstanceConfig>;
-  const resolved = Object.entries(merged).map(([rawInstanceId, entry]) => {
-    if (entry.pool !== undefined) return [rawInstanceId, entry] as const;
-    const effective = resolveProviderInstanceConfig(
-      providerInstances,
-      ProviderInstanceId.make(rawInstanceId),
-    );
-    return [rawInstanceId, effective ?? entry] as const;
-  });
-
-  return Object.fromEntries(resolved) as ProviderInstanceConfigMap;
+  return merged as ProviderInstanceConfigMap;
 };
 
 export const DEV_REPLAY_INSTANCE_ID = ProviderInstanceId.make("devReplay");

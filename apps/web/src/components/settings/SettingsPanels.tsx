@@ -517,9 +517,6 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(!Equal.equals(settings.snoozePresets, DEFAULT_UNIFIED_SETTINGS.snoozePresets)
       ? ["Snooze options"]
       : []),
-    ...(settings.switchPooledAccountOnLimit !== DEFAULT_UNIFIED_SETTINGS.switchPooledAccountOnLimit
-      ? ["Switch pooled account on limit"]
-      : []),
     ...(settings.wordWrap !== DEFAULT_UNIFIED_SETTINGS.wordWrap ? ["Word wrap"] : []),
     ...(settings.interfaceSounds !== DEFAULT_UNIFIED_SETTINGS.interfaceSounds
       ? ["Interface sounds"]
@@ -698,7 +695,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       sidebarAutoSettleOnMerge: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge,
       autoResumeLimitedThreads: DEFAULT_UNIFIED_SETTINGS.autoResumeLimitedThreads,
       snoozeLimitedThreads: DEFAULT_UNIFIED_SETTINGS.snoozeLimitedThreads,
-      switchPooledAccountOnLimit: DEFAULT_UNIFIED_SETTINGS.switchPooledAccountOnLimit,
       snoozePresets: DEFAULT_UNIFIED_SETTINGS.snoozePresets,
       responseStreamingMode: DEFAULT_UNIFIED_SETTINGS.responseStreamingMode,
       enableProviderUpdateChecks: DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
@@ -915,22 +911,6 @@ export function GeneralSettingsPanel() {
                 ))}
               </SelectPopup>
             </Select>
-          }
-        />
-        <SettingsRow
-          serverScoped
-          {...setting("switch-pooled-account-on-limit")}
-          description="When a thread on a pooled account hits its usage limit, continue it at once on the next account with usage left, using the same model."
-          settingKeys={["switchPooledAccountOnLimit"]}
-          control={
-            <ScopedSwitch
-              settingKeys={["switchPooledAccountOnLimit"]}
-              checked={settings.switchPooledAccountOnLimit}
-              onCheckedChange={(checked) =>
-                updateSettings({ switchPooledAccountOnLimit: Boolean(checked) })
-              }
-              aria-label="Switch pooled account on limit"
-            />
           }
         />
         <SettingsRow

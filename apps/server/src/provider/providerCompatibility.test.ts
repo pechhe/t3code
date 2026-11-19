@@ -322,7 +322,6 @@ it.effect.each(["no-settings", "settings-present", "settings-event"] as const)(
           getInstance: (id) => Effect.succeed(id === instance.instanceId ? instance : undefined),
           listInstances: Effect.succeed([instance]),
           listUnavailable: Effect.succeed([]),
-          listPools: Effect.succeed([]),
           streamChanges: Stream.empty,
           subscribeChanges: Effect.flatMap(PubSub.unbounded<void>(), PubSub.subscribe),
         }),

@@ -70,3 +70,28 @@ it.effect(
       assert.deepStrictEqual(encoded.options, decoded.options);
     }),
 );
+
+it.effect("keeps a pinned account and reads a retired model pool id as the model alone", () =>
+  Effect.gen(function* () {
+    const pinned = yield* decodeModelSelection({
+      instanceId: "claudeAgent",
+      model: "claude-opus-5-5",
+      pinned: true,
+    });
+    assert.strictEqual(pinned.pinned, true);
+    assert.deepStrictEqual(yield* encodeModelSelection(pinned), {
+      instanceId: "claudeAgent",
+      model: "claude-opus-5-5",
+      pinned: true,
+    });
+    const pooled = yield* decodeModelSelection({
+      instanceId: "pi",
+      model: "antigravity/claude-opus-5-5",
+      poolId: "opus",
+    });
+    assert.deepStrictEqual(yield* encodeModelSelection(pooled), {
+      instanceId: "pi",
+      model: "antigravity/claude-opus-5-5",
+    });
+  }),
+);

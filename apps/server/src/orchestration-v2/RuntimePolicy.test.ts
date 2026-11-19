@@ -94,7 +94,6 @@ const layerWithPolicy = (policy?: ManagedPolicySummary) =>
         getInstance: (instanceId) => Effect.succeed(providerInstanceFor(instanceId)),
         listInstances: Effect.succeed([]),
         listUnavailable: Effect.succeed([]),
-        listPools: Effect.succeed([]),
         streamChanges: Stream.empty,
         subscribeChanges: Effect.never,
       }),

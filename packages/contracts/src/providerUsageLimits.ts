@@ -52,8 +52,6 @@ export const ServerProviderUsageLimits = Schema.Struct({
   /** A $0 monthly spend cap has no percentage, so it cannot be a window. */
   zeroSpendCap: Schema.optional(Schema.Boolean),
   credentialFingerprint: Schema.optional(TrimmedNonEmptyString),
-  /** The user told T3 to treat this account as having usage left, whatever the windows say. */
-  assumedAvailable: Schema.optional(Schema.Boolean),
   resetCredits: Schema.optional(ServerProviderResetCredits),
   externalUsage: Schema.optional(
     Schema.Struct({

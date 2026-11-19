@@ -321,26 +321,12 @@ export function useThreadComposerState(input: {
   const selectedThread = selectedThreadShell;
   const modelSelection = selectedDraft.modelSelection ?? selectedThread?.modelSelection ?? null;
   const serverConfig = selectedEnvironmentRuntime?.serverConfig;
-  const readHandoffClock = () => ({
-    projection: selectedThreadProjection,
-    modelSelection,
-    serverConfig,
-    nowMs: Date.now(),
-  });
-  const [handoffClock, setHandoffClock] = useState(readHandoffClock);
-  if (
-    handoffClock.projection !== selectedThreadProjection ||
-    handoffClock.modelSelection !== modelSelection ||
-    handoffClock.serverConfig !== serverConfig
-  )
-    setHandoffClock(readHandoffClock);
   const pendingHandoff = resolvePendingHandoff(
     selectedThreadProjection?.projection,
     isModelSelectionUnavailable(serverConfig, modelSelection, selectedThread?.projectId ?? null)
       ? null
       : modelSelection,
     serverConfig?.providers ?? [],
-    handoffClock.nowMs,
   );
   const runtimeMode = selectedDraft.runtimeMode ?? selectedThread?.runtimeMode ?? null;
   // Plan mode is not offered to users; every send runs in build mode.

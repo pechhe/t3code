@@ -1751,7 +1751,6 @@
   "packages/shared/src/promptLinks.test.ts": 0.6,
   "packages/shared/src/proposedPlanText.test.ts": 0.6,
   "packages/shared/src/providerAuthReturnUrl.test.ts": 0.6,
-  "packages/shared/src/providerPools.test.ts": 0.6,
   "packages/shared/src/relayAuth.test.ts": 0.6,
   "packages/shared/src/relayClient.test.ts": 0.9,
   "packages/shared/src/relayJwt.test.ts": 0.6,

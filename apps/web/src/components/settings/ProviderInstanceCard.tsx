@@ -20,7 +20,6 @@ import { Fragment, useState, type ReactElement, type ReactNode } from "react";
 import {
   isProviderDriverKind,
   resolveProviderInstanceEnabled,
-  sharedProviderSettingKeys,
   type ProviderInstanceConfig,
   type ProviderInstanceEnvironmentVariable,
   type ProviderInstanceId,
@@ -70,7 +69,6 @@ import { RedactedSensitiveText } from "./RedactedSensitiveText";
 import { SettingResetButton, SettingsRow, SettingsSection } from "./settingsLayout";
 import { AcpSessionManagementSection } from "./AcpSessionManagementSection";
 import { FoldedSettingsSection } from "./FoldedSettingsSection";
-import { PoolAccountsSection } from "./PoolAccountsSection";
 import { readCodexSetupMode } from "./CodexSetupSection.logic";
 import { getProviderRestartNotice } from "../ProviderUpdateLaunchNotification.logic";
 import {
@@ -705,15 +703,6 @@ interface ProviderInstanceCardProps {
   readonly environmentId?: EnvironmentId | undefined;
   readonly secretSources?: ReadonlyArray<SecretSource>;
   readonly projectOverride?: ProjectOverrideControl | undefined;
-  /** Display names of a pool's member accounts, in pool order. */
-  readonly poolMemberLabels?: ReadonlyArray<string> | undefined;
-  /** The pool this account inherits shared settings from, and the values it runs with. */
-  readonly memberPool?:
-    | {
-        readonly poolName: string;
-        readonly effectiveConfig: unknown;
-      }
-    | undefined;
   readonly acpProjects?:
     | ReadonlyArray<{
         readonly id: ProjectId;
@@ -762,8 +751,6 @@ export function ProviderInstanceCard({
   acpProjects = EMPTY_ACP_PROJECTS,
   secretSources = NO_SECRET_SOURCES,
   projectOverride,
-  poolMemberLabels,
-  memberPool,
 }: ProviderInstanceCardProps) {
   const enabled = projectOverride?.effectiveEnabled ?? resolveProviderInstanceEnabled(instance);
   const effectiveProvider = liveProvider && { ...liveProvider, enabled };
@@ -855,16 +842,6 @@ export function ProviderInstanceCard({
     liveModels: liveProvider?.models,
     customModels,
   });
-  // Contracts owns which settings a pool shares; the cards only decide where they appear.
-  const poolSharedSettingKeys = sharedProviderSettingKeys(instance.driver);
-  const poolMemberShare =
-    memberPool === undefined
-      ? undefined
-      : {
-          poolName: memberPool.poolName,
-          sharedKeys: poolSharedSettingKeys,
-          storedConfig: instance.config,
-        };
   const updateDisplayName = (value: string) => {
     const trimmed = value.trim();
     const { displayName: _omit, ...rest } = instance;
@@ -1295,12 +1272,9 @@ export function ProviderInstanceCard({
   const runtimeFields = driverOption ? (
     <ProviderSettingsForm
       definition={driverOption}
-      // A member shows the values it runs with, pool values included.
-      value={memberPool === undefined ? instance.config : memberPool.effectiveConfig}
+      value={instance.config}
       idPrefix={`provider-instance-${instanceId}`}
       variant="settings"
-      onlyKeys={instance.pool === undefined ? undefined : poolSharedSettingKeys}
-      poolShare={poolMemberShare}
       instanceId={instanceId}
       onChange={updateConfig}
       managed={instanceLocks && { keys: instanceLocks.configKeys, reason: instanceLocks.reason }}
@@ -1370,160 +1344,135 @@ export function ProviderInstanceCard({
         )}
       </SettingsSection>
 
-      {instance.pool !== undefined ? (
-        <>
-          <PoolAccountsSection
-            instance={{ ...instance, pool: instance.pool }}
-            memberLabels={poolMemberLabels ?? instance.pool.map(String)}
-            readOnly={readOnly}
-            onUpdate={onUpdate}
-          />
-          {poolSharedSettingKeys.length > 0 && driverOption !== undefined ? (
-            <SettingsSection
-              title="Runtime"
-              inert={readOnly}
-              aria-disabled={readOnly || undefined}
-              className={readOnly ? "opacity-50 select-none" : undefined}
-            >
-              {runtimeFields}
-            </SettingsSection>
-          ) : null}
-        </>
-      ) : (
-        <>
-          {setup || environmentFields.length > 0 ? (
-            <SettingsSection title="Setup">
-              {setup}
-              {environmentFields.length > 0 ? (
-                <div
-                  inert={readOnly}
-                  aria-disabled={readOnly || undefined}
-                  className={readOnly ? "opacity-50 select-none" : undefined}
-                >
-                  {environmentFields.map((field) => (
-                    <ProviderEnvironmentFieldRow
-                      key={field.name}
-                      field={field}
-                      variable={readProviderEnvironmentVariable(instance.environment, field.name)}
-                      idPrefix={`provider-instance-${instanceId}`}
-                      onCommit={updateEnvironmentField}
-                      onSecretChange={updateEnvironmentFieldSecret}
-                      onRemove={removeEnvironmentField}
-                      managedReason={
-                        instanceLocks?.wholeEnvironment ||
-                        instanceLocks?.environmentNames.has(field.name)
-                          ? instanceLocks.reason
-                          : undefined
-                      }
-                      secretSources={secretSources}
-                    />
-                  ))}
-                </div>
-              ) : null}
-            </SettingsSection>
-          ) : null}
-
-          {instance.driver === "codex" && readCodexSetupMode(instance.config) === "managed" ? (
+      {setup || environmentFields.length > 0 ? (
+        <SettingsSection title="Setup">
+          {setup}
+          {environmentFields.length > 0 ? (
             <div
               inert={readOnly}
               aria-disabled={readOnly || undefined}
               className={readOnly ? "opacity-50 select-none" : undefined}
             >
-              <FoldedSettingsSection
-                key={instanceId}
-                id={`provider-instance-${instanceId}-runtime`}
-                title="Runtime"
-                headerPlacement="outside"
-              >
-                {runtime ?? runtimeFields}
-              </FoldedSettingsSection>
-            </div>
-          ) : !driverOption || deriveProviderSettingsFields(driverOption).length > 0 ? (
-            <SettingsSection
-              title="Runtime"
-              inert={readOnly}
-              aria-disabled={readOnly || undefined}
-              className={readOnly ? "opacity-50 select-none" : undefined}
-            >
-              {runtimeFields}
-            </SettingsSection>
-          ) : null}
-
-          <SettingsSection
-            title="Environment"
-            inert={readOnly || instanceLocks?.wholeEnvironment}
-            aria-disabled={readOnly || instanceLocks?.wholeEnvironment || undefined}
-            className={readOnly ? "opacity-50 select-none" : undefined}
-          >
-            {instanceLocks?.wholeEnvironment ? (
-              <ManagedNotice>{instanceLocks.reason}</ManagedNotice>
-            ) : null}
-            <ProviderEnvironmentSection
-              environment={genericEnvironment}
-              onChange={updateGenericEnvironment}
-              secretSources={secretSources}
-              managed={
-                instanceLocks && {
-                  names: instanceLocks.environmentNames,
-                  reason: instanceLocks.reason,
-                }
-              }
-            />
-          </SettingsSection>
-          {environmentId !== undefined && liveProvider?.driver === "acpRegistry" ? (
-            <AcpSessionManagementSection
-              environmentId={environmentId}
-              instanceId={instanceId}
-              provider={liveProvider}
-              projects={acpProjects}
-              readOnly={readOnly}
-            />
-          ) : null}
-
-          {driverOption !== undefined ? (
-            <SettingsSection title="Models">
-              <div className="px-3 py-3 sm:px-4">
-                <p className="mb-3 text-xs text-muted-foreground">
-                  Model preferences and custom models are saved on the selected environment and
-                  shared across connected devices.
-                </p>
-                <ProviderModelsSection
-                  canManageCustomModels={!readOnly}
-                  canWritePreferences={canWriteSettings}
-                  instanceId={instanceId}
-                  driverKind={driverKind}
-                  providerDisplayName={displayName}
-                  providerAccentColor={accentColor}
-                  acpRegistryAgentId={
-                    readConfigString(instance.config, "source") === "local"
-                      ? undefined
-                      : (readConfigString(instance.config, "agentId") ?? undefined)
+              {environmentFields.map((field) => (
+                <ProviderEnvironmentFieldRow
+                  key={field.name}
+                  field={field}
+                  variable={readProviderEnvironmentVariable(instance.environment, field.name)}
+                  idPrefix={`provider-instance-${instanceId}`}
+                  onCommit={updateEnvironmentField}
+                  onSecretChange={updateEnvironmentFieldSecret}
+                  onRemove={removeEnvironmentField}
+                  managedReason={
+                    instanceLocks?.wholeEnvironment ||
+                    instanceLocks?.environmentNames.has(field.name)
+                      ? instanceLocks.reason
+                      : undefined
                   }
-                  acpRegistryIconUrl={
-                    readConfigString(instance.config, "source") === "local"
-                      ? undefined
-                      : (readConfigString(instance.config, "registryIconUrl") ?? undefined)
-                  }
-                  models={modelsForDisplay}
-                  customModels={customModels}
-                  hiddenModels={hiddenModels}
-                  favoriteModels={favoriteModels}
-                  modelOrder={modelOrder}
-                  compactAtByModel={driverKind === "claudeAgent" ? modelCompactAt : undefined}
-                  onCompactAtChange={
-                    driverKind === "claudeAgent" ? updateModelCompactAt : undefined
-                  }
-                  onChange={updateCustomModels}
-                  onHiddenModelsChange={onHiddenModelsChange}
-                  onFavoriteModelsChange={onFavoriteModelsChange}
-                  onToggleFavorite={onToggleFavorite}
-                  onModelOrderChange={onModelOrderChange}
+                  secretSources={secretSources}
                 />
-              </div>
-            </SettingsSection>
+              ))}
+            </div>
           ) : null}
-        </>
-      )}
+        </SettingsSection>
+      ) : null}
+
+      {instance.driver === "codex" && readCodexSetupMode(instance.config) === "managed" ? (
+        <div
+          inert={readOnly}
+          aria-disabled={readOnly || undefined}
+          className={readOnly ? "opacity-50 select-none" : undefined}
+        >
+          <FoldedSettingsSection
+            key={instanceId}
+            id={`provider-instance-${instanceId}-runtime`}
+            title="Runtime"
+            headerPlacement="outside"
+          >
+            {runtime ?? runtimeFields}
+          </FoldedSettingsSection>
+        </div>
+      ) : !driverOption || deriveProviderSettingsFields(driverOption).length > 0 ? (
+        <SettingsSection
+          title="Runtime"
+          inert={readOnly}
+          aria-disabled={readOnly || undefined}
+          className={readOnly ? "opacity-50 select-none" : undefined}
+        >
+          {runtimeFields}
+        </SettingsSection>
+      ) : null}
+
+      <SettingsSection
+        title="Environment"
+        inert={readOnly || instanceLocks?.wholeEnvironment}
+        aria-disabled={readOnly || instanceLocks?.wholeEnvironment || undefined}
+        className={readOnly ? "opacity-50 select-none" : undefined}
+      >
+        {instanceLocks?.wholeEnvironment ? (
+          <ManagedNotice>{instanceLocks.reason}</ManagedNotice>
+        ) : null}
+        <ProviderEnvironmentSection
+          environment={genericEnvironment}
+          onChange={updateGenericEnvironment}
+          secretSources={secretSources}
+          managed={
+            instanceLocks && {
+              names: instanceLocks.environmentNames,
+              reason: instanceLocks.reason,
+            }
+          }
+        />
+      </SettingsSection>
+      {environmentId !== undefined && liveProvider?.driver === "acpRegistry" ? (
+        <AcpSessionManagementSection
+          environmentId={environmentId}
+          instanceId={instanceId}
+          provider={liveProvider}
+          projects={acpProjects}
+          readOnly={readOnly}
+        />
+      ) : null}
+
+      {driverOption !== undefined ? (
+        <SettingsSection title="Models">
+          <div className="px-3 py-3 sm:px-4">
+            <p className="mb-3 text-xs text-muted-foreground">
+              Model preferences and custom models are saved on the selected environment and shared
+              across connected devices.
+            </p>
+            <ProviderModelsSection
+              canManageCustomModels={!readOnly}
+              canWritePreferences={canWriteSettings}
+              instanceId={instanceId}
+              driverKind={driverKind}
+              providerDisplayName={displayName}
+              providerAccentColor={accentColor}
+              acpRegistryAgentId={
+                readConfigString(instance.config, "source") === "local"
+                  ? undefined
+                  : (readConfigString(instance.config, "agentId") ?? undefined)
+              }
+              acpRegistryIconUrl={
+                readConfigString(instance.config, "source") === "local"
+                  ? undefined
+                  : (readConfigString(instance.config, "registryIconUrl") ?? undefined)
+              }
+              models={modelsForDisplay}
+              customModels={customModels}
+              hiddenModels={hiddenModels}
+              favoriteModels={favoriteModels}
+              modelOrder={modelOrder}
+              compactAtByModel={driverKind === "claudeAgent" ? modelCompactAt : undefined}
+              onCompactAtChange={driverKind === "claudeAgent" ? updateModelCompactAt : undefined}
+              onChange={updateCustomModels}
+              onHiddenModelsChange={onHiddenModelsChange}
+              onFavoriteModelsChange={onFavoriteModelsChange}
+              onToggleFavorite={onToggleFavorite}
+              onModelOrderChange={onModelOrderChange}
+            />
+          </div>
+        </SettingsSection>
+      ) : null}
     </>
   );
 }

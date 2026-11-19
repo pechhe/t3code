@@ -1,4 +1,5 @@
 import { SubagentConservationSettings } from "./SubagentConservationSettings";
+import { pooledModels, type PooledModel } from "@t3tools/shared/accountPools";
 import { useAtomValue } from "@effect/atom-react";
 import { useEffect, useEffectEvent, useId, useRef, useState, type ReactNode } from "react";
 import * as Schema from "effect/Schema";
@@ -45,9 +46,14 @@ import {
   councilTicked,
   effortForModel,
   ensureModel,
+  isAnyAccountBinding,
   makerName,
+  matchesCatalogModel,
   moveEntry,
   modelLabel,
+  pooledDefaultStance,
+  pooledModelForBinding,
+  pooledNote,
   readOnlyUnenforcedProviders,
   removeEntry,
   replaceEntry,
@@ -62,8 +68,6 @@ import {
   modelListedOnly,
   setModelNote,
   modelDefaultStance,
-  poolDefaultStance,
-  poolNote,
   setModelOptions,
   listedModels,
   offersFast,
@@ -263,9 +267,12 @@ function PolicyEditor({
   onDiscard: () => void;
 }) {
   const saved = data.snapshot.manifest;
-  const modelPools = useScopedSettings((settings) => settings.modelPools);
-  const catalog = catalogModels(data.providers, modelPools);
-  const [draft, setDraft] = useState<Manifest>(() => editableManifest(saved, catalog));
+  const accountOrder = useScopedSettings((settings) => settings.accountOrder);
+  const modelAccountsRemoved = useScopedSettings((settings) => settings.modelAccountsRemoved);
+  const routing = { accountOrder, modelAccountsRemoved };
+  const pools = pooledModels(data.providers, routing);
+  const catalog = catalogModels(data.providers, routing);
+  const [draft, setDraft] = useState<Manifest>(() => editableManifest(saved, catalog, pools));
   const [pending, setPending] = useState(false);
   const [refused, setRefused] = useState(false);
   const [hasEdits, setHasEdits] = useState(false);
@@ -278,7 +285,7 @@ function PolicyEditor({
   if (shownPolicy !== saved) {
     setShownPolicy(saved);
     if (!pending && !refused && !hasEdits) {
-      setDraft(editableManifest(saved, catalog));
+      setDraft(editableManifest(saved, catalog, pools));
       setDraftHashes(new Map(targets.map((target) => [target.environmentId, target.hash])));
     }
   }
@@ -407,7 +414,7 @@ function PolicyEditor({
                 onDiscard();
                 setRefused(false);
                 setHasEdits(false);
-                setDraft(editableManifest(saved, catalog));
+                setDraft(editableManifest(saved, catalog, pools));
                 setDraftHashes(
                   new Map(targets.map((target) => [target.environmentId, target.hash])),
                 );
@@ -428,6 +435,7 @@ function PolicyEditor({
         manifest={draft}
         jobs={jobs}
         providers={data.providers}
+        pools={pools}
         onChange={change}
       />
       <SettingsSection
@@ -448,12 +456,14 @@ function PolicyEditor({
             briefs={data.snapshot.briefs}
             rolesDir={`${data.sourceRoot}/roles`}
             providers={data.providers}
+            pools={pools}
             catalog={catalog}
             onChange={change}
           />
         ))}
       </SettingsSection>
-      {blocked && JSON.stringify(draft) !== JSON.stringify(editableManifest(saved, catalog)) ? (
+      {blocked &&
+      JSON.stringify(draft) !== JSON.stringify(editableManifest(saved, catalog, pools)) ? (
         <Alert variant="info">
           <AlertDescription>
             {!isValid(draft)
@@ -466,7 +476,7 @@ function PolicyEditor({
               variant="ghost-muted"
               onClick={() => {
                 setHasEdits(false);
-                setDraft(editableManifest(saved, catalog));
+                setDraft(editableManifest(saved, catalog, pools));
                 setDraftHashes(
                   new Map(targets.map((target) => [target.environmentId, target.hash])),
                 );
@@ -539,6 +549,7 @@ function ListEditor({
   list,
   manifest,
   providers,
+  pools,
   catalog,
   onChange,
   makers,
@@ -550,6 +561,7 @@ function ListEditor({
   list: string;
   manifest: Manifest;
   providers: ReadonlyArray<ServerProvider>;
+  pools: ReadonlyArray<PooledModel>;
   catalog: ReadonlyArray<CatalogModel>;
   onChange: (manifest: Manifest) => void;
   /** Reviewer models are labelled with their model's maker. */
@@ -562,24 +574,19 @@ function ListEditor({
   };
   children?: ReactNode;
 }) {
-  const modelPools = useScopedSettings((settings) => settings.modelPools);
-  const label = (alias: string) => modelLabel(manifest.models[alias], alias, providers, modelPools);
+  const label = (alias: string) => modelLabel(manifest.models[alias], alias, providers, pools);
   const entries = [...(manifest.lists[list] ?? [])].sort((a, b) =>
     ordered ? 0 : label(a.model).localeCompare(label(b.model)),
   );
   const listed = (model: CatalogModel) =>
     entries.some((entry) => {
       const binding = manifest.models[entry.model];
-      return (
-        binding?.driverKind === model.binding.driverKind &&
-        binding.model === model.binding.model &&
-        binding.poolId === model.binding.poolId
-      );
+      return binding !== undefined && matchesCatalogModel(binding, model, pools);
     })
       ? "Already in this job"
       : null;
   const add = (model: CatalogModel) => {
-    const [next, alias] = ensureModel(manifest, model, modelPools);
+    const [next, alias] = ensureModel(manifest, model, pools);
     const effort = effortForModel(model);
     onChange(
       addEntry(next, list, {
@@ -593,7 +600,7 @@ function ListEditor({
       <ol className="flex flex-col divide-y divide-border/50 rounded-lg border border-border/60">
         {entries.map((entry, index) => {
           const binding = manifest.models[entry.model];
-          const reason = unavailableReason(binding, providers, { modelPools });
+          const reason = unavailableReason(binding, providers, { pools });
           return (
             <li key={entry.model} className="flex min-w-0 items-center gap-1.5 px-2 py-1">
               {ordered ? (
@@ -614,7 +621,7 @@ function ListEditor({
                       entry.model,
                       model,
                       effortForModel(model, entry.effort),
-                      modelPools,
+                      pools,
                     ),
                   )
                 }
@@ -721,6 +728,7 @@ function JobRow({
   briefs,
   rolesDir,
   providers,
+  pools,
   catalog,
   onChange,
 }: {
@@ -730,12 +738,12 @@ function JobRow({
   briefs: AgentPolicySettings["snapshot"]["briefs"];
   rolesDir: string;
   providers: ReadonlyArray<ServerProvider>;
+  pools: ReadonlyArray<PooledModel>;
   catalog: ReadonlyArray<CatalogModel>;
   onChange: (manifest: Manifest) => void;
 }) {
   const primary = job.sections[0]!;
   const isReviewer = job.roles.includes("reviewer");
-  const modelPools = useScopedSettings((settings) => settings.modelPools);
   const chip = (alias: string) => {
     const binding = manifest.models[alias];
     return binding ? (
@@ -743,14 +751,13 @@ function JobRow({
         variant="chip"
         environmentId={environmentId}
         binding={binding}
-        modelPools={modelPools}
+        pools={pools}
       />
     ) : (
       <Badge variant="outline">{alias}</Badge>
     );
   };
-  const labelFor = (alias: string) =>
-    modelLabel(manifest.models[alias], alias, providers, modelPools);
+  const labelFor = (alias: string) => modelLabel(manifest.models[alias], alias, providers, pools);
   const configured = manifest.lists[primary.list] ?? [];
   const entries = isReviewer
     ? configured
@@ -787,7 +794,7 @@ function JobRow({
             <div className="flex flex-wrap items-center gap-1">
               {entries.map((entry) => {
                 const reason = unavailableReason(manifest.models[entry.model], providers, {
-                  modelPools,
+                  pools,
                 });
                 const ticked = isReviewer && councilTicked(manifest, entry.model);
                 return (
@@ -822,6 +829,7 @@ function JobRow({
               list={primary.list}
               manifest={manifest}
               providers={providers}
+              pools={pools}
               catalog={catalog}
               onChange={onChange}
               makers={isReviewer}
@@ -838,7 +846,9 @@ function JobRow({
             >
               {actions}
             </ListEditor>
-            {isReviewer ? <CouncilBlock manifest={manifest} providers={providers} /> : null}
+            {isReviewer ? (
+              <CouncilBlock manifest={manifest} providers={providers} pools={pools} />
+            ) : null}
             {job.roles.filter(isReviewerRole).map((role) => (
               <label key={role} className="flex items-center gap-2 text-xs">
                 <Switch
@@ -868,12 +878,14 @@ function JobRow({
 function CouncilBlock({
   manifest,
   providers,
+  pools,
 }: {
   manifest: Manifest;
   providers: ReadonlyArray<ServerProvider>;
+  pools: ReadonlyArray<PooledModel>;
 }) {
   const makers = new Set(councilMembers(manifest).map((member) => member.maker));
-  const seating = councilSeating(manifest, providers);
+  const seating = councilSeating(manifest, providers, { pools });
   return (
     <div
       data-council
@@ -967,15 +979,16 @@ function ModelsSection({
   manifest,
   jobs,
   providers,
+  pools,
   onChange,
 }: {
   environmentId: EnvironmentId;
   manifest: Manifest;
   jobs: ReadonlyArray<Job>;
   providers: ReadonlyArray<ServerProvider>;
+  pools: ReadonlyArray<PooledModel>;
   onChange: (manifest: Manifest) => void;
 }) {
-  const modelPools = useScopedSettings((settings) => settings.modelPools);
   return (
     <SettingsSection id="delegation-models" title="Models">
       <p className="px-3 py-2.5 text-xs text-muted-foreground sm:px-4">
@@ -984,26 +997,31 @@ function ModelsSection({
         model on a job&apos;s list is unavailable, an agent may fall back to another model, never to
         one marked Never off-list.
       </p>
-      {listedModels(manifest, jobs, modelPools).map(({ alias, model, poolId, roles }) => {
+      {listedModels(manifest, jobs, pools).map(({ alias, model, pooledModel, roles }) => {
         const binding = manifest.models[alias]!;
-        const pool = poolId === undefined ? undefined : modelPools[poolId];
-        const name = pool?.displayName ?? modelLabel(binding, alias, providers, modelPools);
+        const showPooled = pooledModel !== undefined && isAnyAccountBinding(binding);
+        const name = showPooled
+          ? pooledModel.displayName
+          : modelLabel(binding, alias, providers, pools);
         const defaultStance =
-          (poolId === undefined
+          (pooledModel === undefined
             ? modelDefaultStance(manifest, model)
-            : poolDefaultStance(manifest, poolId, modelPools)) ?? "unset";
+            : (pooledDefaultStance(manifest, pooledModel.key, pools) ??
+              modelDefaultStance(manifest, binding.model))) ?? "unset";
+        const note =
+          (pooledModel === undefined
+            ? modelNote(manifest, model)
+            : (pooledNote(manifest, pooledModel.key, pools) ??
+              modelNote(manifest, binding.model))) ?? "";
         return (
           <div
             key={model}
             className="grid grid-cols-1 items-start gap-x-4 gap-y-1.5 border-t border-border/60 px-3 py-2.5 sm:grid-cols-[minmax(0,13rem)_minmax(0,1fr)] sm:px-4"
           >
             <div className="flex min-w-0 flex-col gap-1.5">
-              {pool ? (
-                <span className="inline-flex min-w-0 items-center gap-1.5 text-sm">
-                  <span className="truncate">{pool.displayName}</span>
-                  <Badge variant="outline" size="sm">
-                    Pool
-                  </Badge>
+              {showPooled ? (
+                <span className="truncate text-sm font-medium text-foreground">
+                  {pooledModel.displayName}
                 </span>
               ) : (
                 <ModelLabel
@@ -1023,12 +1041,8 @@ function ModelsSection({
               <div className="min-w-0 flex-1">
                 <NoteField
                   name={name}
-                  note={
-                    (poolId === undefined
-                      ? modelNote(manifest, model)
-                      : poolNote(manifest, poolId, modelPools)) ?? ""
-                  }
-                  onSave={(note) => onChange(setModelNote(manifest, model, note, modelPools))}
+                  note={note}
+                  onSave={(nextNote) => onChange(setModelNote(manifest, model, nextNote, pools))}
                 />
               </div>
               <div className="shrink-0">
@@ -1047,7 +1061,7 @@ function ModelsSection({
                         manifest,
                         model,
                         value === "unset" ? undefined : (value as DelegationStance),
-                        modelPools,
+                        pools,
                       ),
                     )
                   }
@@ -1056,13 +1070,13 @@ function ModelsSection({
               <div className="shrink-0">
                 <Choice
                   label={`Off-list use of ${name}`}
-                  value={modelListedOnly(manifest, model, modelPools) ? "never" : "fallback"}
+                  value={modelListedOnly(manifest, model, pools) ? "never" : "fallback"}
                   values={[
                     { value: "fallback", label: "Off-list fallback" },
                     { value: "never", label: "Never off-list" },
                   ]}
                   onChange={(value) =>
-                    onChange(setModelListedOnly(manifest, model, value === "never", modelPools))
+                    onChange(setModelListedOnly(manifest, model, value === "never", pools))
                   }
                 />
               </div>
@@ -1240,20 +1254,20 @@ function PermissionsSection() {
   );
 }
 
-/** A delegation model's label: a model pool by its name with a Pool badge, else the model. */
+/** A delegation model's label: a pooled `anyAccount` (or legacy `poolId`) model by its name, else the model. */
 function PolicyModelLabel({
   environmentId,
   binding,
-  modelPools,
+  pools,
   variant,
 }: {
   environmentId: EnvironmentId;
   binding: Manifest["models"][string];
-  modelPools: Readonly<Record<string, { readonly displayName: string }>>;
+  pools: ReadonlyArray<PooledModel>;
   variant?: "full" | "chip";
 }) {
-  const pool = binding.poolId === undefined ? undefined : modelPools[binding.poolId];
-  if (pool === undefined) {
+  const pooled = isAnyAccountBinding(binding) ? pooledModelForBinding(binding, pools) : undefined;
+  if (pooled === undefined) {
     return (
       <ModelLabel
         variant={variant ?? "full"}
@@ -1265,7 +1279,7 @@ function PolicyModelLabel({
   }
   return (
     <Badge variant="outline" size={variant === "chip" ? "control" : "default"}>
-      {pool.displayName} · Pool
+      {pooled.displayName}
     </Badge>
   );
 }

@@ -28,7 +28,6 @@ import * as Stream from "effect/Stream";
 import * as SecretResolver from "@t3tools/secret-provider-core/server/SecretResolver";
 
 import { buildUnavailableProviderSnapshot } from "./unavailableProviderSnapshot.ts";
-import type { ProviderPool } from "@t3tools/shared/providerPools";
 import * as ProviderInstanceRegistryMutator from "./ProviderInstanceRegistryMutator.ts";
 import type { AnyProviderDriver, ProviderInstance } from "@t3tools/provider-core/server/driver";
 
@@ -40,8 +39,6 @@ export class ProviderInstanceRegistry extends Context.Service<
     ) => Effect.Effect<ProviderInstance | undefined>;
     readonly listInstances: Effect.Effect<ReadonlyArray<ProviderInstance>>;
     readonly listUnavailable: Effect.Effect<ReadonlyArray<ServerProvider>>;
-    /** Configured account pools, in settings-author order. */
-    readonly listPools: Effect.Effect<ReadonlyArray<ProviderPool>>;
     /** streamChanges subscribes on consumption; use subscribeChanges before forking to avoid missing the next publish. */
     readonly streamChanges: Stream.Stream<void>;
     readonly subscribeChanges: Effect.Effect<PubSub.Subscription<void>, never, Scope.Scope>;
@@ -63,7 +60,6 @@ interface LiveEntry {
 interface RegistryState {
   readonly entries: Ref.Ref<ReadonlyMap<ProviderInstanceId, LiveEntry>>;
   readonly unavailable: Ref.Ref<ReadonlyMap<ProviderInstanceId, ServerProvider>>;
-  readonly pools: Ref.Ref<ReadonlyArray<ProviderPool>>;
   // Configs parked on an unreadable secret. A settings save that leaves one alone does not read
   // its vault again, so a locked vault is not prompted for on every unrelated save.
   readonly secretsUnreadable: Ref.Ref<ReadonlyMap<ProviderInstanceId, ProviderInstanceConfig>>;
@@ -381,7 +377,6 @@ const makeReconcile = <R>(input: {
     Effect.gen(function* () {
       const previousEntries = yield* Ref.get(state.entries);
       const previousUnavailable = yield* Ref.get(state.unavailable);
-      const previousPools = yield* Ref.get(state.pools);
       const previousSecretsUnreadable = yield* Ref.get(state.secretsUnreadable);
       const nextRaw = Object.entries(configMap);
       const nextKeys = new Set<ProviderInstanceId>(
@@ -443,7 +438,6 @@ const makeReconcile = <R>(input: {
 
       const builtEntries = new Map<ProviderInstanceId, LiveEntry>();
       const builtUnavailable = new Map<ProviderInstanceId, ServerProvider>();
-      const builtPools: Array<ProviderPool> = [];
       const builtSecretsUnreadable = new Map<ProviderInstanceId, ProviderInstanceConfig>();
       let orderChanged = false;
       const previousOrder = [...previousEntries.keys()];
@@ -451,18 +445,6 @@ const makeReconcile = <R>(input: {
 
       for (const [rawInstanceId, entry] of nextRaw) {
         const instanceId = ProviderInstanceId.make(rawInstanceId);
-        if (entry.pool !== undefined) {
-          builtPools.push({
-            instanceId,
-            driver: entry.driver,
-            displayName: entry.displayName,
-            accentColor: entry.accentColor,
-            enabled: resolveEntryEnabled(entry, undefined),
-            members: entry.pool,
-            policy: entry.poolPolicy,
-          });
-          continue;
-        }
         nextOrder.push(instanceId);
 
         const existing = previousEntries.get(instanceId);
@@ -519,14 +501,11 @@ const makeReconcile = <R>(input: {
         }) ||
         [...previousUnavailable].some(([id]) => !builtUnavailable.has(id));
 
-      const poolsChanged = !Equal.equals(previousPools, builtPools);
-
       yield* Ref.set(state.entries, builtEntries);
       yield* Ref.set(state.unavailable, builtUnavailable);
-      yield* Ref.set(state.pools, builtPools);
       yield* Ref.set(state.secretsUnreadable, builtSecretsUnreadable);
 
-      if (entriesChanged || unavailableChanged || poolsChanged) {
+      if (entriesChanged || unavailableChanged) {
         yield* PubSub.publish(state.changes, undefined);
       }
     });
@@ -561,7 +540,6 @@ export const makeProviderInstanceRegistry = Effect.fn(
 
   const entries = yield* Ref.make<ReadonlyMap<ProviderInstanceId, LiveEntry>>(new Map());
   const unavailable = yield* Ref.make<ReadonlyMap<ProviderInstanceId, ServerProvider>>(new Map());
-  const pools = yield* Ref.make<ReadonlyArray<ProviderPool>>([]);
   const aliases = yield* Ref.make<Readonly<Record<ProviderInstanceId, ProviderInstanceId>>>({});
   const secretsUnreadable = yield* Ref.make<
     ReadonlyMap<ProviderInstanceId, ProviderInstanceConfig>
@@ -569,7 +547,7 @@ export const makeProviderInstanceRegistry = Effect.fn(
   const changes = yield* PubSub.unbounded<void>();
   yield* Effect.addFinalizer(() => PubSub.shutdown(changes));
 
-  const state: RegistryState = { entries, unavailable, pools, secretsUnreadable, changes };
+  const state: RegistryState = { entries, unavailable, secretsUnreadable, changes };
   const reconcileWithR = makeReconcile({
     state,
     driversById,
@@ -716,7 +694,6 @@ export const makeProviderInstanceRegistry = Effect.fn(
     listUnavailable: Ref.get(unavailable).pipe(
       Effect.map((map) => Array.from(map.values()) as ReadonlyArray<ServerProvider>),
     ),
-    listPools: Ref.get(pools),
     // Getters: each read constructs a fresh Stream / Effect descriptor
     // so multiple consumers don't share a single already-started
     // Channel or subscription. Matches the pattern `ProviderRegistry`

@@ -205,11 +205,6 @@ it.describe("shared provider setup", () => {
               config: { homePath },
               environment: [{ name: "API_TOKEN", value: "", sensitive: true }],
             },
-            claude_pool: {
-              driver: claude,
-              pool: ["claudeAgent_claude_ys", "claudeAgent_claude_hello"],
-              preferredMember: "claudeAgent_claude_hello",
-            },
           }),
           version: 3,
           changedAt: "2026-11-09T10:00:00.000Z",
@@ -226,9 +221,6 @@ it.describe("shared provider setup", () => {
           joined.providerInstances[id("claudeAgent_claude_ys")]?.environment?.[0]?.value,
           "kept",
         );
-        const pool = joined.providerInstances[id("claude_pool")];
-        assert.deepEqual(pool?.pool, [id("claudeAgent_claude_ys")]);
-        assert.isUndefined(pool?.preferredMember);
       }).pipe(Effect.provide(testLayer)),
   );
 
@@ -249,47 +241,29 @@ it.describe("shared provider setup", () => {
     digest,
   });
 
-  it.effect(
-    "keeps a removed provider out, and pool fields, when a client writes its older list",
-    () =>
-      Effect.gen(function* () {
-        const service = yield* sharedService;
-        const stale = (yield* service.updateProviderInstance({
-          operation: "upsert",
-          instanceId: id("codex_extra"),
-          instance: { driver: codex },
-        })).providerInstances;
-        yield* service.updateProviderInstance({
-          operation: "remove",
-          instanceId: id("codex_extra"),
-        });
+  it.effect("keeps a removed provider out when a client writes its older list", () =>
+    Effect.gen(function* () {
+      const service = yield* sharedService;
+      const stale = (yield* service.updateProviderInstance({
+        operation: "upsert",
+        instanceId: id("codex_extra"),
+        instance: { driver: codex },
+      })).providerInstances;
+      yield* service.updateProviderInstance({
+        operation: "remove",
+        instanceId: id("codex_extra"),
+      });
 
-        const written = yield* service.updateSettings({ providerInstances: stale });
-        assert.isFalse(Object.hasOwn(written.providerInstances, "codex_extra"));
+      const written = yield* service.updateSettings({ providerInstances: stale });
+      assert.isFalse(Object.hasOwn(written.providerInstances, "codex_extra"));
 
-        const pooled = yield* service.updateProviderInstance({
-          operation: "upsert",
-          instanceId: id("claude_pool"),
-          instance: {
-            driver: claude,
-            pool: [id("claudeAgent")],
-            preferredMember: id("claudeAgent"),
-          },
-        });
-        const { preferredMember: _unknownToOlderClients, ...olderCopy } =
-          pooled.providerInstances[id("claude_pool")]!;
-        const kept = yield* service.updateSettings({
-          providerInstances: { ...pooled.providerInstances, [id("claude_pool")]: olderCopy },
-        });
-        assert.equal(kept.providerInstances[id("claude_pool")]?.preferredMember, "claudeAgent");
-
-        const readded = yield* service.updateProviderInstance({
-          operation: "upsert",
-          instanceId: id("codex_extra"),
-          instance: { driver: codex },
-        });
-        assert.isTrue(Object.hasOwn(readded.providerInstances, "codex_extra"));
-      }).pipe(Effect.provide(testLayer)),
+      const readded = yield* service.updateProviderInstance({
+        operation: "upsert",
+        instanceId: id("codex_extra"),
+        instance: { driver: codex },
+      });
+      assert.isTrue(Object.hasOwn(readded.providerInstances, "codex_extra"));
+    }).pipe(Effect.provide(testLayer)),
   );
 
   it.effect("treats a provider edited by hand in the settings file as an edit", () =>

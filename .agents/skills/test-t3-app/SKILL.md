@@ -56,7 +56,10 @@ because that often means only that no tab exists yet. Stop only if `preview_open
 
 ## Verify and retain
 
-Exercise the affected flow and capture the state that proves it works. Keep
+Exercise the affected flow and capture the state that proves it works. If the page
+still shows code you changed, fetch that module from the web port (`curl
+localhost:<webPort>/src/<path>`): when it serves the old source, Vite's transform cache
+is stale, so restart the dev server. Keep
 the server, state, and panel available while the user inspects or iterates.
 An assistant turn ending is not teardown. Stop only processes you started,
 using retained terminal sessions or captured PIDs.

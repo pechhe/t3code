@@ -197,7 +197,6 @@ export type ProjectionLimitRecoveryCandidate = Pick<
   | "updatedAt"
   | "limitRecovery"
   | "snoozedUntil"
-  | "modelSelection"
 >;
 
 export type ProjectionThreadPullRequests = Pick<
@@ -645,8 +644,6 @@ export interface ProjectionStoreV2Shape {
     readonly now: DateTime.Utc;
     readonly autoResume: boolean;
     readonly snooze: boolean;
-    /** Also return every limited thread still waiting on its reset, for pool failover. */
-    readonly poolSwitch: boolean;
   }) => Effect.Effect<ReadonlyArray<ProjectionLimitRecoveryCandidate>, ProjectionStoreV2Error>;
   /** Epoch ms of the next armed reset or snooze end after `now`, when a waiting thread becomes a candidate. */
   readonly getLimitRecoveryWakeAt: (
@@ -4934,9 +4931,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             AND json_extract(item.payload_json, '$.failure.resetAt') IS NOT NULL
             AND julianday(json_extract(item.payload_json, '$.failure.resetAt')) > julianday(COALESCE(r.completed_at, json_extract(t.payload_json, '$.updatedAt')))
             AND (
-              (${booleanInt(options.poolSwitch)}
-                AND julianday(json_extract(item.payload_json, '$.failure.resetAt')) > julianday(${DateTime.formatIso(options.now)}))
-              OR (
+              (
                 json_extract(t.payload_json, '$.limitRecovery.runId') IS r.run_id
                 AND json_extract(t.payload_json, '$.limitRecovery.resetAt') IS json_extract(item.payload_json, '$.failure.resetAt')
                 AND json_extract(t.payload_json, '$.limitRecovery.autoResume') = 1
@@ -4997,7 +4992,6 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             pendingRuntimeRequest: null,
             limitRecovery: thread.limitRecovery ?? null,
             snoozedUntil: thread.snoozedUntil ?? null,
-            modelSelection: thread.modelSelection,
           });
         }
         return candidates;

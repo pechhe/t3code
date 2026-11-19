@@ -4,21 +4,27 @@ import type {
   ProviderInstanceId,
   ProviderOptionSelection,
 } from "@t3tools/contracts";
+import { pooledModels } from "@t3tools/shared/accountPools";
 import type { ReactElement } from "react";
 
-import { formatModelPoolSummary } from "@t3tools/shared/modelPools";
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
+import type { ModelPickerPooling } from "../chat/modelPickerPooling";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { TraitsPicker } from "../chat/TraitsPicker";
-import type { CatalogModel } from "./DelegationSettings.logic";
+import {
+  isAnyAccountBinding,
+  pooledModelForBinding,
+  type CatalogModel,
+} from "./DelegationSettings.logic";
 import { useInstanceEntries } from "./useInstanceEntries";
 
 type Binding = AgentPolicyManifest["models"][string];
 
 /**
- * Chooses a delegation model with the composer's own model picker. Policy models name a
- * provider kind rather than an account, so any account of that kind stands for it. Every
- * installed model can be picked; one with an effort setting also gets the effort picker.
+ * Chooses a delegation model with the composer's own model picker. Policy models name either a
+ * provider kind and model slug (for a specific account) or `anyAccount` (the model alone, any
+ * account in the user's order). Every installed model can be picked; one with an effort setting
+ * also gets the effort picker.
  */
 export function PolicyModelPicker(props: {
   environmentId: EnvironmentId;
@@ -43,41 +49,47 @@ export function PolicyModelPicker(props: {
     const driver = entries.find((entry) => entry.instanceId === pickedInstance)?.driverKind;
     return props.catalog.find(
       (candidate) =>
-        candidate.poolId === undefined &&
+        candidate.pooledKey === undefined &&
         candidate.binding.driverKind === driver &&
         candidate.binding.model === slug,
     );
   };
-  const pools = props.catalog.flatMap((candidate) =>
-    candidate.poolId === undefined
-      ? []
-      : [
-          {
-            id: candidate.poolId,
-            name: candidate.label,
-            summary: formatModelPoolSummary(settings.modelPools[candidate.poolId]!, providers),
-          },
-        ],
-  );
+  const pools = pooledModels(providers, settings);
+  const activePool =
+    props.binding !== undefined && isAnyAccountBinding(props.binding)
+      ? pooledModelForBinding(props.binding, pools)
+      : undefined;
+  const pooling: ModelPickerPooling = {
+    models: pools,
+    skips: settings.accountSkips,
+    active: activePool ? { key: activePool.key, pinned: null } : null,
+    onSelect: (pickedModel, account) => {
+      const picked =
+        account === null
+          ? props.catalog.find((candidate) => candidate.pooledKey === pickedModel.key)
+          : catalogModel(account.provider.instanceId, account.model);
+      if (picked !== undefined && props.pickDisabledReason?.(picked) == null) {
+        props.onPick(picked);
+      }
+    },
+  };
   return (
     <ProviderModelPicker
       environmentId={props.environmentId}
       activeInstanceId={instanceId}
       model={model}
-      pools={pools}
-      activePoolId={props.binding?.poolId ?? null}
-      onPoolSelect={(poolId) => {
-        const picked = props.catalog.find((candidate) => candidate.poolId === poolId);
-        if (picked !== undefined && props.pickDisabledReason?.(picked) == null)
-          props.onPick(picked);
-      }}
+      pooling={pooling}
       lockedProvider={null}
       instanceEntries={entries}
       modelOptionsByInstance={options}
       isComposerOwned={false}
       disabled={props.disabled ?? false}
       {...(props.trigger ? { trigger: props.trigger } : {})}
-      {...(props.binding ? {} : { triggerLabel: "Choose model" })}
+      {...(props.binding
+        ? activePool
+          ? { triggerLabel: activePool.displayName }
+          : {}
+        : { triggerLabel: "Choose model" })}
       getModelDisabledReason={(pickedInstance, slug) => {
         const picked = catalogModel(pickedInstance, slug);
         if (picked === undefined) return "Not listed by an installed account";
@@ -101,12 +113,18 @@ export function PolicyEffortPicker(props: {
   /** Other traits the model offers, such as its service tier, which the policy fixes per model. */
   onModelOptionsChange?: (options: ReadonlyArray<ProviderOptionSelection> | undefined) => void;
 }) {
-  const { settings, entries } = useInstanceEntries(props.environmentId);
+  const { entries } = useInstanceEntries(props.environmentId);
   const binding = props.binding;
   const entry =
     entries.find(
+      (candidate) =>
+        candidate.driverKind === binding?.driverKind &&
+        candidate.models.some((model) => model.slug === binding.model),
+    ) ??
+    entries.find(
       (candidate) => candidate.driverKind === binding?.driverKind && candidate.isDefault,
-    ) ?? entries.find((candidate) => candidate.driverKind === binding?.driverKind);
+    ) ??
+    entries.find((candidate) => candidate.driverKind === binding?.driverKind);
   if (binding === undefined || entry === undefined) {
     return <span className="text-muted-foreground text-xs">{props.effort}</span>;
   }

@@ -85,7 +85,6 @@ import {
   stampLocalEdit,
   stampLocalModelPreferencesEdit,
   UNSHARED_PROVIDER_SETUP,
-  withoutDanglingPoolMembers,
   asWholeListWrite,
   withAliasesAdded,
   withRemovalsTracked,
@@ -502,14 +501,14 @@ const makeTest = Effect.fn("serverSettings.makeTest")(function* (
       updateTestSettings((current) =>
         Effect.succeed({
           ...current,
-          providerInstances: withoutDanglingPoolMembers(instances),
+          providerInstances: instances,
           sharedProviderSetup: {
             ...sharedProviderSetupOf(current),
             shared: join || sharedProviderSetupOf(current).shared,
             version,
             baseVersion: version,
             changedAt,
-            digest: providerInstancesDigest({ ...current, providerInstances: instances }),
+            digest: providerInstancesDigest(current),
           },
         }),
       ),
@@ -1618,7 +1617,7 @@ const make = Effect.gen(function* () {
           }
           // An empty slot in what arrives says nothing about this machine's own secret.
           const received = mapSettingsSecrets(
-            { ...renamed, providerInstances: withoutDanglingPoolMembers(input.instances) },
+            { ...renamed, providerInstances: input.instances },
             (secret) =>
               !secret.sensitive
                 ? secret
@@ -1887,19 +1886,15 @@ const make = Effect.gen(function* () {
         (current) =>
           Effect.gen(function* () {
             const state = sharedProviderSetupOf(current);
-            const instances = shared
-              ? withoutDanglingPoolMembers(current.providerInstances)
-              : current.providerInstances;
             return {
               ...current,
-              providerInstances: instances,
               sharedProviderSetup: {
                 ...state,
                 shared,
                 version: Math.max(state.version, 1),
                 baseVersion: Math.max(state.version, 1),
                 changedAt: DateTime.formatIso(yield* DateTime.now),
-                digest: providerInstancesDigest({ ...current, providerInstances: instances }),
+                digest: providerInstancesDigest(current),
                 modelPreferencesVersion: state.modelPreferencesVersion ?? 0,
                 modelPreferencesBaseVersion: state.modelPreferencesBaseVersion ?? 0,
                 modelPreferencesChangedAt:

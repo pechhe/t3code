@@ -10,6 +10,7 @@ import * as Stream from "effect/Stream";
 import * as ProviderOverloads from "../provider/ProviderOverloads.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import { forkParked } from "../serverActivation.ts";
+import { isUsageLimitFailure } from "./AccountFailover.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
 
@@ -26,12 +27,7 @@ const accountSignal = (event: OrchestrationV2DomainEvent) => {
   const { failure, threadId, runId } = event.payload;
   if (isProviderOverloadedFailureCode(failure.code))
     return { kind: "overload" as const, threadId, runId };
-  if (
-    failure.class === "usage_limit" ||
-    /\b(?:insufficient\s+credits?|not enough credits?|rate limit|credit limit|usage limit|quota limit)\b/iu.test(
-      failure.message,
-    )
-  )
+  if (isUsageLimitFailure(failure))
     return {
       kind: "usage-limit" as const,
       threadId,
@@ -63,8 +59,8 @@ export const layer = Layer.effectDiscard(
         });
         return;
       }
-      // The account's own reading decides whether it is out, so a limit only asks for a fresh
-      // one; detached so a slow usage read never holds the event stream.
+      // A limit asks for a fresh reading for the Usage bars; detached so a slow usage read never
+      // holds the event stream. AccountFailover skips the account and moves the thread on.
       if (Option.isSome(registry)) {
         yield* registry.value
           .refreshInstanceUsage(run.modelSelection.instanceId)

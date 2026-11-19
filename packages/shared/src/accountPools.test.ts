@@ -1,0 +1,330 @@
+import { describe, expect, it } from "@effect/vitest";
+import {
+  ProviderDriverKind,
+  ProviderInstanceId,
+  type AccountSkips,
+  type ServerProvider,
+} from "@t3tools/contracts";
+
+import {
+  accountIdOf,
+  firstAccount,
+  listAccounts,
+  nextAccount,
+  nextLocalMidnightMs,
+  pooledModelKeyOf,
+  pooledModels,
+  selectionOnAccount,
+  skipAfterLimit,
+  withSkip,
+  type PooledModel,
+} from "./accountPools.ts";
+import * as DateTime from "effect/DateTime";
+import fixture from "./accountPools.fixture.json" with { type: "json" };
+
+const NOW = Date.parse("2026-11-19T09:00:00.000Z");
+const iso = (ms: number) => DateTime.formatIso(DateTime.makeUnsafe(ms));
+const HOUR = 3_600_000;
+
+const provider = (
+  id: string,
+  driver: string,
+  models: ReadonlyArray<readonly [slug: string, name: string]>,
+  extra: Partial<ServerProvider> = {},
+): ServerProvider => ({
+  instanceId: ProviderInstanceId.make(id),
+  driver: ProviderDriverKind.make(driver),
+  displayName: id,
+  enabled: true,
+  installed: true,
+  version: "1.0.0",
+  status: "ready",
+  auth: { status: "authenticated" },
+  checkedAt: iso(NOW),
+  models: models.map(([slug, name]) => ({ slug, name, isCustom: false, capabilities: null })),
+  slashCommands: [],
+  skills: [],
+  ...extra,
+});
+
+/**
+ * Henry's provider snapshots from the Mac's and peach-box's caches on 18 Nov 2026 (both machines
+ * list the same models), with emails replaced and credentials, usage and fingerprints removed.
+ */
+const henrysProviders: ReadonlyArray<ServerProvider> = fixture.map((entry) =>
+  provider(
+    entry.instanceId,
+    entry.driver,
+    entry.models.map(([slug, name]) => [slug!, name!] as const),
+    {
+      enabled: entry.enabled,
+      ...(entry.displayName === undefined ? {} : { displayName: entry.displayName }),
+    },
+  ),
+);
+
+const noSettings = { accountOrder: [], modelAccountsRemoved: {} };
+
+describe("pooledModels on Henry's providers", () => {
+  const pools = pooledModels(henrysProviders, noSettings);
+  const byKey = (key: string) => pools.find((pool) => pool.key === key);
+  const accountsOf = (pool: PooledModel | undefined) =>
+    pool?.accounts.map((entry) => `${entry.account.id} ${entry.model}`);
+
+  it("makes every model on several accounts one entry naming its accounts", () => {
+    expect(byKey("claude-opus-5-5")?.displayName).toBe("Claude Opus 5.5");
+    expect(accountsOf(byKey("claude-opus-5-5"))).toEqual([
+      "claudeAgent claude-opus-5-5",
+      "claudeAgent_claude_ys claude-opus-5-5",
+      "pi:anthropic anthropic/claude-opus-5-5",
+      "pi:openrouter openrouter/anthropic/claude-opus-5.5",
+      "pi:claude-subscription-yardsmith claude-subscription-yardsmith/claude-opus-5-5",
+      "pi:claude-subscription-hfpetch claude-subscription-hfpetch/claude-opus-5-5",
+      "pi:anthropic-yardsmith anthropic-yardsmith/claude-opus-5-5",
+      "pi:anthropic-hfpetch anthropic-hfpetch/claude-opus-5-5",
+      "pi:antigravity antigravity/claude-opus-5-5",
+    ]);
+    expect(accountsOf(byKey("gpt-6-2-sol"))).toEqual([
+      "codex gpt-6.2-sol",
+      "pi:openai openai/gpt-6.2-sol",
+      "pi:openai-codex openai-codex/gpt-6.2-sol",
+      "pi:openrouter openrouter/openai/gpt-6.2-sol",
+    ]);
+    expect(accountsOf(byKey("gemini-4-hydrogen"))).toEqual([
+      "pi:openrouter openrouter/google/gemini-4-hydrogen",
+      "pi:antigravity antigravity/gemini-4-hydrogen",
+    ]);
+    expect(byKey("kimi-k3")?.displayName).toBe("Kimi K3");
+    expect(accountsOf(byKey("kimi-k3"))).toEqual([
+      "pi:opencode-go opencode-go/kimi-k3",
+      "pi:openrouter openrouter/moonshotai/kimi-k3",
+      "pi:commandcode commandcode/moonshotai/Kimi-K3",
+    ]);
+    // Pi's Antigravity logins are one account; its one model list is not split by login.
+    expect(
+      listAccounts(henrysProviders, []).filter((account) => account.label === "antigravity"),
+    ).toHaveLength(1);
+  });
+
+  it("merges only the same model", () => {
+    const plain = (name: string) =>
+      name
+        .replace(/^[^:()]+:\s+/, "")
+        .replace(/\((Antigravity|Command Code|Yardsmith|[^)]*@[^)]*)\)/g, "")
+        .replace(/^(Tencent) /, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, "");
+    for (const pool of pools) {
+      const names = new Set(
+        pool.accounts.map(
+          (entry) =>
+            entry.provider.models.find((model) => model.slug === entry.model)?.name ?? entry.model,
+        ),
+      );
+      expect([pool.key, new Set([...names].map(plain)).size]).toEqual([pool.key, 1]);
+    }
+  });
+
+  it("keeps every model reachable, each on at most one entry", () => {
+    const pooled = new Map<string, string>();
+    for (const pool of pools) {
+      for (const entry of pool.accounts) {
+        const id = `${entry.provider.instanceId} ${entry.model}`;
+        expect(pooled.get(id)).toBeUndefined();
+        pooled.set(id, pool.key);
+      }
+    }
+    for (const candidate of henrysProviders.filter((entry) => entry.enabled)) {
+      for (const model of candidate.models) {
+        const key = pooledModelKeyOf(candidate, model);
+        const pool = pools.find((entry) => entry.key === key);
+        const sameAccount = pool?.accounts.find(
+          (entry) => entry.account.id === accountIdOf(candidate, model.slug),
+        );
+        // Either its own entry in a pool, a second listing on an account the pool already has
+        // (kept by the picker as a model of its own), or a model only one account serves.
+        expect(
+          pooled.has(`${candidate.instanceId} ${model.slug}`) ||
+            sameAccount !== undefined ||
+            pool === undefined,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("never merges a batch, :thinking, [1m], :free, alias, dated or image variant into another model", () => {
+    const traits = (slug: string, name: string) => ({
+      batch: slug.includes(":batch"),
+      thinking: slug.includes(":thinking"),
+      oneMillion: slug.includes("[1m]"),
+      free: slug.includes(":free"),
+      alias: slug.includes("~") || /latest/i.test(name),
+      image: /image|banana/i.test(`${slug} ${name}`),
+      dates: [
+        ...(name.match(/\b\d{4}(?:-\d{2}-\d{2})?\b|\b\d{8}\b/g) ?? []),
+        ...(slug.match(/\d{8}|\d{4}-\d{2}-\d{2}/g) ?? []),
+      ]
+        .filter((token) => !/^20(2|3)\d$/.test(token))
+        .sort()
+        .join(","),
+    });
+    for (const pool of pools) {
+      const distinct = new Set(
+        pool.accounts.map((entry) => {
+          const name = entry.provider.models.find((model) => model.slug === entry.model)!.name;
+          const { dates, ...rest } = traits(entry.model, name);
+          return JSON.stringify({ ...rest, dated: dates.length > 0 });
+        }),
+      );
+      expect([pool.key, distinct.size]).toEqual([pool.key, 1]);
+    }
+    expect(byKey("claude-haiku-4-5@latest")).toBeDefined();
+    expect(accountsOf(byKey("claude-haiku-4-5-20251001"))).toContain(
+      "pi:commandcode commandcode/claude-haiku-4-5-20251001",
+    );
+    expect(accountsOf(byKey("claude-haiku-4-5"))).not.toContain(
+      "pi:anthropic anthropic/claude-haiku-4-5",
+    );
+    expect(accountsOf(byKey("deepseek-v4-1-flash-1017"))).toEqual([
+      "pi:opencode-go opencode-go/deepseek-v4.1-flash",
+      "pi:openrouter openrouter/deepseek/deepseek-v4.1-flash-1017",
+    ]);
+    expect(pools.some((pool) => pool.key.startsWith("default"))).toBe(false);
+    // Each entry the picker lists has a name of its own.
+    const names = pools.map((pool) => pool.displayName);
+    expect(new Set(names).size).toBe(names.length);
+  });
+});
+
+describe("the account order", () => {
+  const a = provider("a", "claudeAgent", [["opus", "Opus"]]);
+  const b = provider("b", "claudeAgent", [["opus", "Opus"]]);
+  const c = provider("c", "codex", [["opus", "Opus"]]);
+  const pool = (order: ReadonlyArray<string>, removed: ReadonlyArray<string> = []) =>
+    pooledModels([c, b, a], { accountOrder: order, modelAccountsRemoved: { opus: removed } })[0]!;
+
+  it("tries accounts top to bottom, new accounts at the bottom, passing over removed ones", () => {
+    expect(firstAccount(pool(["a", "b"]), {}, NOW)?.account.id).toBe("a");
+    expect(pool(["a"]).accounts.map((entry) => entry.account.id)).toEqual(["a", "c", "b"]);
+    expect(firstAccount(pool(["a", "b", "c"], ["a"]), {}, NOW)?.account.id).toBe("b");
+  });
+
+  it("skips an account until its skip ends, then tries it first again", () => {
+    const skips: AccountSkips = {
+      a: { opus: { until: iso(NOW + HOUR), reportedReset: true } },
+    };
+    const ordered = pool(["a", "b", "c"]);
+    expect(firstAccount(ordered, skips, NOW)?.account.id).toBe("b");
+    expect(firstAccount(ordered, skips, NOW + HOUR)?.account.id).toBe("a");
+    expect(nextAccount(ordered, "b", skips, NOW)?.account.id).toBe("c");
+    expect(nextAccount(ordered, "a", skips, NOW)?.account.id).toBe("b");
+  });
+
+  it("tries the account back soonest when every account is skipped, and moves nowhere", () => {
+    const skips: AccountSkips = {
+      a: { opus: { until: iso(NOW + 3 * HOUR), reportedReset: true } },
+      b: { opus: { until: iso(NOW + HOUR), reportedReset: true } },
+      c: { opus: { until: iso(NOW + 2 * HOUR), reportedReset: false } },
+    };
+    expect(firstAccount(pool(["a", "b", "c"]), skips, NOW)?.account.id).toBe("b");
+    expect(nextAccount(pool(["a", "b", "c"]), "a", skips, NOW)).toBeUndefined();
+  });
+
+  it("skips to the failure's reset, else the reading's, else the server's midnight", () => {
+    const reading = provider("a", "claudeAgent", [["opus", "Opus"]], {
+      usageLimits: {
+        checkedAt: iso(NOW),
+        windows: [
+          {
+            id: "weekly",
+            kind: "weekly",
+            label: "Week",
+            usedPercent: 100,
+            resetsAt: iso(NOW + 5 * HOUR),
+          },
+        ],
+      },
+    });
+    const midnightMs = nextLocalMidnightMs(NOW);
+    expect(
+      skipAfterLimit({
+        failureResetAt: iso(NOW + HOUR),
+        provider: reading,
+        model: "opus",
+        nowMs: NOW,
+        midnightMs,
+      }),
+    ).toEqual({ until: iso(NOW + HOUR), reportedReset: true });
+    expect(
+      skipAfterLimit({
+        failureResetAt: null,
+        provider: reading,
+        model: "opus",
+        nowMs: NOW,
+        midnightMs,
+      }),
+    ).toEqual({ until: iso(NOW + 5 * HOUR), reportedReset: true });
+    expect(skipAfterLimit({ provider: a, model: "opus", nowMs: NOW, midnightMs })).toEqual({
+      until: iso(midnightMs),
+      reportedReset: false,
+    });
+    const local = DateTime.makeZonedUnsafe(midnightMs, { timeZone: DateTime.zoneMakeLocal() });
+    expect(DateTime.getPart(local, "hour")).toBe(0);
+    expect(midnightMs - NOW).toBeLessThanOrEqual(24 * HOUR);
+  });
+
+  it("keeps another model's skip on the account and drops lapsed ones", () => {
+    const skips: AccountSkips = {
+      a: {
+        sonnet: { until: iso(NOW + HOUR), reportedReset: true },
+        haiku: { until: iso(NOW - HOUR), reportedReset: true },
+      },
+    };
+    expect(
+      Object.keys(
+        withSkip(skips, "a", "opus", { until: iso(NOW + 2 * HOUR), reportedReset: false }, NOW),
+      ),
+    ).toEqual(["sonnet", "opus"]);
+  });
+});
+
+describe("selectionOnAccount", () => {
+  it("carries the reasoning effort to the target account's own option and drops the rest", () => {
+    const target = provider("pi", "pi", []);
+    const withModel: ServerProvider = {
+      ...target,
+      models: [
+        {
+          slug: "antigravity/claude-opus-5-5",
+          name: "Claude Opus 5.5 (Antigravity)",
+          isCustom: false,
+          capabilities: {
+            optionDescriptors: [
+              {
+                id: "thinking",
+                label: "Thinking",
+                type: "select",
+                options: [{ id: "high", label: "High" }],
+              },
+            ],
+          },
+        },
+      ],
+    };
+    expect(
+      selectionOnAccount(
+        { provider: withModel, model: "antigravity/claude-opus-5-5" },
+        [
+          { id: "effort", value: "high" },
+          { id: "fastMode", value: true },
+        ],
+        true,
+      ),
+    ).toEqual({
+      instanceId: "pi",
+      model: "antigravity/claude-opus-5-5",
+      pinned: true,
+      options: [{ id: "thinking", value: "high" }],
+    });
+  });
+});

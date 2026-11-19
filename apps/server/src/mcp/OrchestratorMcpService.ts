@@ -217,7 +217,6 @@ import * as PeerForwarding from "../peer/PeerForwarding.ts";
 import * as RemoteDelegation from "../peer/RemoteDelegation.ts";
 import { revalidateLinkedRole } from "../peer/LinkedRoleAdmission.ts";
 import { withRetiredFields } from "../agents/retiredRequestFields.ts";
-import { sharesPoolWith } from "@t3tools/shared/providerPools";
 
 const isManagedAgentError = Schema.is(ManagedAgent.ManagedAgentError);
 
@@ -1876,6 +1875,8 @@ const make = Effect.gen(function* () {
      * even on the caller's instance and model: the role's options are the whole set.
      */
     readonly roleSelection?: boolean;
+    /** Whether the account is named and stays put; by default, when the target names an instance. */
+    readonly pinned?: boolean;
   }): Effect.fn.Return<ResolvedTarget, OrchestratorMcpFailure> {
     const requestedInstanceId = input.target?.providerInstanceId;
     const requestedDriver = input.target?.driverKind;
@@ -2001,8 +2002,14 @@ const make = Effect.gen(function* () {
       }
       options = [...selections.values()];
     }
+    const pinned = input.pinned ?? requestedInstanceId !== undefined;
     return {
-      modelSelection: { instanceId, model, ...(options === undefined ? {} : { options }) },
+      modelSelection: {
+        instanceId,
+        model,
+        ...(pinned ? { pinned: true } : {}),
+        ...(options === undefined ? {} : { options }),
+      },
       supportedRuntimeModes: provider.supportedRuntimeModes,
     };
   });
@@ -4357,47 +4364,34 @@ const make = Effect.gen(function* () {
                   undefined,
                   yield* childRuntimeDefault,
                 );
-                // The first choice's cached reading may hide that it is out of allowance, so
-                // it is re-read before the task starts there.
-                return yield* ProviderRegistry.chooseWithFreshUsage(
-                  providerRegistry,
-                  eligibleProviders.filter(
-                    (provider) =>
-                      (input.target?.providerInstanceId === undefined ||
-                        sharesPoolWith(
-                          eligibleProviders,
-                          input.target.providerInstanceId,
-                          provider,
-                        )) &&
-                      (input.target?.driverKind === undefined ||
-                        provider.driver === input.target.driverKind),
-                  ),
-                  (providers) =>
-                    managedService
-                      .prepare({
-                        runtimeMode,
-                        projectId: taskProjectId,
-                        request: agentTask,
-                        requestFingerprint: boundFingerprint,
-                        ...(workUnit === undefined ? {} : { policyHash: workUnit.policyHash }),
-                        ...(recordedBinding === undefined ? {} : { recordedBinding }),
-                        providers,
-                        ceiling: parent.thread.runtimeMode,
-                        workspacePath: leadCheckout ?? null,
-                        ...workspaceAuthority,
-                        // A Spec lead's item worktree is allocated in the task's project, which
-                        // may be another registered one the caller holds no checkout in.
-                        ...(specLead ? { allocatesWorkspace: true } : {}),
-                        callerModel: parent.thread.modelSelection.model,
-                        caller: parent.thread.modelSelection,
-                        requireExplicitSelection: true,
-                        ...selectionOf(input.target),
-                      })
-                      .pipe(
-                        Effect.mapError((error) => failure("capability_denied", error.message)),
-                      ),
-                  (result) => result.binding.effective.instanceId,
+                const candidates = eligibleProviders.filter(
+                  (provider) =>
+                    (input.target?.providerInstanceId === undefined ||
+                      provider.instanceId === input.target.providerInstanceId) &&
+                    (input.target?.driverKind === undefined ||
+                      provider.driver === input.target.driverKind),
                 );
+                return yield* managedService
+                  .prepare({
+                    runtimeMode,
+                    projectId: taskProjectId,
+                    request: agentTask,
+                    requestFingerprint: boundFingerprint,
+                    ...(workUnit === undefined ? {} : { policyHash: workUnit.policyHash }),
+                    ...(recordedBinding === undefined ? {} : { recordedBinding }),
+                    providers: candidates,
+                    ceiling: parent.thread.runtimeMode,
+                    workspacePath: leadCheckout ?? null,
+                    ...workspaceAuthority,
+                    // A Spec lead's item worktree is allocated in the task's project, which
+                    // may be another registered one the caller holds no checkout in.
+                    ...(specLead ? { allocatesWorkspace: true } : {}),
+                    callerModel: parent.thread.modelSelection.model,
+                    caller: parent.thread.modelSelection,
+                    requireExplicitSelection: true,
+                    ...selectionOf(input.target),
+                  })
+                  .pipe(Effect.mapError((error) => failure("capability_denied", error.message)));
               });
         let target = yield* resolveTargetRechecking({
           parent,
@@ -4412,6 +4406,7 @@ const make = Effect.gen(function* () {
           providers,
           skipProjectEnablementFilter: isRetryOfAcceptedDelegation,
           roleSelection: prepared !== undefined,
+          ...(prepared === undefined ? {} : { pinned: prepared.binding.requested.pinned === true }),
         });
         const experimentUnitId =
           prepared === undefined

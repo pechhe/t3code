@@ -428,10 +428,10 @@ export function applyServerSettingsPatch(
     backgroundActivity,
     worktreeCleanup: worktreeCleanupPatch,
     // Merged per entry below; its `null` removals must not reach deepMerge.
-    modelPools: modelPoolsPatch,
+    modelAccountsRemoved: modelAccountsRemovedPatch,
     usageLimitSources: usageLimitSourcesPatch,
     usageSlotBudgets: usageSlotBudgetsPatch,
-    assumeUsageLeft: assumeUsageLeftPatch,
+    accountSkips: accountSkipsPatch,
     textGenerators: textGeneratorsPatch,
     secretProviders: secretProvidersPatch,
     sourceControlHosts: sourceControlHostsPatch,
@@ -659,8 +659,13 @@ export function applyServerSettingsPatch(
     ...(patch.defaultProjectScripts !== undefined
       ? { defaultProjectScripts: patch.defaultProjectScripts }
       : {}),
-    ...(modelPoolsPatch !== undefined
-      ? { modelPools: mergeSettingsEntries(current.modelPools, modelPoolsPatch) }
+    ...(modelAccountsRemovedPatch !== undefined
+      ? {
+          modelAccountsRemoved: mergeSettingsEntries(
+            current.modelAccountsRemoved,
+            modelAccountsRemovedPatch,
+          ),
+        }
       : {}),
     ...(usageLimitSourcesPatch !== undefined
       ? {
@@ -673,8 +678,8 @@ export function applyServerSettingsPatch(
     ...(usageSlotBudgetsPatch !== undefined
       ? { usageSlotBudgets: mergeUsageSlotBudgets(current.usageSlotBudgets, usageSlotBudgetsPatch) }
       : {}),
-    ...(assumeUsageLeftPatch !== undefined
-      ? { assumeUsageLeft: mergeSettingsEntries(current.assumeUsageLeft, assumeUsageLeftPatch) }
+    ...(accountSkipsPatch !== undefined
+      ? { accountSkips: mergeSettingsEntries(current.accountSkips, accountSkipsPatch) }
       : {}),
     ...(textGeneratorsPatch !== undefined
       ? { textGenerators: mergeSettingsEntries(current.textGenerators, textGeneratorsPatch) }

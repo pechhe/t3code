@@ -20,8 +20,6 @@ import {
   OrchestrationV2ForceStopThreadError,
   type OrchestrationV2ForceStopThreadInput,
   type OrchestrationV2ForceStopThreadResult,
-  isModelPoolSlotEnabled,
-  resolveModelPoolEnabled,
   type ModelSelection,
   type OrchestrationV2Actor,
   type OrchestrationV2Command,
@@ -77,13 +75,7 @@ import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2Pend
 import * as LegacyV1ThreadImporter from "./legacy/LegacyV1ThreadImporter.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
-import { pickPoolMember } from "@t3tools/shared/providerPools";
-import {
-  adaptModelSelectionForSlot,
-  isSlotUsageExhausted,
-  needsSlotUsageRefresh,
-  pickModelPoolSlot,
-} from "@t3tools/shared/modelPools";
+import * as AccountRouting from "./AccountRouting.ts";
 import { ThreadWorktreeRestore } from "../workspace/restoreMissingWorktree.ts";
 
 export type ThreadManagementSendMode = "auto" | "queue" | "steer" | "restart";
@@ -403,7 +395,7 @@ const PAUSED_TASK_RESUME_TEXT =
   "Your parent thread was stopped, which interrupted you, and has now resumed. Before you continue, check any operation you had running when you were stopped (a landing, a background command, a delegated task) and whether it finished. Then carry on with your task.";
 
 export interface DispatchOptions {
-  /** A subagent role placed this thread's pool slot, under conservation; routing keeps it. */
+  /** A subagent role placed this thread on its account, under conservation; routing keeps it. */
   readonly placedByRole?: boolean | undefined;
 }
 
@@ -669,7 +661,7 @@ const make = Effect.gen(function* () {
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const receipts = yield* CommandReceiptStore.CommandReceiptStoreV2;
   // Optional like other orchestration reads of provider state: without the
-  // registry there are no pools to route.
+  // registry there are no accounts to route between.
   const providerRegistry = yield* Effect.serviceOption(ProviderRegistry.ProviderRegistry);
   const worktreeRestore = yield* ThreadWorktreeRestore;
 
@@ -866,237 +858,18 @@ const make = Effect.gen(function* () {
     }
   };
 
-  // A pool never reaches the orchestrator: a selection naming an account pool or a model pool
-  // (`poolId`) is replaced here by the concrete slot that should run it, keeping the thread's
-  // current member/slot while it has allowance.
-  const routePoolSelection = Effect.fn("orchestrationV2.threadManagement.routePoolSelection")(
-    function* (
-      command: Pick<OrchestrationV2ServerCommand, "commandId" | "type">,
-      selection: ModelSelection,
-      threadId?: ThreadId,
-      options?: {
-        readonly preferIncomingSlot?: boolean | undefined;
-        /** Set for a delegated task, whose role resolver already placed it. */
-        readonly managed?: { readonly agentTask?: AgentTaskBinding | undefined } | undefined;
-      },
-    ) {
-      if (Option.isNone(providerRegistry)) return selection;
-      const providers = yield* providerRegistry.value.getProviders;
-      const threadShell = () =>
-        threadId === undefined ? Effect.undefined : orchestrator.getThreadShell(threadId);
-      if (selection.poolId !== undefined) {
-        const poolId = selection.poolId;
-        const settings = yield* serverSettings.getSettings.pipe(Effect.orDie);
-        const pool = settings.modelPools[poolId];
-        if (pool === undefined || pool.slots.length === 0) return selection;
-        if (!resolveModelPoolEnabled(pool) || !pool.slots.some(isModelPoolSlotEnabled))
-          return yield* new Orchestrator.OrchestratorCommandRejectedError({
-            commandId: command.commandId,
-            commandType: command.type,
-            cause: `Model pool "${pool.displayName}" has no account switched on. Switch one on in Settings → Providers, or pick a model.`,
-          });
-        const shell = yield* threadShell();
-        const agentTask = options?.managed?.agentTask ?? shell?.agentTask;
-        // Managed work was placed by the role resolver under conservation and source-access
-        // rules, so it keeps that slot while it can run and re-picks only under the same rules.
-        const managed = options?.managed !== undefined || agentTask !== undefined;
-        const current =
-          options?.preferIncomingSlot === true || (managed && shell?.latestRunId == null)
-            ? { instanceId: selection.instanceId, model: selection.model }
-            : shell?.latestRunId == null
-              ? undefined
-              : { instanceId: shell.modelSelection.instanceId, model: shell.modelSelection.model };
-        const result = yield* ProviderRegistry.chooseWithFreshUsage(
-          providerRegistry.value,
-          providers,
-          (candidates) =>
-            DateTime.now.pipe(
-              Effect.map((now) => {
-                const nowMs = DateTime.toEpochMillis(now);
-                const readOnly = agentTask?.sourceAccess === "read-only";
-                const kept = pickModelPoolSlot({
-                  pool,
-                  providers: candidates,
-                  nowMs,
-                  current,
-                  readOnly,
-                });
-                const stays =
-                  shell?.latestRunId != null &&
-                  kept !== undefined &&
-                  current !== undefined &&
-                  kept.slot.providerInstanceId === current.instanceId &&
-                  kept.slot.model === current.model;
-                // Conservation filters admissions to a slot, never the slot a run already holds.
-                return {
-                  picked:
-                    managed && !stays
-                      ? pickModelPoolSlot({
-                          pool,
-                          providers: candidates,
-                          nowMs,
-                          readOnly,
-                          enforceConservation: true,
-                        })
-                      : kept,
-                  candidates,
-                };
-              }),
-            ),
-          (choice) => choice.picked?.slot.providerInstanceId,
-          (provider, choice, nowMs) =>
-            choice.picked !== undefined &&
-            needsSlotUsageRefresh(provider, choice.picked.slot.model, nowMs),
-        );
-        if (result.picked === undefined && managed) return selection;
-        const chosenSlot = result.picked?.slot ?? pool.slots.find(isModelPoolSlotEnabled);
-        return chosenSlot === undefined
-          ? selection
-          : adaptModelSelectionForSlot({
-              poolId,
-              slot: chosenSlot,
-              providers: result.candidates,
-              baseOptions: selection.options,
-            });
-      }
-      const pool = providers.find((provider) => provider.instanceId === selection.instanceId);
-      const members = pool?.poolMembers;
-      if (pool === undefined || members === undefined) return selection;
-      const shell = yield* threadShell();
-      // A thread that has not run yet holds no session to keep, so it is placed like a new one.
-      const current = shell?.latestRunId == null ? undefined : shell.modelSelection.instanceId;
-      // A reading near its limit and a minute old may hide exhaustion, so the chosen member's
-      // usage is re-read before the turn commits to it.
-      let member = yield* ProviderRegistry.chooseWithFreshUsage(
-        providerRegistry.value,
-        providers,
-        (candidates) =>
-          DateTime.now.pipe(
-            Effect.map((now) =>
-              pickPoolMember({
-                pool: {
-                  driver: pool.driver,
-                  members,
-                  policy: pool.poolPolicy,
-                },
-                providers: candidates,
-                nowMs: DateTime.toEpochMillis(now),
-                current,
-              }),
-            ),
-          ),
-        (instanceId) => instanceId,
-      );
-      member ??= members[0];
-      return member === undefined ? selection : { ...selection, instanceId: member };
-    },
-  );
-
-  const routePoolCommand = (
-    command: OrchestrationV2ServerCommand,
-    options?: DispatchOptions,
-  ): Effect.Effect<OrchestrationV2ServerCommand, Orchestrator.OrchestratorV2Error> => {
-    switch (command.type) {
-      case "thread.create":
-        return routePoolSelection(command, command.modelSelection, undefined, {
-          managed:
-            command.agentTask !== undefined
-              ? { agentTask: command.agentTask }
-              : options?.placedByRole === true
-                ? {}
-                : undefined,
-        }).pipe(Effect.map((modelSelection) => ({ ...command, modelSelection })));
-      case "message.dispatch": {
-        const selection = command.modelSelection;
-        if (selection !== undefined) {
-          return routePoolSelection(command, selection, command.threadId, {
-            preferIncomingSlot:
-              command.manualContinuationOfRunId !== undefined ||
-              command.usageLimitContinuationOfRunId !== undefined,
-          }).pipe(Effect.map((modelSelection) => ({ ...command, modelSelection })));
-        }
-        if (Option.isNone(providerRegistry)) return Effect.succeed(command);
-        return Effect.gen(function* () {
-          const settings = yield* serverSettings.getSettings.pipe(Effect.orDie);
-          if (Object.keys(settings.modelPools).length === 0) return command;
-          const shell = yield* orchestrator.getThreadShell(command.threadId);
-          const poolId = shell?.modelSelection.poolId;
-          if (shell == null || poolId === undefined) return command;
-          const pool = settings.modelPools[poolId];
-          if (pool === undefined) return command;
-          const switchOnLimit = pool.policy?.switchOnLimit ?? settings.switchPooledAccountOnLimit;
-          if (!switchOnLimit) return command;
-          const providers = yield* providerRegistry.value.getProviders;
-          const refreshed = yield* ProviderRegistry.chooseWithFreshUsage(
-            providerRegistry.value,
-            providers,
-            (candidates) =>
-              DateTime.now.pipe(
-                Effect.map((now) => {
-                  const nowMs = DateTime.toEpochMillis(now);
-                  const currentProvider = candidates.find(
-                    (candidate) => candidate.instanceId === shell.modelSelection.instanceId,
-                  );
-                  const currentExhausted =
-                    currentProvider === undefined ||
-                    isSlotUsageExhausted(currentProvider, shell.modelSelection.model, nowMs, 100);
-                  return {
-                    currentExhausted,
-                    picked: currentExhausted
-                      ? pickModelPoolSlot({
-                          pool,
-                          providers: candidates,
-                          nowMs,
-                          readOnly: shell.agentTask?.sourceAccess === "read-only",
-                          enforceConservation: shell.agentTask !== undefined,
-                        })
-                      : undefined,
-                    candidates,
-                  };
-                }),
-              ),
-            (choice) =>
-              choice.currentExhausted
-                ? choice.picked?.slot.providerInstanceId
-                : shell.modelSelection.instanceId,
-            (provider, choice, nowMs) =>
-              choice.currentExhausted && choice.picked !== undefined
-                ? needsSlotUsageRefresh(provider, choice.picked.slot.model, nowMs)
-                : needsSlotUsageRefresh(provider, shell.modelSelection.model, nowMs),
-          );
-          if (!refreshed.currentExhausted || refreshed.picked === undefined) return command;
-          return {
-            ...command,
-            modelSelection: adaptModelSelectionForSlot({
-              poolId,
-              slot: refreshed.picked.slot,
-              providers: refreshed.candidates,
-              baseOptions: shell.modelSelection.options,
-            }),
-          };
-        });
-      }
-      case "thread.model-selection.set":
-      case "provider.switch":
-        return routePoolSelection(command, command.modelSelection, command.threadId).pipe(
-          Effect.map((modelSelection) => ({ ...command, modelSelection })),
-        );
-      // A delegated task is placed like a new thread, never on its parent's account.
-      case "delegated_task.request":
-        return routePoolSelection(command, command.modelSelection, undefined, {
-          managed: { agentTask: command.agentTask },
-        }).pipe(Effect.map((modelSelection) => ({ ...command, modelSelection })));
-      default:
-        return Effect.succeed(command);
-    }
-  };
+  const accountRouting = AccountRouting.make({
+    providerRegistry,
+    serverSettings,
+    getThreadShell: orchestrator.getThreadShell,
+  });
 
   const dispatchOwned = Effect.fn("orchestrationV2.threadManagement.dispatchOwned")(function* (
     input: OrchestrationV2ServerCommand,
     externalWorkOwner?: NonNullable<AgentTaskBinding["externalOwner"]>,
     options?: DispatchOptions,
   ) {
-    const command = yield* routePoolCommand(input, options);
+    const command = yield* accountRouting.routeCommand(input, { placed: options?.placedByRole });
     if (
       command.type === "thread.archive" ||
       command.type === "thread.delete" ||

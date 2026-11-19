@@ -45,7 +45,7 @@ import {
   ProviderOptionSelections,
 } from "./model.ts";
 import { ModelSelection } from "./modelSelection.ts";
-import { ModelPoolConfig, ModelPoolId } from "./modelPool.ts";
+import { AccountId, AccountSkip, AccountSkips, PooledModelKey } from "./accountPools.ts";
 import { ProjectScript, type ProjectMutation } from "./project.ts";
 import { DEFAULT_RUNTIME_MODE, RuntimeMode } from "./providerPolicy.ts";
 import { BrowserProfile, BrowserProfileId, DEFAULT_BROWSER_PROFILE_ID } from "./browserProfile.ts";
@@ -735,8 +735,6 @@ export interface ProviderSettingsFormAnnotation {
   readonly modelOptions?:
     | { readonly emptyLabel: string; readonly instanceKey?: string | undefined }
     | undefined;
-  /** A member of an account pool inherits this field's pool value when it stores none. */
-  readonly sharedInPool?: boolean | undefined;
 }
 
 export function secretSettingsFields(schema: {
@@ -926,7 +924,6 @@ export const ClaudeSettings = makeProviderSettingsSchema(
         providerSettingsForm: {
           placeholder: "e.g. --chrome",
           clearWhenEmpty: "omit",
-          sharedInPool: true,
         },
       }),
     ),
@@ -939,7 +936,6 @@ export const ClaudeSettings = makeProviderSettingsSchema(
         providerSettingsForm: {
           placeholder: "e.g. 300000",
           clearWhenEmpty: "omit",
-          sharedInPool: true,
         },
       }),
     ),
@@ -953,7 +949,6 @@ export const ClaudeSettings = makeProviderSettingsSchema(
           control: "select",
           options: INSTANCE_IDLE_COMPACTION_MODES,
           clearWhenEmpty: "omit",
-          sharedInPool: true,
         },
       }),
     ),
@@ -970,13 +965,12 @@ export const ClaudeSettings = makeProviderSettingsSchema(
             instanceKey: "compactModelInstanceId",
           },
           clearWhenEmpty: "omit",
-          sharedInPool: true,
         },
       }),
     ),
     /** The account `compactModel` runs on; absent means this Claude instance. */
     compactModelInstanceId: Schema.optional(ProviderInstanceId).pipe(
-      Schema.annotateKey({ providerSettingsForm: { hidden: true, sharedInPool: true } }),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
     compactOnlyWhenCold: Schema.Boolean.pipe(
       Schema.withDecodingDefault(Effect.succeed(true)),
@@ -984,7 +978,7 @@ export const ClaudeSettings = makeProviderSettingsSchema(
         title: "Only when the prompt cache has expired",
         description:
           "While a conversation's prompt cache is warm, its own model compacts it at a tenth of the input price. Off uses the model above every time.",
-        providerSettingsForm: { control: "switch", clearWhenEmpty: "omit", sharedInPool: true },
+        providerSettingsForm: { control: "switch", clearWhenEmpty: "omit" },
       }),
     ),
   },
@@ -1734,6 +1728,7 @@ export const ServerSettings = Schema.Struct({
   sidebarAutoSettleKeepPullRequests: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(false)),
   ),
+  /** Retired: moving down the account order on a limit is always on. The mobile app still reads it. */
   switchPooledAccountOnLimit: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   sidebarAutoSettleOnMerge: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   backgroundActivity: BackgroundActivitySettings,
@@ -1824,9 +1819,14 @@ export const ServerSettings = Schema.Struct({
   providerInstances: Schema.Record(ProviderInstanceId, ProviderInstanceConfig).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
-  modelPools: Schema.Record(ModelPoolId, ModelPoolConfig).pipe(
+  /** The user's one account order: a model's accounts are tried top to bottom. */
+  accountOrder: Schema.Array(AccountId).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  /** Accounts the user took off a model, by pooled model key. */
+  modelAccountsRemoved: Schema.Record(PooledModelKey, Schema.Array(AccountId)).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
+  /** Accounts passed over after a usage limit. The server writes them; Try again now clears one. */
+  accountSkips: AccountSkips.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   // Only the server writes these. Absent on a server that can't share its provider setup.
   sharedProviderSetup: Schema.optionalKey(SharedProviderSetupState),
   // Old ids that history still names, kept when sharing gave an account a new id on this machine.
@@ -1846,10 +1846,6 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
   usageSlotBudgets: Schema.Record(TrimmedNonEmptyString, UsageSlotBudget).pipe(
-    Schema.withDecodingDefault(Effect.succeed({})),
-  ),
-  /** Accounts routed as having usage left whatever their reading says: `instanceId` or `instanceId:accountKey`. */
-  assumeUsageLeft: Schema.Record(TrimmedNonEmptyString, Schema.Literal(true)).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
   textGenerators: Schema.Record(ProviderInstanceId, TextGeneratorConfig).pipe(
@@ -1966,103 +1962,6 @@ export const resolveTextGenerationSelectionEnabled = (
 
 const decodeClaudeSettings = Schema.decodeUnknownOption(ClaudeSettings);
 
-type SharedSettingDecoder = (value: unknown) => Option.Option<unknown>;
-
-interface PoolSharedSettings {
-  readonly keys: ReadonlyArray<string>;
-  readonly decode: ReadonlyMap<string, SharedSettingDecoder>;
-}
-
-/** Fields a driver's form marks `sharedInPool`, with a decoder that validates a pool value alone. */
-const poolSharedSettings = (schema: {
-  readonly fields: Readonly<Record<string, Schema.Top>>;
-}): PoolSharedSettings => {
-  const decode = new Map<string, SharedSettingDecoder>(
-    Object.entries(schema.fields).flatMap(([field, fieldSchema]) =>
-      isPoolSharedSetting(fieldSchema) ? [[field, fieldDecoder(fieldSchema)] as const] : [],
-    ),
-  );
-  return { keys: [...decode.keys()], decode };
-};
-
-const isPoolSharedSetting = (schema: Schema.Top): boolean =>
-  (Schema.resolveAnnotationsKey(schema) ?? Schema.resolveAnnotations(schema))?.providerSettingsForm
-    ?.sharedInPool === true;
-
-/**
- * Struct fields are typed as `Constraint`, which erases their decoding services.
- * These fields need none, so the cast is the decoder view that says so.
- */
-const fieldDecoder = (fieldSchema: Schema.Constraint): SharedSettingDecoder =>
-  Schema.decodeUnknownOption(fieldSchema as Schema.ConstraintDecoder<unknown>);
-
-const POOL_SHARED_SETTINGS: Readonly<Partial<Record<ProviderDriverKind, PoolSharedSettings>>> = {
-  [ProviderDriverKind.make("claudeAgent")]: poolSharedSettings(ClaudeSettings),
-};
-
-const poolSharedSettingsFor = (driver: ProviderDriverKind): PoolSharedSettings | undefined =>
-  Object.hasOwn(POOL_SHARED_SETTINGS, driver) ? POOL_SHARED_SETTINGS[driver] : undefined;
-
-/** The settings a pool shares with its members, for the fields `driver` marks `sharedInPool`. */
-export const sharedProviderSettingKeys = (driver: ProviderDriverKind): ReadonlyArray<string> =>
-  poolSharedSettingsFor(driver)?.keys ?? [];
-
-const asConfigRecord = (config: unknown): Readonly<Record<string, unknown>> | undefined =>
-  config !== null && typeof config === "object" && !Array.isArray(config)
-    ? (config as Readonly<Record<string, unknown>>)
-    : undefined;
-
-/**
- * The pool that owns `instanceId`: the first entry in settings order that lists
- * it as a member and runs the same driver. A pool is never a member.
- */
-export const poolForMember = (
-  providerInstances: Readonly<Record<ProviderInstanceId, ProviderInstanceConfig>>,
-  instanceId: ProviderInstanceId,
-): { readonly poolId: ProviderInstanceId; readonly pool: ProviderInstanceConfig } | undefined => {
-  const instance = Object.hasOwn(providerInstances, instanceId)
-    ? providerInstances[instanceId]
-    : undefined;
-  if (instance === undefined || instance.pool !== undefined) return undefined;
-  for (const [poolId, candidate] of Object.entries(providerInstances)) {
-    if (candidate.pool === undefined || candidate.driver !== instance.driver) continue;
-    if (candidate.pool.includes(instanceId)) {
-      return { poolId: ProviderInstanceId.make(poolId), pool: candidate };
-    }
-  }
-  return undefined;
-};
-
-/**
- * The config an instance runs with: its own stored settings, and the pool value
- * of each shared field it does not set itself. A pool value that does not decode
- * on its own is dropped, leaving the member's own settings and default intact.
- */
-export const resolveProviderInstanceConfig = (
-  providerInstances: Readonly<Record<ProviderInstanceId, ProviderInstanceConfig>>,
-  instanceId: ProviderInstanceId,
-): ProviderInstanceConfig | undefined => {
-  const instance = Object.hasOwn(providerInstances, instanceId)
-    ? providerInstances[instanceId]
-    : undefined;
-  if (instance === undefined) return undefined;
-  const sharedSettings = poolSharedSettingsFor(instance.driver);
-  const poolConfig = asConfigRecord(poolForMember(providerInstances, instanceId)?.pool.config);
-  if (sharedSettings === undefined || poolConfig === undefined) return instance;
-  const inherited: Record<string, unknown> = {};
-  for (const field of sharedSettings.keys) {
-    if (!Object.hasOwn(poolConfig, field)) continue;
-    const decoded = sharedSettings.decode.get(field)?.(poolConfig[field]);
-    if (decoded === undefined || Option.isNone(decoded)) continue;
-    inherited[field] = decoded.value;
-  }
-  if (Object.keys(inherited).length === 0) return instance;
-  return {
-    ...instance,
-    config: { ...inherited, ...asConfigRecord(instance.config) },
-  };
-};
-
 type IdleCompactionSettings = Pick<ServerSettings, "compactIdleThreads" | "idleCompaction">;
 
 /** The environment-wide idle compaction mode, from whichever field the settings carry. */
@@ -2100,7 +1999,9 @@ export const resolveIdleCompaction = (
   settings: Pick<ServerSettings, "providerInstances" | "compactIdleThreads" | "idleCompaction">,
   instanceId: ProviderInstanceId,
 ): IdleCompactionMode => {
-  const instance = resolveProviderInstanceConfig(settings.providerInstances, instanceId);
+  const instance = Object.hasOwn(settings.providerInstances, instanceId)
+    ? settings.providerInstances[instanceId]
+    : undefined;
   const override = decodeClaudeSettings(instance?.config ?? {}).pipe(
     Option.map((config) => config.idleCompaction),
     Option.getOrElse(() => "default" as const),
@@ -2120,7 +2021,9 @@ export const resolveClaudeCompactionSetting = (
   readonly instanceId: ProviderInstanceId;
   readonly onlyWhenCold: boolean;
 } => {
-  const instance = resolveProviderInstanceConfig(settings.providerInstances, instanceId);
+  const instance = Object.hasOwn(settings.providerInstances, instanceId)
+    ? settings.providerInstances[instanceId]
+    : undefined;
   return decodeClaudeSettings(instance?.config ?? {}).pipe(
     Option.map((config) => ({
       model: config.compactModel,
@@ -2399,8 +2302,15 @@ export const ServerSettingsPatch = Schema.Struct({
   offeredSourceControlProviders: Schema.optionalKey(Schema.Record(Schema.String, Schema.Boolean)),
   // Replace whole maps to avoid half-merged driver configs.
   providerInstances: Schema.optionalKey(Schema.Record(ProviderInstanceId, ProviderInstanceConfig)),
-  // Merge per model pool like usageLimitSources; null removes an entry.
-  modelPools: Schema.optionalKey(Schema.Record(ModelPoolId, Schema.NullOr(ModelPoolConfig))),
+  accountOrder: Schema.optionalKey(Schema.Array(AccountId)),
+  // Merge per model; null removes an entry.
+  modelAccountsRemoved: Schema.optionalKey(
+    Schema.Record(PooledModelKey, Schema.NullOr(Schema.Array(AccountId))),
+  ),
+  // Merge per account, replacing its skips whole; null (Try again now) removes them.
+  accountSkips: Schema.optionalKey(
+    Schema.Record(AccountId, Schema.NullOr(Schema.Record(PooledModelKey, AccountSkip))),
+  ),
   // Merge per source to avoid racing other edits; null removes an entry.
   usageLimitSources: Schema.optionalKey(
     Schema.Record(UsageLimitSourceId, Schema.NullOr(UsageLimitSourceConfig)),
@@ -2408,10 +2318,6 @@ export const ServerSettingsPatch = Schema.Struct({
   // Merge per slot like usageLimitSources; null removes an entry.
   usageSlotBudgets: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, Schema.NullOr(UsageSlotBudgetWrite)),
-  ),
-  // Merge per account; null removes an entry.
-  assumeUsageLeft: Schema.optionalKey(
-    Schema.Record(TrimmedNonEmptyString, Schema.NullOr(Schema.Literal(true))),
   ),
   // Merge per entry like usageLimitSources; null removes an entry.
   textGenerators: Schema.optionalKey(
@@ -2449,10 +2355,11 @@ export function requiredScopesForServerSettingsPatch(
     } else if (
       key === "providers" ||
       key === "providerInstances" ||
-      key === "modelPools" ||
+      key === "accountOrder" ||
+      key === "modelAccountsRemoved" ||
+      key === "accountSkips" ||
       key === "usageLimitSources" ||
       key === "usageSlotBudgets" ||
-      key === "assumeUsageLeft" ||
       key === "textGenerators" ||
       key === "secretProviders"
     ) {

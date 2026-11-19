@@ -2639,7 +2639,6 @@ export default function ChatView(props: ChatViewProps) {
     serverProjection,
     pendingHandoffSelectionUsable ? pendingHandoffSelection : null,
     providerStatuses,
-    Date.parse(`${nowMinute}:00.000Z`),
   );
   const compactThreadUnavailable =
     !canOperateThread ||
@@ -3081,7 +3080,7 @@ export default function ChatView(props: ChatViewProps) {
     handleRuntimeModeChangeStable,
     onEnvModeChangeStable,
     onProviderModelSelectStable,
-    onPoolSelectStable,
+    onPooledSelectStable,
     onStartFromOriginChange,
     openProviderSetupStable,
   } = useComposerSelection({
@@ -4209,7 +4208,7 @@ export default function ChatView(props: ChatViewProps) {
                                   onChangeActivePendingUserInputCustomAnswer
                                 }
                                 onProviderModelSelect={onProviderModelSelectStable}
-                                onPoolSelect={onPoolSelectStable}
+                                onPooledSelect={onPooledSelectStable}
                                 onOpenProviderSetup={openProviderSetupStable}
                                 getModelDisabledReason={getModelDisabledReason}
                                 handleRuntimeModeChange={handleRuntimeModeChangeStable}

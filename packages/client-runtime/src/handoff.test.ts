@@ -107,10 +107,10 @@ describe("pending context handoff", () => {
       ],
     };
 
-    expect(resolvePendingHandoff(projection, selection, providers, 0)).not.toBeNull();
-    expect(resolvePendingHandoff(starting, selection, providers, 0)).toBeNull();
+    expect(resolvePendingHandoff(projection, selection, providers)).not.toBeNull();
+    expect(resolvePendingHandoff(starting, selection, providers)).toBeNull();
     expect(
-      resolvePendingHandoff(starting, { instanceId: from, model: "source" }, providers, 0),
+      resolvePendingHandoff(starting, { instanceId: from, model: "source" }, providers),
     ).toEqual({
       from: [selection],
       to: { instanceId: from, model: "source" },
@@ -135,7 +135,7 @@ describe("pending context handoff", () => {
         ],
       };
 
-      expect(resolvePendingHandoff(unstarted, selection, [], 0)).toEqual({
+      expect(resolvePendingHandoff(unstarted, selection, [])).toEqual({
         from: [{ instanceId: from, model: "source" }],
         to: selection,
       });
@@ -143,30 +143,26 @@ describe("pending context handoff", () => {
   );
 
   it("appears on selection, updates the destination, and disappears on returning", () => {
-    expect(resolvePendingHandoff(projection, { instanceId: to, model: "first" }, [], 0)).toEqual({
+    expect(resolvePendingHandoff(projection, { instanceId: to, model: "first" }, [])).toEqual({
       from: [{ instanceId: from, model: "source" }],
       to: { instanceId: to, model: "first" },
     });
     expect(
-      resolvePendingHandoff(projection, { instanceId: to, model: "second" }, [], 0)?.to.model,
+      resolvePendingHandoff(projection, { instanceId: to, model: "second" }, [])?.to.model,
     ).toBe("second");
-    expect(
-      resolvePendingHandoff(projection, { instanceId: from, model: "source" }, [], 0),
-    ).toBeNull();
-    expect(
-      resolvePendingHandoff(projection, { instanceId: from, model: "other" }, [], 0),
-    ).toBeNull();
+    expect(resolvePendingHandoff(projection, { instanceId: from, model: "source" }, [])).toBeNull();
+    expect(resolvePendingHandoff(projection, { instanceId: from, model: "other" }, [])).toBeNull();
   });
   it("stays hidden while the thread's timeline is empty", () => {
     const empty = { ...projection, visibleTurnItems: [] };
-    expect(resolvePendingHandoff(empty, { instanceId: to, model: "first" }, [], 0)).toBeNull();
+    expect(resolvePendingHandoff(empty, { instanceId: to, model: "first" }, [])).toBeNull();
     // Paging can leave a window of only tool rows after the prompt.
     const toolRowsOnly = {
       ...projection,
       visibleTurnItems: [{ item: { type: "command_execution" } }],
     } as unknown as OrchestrationV2ThreadProjection;
     expect(
-      resolvePendingHandoff(toolRowsOnly, { instanceId: to, model: "first" }, [], 0)?.to.model,
+      resolvePendingHandoff(toolRowsOnly, { instanceId: to, model: "first" }, [])?.to.model,
     ).toBe("first");
   });
   it("resumes compatible account overlays without showing a handoff", () => {
@@ -176,14 +172,13 @@ describe("pending context handoff", () => {
       continuation: { groupKey: "shared" },
     })) as unknown as ServerProvider[];
     expect(
-      resolvePendingHandoff(projection, { instanceId: to, model: "target" }, providers, 0),
+      resolvePendingHandoff(projection, { instanceId: to, model: "target" }, providers),
     ).toBeNull();
   });
-  describe("with an account pool", () => {
-    const pool = ProviderInstanceId.make("claude_pooled");
+  describe("with a model several accounts serve", () => {
     const yardsmith = ProviderInstanceId.make("claude_yardsmith");
     const hello = ProviderInstanceId.make("claude_hello");
-    const account = (instanceId: ProviderInstanceId, usedPercent: number) =>
+    const account = (instanceId: ProviderInstanceId) =>
       ({
         instanceId,
         driver: "claudeAgent",
@@ -192,45 +187,32 @@ describe("pending context handoff", () => {
         status: "ready",
         auth: { status: "authenticated" },
         continuation: { groupKey: `claude:home:${instanceId}` },
-        usageLimits: {
-          windows: [{ usedPercent, resetsAt: "2099-01-01T00:00:00Z" }],
-        },
+        models: [{ slug: "opus", name: "Opus" }],
       }) as unknown as ServerProvider;
     const onYardsmith = {
       ...projection,
-      thread: { modelSelection: { instanceId: yardsmith, model: "sonnet" } },
-      runs: [{ ...run("source", 1, yardsmith, "sonnet"), startedAt: "2026-10-11T00:00:00Z" }],
+      thread: { modelSelection: { instanceId: yardsmith, model: "opus" } },
+      runs: [{ ...run("source", 1, yardsmith, "opus"), startedAt: "2026-10-11T00:00:00Z" }],
     } as unknown as OrchestrationV2ThreadProjection;
-    const providers = (yardsmithUsed: number) => [
-      account(yardsmith, yardsmithUsed),
-      account(hello, 0),
-      { ...account(yardsmith, 0), instanceId: pool, poolMembers: [hello, yardsmith] },
-    ];
+    const providers = () => [account(yardsmith), account(hello)];
 
-    it("stays quiet when the pool keeps the thread on its account", () => {
+    it("stays quiet when the model alone keeps the thread on its account", () => {
       expect(
-        resolvePendingHandoff(onYardsmith, { instanceId: pool, model: "opus" }, providers(50), 0),
+        resolvePendingHandoff(onYardsmith, { instanceId: hello, model: "opus" }, providers()),
       ).toBeNull();
     });
 
-    it("names the account the pool will move the thread to", () => {
+    it("names the account a pinned choice moves the thread to", () => {
       expect(
-        resolvePendingHandoff(onYardsmith, { instanceId: pool, model: "opus" }, providers(100), 0),
+        resolvePendingHandoff(
+          onYardsmith,
+          { instanceId: hello, model: "opus", pinned: true },
+          providers(),
+        ),
       ).toEqual({
-        from: [{ instanceId: yardsmith, model: "sonnet" }],
-        to: { instanceId: hello, model: "opus" },
+        from: [{ instanceId: yardsmith, model: "opus" }],
+        to: { instanceId: hello, model: "opus", pinned: true },
       });
-    });
-
-    it("routes from the account the thread is on, not its last run", () => {
-      const movedToHello = {
-        ...onYardsmith,
-        thread: { modelSelection: { instanceId: hello, model: "sonnet" } },
-      } as unknown as OrchestrationV2ThreadProjection;
-      expect(
-        resolvePendingHandoff(movedToHello, { instanceId: pool, model: "opus" }, providers(0), 0)
-          ?.to.instanceId,
-      ).toBe(hello);
     });
 
     it("labels accounts only when a handoff stays with the same provider", () => {
@@ -238,11 +220,11 @@ describe("pending context handoff", () => {
         from: [{ instanceId: yardsmith }],
         to: { instanceId: hello, model: undefined },
       };
-      expect(handoffCrossesAccounts(endpoints, providers(0))).toBe(true);
+      expect(handoffCrossesAccounts(endpoints, providers())).toBe(true);
       expect(
         handoffCrossesAccounts(
           { ...endpoints, to: { instanceId: from, model: undefined } },
-          providers(0),
+          providers(),
         ),
       ).toBe(false);
     });

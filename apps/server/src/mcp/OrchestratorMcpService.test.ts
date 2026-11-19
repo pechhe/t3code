@@ -3151,6 +3151,7 @@ describe("OrchestratorMcpService provider resolution", () => {
             assert.deepEqual((commands[0] as { modelSelection: unknown }).modelSelection, {
               instanceId: museInstanceId,
               model,
+              pinned: true,
             });
           }
           assert.deepEqual(
@@ -5374,7 +5375,12 @@ describe("OrchestratorMcpService provider resolution", () => {
           {
             name: "change provider with override",
             target: { providerInstanceId: peerId, options: { reasoningEffort: "max" } },
-            expected: { instanceId: peerId, model: inherited.model, options: override },
+            expected: {
+              instanceId: peerId,
+              model: inherited.model,
+              pinned: true,
+              options: override,
+            },
           },
           {
             name: "old Ultracode effort level",

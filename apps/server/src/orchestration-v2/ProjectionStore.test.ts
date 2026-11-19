@@ -8482,7 +8482,6 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
           now,
           autoResume: true,
           snooze: false,
-          poolSwitch: false,
         });
         const candidate = candidates.find((row) => row.id === threadId);
         if (lastErrorClass === "usage_limit") {
@@ -8499,7 +8498,6 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
             pendingRuntimeRequest: null,
             limitRecovery: sqlShell.limitRecovery,
             snoozedUntil: sqlShell.snoozedUntil,
-            modelSelection: sqlShell.modelSelection,
           });
         } else assert.isUndefined(candidate);
         assert.isUndefined(candidates.find((row) => row.id === otherThreadId));
@@ -8641,7 +8639,6 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
             now,
             autoResume: true,
             snooze: false,
-            poolSwitch: false,
           })).find((row) => row.id === threadId),
         );
         yield* sql`UPDATE orchestration_v2_projection_threads
@@ -8657,7 +8654,6 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
             now,
             autoResume: true,
             snooze: false,
-            poolSwitch: false,
           })).find((row) => row.id === threadId),
         );
       }
@@ -8669,27 +8665,16 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
           now,
           autoResume: true,
           snooze: false,
-          poolSwitch: false,
         })).find((row) => row.id === threadId),
       );
       yield* sql`UPDATE orchestration_v2_projection_threads SET deleted_at = NULL WHERE thread_id = ${threadId}`;
-      const recoveryOptions = { now, poolSwitch: false, autoResume: false, snooze: false };
+      const recoveryOptions = { now, autoResume: false, snooze: false };
       assert.isUndefined(
         (yield* store.getLimitRecoveryCandidates(recoveryOptions)).find(
           (row) => row.id === threadId,
         ),
       );
       const reset = DateTime.makeUnsafe(limitItem.failure.resetAt);
-      // Pool failover wants limited threads that still wait for their reset, and only those.
-      const poolOptions = { ...recoveryOptions, poolSwitch: true };
-      assert.isDefined(
-        (yield* store.getLimitRecoveryCandidates(poolOptions)).find((row) => row.id === threadId),
-      );
-      assert.isUndefined(
-        (yield* store.getLimitRecoveryCandidates({ ...poolOptions, now: reset })).find(
-          (row) => row.id === threadId,
-        ),
-      );
       const recovery = {
         runId: original.id,
         resetAt: limitItem.failure.resetAt,
@@ -8954,8 +8939,8 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
         activeParentChild,
       ];
       for (const options of [
-        { now, poolSwitch: false, autoResume: true, snooze: false },
-        { now, poolSwitch: false, autoResume: false, snooze: true },
+        { now, autoResume: true, snooze: false },
+        { now, autoResume: false, snooze: true },
       ]) {
         const armed = (yield* store.getLimitRecoveryCandidates(options))
           .filter((row) => children.includes(row.id))
@@ -8997,7 +8982,6 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
       const afterReset = DateTime.add(now, { hours: 2 });
       const resumed = (yield* store.getLimitRecoveryCandidates({
         now: afterReset,
-        poolSwitch: false,
         autoResume: true,
         snooze: false,
       })).find((row) => row.id === settledParentChild);
@@ -9275,7 +9259,7 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
         failure.message,
       );
       const candidates = yield* projectionStore
-        .getLimitRecoveryCandidates({ now, poolSwitch: false, autoResume: true, snooze: false })
+        .getLimitRecoveryCandidates({ now, autoResume: true, snooze: false })
         .pipe(Effect.withTracer(tracer));
       const candidate = candidates.find((row) => row.id === threadId);
       assert.isDefined(candidate);
@@ -11760,7 +11744,6 @@ it.effect("background and snapshot reads complete while the writer holds uncommi
           now: original.createdAt,
           autoResume: true,
           snooze: true,
-          poolSwitch: true,
         }),
         [],
       );

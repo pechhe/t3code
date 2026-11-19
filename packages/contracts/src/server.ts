@@ -27,7 +27,7 @@ import { EditorId, FileManagerRevealKind, RemoteOpenTarget } from "./editor.ts";
 import { ManagedPolicySummary } from "./managedPolicy.ts";
 import { ModelCapabilities, ProviderOptionDescriptor } from "./model.ts";
 import { RuntimeMode } from "./providerPolicy.ts";
-import { ProviderDriverKind, ProviderInstanceId, ProviderPoolPolicy } from "./providerInstance.ts";
+import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
 import { ServerProviderUsageLimits, UsageLimitSourceSnapshots } from "./providerUsageLimits.ts";
 import { ServerSettings } from "./settings.ts";
 import { DesktopUpdateChannelSchema } from "./ipc.ts";
@@ -315,9 +315,6 @@ export const ServerProvider = Schema.Struct({
   ),
   // Additive: accounts inside one instance, when a single instance holds several credentials.
   usageSlots: Schema.optionalKey(Schema.Array(ServerProviderUsageSlot)),
-  // Set on an account pool: the instances a turn on it can be routed to.
-  poolMembers: Schema.optionalKey(Schema.Array(ProviderInstanceId)),
-  poolPolicy: Schema.optionalKey(ProviderPoolPolicy),
   // Old ids of this instance that existing threads may still name.
   formerInstanceIds: Schema.optionalKey(Schema.Array(ProviderInstanceId)),
   versionAdvisory: Schema.optionalKey(ServerProviderVersionAdvisory),

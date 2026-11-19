@@ -7,7 +7,7 @@ import type {
   ServerProvider,
   ServerProviderModel,
 } from "@t3tools/contracts";
-import { pickPoolMember } from "@t3tools/shared/providerPools";
+import { pooledModelOf, pooledModels, selectionOnAccount } from "@t3tools/shared/accountPools";
 import {
   getModelSelectionStringOptionValue,
   getProviderOptionCurrentValue,
@@ -28,7 +28,6 @@ export function resolvePendingHandoff(
   projection: Pick<ThreadStructure, "runs" | "visibleTurnItems" | "thread"> | null | undefined,
   selection: ModelSelection | null | undefined,
   providers: ReadonlyArray<ServerProvider>,
-  nowMs: number,
 ): HandoffEndpoints | null {
   // A thread with an empty timeline has nothing to hand off. Any loaded row
   // counts: paging can leave a window of only tool rows.
@@ -41,13 +40,8 @@ export function resolvePendingHandoff(
       (run.startedAt !== null || (run.status === "starting" && run.contextHandoffId !== null)),
   )?.modelSelection;
   if (from === undefined || selection == null) return null;
-  // The server keeps the thread on the member its own selection names.
-  const to = routePoolSelection(
-    selection,
-    providers,
-    projection.thread.modelSelection.instanceId,
-    nowMs,
-  );
+  // The server keeps the thread on its account for the same model.
+  const to = keepsAccount(selection, providers, projection.thread.modelSelection);
   const source = providers.find((provider) => provider.instanceId === from.instanceId);
   const target = providers.find((provider) => provider.instanceId === to.instanceId);
   const needsHandoff =
@@ -58,28 +52,20 @@ export function resolvePendingHandoff(
   return needsHandoff ? { from: [from], to } : null;
 }
 
-/** Mirrors the server's pool routing: a pool runs on the thread's member while it has allowance. */
-function routePoolSelection(
+/** Mirrors the server's account routing: an unpinned model stays on the thread's account. */
+function keepsAccount(
   selection: ModelSelection,
   providers: ReadonlyArray<ServerProvider>,
-  current: ProviderInstanceId,
-  nowMs: number,
+  current: ModelSelection,
 ): ModelSelection {
-  const pool = providers.find((provider) => provider.instanceId === selection.instanceId);
-  const members = pool?.poolMembers;
-  if (pool === undefined || members === undefined) return selection;
-  const member =
-    pickPoolMember({
-      pool: {
-        driver: pool.driver,
-        members,
-        policy: pool.poolPolicy,
-      },
-      providers,
-      nowMs,
-      current,
-    }) ?? members[0];
-  return member === undefined ? selection : { ...selection, instanceId: member };
+  if (selection.pinned === true) return selection;
+  const pools = pooledModels(providers, { accountOrder: [], modelAccountsRemoved: {} });
+  const pool = pooledModelOf(pools, selection);
+  if (pool === undefined || pooledModelOf(pools, current) !== pool) return selection;
+  const kept = pool.accounts.find(
+    (entry) => entry.provider.instanceId === current.instanceId && entry.model === current.model,
+  );
+  return kept === undefined ? selection : selectionOnAccount(kept, selection.options);
 }
 
 /**

@@ -280,8 +280,7 @@ export function compactBeforeSendTokens(input: {
     COMPACT_COMMAND_PATTERN.test(input.text) ||
     resolveIdleCompaction(input.settings, provider.instanceId) === "off" ||
     !provider.slashCommands.some((command) => command.name === "compact") ||
-    resolvePendingHandoff(projection, input.selection, input.providers, Date.parse(input.now)) !==
-      null ||
+    resolvePendingHandoff(projection, input.selection, input.providers) !== null ||
     projection.runtimeRequests.some((request) => request.status === "pending") ||
     projection.runs.some((run) => run.status === "queued" && run.queueHeld === true) ||
     (!input.visibleTurnItems.some(

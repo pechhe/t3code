@@ -71,7 +71,9 @@ const SETTINGS_PAGE_PANELS: Readonly<Record<SettingsPath, ComponentType>> = {
       },
     })),
   ),
-
+  "/settings/accounts": lazy(() =>
+    import("./AccountsSettings").then((module) => ({ default: module.AccountsSettings })),
+  ),
   "/settings/decisions": lazy(() =>
     import("./DecisionsSettings").then((module) => ({ default: module.DecisionsSettings })),
   ),

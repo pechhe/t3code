@@ -83,29 +83,11 @@ installs Pi's example `subagent` extension, T3 Code also shows its task progress
 UI. Pi runs those children without a session, so they cannot be opened or resumed as T3 Code
 threads.
 
-## Model Pools
+## Several accounts for one model
 
-A model pool lets you pick one model by name, such as "Opus 5.5", and have T3 Code choose which
-account pays for it. A pool can draw on the same model through several Pi sub-provider accounts and
-through other providers, for example Opus on two Claude subscriptions in Pi and on a native Claude
-instance.
-
-Create one in **Settings → Providers → Model pools** with **New pool**, then **Add an account** for
-each account and model it should use. Drag the accounts into your order, switch one off to keep it
-out without removing it, and choose how the pool picks (**My order** or **Spend allowance that would
-lapse**), what to keep in reserve, and what happens when an account hits its limit. These work as
-they do for account pools.
-
-The pool appears in the model picker on the **Favorites** tab, marked **Pool**, with its accounts
-beneath its name; search finds it too. A thread on a pool stays on its account while that account
-has allowance. When the account runs out, the thread continues on the next account with allowance if
-the pool switches on limit, handing the conversation over when the next account is another provider;
-otherwise it waits for the reset. An account with no usage reading counts as available.
-
-Delegation can use a pool wherever it names a model: pick it in a job's model list in **Settings →
-Delegation**. Under **Models**, a pool and any of its accounts' models listed in jobs share one row
-and one note. Subagents and scheduled tasks that run as a role skip an account a subscription conservation rule
-is holding back when they start.
+Each Pi sub-provider is its own account, so the same model on two Claude subscriptions, OpenRouter
+and a native Claude instance appears once in the model picker and runs on the first of them in your
+order. See [One model on several accounts](usage.md#one-model-on-several-accounts).
 
 ## Troubleshooting
 

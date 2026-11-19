@@ -4,10 +4,9 @@ import type { Dispatch } from "react";
 import type { ComposerThreadTarget, DraftSessionState } from "../../composerDraftStore";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { useApplyThreadModelPick } from "./useApplyThreadModelPick";
-import { adaptModelSelectionForSlot, pickModelPoolSlot } from "@t3tools/shared/modelPools";
+import type { PooledAccount, PooledModel } from "@t3tools/shared/accountPools";
+import { pooledModelSelection } from "./useComposerPooling";
 import {
-  isModelPoolId,
-  isModelPoolSlotEnabled,
   type EnvironmentId,
   type ModelSelection,
   ProviderInstanceId,
@@ -217,20 +216,23 @@ export function useComposerSelection(input: ComposerSelectionInput) {
   };
   const onProviderModelSelectStable = useStableCallback(onProviderModelSelect);
 
-  // A pool pick names the pool; the server chooses the slot with allowance when each turn runs.
-  const onPoolSelect = (poolId: string) => {
-    if (!activeThread || !isModelPoolId(poolId)) return;
-    const pool = settings.modelPools[poolId];
-    if (pool === undefined) return;
-    const slot =
-      pickModelPoolSlot({ pool, providers: providerStatuses, nowMs: Date.now() })?.slot ??
-      pool.slots.find(isModelPoolSlotEnabled);
-    if (slot === undefined) return;
-    const nextModelSelection = adaptModelSelectionForSlot({
-      poolId,
-      slot,
-      providers: providerStatuses,
+  // The model alone follows the account order; an account pins the thread to it.
+  const onPooledSelect = (model: PooledModel, account: PooledAccount | null) => {
+    if (!activeThread) return;
+    const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
+    const draft = useComposerDraftStore.getState().getComposerDraft(threadRef);
+    const shownInstanceId =
+      draft?.activeProvider ??
+      activeRuntime?.providerInstanceId ??
+      activeThread.modelSelection.instanceId;
+    const nextModelSelection = pooledModelSelection({
+      model,
+      account,
+      current: draft?.modelSelectionByProvider[shownInstanceId] ?? activeThread.modelSelection,
+      settings,
+      nowMs: Date.now(),
     });
+    if (nextModelSelection === undefined) return;
     const modelChangeBlockReason = getStartedThreadModelChangeBlockReason({
       hasStartedSession: activeRuntime !== null,
       supportsProviderSwitchingViaHandoff,
@@ -247,7 +249,6 @@ export function useComposerSelection(input: ComposerSelectionInput) {
       scheduleComposerFocus();
       return;
     }
-    const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
     setComposerDraftModelSelection(threadRef, nextModelSelection, {
       explicit: true,
       replaceOptions: true,
@@ -256,7 +257,7 @@ export function useComposerSelection(input: ComposerSelectionInput) {
     if (!isLocalDraftThread) applyThreadModelPick(threadRef);
     scheduleComposerFocus();
   };
-  const onPoolSelectStable = useStableCallback(onPoolSelect);
+  const onPooledSelectStable = useStableCallback(onPooledSelect);
   const onEnvModeChange = (mode: DraftThreadEnvMode) => {
     if (multipleModelSelections !== null) return;
     if (canOverrideServerThreadEnvMode) {
@@ -301,7 +302,7 @@ export function useComposerSelection(input: ComposerSelectionInput) {
     handleRuntimeModeChangeStable,
     onEnvModeChangeStable,
     onProviderModelSelectStable,
-    onPoolSelectStable,
+    onPooledSelectStable,
     onStartFromOriginChange,
     openProviderSetupStable,
   };

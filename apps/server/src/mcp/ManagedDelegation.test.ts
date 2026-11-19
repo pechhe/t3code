@@ -1416,16 +1416,19 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         {
           instanceId: claude.instanceId,
           model: claudeModel,
+          pinned: true,
           options: [{ id: "effort", value: "high" }],
         },
         {
           instanceId: codex.instanceId,
           model: "gpt-astra-test",
+          pinned: true,
           options: [{ id: "reasoning", value: "high" }],
         },
         {
           instanceId: gemini.instanceId,
           model: "opencode-go/gemini-test",
+          pinned: true,
           options: [{ id: "effort", value: "high" }],
         },
       ]);
@@ -1733,6 +1736,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         const own = {
           instanceId: claude.instanceId,
           model: claudeModel,
+          pinned: true,
           options: [{ id: "effort", value: "medium" }],
         };
         expect(discovered.selection).toEqual(own);

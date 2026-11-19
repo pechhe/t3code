@@ -1,31 +1,34 @@
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 import {
+  AccountId,
   AgentPolicyManifest,
   type AgentPolicySettings,
   EnvironmentId,
-  ModelPoolId,
   ProviderDriverKind,
-  ProviderInstanceId,
   ServerProvider,
 } from "@t3tools/contracts";
+import { pooledModels } from "@t3tools/shared/accountPools";
 import {
   addEntry,
   catalogModels,
   listedModels,
-  poolNote,
+  pooledNote,
   councilSeating,
   councilMembers,
   councilTicked,
   effortFor,
   effortForModel,
   ensureModel,
+  isAnyAccountBinding,
   jobsFor,
   listModel,
+  matchesCatalogModel,
   modelDefaultStance,
+  modelLabel,
   moveEntry,
   offersFast,
-  poolDefaultStance,
+  pooledDefaultStance,
   readOnlyUnenforcedProviders,
   removeEntry,
   replaceEntry,
@@ -284,7 +287,6 @@ describe("delegation settings", () => {
         provider({ driver: "muse", instanceId: "muse", displayName: "Muse", enabled: false }),
         provider({ driver: "grok", instanceId: "grok" }),
         provider({ driver: "cursor", instanceId: "cursor-2", displayName: "Cursor" }),
-        provider({ instanceId: "pool", poolMembers: ["claude"] }),
       ]),
     ).toEqual(["Cursor", "grok"]);
     expect(readOnlyUnenforcedProviders([provider({ readOnlySourceAccess: "enforced" })])).toEqual(
@@ -414,76 +416,144 @@ describe("delegation settings", () => {
     expect(setModelListedOnly(kept, "claude-opus", false).models.opus).toEqual(base.models.opus);
   });
 
-  it("joins a model pool and its listed member slots into one row with one shared note", () => {
-    const poolId = ModelPoolId.make("opus");
-    const modelPools = {
-      [poolId]: {
-        displayName: "Opus 5.5",
-        slots: [
-          { providerInstanceId: ProviderInstanceId.make("pi"), model: "hf/claude-opus" },
-          { providerInstanceId: ProviderInstanceId.make("claude"), model: "claude-opus" },
-        ],
-      },
+  it("joins a pooled model and its listed accounts into one row with one shared note", () => {
+    const claude = provider({
+      driver: "claudeAgent",
+      instanceId: "claude",
+      models: [
+        {
+          slug: "claude-opus",
+          name: "Opus 5.5",
+          isCustom: false,
+          capabilities: {
+            optionDescriptors: [
+              {
+                id: "effort",
+                label: "Effort",
+                type: "select",
+                options: [{ id: "medium", label: "Medium" }],
+              },
+            ],
+          },
+        },
+      ],
+    });
+    const pi = provider({
+      driver: "pi",
+      instanceId: "pi",
+      models: [
+        {
+          slug: "antigravity/claude-opus",
+          name: "Opus 5.5 (Antigravity)",
+          isCustom: false,
+          capabilities: {
+            optionDescriptors: [
+              {
+                id: "thinking",
+                label: "Thinking",
+                type: "select",
+                options: [{ id: "medium", label: "Medium" }],
+              },
+            ],
+          },
+        },
+      ],
+    });
+    const routing = {
+      accountOrder: [AccountId.make("pi:antigravity"), AccountId.make("claude")],
+      modelAccountsRemoved: {},
     };
+    const pools = pooledModels([claude, pi], routing);
+    const pool = pools[0]!;
+
+    // When the first account in user order is removed from the model, the catalog binding
+    // uses the first non-removed account's driver and slug with anyAccount: true.
+    const removedRouting = {
+      accountOrder: [AccountId.make("pi:antigravity"), AccountId.make("claude")],
+      modelAccountsRemoved: { [pool.key]: [AccountId.make("pi:antigravity")] },
+    };
+    const catalog = catalogModels([claude, pi], removedRouting);
+    const pooledEntry = catalog.find((candidate) => candidate.pooledKey === pool.key)!;
+    expect(pooledEntry.binding).toMatchObject({
+      driverKind: "claudeAgent",
+      model: "claude-opus",
+      anyAccount: true,
+    });
+    expect(
+      catalog.find(
+        (candidate) =>
+          candidate.pooledKey === undefined &&
+          candidate.binding.model === "antigravity/claude-opus",
+      )?.binding.anyAccount,
+    ).toBeUndefined();
+
+    // Both anyAccount and legacy poolId bindings display as the pooled model's displayName.
+    expect(modelLabel(pooledEntry.binding, "any", [claude, pi], pools)).toBe(pool.displayName);
+    expect(
+      modelLabel(
+        {
+          driverKind: ProviderDriverKind.make("claudeAgent"),
+          model: "claude-opus",
+          poolId: "legacy",
+        },
+        "legacy",
+        [claude, pi],
+        pools,
+      ),
+    ).toBe(pool.displayName);
+    expect(isAnyAccountBinding({ poolId: "legacy" })).toBe(true);
+    expect(matchesCatalogModel(pooledEntry.binding, pooledEntry, pools)).toBe(true);
+    expect(matchesCatalogModel(manifest().models.opus!, pooledEntry, pools)).toBe(false);
+
     const base = manifest();
-    // A member slot listed on its own already carries a note; a Pi slot of the pool is listed too.
-    const listedSlot = {
-      ...setModelNote(base, "claude-opus", "Strongest; design work"),
-    };
+    const notedSlot = setModelNote(base, "claude-opus", "Strongest; design work");
     const withPiSlot = addEntry(
       {
-        ...listedSlot,
+        ...notedSlot,
         models: {
-          ...listedSlot.models,
-          "pi-opus": { driverKind: ProviderDriverKind.make("pi"), model: "hf/claude-opus" },
+          ...notedSlot.models,
+          "pi-opus": {
+            driverKind: ProviderDriverKind.make("pi"),
+            model: "antigravity/claude-opus",
+          },
         },
       },
       "workhorse",
       { model: "pi-opus" },
     );
-    const pool = catalogModels([provider()], modelPools).find(
-      (candidate) => candidate.poolId === poolId,
-    )!;
-    expect(pool.binding).toMatchObject({ driverKind: "claudeAgent", model: "claude-opus", poolId });
-    const [withPool, poolAlias] = listModel(withPiSlot, "readers", pool, "medium", modelPools);
-    // Forming the pool carries the slot's note forward.
-    expect(withPool.models[poolAlias]!.note).toBe("Strongest; design work");
-    expect(isValid(withPool)).toBe(true);
+    const [withPooled, pooledAlias] = listModel(
+      withPiSlot,
+      "readers",
+      pooledEntry,
+      "medium",
+      pools,
+    );
+    // Forming the anyAccount entry carries the account's note forward.
+    expect(withPooled.models[pooledAlias]!.note).toBe("Strongest; design work");
+    expect(isValid(withPooled)).toBe(true);
 
-    const rows = listedModels(withPool, jobsFor(withPool, roleGroups(withPool)), modelPools);
-    const poolRows = rows.filter((row) => row.poolId === poolId);
-    expect(poolRows).toHaveLength(1);
-    expect(poolRows[0]!.alias).toBe(poolAlias);
-    expect(poolRows[0]!.roles).toEqual(
+    const rows = listedModels(withPooled, jobsFor(withPooled, roleGroups(withPooled)), pools);
+    const pooledRows = rows.filter((row) => row.pooledModel?.key === pool.key);
+    expect(pooledRows).toHaveLength(1);
+    expect(pooledRows[0]!.alias).toBe(pooledAlias);
+    expect(pooledRows[0]!.roles).toEqual(
       expect.arrayContaining(["implementer", "advisor", "browser", "researcher", "scout"]),
     );
-    expect(rows.some((row) => row.model === "claude-opus" || row.model === "hf/claude-opus")).toBe(
-      false,
-    );
+    expect(
+      rows.some((row) => row.model === "claude-opus" || row.model === "antigravity/claude-opus"),
+    ).toBe(false);
 
-    const renoted = setModelNote(withPool, `pool:${poolId}`, "Use for hard design", modelPools);
-    expect(poolNote(renoted, poolId, modelPools)).toBe("Use for hard design");
-    for (const alias of [poolAlias, "opus", "pi-opus"])
+    const renoted = setModelNote(withPooled, `pooled:${pool.key}`, "Use for hard design", pools);
+    expect(pooledNote(renoted, pool.key, pools)).toBe("Use for hard design");
+    for (const alias of [pooledAlias, "opus", "pi-opus"])
       expect(renoted.models[alias]!.note).toBe("Use for hard design");
     expect(renoted.models.haiku!.note).toBeUndefined();
 
-    const poolStanced = setModelDefaultStance(renoted, `pool:${poolId}`, "implement", modelPools);
-    expect(poolDefaultStance(poolStanced, poolId, modelPools)).toBe("implement");
-    for (const alias of [poolAlias, "opus", "pi-opus"])
-      expect(poolStanced.models[alias]!.defaultStance).toBe("implement");
-    expect(poolStanced.models.haiku!.defaultStance).toBeUndefined();
-
-    // Once a second pool also lists the Claude slot, that slot no longer belongs to either pool's note.
-    const twoPools = {
-      ...modelPools,
-      [ModelPoolId.make("claude-only")]: {
-        displayName: "Claude only",
-        slots: [{ providerInstanceId: ProviderInstanceId.make("claude"), model: "claude-opus" }],
-      },
-    };
-    const scoped = setModelNote(withPool, `pool:${poolId}`, "Pool note", twoPools);
-    expect(scoped.models.opus!.note).toBe("Strongest; design work");
-    expect(scoped.models["pi-opus"]!.note).toBe("Pool note");
+    const pooledStanced = setModelDefaultStance(renoted, `pooled:${pool.key}`, "implement", pools);
+    expect(pooledDefaultStance(pooledStanced, pool.key, pools)).toBe("implement");
+    for (const alias of [pooledAlias, "opus", "pi-opus"])
+      expect(pooledStanced.models[alias]!.defaultStance).toBe("implement");
+    expect(pooledStanced.models.haiku!.defaultStance).toBeUndefined();
   });
 
   it("turns fast on and off for a model without leaving an empty options map", () => {
@@ -571,13 +641,28 @@ describe("delegation settings", () => {
     );
     // Any one usable account is enough.
     expect(unavailableReason(opus, [limited, provider({ instanceId: "claude-2" })])).toBeNull();
-    // An account the user assumes has usage left is never rate limited.
-    const assumed = provider({
-      usageLimits: { ...limited.usageLimits!, assumedAvailable: true },
+    // An anyAccount binding checks across all pooled accounts, including other drivers.
+    const piReady = provider({
+      driver: "pi",
+      instanceId: "pi",
+      models: [
+        { slug: "antigravity/claude-opus", name: "Opus", isCustom: false, capabilities: null },
+      ],
     });
     expect(
-      unavailableReason(opus, [assumed], { now: Date.parse("2026-10-15T01:00:00Z") }),
+      unavailableReason({ ...opus!, anyAccount: true }, [limited, piReady], {
+        now: Date.parse("2026-10-15T01:00:00Z"),
+      }),
     ).toBeNull();
+    expect(
+      unavailableReason({ ...opus!, anyAccount: true }, [limited, piReady], {
+        now: Date.parse("2026-10-15T01:00:00Z"),
+        routing: {
+          accountOrder: [],
+          modelAccountsRemoved: { "claude-opus": [AccountId.make("pi:antigravity")] },
+        },
+      }),
+    ).toBe("rate limited");
   });
 
   it("keeps an effort the new model offers, else falls back to one it does", () => {

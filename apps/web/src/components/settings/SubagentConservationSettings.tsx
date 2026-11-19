@@ -35,13 +35,11 @@ export function SubagentConservationSettings({
   const update = useUpdateEnvironmentSettings(environmentId);
   const writable = useEnvironmentScope(environmentId, AuthSettingsWriteScope);
   const providers =
-    config?.providers.filter(
-      (provider) =>
-        provider.poolMembers === undefined &&
-        (instanceId !== undefined
-          ? provider.instanceId === instanceId
-          : (provider.enabled && provider.installed && provider.auth.status === "authenticated") ||
-            settings?.subagentConservation?.[provider.instanceId] !== undefined),
+    config?.providers.filter((provider) =>
+      instanceId !== undefined
+        ? provider.instanceId === instanceId
+        : (provider.enabled && provider.installed && provider.auth.status === "authenticated") ||
+          settings?.subagentConservation?.[provider.instanceId] !== undefined,
     ) ?? [];
   return (
     <SettingsSection

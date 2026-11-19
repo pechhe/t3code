@@ -56,10 +56,7 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
-  isModelPoolSlotEnabled,
-  resolveModelPoolEnabled,
 } from "@t3tools/contracts";
-import { formatModelPoolSummary } from "@t3tools/shared/modelPools";
 import type { EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import * as Schema from "effect/Schema";
@@ -253,7 +250,8 @@ import { compactOnSendTokens } from "./compactOnSend.logic";
 import { type ThreadCompactionSavings } from "./device/blackholeStatus.logic";
 import { DeviceContextBar } from "./device/DeviceContextBar";
 import { type DeviceModelSliderHandle } from "./device/DeviceModelSlider";
-import { useComposerPoolAccount } from "./ComposerPoolAccount";
+import type { ModelPickerPooling } from "./modelPickerPooling";
+import { useComposerPooling } from "./useComposerPooling";
 import { type DeviceReasoningDialHandle } from "./device/DeviceReasoningDial";
 import { ComposerDelegatedRequestSource } from "./ComposerDelegatedRequestSource";
 import type { SubagentPanelRequest } from "./SubagentPanel";
@@ -571,7 +569,7 @@ export interface ChatComposerProps {
     model: string,
     options?: { focusComposer?: boolean },
   ) => void;
-  onPoolSelect: (poolId: string) => void;
+  onPooledSelect: ModelPickerPooling["onSelect"];
   onOpenProviderSetup: (instanceId: ProviderInstanceId) => void;
   getModelDisabledReason: (instanceId: ProviderInstanceId, model: string) => string | null;
   handleRuntimeModeChange: (mode: RuntimeMode) => void;
@@ -677,7 +675,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onPreviousActivePendingUserInputQuestion,
     onChangeActivePendingUserInputCustomAnswer,
     onProviderModelSelect,
-    onPoolSelect,
+    onPooledSelect,
     onOpenProviderSetup,
     getModelDisabledReason,
     handleRuntimeModeChange,
@@ -1094,31 +1092,30 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
 
   const selectedPromptEffort = composerProviderState.promptEffort;
   const selectedModelOptionsForDispatch = composerProviderState.modelOptionsForDispatch;
-  // A thread on a model pool keeps its pool until another model is picked by name.
-  const selectedPoolId = (() => {
+  // A pinned account stays pinned until another model is picked.
+  const selectedPinned = (() => {
     const source =
       composerDraft.modelSelectionByProvider[selectedInstanceId] ??
       (activeThreadModelSelection?.instanceId === selectedInstanceId
         ? activeThreadModelSelection
         : undefined);
-    const poolId = source?.model === selectedModel ? source.poolId : undefined;
-    return poolId !== undefined && settings.modelPools[poolId] !== undefined ? poolId : undefined;
+    return source?.model === selectedModel && source.pinned === true;
   })();
-  const modelPickerPools = Object.entries(settings.modelPools).flatMap(([id, pool]) =>
-    resolveModelPoolEnabled(pool) && pool.slots.some(isModelPoolSlotEnabled)
-      ? [{ id, name: pool.displayName, summary: formatModelPoolSummary(pool, providerStatuses) }]
-      : [],
-  );
   const baseModelSelection = createModelSelection(
     selectedInstanceId,
     selectedModel,
     selectedModelOptionsForDispatch,
   );
   const setComposerDraftStanceChoice = useComposerDraftStore((store) => store.setStanceChoice);
-  const selectedModelSelection: ModelSelection =
-    selectedPoolId === undefined
-      ? baseModelSelection
-      : { ...baseModelSelection, poolId: selectedPoolId };
+  const selectedModelSelection: ModelSelection = selectedPinned
+    ? { ...baseModelSelection, pinned: true }
+    : baseModelSelection;
+  const pooling = useComposerPooling({
+    environmentId,
+    providers: providerStatuses,
+    selection: selectedModelSelection,
+    onSelect: onPooledSelect,
+  });
   const threadStance = useThreadStance({
     environmentId,
     isServerThread: routeKind === "server",
@@ -2689,18 +2686,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const iconOnlyBlockCount = showInlineRestingControls
     ? restingControlsIconOnlyBlockCount
     : expandedControlsIconOnlyBlockCount;
-  const poolAccount = useComposerPoolAccount({
-    environmentId,
-    selection: selectedModelSelection,
-    draftTarget: composerDraftTarget,
-    providers: providerStatuses,
-    // A thread that has not run yet is placed like a new one, as the server does.
-    current: activeThread?.latestRun ? activeThreadModelSelection?.instanceId : undefined,
-    thread:
-      activeThread?.latestRun && activeThreadModelSelection
-        ? { id: activeThread.id, modelSelection: activeThreadModelSelection }
-        : undefined,
-  });
   const pendingRequestPanel = activePendingApproval ? (
     <ComposerBanner.Row layout="approval" data-chat-composer-collapsed-controls="true">
       <ComposerBanner.Icon>
@@ -2775,7 +2760,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       deviceEnvironmentSwitch={props.deviceEnvironmentSwitch}
       reasoningDialRef={reasoningDialRef}
       modelSliderRef={modelSliderRef}
-      poolAccount={poolAccount}
       showProviderUnavailable={showProviderUnavailable}
       providerSetupInstanceId={providerSetupInstanceId}
       onOpenProviderSetup={onOpenProviderSetup}
@@ -2785,15 +2769,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       multipleModelSelections={multipleModelSelections}
       onMultipleModelSelectionsChange={setMultipleModelSelections}
       selectedModelSelection={selectedModelSelection}
-      modelPools={modelPickerPools}
-      activePoolId={selectedPoolId ?? null}
-      onPoolSelect={onPoolSelect}
-      onProviderModelSelect={
-        poolAccount === null
-          ? onProviderModelSelect
-          : (instanceId, model, options) =>
-              onProviderModelSelect(poolAccount.keepAccount(instanceId, model), model, options)
-      }
+      pooling={pooling}
+      onProviderModelSelect={onProviderModelSelect}
       activeThreadModelSelection={activeThreadModelSelection}
       selectedModelForPickerWithCustomFallback={selectedModelForPickerWithCustomFallback}
       lockedProvider={lockedProvider}

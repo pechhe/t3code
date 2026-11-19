@@ -17,7 +17,6 @@ import {
   resetCreditChoices,
 } from "@t3tools/shared/usageLimits";
 import type { Popover as PopoverPrimitive } from "@base-ui/react/popover";
-import { AuthProvidersManageScope } from "@t3tools/contracts";
 import { normalizeProviderAccentColor } from "@t3tools/client-runtime/state/provider-instance-display";
 import { AlertTriangleIcon, ExternalLinkIcon, TicketIcon } from "lucide-react";
 import {
@@ -32,11 +31,8 @@ import {
 } from "react";
 
 import { ensureLocalApi } from "../../localApi";
-import { useEnvironmentSettings, usePrimarySettings } from "../../hooks/useSettings";
+import { usePrimarySettings } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
-import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
-import { serverEnvironment } from "../../state/server";
-import { useAtomCommand } from "../../state/use-atom-command";
 import { formatUpcomingTimestamp } from "../../timestampFormat";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { providerClients } from "../settings/providerDriverMeta";
@@ -45,9 +41,9 @@ import { Button } from "../ui/button";
 import { OpenAI } from "../Icons";
 import { Alert, AlertTitle } from "../ui/alert";
 import { Popover, PopoverCreateHandle, PopoverPopup, PopoverTrigger } from "../ui/popover";
-import { Switch } from "../ui/switch";
 import { PaceIcon, ResetCreditDialog, barColor, usePaceMark, useResetCredit } from "./UsageLimits";
 import { UsageSlotBudgetEditor } from "./UsageSlotBudgetEditor";
+import { SkippedAccounts } from "../accounts/AccountSkip";
 
 function accountInitials(email: string): string {
   const [local = "", domain = ""] = email.split("@");
@@ -131,59 +127,6 @@ function Row({ label, children }: { readonly label: string; readonly children: R
       <span className="text-muted-foreground">{label}</span>
       <span className="min-w-0 text-foreground tabular-nums">{children}</span>
     </div>
-  );
-}
-
-/**
- * Routing trusts this account whatever its reading says, on every environment that holds it,
- * for a reading that is stale or wrong (a login switched in the background, say).
- */
-function AssumeUsageLeft({
-  first,
-  routes,
-}: {
-  readonly first: LimitAccount["routes"][number];
-  readonly routes: LimitAccount["routes"];
-}) {
-  const assumed = useEnvironmentSettings(
-    first.environmentId,
-    (settings) => settings.assumeUsageLeft[first.accountId] === true,
-  );
-  const canManageProviders = useEnvironmentScope(first.environmentId, AuthProvidersManageScope);
-  const updateSettings = useAtomCommand(serverEnvironment.updateSettings, {
-    label: "assume usage left",
-  });
-  const [saving, setSaving] = useState(false);
-  const setAssumed = async (next: boolean) => {
-    setSaving(true);
-    await Promise.all(
-      routes
-        .filter((route) => readEnvironmentScope(route.environmentId, AuthProvidersManageScope))
-        .map((route) =>
-          updateSettings({
-            environmentId: route.environmentId,
-            input: { patch: { assumeUsageLeft: { [route.accountId]: next ? true : null } } },
-          }),
-        ),
-    ).finally(() => setSaving(false));
-  };
-  return (
-    <label className="flex items-start gap-3 border-t border-border/60 pt-2.5">
-      <span className="flex min-w-0 flex-col gap-0.5">
-        <span className="font-medium text-foreground">Assume usage left</span>
-        <span className="text-muted-foreground">
-          T3 sends work here even when this reading shows none left.
-        </span>
-      </span>
-      <Switch
-        size="sm"
-        className="ms-auto mt-0.5"
-        checked={assumed}
-        disabled={saving || !canManageProviders}
-        onCheckedChange={(checked) => void setAssumed(Boolean(checked))}
-        aria-label="Assume usage left"
-      />
-    </label>
   );
 }
 
@@ -271,9 +214,6 @@ function SegmentPopover({
             </span>
           ))}
         </div>
-      ) : null}
-      {account.routes[0] ? (
-        <AssumeUsageLeft key={account.key} first={account.routes[0]} routes={account.routes} />
       ) : null}
     </div>
   );
@@ -412,7 +352,6 @@ function SegmentTriggers({
   const [segmentRef, paceMark] = usePaceMark(timeLeft);
   const resetsIn = formatResetsIn(window, now);
   const credits = account.limits.resetCredits?.availableCount ?? 0;
-  const assumed = account.limits.assumedAvailable === true;
   return (
     <>
       <PopoverTrigger
@@ -424,7 +363,7 @@ function SegmentTriggers({
             ref={segmentRef}
             type="button"
             style={{ gridColumn: index, gridRow: 1, ...paceMark?.gappedTrack }}
-            aria-label={`${account.displayName ?? (account.email ? accountInitials(account.email) : account.driver)}: ${remaining}% left${resetsIn ? `, ${resetsIn}` : ""}${timeLeft === null ? "" : `, ${timeLeft}% of the window left`}${credits ? `, ${credits} reset ${credits === 1 ? "credit" : "credits"} banked` : ""}${assumed ? ", usage left assumed" : ""}`}
+            aria-label={`${account.displayName ?? (account.email ? accountInitials(account.email) : account.driver)}: ${remaining}% left${resetsIn ? `, ${resetsIn}` : ""}${timeLeft === null ? "" : `, ${timeLeft}% of the window left`}${credits ? `, ${credits} reset ${credits === 1 ? "credit" : "credits"} banked` : ""}`}
             className="group/segment relative h-5 w-full min-w-0 @2xl/pool:h-8"
           />
         }
@@ -478,9 +417,8 @@ function SegmentTriggers({
               {remaining}%
             </span>
           ) : null}
-          {resetsIn || credits || assumed ? (
+          {resetsIn || credits ? (
             <span className="ms-auto flex min-w-0 items-center gap-1.5 overflow-hidden rounded-sm bg-background/85 px-1.5 py-0.5 text-2xs whitespace-nowrap text-foreground tabular-nums">
-              {assumed ? <span className="font-semibold">Assumed</span> : null}
               {resetsIn?.replace("resets in ", "↻ ") ?? ""}
               {credits ? (
                 <>
@@ -520,7 +458,6 @@ function LegendRow({
   const remaining = remainingPercent(window);
   const resetsIn = formatResetsIn(window, now);
   const credits = account.limits.resetCredits?.availableCount ?? 0;
-  const assumed = account.limits.assumedAvailable === true;
   return (
     <PopoverTrigger
       handle={popover}
@@ -541,7 +478,6 @@ function LegendRow({
       <AccountName account={account} className="min-w-0 truncate font-medium text-foreground" />
       <span className="shrink-0 font-semibold text-foreground tabular-nums">{remaining}%</span>
       <span className="ms-auto flex shrink-0 items-center gap-1.5 text-2xs text-muted-foreground tabular-nums">
-        {assumed ? <span className="font-semibold text-foreground">Assumed</span> : null}
         {resetsIn?.replace("resets in ", "↻ ") ?? ""}
         {credits ? (
           <>
@@ -722,6 +658,14 @@ function PoolSection({ pool, now }: { readonly pool: LimitPool; readonly now: nu
           </div>
         );
       })}
+      <SkippedAccounts
+        routes={pool.accounts.flatMap((account) =>
+          account.routes.map((route) => ({
+            ...route,
+            label: pool.service ?? account.displayName ?? heading,
+          })),
+        )}
+      />
       {pool.accounts
         .filter(
           (account) =>

@@ -46,10 +46,9 @@ import {
   modelPickerModelKey,
   parseModelPickerLegacySectionKey,
   parseModelPickerModelKey,
-  modelPickerPoolKey,
-  parseModelPickerPoolKey,
 } from "./modelPickerKeys";
-import { Badge } from "../ui/badge";
+import type { ModelPickerPooling } from "./modelPickerPooling";
+import { usePooledPickerEntries } from "./PooledModelEntries";
 import { rankModelPickerSearch } from "@t3tools/client-runtime/model-search";
 import {
   Combobox,
@@ -89,13 +88,6 @@ import {
 import { moveFavorite, providerModelKey, sortProviderModelItems } from "../../modelOrdering";
 import { resolveModelPickerSelectedModel } from "../../modelSelection";
 import { FAVORITE_SLOTS } from "./device/favoriteSlots.logic";
-
-/** A model pool offered as one entry: T3 picks the account when the turn runs. */
-export type ModelPickerPool = {
-  readonly id: string;
-  readonly name: string;
-  readonly summary: string;
-};
 
 type ModelPickerItem = {
   slug: string;
@@ -438,10 +430,8 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   onFocusEffort?: () => void;
   /** Closes the list column, inside the popup's fixed height. */
   listFooter?: ReactNode;
-  /** Model pools listed above Favorites and in search; omitted where a pool can't be picked. */
-  pools?: ReadonlyArray<ModelPickerPool>;
-  activePoolId?: string | null;
-  onPoolSelect?: (poolId: string) => void;
+  /** Models several accounts serve, listed above Favorites and in search. */
+  pooling?: ModelPickerPooling;
 }) {
   const {
     searchInputRef,
@@ -528,8 +518,8 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       ) {
         return props.activeInstanceId;
       }
-      // Pools live on the Favorites tab, so a thread on a pool opens there.
-      if (props.activePoolId && props.onPoolSelect !== undefined) return "favorites";
+      // Pooled models live on the Favorites tab, so a thread on one opens there.
+      if (props.pooling?.active) return "favorites";
       const hasPickableFavorite = favorites.some((favorite) => {
         const entry = instanceEntries.find((entry) => entry.instanceId === favorite.provider);
         return (
@@ -546,7 +536,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
           )
         );
       });
-      const hasPools = props.onPoolSelect !== undefined && (props.pools?.length ?? 0) > 0;
+      const hasPools = (props.pooling?.models.length ?? 0) > 0;
       return hasPickableFavorite || hasPools ? "favorites" : props.activeInstanceId;
     },
   );
@@ -869,25 +859,13 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     ];
   })();
 
-  const poolsEnabled = props.onPoolSelect !== undefined && !isLocked;
-  const normalizedQuery = searchQuery.trim().toLowerCase();
-  const visiblePools = !poolsEnabled
-    ? []
-    : (props.pools ?? []).filter((pool) =>
-        isSearching
-          ? pool.name.toLowerCase().includes(normalizedQuery) ||
-            pool.summary.toLowerCase().includes(normalizedQuery)
-          : selectedInstanceId === "favorites",
-      );
-  const poolByKey = new Map(visiblePools.map((pool) => [modelPickerPoolKey(pool.id), pool]));
-  const activePoolKey =
-    poolsEnabled && props.activePoolId ? modelPickerPoolKey(props.activePoolId) : null;
-  const handlePoolKey = (key: string): boolean => {
-    const poolId = parseModelPickerPoolKey(key);
-    if (poolId === null) return false;
-    props.onPoolSelect?.(poolId);
-    return true;
-  };
+  const pooled = usePooledPickerEntries({
+    pooling: props.pooling,
+    enabled: !isLocked,
+    query: searchQuery,
+    showWithoutQuery: selectedInstanceId === "favorites",
+    favorites,
+  });
 
   const selectedEntry =
     selectedInstanceId === "favorites" ? undefined : entryByInstanceId.get(selectedInstanceId);
@@ -919,7 +897,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     .slice(0, MODEL_PICKER_JUMP_KEYBINDING_COMMANDS.length)
     .map((model) => modelPickerModelKey(model.instanceId, model.slug));
   const allItemKeys = ((): string[] => [
-    ...(poolsEnabled ? (props.pools ?? []).map((pool) => modelPickerPoolKey(pool.id)) : []),
+    ...pooled.allKeys,
     ...flatModels.map((model) => modelPickerModelKey(model.instanceId, model.slug)),
     ...new Set(
       flatModels
@@ -931,11 +909,10 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     const modelKeys = visibleModels.map((model) =>
       modelPickerModelKey(model.instanceId, model.slug),
     );
-    const poolKeys = [...poolByKey.keys()];
     // The toggle trails the list, so expanding it reveals older models above it.
     return legacySection
-      ? [...poolKeys, ...modelKeys, legacySection.key]
-      : [...poolKeys, ...modelKeys];
+      ? [...pooled.keys, ...modelKeys, legacySection.key]
+      : [...pooled.keys, ...modelKeys];
   })();
   const filteredModelByKey = ((): ReadonlyMap<string, ModelPickerItem> =>
     new Map(
@@ -1139,7 +1116,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
           open
           virtualized
           multiple={onToggleModel !== undefined}
-          value={onToggleModel ? [...selectedModelKeySet] : (activePoolKey ?? activeModelKey)}
+          value={onToggleModel ? [...selectedModelKeySet] : (pooled.activeKey ?? activeModelKey)}
           onItemHighlighted={(modelKey, eventDetails) => {
             highlightedModelKeyRef.current = typeof modelKey === "string" ? modelKey : null;
             if (eventDetails.reason === "keyboard" && eventDetails.index >= 0) {
@@ -1157,7 +1134,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
             if (typeof modelKey !== "string") {
               return;
             }
-            if (handlePoolKey(modelKey)) return;
+            if (pooled.select(modelKey)) return;
             const legacyInstanceId = parseModelPickerLegacySectionKey(modelKey);
             if (legacyInstanceId) {
               toggleLegacySection(legacyInstanceId);
@@ -1193,6 +1170,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                   e.stopPropagation();
                   return;
                 }
+                if (pooled.onKeyDown(e, highlightedModelKeyRef.current)) return;
                 if (
                   showSidebar &&
                   !e.altKey &&
@@ -1248,7 +1226,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                   (e as typeof e & { preventBaseUIHandler?: () => void }).preventBaseUIHandler?.();
                   e.preventDefault();
                   e.stopPropagation();
-                  if (handlePoolKey(highlightedModelKeyRef.current)) return;
+                  if (pooled.select(highlightedModelKeyRef.current)) return;
                   const legacyInstanceId = parseModelPickerLegacySectionKey(
                     highlightedModelKeyRef.current,
                   );
@@ -1290,31 +1268,8 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                       </ComboboxItem>
                     );
                   }
-                  const pool = poolByKey.get(modelKey);
-                  if (pool) {
-                    return (
-                      <ComboboxItem
-                        key={modelKey}
-                        hideIndicator
-                        index={index}
-                        value={modelKey}
-                        data-model-pool={pool.id}
-                        className="group w-full cursor-pointer"
-                      >
-                        <span className="flex min-w-0 flex-1 flex-col">
-                          <span className="flex min-w-0 items-center gap-1.5">
-                            <span className="truncate text-sm leading-snug">{pool.name}</span>
-                            <Badge variant="outline" size="sm">
-                              Pool
-                            </Badge>
-                          </span>
-                          <span className="truncate text-xs text-muted-foreground">
-                            {pool.summary}
-                          </span>
-                        </span>
-                      </ComboboxItem>
-                    );
-                  }
+                  const pooledRow = pooled.render(modelKey, index);
+                  if (pooledRow) return pooledRow;
                   const model = filteredModelByKey.get(modelKey);
                   if (!model) {
                     return null;
@@ -1337,7 +1292,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                     isSelected:
                       selectedModelKeys !== undefined
                         ? selectedModelKeySet.has(modelKey)
-                        : activePoolKey === null && modelKey === activeModelKey,
+                        : pooled.activeKey === null && modelKey === activeModelKey,
                     isRenaming: renamingModelKey === modelKey,
                     favoriteStarOnHover: isArrangingFavorites,
                     showInstanceBadge: badgedInstanceIds.has(model.instanceId),

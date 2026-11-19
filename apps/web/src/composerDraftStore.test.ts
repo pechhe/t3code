@@ -1914,6 +1914,59 @@ describe("composerDraftStore modelSelection", () => {
     ).toEqual(modelSelection(CODEX_DRIVER, "gpt-5.4", { reasoningEffort: "xhigh" }));
   });
 
+  it("preserves pinned: true across normalization and option edits, and drops it when absent", () => {
+    const store = useComposerDraftStore.getState();
+    store.setModelSelection(threadRef, {
+      ...modelSelection(CODEX_DRIVER, "gpt-5.4"),
+      pinned: true,
+    });
+    store.setStickyModelSelection({
+      ...modelSelection(CODEX_DRIVER, "gpt-5.4"),
+      pinned: true,
+    });
+    expect(
+      draftFor(threadId, TEST_ENVIRONMENT_ID)?.modelSelectionByProvider[CODEX_INSTANCE],
+    ).toEqual({ instanceId: CODEX_INSTANCE, model: "gpt-5.4", pinned: true });
+    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider[CODEX_INSTANCE]).toEqual(
+      {
+        instanceId: CODEX_INSTANCE,
+        model: "gpt-5.4",
+        pinned: true,
+      },
+    );
+
+    store.setProviderModelOptions(
+      threadRef,
+      CODEX_DRIVER,
+      toSelections({ reasoningEffort: "high" }),
+      { persistSticky: true },
+    );
+    expect(
+      draftFor(threadId, TEST_ENVIRONMENT_ID)?.modelSelectionByProvider[CODEX_INSTANCE],
+    ).toEqual({
+      instanceId: CODEX_INSTANCE,
+      model: "gpt-5.4",
+      pinned: true,
+      options: [{ id: "reasoningEffort", value: "high" }],
+    });
+    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider[CODEX_INSTANCE]).toEqual(
+      {
+        instanceId: CODEX_INSTANCE,
+        model: "gpt-5.4",
+        pinned: true,
+        options: [{ id: "reasoningEffort", value: "high" }],
+      },
+    );
+
+    store.setModelSelection(threadRef, {
+      ...modelSelection(CODEX_DRIVER, "gpt-5.4"),
+      pinned: false,
+    });
+    expect(
+      draftFor(threadId, TEST_ENVIRONMENT_ID)?.modelSelectionByProvider[CODEX_INSTANCE],
+    ).not.toHaveProperty("pinned");
+  });
+
   it("stores provider option changes on a selected custom instance", () => {
     const store = useComposerDraftStore.getState();
 

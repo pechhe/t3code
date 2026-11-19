@@ -23,7 +23,7 @@ import * as ProcessRunner from "../processRunner.ts";
 import { collectReading, type CollectedReading } from "./metricCollection.ts";
 import * as SlipJayLandings from "../project/SlipJayLandings.ts";
 import { invalidOptionSelections } from "../provider/modelSelectionValidation.ts";
-import { isProviderUsageExhausted } from "@t3tools/shared/providerPools";
+import { isProviderUsageExhausted } from "@t3tools/shared/accountPools";
 import {
   isProviderOverloadedFailureCode,
   ChampionExecutionAttempt,

@@ -37,7 +37,6 @@ import {
   CheckpointId,
   CLAUDE_COMPACT_RESERVE,
   ClaudeSettings,
-  DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
   MessageId,
   type ModelSelection,
@@ -102,7 +101,6 @@ import { WorktreeToolkit } from "../../mcp/toolkits/worktree/tools.ts";
 import { ThreadToolkit } from "../../mcp/toolkits/thread/tools.ts";
 import { OrchestratorToolkit } from "../../mcp/toolkits/orchestrator/tools.ts";
 import { ClaudeExecutableFileCheck } from "../../provider/Drivers/ClaudeExecutable.ts";
-import { deriveProviderInstanceConfigMap } from "../../provider/ProviderInstanceRegistryHydration.ts";
 import {
   BUNDLED_CLAUDE_MODEL_CATALOG,
   type ClaudeModelCatalog,
@@ -146,7 +144,6 @@ beforeEach(() => {
 });
 
 const DEFAULT_CLAUDE_SETTINGS = Schema.decodeSync(ClaudeSettings)({});
-const decodeClaudeSettings = Schema.decodeUnknownEffect(ClaudeSettings);
 const AUTO_COMPACT_CLAUDE_SETTINGS = Schema.decodeSync(ClaudeSettings)({
   autoCompactWindow: "300000",
 });
@@ -2076,49 +2073,6 @@ describe("ClaudeAdapterV2 executable path", () => {
           Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
           ProviderInstallationGate.layer,
           NodeCrypto.layer,
-        ),
-      ),
-    ),
-  );
-});
-
-describe("ClaudeAdapterV2 pooled instance settings", () => {
-  it.effect("opens a member's session with the settings its account pool shares", () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const claude = ProviderDriverKind.make("claudeAgent");
-        const poolId = ProviderInstanceId.make("claude_pool");
-        const memberId = ProviderInstanceId.make("claude_work");
-        const configMap = deriveProviderInstanceConfigMap({
-          ...DEFAULT_SERVER_SETTINGS,
-          providerInstances: {
-            [poolId]: {
-              driver: claude,
-              pool: [memberId],
-              config: { autoCompactWindow: "300000", launchArgs: "--permission-mode plan" },
-            },
-            [memberId]: { driver: claude, config: { binaryPath: "claude" } },
-          },
-        });
-        // What the registry hands the driver for the member.
-        const memberConfig = yield* decodeClaudeSettings(configMap[memberId]?.config ?? {});
-
-        const { openedOptions } = yield* captureInstanceSession({ config: memberConfig });
-
-        const opened = openedOptions[0]!;
-        assert.equal(
-          (opened.settings as { autoCompactWindow?: number }).autoCompactWindow,
-          300_000,
-        );
-        assert.equal(opened.permissionMode, "plan");
-      }),
-    ).pipe(
-      Effect.provide(
-        Layer.mergeAll(
-          IdAllocator.layer,
-          McpProviderSessions.layer,
-          Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
-          ProviderInstallationGate.layer,
         ),
       ),
     ),

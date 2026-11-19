@@ -3,23 +3,16 @@ import {
   isProviderOverloadedFailureCode,
   isReadOnlyTask,
   MessageId,
-  type ModelPoolConfig,
-  type ModelPoolId,
   type ModelSelection,
   type OrchestrationV2Command,
   type OrchestrationV2ProviderFailure,
   type OrchestrationV2Run,
   type RunId,
   type ServerProvider,
+  type ServerSettings as ServerSettingsValue,
   type ThreadId,
 } from "@t3tools/contracts";
 import { latestRootProviderFailure } from "@t3tools/shared/orchestrationV2ThreadError";
-import { accountStanding, pickPoolFailoverMember } from "@t3tools/shared/providerPools";
-import {
-  adaptModelSelectionForSlot,
-  isSlotUsageExhausted,
-  pickModelPoolFailoverSlot,
-} from "@t3tools/shared/modelPools";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -28,6 +21,7 @@ import * as Option from "effect/Option";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import { failoverCommand, failoverSelection, isUsageLimitFailure } from "./AccountFailover.ts";
 import type * as ThreadManagement from "./ThreadManagementService.ts";
 
 /** How long a delegated task waits before trying its model again after an upstream error. */
@@ -63,10 +57,10 @@ export type DelegatedRecovery =
   | { readonly type: "deliver" };
 
 /**
- * What a delegated task does after a failed run. A usage limit, or any failure on an account
- * that is out, moves to a pool sibling that offers the same model, when the pool switches on a
- * limit. An upstream error on a role with no other model to pass to tries the same model again,
- * up to `DELEGATED_RETRY_ATTEMPTS` times. Anything else reaches the parent.
+ * What a delegated task does after a failed run. A usage limit moves to the next account in the
+ * user's order serving the same model, unless the task's account was named. An upstream error,
+ * including a rate limit with no account to move to, on a role with no other model tries again, up to
+ * `DELEGATED_RETRY_ATTEMPTS` times. Anything else reaches the parent.
  */
 export const planDelegatedRecovery = Effect.fn("DelegatedTaskRecovery.plan")(function* (input: {
   readonly run: Pick<OrchestrationV2Run, "modelSelection">;
@@ -74,64 +68,26 @@ export const planDelegatedRecovery = Effect.fn("DelegatedTaskRecovery.plan")(fun
   /** Failed runs straight before this one in the thread. */
   readonly priorFailures: number;
   readonly providers: ReadonlyArray<ServerProvider>;
-  readonly modelPools?: Readonly<Record<ModelPoolId, ModelPoolConfig>> | undefined;
+  readonly settings: Pick<
+    ServerSettingsValue,
+    "accountOrder" | "modelAccountsRemoved" | "accountSkips"
+  >;
   readonly readOnly?: boolean | undefined;
   readonly nowMs: number;
-  /** The global setting, which a pool's own `switchOnLimit` overrides. */
-  readonly switchOnLimit: boolean;
   /** Whether the role has another model it could run on now. */
   readonly otherModelAvailable: () => Effect.Effect<boolean>;
 }) {
-  const selection = input.run.modelSelection;
-  const account = input.providers.find((provider) => provider.instanceId === selection.instanceId);
-  // An upstream error on an account a usage read shows out is that account's limit.
-  if (
-    input.failure.class === "usage_limit" ||
-    (account !== undefined &&
-      (accountStanding(account, input.nowMs) === "out" ||
-        isSlotUsageExhausted(account, selection.model, input.nowMs)))
-  ) {
-    if (selection.poolId !== undefined) {
-      const pool = input.modelPools?.[selection.poolId];
-      if (pool !== undefined && (pool.policy?.switchOnLimit ?? input.switchOnLimit)) {
-        const next = pickModelPoolFailoverSlot({
-          pool,
-          providers: input.providers,
-          nowMs: input.nowMs,
-          limited: { instanceId: selection.instanceId, model: selection.model },
-          readOnly: input.readOnly,
-          enforceConservation: true,
-        });
-        if (next !== undefined) {
-          return {
-            type: "failover",
-            selection: adaptModelSelectionForSlot({
-              poolId: selection.poolId,
-              slot: next.slot,
-              providers: input.providers,
-              baseOptions: selection.options,
-            }),
-          } as const;
-        }
-      }
-      return { type: "deliver" } as const;
-    }
-    for (const pool of input.providers) {
-      if (pool.poolMembers?.includes(selection.instanceId) !== true) continue;
-      if (!(pool.poolPolicy?.switchOnLimit ?? input.switchOnLimit)) continue;
-      const member = pickPoolFailoverMember({
-        pool: { driver: pool.driver, members: pool.poolMembers, policy: pool.poolPolicy },
-        // Only a sibling offering the same model can continue the task.
-        providers: input.providers.filter((provider) =>
-          provider.models.some((model) => model.slug === selection.model),
-        ),
-        nowMs: input.nowMs,
-        limited: selection.instanceId,
-      });
-      if (member !== undefined)
-        return { type: "failover", selection: { ...selection, instanceId: member } } as const;
-    }
-    return { type: "deliver" } as const;
+  if (isUsageLimitFailure(input.failure)) {
+    const selection = failoverSelection({
+      selection: input.run.modelSelection,
+      providers: input.providers,
+      settings: input.settings,
+      nowMs: input.nowMs,
+      options: { readOnly: input.readOnly, enforceConservation: true },
+    });
+    if (selection !== undefined) return { type: "failover", selection } as const;
+    // With no account left, a provider-side rate limit still gets its retries.
+    if (!isUpstreamFailure(input.failure)) return { type: "deliver" } as const;
   }
   if (
     !isUpstreamFailure(input.failure) ||
@@ -155,19 +111,21 @@ export const delegatedRecoveryContinuation = (input: {
   readonly run: OrchestrationV2Run;
   readonly recovery: Exclude<DelegatedRecovery, { readonly type: "deliver" }>;
 }): OrchestrationV2Command => {
-  // The failover shares the background sweep's identity, so only one of them continues the task.
-  const identity =
-    input.recovery.type === "failover"
-      ? `limit-pool-switch:${input.threadId}:${input.run.id}`
-      : `delegated-retry:${input.threadId}:${input.run.id}`;
+  // The failover shares AccountFailover's identity, so only one of them continues the task.
+  if (input.recovery.type === "failover")
+    return failoverCommand({
+      threadId: input.threadId,
+      runId: input.run.id,
+      selection: input.recovery.selection,
+    });
+  const identity = `delegated-retry:${input.threadId}:${input.run.id}`;
   return {
     type: "message.dispatch",
     commandId: CommandId.make(identity),
     messageId: MessageId.make(identity),
     threadId: input.threadId,
     manualContinuationOfRunId: input.run.id,
-    modelSelection:
-      input.recovery.type === "failover" ? input.recovery.selection : input.run.modelSelection,
+    modelSelection: input.run.modelSelection,
     text: CONTINUE_TEXT,
     attachments: [],
     dispatchMode: { type: "start_immediately" },
@@ -216,10 +174,9 @@ export const makeRecoverDelegatedRun = Effect.gen(function* () {
         failure,
         priorFailures: priorFailures(records.runs, run),
         providers,
-        modelPools: currentSettings.modelPools,
+        settings: currentSettings,
         readOnly: isReadOnlyTask(binding),
         nowMs: DateTime.toEpochMillis(yield* DateTime.now),
-        switchOnLimit: currentSettings.switchPooledAccountOnLimit,
         otherModelAvailable: () =>
           Option.isNone(managed) || binding === undefined
             ? Effect.succeed(false)

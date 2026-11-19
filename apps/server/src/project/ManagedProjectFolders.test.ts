@@ -332,6 +332,24 @@ it.effect("still knows No project when its folder is the target of a symlinked S
       assert.isTrue(yield* scratch.isScratchProject(projectId));
       assert.equal((yield* scratch.ensureScratchProject).projectId, projectId);
       assert.deepStrictEqual(yield* scratch.scratchRoot, Option.some(target));
+
+      const realParent = path.join(baseDir, "real-parent");
+      const aliasParent = path.join(baseDir, "alias-parent");
+      const aliasedTarget = path.join(aliasParent, "aliased-chats");
+      yield* fileSystem.makeDirectory(realParent);
+      yield* fileSystem.symlink(realParent, aliasParent);
+      yield* fileSystem.makeDirectory(aliasedTarget);
+      yield* fileSystem.remove(root);
+      yield* fileSystem.symlink(aliasedTarget, root);
+      yield* projects.update({
+        commandId: CommandId.make("command:point-at-aliased-target"),
+        projectId,
+        workspaceRoot: aliasedTarget,
+      });
+
+      assert.isTrue(yield* scratch.isScratchProject(projectId));
+      assert.equal((yield* scratch.ensureScratchProject).projectId, projectId);
+      assert.deepStrictEqual(yield* scratch.scratchRoot, Option.some(aliasedTarget));
     }),
   ),
 );

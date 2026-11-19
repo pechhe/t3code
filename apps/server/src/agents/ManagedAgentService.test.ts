@@ -4,7 +4,9 @@ import * as DateTime from "effect/DateTime";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
+import { pooledModelKeyOf } from "@t3tools/shared/accountPools";
 import {
+  AccountId,
   ProjectId,
   type AgentPolicyManifest,
   AgentTaskBinding,
@@ -12,7 +14,6 @@ import {
   type ModelSelection,
   type OrchestrationV2AppThread,
   RunId,
-  type ServerProvider,
   ThreadId,
 } from "@t3tools/contracts";
 import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
@@ -1593,26 +1594,20 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
   it.effect("discovery lists a role's models, and names the accounts passed over for usage", () =>
     Effect.gen(function* () {
       const f = yield* fixture;
+      const settings = yield* Settings.ServerSettingsService;
       const sol = { ...f.manifest.models.sol!, note: "Careful coder" };
       yield* f.writeManifest({ ...f.manifest, models: { ...f.manifest.models, sol } });
-      const claudeOut: ServerProvider = {
-        ...claude,
-        usageLimits: {
-          checkedAt: "2026-10-15T00:00:00.000Z",
-          windows: [
-            {
-              id: "seven_day",
-              kind: "weekly",
-              label: "Week",
-              usedPercent: 100,
-              resetsAt: "2026-10-15T03:00:00.000Z",
-            },
-          ],
+      const skippedKey = pooledModelKeyOf(claude, { slug: claudeModel, name: claudeModel })!;
+      yield* settings.updateSettings({
+        accountSkips: {
+          [AccountId.make(claude.instanceId)]: {
+            [skippedKey]: { until: "2099-01-01T00:00:00.000Z", reportedReset: true },
+          },
         },
-      };
+      });
       const discovered = yield* f.service
         .roles({
-          providers: [codex, claudeOut],
+          providers: [codex, claude],
           ceiling: "full-access",
           request: { taskClass: "non-ui", sourceRevision },
         })
@@ -1639,13 +1634,16 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
       // A choice that must start now, such as a Champion replay, skips the exhausted account.
       const ranked = yield* f.service
         .ranked({
-          providers: [codex, claudeOut],
+          providers: [codex, claude],
           ceiling: "full-access",
           request: { taskClass: "non-ui", sourceRevision },
           role: "reviewer",
         })
         .pipe(Effect.provideService(HostProcess.Environment, f.environment));
       expect(ranked.map((selection) => selection.model)).toEqual([codexModel]);
+      yield* settings.updateSettings({
+        accountSkips: { [AccountId.make(claude.instanceId)]: null },
+      });
       const unlimited = yield* f.service
         .roles({
           providers: [codex, claude],
@@ -1656,7 +1654,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
       expect(
         unlimited.roles.find((role) => role.role === "reviewer")!.usageLimited,
       ).toBeUndefined();
-    }),
+    }).pipe(Effect.provide(Settings.layerTest())),
   );
 
   it.effect(

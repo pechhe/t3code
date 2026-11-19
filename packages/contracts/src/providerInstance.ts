@@ -66,30 +66,6 @@ export type ProviderInstanceEnvironmentVariable = typeof ProviderInstanceEnviron
 export const ProviderInstanceEnvironment = Schema.Array(ProviderInstanceEnvironmentVariable);
 export type ProviderInstanceEnvironment = typeof ProviderInstanceEnvironment.Type;
 
-export const ProviderPoolStrategy = Schema.Literals(["spend", "order"]);
-export type ProviderPoolStrategy = typeof ProviderPoolStrategy.Type;
-
-/** How an account pool picks and moves between its members; every field defaults when absent. */
-export const ProviderPoolPolicy = Schema.Struct({
-  /**
-   * `spend` (the default) uses the member whose allowance would lapse unused
-   * soonest; `order` uses the first member in the pool's list with allowance.
-   */
-  strategy: Schema.optionalKey(ProviderPoolStrategy),
-  /** Members kept in the pool's list but never routed to. */
-  disabledMembers: Schema.optionalKey(Schema.Array(ProviderInstanceId)),
-  /**
-   * New threads and failover treat a member as out once a window is this
-   * percent used, keeping the rest in reserve. A running thread stays until
-   * the member's real limit.
-   */
-  reservePercent: Schema.optionalKey(
-    Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 99 })),
-  ),
-  /** Overrides the global "Switch pooled account on limit" for this pool. */
-  switchOnLimit: Schema.optionalKey(Schema.Boolean),
-});
-export type ProviderPoolPolicy = typeof ProviderPoolPolicy.Type;
 /** What drivers receive: every secret reference has been read into a plain value. */
 export type ResolvedProviderInstanceEnvironment = ReadonlyArray<
   Omit<ProviderInstanceEnvironmentVariable, "value"> & { readonly value: string }
@@ -103,19 +79,6 @@ export const ProviderInstanceConfig = Schema.Struct({
   environment: Schema.optionalKey(ProviderInstanceEnvironment),
   enabled: Schema.optionalKey(Schema.Boolean),
   config: Schema.optionalKey(Schema.Unknown),
-  /**
-   * Makes this entry an account pool over other instances of `driver`. No
-   * driver runs for a pool: each new thread or turn that selects it is routed
-   * to one member. Its `config` holds the settings its members share, for the
-   * fields a driver marks `sharedInPool`.
-   */
-  pool: Schema.optionalKey(Schema.Array(ProviderInstanceId)),
-  /**
-   * Retired: routing ignores it, and the composer's lamp chooses an account for one thread
-   * instead. Kept so stored settings and older clients' writes still decode.
-   */
-  preferredMember: Schema.optionalKey(ProviderInstanceId),
-  poolPolicy: Schema.optionalKey(ProviderPoolPolicy),
 });
 export type ProviderInstanceConfig = typeof ProviderInstanceConfig.Type;
 

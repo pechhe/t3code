@@ -26,7 +26,7 @@ import {
   type ModelSelection,
   type ThreadId,
 } from "@t3tools/contracts";
-import { isProviderUsageExhausted } from "@t3tools/shared/providerPools";
+import { isProviderUsageExhausted } from "@t3tools/shared/accountPools";
 
 import type { ProviderInstanceEntry } from "../../providerInstances";
 

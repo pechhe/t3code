@@ -53,15 +53,6 @@ const account = (id: string, usedPercent: number, models = [model]): ServerProvi
   },
 });
 
-const pool = (
-  members: ReadonlyArray<string>,
-  policy?: ServerProvider["poolPolicy"],
-): ServerProvider => ({
-  ...account("claude_pool", 0),
-  poolMembers: members.map((member) => ProviderInstanceId.make(member)),
-  ...(policy === undefined ? {} : { poolPolicy: policy }),
-});
-
 const failure = (
   failureClass: OrchestrationV2ProviderFailure["class"],
   code: string | null,
@@ -77,54 +68,40 @@ const plan = (input: {
   readonly failure: OrchestrationV2ProviderFailure;
   readonly providers?: ReadonlyArray<ServerProvider>;
   readonly priorFailures?: number;
-  readonly switchOnLimit?: boolean;
   readonly otherModel?: boolean;
+  readonly pinned?: boolean;
 }) =>
   planDelegatedRecovery({
-    run: { modelSelection: { instanceId: ProviderInstanceId.make("limited"), model } },
+    run: {
+      modelSelection: {
+        instanceId: ProviderInstanceId.make("limited"),
+        model,
+        ...(input.pinned ? { pinned: true } : {}),
+      },
+    },
     failure: input.failure,
     priorFailures: input.priorFailures ?? 0,
-    providers: input.providers ?? [
-      account("limited", 40),
-      account("sibling", 20),
-      pool(["limited", "sibling"]),
-    ],
+    providers: input.providers ?? [account("limited", 40), account("sibling", 20)],
+    settings: { accountOrder: [], modelAccountsRemoved: {}, accountSkips: {} },
     nowMs: NOW,
-    switchOnLimit: input.switchOnLimit ?? true,
     otherModelAvailable: () => Effect.succeed(input.otherModel ?? false),
   });
 
 describe("planDelegatedRecovery", () => {
-  it.effect("moves a usage-limited task to a pool sibling offering the same model", () =>
-    Effect.gen(function* () {
-      assert.deepEqual(yield* plan({ failure: failure("usage_limit", null) }), {
-        type: "failover",
-        selection: { instanceId: ProviderInstanceId.make("sibling"), model },
-      });
-      // A sibling without the model, or a pool that waits for the reset, reports the limit.
-      assert.deepEqual(
-        yield* plan({
-          failure: failure("usage_limit", null),
-          providers: [
-            account("limited", 100),
-            account("sibling", 20, ["other-model"]),
-            pool(["limited", "sibling"]),
-          ],
-        }),
-        { type: "deliver" },
-      );
-      assert.deepEqual(
-        yield* plan({
-          failure: failure("usage_limit", null),
-          providers: [
-            account("limited", 100),
-            account("sibling", 20),
-            pool(["limited", "sibling"], { switchOnLimit: false }),
-          ],
-        }),
-        { type: "deliver" },
-      );
-    }),
+  it.effect(
+    "moves a usage-limited task to the next account serving its model, unless it was named",
+    () =>
+      Effect.gen(function* () {
+        const limit = failure("usage_limit", null);
+        assert.deepEqual(yield* plan({ failure: limit }), {
+          type: "failover",
+          selection: { instanceId: ProviderInstanceId.make("sibling"), model },
+        });
+        assert.deepEqual(yield* plan({ failure: limit, pinned: true }), { type: "deliver" });
+        assert.deepEqual(yield* plan({ failure: limit, providers: [account("limited", 100)] }), {
+          type: "deliver",
+        });
+      }),
   );
 
   it.effect(
@@ -150,33 +127,18 @@ describe("planDelegatedRecovery", () => {
             type: "deliver",
           });
         }
+        // A rate limit worded as one, with no other account to move to, is still retried.
+        const rateLimited = {
+          ...failure("provider_error", "api_error_429"),
+          message: "Claude API rate limit reached. Try again later.",
+        };
+        assert.deepEqual(
+          yield* plan({ failure: rateLimited, providers: [account("limited", 40)] }),
+          {
+            type: "retry",
+          },
+        );
       }),
-  );
-
-  it.effect("moves an upstream error on an account a usage read shows out to a sibling", () =>
-    Effect.gen(function* () {
-      const providers = [
-        account("limited", 100),
-        account("sibling", 20),
-        pool(["limited", "sibling"]),
-      ];
-      assert.deepEqual(
-        yield* plan({ failure: failure("provider_error", "api_error_429"), providers }),
-        { type: "failover", selection: { instanceId: ProviderInstanceId.make("sibling"), model } },
-      );
-      // With no sibling to take it, the parent hears the error rather than a retry on an out account.
-      assert.deepEqual(
-        yield* plan({
-          failure: failure("provider_error", "api_error_429"),
-          providers: [
-            account("limited", 100),
-            account("sibling", 100),
-            pool(["limited", "sibling"]),
-          ],
-        }),
-        { type: "deliver" },
-      );
-    }),
   );
 
   it.effect("reports any other failure at once", () =>
@@ -237,7 +199,13 @@ describe("makeRecoverDelegatedRun", () => {
         dispatch: () => Ref.update(dispatched, (count) => count + 1),
         recoverDelegatedTask: () => Effect.void,
       };
-      const settings = { getSettings: Effect.succeed({ switchPooledAccountOnLimit: true }) };
+      const settings = {
+        getSettings: Effect.succeed({
+          accountOrder: [],
+          modelAccountsRemoved: {},
+          accountSkips: {},
+        }),
+      };
       const recover = yield* makeRecoverDelegatedRun;
       const fiber = yield* recover(threads as never, settings as never, {
         threadId: childThreadId,

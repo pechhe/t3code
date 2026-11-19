@@ -45,13 +45,3 @@ export function parseModelPickerLegacySectionKey(key: string): ProviderInstanceI
     ? (key.slice(LEGACY_SECTION_KEY_PREFIX.length) as ProviderInstanceId)
     : null;
 }
-
-const POOL_KEY_PREFIX = "model-pool:";
-
-export function modelPickerPoolKey(poolId: string): string {
-  return `${POOL_KEY_PREFIX}${poolId}`;
-}
-
-export function parseModelPickerPoolKey(key: string): string | null {
-  return key.startsWith(POOL_KEY_PREFIX) ? key.slice(POOL_KEY_PREFIX.length) : null;
-}

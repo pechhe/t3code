@@ -136,7 +136,7 @@ export interface ThreadLaunchInput {
   readonly linkOrigin?: OrchestrationV2LinkOrigin;
   /** The parent there, when that environment's agent delegated this as a task. */
   readonly delegatedFrom?: OrchestrationV2DelegatedFrom;
-  /** A subagent role chose the model's pool slot, so routing keeps it rather than re-ranking. */
+  /** A subagent role already placed the model on an account, so routing keeps it there. */
   readonly placedByRole?: boolean;
 }
 

@@ -11,7 +11,6 @@ import { DelegationStance, ResolvedDelegationStance, RuntimeMode } from "./provi
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
 import { BrowserBackend, PhiBrowserLane } from "./browserBackend.ts";
 import { ModelSelection } from "./modelSelection.ts";
-import { ModelPoolId } from "./modelPool.ts";
 import { ProviderOptionSelections } from "./model.ts";
 
 export const AgentRole = Schema.Literals([
@@ -198,8 +197,13 @@ export const MODEL_NOTE_MAX_LENGTH = 280;
 const ModelBinding = Schema.Struct({
   driverKind: ProviderDriverKind,
   model: TrimmedNonEmptyString,
-  /** Optional model pool this entry routes through across providers and Pi accounts. */
-  poolId: Schema.optional(ModelPoolId),
+  /**
+   * The model alone: any account serving it, tried in the user's account order. Without it the
+   * entry names `driverKind`'s account for `model`.
+   */
+  anyAccount: Schema.optional(Schema.Boolean),
+  /** Retired model pool id; an entry carrying one is read as `anyAccount`. */
+  poolId: Schema.optional(TrimmedNonEmptyString),
   /** The select option carrying effort; absent for a model that has no effort setting. */
   effortOption: Schema.optional(TrimmedNonEmptyString),
   /** Select options every task on this model carries beside effort, e.g. `serviceTier: "fast"`. */

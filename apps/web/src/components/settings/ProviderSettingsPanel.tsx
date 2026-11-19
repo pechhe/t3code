@@ -1,5 +1,4 @@
 import { SubagentConservationSettings } from "./SubagentConservationSettings";
-import { ModelPoolsSettings } from "./ModelPoolsSettings";
 import { SettingsGroup } from "./SettingsGroup";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import {
@@ -26,12 +25,9 @@ import {
   type ProviderInstanceConfig,
   type ProviderInstanceId,
   type ServerProvider,
-  poolForMember,
   resolveEnvironmentMachineKind,
   resolveProjectProviderInstanceEnabled,
-  resolveProviderInstanceConfig,
   resolveProviderInstanceEnabled,
-  sharedProviderSettingKeys,
 } from "@t3tools/contracts";
 import { DEFAULT_UNIFIED_SETTINGS, type UnifiedSettings } from "@t3tools/contracts/settings";
 import {
@@ -990,24 +986,6 @@ function EnvironmentProviderSettings({
   const renderProviderInstance = (row: InstanceRow, mode: "list" | "editor") => {
     const showProjectOverride =
       representativeProjectId !== undefined && supportsProjectProviderOverrides;
-    // A pool shares the settings its driver marks shared; neither card decides that here.
-    const sharesPoolSettings = sharedProviderSettingKeys(row.driver).length > 0;
-    const rowPool =
-      row.explicitInstance === undefined
-        ? undefined
-        : poolForMember(settings.providerInstances, row.instanceId);
-    const memberPool =
-      !sharesPoolSettings || rowPool === undefined
-        ? undefined
-        : {
-            poolName:
-              settings.providerInstances[rowPool.poolId]?.displayName?.trim() ||
-              String(rowPool.poolId),
-            effectiveConfig: resolveProviderInstanceConfig(
-              settings.providerInstances,
-              row.instanceId,
-            )?.config,
-          };
     return (
       <ProviderInstanceRow
         key={row.instanceId}
@@ -1018,11 +996,6 @@ function EnvironmentProviderSettings({
         explicitInstance={row.explicitInstance}
         isDefault={row.isDefault}
         isDirty={row.isDirty === true}
-        poolMemberLabels={row.explicitInstance?.pool?.map(
-          (memberId) =>
-            settings.providerInstances?.[memberId]?.displayName?.trim() || String(memberId),
-        )}
-        memberPool={memberPool}
         mode={mode}
         selected={mode === "list" && selectedRow?.instanceId === row.instanceId}
         readOnly={readOnly}
@@ -1155,14 +1128,12 @@ function EnvironmentProviderSettings({
                 {/* Flat sections run dividers edge to edge and inset text like the list beside them. */}
                 <div className="space-y-6 py-4">
                   {renderProviderInstance(selectedRow, "editor")}
-                  {selectedRow.explicitInstance?.pool === undefined && (
-                    <SubagentConservationSettings
-                      environmentId={environmentId}
-                      label={environmentLabel}
-                      instanceId={selectedRow.instanceId}
-                      readOnly={readOnly}
-                    />
-                  )}
+                  <SubagentConservationSettings
+                    environmentId={environmentId}
+                    label={environmentLabel}
+                    instanceId={selectedRow.instanceId}
+                    readOnly={readOnly}
+                  />
                 </div>
               </ScrollArea>
             ) : (
@@ -1175,14 +1146,6 @@ function EnvironmentProviderSettings({
           </div>
         </SettingsGroup>
       </SettingsSection>
-
-      <ModelPoolsSettings
-        key={`model-pools:${environmentId}`}
-        environmentId={environmentId}
-        pools={settings.modelPools}
-        providers={serverProviders}
-        readOnly={readOnly}
-      />
 
       <UsageProviderSettings
         key={environmentId}
@@ -1327,8 +1290,6 @@ function ProviderInstanceRow({
   explicitInstance,
   isDefault,
   isDirty,
-  poolMemberLabels,
-  memberPool,
   mode,
   selected,
   readOnly,
@@ -1350,15 +1311,6 @@ function ProviderInstanceRow({
   readonly explicitInstance: ProviderInstanceConfig | undefined;
   readonly isDefault: boolean;
   readonly isDirty: boolean;
-  /** A new array only for pooled instances, which are rare. */
-  readonly poolMemberLabels: ReadonlyArray<string> | undefined;
-  /** The pool this member inherits shared settings from, with its effective config. */
-  readonly memberPool:
-    | {
-        readonly poolName: string;
-        readonly effectiveConfig: unknown;
-      }
-    | undefined;
   readonly mode: "list" | "editor";
   readonly selected: boolean;
   readonly readOnly: boolean;
@@ -1433,8 +1385,6 @@ function ProviderInstanceRow({
       }
       instanceId={instanceId}
       instance={instance}
-      poolMemberLabels={poolMemberLabels}
-      memberPool={memberPool}
       driverOption={driverOption}
       liveProvider={liveProvider}
       mode={mode}

@@ -11,7 +11,6 @@ import {
   DEFAULT_MODEL_BY_PROVIDER,
   DelegationStanceChoice,
   defaultInstanceIdForDriver,
-  isModelPoolId,
   EnvironmentId,
   ModelSelection,
   ProjectId,
@@ -1177,17 +1176,6 @@ function normalizeProviderModelOptions(
 
 function normalizeModelSelection(
   value: unknown,
-  legacy?: Parameters<typeof normalizeModelSelectionFields>[1],
-): NormalizedModelSelection | null {
-  const normalized = normalizeModelSelectionFields(value, legacy);
-  const poolId =
-    value && typeof value === "object" ? (value as Record<string, unknown>).poolId : undefined;
-  // A pool pick keeps its pool, so the server routes the turn to whichever slot has allowance.
-  return normalized !== null && isModelPoolId(poolId) ? { ...normalized, poolId } : normalized;
-}
-
-function normalizeModelSelectionFields(
-  value: unknown,
   legacy?: {
     provider?: unknown;
     model?: unknown;
@@ -1217,9 +1205,11 @@ function normalizeModelSelectionFields(
   if (!model) {
     return null;
   }
+  const pinned = candidate?.pinned === true;
   if (Array.isArray(candidate?.options)) {
     const selections = coerceProviderOptionSelections(candidate.options);
-    return createModelSelection(instanceId, model, selections) as NormalizedModelSelection;
+    const selection = createModelSelection(instanceId, model, selections);
+    return (pinned ? { ...selection, pinned: true } : selection) as NormalizedModelSelection;
   }
   const kindForLegacyOptions = normalizeProviderDriverKind(instanceId);
   const modelOptions = kindForLegacyOptions
@@ -1230,7 +1220,8 @@ function normalizeModelSelectionFields(
       )
     : null;
   const options = kindForLegacyOptions ? modelOptions?.[kindForLegacyOptions] : undefined;
-  return createModelSelection(instanceId, model, options) as NormalizedModelSelection;
+  const selection = createModelSelection(instanceId, model, options);
+  return (pinned ? { ...selection, pinned: true } : selection) as NormalizedModelSelection;
 }
 
 type NormalizedModelSelection = Omit<ModelSelection, "instanceId"> & {
@@ -3229,7 +3220,14 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             const nextSelection =
               normalized.options !== undefined
                 ? normalized
-                : createModelSelection(normalized.instanceId, normalized.model, current?.options);
+                : {
+                    ...createModelSelection(
+                      normalized.instanceId,
+                      normalized.model,
+                      current?.options,
+                    ),
+                    ...(normalized.pinned === true ? { pinned: true } : {}),
+                  };
             const nextMap: Partial<Record<ProviderInstanceId, ModelSelection>> = {
               ...state.stickyModelSelectionByProvider,
               [normalized.instanceId]: nextSelection,
@@ -3360,11 +3358,13 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               if (normalized.options !== undefined || opts?.replaceOptions) {
                 nextMap[normalized.instanceId] = normalized as ModelSelection;
               } else {
-                nextMap[normalized.instanceId] = createModelSelection(
+                const baseSelection = createModelSelection(
                   normalized.instanceId,
                   normalized.model,
                   current?.options,
                 );
+                nextMap[normalized.instanceId] =
+                  normalized.pinned === true ? { ...baseSelection, pinned: true } : baseSelection;
               }
             }
             const nextActiveProvider = normalized?.instanceId ?? base.activeProvider;
@@ -3440,9 +3440,9 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               providerOpts,
             );
             nextMap[instanceKey] =
-              currentForProvider?.poolId === undefined
-                ? nextSelection
-                : { ...nextSelection, poolId: currentForProvider.poolId };
+              currentForProvider?.pinned === true
+                ? { ...nextSelection, pinned: true }
+                : nextSelection;
 
             let nextStickyMap = state.stickyModelSelectionByProvider;
             let nextOptionsByModel = state.stickyOptionsByModelByProvider;
@@ -3455,11 +3455,9 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
                 createModelSelection(instanceKey, fallbackModel);
               const rememberedModel = normalizeCustomModelSlug(options?.model) ?? stickyBase.model;
               if (providerOpts) {
-                nextStickyMap[instanceKey] = createModelSelection(
-                  instanceKey,
-                  stickyBase.model,
-                  providerOpts,
-                );
+                const created = createModelSelection(instanceKey, stickyBase.model, providerOpts);
+                nextStickyMap[instanceKey] =
+                  stickyBase.pinned === true ? { ...created, pinned: true } : created;
                 nextOptionsByModel = {
                   ...state.stickyOptionsByModelByProvider,
                   [instanceKey]: {

@@ -129,17 +129,6 @@ the bar show each account's quota, countdown, and credits. Tap a row to open its
 
 The same account signed in on more than one environment, or reported by a hub as well, counts once.
 
-An account counts as out only while its latest reading says so. When a run stops at a usage
-limit, T3 Code reads that account's usage again at once, and a reset or signing in to another
-account frees it at the next reading. Naming a model yourself (in the
-composer, or by telling an agent to delegate to it) always tries it, even when its reading shows
-none left. To make T3 Code pick an account automatically whatever its reading says, open the
-account's details on Limits and turn on **Assume usage left**; its segment then reads **Assumed**
-until you turn it off. A rate-limit response without a reset time, an overloaded response or a connection error
-is treated as a passing error, not a limit. A subagent that hits one moves to its job's next model
-when there is one; otherwise it tries the same model again after about 30 seconds, up to three
-times, before the agent that delegated it hears the error.
-
 In a thread, **Usage left** sits beside the composer when the window is wide enough to fit it. Each
 provider shows one figure: what is left in its tightest window (5-hour or weekly), added up across
 its accounts, so two Claude accounts can show up to 200%. With more than one account, each
@@ -195,6 +184,31 @@ Until then it shows no limits. Readings are not kept across a server restart.
 
 API-key accounts may not report subscription limits. This also applies to Claude connections
 using a proxy through `ANTHROPIC_AUTH_TOKEN`.
+
+### One model on several accounts
+
+When more than one account serves the same model (two Claude logins, Claude through Pi's
+sub-providers, Kimi on OpenCode Go and OpenRouter), the model picker shows that model once and
+T3 Code picks the account. Set the order it tries them in **Settings → Accounts**, where you can
+also take an account off one model. Pi's Antigravity logins count as one account, because Pi
+already moves between them.
+
+A new thread starts on the first account in your order that is not skipped, and keeps that account
+for as long as it works. When a run stops at a usage limit, that account is skipped for that model
+until the reset the provider reported, or until midnight on the server's clock when it reported
+none, and the turn continues on the next account. T3 Code also reads that account's usage again at once, so its card shows the new reset. A skipped account shows until when, with **Try
+again now** to clear it, in **Settings → Accounts** and on its card here. Usage readings fill the
+bars but never decide which account runs.
+
+To use one account on purpose, open the model's **Accounts** list in the picker and choose it: that
+thread stays there, even while the account is skipped, and waits for its reset instead of moving.
+Delegation and scheduled tasks behave the same way: naming a provider instance pins it, naming the
+model alone follows your order.
+
+An overloaded response or a connection error is a passing error, not a limit. A subagent that hits
+one, or a rate limit with no other account to move to, moves to its job's next model when there is
+one; otherwise it tries the same model again after about 30 seconds, up to three times, before the
+agent that delegated it hears the error.
 
 ## Connect a CLIProxyAPI hub
 

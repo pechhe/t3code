@@ -1,8 +1,6 @@
 import type {
   AgentPolicySnapshot,
   AgentTaskRequest,
-  ModelPoolConfig,
-  ModelPoolId,
   ModelSelection,
   ProviderInstanceId,
   ProviderOptionDescriptor,
@@ -13,10 +11,8 @@ import type {
 import {
   AgentPolicyCandidate,
   isListedOnlyModel,
-  isModelPoolSlotEnabled,
   isReviewerRole,
   managedExecution,
-  resolveModelPoolEnabled,
   usesPhi,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -25,15 +21,15 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
-import { limitPercentOf, poolOf, poolRoutesOf, rankAccounts } from "@t3tools/shared/providerPools";
 import {
-  applicableSlotUsageWindows,
-  isModelPoolSlotConserved,
-  modelPoolLimitPercentOf,
-  rankModelPoolSlots,
-  slotStanding,
-} from "@t3tools/shared/modelPools";
-import { windowsUsableAgainMs } from "@t3tools/shared/providerPools";
+  activeSkip,
+  isConserved,
+  orderAccounts,
+  pooledModelKeyOf,
+  pooledModels,
+  selectionAccountId,
+  type AccountRoutingSettings,
+} from "@t3tools/shared/accountPools";
 import {
   providerOverloadKey,
   type ProviderOverloadSnapshot,
@@ -75,7 +71,6 @@ export class AgentRoleError extends Schema.TaggedError<AgentRoleError>()("AgentR
  */
 export type RequestedModel = {
   readonly instanceId?: ProviderInstanceId;
-  readonly poolId?: ModelPoolId;
   /** Absent when the caller states only options, which the role's own selection must match. */
   readonly model?: string;
   readonly options?: ModelSelection["options"];
@@ -87,7 +82,8 @@ type ResolutionInput = {
   readonly request: AgentTaskRequest;
   /** Already intersected with the project's enabled and caller-authorized accounts. */
   readonly providers: ReadonlyArray<ServerProvider>;
-  readonly modelPools?: Readonly<Record<ModelPoolId, ModelPoolConfig>> | undefined;
+  /** The user's account order, removals and skips; without them accounts keep catalog order. */
+  readonly routing?: AccountRoutingSettings | undefined;
   readonly ceiling: RuntimeMode;
   readonly runtimeMode?: RuntimeMode;
   readonly allowTrustedClaudeWriters?: boolean;
@@ -300,7 +296,8 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
     selection: ModelSelection;
     alias: string;
     provider: ServerProvider;
-    slotPool?: { readonly poolId: ModelPoolId; readonly pool: ModelPoolConfig };
+    /** The entry names the model alone, so any account serving it may run it. */
+    anyAccount?: boolean;
   }> = [];
   const REASONING_OPTION_IDS = new Set([
     "reasoningEffort",
@@ -315,31 +312,37 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
         candidate.type === "select" &&
         (candidate.role === "reasoning" || REASONING_OPTION_IDS.has(candidate.id)),
     );
+  const routing = input.routing ?? { accountOrder: [], modelAccountsRemoved: {}, accountSkips: {} };
+  const pools = pooledModels(input.providers, routing);
+  const pooledKeyOf = (provider: ServerProvider, slug: string) => {
+    const model = provider.models.find((candidate) => candidate.slug === slug);
+    return model === undefined ? undefined : pooledModelKeyOf(provider, model);
+  };
+  const pooledAccountsFor = (driver: string, slug: string) => {
+    const provider = input.providers.find(
+      (candidate) =>
+        candidate.driver === driver && candidate.models.some((model) => model.slug === slug),
+    );
+    const key = provider === undefined ? undefined : pooledKeyOf(provider, slug);
+    return pools.find((pool) => pool.key === key)?.accounts;
+  };
   for (const entry of list) {
     const alias = entry.model;
     const binding = snapshot.manifest.models[alias]!;
     const effort = entry.effort;
-    const pool = binding.poolId === undefined ? undefined : input.modelPools?.[binding.poolId];
-    if (binding.poolId !== undefined && pool !== undefined) {
-      const poolId = binding.poolId;
-      if (!resolveModelPoolEnabled(pool)) {
-        record(alias, binding.model, "pool-disabled");
-        continue;
-      }
-      for (const slot of pool.slots) {
-        if (!isModelPoolSlotEnabled(slot)) {
-          record(alias, slot.model, "pool-disabled", slot.providerInstanceId);
+    // A model alone runs on every account serving it, across providers and Pi sub-providers.
+    const pooled =
+      binding.anyAccount === true || binding.poolId !== undefined
+        ? pooledAccountsFor(binding.driverKind, binding.model)
+        : undefined;
+    if (pooled !== undefined) {
+      for (const entry of pooled) {
+        const provider = entry.provider;
+        const skip = (reason: string) => record(alias, entry.model, reason, provider.instanceId);
+        if (entry.removed) {
+          skip("removed-from-model");
           continue;
         }
-        const provider = input.providers.find(
-          (candidate) =>
-            candidate.poolMembers === undefined && candidate.instanceId === slot.providerInstanceId,
-        );
-        if (provider === undefined) {
-          record(alias, slot.model, "provider-not-installed", slot.providerInstanceId);
-          continue;
-        }
-        const skip = (reason: string) => record(alias, slot.model, reason, provider.instanceId);
         const writerRefusal = claudeWriterRefusal(provider.driver);
         if (writerRefusal !== undefined) {
           skip(writerRefusal);
@@ -365,11 +368,7 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
           skip("read-only-unenforced");
           continue;
         }
-        const model = provider.models.find((candidate) => candidate.slug === slot.model);
-        if (model === undefined) {
-          skip("model-unavailable");
-          continue;
-        }
+        const model = provider.models.find((candidate) => candidate.slug === entry.model)!;
         const descriptors = model.capabilities?.optionDescriptors;
         const reasoningOption =
           (binding.effortOption !== undefined
@@ -404,11 +403,10 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
         eligible.push({
           alias,
           provider,
-          slotPool: { poolId, pool },
+          anyAccount: true,
           selection: {
             instanceId: provider.instanceId,
-            model: slot.model,
-            poolId,
+            model: entry.model,
             ...(options.length === 0 ? {} : { options }),
           },
         });
@@ -421,9 +419,7 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
       record(alias, binding.model, writerRefusal);
       continue;
     }
-    const providers = input.providers.filter(
-      (provider) => provider.poolMembers === undefined && provider.driver === binding.driverKind,
-    );
+    const providers = input.providers.filter((provider) => provider.driver === binding.driverKind);
     if (providers.length === 0) record(alias, binding.model, "provider-not-installed");
     for (const provider of providers) {
       const skip = (reason: string) => record(alias, binding.model, reason, provider.instanceId);
@@ -484,6 +480,7 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
         selection: {
           instanceId: provider.instanceId,
           model: binding.model,
+          pinned: true,
           ...(options.length === 0 ? {} : { options }),
         },
       });
@@ -505,9 +502,7 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
   } else if (offList !== undefined) {
     const alias = `off-policy:${offList}`;
     const statedOptions = input.selection?.options ?? [];
-    for (const provider of input.providers.filter(
-      (candidate) => candidate.poolMembers === undefined,
-    )) {
+    for (const provider of input.providers) {
       const skip = (reason: string) => record(alias, offList, reason, provider.instanceId);
       const writerRefusal = claudeWriterRefusal(provider.driver);
       if (writerRefusal !== undefined) {
@@ -574,6 +569,7 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
         selection: {
           instanceId: provider.instanceId,
           model: model.slug,
+          pinned: true,
           ...(supportedOptions.length === 0 ? {} : { options: supportedOptions }),
         },
       });
@@ -582,111 +578,49 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
   const choices = new Set(
     list.map(({ model: alias }) => {
       const binding = snapshot.manifest.models[alias]!;
-      return binding.poolId !== undefined
-        ? `pool:${binding.poolId}`
-        : `${binding.driverKind}:${binding.model}`;
+      return `${binding.driverKind}:${binding.model}`;
     }),
   );
   const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
-  // Which account serves each model follows the pool rule a new pooled thread uses: a member its
-  // pool switches off, or an account out of usage (at its pool's reserve), never serves while
-  // another account can; the rest keep the rule's order.
+  // Accounts serving one model are tried in the user's account order; one skipped after a usage
+  // limit, or held back by subscription conservation, serves only when it is named.
   const overloadEnds = (instanceId: ProviderInstanceId, model: string) => {
     const until = input.overloads?.get(providerOverloadKey(instanceId, model));
     return until !== undefined && until > nowMs ? until : undefined;
   };
-  const pools = poolRoutesOf(input.providers);
+  const accountOf = (candidate: (typeof eligible)[number]) =>
+    selectionAccountId(input.providers, candidate.selection);
   const accountRank = new Map<(typeof eligible)[number], number>();
   const excluded = new Map<
     (typeof eligible)[number],
     | { readonly reason: "usage-limited"; readonly untilMs: number }
-    | { readonly reason: "pool-disabled" }
     | { readonly reason: "conservation" }
   >();
   for (const alias of new Set(eligible.map((candidate) => candidate.alias))) {
-    const serving = eligible.filter((candidate) => candidate.alias === alias);
-    const slotPool = serving[0]?.slotPool;
-    if (slotPool !== undefined && serving.every((candidate) => candidate.slotPool !== undefined)) {
-      const targets = serving.map((candidate) => ({
-        slot: {
-          providerInstanceId: candidate.provider.instanceId,
-          model: candidate.selection.model,
-        },
-        provider: candidate.provider,
-      }));
-      const rankedTargets = rankModelPoolSlots({ pool: slotPool.pool, targets, nowMs });
-      const limitPercent = modelPoolLimitPercentOf(slotPool.pool);
-      for (const candidate of serving) {
-        const target = targets[serving.indexOf(candidate)]!;
-        const index = rankedTargets.indexOf(target);
-        if (index < 0) {
-          excluded.set(candidate, { reason: "pool-disabled" });
-          continue;
-        }
-        if (
-          !input.ignoreConservation &&
-          isModelPoolSlotConserved(candidate.provider, candidate.selection.model)
-        ) {
-          excluded.set(candidate, { reason: "conservation" });
-          continue;
-        }
-        if (
-          slotStanding(candidate.provider, candidate.selection.model, nowMs, limitPercent) === "out"
-        ) {
-          excluded.set(candidate, {
-            reason: "usage-limited",
-            untilMs: windowsUsableAgainMs(
-              applicableSlotUsageWindows(candidate.provider, candidate.selection.model),
-              nowMs,
-              limitPercent,
-            ),
-          });
-          continue;
-        }
-        accountRank.set(candidate, index);
-      }
-      continue;
-    }
-    const ranked = rankAccounts({
-      accounts: serving.map((candidate) => candidate.provider),
-      pools,
-      nowMs,
-    });
-    for (const candidate of serving) {
-      const index = ranked.indexOf(candidate.provider);
-      if (index < 0) {
-        excluded.set(candidate, { reason: "pool-disabled" });
-        continue;
-      }
-      const conservation = candidate.provider.subagentConservation;
-      if (
-        !input.ignoreConservation &&
-        conservation &&
-        conservation.state !== "ready" &&
-        conservation.models.includes(candidate.selection.model)
-      ) {
+    const serving = orderAccounts(
+      eligible.filter((candidate) => candidate.alias === alias),
+      routing.accountOrder,
+      accountOf,
+    );
+    serving.forEach((candidate, index) => {
+      if (!input.ignoreConservation && isConserved(candidate.provider, candidate.selection.model)) {
         excluded.set(candidate, { reason: "conservation" });
-        continue;
+        return;
       }
-      const pool = poolOf(pools, candidate.provider);
-      const limitPercent = pool === undefined ? 100 : limitPercentOf(pool);
-      // The account serving this model: a Pi sub-provider reads its own slot, so an account out
-      // of allowance is out even when the instance's other accounts still have some.
-      if (
-        slotStanding(candidate.provider, candidate.selection.model, nowMs, limitPercent) === "out"
-      ) {
-        excluded.set(candidate, {
-          reason: "usage-limited",
-          untilMs: windowsUsableAgainMs(
-            applicableSlotUsageWindows(candidate.provider, candidate.selection.model),
-            nowMs,
-            limitPercent,
-          ),
-        });
-        continue;
+      const model = candidate.provider.models.find(
+        (entry) => entry.slug === candidate.selection.model,
+      );
+      const key = model === undefined ? undefined : pooledModelKeyOf(candidate.provider, model);
+      const skipped =
+        key === undefined
+          ? undefined
+          : activeSkip(routing.accountSkips, accountOf(candidate), key, nowMs);
+      if (skipped !== undefined) {
+        excluded.set(candidate, { reason: "usage-limited", untilMs: Date.parse(skipped.until) });
+        return;
       }
       accountRank.set(candidate, index);
-    }
+    });
   }
   const serves = (candidate: (typeof eligible)[number]) => !excluded.has(candidate);
   const usageLimitedUntil = (entry: ReturnType<typeof excluded.get>) =>
@@ -709,13 +643,11 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
   let candidates = eligible.filter(serves);
   if (input.selection !== undefined) {
     const selection = input.selection;
-    const named = eligible.filter(({ selection: value, slotPool }) => {
-      if (selection.poolId !== undefined && value.poolId !== selection.poolId) return false;
+    const named = eligible.filter(({ selection: value, provider }) => {
       if (
         selection.model !== undefined &&
         value.model !== selection.model &&
-        value.poolId !== selection.model &&
-        slotPool?.pool.displayName !== selection.model
+        pooledKeyOf(provider, value.model) !== selection.model
       ) {
         return false;
       }
@@ -739,30 +671,10 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
         detail: `${requestedName(selection)} is not eligible for ${request.role}: ${explain(input, diagnostics, selection.instanceId)}${offListHint}`,
       });
     }
-    // A named account that is out hands the task to a pool sibling offering the same model and
-    // options, so naming an account never starts work where it would be refused.
-    const substitutes = (candidate: (typeof eligible)[number]) => {
-      if (candidate.slotPool !== undefined) {
-        const poolId = candidate.slotPool.poolId;
-        return eligible.filter((sibling) => serves(sibling) && sibling.slotPool?.poolId === poolId);
-      }
-      const pool = poolOf(pools, candidate.provider);
-      return pool === undefined
-        ? []
-        : eligible.filter(
-            (sibling) =>
-              serves(sibling) &&
-              sibling.alias === candidate.alias &&
-              pool.members.includes(sibling.provider.instanceId) &&
-              sameOptions(sibling.selection, candidate.selection),
-          );
-    };
-    const available =
-      selection.instanceId === undefined || named.some(serves)
-        ? named.filter(serves)
-        : [...new Set(named.flatMap(substitutes))];
-    // A model the caller names is tried even when every account's reading says it is out: the
-    // reading can be stale or wrong, and the run itself reports a real limit.
+    const available = named.filter(serves);
+    // A model or account the caller names is tried even when every account serving it is skipped:
+    // a skip is a guess, and the run itself reports a real limit. A named account is never swapped
+    // for another.
     const requested =
       available.length > 0
         ? available
@@ -774,7 +686,7 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
             );
     if (requested.length === 0)
       return yield* allOut(
-        `${requestedName(selection)} is out of usage for ${request.role} and no account in its pool can run ${named[0]!.selection.model} with the same options`,
+        `${requestedName(selection)} is held back for ${request.role} and no other account can run ${named[0]!.selection.model} with the same options`,
       );
     // A choice may name an eligible model, but cannot pick effort or options the role does not
     // set. Stated options must be the role's own; omitted ones are the role's. An option the
@@ -890,27 +802,24 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
   const chosen = candidates[0];
   if (chosen === undefined)
     return yield* excluded.size > 0 && eligible.every((candidate) => excluded.has(candidate))
-      ? allOut(`every account that can run ${request.role}'s models is out of usage`)
+      ? allOut(`every account that can run ${request.role}'s models is held back`)
       : new AgentRoleError({
           reason: "no-eligible-model",
           candidates: diagnostics,
           detail: explain(input, diagnostics),
         });
+  // A caller that names the account pins it: the task stays there rather than moving on a limit.
+  const pin = (value: ModelSelection): ModelSelection =>
+    input.selection?.instanceId === undefined ? value : { ...value, pinned: true };
   return {
-    selection: chosen.selection,
-    ranked: candidates.map((candidate) => candidate.selection),
+    selection: pin(chosen.selection),
+    ranked: candidates.map((candidate) => pin(candidate.selection)),
     executionRequirement: admission.executionRequirement,
     executionBoundary: admission.executionBoundary,
     refusal: null,
     candidates: finalDiagnostics(chosen),
   };
 });
-
-const sameOptions = (a: ModelSelection, b: ModelSelection) =>
-  (a.options ?? []).length === (b.options ?? []).length &&
-  (a.options ?? []).every((option) =>
-    b.options?.some((other) => other.id === option.id && other.value === option.value),
-  );
 
 export const layer = Layer.succeed(AgentRoleResolver, {
   resolve: Effect.fn("AgentRoleResolver.resolve")((input) =>

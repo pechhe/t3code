@@ -68,13 +68,9 @@ import {
   latestProviderVersionCacheKeys,
 } from "@t3tools/provider-core/server/maintenanceResolver";
 import type { ProviderSnapshotSource } from "./builtInProviderCatalog.ts";
-import {
-  needsUsageRefresh,
-  USAGE_REFRESH_STALE_MS,
-  withAssumedUsage,
-  withPoolSnapshots,
-  type ProviderPool,
-} from "@t3tools/shared/providerPools";
+
+/** A usage reading younger than this is not read again. */
+const USAGE_REFRESH_STALE_MS = 60_000;
 
 export type ProviderMaintenanceActionKind = "update";
 
@@ -165,51 +161,6 @@ export class ProviderRegistry extends Context.Service<
     readonly streamChanges: Stream.Stream<ReadonlyArray<ServerProvider>>;
   }
 >()("t3/provider/ProviderRegistry") {}
-
-/**
- * Refresh a potentially exhausted choice, then choose again, reading each account at most once.
- * Use the registry's latest snapshot without widening the caller's account list.
- * Failed reads preserve cached usage.
- */
-export const chooseWithFreshUsage = Effect.fn("ProviderRegistry.chooseWithFreshUsage")(function* <
-  A,
-  E,
-  R,
->(
-  registry: ProviderRegistry["Service"],
-  providers: ReadonlyArray<ServerProvider>,
-  choose: (providers: ReadonlyArray<ServerProvider>) => Effect.Effect<A, E, R>,
-  chosenInstance: (choice: A) => ProviderInstanceId | undefined,
-  shouldRefresh: (provider: ServerProvider, choice: A, nowMs: number) => boolean = (
-    provider,
-    _choice,
-    nowMs,
-  ) => needsUsageRefresh(provider, nowMs),
-) {
-  let candidates = providers;
-  let choice = yield* choose(candidates);
-  const refreshed = new Set<ProviderInstanceId>();
-  while (true) {
-    const instanceId = chosenInstance(choice);
-    const chosen = candidates.find((provider) => provider.instanceId === instanceId);
-    if (
-      chosen === undefined ||
-      refreshed.has(chosen.instanceId) ||
-      !shouldRefresh(chosen, choice, DateTime.toEpochMillis(yield* DateTime.now))
-    ) {
-      return choice;
-    }
-    refreshed.add(chosen.instanceId);
-    const latest = new Map(
-      (yield* registry.refreshInstanceUsage(chosen.instanceId)).map((provider) => [
-        provider.instanceId,
-        provider,
-      ]),
-    );
-    candidates = candidates.map((provider) => latest.get(provider.instanceId) ?? provider);
-    choice = yield* choose(candidates);
-  }
-});
 
 const loadProviders = (
   providerSources: ReadonlyArray<ProviderSnapshotSource>,
@@ -598,9 +549,6 @@ export const layer = Layer.effect(
       | { readonly key: string; readonly expiresAtMs: number; readonly summary: UsageSummaryValue }
       | undefined
     >(undefined);
-    const poolsRef = yield* Ref.make<ReadonlyArray<ProviderPool>>(
-      yield* instanceRegistry.listPools,
-    );
 
     const liveSubsRef = yield* Ref.make<ReadonlyMap<ProviderInstanceId, ProviderInstance>>(
       new Map(),
@@ -1207,9 +1155,7 @@ export const layer = Layer.effect(
             return [[previousProviders, providers] as const, providers];
           },
         );
-        const pools = yield* instanceRegistry.listPools;
-        const poolsChanged = !Equal.equals(yield* Ref.getAndSet(poolsRef, pools), pools);
-        if (poolsChanged || haveProvidersChanged(previousProviders, providers)) {
+        if (haveProvidersChanged(previousProviders, providers)) {
           yield* PubSub.publish(changesPubSub, providers);
         }
         yield* Ref.update(maintenanceActionStatesRef, (previous) => {
@@ -1436,11 +1382,11 @@ export const layer = Layer.effect(
       }
     });
 
-    // Pool snapshots are derived on every read so they follow their members'
-    // latest usage; they are never cached, persisted or refreshed themselves.
+    // Conservation and slot budgets are derived on every read so they follow the latest usage.
     // Untraced: every provider read runs it, so a span per read would swamp traces.
-    const withPools = Effect.fnUntraced(function* (providers: ReadonlyArray<ServerProvider>) {
-      const pools = yield* Ref.get(poolsRef);
+    const withDerivedUsage = Effect.fnUntraced(function* (
+      providers: ReadonlyArray<ServerProvider>,
+    ) {
       const now = yield* DateTime.now;
       const nowMs = DateTime.toEpochMillis(now);
       const currentSettingsService = yield* Effect.serviceOption(
@@ -1649,11 +1595,7 @@ export const layer = Layer.effect(
           }
         }
       }
-      return withPoolSnapshots(
-        settings === undefined ? current : withAssumedUsage(current, settings.assumeUsageLeft),
-        pools,
-        nowMs,
-      );
+      return current;
     });
 
     const prepareConservation = Effect.fn("ProviderRegistry.prepareConservation")(function* (
@@ -1663,16 +1605,7 @@ export const layer = Layer.effect(
       if (Option.isNone(settings)) return supplied;
       const rules =
         (yield* settings.value.getSettings.pipe(Effect.orDie)).subagentConservation ?? {};
-      const pools = yield* Ref.get(poolsRef);
-      const suppliedIds = new Set(supplied.map((provider) => provider.instanceId));
-      const accountIds = new Set(
-        supplied
-          .filter((provider) => provider.poolMembers === undefined)
-          .map((provider) => provider.instanceId),
-      );
-      for (const pool of pools)
-        if (suppliedIds.has(pool.instanceId))
-          for (const member of pool.members) accountIds.add(member);
+      const accountIds = new Set(supplied.map((provider) => provider.instanceId));
       const configured = [...accountIds].filter((id) => rules[id]?.enabled);
       if (configured.length === 0) return supplied;
       const unsupported = new Set(
@@ -1700,10 +1633,9 @@ export const layer = Layer.effect(
           }),
         { concurrency: "unbounded", discard: true },
       );
-      yield* withPools(yield* Ref.get(providersRef));
-      const finalSettings = yield* settings.value.getSettings.pipe(Effect.orDie);
-      const finalRules = finalSettings.subagentConservation ?? {};
-      const finalPools = yield* Ref.get(poolsRef);
+      yield* withDerivedUsage(yield* Ref.get(providersRef));
+      const finalRules =
+        (yield* settings.value.getSettings.pipe(Effect.orDie)).subagentConservation ?? {};
       const finalUnsupported = new Set(
         (yield* Ref.get(providersRef))
           .filter((provider) => provider.conservationScope?.providerIds.length === 0)
@@ -1734,70 +1666,66 @@ export const layer = Layer.effect(
         (yield* Ref.get(providersRef)).map((provider) => [provider.instanceId, provider]),
       );
       const now = DateTime.toEpochMillis(yield* DateTime.now);
-      const merged = supplied
-        .filter((provider) => provider.poolMembers === undefined)
-        .flatMap((provider) => {
-          const current = latest.get(provider.instanceId);
-          if (!current) return [];
-          const next = {
-            ...current,
-            models: provider.models,
-            slashCommands: provider.slashCommands,
-            skills: provider.skills,
-            ...(provider.workspaceSnapshots === undefined
-              ? {}
-              : { workspaceSnapshots: provider.workspaceSnapshots }),
-            ...(provider.runtimePaths === undefined ? {} : { runtimePaths: provider.runtimePaths }),
-          };
-          const rule = finalRules[provider.instanceId];
-          return [
-            rule?.enabled
-              ? {
-                  ...next,
-                  subagentConservation: evaluateConservation(
-                    next,
-                    rule,
-                    now,
-                    conservationMemory[provider.instanceId],
-                    { current: identities.get(provider.instanceId) },
-                  ).status,
-                }
-              : next,
-          ];
-        });
-      return withPoolSnapshots(
-        withAssumedUsage(merged, finalSettings.assumeUsageLeft),
-        finalPools.filter((pool) => suppliedIds.has(pool.instanceId)),
-        now,
-      );
+      return supplied.flatMap((provider) => {
+        const current = latest.get(provider.instanceId);
+        if (!current) return [];
+        const next = {
+          ...current,
+          models: provider.models,
+          slashCommands: provider.slashCommands,
+          skills: provider.skills,
+          ...(provider.workspaceSnapshots === undefined
+            ? {}
+            : { workspaceSnapshots: provider.workspaceSnapshots }),
+          ...(provider.runtimePaths === undefined ? {} : { runtimePaths: provider.runtimePaths }),
+        };
+        const rule = finalRules[provider.instanceId];
+        return [
+          rule?.enabled
+            ? {
+                ...next,
+                subagentConservation: evaluateConservation(
+                  next,
+                  rule,
+                  now,
+                  conservationMemory[provider.instanceId],
+                  { current: identities.get(provider.instanceId) },
+                ).status,
+              }
+            : next,
+        ];
+      });
     });
 
     return {
-      getProviders: Ref.get(providersRef).pipe(Effect.flatMap(withPools)),
+      getProviders: Ref.get(providersRef).pipe(Effect.flatMap(withDerivedUsage)),
       refresh: (provider?: ProviderDriverKind) =>
-        refresh(provider).pipe(Effect.catchCause(recoverRefreshFailure), Effect.flatMap(withPools)),
+        refresh(provider).pipe(
+          Effect.catchCause(recoverRefreshFailure),
+          Effect.flatMap(withDerivedUsage),
+        ),
       refreshInstance: (instanceId: ProviderInstanceId) =>
         refreshInstance(instanceId).pipe(
           Effect.catchCause(recoverRefreshFailure),
-          Effect.flatMap(withPools),
+          Effect.flatMap(withDerivedUsage),
         ),
       refreshInstanceUsage: (instanceId) =>
-        refreshInstanceUsage(instanceId).pipe(Effect.flatMap(withPools)),
+        refreshInstanceUsage(instanceId).pipe(Effect.flatMap(withDerivedUsage)),
       prepareConservation,
       reloadSecretsAndRefresh: (instanceId?: ProviderInstanceId) =>
         reloadSecretsAndRefresh(instanceId).pipe(
           Effect.catchCause(recoverRefreshFailure),
-          Effect.flatMap(withPools),
+          Effect.flatMap(withDerivedUsage),
         ),
       applySecretAndRefresh: (reference: SecretReference, value: string) =>
         applySecretAndRefresh(reference, value).pipe(
           Effect.catchCause(recoverRefreshFailure),
-          Effect.flatMap(withPools),
+          Effect.flatMap(withDerivedUsage),
         ),
       refreshWorkspaceSnapshot: (input) =>
         refreshWorkspaceSnapshot(input).pipe(
           Effect.catchCause(recoverRefreshFailure),
-          Effect.flatMap(withPools),
+          Effect.flatMap(withDerivedUsage),
         ),
       refreshAfterUpdate,
       invalidateModelCaches,
@@ -1821,7 +1749,7 @@ export const layer = Layer.effect(
             return Stream.merge(
               Stream.fromSubscription(subscription),
               settingsChanges.pipe(Stream.mapEffect(() => Ref.get(providersRef))),
-            ).pipe(Stream.mapEffect(withPools));
+            ).pipe(Stream.mapEffect(withDerivedUsage));
           }),
         );
       },

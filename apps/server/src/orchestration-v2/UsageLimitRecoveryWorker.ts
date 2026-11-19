@@ -1,20 +1,7 @@
-import {
-  CommandId,
-  MessageId,
-  type ModelPoolConfig,
-  type ModelPoolId,
-  type OrchestrationV2Command,
-  type RunId,
-  type ServerProvider,
-} from "@t3tools/contracts";
+import { CommandId, MessageId, type OrchestrationV2Command } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
-import * as Ref from "effect/Ref";
-import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
-import { pickPoolFailoverMember } from "@t3tools/shared/providerPools";
-import { adaptModelSelectionForSlot, pickModelPoolFailoverSlot } from "@t3tools/shared/modelPools";
 import * as Stream from "effect/Stream";
 import type { OrchestrationV2DomainEvent } from "@t3tools/contracts";
 import * as DueHint from "../scheduling/DueHint.ts";
@@ -25,107 +12,6 @@ import * as ProjectionStore from "./ProjectionStore.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
 
-const CONTINUE_TEXT = "Continue where you left off.";
-
-/** A usage-limit stop with its window still closed that nothing else already handles. */
-function isLimitBlocked(
-  thread: ProjectionStore.ProjectionLimitRecoveryCandidate,
-): thread is ProjectionStore.ProjectionLimitRecoveryCandidate & {
-  readonly latestRunId: RunId;
-  readonly usageLimitResetAt: string;
-} {
-  return (
-    thread.status === "failed" &&
-    thread.lastErrorClass === "usage_limit" &&
-    !!thread.latestRunId &&
-    !!thread.usageLimitResetAt &&
-    thread.archivedAt === null &&
-    thread.settledOverride !== "settled" &&
-    thread.pendingRuntimeRequest === null
-  );
-}
-
-/**
- * Continues a limited thread on the next account of the pool it runs on, with
- * the same model, instead of waiting for the reset. The failed run is the
- * identity: once the continuation starts it is no longer the latest run.
- */
-export function poolFailoverCommand(
-  thread: ProjectionStore.ProjectionLimitRecoveryCandidate,
-  providers: ReadonlyArray<ServerProvider>,
-  nowMs: number,
-  switchOnLimit: boolean,
-  modelPools?: Readonly<Record<ModelPoolId, ModelPoolConfig>>,
-): OrchestrationV2Command | null {
-  if (!isLimitBlocked(thread) || Date.parse(thread.usageLimitResetAt) <= nowMs) return null;
-  if (thread.modelSelection.poolId !== undefined) {
-    const pool = modelPools?.[thread.modelSelection.poolId];
-    if (pool === undefined || pool.enabled === false) return null;
-    if (!(pool.policy?.switchOnLimit ?? switchOnLimit)) return null;
-    const next = pickModelPoolFailoverSlot({
-      pool,
-      providers,
-      nowMs,
-      limited: {
-        instanceId: thread.modelSelection.instanceId,
-        model: thread.modelSelection.model,
-      },
-    });
-    if (next === undefined) return null;
-    const identity = `limit-pool-switch:${thread.id}:${thread.latestRunId}`;
-    return {
-      type: "message.dispatch",
-      commandId: CommandId.make(identity),
-      messageId: MessageId.make(identity),
-      threadId: thread.id,
-      manualContinuationOfRunId: thread.latestRunId,
-      modelSelection: adaptModelSelectionForSlot({
-        poolId: thread.modelSelection.poolId,
-        slot: next.slot,
-        providers,
-        baseOptions: thread.modelSelection.options,
-      }),
-      text: CONTINUE_TEXT,
-      attachments: [],
-      dispatchMode: { type: "start_immediately" },
-      createdBy: "user",
-      creationSource: "server",
-    };
-  }
-  const limited = thread.modelSelection.instanceId;
-  for (const pool of providers) {
-    if (pool.poolMembers?.includes(limited) !== true) continue;
-    if (!(pool.poolPolicy?.switchOnLimit ?? switchOnLimit)) continue;
-    const member = pickPoolFailoverMember({
-      pool: {
-        driver: pool.driver,
-        members: pool.poolMembers,
-        policy: pool.poolPolicy,
-      },
-      providers,
-      nowMs,
-      limited,
-    });
-    if (member === undefined) continue;
-    const identity = `limit-pool-switch:${thread.id}:${thread.latestRunId}`;
-    return {
-      type: "message.dispatch",
-      commandId: CommandId.make(identity),
-      messageId: MessageId.make(identity),
-      threadId: thread.id,
-      manualContinuationOfRunId: thread.latestRunId,
-      modelSelection: { ...thread.modelSelection, instanceId: member },
-      text: CONTINUE_TEXT,
-      attachments: [],
-      dispatchMode: { type: "start_immediately" },
-      createdBy: "user",
-      creationSource: "server",
-    };
-  }
-  return null;
-}
-
-/** The persisted run and reset form the identity of one recovery opportunity. */
 export const MAX_OVERDUE_ARM_MS = 24 * 60 * 60 * 1000;
 
 export function limitRecoveryCommand(
@@ -134,7 +20,16 @@ export function limitRecoveryCommand(
   nowMs: number,
   snooze = false,
 ): OrchestrationV2Command | null {
-  if (!isLimitBlocked(thread)) return null;
+  if (
+    thread.status !== "failed" ||
+    thread.lastErrorClass !== "usage_limit" ||
+    !thread.latestRunId ||
+    !thread.usageLimitResetAt ||
+    thread.archivedAt !== null ||
+    thread.settledOverride === "settled" ||
+    thread.pendingRuntimeRequest !== null
+  )
+    return null;
   const resetMs = Date.parse(thread.usageLimitResetAt);
   // An already-expired window reported with a fresh failure cannot start a retry loop.
   if (
@@ -175,7 +70,7 @@ export function limitRecoveryCommand(
     ...(recovery.requestId === undefined
       ? {}
       : { usageLimitRecoveryRequestId: recovery.requestId }),
-    text: CONTINUE_TEXT,
+    text: "Continue where you left off.",
     attachments: [],
     dispatchMode: { type: "start_immediately" },
     createdBy: "agent",
@@ -183,56 +78,6 @@ export function limitRecoveryCommand(
   };
 }
 
-/**
- * Whether the sweep needs pool snapshots: a pool's own setting overrides the
- * global one, so a pool that opts in is swept even while the global switch is off.
- */
-export function wantsPoolSwitch(
-  globalSwitch: boolean,
-  providers: ReadonlyArray<ServerProvider>,
-  modelPools?: Readonly<Record<ModelPoolId, ModelPoolConfig>>,
-): boolean {
-  return (
-    globalSwitch ||
-    providers.some((provider) => provider.poolPolicy?.switchOnLimit === true) ||
-    Object.values(modelPools ?? {}).some(
-      (pool) => pool.enabled !== false && pool.policy?.switchOnLimit === true,
-    )
-  );
-}
-
-/**
- * The command that moves a limited thread on, skipping any the server has
- * already rejected: a rejection is recorded for good, so retrying it only
- * repeats the failure and, for a pool switch, hides the plain recovery below.
- */
-export function nextRecoveryCommand(input: {
-  readonly thread: ProjectionStore.ProjectionLimitRecoveryCandidate;
-  readonly providers: ReadonlyArray<ServerProvider> | null;
-  readonly modelPools?: Readonly<Record<ModelPoolId, ModelPoolConfig>> | undefined;
-  /** The global setting, which a pool's own `switchOnLimit` overrides. */
-  readonly switchOnLimit: boolean;
-  readonly nowMs: number;
-  readonly autoResume: boolean;
-  readonly snooze: boolean;
-  readonly rejected: ReadonlySet<string>;
-}): OrchestrationV2Command | null {
-  const poolSwitch =
-    input.providers === null
-      ? null
-      : poolFailoverCommand(
-          input.thread,
-          input.providers,
-          input.nowMs,
-          input.switchOnLimit,
-          input.modelPools,
-        );
-  const command =
-    poolSwitch !== null && !input.rejected.has(poolSwitch.commandId)
-      ? poolSwitch
-      : limitRecoveryCommand(input.thread, input.autoResume, input.nowMs, input.snooze);
-  return command !== null && !input.rejected.has(command.commandId) ? command : null;
-}
 // Events that can make a thread a candidate or change its command; streaming items cannot.
 const affectsLimitRecovery = (event: OrchestrationV2DomainEvent) =>
   event.type.startsWith("thread.") ||
@@ -247,11 +92,6 @@ const makeSweep = Effect.gen(function* () {
   const threads = yield* ThreadManagement.ThreadManagementService;
   const orchestrator = yield* Orchestrator.OrchestratorV2;
   const settings = yield* ServerSettings.ServerSettingsService;
-  // Optional like ThreadManagementService: without the registry there are no pools.
-  const providerRegistry = yield* Effect.serviceOption(ProviderRegistry.ProviderRegistry);
-  // Rejected command ids, kept for the process: the server remembers them, so a
-  // restart costs one more attempt each.
-  const rejected = yield* Ref.make<ReadonlySet<string>>(new Set());
   const due = DueHint.make();
   yield* forkParked(
     Stream.runForEach(orchestrator.streamDomainEvents, (event) =>
@@ -259,42 +99,25 @@ const makeSweep = Effect.gen(function* () {
     ),
   );
   yield* forkParked(Stream.runForEach(settings.streamChanges, () => due.invalidate));
-  if (Option.isSome(providerRegistry)) {
-    yield* forkParked(
-      Stream.runForEach(providerRegistry.value.streamChanges, () => due.invalidate),
-    );
-  }
   return Effect.fn("UsageLimitRecoveryWorker.sweep")(function* () {
     const now = yield* DateTime.now;
     const nowMs = DateTime.toEpochMillis(now);
     if (yield* due.isIdle(nowMs)) return;
     const readVersion = yield* due.version;
     const preferences = yield* settings.getSettings;
-    const registered = Option.isSome(providerRegistry)
-      ? yield* providerRegistry.value.getProviders
-      : [];
-    const poolSwitch =
-      Option.isSome(providerRegistry) &&
-      wantsPoolSwitch(preferences.switchPooledAccountOnLimit, registered, preferences.modelPools);
     const candidates = yield* projections.getLimitRecoveryCandidates({
       now,
       autoResume: preferences.autoResumeLimitedThreads,
       snooze: preferences.snoozeLimitedThreads,
-      poolSwitch,
     });
-    const providers = poolSwitch ? registered : null;
     let acted = false;
     for (const thread of candidates) {
-      const command = nextRecoveryCommand({
+      const command = limitRecoveryCommand(
         thread,
-        providers,
-        modelPools: preferences.modelPools,
-        switchOnLimit: preferences.switchPooledAccountOnLimit,
+        preferences.autoResumeLimitedThreads,
         nowMs,
-        autoResume: preferences.autoResumeLimitedThreads,
-        snooze: preferences.snoozeLimitedThreads,
-        rejected: yield* Ref.get(rejected),
-      });
+        preferences.snoozeLimitedThreads,
+      );
       if (command === null) continue;
       acted = true;
       yield* Effect.gen(function* () {
@@ -308,18 +131,6 @@ const makeSweep = Effect.gen(function* () {
           yield* threads.dispatch(command);
         }
       }).pipe(
-        Effect.catchTags({
-          OrchestratorCommandPreviouslyRejectedError: (error) =>
-            Ref.update(rejected, (ids) => new Set(ids).add(command.commandId)).pipe(
-              Effect.andThen(
-                Effect.logWarning("orchestration-v2.limit-recovery.command-rejected", {
-                  threadId: thread.id,
-                  commandId: command.commandId,
-                  detail: error.detail,
-                }),
-              ),
-            ),
-        }),
         Effect.catchCause((cause) =>
           Effect.logWarning("orchestration-v2.limit-recovery.dispatch-failed", {
             threadId: thread.id,

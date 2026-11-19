@@ -1,7 +1,6 @@
 import { evaluateConservation } from "../provider/subagentConservation.ts";
 import { expect, it } from "@effect/vitest";
 import {
-  ModelPoolId,
   ProviderDriverKind,
   type AgentPolicySnapshot,
   ProviderInstanceId,
@@ -9,10 +8,6 @@ import {
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
-import * as TestClock from "effect/testing/TestClock";
-import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
-import { makeProviderRegistryMock } from "../provider/testUtils/providerRegistryMock.ts";
-import { withAssumedUsage } from "@t3tools/shared/providerPools";
 import * as Resolver from "./AgentRoleResolver.ts";
 import { providerOverloadKey } from "../provider/ProviderOverloads.ts";
 import {
@@ -112,15 +107,6 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
             providers: [limited, claude],
             selection: { instanceId: codex.instanceId, model: codexModel },
           });
-          const sibling = { ...codex, instanceId: ProviderInstanceId.make("codex-spare") };
-          const pool = {
-            ...codex,
-            instanceId: ProviderInstanceId.make("codex-pool"),
-            poolMembers: [codex.instanceId, sibling.instanceId],
-          };
-          expect(
-            (yield* resolve({ ...value, providers: [limited, sibling, pool, claude] })).instanceId,
-          ).toBe(sibling.instanceId);
           const preview = yield* resolver.preview(value);
           expect(preview.selection).toBeNull();
           expect(preview.refusal).toContain("conservation");
@@ -390,11 +376,13 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       expect(yield* resolve(base)).toEqual({
         instanceId: pi.instanceId,
         model: effortless,
+        pinned: true,
       });
       const kimiOnly = { ...pi, models: pi.models.filter((model) => model.slug === effortful) };
       expect(yield* resolve({ ...base, providers: [kimiOnly] })).toEqual({
         instanceId: pi.instanceId,
         model: effortful,
+        pinned: true,
         options: [{ id: "thinking", value: "medium" }],
       });
       // An effort the model does not offer is still refused.
@@ -437,95 +425,12 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
     }),
   );
 
-  it.effect("delegates a pooled model to the slot with allowance, skipping conserved slots", () =>
-    Effect.gen(function* () {
-      const poolId = ModelPoolId.make("sonnet-pool");
-      const pi = provider("pi", "pi", ["hf/sonnet", "ys/sonnet"]);
-      const usage = (usedPercent: number) => ({
-        checkedAt: "2026-01-01T00:00:00.000Z",
-        windows: [
-          {
-            id: "s",
-            kind: "session" as const,
-            label: "S",
-            usedPercent,
-            resetsAt: "2999-01-01T00:00:00.000Z",
-          },
-        ],
-      });
-      const piWithSlots = {
-        ...pi,
-        usageSlots: [
-          { accountKey: "hf", label: "hf", usageLimits: usage(100) },
-          { accountKey: "ys", label: "ys", usageLimits: usage(10) },
-        ],
-      };
-      const modelPools = {
-        [poolId]: {
-          displayName: "Sonnet",
-          policy: { strategy: "order" as const },
-          slots: [
-            { providerInstanceId: codex.instanceId, model: codexModel },
-            { providerInstanceId: pi.instanceId, model: "hf/sonnet" },
-            { providerInstanceId: pi.instanceId, model: "ys/sonnet" },
-          ],
-        },
-      };
-      const original = snapshot();
-      const pooled = {
-        ...original,
-        manifest: {
-          ...original.manifest,
-          models: {
-            ...original.manifest.models,
-            sol: { ...original.manifest.models.sol!, poolId },
-          },
-          lists: { ...original.manifest.lists, workhorse: [{ model: "sol", effort: "high" }] },
-        },
-      };
-      const conserved: ServerProvider = {
-        ...codex,
-        subagentConservation: {
-          state: "active",
-          unavailable: false,
-          models: [codexModel],
-          message: "Conserved",
-        },
-      };
-      // The first slot is conserved and the second is out, so the third takes the task.
-      expect(
-        yield* resolve(
-          input({ snapshot: pooled, providers: [conserved, piWithSlots], modelPools }),
-        ),
-      ).toEqual({
-        instanceId: pi.instanceId,
-        model: "ys/sonnet",
-        poolId,
-        options: [{ id: "effort", value: "high" }],
-      });
-      // Without conservation the first slot in order serves, still naming the pool.
-      expect(
-        yield* resolve(input({ snapshot: pooled, providers: [codex, piWithSlots], modelPools })),
-      ).toMatchObject({ instanceId: codex.instanceId, model: codexModel, poolId });
-      // A caller may name the pool by its id.
-      expect(
-        yield* resolve(
-          input({
-            snapshot: pooled,
-            providers: [conserved, piWithSlots],
-            modelPools,
-            selection: { model: poolId },
-          }),
-        ),
-      ).toMatchObject({ model: "ys/sonnet", poolId });
-    }),
-  );
-
   it.effect("selects a workhorse at its list effort", () =>
     Effect.gen(function* () {
       expect(yield* resolve(input())).toEqual({
         instanceId: codex.instanceId,
         model: codexModel,
+        pinned: true,
         options: [{ id: "reasoning", value: "medium" }],
       });
       const lowOnly = provider("codex", "codex-low", [codexModel], ["low"]);
@@ -547,6 +452,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       expect(yield* resolve(assigned)).toEqual({
         instanceId: codex.instanceId,
         model: "gpt-astra-test",
+        pinned: true,
         options: [{ id: "reasoning", value: "high" }],
       });
       // Every account and capability check still applies to the assigned treatment.
@@ -723,6 +629,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       ).toEqual({
         instanceId: codex.instanceId,
         model: codexModel,
+        pinned: true,
         options: [{ id: "reasoning", value: "medium" }],
       });
     }),
@@ -1032,6 +939,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       expect(yield* value({ model: codexModel })).toEqual({
         instanceId: codex.instanceId,
         model: codexModel,
+        pinned: true,
         options: [{ id: "reasoning", value: "medium" }],
       });
     }),
@@ -1050,6 +958,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       expect(yield* resolve(advisor({ model: "gpt-astra-test" }))).toEqual({
         instanceId: codex.instanceId,
         model: "gpt-astra-test",
+        pinned: true,
         options: [{ id: "reasoning", value: "medium" }],
       });
       // The named account is honoured when it offers the model.
@@ -1107,6 +1016,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       expect(roleSelection).toEqual({
         instanceId: claude.instanceId,
         model: "claude-fable-test",
+        pinned: true,
         options: [{ id: "effort", value: "medium" }],
       });
       // Echoing the caller's own fastMode=false changes nothing: the role does not set
@@ -1195,6 +1105,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
         expect(preview.selection).toEqual({
           instanceId: codex.instanceId,
           model: codexModel,
+          pinned: true,
           options: [{ id: "reasoning", value: "medium" }],
         });
         expect((yield* resolve(input({ request: review }))).model).toBe(claudeModel);
@@ -1278,341 +1189,50 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
     }),
   );
 
-  it.effect("delegates to the member whose usage resets soonest", () =>
+  it.effect("passes over a skipped account until its skip ends, but runs it when named", () =>
     Effect.gen(function* () {
-      const usage = (usedPercent: number, resetsAt: string) => ({
-        checkedAt: "2026-10-15T00:00:00.000Z",
-        windows: [
-          { id: "five_hour", kind: "session" as const, label: "Session", usedPercent, resetsAt },
-        ],
-      });
-      const member = (id: string, usedPercent: number, resetsAt: string): ServerProvider => ({
-        ...claude,
-        instanceId: ProviderInstanceId.make(id),
-        usageLimits: usage(usedPercent, resetsAt),
-      });
-      const caller = member("claude-caller", 100, "2026-10-15T01:00:00.000Z");
-      const later = member("claude-later", 20, "2026-10-15T04:00:00.000Z");
-      const sooner = member("claude-sooner", 60, "2026-10-15T02:00:00.000Z");
-      const pool: ServerProvider = {
-        ...claude,
-        instanceId: ProviderInstanceId.make("claude-pool"),
-        poolMembers: [caller.instanceId, later.instanceId, sooner.instanceId],
-      };
-      const base = input({
-        request: request({
-          role: "reviewer",
-          sourceRevision: "reviewed-commit",
-          review: changeReview,
-        }),
-        providers: [caller, later, sooner, pool],
-      });
-      expect((yield* resolve(base)).instanceId).toBe(sooner.instanceId);
-    }),
-  );
-
-  it.effect("re-reads a stale near-limit first choice before a task starts on it", () =>
-    Effect.gen(function* () {
-      yield* TestClock.setTime(Date.parse("2026-10-15T00:10:00.000Z"));
-      const reading = (usedPercent: number, checkedAt: string) => ({
-        ...claude,
-        usageLimits: {
-          checkedAt,
-          windows: [
-            {
-              id: "five_hour",
-              kind: "session" as const,
-              label: "Session",
-              usedPercent,
-              resetsAt: "2026-10-15T03:00:00.000Z",
-            },
-          ],
-        },
-      });
-      const stale = "2026-10-15T00:00:00.000Z";
+      const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
       const review = request({
         role: "reviewer",
         sourceRevision: "reviewed-commit",
         review: changeReview,
       });
-      const now = "2026-10-15T00:10:00.000Z";
-      const spare = (usedPercent: number) => ({
-        ...reading(usedPercent, now),
-        instanceId: ProviderInstanceId.make("claude-spare"),
-      });
-      const choose = (cached: ServerProvider, others: ReadonlyArray<ServerProvider> = []) =>
-        Effect.gen(function* () {
-          const reads: Array<string> = [];
-          const registry = {
-            ...makeProviderRegistryMock(),
-            refreshInstanceUsage: (instanceId: ProviderInstanceId) =>
-              Effect.sync(() => {
-                reads.push(instanceId);
-                return [codex, reading(100, now), spare(100)];
-              }),
-          };
-          const selection = yield* ProviderRegistry.chooseWithFreshUsage(
-            registry,
-            [codex, cached, ...others],
-            (providers) => resolve(input({ request: review, providers })),
-            (chosen) => chosen.instanceId,
-          );
-          return { model: selection.model, reads };
-        });
-
-      // Sonnet leads the list; the re-read shows its account is out, so Codex serves.
-      expect(yield* choose(reading(96, stale))).toEqual({
-        model: codexModel,
-        reads: [claude.instanceId],
-      });
-      // The registry's newer readings of the other accounts count too: the spare ran out
-      // meanwhile, so the work moves past it.
-      expect(yield* choose(reading(96, stale), [spare(50)])).toEqual({
-        model: codexModel,
-        reads: [claude.instanceId],
-      });
-      // Below the threshold, or freshly read, the cached reading is trusted.
-      expect(yield* choose(reading(90, stale))).toEqual({ model: claudeModel, reads: [] });
-      expect(yield* choose(reading(96, "2026-10-15T00:09:30.000Z"))).toEqual({
-        model: claudeModel,
-        reads: [],
-      });
-    }),
-  );
-
-  it.effect("delegates past accounts out of usage to the next model with allowance", () =>
-    Effect.gen(function* () {
-      const resolver = yield* Resolver.AgentRoleResolver;
-      const limit = (account: ServerProvider, resetsAt: string, id = account.instanceId) => ({
-        ...account,
-        instanceId: id,
-        usageLimits: {
-          checkedAt: "2026-10-15T00:00:00.000Z",
-          windows: [
-            { id: "seven_day", kind: "weekly" as const, label: "Week", usedPercent: 100, resetsAt },
-          ],
-        },
-      });
-      const review = (authorModel?: string) =>
-        request({
-          role: "reviewer",
-          sourceRevision: "reviewed-commit",
-          review: changeReview,
-          ...(authorModel === undefined ? {} : { authorModel }),
-        });
-      const claudeOut = limit(claude, "2026-10-15T03:00:00.000Z");
-      const codexOut = limit(codex, "2026-10-15T02:00:00.000Z");
-
-      // Sonnet leads the list, but its only account is out, so Codex serves.
-      const skipped = yield* resolver.preview(
-        input({ request: review(), providers: [codex, claudeOut] }),
-      );
-      expect(skipped.selection?.model).toBe(codexModel);
-      expect(skipped.candidates).toContainEqual(
-        expect.objectContaining({ alias: "sonnet", reason: "usage-limited" }),
-      );
-
-      // Another account with allowance keeps the preferred model.
-      const spare = { ...claude, instanceId: ProviderInstanceId.make("claude-spare") };
-      const kept = yield* resolve(
-        input({ request: review(), providers: [codex, claudeOut, spare] }),
-      );
-      expect(kept).toMatchObject({ model: claudeModel, instanceId: spare.instanceId });
-
-      // With every account out nothing starts: the refusal names the earliest return.
-      const allOut = yield* resolver.preview(
-        input({ request: review(), providers: [codexOut, claudeOut] }),
-      );
-      expect(allOut.selection).toBeNull();
-      expect(allOut.refusal).toMatch(/^usage-limited: .*2026-10-15T02:00:00\.000Z/);
-      expect(allOut.candidates).toContainEqual(
-        expect.objectContaining({
-          alias: "sonnet",
-          reason: "usage-limited",
-          until: "2026-10-15T03:00:00.000Z",
-        }),
-      );
-
-      // Allowance outranks a reviewer's preference against the author's model.
-      const authorOnly = yield* resolve(
-        input({ request: review(claudeModel), providers: [codexOut, claude] }),
-      );
-      expect(authorOnly.model).toBe(claudeModel);
-
-      // An explicit choice takes an account of that model with allowance when it has one.
-      const chosen = yield* resolve(
-        input({
-          request: review(),
-          providers: [codex, claudeOut, spare],
-          selection: { model: claudeModel },
-        }),
-      );
-      expect(chosen.instanceId).toBe(spare.instanceId);
-    }),
-  );
-
-  it.effect("treats a Pi account out of allowance as out for the models it serves", () =>
-    Effect.gen(function* () {
-      const resolver = yield* Resolver.AgentRoleResolver;
-      const antigravityModel = "antigravity/gemini-4-hydrogen";
-      const resetsAt = "2026-10-21T06:00:00.000Z";
-      const pi = provider("pi", "pi", [antigravityModel]);
-      const original = snapshot();
-      const policy = {
-        ...original,
-        manifest: {
-          ...original.manifest,
-          models: {
-            ...original.manifest.models,
-            hydrogen: { driverKind: ProviderDriverKind.make("pi"), model: antigravityModel },
-          },
-          lists: { ...original.manifest.lists, workhorse: [{ model: "hydrogen" }] },
-        },
-      };
-      const withSlot = (usedPercent: number) => ({
-        ...pi,
-        usageSlots: [
-          {
-            accountKey: "antigravity",
-            label: "antigravity",
-            usageLimits: {
-              checkedAt: "2026-10-16T16:49:00.000Z",
-              windows: [
-                {
-                  id: "gemini-weekly",
-                  kind: "weekly" as const,
-                  label: "Gemini · Weekly",
-                  usedPercent,
-                  resetsAt,
-                },
-              ],
+      const skipped = (untilMs: number) => ({
+        accountOrder: [],
+        modelAccountsRemoved: {},
+        accountSkips: {
+          [claude.instanceId]: {
+            [claudeModel]: {
+              until: DateTime.formatIso(DateTime.makeUnsafe(untilMs)),
+              reportedReset: true,
             },
           },
-        ],
-      });
-      const out = yield* resolver.preview(input({ snapshot: policy, providers: [withSlot(100)] }));
-      expect(out.selection).toBeNull();
-      expect(out.candidates).toContainEqual(
-        expect.objectContaining({
-          alias: "hydrogen",
-          model: antigravityModel,
-          reason: "usage-limited",
-          until: resetsAt,
-        }),
-      );
-      // The same account with allowance left serves again.
-      expect((yield* resolve(input({ snapshot: policy, providers: [withSlot(40)] }))).model).toBe(
-        antigravityModel,
-      );
-      // Named explicitly, the model is tried even though its reading says the account is out.
-      expect(
-        (yield* resolve(
-          input({
-            snapshot: policy,
-            providers: [withSlot(100)],
-            selection: { model: antigravityModel },
-          }),
-        )).model,
-      ).toBe(antigravityModel);
-      // An account the user assumes has usage left serves without being named.
-      const assumed = withAssumedUsage([withSlot(100)], { [`${pi.instanceId}:antigravity`]: true });
-      expect((yield* resolve(input({ snapshot: policy, providers: assumed }))).model).toBe(
-        antigravityModel,
-      );
-    }),
-  );
-
-  it.effect("picks among pooled accounts by the pool's rule, never one that is out", () =>
-    Effect.gen(function* () {
-      const resolver = yield* Resolver.AgentRoleResolver;
-      const id = ProviderInstanceId.make;
-      const used = (
-        account: ServerProvider,
-        name: string,
-        usedPercent: number,
-        resetsAt: string,
-      ) => ({
-        ...account,
-        instanceId: id(name),
-        usageLimits: {
-          checkedAt: "2026-10-15T00:00:00.000Z",
-          windows: [
-            { id: "five_hour", kind: "session" as const, label: "Session", usedPercent, resetsAt },
-          ],
         },
       });
-      const soon = used(claude, "claude-soon", 20, "2026-10-15T02:00:00.000Z");
-      const late = used(claude, "claude-late", 20, "2026-10-15T05:00:00.000Z");
-      const out = used(claude, "claude-out", 100, "2026-10-15T03:00:00.000Z");
-      const pool = (
-        members: ReadonlyArray<ServerProvider>,
-        policy?: ServerProvider["poolPolicy"],
-      ): ServerProvider => ({
-        ...claude,
-        instanceId: id("claude-pool"),
-        poolMembers: members.map((member) => member.instanceId),
-        ...(policy === undefined ? {} : { poolPolicy: policy }),
-      });
-      const claudeOnly = (
-        providers: ReadonlyArray<ServerProvider>,
-        selection?: Input["selection"],
-      ) =>
+
+      // Sonnet leads the list; while its account is skipped the next entry serves.
+      const passedOver = yield* resolve(
+        input({ request: review, routing: skipped(nowMs + 60_000) }),
+      );
+      expect(passedOver.model).toBe(codexModel);
+
+      // Once the skip has ended, the list's first choice serves again.
+      const returned = yield* resolve(input({ request: review, routing: skipped(nowMs) }));
+      expect(returned.model).toBe(claudeModel);
+
+      // A named account is tried while skipped, and pinned there rather than swapped.
+      const named = yield* resolve(
         input({
-          snapshot: snapshot(),
-          request: request({
-            role: "reviewer",
-            sourceRevision: "reviewed-commit",
-            review: changeReview,
-          }),
-          providers,
-          ...(selection === undefined ? {} : { selection }),
-        });
-
-      // The account with allowance serves, and discovery names it and why the other is skipped.
-      const preview = yield* resolver.preview(claudeOnly([out, soon, pool([out, soon])]));
-      expect(preview.selection).toMatchObject({ model: claudeModel, instanceId: soon.instanceId });
-      expect(preview.candidates).toContainEqual(
-        expect.objectContaining({ providerInstanceId: out.instanceId, reason: "usage-limited" }),
+          request: review,
+          selection: { instanceId: claude.instanceId },
+          routing: skipped(nowMs + 60_000),
+        }),
       );
-
-      // The pool's strategy decides between accounts with allowance: spend what lapses soonest,
-      // or the pool's own order.
-      expect((yield* resolve(claudeOnly([late, soon, pool([late, soon])]))).instanceId).toBe(
-        soon.instanceId,
-      );
-      expect(
-        (yield* resolve(claudeOnly([late, soon, pool([late, soon], { strategy: "order" })])))
-          .instanceId,
-      ).toBe(late.instanceId);
-
-      // A member the pool switches off, or one at the pool's reserve, does not serve.
-      expect(
-        (yield* resolve(
-          claudeOnly([soon, late, pool([soon, late], { disabledMembers: [soon.instanceId] })]),
-        )).instanceId,
-      ).toBe(late.instanceId);
-      const reserved = used(claude, "claude-soon", 92, "2026-10-15T02:00:00.000Z");
-      expect(
-        (yield* resolve(
-          claudeOnly([reserved, late, pool([reserved, late], { reservePercent: 90 })]),
-        )).instanceId,
-      ).toBe(late.instanceId);
-
-      // Naming an account that is out hands the task to its pool sibling.
-      expect(
-        (yield* resolve(
-          claudeOnly([out, soon, pool([out, soon])], {
-            instanceId: out.instanceId,
-            model: claudeModel,
-          }),
-        )).instanceId,
-      ).toBe(soon.instanceId);
-      // Outside a pool there is no sibling, so the named account is tried: its reading may be wrong.
-      expect(
-        (yield* resolve(
-          claudeOnly([out, soon], { instanceId: out.instanceId, model: claudeModel }),
-        )).instanceId,
-      ).toBe(out.instanceId);
+      expect(named).toMatchObject({
+        instanceId: claude.instanceId,
+        model: claudeModel,
+        pinned: true,
+      });
     }),
   );
 
@@ -1667,33 +1287,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       );
       expect(recovered.model).toBe(claudeModel);
 
-      // With nothing healthy left, an overloaded model outranks one out of usage...
-      const codexOut = {
-        ...codex,
-        usageLimits: {
-          checkedAt: "2026-10-15T00:00:00.000Z",
-          windows: [
-            {
-              id: "seven_day",
-              kind: "weekly" as const,
-              label: "Week",
-              usedPercent: 100,
-              resetsAt: DateTime.formatIso(DateTime.makeUnsafe(nowMs + 3_600_000)),
-            },
-          ],
-        },
-      };
-      const degraded = yield* resolver.preview(
-        input({
-          request: review,
-          providers: [codexOut, claude],
-          overloads: overloaded([[claude, claudeModel, nowMs + 60_000]]),
-        }),
-      );
-      expect(degraded.refusal).toBeNull();
-      expect(degraded.selection?.model).toBe(claudeModel);
-
-      // ...and among overloaded models the one whose cool-down ends first serves.
+      // Among overloaded models the one whose cool-down ends first serves.
       const bothOverloaded = yield* resolve(
         input({
           request: review,

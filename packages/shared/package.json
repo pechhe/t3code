@@ -587,13 +587,9 @@
       "types": "./src/sharedProviderSetup.ts",
       "import": "./src/sharedProviderSetup.ts"
     },
-    "./providerPools": {
-      "types": "./src/providerPools.ts",
-      "import": "./src/providerPools.ts"
-    },
-    "./modelPools": {
-      "types": "./src/modelPools.ts",
-      "import": "./src/modelPools.ts"
+    "./accountPools": {
+      "types": "./src/accountPools.ts",
+      "import": "./src/accountPools.ts"
     },
     "./browserBackend": {
       "types": "./src/browserBackend.ts",

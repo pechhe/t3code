@@ -334,11 +334,15 @@ const make = Effect.gen(function* () {
       .snapshot(root.value)
       .pipe(Effect.mapError((cause) => new ManagedAgentError({ reason: "policy", cause })));
   });
-  const configuredModelPools = Effect.gen(function* () {
+  const configuredRouting = Effect.gen(function* () {
     const settings = yield* Effect.serviceOption(Settings.ServerSettingsService);
     if (Option.isNone(settings)) return undefined;
     return yield* settings.value.getSettings.pipe(
-      Effect.map((current) => current.modelPools),
+      Effect.map(({ accountOrder, modelAccountsRemoved, accountSkips }) => ({
+        accountOrder,
+        modelAccountsRemoved,
+        accountSkips,
+      })),
       Effect.orElseSucceed(() => undefined),
     );
   });
@@ -723,14 +727,14 @@ const make = Effect.gen(function* () {
     );
     const reviewScope = input.request.reviewScope ?? "change";
     const unpinnedReview = isReviewerRole(role) && context.request.sourceRevision === undefined;
-    const modelPools = yield* configuredModelPools;
+    const routing = yield* configuredRouting;
     const result = yield* resolver.preview({
       ...context,
       snapshot,
       overloads: yield* currentOverloads,
       ...(browser === undefined ? {} : { browser }),
       providers: yield* conservationProviders(input.providers),
-      ...(modelPools === undefined ? {} : { modelPools }),
+      ...(routing === undefined ? {} : { routing }),
       ...(input.selection === undefined ? {} : { selection: input.selection }),
       requireExplicitSelection,
       ...(input.callerModel === undefined ? {} : { callerModel: input.callerModel }),
@@ -786,16 +790,9 @@ const make = Effect.gen(function* () {
       refusal: unpinnedReview ? "source-pin-required" : result.refusal,
       models: list.map(({ model: alias, effort }) => {
         const binding = snapshot.manifest.models[alias]!;
-        const pool = binding.poolId === undefined ? undefined : modelPools?.[binding.poolId];
-        const memberNote =
-          pool === undefined
-            ? undefined
-            : pool.slots
-                .map((slot) => modelNote(snapshot.manifest, slot.model))
-                .find((text) => text !== undefined);
-        const note = binding.note ?? modelNote(snapshot.manifest, binding.model) ?? memberNote;
+        const note = binding.note ?? modelNote(snapshot.manifest, binding.model);
         return {
-          model: binding.poolId !== undefined ? binding.poolId : binding.model,
+          model: binding.model,
           ...(effort === undefined ? {} : { effort }),
           ...(note === undefined ? {} : { note }),
           available: startable.has(alias),
@@ -996,13 +993,13 @@ const make = Effect.gen(function* () {
           true,
           input.binding.sourceAccess === "read-only",
         );
-        const modelPools = yield* configuredModelPools;
+        const routing = yield* configuredRouting;
         const result = yield* resolver.preview({
           ...context,
           snapshot,
           overloads: yield* currentOverloads,
           providers: input.providers,
-          ...(modelPools === undefined ? {} : { modelPools }),
+          ...(routing === undefined ? {} : { routing }),
           ignoreConservation: true,
         });
         // An overloaded or exhausted model is no model to pass to.
@@ -1025,13 +1022,13 @@ const make = Effect.gen(function* () {
     ),
     rankedTextModels: Effect.fn("ManagedAgentService.rankedTextModels")(function* (input) {
       const snapshot = yield* currentPolicy;
-      const modelPools = yield* configuredModelPools;
+      const routing = yield* configuredRouting;
       return yield* resolver
         .rank({
           snapshot,
           overloads: yield* currentOverloads,
           providers: input.providers.filter(isProviderTextGenerationCapable),
-          ...(modelPools === undefined ? {} : { modelPools }),
+          ...(routing === undefined ? {} : { routing }),
           ceiling: "full-access",
           runtimeMode: "full-access",
           allowTrustedClaudeWriters: true,
@@ -1086,7 +1083,7 @@ const make = Effect.gen(function* () {
         input.recordedBinding === undefined ? "launch" : "resume",
         context.request,
       );
-      const modelPools = yield* configuredModelPools;
+      const routing = yield* configuredRouting;
       const selection = yield* resolver
         .resolve({
           ...input,
@@ -1096,7 +1093,7 @@ const make = Effect.gen(function* () {
             input.recordedBinding === undefined
               ? yield* conservationProviders(input.providers)
               : input.providers,
-          ...(modelPools === undefined ? {} : { modelPools }),
+          ...(routing === undefined ? {} : { routing }),
           ignoreConservation: input.recordedBinding !== undefined,
           overloads: yield* currentOverloads,
           ...(browser === undefined ? {} : { browser }),

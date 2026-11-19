@@ -255,7 +255,6 @@ const layerTestProviderInstanceRegistry = Layer.succeed(
       antigravityProviderInstance,
     ]),
     listUnavailable: Effect.succeed([]),
-    listPools: Effect.succeed([]),
     streamChanges: Stream.empty,
     subscribeChanges: Effect.never,
   },
@@ -11389,7 +11388,6 @@ it.layer(layerTest)("usage-limit recovery", (it) => {
             now,
             autoResume: true,
             snooze: false,
-            poolSwitch: false,
           })).find((row) => row.id === threadId),
         );
         const stoppedShell = (yield* orchestrator.getShellSnapshot()).threads.find(
@@ -11787,7 +11785,6 @@ it.layer(layerTest)("usage-limit recovery", (it) => {
           now: yield* DateTime.now,
           autoResume: true,
           snooze: false,
-          poolSwitch: false,
         };
         assert.isUndefined(
           (yield* projections.getLimitRecoveryCandidates(sweep)).find((row) => row.id === threadId),

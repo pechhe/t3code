@@ -1,4 +1,4 @@
-import type { ModelPickerPool } from "./ModelPickerContent";
+import type { ModelPickerPooling } from "./modelPickerPooling";
 import { cloneElement, type ReactNode, type RefObject } from "react";
 import type { ChatComposerProps } from "./ChatComposer";
 import type { PromptUltrathink } from "./TraitsPicker";
@@ -7,7 +7,6 @@ import { type AppModelOption } from "../../modelSelection";
 import { CircleAlertIcon } from "lucide-react";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
 import { ComposerControl } from "./ComposerControl";
-import { ComposerPoolAccount, type useComposerPoolAccount } from "./ComposerPoolAccount";
 import { DeviceModelSlider, type DeviceModelSliderHandle } from "./device/DeviceModelSlider";
 import { DeviceReasoningDial, type DeviceReasoningDialHandle } from "./device/DeviceReasoningDial";
 import { DeviceStanceSwitch } from "./device/DeviceStanceSwitch";
@@ -82,8 +81,6 @@ export function ComposerControlsBar(props: {
   deviceEnvironmentSwitch?: ReactNode;
   reasoningDialRef: RefObject<DeviceReasoningDialHandle | null>;
   modelSliderRef: RefObject<DeviceModelSliderHandle | null>;
-  poolAccount: ReturnType<typeof useComposerPoolAccount>;
-  /** True until the thread has run: its pool account is placed like a new thread's. */
   showProviderUnavailable: boolean;
   providerSetupInstanceId: ProviderInstanceId | undefined;
   onOpenProviderSetup: ChatComposerProps["onOpenProviderSetup"];
@@ -94,9 +91,7 @@ export function ComposerControlsBar(props: {
   onMultipleModelSelectionsChange: ChatComposerProps["onMultipleModelSelectionsChange"];
   selectedModelSelection: ModelSelection;
   onProviderModelSelect: ChatComposerProps["onProviderModelSelect"];
-  modelPools: ReadonlyArray<ModelPickerPool>;
-  activePoolId: string | null;
-  onPoolSelect: ChatComposerProps["onPoolSelect"];
+  pooling: ModelPickerPooling;
   activeThreadModelSelection: ChatComposerProps["activeThreadModelSelection"];
   selectedModelForPickerWithCustomFallback: string;
   lockedProvider: ChatComposerProps["lockedProvider"];
@@ -135,7 +130,6 @@ export function ComposerControlsBar(props: {
     deviceEnvironmentSwitch,
     reasoningDialRef,
     modelSliderRef,
-    poolAccount,
     showProviderUnavailable,
     providerSetupInstanceId,
     onOpenProviderSetup,
@@ -146,9 +140,7 @@ export function ComposerControlsBar(props: {
     onMultipleModelSelectionsChange,
     selectedModelSelection,
     onProviderModelSelect,
-    modelPools,
-    activePoolId,
-    onPoolSelect,
+    pooling,
     activeThreadModelSelection,
     selectedModelForPickerWithCustomFallback,
     lockedProvider,
@@ -250,9 +242,7 @@ export function ComposerControlsBar(props: {
       onMultipleModelSelectionsChange={onMultipleModelSelectionsChange}
       selectedModelSelection={selectedModelSelection}
       onProviderModelSelect={onProviderModelSelect}
-      pools={modelPools}
-      activePoolId={activePoolId}
-      onPoolSelect={onPoolSelect}
+      pooling={pooling}
       activeInstanceId={
         providerCatalogPending
           ? (activeThreadModelSelection?.instanceId ?? selectedInstanceId)
@@ -336,7 +326,7 @@ export function ComposerControlsBar(props: {
       <DeviceModelSlider
         ref={modelSliderRef}
         environmentId={environmentId}
-        activeInstanceId={poolAccount?.pool ?? selectedInstanceId}
+        activeInstanceId={selectedInstanceId}
         model={selectedModelForPickerWithCustomFallback}
         instanceEntries={providerInstanceEntries}
         modelOptionsByInstance={modelOptionsByInstance}
@@ -349,10 +339,8 @@ export function ComposerControlsBar(props: {
           onProviderModelSelect(instanceId, model, { focusComposer: false });
         }}
         renderOverflow={(trigger) => cloneElement(composerModelPicker, { trigger })}
-        lightColor={poolAccount?.auto.color}
         fast={fastActive}
       />
-      {poolAccount ? <ComposerPoolAccount state={poolAccount} device /> : null}
       {providerTraitsPickerInput ? (
         <DeviceReasoningDial ref={reasoningDialRef} {...providerTraitsPickerInput} />
       ) : null}
@@ -360,9 +348,6 @@ export function ComposerControlsBar(props: {
   ) : (
     <>
       {composerModelPicker}
-      {poolAccount ? (
-        <ComposerPoolAccount state={poolAccount} size={composerControlsCollapsed ? "xs" : "sm"} />
-      ) : null}
 
       <>
         {restingBlockDefs.map((def, index) => {
