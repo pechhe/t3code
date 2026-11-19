@@ -880,6 +880,9 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     query: searchQuery,
     showWithoutQuery: selectedInstanceId === "favorites",
     favorites,
+    onRenameEnd: (restoreFocus) => {
+      if (restoreFocus) focusSearchInput();
+    },
   });
 
   const selectedEntry =
@@ -1028,7 +1031,14 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     ) {
       const highlightedKey = highlightedModelKeyRef.current;
       const highlighted = highlightedKey ? filteredModelByKey.get(highlightedKey) : undefined;
-      if (highlighted && !getModelDisabledReason?.(highlighted.instanceId, highlighted.slug)) {
+      if (pooled.startRename(highlightedKey)) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+      } else if (
+        highlighted &&
+        !getModelDisabledReason?.(highlighted.instanceId, highlighted.slug)
+      ) {
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();

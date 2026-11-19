@@ -7,7 +7,9 @@ import type {
 import { pooledModels } from "@t3tools/shared/accountPools";
 import type { ReactElement } from "react";
 
+import { useClientSettings } from "../../hooks/useSettings";
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
+import { selectModelSlotLabels, withPooledModelLabels } from "../chat/modelLabels";
 import type { ModelPickerPooling } from "../chat/modelPickerPooling";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { TraitsPicker } from "../chat/TraitsPicker";
@@ -54,7 +56,8 @@ export function PolicyModelPicker(props: {
         candidate.binding.model === slug,
     );
   };
-  const pools = pooledModels(providers, settings);
+  const slotLabels = useClientSettings(selectModelSlotLabels);
+  const pools = withPooledModelLabels(pooledModels(providers, settings), slotLabels);
   const activePool =
     props.binding !== undefined && isAnyAccountBinding(props.binding)
       ? pooledModelForBinding(props.binding, pools)

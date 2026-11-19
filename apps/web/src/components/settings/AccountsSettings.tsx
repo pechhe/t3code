@@ -26,7 +26,8 @@ import { ArrowDownIcon, ArrowUpIcon, GripVerticalIcon, PlusIcon, XIcon } from "l
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 
-import { useUpdateEnvironmentSettings } from "../../hooks/useSettings";
+import { useClientSettings, useUpdateEnvironmentSettings } from "../../hooks/useSettings";
+import { selectModelSlotLabels, withPooledModelLabels } from "../chat/modelLabels";
 import { cn } from "~/lib/utils";
 import { useEnvironmentScope } from "../../state/session";
 import {
@@ -86,10 +87,12 @@ function EnvironmentAccounts({ environmentId }: { environmentId: EnvironmentId }
   const canManage = useEnvironmentScope(environmentId, AuthProvidersManageScope);
   const accounts = listAccounts(providers, settings.accountOrder);
   const listed = settings.pooledModelKeys ?? [];
-  const models = listedPooledModels(providers, settings).toSorted((a, b) =>
-    a.displayName.localeCompare(b.displayName),
-  );
-  const candidates = multiAccountModels(providers, settings)
+  const slotLabels = useClientSettings(selectModelSlotLabels);
+  const models = withPooledModelLabels(
+    listedPooledModels(providers, settings),
+    slotLabels,
+  ).toSorted((a, b) => a.displayName.localeCompare(b.displayName));
+  const candidates = withPooledModelLabels(multiAccountModels(providers, settings), slotLabels)
     .filter((model) => !listed.includes(model.key))
     .toSorted((a, b) => a.displayName.localeCompare(b.displayName));
   const ids = accounts.map((account) => account.id);

@@ -10,7 +10,8 @@ import {
   type PooledModel,
 } from "@t3tools/shared/accountPools";
 
-import { useEnvironmentSettings } from "../../hooks/useSettings";
+import { useClientSettings, useEnvironmentSettings } from "../../hooks/useSettings";
+import { selectModelSlotLabels, withPooledModelLabels } from "./modelLabels";
 import type { ModelPickerPooling } from "./modelPickerPooling";
 
 /**
@@ -58,11 +59,11 @@ export function useComposerPooling(input: {
     input.environmentId,
     (s) => s.pooledModelKeys ?? [],
   );
-  const models = pooledModels(input.providers, {
-    accountOrder,
-    pooledModelKeys,
-    modelAccountsRemoved,
-  });
+  const slotLabels = useClientSettings(selectModelSlotLabels);
+  const models = withPooledModelLabels(
+    pooledModels(input.providers, { accountOrder, pooledModelKeys, modelAccountsRemoved }),
+    slotLabels,
+  );
   const pooled = pooledModelOf(models, input.selection);
   const account = selectionAccountId(input.providers, input.selection);
   return {

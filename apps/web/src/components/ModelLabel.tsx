@@ -23,6 +23,10 @@ export function ModelLabel(props: {
   effort?: string | null | undefined;
   /** `chip`: a compact pill of the provider icon and model, for rows of several models. */
   variant?: "full" | "chip";
+  /** Replaces the model's name, as for a pooled model that runs on any account. */
+  name?: string | undefined;
+  /** Hides the provider's name, which a pooled model has none of; its icon stays. */
+  hideSource?: boolean | undefined;
   className?: string | undefined;
 }) {
   const providersByEnvironment = useEnvironmentProviders();
@@ -39,7 +43,9 @@ export function ModelLabel(props: {
     ? getCustomModelLabel(slotLabels, entry.instanceId, props.model)
     : undefined;
   const name =
-    customLabel ?? (model ? getDisplayModelName(model) : formatModelSlugName(props.model));
+    props.name ??
+    customLabel ??
+    (model ? getDisplayModelName(model) : formatModelSlugName(props.model));
   const driverKind = entry?.driverKind ?? props.driverKind;
   const icon = driverKind ? (
     <ProviderInstanceIcon
@@ -76,7 +82,7 @@ export function ModelLabel(props: {
       {entry || driverKind ? (
         <span className="inline-flex min-w-0 items-center gap-1 text-muted-foreground/70">
           {icon}
-          {entry ? (
+          {entry && !props.hideSource ? (
             <span className="min-w-0 truncate">
               {getProviderRowLabel(entry.displayName, model?.subProvider)}
             </span>

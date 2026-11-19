@@ -23,7 +23,7 @@ import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
 import { useClientSettings } from "~/hooks/useSettings";
-import { getCustomModelLabel, selectModelSlotLabels } from "./modelLabels";
+import { getCustomModelLabel, getPooledModelLabel, selectModelSlotLabels } from "./modelLabels";
 import { ModelPickerContent } from "./ModelPickerContent";
 import type { ModelPickerPooling } from "./modelPickerPooling";
 import { resolveModelPickerSelectedModel } from "../../modelSelection";
@@ -185,10 +185,14 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     (activeEntry?.driverKind === "opencode" || activeEntry?.driverKind === "antigravity"
       ? undefined
       : selectedInstanceOptions[0]);
+  const pooledActive = props.pooling?.active;
   const selectedCustomLabel =
-    selectedModel || props.model
+    (pooledActive && pooledActive.pinned === null
+      ? getPooledModelLabel(slotLabels, pooledActive.key)
+      : undefined) ??
+    (selectedModel || props.model
       ? getCustomModelLabel(slotLabels, activeInstanceId, selectedModel?.slug ?? props.model)
-      : undefined;
+      : undefined);
   const triggerTitle =
     selectedCustomLabel ??
     (selectedModel
@@ -459,7 +463,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                   </span>
                 ) : null}
               </span>
-            ) : activeEntry && props.triggerLabel === undefined ? (
+            ) : activeEntry && (props.triggerLabel === undefined || props.pooling?.active) ? (
               // Narrow compacted composers hide the provider icon before truncating the name.
               <span data-chat-provider-model-picker-icon className="contents">
                 <ProviderInstanceIcon

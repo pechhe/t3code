@@ -88,6 +88,8 @@ import {
 } from "./DelegationSettings.logic";
 import { AGENT_ROLE_PRESENTATION, AgentRoleChip } from "../AgentRoleChip";
 import ChatMarkdown from "../ChatMarkdown";
+import { useClientSettings } from "../../hooks/useSettings";
+import { selectModelSlotLabels, withPooledModelLabels } from "../chat/modelLabels";
 import { ModelLabel } from "../ModelLabel";
 import { cn } from "~/lib/utils";
 import { PolicyEffortPicker, PolicyModelPicker } from "./PolicyModelPicker";
@@ -271,7 +273,8 @@ function PolicyEditor({
   const modelAccountsRemoved = useScopedSettings((settings) => settings.modelAccountsRemoved);
   const pooledModelKeys = useScopedSettings((settings) => settings.pooledModelKeys ?? []);
   const routing = { accountOrder, pooledModelKeys, modelAccountsRemoved };
-  const pools = pooledModels(data.providers, routing);
+  const slotLabels = useClientSettings(selectModelSlotLabels);
+  const pools = withPooledModelLabels(pooledModels(data.providers, routing), slotLabels);
   const catalog = catalogModels(data.providers, routing);
   const [draft, setDraft] = useState<Manifest>(() => editableManifest(saved, catalog, pools));
   const [pending, setPending] = useState(false);
@@ -1020,18 +1023,14 @@ function ModelsSection({
             className="grid grid-cols-1 items-start gap-x-4 gap-y-1.5 border-t border-border/60 px-3 py-2.5 sm:grid-cols-[minmax(0,13rem)_minmax(0,1fr)] sm:px-4"
           >
             <div className="flex min-w-0 flex-col gap-1.5">
-              {showPooled ? (
-                <span className="truncate text-sm font-medium text-foreground">
-                  {pooledModel.displayName}
-                </span>
-              ) : (
-                <ModelLabel
-                  environmentId={environmentId}
-                  driverKind={binding.driverKind}
-                  model={binding.model}
-                  className="text-sm"
-                />
-              )}
+              <ModelLabel
+                environmentId={environmentId}
+                driverKind={binding.driverKind}
+                model={binding.model}
+                name={showPooled ? pooledModel.displayName : undefined}
+                hideSource={showPooled}
+                className="text-sm"
+              />
               <div className="flex flex-wrap gap-1">
                 {roles.map((role) => (
                   <AgentRoleChip key={role} role={role} />
@@ -1268,19 +1267,14 @@ function PolicyModelLabel({
   variant?: "full" | "chip";
 }) {
   const pooled = isAnyAccountBinding(binding) ? pooledModelForBinding(binding, pools) : undefined;
-  if (pooled === undefined) {
-    return (
-      <ModelLabel
-        variant={variant ?? "full"}
-        environmentId={environmentId}
-        driverKind={binding.driverKind}
-        model={binding.model}
-      />
-    );
-  }
   return (
-    <Badge variant="outline" size={variant === "chip" ? "control" : "default"}>
-      {pooled.displayName}
-    </Badge>
+    <ModelLabel
+      variant={variant ?? "full"}
+      environmentId={environmentId}
+      driverKind={binding.driverKind}
+      model={binding.model}
+      name={pooled?.displayName}
+      hideSource={pooled !== undefined}
+    />
   );
 }

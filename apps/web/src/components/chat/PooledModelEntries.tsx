@@ -5,14 +5,17 @@ import {
   type PooledAccount,
   type PooledModel,
 } from "@t3tools/shared/accountPools";
-import { CheckIcon, ChevronDownIcon, ChevronRightIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, ChevronRightIcon, PencilIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
 import { useNowMinute } from "~/hooks/useNowMinute";
+import { useClientSettings } from "~/hooks/useSettings";
 import { cn } from "~/lib/utils";
 import { AccountSkipBadge, accountSource } from "../accounts/AccountSkip";
 import { Button } from "../ui/button";
 import { ComboboxItem } from "../ui/combobox";
+import { getPooledModelLabel, savePooledModelLabel, selectModelSlotLabels } from "./modelLabels";
+import { InlineModelRenameInput } from "./ModelListRow";
 import type { ModelPickerPooling } from "./modelPickerPooling";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
 
@@ -59,10 +62,14 @@ export function usePooledPickerEntries(input: {
   showWithoutQuery: boolean;
   /** Favourited models; without a query only pooled models among them (or the active one) list. */
   favorites: ReadonlyArray<{ readonly provider: string; readonly model: string }>;
+  /** After a rename ends; `restoreFocus` when it ended from the keyboard. */
+  onRenameEnd: (restoreFocus: boolean) => void;
 }) {
   const { pooling } = input;
   const skips = pooling?.skips ?? {};
   const [openKey, setOpenKey] = useState<PooledModelKey | null>(pooling?.active?.key ?? null);
+  const [renamingKey, setRenamingKey] = useState<PooledModelKey | null>(null);
+  const slotLabels = useClientSettings(selectModelSlotLabels);
   const nowMs = Date.parse(`${useNowMinute()}Z`);
   const models = input.enabled ? (pooling?.models ?? []) : [];
   const query = input.query.trim().toLowerCase();
@@ -104,6 +111,18 @@ export function usePooledPickerEntries(input: {
 
   const toggle = (key: PooledModelKey) => setOpenKey((open) => (open === key ? null : key));
 
+  /** F2 on a highlighted pooled model renames it. */
+  const startRename = (key: string | null): boolean => {
+    const row = key === null ? undefined : rows.get(key);
+    if (row?.kind !== "model") return false;
+    setRenamingKey(row.model.key);
+    return true;
+  };
+  const endRename = (restoreFocus: boolean) => {
+    setRenamingKey(null);
+    input.onRenameEnd(restoreFocus);
+  };
+
   const select = (key: string | null): boolean => {
     const row = key === null ? undefined : rows.get(key);
     if (row === undefined || pooling === undefined) return false;
@@ -137,6 +156,38 @@ export function usePooledPickerEntries(input: {
     const isActive = active?.key === row.model.key;
     if (row.kind === "model") {
       const accounts = serving(row.model);
+      const icons = (
+        <span className="flex shrink-0 -space-x-1.5" aria-hidden="true">
+          {accounts.slice(0, 3).map((entry) => (
+            <AccountIcon key={entry.account.id} entry={entry} />
+          ))}
+        </span>
+      );
+      if (renamingKey === row.model.key) {
+        const pooledKey = row.model.key;
+        return (
+          <ComboboxItem
+            key={key}
+            hideIndicator
+            selectedFill={false}
+            index={index}
+            value={key}
+            className="w-full !min-w-0 max-w-full"
+          >
+            {icons}
+            <InlineModelRenameInput
+              initialValue={row.model.displayName}
+              placeholder={row.model.displayName}
+              hasCustomLabel={getPooledModelLabel(slotLabels, pooledKey) !== undefined}
+              onCommit={(nextName, restoreFocus) => {
+                savePooledModelLabel({ slotLabels, key: pooledKey, nextName });
+                endRename(restoreFocus);
+              }}
+              onCancel={() => endRename(true)}
+            />
+          </ComboboxItem>
+        );
+      }
       const current = isActive
         ? accounts.find((entry) => entry.account.id === active.account)
         : undefined;
@@ -151,11 +202,7 @@ export function usePooledPickerEntries(input: {
           data-pooled-model={row.model.key}
           className="group w-full !min-w-0 max-w-full cursor-pointer"
         >
-          <span className="flex shrink-0 -space-x-1.5" aria-hidden="true">
-            {accounts.slice(0, 3).map((entry) => (
-              <AccountIcon key={entry.account.id} entry={entry} />
-            ))}
-          </span>
+          {icons}
           <span className="flex min-w-0 flex-1 items-center gap-2">
             <span className="shrink-0 truncate text-sm leading-snug">{row.model.displayName}</span>
             {isActive && active.pinned === null ? (
@@ -167,6 +214,25 @@ export function usePooledPickerEntries(input: {
                 : `${accounts.length} accounts`}
             </span>
           </span>
+          <Button
+            size="icon-xs"
+            variant="ghost-muted"
+            className="hidden group-hover:inline-flex group-data-highlighted:inline-flex focus-visible:inline-flex pointer-coarse:inline-flex"
+            title="Rename (F2)"
+            aria-label={"Rename " + row.model.displayName}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setRenamingKey(row.model.key);
+            }}
+            onKeyDown={(event) => event.stopPropagation()}
+          >
+            <PencilIcon className="size-3" />
+          </Button>
           <Button
             size="icon-xs"
             variant="ghost-muted"
@@ -242,5 +308,5 @@ export function usePooledPickerEntries(input: {
     );
   };
 
-  return { keys: [...rows.keys()], allKeys, activeKey, select, onKeyDown, render };
+  return { keys: [...rows.keys()], allKeys, activeKey, select, onKeyDown, startRename, render };
 }

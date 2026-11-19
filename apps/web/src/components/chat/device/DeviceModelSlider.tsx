@@ -1,4 +1,9 @@
-import type { EnvironmentId, ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  PooledModelKey,
+  ProviderDriverKind,
+  ProviderInstanceId,
+} from "@t3tools/contracts";
 import {
   type CSSProperties,
   type ReactElement,
@@ -14,7 +19,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
 import { providerModelKey } from "../../../modelOrdering";
 import type { ProviderInstanceEntry } from "../../../providerInstances";
 import { resolveModelPickerSelectedModel } from "../../../modelSelection";
-import { saveModelLabel, selectModelSlotLabels } from "../modelLabels";
+import { getPooledModelLabel, saveModelLabel, selectModelSlotLabels } from "../modelLabels";
 import { getTriggerDisplayModelName, type ModelEsque } from "../providerIconUtils";
 import { FAVORITE_SLOTS, resolveFavoriteSlots } from "./favoriteSlots.logic";
 
@@ -75,6 +80,8 @@ export function DeviceModelSlider(props: {
   renderOverflow: (trigger: ReactElement) => ReactNode;
   /** Fast mode is on for the chosen model; it is set from the full picker. */
   fast?: boolean;
+  /** The pooled model the selection follows, whose own name the overflow tag shows when renamed. */
+  pooledKey?: PooledModelKey | null;
   ref?: Ref<DeviceModelSliderHandle>;
 }) {
   const { favorites } = useEnvironmentModelPreferences(props.environmentId);
@@ -156,7 +163,9 @@ export function DeviceModelSlider(props: {
     });
   };
   const position = activeIndex >= 0 ? activeIndex : FAVORITE_SLOTS;
-  const overflowLabel = activeIndex < 0 && active ? active.label : null;
+  const pooledLabel =
+    props.pooledKey == null ? undefined : getPooledModelLabel(slotLabels, props.pooledKey);
+  const overflowLabel = activeIndex < 0 && active ? (pooledLabel ?? active.label) : null;
   const activeEntry = instanceEntries.find((entry) => entry.instanceId === activeInstanceId);
   const providerLight = activeEntry
     ? (activeEntry.accentColor ?? PROVIDER_LIGHTS[activeEntry.driverKind])
