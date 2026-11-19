@@ -197,8 +197,9 @@ using a proxy through `ANTHROPIC_AUTH_TOKEN`.
 When more than one account serves the same model (two Claude logins, Claude through Pi's
 sub-providers, Kimi on OpenCode Go and OpenRouter), you can have T3 Code pick the account. Add the
 model under **Settings → Accounts** and the picker shows it once; the same page sets the order it
-tries your accounts in, and takes an account off one model. Pi's Antigravity logins count as one
-account, because Pi already moves between them. To give a pooled model your own name, hover it in the picker and
+tries your accounts in, and takes an account off one model. A model you hide on an account under
+**Settings → Providers** is not tried there, so a model left on one account is not pooled. Pi's
+Antigravity logins count as one account, because Pi already moves between them. To give a pooled model your own name, hover it in the picker and
 choose the pencil, or press F2; the name stays on that device, like other model names.
 
 Only models you add there are pooled. Every other model stays under each account exactly as it

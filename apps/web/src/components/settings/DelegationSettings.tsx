@@ -272,7 +272,10 @@ function PolicyEditor({
   const accountOrder = useScopedSettings((settings) => settings.accountOrder);
   const modelAccountsRemoved = useScopedSettings((settings) => settings.modelAccountsRemoved);
   const pooledModelKeys = useScopedSettings((settings) => settings.pooledModelKeys ?? []);
-  const routing = { accountOrder, pooledModelKeys, modelAccountsRemoved };
+  const providerModelPreferences = useScopedSettings(
+    (settings) => settings.providerModelPreferences,
+  );
+  const routing = { accountOrder, pooledModelKeys, modelAccountsRemoved, providerModelPreferences };
   const slotLabels = useClientSettings(selectModelSlotLabels);
   const pools = withPooledModelLabels(pooledModels(data.providers, routing), slotLabels);
   const catalog = catalogModels(data.providers, routing);

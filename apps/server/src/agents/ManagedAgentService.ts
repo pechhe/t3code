@@ -338,12 +338,21 @@ const make = Effect.gen(function* () {
     const settings = yield* Effect.serviceOption(Settings.ServerSettingsService);
     if (Option.isNone(settings)) return undefined;
     return yield* settings.value.getSettings.pipe(
-      Effect.map(({ accountOrder, pooledModelKeys, modelAccountsRemoved, accountSkips }) => ({
-        accountOrder,
-        pooledModelKeys: pooledModelKeys ?? [],
-        modelAccountsRemoved,
-        accountSkips,
-      })),
+      Effect.map(
+        ({
+          accountOrder,
+          pooledModelKeys,
+          modelAccountsRemoved,
+          accountSkips,
+          providerModelPreferences,
+        }) => ({
+          accountOrder,
+          pooledModelKeys: pooledModelKeys ?? [],
+          modelAccountsRemoved,
+          accountSkips,
+          providerModelPreferences,
+        }),
+      ),
       Effect.orElseSucceed(() => undefined),
     );
   });

@@ -24,7 +24,10 @@ import * as DateTime from "effect/DateTime";
 export type AccountRoutingSettings = Pick<
   ServerSettings,
   "accountOrder" | "pooledModelKeys" | "modelAccountsRemoved" | "accountSkips"
->;
+> & {
+  /** A model hidden on an account is one that account does not offer. */
+  readonly providerModelPreferences?: ServerSettings["providerModelPreferences"] | undefined;
+};
 
 // ── Usage readings ──────────────────────────────────────────────────────────────────────────
 
@@ -279,14 +282,18 @@ export interface PooledModel {
   readonly accounts: ReadonlyArray<PooledAccount>;
 }
 
-const servingEntries = (
-  providers: ReadonlyArray<ServerProvider>,
-  settings: Pick<AccountRoutingSettings, "modelAccountsRemoved">,
-) => {
+type ServingSettings = Pick<
+  AccountRoutingSettings,
+  "modelAccountsRemoved" | "providerModelPreferences"
+>;
+
+const servingEntries = (providers: ReadonlyArray<ServerProvider>, settings: ServingSettings) => {
   const byKey = new Map<PooledModelKey, { names: string[]; accounts: PooledAccount[] }>();
   for (const provider of providers) {
     if (!provider.enabled) continue;
+    const hidden = settings.providerModelPreferences?.[provider.instanceId]?.hiddenModels ?? [];
     for (const model of provider.models) {
+      if (hidden.includes(model.slug)) continue;
       const key = pooledModelKeyOf(provider, model);
       if (key === undefined) continue;
       const account = accountInfo(provider, model.slug);
@@ -327,7 +334,7 @@ const disambiguateDisplayNames = (
 /** Every model more than one account serves, each with its accounts in the user's order. */
 export const multiAccountModels = (
   providers: ReadonlyArray<ServerProvider>,
-  settings: Pick<AccountRoutingSettings, "accountOrder" | "modelAccountsRemoved">,
+  settings: ServingSettings & Pick<AccountRoutingSettings, "accountOrder">,
 ): ReadonlyArray<PooledModel> =>
   disambiguateDisplayNames(
     [...servingEntries(providers, settings)].flatMap(([key, entry]) =>
@@ -353,10 +360,7 @@ export const multiAccountModels = (
  */
 export const listedPooledModels = (
   providers: ReadonlyArray<ServerProvider>,
-  settings: Pick<
-    AccountRoutingSettings,
-    "accountOrder" | "pooledModelKeys" | "modelAccountsRemoved"
-  >,
+  settings: ServingSettings & Pick<AccountRoutingSettings, "accountOrder" | "pooledModelKeys">,
 ): ReadonlyArray<PooledModel> => {
   const entries = servingEntries(providers, settings);
   return disambiguateDisplayNames(
@@ -378,10 +382,7 @@ export const listedPooledModels = (
  */
 export const pooledModels = (
   providers: ReadonlyArray<ServerProvider>,
-  settings: Pick<
-    AccountRoutingSettings,
-    "accountOrder" | "pooledModelKeys" | "modelAccountsRemoved"
-  >,
+  settings: ServingSettings & Pick<AccountRoutingSettings, "accountOrder" | "pooledModelKeys">,
 ): ReadonlyArray<PooledModel> => {
   const listed = new Set(settings.pooledModelKeys ?? []);
   return multiAccountModels(providers, settings).filter((pool) => listed.has(pool.key));

@@ -87,6 +87,7 @@ const plan = (input: {
       pooledModelKeys: [model],
       modelAccountsRemoved: {},
       accountSkips: {},
+      providerModelPreferences: null,
     },
     nowMs: NOW,
     otherModelAvailable: () => Effect.succeed(input.otherModel ?? false),

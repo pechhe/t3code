@@ -346,6 +346,20 @@ describe("the models the user adds", () => {
     ).toEqual(["opus"]);
   });
 
+  it("leaves out an account the model is hidden on", () => {
+    const c = provider("c", "claudeAgent", [["sonnet", "Sonnet"]]);
+    const hiddenOnA = {
+      ...routing(["sonnet"]),
+      providerModelPreferences: { a: { hiddenModels: ["sonnet"], modelOrder: [] } },
+    };
+    expect(
+      pooledModels([a, b, c], hiddenOnA).flatMap((model) =>
+        model.accounts.map((entry) => entry.account.id),
+      ),
+    ).toEqual(["b", "c"]);
+    expect(pooledModels([a, b], hiddenOnA)).toEqual([]);
+  });
+
   it("seeds the models Henry uses: his favorites and the models his roles name", () => {
     const pi = provider("pi", "pi", [
       ["antigravity/gemini-4-hydrogen", "Gemini 4 Hydrogen (Antigravity)"],
