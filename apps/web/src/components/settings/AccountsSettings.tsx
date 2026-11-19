@@ -23,6 +23,7 @@ import {
   type PooledModel,
 } from "@t3tools/shared/accountPools";
 import { ArrowDownIcon, ArrowUpIcon, GripVerticalIcon, PlusIcon, XIcon } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { useUpdateEnvironmentSettings } from "../../hooks/useSettings";
@@ -209,9 +210,13 @@ function AccountOrderRow(props: {
       <span className="w-4 text-xs tabular-nums text-muted-foreground">{props.position}</span>
       <AccountIcon account={account} />
       <span className="min-w-0 truncate text-sm">{account.label}</span>
-      <span className="min-w-0 truncate text-xs text-muted-foreground">
+      <Link
+        to="/settings/providers"
+        search={{ environmentId: props.environmentId, instanceId: account.instanceId }}
+        className="min-w-0 truncate text-xs text-muted-foreground underline decoration-border underline-offset-2 hover:text-foreground hover:decoration-current"
+      >
         {accountSource(account)}
-      </span>
+      </Link>
       {skip !== undefined ? (
         <>
           <AccountSkipBadge skip={skip} />
