@@ -84,6 +84,7 @@ import {
 } from "./mcpOverAcpBridge.ts";
 import { mcpToolPresentation } from "@t3tools/provider-core/server/mcpToolPresentation";
 import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
+import { acpAgentBridgeServers } from "./acpAgentServers.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
 import {
@@ -941,13 +942,7 @@ export function acpMcpContext(
             ...(deferMcpTools === true ? { toolExposure: "deferred" as const } : {}),
           },
         ]),
-    ...agentServers
-      .filter((server) => server.name !== "t3-code")
-      .map((server) => ({
-        serverId: server.name,
-        endpoint: server.url,
-        authorization: server.authorizationHeader,
-      })),
+    ...acpAgentBridgeServers(agentServers),
   ];
   // codex-acp 1.2.0 and pi-acp drop injected HTTP servers; bridge through stdio instead.
   return {

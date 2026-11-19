@@ -45,7 +45,6 @@ import {
   ThreadId,
   type TurnItemId,
 } from "@t3tools/contracts";
-import { delegatedTaskProgress } from "@t3tools/provider-core/server/subagentProjection";
 import { threadTranscriptHeader } from "@t3tools/shared/threadTranscript";
 import { turnItemUpdateCanEndBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { AgentScope } from "@t3tools/shared/AgentScope";
@@ -65,7 +64,11 @@ import * as Stream from "effect/Stream";
 import * as CommandReceiptStore from "./CommandReceiptStore.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import { refuseChampionWorkspaceLoss } from "../champions/championThreadGuard.ts";
-import { PAUSED_TASK_RESUME_MESSAGE_PREFIX } from "./serverContinuation.ts";
+import {
+  delegatedWorkResult as delegatedWorkResultOf,
+  ensureExternalWorkOwner,
+  resumePausedDelegatedTasks,
+} from "./ThreadManagementDelegation.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import { projectedRowEncodedBytes } from "./threadHistoryPaging.ts";
 import { threadPullRequestsOf } from "../sourceControl/threadPullRequests.ts";
@@ -397,9 +400,6 @@ export const ThreadManagementError = Schema.Union([
 export type ThreadManagementError = typeof ThreadManagementError.Type;
 
 type ThreadManagementFailure = ThreadManagementError | Orchestrator.OrchestratorV2Error;
-
-const PAUSED_TASK_RESUME_TEXT =
-  "Your parent thread was stopped, which interrupted you, and has now resumed. Before you continue, check any operation you had running when you were stopped (a landing, a background command, a delegated task) and whether it finished. Then carry on with your task.";
 
 export interface DispatchOptions {
   /** A subagent role placed this thread on its account, under conservation; routing keeps it. */
@@ -879,30 +879,15 @@ const make = Effect.gen(function* () {
   ) {
     const command = yield* accountRouting.routeCommand(input, { placed: options?.placedByRole });
     yield* refuseChampionWorkspaceLoss(orchestrator, command);
-    // Raw agent messages cannot bypass external work ownership. The owning
-    // service may continue a validated task with its authenticated principal.
-    if (
-      command.type === "message.dispatch" &&
-      command.createdBy === "agent" &&
-      command.dispatchMode.type !== "defer_start"
-    ) {
-      const shell = yield* orchestrator.getThreadShell(command.threadId);
-      const owner = shell?.agentTask?.externalOwner;
-      if (
-        owner !== undefined &&
-        (externalWorkOwner === undefined ||
-          owner.environmentId !== externalWorkOwner.environmentId ||
-          owner.clientSessionId !== externalWorkOwner.clientSessionId ||
-          owner.externalSessionKey !== externalWorkOwner.externalSessionKey ||
-          owner.projectId !== externalWorkOwner.projectId ||
-          owner.ceiling !== externalWorkOwner.ceiling)
-      )
-        return yield* new Orchestrator.OrchestratorCommandRejectedError({
-          commandId: command.commandId,
-          commandType: command.type,
-          cause: "Submit a new external work attempt instead of messaging its backing thread.",
-        });
-    }
+    yield* ensureExternalWorkOwner({
+      command,
+      externalWorkOwner,
+      getOwner: (threadId) =>
+        orchestrator
+          .getThreadShell(threadId)
+          .pipe(Effect.map((shell) => shell?.agentTask?.externalOwner)),
+      reject: (fields) => Effect.fail(new Orchestrator.OrchestratorCommandRejectedError(fields)),
+    });
     yield* ensureCommandTranscripts(command);
     yield* assertDispatchTargetEnabled(command);
     return yield* orchestrator.dispatch(command);
@@ -1139,25 +1124,17 @@ const make = Effect.gen(function* () {
       return { run, pending, settled: isTerminalRunStatus(run.status) && !pending };
     });
     const untilDelegatedWorkSettled = input.untilDelegatedWorkSettled === true;
-    const delegatedWorkResult = Effect.gen(function* () {
-      const records = yield* getProjectThreadRecords(
+    const delegatedWorkResult = delegatedWorkResultOf({
+      loadRecords: getProjectThreadRecords(
         input,
         ["runs", "messages", "subagents", "providerThreads", "turnItems"],
         { messageRoles: ["user"], monitorNotificationsOnly: true },
-      );
-      const progress = delegatedTaskProgress(records);
-      // A thread rolled back past all its work, with nothing left running, has no answer to wait for.
-      if (
-        progress.resultRun === undefined &&
-        records.runs.every((run) => isTerminalRunStatus(run.status))
-      ) {
-        return latestRun(records);
-      }
-      if (progress.state !== "result_available") return undefined;
-      const pending = yield* orchestrator
+      ),
+      resultPending: orchestrator
         .delegatedTaskResultPending(input.threadId)
-        .pipe(Effect.mapError(loadError));
-      return pending ? undefined : progress.resultRun;
+        .pipe(Effect.mapError(loadError)),
+      isTerminalRunStatus,
+      latestRun,
     });
     const evaluate = Effect.fn("orchestrationV2.threadManagement.evaluate")(function* (
       runs: ReadonlyArray<OrchestrationV2Run>,
@@ -1815,43 +1792,14 @@ const make = Effect.gen(function* () {
     if (failures[0] !== undefined) return yield* failures[0];
   });
 
-  const resumeDelegatedTasks: ThreadManagementServiceShape["resumeDelegatedTasks"] = Effect.fn(
-    "ThreadManagementService.resumeDelegatedTasks",
-  )(function* (input) {
-    const { subagents } = yield* orchestrator.getThreadRecords(input.threadId, ["subagents"], {
-      pausedSubagents: true,
+  const resumeDelegatedTasks: ThreadManagementServiceShape["resumeDelegatedTasks"] = (input) =>
+    resumePausedDelegatedTasks({
+      ...input,
+      loadPausedTasks: orchestrator
+        .getThreadRecords(input.threadId, ["subagents"], { pausedSubagents: true })
+        .pipe(Effect.map(({ subagents }) => subagents)),
+      dispatch,
     });
-    const resumed = new Set<ThreadId>();
-    for (const task of subagents) {
-      if (task.origin !== "app_owned" || task.childThreadId === null) continue;
-      const threadId = task.childThreadId;
-      if (resumed.has(threadId)) continue;
-      resumed.add(threadId);
-      // A task that cannot resume keeps its mark, so the parent's next message tries again.
-      yield* dispatch({
-        type: "message.dispatch",
-        commandId: CommandId.make(`${input.commandId}:resume:${threadId}`),
-        threadId,
-        messageId: MessageId.make(
-          `${PAUSED_TASK_RESUME_MESSAGE_PREFIX}${input.commandId}:${threadId}`,
-        ),
-        senderThreadId: input.threadId,
-        text: PAUSED_TASK_RESUME_TEXT,
-        attachments: [],
-        dispatchMode: { type: "queue_after_active" },
-        createdBy: "agent",
-        creationSource: "server",
-      }).pipe(
-        Effect.catch((error) =>
-          Effect.logWarning("Unable to resume a delegated task", {
-            parentThreadId: input.threadId,
-            threadId,
-            error,
-          }),
-        ),
-      );
-    }
-  });
 
   return ThreadManagementService.of({
     acknowledgeRemoteCustody: orchestrator.acknowledgeRemoteCustody,

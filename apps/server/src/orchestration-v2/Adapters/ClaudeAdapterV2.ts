@@ -247,6 +247,7 @@ import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
 import { MANAGED_BROWSER_TOOL_NAMES } from "../../mcp/toolkits/managedBrowser/toolNames.ts";
 import { BOUNDED_BROWSER_TOOL_NAMES } from "../../mcp/toolkits/boundedBrowser/toolNames.ts";
 import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
+import { claudeAgentMcpServers, claudeAgentServerAllowedTools } from "./ClaudeAgentServers.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import {
@@ -2647,7 +2648,7 @@ export function claudeMcpQueryOverrides(input: {
       new Set([
         ...(input.allowedTools ?? []),
         ...mcpAllowedTools,
-        ...agentServers.map((server) => `mcp__${server.name}__*`),
+        ...claudeAgentServerAllowedTools(agentServers),
       ]),
     ),
     mcpServers: {
@@ -2663,16 +2664,7 @@ export function claudeMcpQueryOverrides(input: {
               timeout: CLAUDE_T3_MCP_TOOL_TIMEOUT_MS,
             },
           }),
-      ...Object.fromEntries(
-        agentServers.map((server) => [
-          server.name,
-          {
-            type: "http" as const,
-            url: server.url,
-            headers: { Authorization: server.authorizationHeader },
-          },
-        ]),
-      ),
+      ...claudeAgentMcpServers(agentServers),
     },
   };
 }

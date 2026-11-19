@@ -3,7 +3,7 @@ import { ARC_RUN_WAKE_MESSAGE_PREFIX } from "./serverContinuation.ts";
 import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
 import * as ProcessRunner from "../processRunner.ts";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
-import { checkoutOffset, checkoutRoot, repositoryWriteRoots } from "../agents/workspaceIdentity.ts";
+import { managedWorkspaceInvalid, turnWorkspaceNotes } from "./ProviderTurnWorkspaceNotes.ts";
 import * as VideoFrames from "../videoFrames/VideoFrames.ts";
 import { modelSelectionsEqual } from "@t3tools/shared/model";
 import { projectComposerContextForProvider } from "@t3tools/shared/composerContextReferences";
@@ -115,49 +115,6 @@ export const SIDE_CHAT_NOTE =
  */
 export const NO_PROJECT_NOTE =
   "This chat is in No project: it runs in its own scratch folder and cannot see project code. When the user's request is work in one of their projects (t3_project_list), call t3_thread_move_to_project with that project before doing the work, then end your turn; this chat moves into the project and T3 starts its next turn there with the conversation carried over. Pass continuationPrompt only for a one-sentence next step the conversation does not already say, never a summary or handoff of the work so far. When the work spans projects, move into the one holding most of it and attach the others with t3_worktree_attach. When the fit is likely but unclear, call t3_thread_suggest_project once with a one-line reason instead; the user then chooses Move or Keep.";
-
-const INSTRUCTION_FILES = ["AGENTS.md", "CLAUDE.md"];
-
-/** One of a thread's workspaces, as the workspaces note lists it. */
-export interface TurnWorkspace {
-  readonly project: string;
-  readonly path: string;
-  readonly branch: string | null;
-  readonly role: "primary" | "attached" | "released";
-  readonly instructionFiles: ReadonlyArray<string>;
-}
-
-/**
- * Managed agents cannot rely on inherited configuration to load workspace instructions.
- */
-const workspacesNote = (workspaces: ReadonlyArray<TurnWorkspace>, managed = false): string =>
-  [
-    managed
-      ? "This thread works in these workspaces. Read a workspace's instruction files before working there."
-      : "This thread works in these workspaces. Read a workspace's instruction files before working there, and land each repository from its own workspace.",
-    ...workspaces.map((workspace) => {
-      const role =
-        workspace.role === "primary"
-          ? "primary, where this session runs"
-          : workspace.role === "attached"
-            ? "attached"
-            : "released by SlipJay; attach a fresh workspace to work in this project again";
-      const branch = workspace.branch === null ? "" : ` on ${workspace.branch}`;
-      const instructions =
-        workspace.instructionFiles.length === 0
-          ? ""
-          : `; instructions: ${workspace.instructionFiles.join(", ")}`;
-      return `- ${workspace.project} (${role}): ${workspace.path}${branch}${instructions}`;
-    }),
-  ].join("\n");
-
-/**
- * A project registered in a repository subdirectory still binds whole checkouts, and turns start
- * at their root: provider sandboxes grant writes under the working directory, and the project's
- * work may need to change shared code outside its folder.
- */
-const projectFolderNote = (folder: string): string =>
-  `This project is the \`${folder}\` folder of its repository. This turn starts at the repository root so it can also change shared code. Work on that folder's product and read the instruction files in \`${folder}\` before changing it.`;
 
 const FORGE_KIND_LABELS: Record<ForgeWorkItemKind, string> = {
   spec: "Spec",
@@ -1033,39 +990,13 @@ export const layer: Layer.Layer<
       const workspaceMissing =
         worktreePath !== null &&
         !(yield* fileSystem.exists(worktreePath).pipe(Effect.orElseSucceed(() => true)));
-      let invalidWorkspace = false;
-      if (projection.thread.agentTask !== undefined && worktreePath !== null && !workspaceMissing) {
-        const project = yield* projects.getById(projection.thread.projectId);
-        if (Option.isSome(project)) {
-          // The repository a directory belongs to, and where it sits in that checkout.
-          const locate = Effect.fn("ProviderTurnStartService.workspaceIdentity")(function* (
-            directory: string,
-          ) {
-            const checkout = yield* checkoutRoot(directory);
-            return {
-              offset: path.relative(checkout, yield* fileSystem.realPath(directory)),
-              stores: yield* repositoryWriteRoots(checkout),
-            };
-          });
-          const identity = (directory: string) =>
-            locate(directory).pipe(
-              Effect.provideService(FileSystem.FileSystem, fileSystem),
-              Effect.provideService(Path.Path, path),
-              Effect.provideService(ProcessRunner.ProcessRunner, processes),
-              Effect.orElseSucceed(() => null),
-            );
-          const expected = yield* identity(project.value.workspaceRoot);
-          // Scratch and non-repository projects have no repository identity to preserve.
-          if (expected !== null) {
-            const actual = yield* identity(worktreePath);
-            // A workspace is allocated whole, so a subdirectory project's is bound at its root.
-            invalidWorkspace =
-              actual === null ||
-              (actual.offset !== expected.offset && actual.offset !== "") ||
-              !actual.stores.some((store) => expected.stores.includes(store));
-          }
-        }
-      }
+      const invalidWorkspace = yield* managedWorkspaceInvalid({
+        thread: projection.thread,
+        worktreePath,
+        workspaceMissing,
+        getProject: projects.getById,
+        services: { fileSystem, path, processes },
+      });
       // A provider never starts in a missing directory: it would run somewhere
       // else or fail without saying why. The run fails with the reason instead.
       if (worktreePath !== null && (workspaceMissing || invalidWorkspace)) {
@@ -2349,68 +2280,12 @@ export const layer: Layer.Layer<
           projection.providerTurns,
           run.id,
         );
-        const projectFolder =
-          projection.thread.worktreePath === null
-            ? ""
-            : yield* Effect.gen(function* () {
-                const project = yield* projects.getById(projection.thread.projectId);
-                if (Option.isNone(project)) return "";
-                return (yield* checkoutOffset(projection.thread.worktreePath!)) === ""
-                  ? yield* checkoutOffset(project.value.workspaceRoot)
-                  : "";
-              }).pipe(
-                Effect.provideService(FileSystem.FileSystem, fileSystem),
-                Effect.provideService(Path.Path, path),
-                Effect.provideService(ProcessRunner.ProcessRunner, processes),
-                Effect.orElseSucceed(() => ""),
-              );
-        const attachments = projection.thread.workspaceAttachments ?? [];
-        const turnWorkspaces =
-          attachments.length === 0 && resolvedRuntimePolicy.managedAgent !== true
-            ? []
-            : yield* Effect.forEach(
-                [
-                  {
-                    projectId: projection.thread.projectId,
-                    path: projection.thread.worktreePath,
-                    branch: projection.thread.branch,
-                    role: "primary" as const,
-                  },
-                  ...attachments.map((attachment) => ({
-                    projectId: attachment.projectId,
-                    path: attachment.workspacePath,
-                    branch: attachment.branch,
-                    role:
-                      attachment.releasedAt === null
-                        ? ("attached" as const)
-                        : ("released" as const),
-                  })),
-                ],
-                (workspace) =>
-                  Effect.gen(function* () {
-                    const project = Option.getOrUndefined(
-                      yield* projects
-                        .getById(workspace.projectId)
-                        .pipe(Effect.orElseSucceed(() => Option.none())),
-                    );
-                    const root = workspace.path ?? project?.workspaceRoot ?? "";
-                    const instructionFiles =
-                      workspace.role === "released"
-                        ? []
-                        : yield* Effect.filter(INSTRUCTION_FILES, (file) =>
-                            fileSystem
-                              .exists(path.join(root, file))
-                              .pipe(Effect.orElseSucceed(() => false)),
-                          );
-                    return {
-                      project: project?.title ?? workspace.projectId,
-                      path: root,
-                      branch: workspace.branch,
-                      role: workspace.role,
-                      instructionFiles,
-                    } satisfies TurnWorkspace;
-                  }),
-              );
+        const workspaceNotes = yield* turnWorkspaceNotes({
+          thread: projection.thread,
+          managedAgent: resolvedRuntimePolicy.managedAgent === true,
+          getProject: projects.getById,
+          services: { fileSystem, path, processes },
+        });
         // Native slash commands must remain at the start of the prompt, so they carry no note.
         const slashCommand =
           providerMessage.attachments.length === 0 &&
@@ -2479,13 +2354,8 @@ export const layer: Layer.Layer<
               compact ? "" : arcRunNote,
               isSideChatThread(projection.thread) ? SIDE_CHAT_NOTE : "",
               offersProjectSuggestion ? NO_PROJECT_NOTE : "",
-              projectFolder === "" ? "" : projectFolderNote(projectFolder),
-              turnWorkspaces.length === 0
-                ? ""
-                : workspacesNote(
-                    turnWorkspaces,
-                    resolvedRuntimePolicy.managedAgent === true && attachments.length === 0,
-                  ),
+              workspaceNotes.projectFolder,
+              workspaceNotes.workspaces,
               replaced === null
                 ? ""
                 : replaced.worktreePath === null
@@ -2606,8 +2476,8 @@ export const layer: Layer.Layer<
           !isSideChatThread(projection.thread) &&
           !scheduled &&
           !offersProjectSuggestion &&
-          projectFolder === "" &&
-          turnWorkspaces.length === 0 &&
+          workspaceNotes.projectFolder === "" &&
+          workspaceNotes.workspaces === "" &&
           replaced === null
             ? session
             : makeDeliverySession(session, startWithHandoffs);

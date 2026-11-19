@@ -3,6 +3,7 @@ import type { ProjectThreadAwarenessV2Input } from "@t3tools/shared/agentAwarene
 import { applyOrchestrationV2ThreadVisit, pendingGuestMessageCount } from "@t3tools/contracts";
 import { applyThreadPullRequestLinkUpdate } from "../sourceControl/threadPullRequests.ts";
 import { readOnly } from "@t3tools/shared/nodeSqliteClient";
+import { hasUndeliveredDelegatedResult, makeDelegationReads } from "./ProjectionStoreDelegation.ts";
 import { projectTurnItemForWire } from "./WireProjection.ts";
 import * as Stream from "effect/Stream";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
@@ -2020,13 +2021,7 @@ export function threadShellFromProjection(
     parkedWaits: projection.thread.parkedWaits,
     ownerWait: projection.thread.ownerWait,
     stalled: projection.thread.stalled,
-    undeliveredDelegatedResult: (projection.subagents ?? []).some(
-      (task) =>
-        task.origin === "app_owned" &&
-        task.status !== "idle" &&
-        (task.completionDelivery?.state === "pending" ||
-          task.completionDelivery?.state === "claimed"),
-    ),
+    undeliveredDelegatedResult: hasUndeliveredDelegatedResult(projection.subagents ?? []),
     descendantApprovalPending: options.descendantApprovalPending === true,
     ...(options.waitingChildThreadIds === undefined
       ? {}
@@ -6233,48 +6228,17 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         )
         .pipe(Effect.mapError(controlReadError(threadId)));
 
-    const getSubagent = Effect.fn("ProjectionStore.getSubagent")(
-      function* (taskId: NodeId) {
-        const rows = yield* sql<PayloadRow>`
-        SELECT payload_json FROM orchestration_v2_projection_subagents
-        WHERE subagent_id = ${taskId}
-      `;
-        return rows[0] === undefined
-          ? undefined
-          : yield* decodeSubagentPayload(rows[0].payload_json);
-      },
-      (effect) => effect.pipe(readOnly, Effect.mapError(shellSnapshotReadError)),
-    );
-
-    const getSubagentByChildThread: ProjectionStoreV2Shape["getSubagentByChildThread"] = Effect.fn(
-      "ProjectionStore.getSubagentByChildThread",
-    )(
-      function* (childThreadId) {
-        const rows = yield* sql<PayloadRow>`
-          SELECT payload_json FROM orchestration_v2_projection_subagents
-          WHERE child_thread_id = ${childThreadId}
-          LIMIT 1
-        `;
-        return rows[0] === undefined
-          ? undefined
-          : yield* decodeSubagentPayload(rows[0].payload_json);
-      },
-      (effect, childThreadId) =>
-        effect.pipe(readOnly, Effect.mapError(controlReadError(childThreadId))),
-    );
-
-    const getSubagentsByChildThread: ProjectionStoreV2Shape["getSubagentsByChildThread"] =
-      Effect.fn("ProjectionStore.getSubagentsByChildThread")(
-        function* (childThreadId) {
-          const rows = yield* sql<PayloadRow>`
-            SELECT payload_json FROM orchestration_v2_projection_subagents
-            WHERE child_thread_id = ${childThreadId}
-          `;
-          return yield* Effect.forEach(rows, (row) => decodeSubagentPayload(row.payload_json));
-        },
-        (effect, childThreadId) =>
-          effect.pipe(readOnly, Effect.mapError(controlReadError(childThreadId))),
-      );
+    const {
+      getSubagent,
+      getSubagentByChildThread,
+      getSubagentsByChildThread,
+      getManagedChildContinuations,
+      hasPendingBlockingAdvice,
+    } = makeDelegationReads({
+      sql,
+      controlReadError,
+      shellSnapshotReadError: (cause) => shellSnapshotReadError(cause),
+    });
 
     const getProviderControlContext: ProjectionStoreV2Shape["getProviderControlContext"] = (
       threadId,
@@ -6803,66 +6767,6 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         Effect.map((rows) => [...new Set(rows.map((row) => ThreadId.make(row.child_thread_id)))]),
         Effect.mapError(controlReadError(threadId)),
       );
-    // The latest delivered result per child is the identity boundary; ordinals include queued followups without clock comparisons.
-    const getManagedChildContinuations: ProjectionStoreV2Shape["getManagedChildContinuations"] =
-      Effect.fn("ProjectionStore.getManagedChildContinuations")(
-        function* (parentThreadId) {
-          const rows = yield* sql<{
-            readonly task_payload_json: string;
-            readonly result_run_payload_json: string;
-            readonly run_payload_json: string;
-          }>`WITH terminal_results AS (
-              SELECT
-                task.child_thread_id,
-                task.subagent_id,
-                task.payload_json AS task_payload_json,
-                result_run.payload_json AS result_run_payload_json,
-                result_run.ordinal AS result_ordinal,
-                ROW_NUMBER() OVER (
-                  PARTITION BY task.child_thread_id
-                  ORDER BY result_run.ordinal DESC, task.subagent_id DESC
-                ) AS result_rank
-              FROM orchestration_v2_projection_subagents AS task
-              JOIN orchestration_v2_projection_runs AS result_run
-                ON result_run.run_id = (
-                  SELECT candidate.run_id
-                  FROM orchestration_v2_projection_runs AS candidate
-                  WHERE candidate.thread_id = task.child_thread_id
-                    AND json_extract(candidate.payload_json, '$.delegatedTaskId') = task.subagent_id
-                    AND candidate.status IN ('completed', 'failed', 'cancelled', 'interrupted', 'rolled_back')
-                  ORDER BY candidate.ordinal DESC, candidate.run_id DESC
-                  LIMIT 1
-                )
-              WHERE task.thread_id = ${parentThreadId}
-                AND task.origin = 'app_owned'
-                AND task.child_thread_id IS NOT NULL
-                AND json_extract(task.payload_json, '$.result') IS NOT NULL
-                AND task.status IN ('completed', 'failed', 'cancelled', 'interrupted')
-                AND task.completion_delivery_state IN ('acknowledged', 'delivered')
-            )
-            SELECT terminal.task_payload_json,
-              terminal.result_run_payload_json,
-              live_run.payload_json AS run_payload_json
-            FROM terminal_results AS terminal
-            JOIN orchestration_v2_projection_runs AS live_run
-              ON live_run.thread_id = terminal.child_thread_id
-              AND live_run.status IN ('queued', 'preparing', 'starting', 'running', 'waiting')
-              AND live_run.ordinal > terminal.result_ordinal
-            WHERE terminal.result_rank = 1
-            ORDER BY terminal.subagent_id ASC, live_run.ordinal ASC, live_run.run_id ASC`;
-          return yield* Effect.forEach(rows, (row) =>
-            Effect.gen(function* () {
-              const [task, resultRun, run] = yield* Effect.all([
-                decodeSubagentPayload(row.task_payload_json),
-                decodeRunPayload(row.result_run_payload_json),
-                decodeRunPayload(row.run_payload_json),
-              ]);
-              return { task, resultRun, run } satisfies ProjectionManagedChildContinuation;
-            }),
-          );
-        },
-        (effect, parentThreadId) => effect.pipe(Effect.mapError(controlReadError(parentThreadId))),
-      );
     const hasPendingDelegatedCompletion: ProjectionStoreV2Shape["hasPendingDelegatedCompletion"] =
       Effect.fn("ProjectionStore.hasPendingDelegatedCompletion")((childThreadId) =>
         sql`SELECT 1 FROM orchestration_v2_projection_subagents AS task
@@ -7076,15 +6980,6 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         `;
         const messages = yield* decodeRows(decodeMessagePayload, threadId)(rows);
         return new Map(messages.map((message) => [message.id, message]));
-      },
-      (effect, threadId) => effect.pipe(Effect.mapError(controlReadError(threadId))),
-    );
-
-    const hasPendingBlockingAdvice = Effect.fn("ProjectionStore.hasPendingBlockingAdvice")(
-      function* (threadId: ThreadId) {
-        const rows =
-          yield* sql`SELECT 1 FROM advice_consultations WHERE worker_thread_id = ${threadId} AND worker_environment_id IS NULL AND (status = 'pending' OR (status = 'answered' AND answer_delivered = 0)) AND json_extract(payload_json, '$.blocking') = 1 LIMIT 1`;
-        return rows.length > 0;
       },
       (effect, threadId) => effect.pipe(Effect.mapError(controlReadError(threadId))),
     );

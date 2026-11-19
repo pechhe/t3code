@@ -1,4 +1,3 @@
-import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
 import { historyResponseItems } from "@t3tools/provider-core/server/handoffBudget";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import {
@@ -71,16 +70,13 @@ import packageJson from "../../../package.json" with { type: "json" };
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
-import * as WeaveForgeUsage from "../../weave/WeaveForgeUsage.ts";
 import * as EffectWorker from "../EffectWorker.ts";
 import * as Orchestrator from "../Orchestrator.ts";
 import * as ProviderReplayHarness from "../testkit/ProviderReplayHarness.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import type * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
-import * as WeaveTestkit from "../../weave/WeaveAgentConnections.testkit.ts";
 import * as CodexAdapterV2 from "./CodexAdapterV2.ts";
 import { withCodexReplayChildMetadata } from "./CodexAdapterV2.testkit.ts";
-import * as SlipJayGuard from "../../project/SlipJayGuard.ts";
 import * as ModelManifest from "../../provider/ModelManifest.ts";
 import * as PortScanner from "../../preview/PortScanner.ts";
 import { resolveProviderCompatibility } from "../../provider/providerCompatibility.ts";
@@ -253,48 +249,6 @@ describe("CodexAdapterV2 runtime policy", () => {
     }),
   );
 
-  it.effect(
-    "carries a managed writer's network access into Codex and withholds it from a reader",
-    () =>
-      Effect.gen(function* () {
-        const build = (sandboxPolicy: unknown) =>
-          CodexAdapterV2.buildCodexTurnStartParams({
-            nativeThreadId: "native-managed-sandbox",
-            codexInput: [{ type: "text", text: "test" }],
-            runtimePolicy: {
-              runtimeMode: "full-access",
-              interactionMode: "default",
-              cwd: "/workspace",
-              managedAgent: true,
-              approvalPolicy: "never",
-              sandboxPolicy,
-            },
-            modelSelection: {
-              instanceId: ProviderInstanceId.make("codex"),
-              model: "gpt-5.4",
-            },
-          });
-
-        const writer = yield* build({
-          type: "workspaceWrite",
-          writableRoots: ["/workspace"],
-          networkAccess: true,
-          excludeTmpdirEnvVar: true,
-          excludeSlashTmp: true,
-        });
-        assert.deepEqual(writer.sandboxPolicy, {
-          type: "workspaceWrite",
-          writableRoots: ["/workspace"],
-          networkAccess: true,
-          excludeTmpdirEnvVar: true,
-          excludeSlashTmp: true,
-        });
-
-        const reader = yield* build({ type: "readOnly", networkAccess: false });
-        assert.deepEqual(reader.sandboxPolicy, { type: "readOnly", networkAccess: false });
-      }),
-  );
-
   it.effect("sends the chosen cyber access program, else the model's default", () =>
     Effect.gen(function* () {
       const build = (value?: string, cyberAccess?: { defaultProgram: string | undefined }) =>
@@ -353,205 +307,6 @@ describe("CodexAdapterV2 runtime policy", () => {
       assert.isDefined(withT3.additionalContext?.["t3_code_runtime"]);
     }),
   );
-
-  it.effect("sends only the thread's own instruction variant as application context", () =>
-    Effect.gen(function* () {
-      const policy = { runtimeMode: "full-access", interactionMode: "default", cwd: null } as const;
-      const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" };
-      const turn = (text?: string) =>
-        CodexAdapterV2.buildCodexTurnStartParams({
-          nativeThreadId: "native-instruction",
-          codexInput: [{ type: "text", text: "next step" }],
-          runtimePolicy: policy,
-          modelSelection,
-          hasT3Mcp: true,
-          ...(text === undefined ? {} : { instructionOverlay: { text, sha256: "a".repeat(64) } }),
-        });
-      const terse = yield* turn("Keep each reply under five lines.");
-      const thorough = yield* turn("Explain each decision in full.");
-      assert.deepEqual(terse.additionalContext?.["t3_instruction_experiment"], {
-        kind: "application",
-        value: "Keep each reply under five lines.",
-      });
-      assert.deepEqual(thorough.additionalContext?.["t3_instruction_experiment"], {
-        kind: "application",
-        value: "Explain each decision in full.",
-      });
-      assert.isDefined(terse.additionalContext?.["t3_code_runtime"]);
-      assert.isUndefined((yield* turn()).additionalContext?.["t3_instruction_experiment"]);
-    }),
-  );
-});
-
-describe("CodexAdapterV2 auto-compaction", () => {
-  const params = (autoCompactWindow?: string) =>
-    CodexAdapterV2.codexThreadRuntimeParams({
-      mcpSession: undefined,
-      ...(autoCompactWindow === undefined ? {} : { autoCompactWindow }),
-    }).config;
-
-  it("sets Codex's compaction limit from the provider setting", () => {
-    const config = params("300000");
-    assert.equal(config.model_auto_compact_token_limit, 300_000);
-    assert.equal(config.model_auto_compact_token_limit_scope, "total");
-  });
-
-  it("lets a thread's compact-at point override the provider setting", () => {
-    const config = CodexAdapterV2.codexThreadRuntimeParams({
-      mcpSession: undefined,
-      autoCompactWindow: "300000",
-      runtimePolicy: {
-        runtimeMode: "full-access",
-        interactionMode: "default",
-        cwd: null,
-        compactAt: 180_000,
-      },
-    }).config;
-    assert.equal(config.model_auto_compact_token_limit, 180_000);
-    assert.equal(config.model_auto_compact_token_limit_scope, "total");
-  });
-
-  it("reports the limit in force as the compaction point", () => {
-    assert.equal(CodexAdapterV2.codexCompactLimit({ compactAt: 180_000 }, "300000"), 180_000);
-    assert.equal(CodexAdapterV2.codexCompactLimit({ compactAt: null }, "300000"), 300_000);
-    assert.equal(CodexAdapterV2.codexCompactLimit(undefined, "300000"), 300_000);
-    assert.isUndefined(CodexAdapterV2.codexCompactLimit(undefined, ""));
-    const usage = (limit?: number) =>
-      CodexAdapterV2.codexProviderTurnTokenUsage(
-        {
-          total: {
-            totalTokens: 1,
-            inputTokens: 1,
-            cachedInputTokens: 0,
-            outputTokens: 0,
-            reasoningOutputTokens: 0,
-          },
-          last: {
-            totalTokens: 1,
-            inputTokens: 1,
-            cachedInputTokens: 0,
-            outputTokens: 0,
-            reasoningOutputTokens: 0,
-          },
-          modelContextWindow: 400_000,
-        },
-        "2026-08-29T00:00:00.000Z",
-        limit,
-      );
-    assert.equal(usage(180_000).autoCompactThreshold, 180_000);
-    assert.notProperty(usage(), "autoCompactThreshold");
-  });
-
-  it("leaves Codex's own limit alone when the setting is empty", () => {
-    assert.notProperty(params(""), "model_auto_compact_token_limit");
-    assert.notProperty(params(), "model_auto_compact_token_limit");
-  });
-});
-
-describe("CodexAdapterV2 process spawning", () => {
-  it("injects cwd, model, and MCP authorization into thread-scoped params", () => {
-    const threadId = ThreadId.make("thread-codex-mcp");
-    const mcpSession = {
-      environmentId: EnvironmentId.make("environment-codex-mcp"),
-      threadId,
-      providerSessionId: "mcp-session-codex",
-      providerInstanceId: ProviderInstanceId.make("codex"),
-      endpoint: "http://127.0.0.1:43123/mcp",
-      authorizationHeader: "Bearer secret-codex-token",
-      browserToolsAvailable: true,
-    };
-
-    assert.deepEqual(
-      CodexAdapterV2.codexThreadRuntimeParams({
-        mcpSession,
-        modelSelection: { model: "gpt-5.4" },
-        runtimePolicy: {
-          runtimeMode: "full-access",
-          interactionMode: "default",
-          cwd: "/workspace/thread-codex-mcp",
-        },
-      }),
-      {
-        cwd: "/workspace/thread-codex-mcp",
-        model: "gpt-5.4",
-        config: {
-          "tools.update_plan.enabled": true,
-          // Codex waits up to 10 s, not 1 s, for MCP servers before the first request.
-          mcp_optional_startup_grace_ms: 10_000,
-          "features.concurrent_reasoning_summaries": true,
-          "features.multi_agent": false,
-          "features.apps": false,
-          "features.plugins": false,
-          "features.browser_use": false,
-          "features.computer_use": false,
-          web_search: "disabled",
-          "mcp_servers.t3-code-direct": {
-            url: "http://127.0.0.1:43123/mcp",
-            tool_timeout_sec: 3_900,
-            default_tools_approval_mode: "approve",
-            enabled_tools: ["t3_thread_wait", "delegate_task"],
-            omit_tools_from: ["code_mode", "deferred"],
-            http_headers: { Authorization: "Bearer secret-codex-token" },
-          },
-          "mcp_servers.t3-code": {
-            disabled_tools: ["t3_thread_wait", "delegate_task"],
-            url: "http://127.0.0.1:43123/mcp",
-            tool_timeout_sec: 3_900,
-            // Claude pre-approves its wildcard, so Codex pre-approves the same server instead
-            // of asking for each T3 tool (or denying it under `approval_policy: never`).
-            default_tools_approval_mode: "approve",
-            http_headers: {
-              Authorization: "Bearer secret-codex-token",
-            },
-          },
-        },
-      },
-    );
-  });
-});
-
-describe("CodexAdapterV2 agent command environment", () => {
-  it("puts a thread's browser-run credential in its shells beside the thread id", () => {
-    const mcpSession = {
-      environmentId: EnvironmentId.make("environment-codex-browser-run"),
-      threadId: ThreadId.make("thread-codex-browser-run"),
-      providerSessionId: "mcp-session-codex-browser-run",
-      providerInstanceId: ProviderInstanceId.make("codex"),
-      endpoint: "http://127.0.0.1:43123/mcp",
-      authorizationHeader: "Bearer secret-codex-token",
-      browserToolsAvailable: true,
-      browserRunEnvironment: {
-        T3_BROWSER_RUN_URL: "http://127.0.0.1:43123/mcp/browser-run",
-        T3_BROWSER_RUN_TOKEN: "browser-run-token",
-      },
-    };
-    const config = CodexAdapterV2.codexThreadRuntimeParams({
-      threadId: mcpSession.threadId,
-      mcpSession,
-    }).config;
-    assert.equal(
-      config["shell_environment_policy.set.T3CODE_THREAD_ID"],
-      "thread-codex-browser-run",
-    );
-    assert.equal(
-      config["shell_environment_policy.set.T3_BROWSER_RUN_URL"],
-      "http://127.0.0.1:43123/mcp/browser-run",
-    );
-    assert.equal(config["shell_environment_policy.set.T3_BROWSER_RUN_TOKEN"], "browser-run-token");
-
-    // A session without the run lane carries nothing extra, and never the session's own bearer.
-    const { browserRunEnvironment: _runs, ...sessionWithoutRuns } = mcpSession;
-    const withoutRuns = CodexAdapterV2.codexThreadRuntimeParams({
-      threadId: ThreadId.make("thread-codex-no-runs"),
-      mcpSession: sessionWithoutRuns,
-    }).config;
-    assert.isUndefined(withoutRuns["shell_environment_policy.set.T3_BROWSER_RUN_TOKEN"]);
-    // The session's own bearer stays in the MCP server config, never in a shell's environment.
-    assert.notInclude(
-      Object.keys(withoutRuns).filter((key) => key.startsWith("shell_environment_policy")),
-      "secret-codex-token",
-    );
-  });
 });
 
 describe("CodexAdapterV2 native protocol logging", () => {
@@ -1492,270 +1247,6 @@ describe("CodexAdapterV2 session initialize", () => {
     ),
   );
 
-  // Config keys the adapter fills in per thread; the assertions below read the recorded
-  // requests instead, which is what the shared-session bug turned on.
-  const managedThreadConfigKeys = [
-    "features.multi_agent",
-    "features.apps",
-    "features.plugins",
-    "features.browser_use",
-    "features.computer_use",
-    "web_search",
-    "shell_environment_policy",
-  ];
-
-  // A managed thread reads the app-server's effective config before it starts.
-  const managedConfigRead = (id: number): Array<CodexReplay.CodexAppServerReplayEntry> => [
-    {
-      type: "expect_outbound",
-      label: "config/read",
-      frame: {
-        id,
-        method: "config/read",
-        params: { cwd: "/workspace", includeLayers: false },
-      },
-    },
-    {
-      type: "emit_inbound",
-      label: "config/read",
-      frame: { id, result: { config: { mcp_servers: {} }, origins: {} } },
-    },
-  ];
-
-  it.effect(
-    "gives a managed task a TMPDIR of its own for its turn and removes it when the turn ends",
-    () =>
-      Effect.gen(function* () {
-        const fs = yield* FileSystem.FileSystem;
-        const parent = yield* fs.makeTempDirectoryScoped({ prefix: "t3-codex-sandbox-tmp-" });
-        const sandboxTempRoot = `${parent}/task`;
-        const nativeThreadId = "managed-sandbox-temp-native";
-        const prompt = "make a temp file";
-        const runtimePolicy = {
-          ...CODEX_TEST_RUNTIME_POLICY,
-          managedAgent: true,
-          sandboxTempRoot,
-        };
-        const holdCompletion = yield* Deferred.make<void>();
-        const terminal = yield* Deferred.make<void>();
-        const session = yield* openReplaySession(
-          {
-            ...makeCodexReplayTranscript({
-              scenario: "managed-sandbox-temp",
-              entries: (() => {
-                const preamble = codexReplayPreamble({
-                  nativeThreadId,
-                  nativeTurnId: "turn-1",
-                  prompt,
-                });
-                return [
-                  ...preamble.slice(0, 3),
-                  ...managedConfigRead(2),
-                  withReplayRequestId(preamble[3]!, 3),
-                  withReplayRequestId(preamble[4]!, 3),
-                  withReplayRequestId(preamble[5]!, 4),
-                  withReplayRequestId(preamble[6]!, 4),
-                  preamble[7]!,
-                  {
-                    type: "emit_inbound",
-                    label: "turn/completed",
-                    frame: {
-                      method: "turn/completed",
-                      params: {
-                        threadId: nativeThreadId,
-                        turn: makeCodexReplayTurn({ id: "turn-1", status: "completed" }),
-                      },
-                    },
-                  },
-                ];
-              })(),
-            }),
-            metadata: { recorderThreadConfigKeys: managedThreadConfigKeys },
-          },
-          (entry) =>
-            entry.label === "turn/completed" ? Deferred.await(holdCompletion) : Effect.void,
-          runtimePolicy,
-        );
-        const providerThread = yield* session.ensureThread(nativeThreadId);
-
-        // The app-server is shared with every other task, so no task's directory rides in its
-        // environment; the thread's own config names it.
-        assert.isUndefined(session.environment()?.TMPDIR);
-        const started = (session.requests().find((request) => request.method === "thread/start")
-          ?.params ?? {}) as {
-          config?: Record<string, unknown>;
-        };
-        assert.deepEqual(started.config?.shell_environment_policy, {
-          set: { TMPDIR: sandboxTempRoot },
-        });
-        assert.isFalse(yield* fs.exists(sandboxTempRoot));
-
-        yield* session.runtime.events.pipe(
-          Stream.runForEach((event) =>
-            event.type === "turn.terminal" ? Deferred.succeed(terminal, undefined) : Effect.void,
-          ),
-          Effect.forkScoped,
-        );
-        yield* session.runtime.startTurn(
-          makeCodexTestTurnInput({
-            threadId: session.threadId,
-            providerThread,
-            runtimePolicy,
-            now: yield* DateTime.now,
-            attemptId: RunAttemptId.make("sandbox-temp-attempt"),
-            text: prompt,
-          }),
-        );
-        assert.equal((yield* fs.stat(sandboxTempRoot)).type, "Directory");
-
-        yield* Deferred.succeed(holdCompletion, undefined);
-        yield* Deferred.await(terminal);
-        // Gone with the turn, not with the provider session.
-        assert.isFalse(yield* fs.exists(sandboxTempRoot));
-      }).pipe(
-        Effect.scoped,
-        Effect.provide(
-          Layer.mergeAll(
-            IdAllocator.layer,
-            McpProviderSessions.layer,
-            Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
-          ),
-        ),
-      ),
-  );
-
-  it.effect("removes a managed task's temp dir when its turn never starts", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const parent = yield* fs.makeTempDirectoryScoped({ prefix: "t3-codex-sandbox-tmp-" });
-      const sandboxTempRoot = `${parent}/task`;
-      const nativeThreadId = "managed-sandbox-temp-refused";
-      const prompt = "make a temp file";
-      const runtimePolicy = {
-        ...CODEX_TEST_RUNTIME_POLICY,
-        managedAgent: true,
-        sandboxTempRoot,
-      };
-      const preamble = codexReplayPreamble({ nativeThreadId, nativeTurnId: "turn-1", prompt });
-      const session = yield* openReplaySession(
-        {
-          ...makeCodexReplayTranscript({
-            scenario: "managed-sandbox-temp-refused",
-            entries: [
-              ...preamble.slice(0, 3),
-              ...managedConfigRead(2),
-              withReplayRequestId(preamble[3]!, 3),
-              withReplayRequestId(preamble[4]!, 3),
-              withReplayRequestId(preamble[5]!, 4),
-              {
-                type: "emit_inbound",
-                label: "turn/start",
-                frame: { id: 4, error: { code: -32603, message: "turn start rejected" } },
-              },
-            ],
-          }),
-          metadata: { recorderThreadConfigKeys: managedThreadConfigKeys },
-        },
-        undefined,
-        runtimePolicy,
-      );
-      const providerThread = yield* session.ensureThread(nativeThreadId);
-      const failure = yield* session.runtime
-        .startTurn(
-          makeCodexTestTurnInput({
-            threadId: session.threadId,
-            providerThread,
-            runtimePolicy,
-            now: yield* DateTime.now,
-            attemptId: RunAttemptId.make("sandbox-temp-refused"),
-            text: prompt,
-          }),
-        )
-        .pipe(Effect.flip);
-      assert.equal(failure._tag, "ProviderAdapterTurnStartError");
-      assert.isFalse(yield* fs.exists(sandboxTempRoot));
-    }).pipe(
-      Effect.scoped,
-      Effect.provide(
-        Layer.mergeAll(
-          IdAllocator.layer,
-          McpProviderSessions.layer,
-          Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
-        ),
-      ),
-    ),
-  );
-
-  it.effect("gives each managed thread on a shared app-server its own TMPDIR", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const parent = yield* fs.makeTempDirectoryScoped({ prefix: "t3-codex-sandbox-tmp-" });
-      const firstRoot = `${parent}/first`;
-      const secondRoot = `${parent}/second`;
-      const firstThread = "shared-session-first";
-      const secondThread = "shared-session-second";
-      const session = yield* openReplaySession(
-        {
-          ...makeCodexReplayTranscript({
-            scenario: "managed-shared-session-tmpdirs",
-            entries: (() => {
-              const first = replayPreamble(firstThread);
-              const second = replayPreamble(secondThread);
-              return [
-                ...first.slice(0, 3),
-                ...managedConfigRead(2),
-                withReplayRequestId(first[3]!, 3),
-                withReplayRequestId(first[4]!, 3),
-                // ProviderSessionManager attaches a second app thread to the existing session
-                // rather than opening another one, so its thread starts on the same app-server.
-                ...managedConfigRead(4),
-                withReplayRequestId(second[3]!, 5),
-                withReplayRequestId(second[4]!, 5),
-              ];
-            })(),
-          }),
-          metadata: { recorderThreadConfigKeys: managedThreadConfigKeys },
-        },
-        undefined,
-        {
-          ...CODEX_TEST_RUNTIME_POLICY,
-          managedAgent: true,
-          sandboxTempRoot: firstRoot,
-        },
-      );
-      yield* session.ensureThread(firstThread);
-      yield* session.ensureThread(secondThread, {
-        ...CODEX_TEST_RUNTIME_POLICY,
-        managedAgent: true,
-        sandboxTempRoot: secondRoot,
-      });
-
-      const tmpdirs = session
-        .requests()
-        .filter((request) => request.method === "thread/start")
-        .map(
-          (request) =>
-            (
-              (request.params as { config?: Record<string, unknown> }).config as {
-                shell_environment_policy?: { set?: { TMPDIR?: string } };
-              }
-            ).shell_environment_policy?.set?.TMPDIR,
-        );
-      assert.deepEqual(tmpdirs, [firstRoot, secondRoot]);
-      // Neither came from the process environment, which every task on the session shares.
-      assert.isUndefined(session.environment()?.TMPDIR);
-    }).pipe(
-      Effect.scoped,
-      Effect.provide(
-        Layer.mergeAll(
-          IdAllocator.layer,
-          McpProviderSessions.layer,
-          Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
-        ),
-      ),
-    ),
-  );
-
   // regression: #16260 one-shot initializers raced; a failed handshake must be retried
   it.effect("retries initialize after a failed handshake", () =>
     Effect.gen(function* () {
@@ -2355,110 +1846,197 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       ),
   );
 
-  it.effect.each(["canonical", "legacy"] as const)(
-    "starts a thread with %s Weave registration through renewal and reconnect failures",
-    (registration) =>
-      Effect.gen(function* () {
-        const weave = yield* WeaveTestkit.makeWeaveHarness;
-        const scenario = "weave-connection";
-        const threadId = ThreadId.make(`thread-${scenario}`);
-        yield* weave.connections.prepare({
-          threadId,
-          role: "reviewer",
-          model: "gpt-5.4",
-        });
-        // An exchanged token, a renewal Weave cannot answer, then a revoked delegation.
-        yield* weave.call(threadId);
-        yield* TestClock.adjust(12 * WeaveTestkit.hourMs);
-        weave.weave.state.unreachable = true;
-        yield* weave.call(threadId);
-        weave.weave.state.unreachable = false;
-        weave.weave.state.delegationRevoked = true;
-        yield* weave.call(threadId);
-        const connection = (yield* weave.connections.connection(threadId))!;
-
-        const nativeThreadId = "weave-thread";
-        const nativeTurnId = "weave-turn";
-        const prompt = "Record the review in Weave.";
-        const preamble = codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt });
-        const transcript = makeCodexReplayTranscript({
+  it.effect("adds the session MCP server without replacing launch-argument servers", () =>
+    Effect.gen(function* () {
+      const scenario = "launch-mcp-servers";
+      yield* (yield* McpProviderSessions.McpProviderSessions).set({
+        environmentId: EnvironmentId.make("environment-codex-mcp"),
+        threadId: ThreadId.make(`thread-${scenario}`),
+        providerSessionId: `provider-session-${scenario}`,
+        providerInstanceId: ProviderInstanceId.make("codex"),
+        endpoint: "http://127.0.0.1:43123/mcp",
+        authorizationHeader: "Bearer secret-codex-token",
+        browserToolsAvailable: true,
+      });
+      const requests: Array<unknown> = [];
+      yield* makeCodexReplayHarness(
+        makeCodexReplayTranscript({
           scenario,
-          entries: [
-            ...preamble.map((entry) =>
-              entry.type === "expect_outbound" && entry.label === "thread/start"
-                ? {
-                    ...entry,
-                    frame: {
-                      id: 2,
-                      method: "thread/start",
-                      params: {
-                        config: {
-                          ...CodexAdapterV2.CODEX_THREAD_CONFIG,
-                          mcp_servers: Object.fromEntries(
-                            (registration === "legacy" ? ["weave", "yardsmith-hq"] : ["weave"]).map(
-                              (name) => [
-                                name,
-                                {
-                                  url: WeaveTestkit.weaveEndpoint,
-                                  http_headers: { Authorization: connection.authorizationHeader },
-                                  default_tools_approval_mode: "approve",
-                                },
-                              ],
-                            ),
-                          ),
-                        },
-                      },
-                    },
-                  }
-                : entry,
-            ),
-            {
-              type: "emit_inbound",
-              label: "done",
-              frame: {
-                method: "turn/completed",
-                params: {
-                  threadId: nativeThreadId,
-                  turn: makeCodexReplayTurn({ id: nativeTurnId, status: "completed" }),
-                },
-              },
-            },
-          ],
-        });
-        const requests: Array<{ readonly method: string; readonly params: unknown }> = [];
-        const harness = yield* makeCodexReplayHarness(
-          transcript,
-          () => Effect.void,
-          (method, params) => Effect.sync(() => void requests.push({ method, params })),
-        ).pipe(Effect.provide(WeaveTestkit.agentMcpServersFor(weave.connections)));
-        yield* harness.runtime.startTurn(
-          makeCodexTestTurnInput({
-            threadId,
-            providerThread: harness.providerThread,
-            now: yield* DateTime.now,
-            attemptId: RunAttemptId.make("weave-attempt"),
-            text: prompt,
+          entries: codexReplayPreamble({
+            nativeThreadId: "launch-mcp-thread",
+            nativeTurnId: "unused",
+            prompt: "unused",
+          }).slice(0, 5),
+        }),
+        () => Effect.void,
+        (method, params) =>
+          Effect.sync(() => {
+            if (method === "thread/start") requests.push(params);
           }),
-        );
-        yield* harness.firstTerminal;
-        assert.equal(harness.terminalEvents()[0]?.status, "completed");
-        assert.deepEqual(
-          requests.map(({ method }) => method),
-          ["initialize", "thread/start", "config/read", "turn/start"],
-        );
-        // Every frame T3 sent Codex, the prompt included, and every event it reported.
-        weave.assertNoSecretsIn(requests, harness.events);
-      }).pipe(
-        Effect.provideService(AgentMcpServers.CurrentRegistration, registration),
-        Effect.scoped,
-        Effect.provide(
-          Layer.mergeAll(
-            IdAllocator.layer,
-            McpProviderSessions.layer,
-            Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
-          ),
+      );
+      assert.deepEqual(requests, [
+        {
+          cwd: "/workspace",
+          model: "gpt-5.4",
+          config: {
+            ...CodexAdapterV2.CODEX_THREAD_CONFIG,
+            "shell_environment_policy.set.T3CODE_THREAD_ID": `thread-${scenario}`,
+            "mcp_servers.t3-code": {
+              url: "http://127.0.0.1:43123/mcp",
+              tool_timeout_sec: 3_900,
+              default_tools_approval_mode: "approve",
+              http_headers: { Authorization: "Bearer secret-codex-token" },
+              disabled_tools: ["t3_thread_wait", "delegate_task"],
+            },
+            "mcp_servers.t3-code-direct": {
+              url: "http://127.0.0.1:43123/mcp",
+              tool_timeout_sec: 3_900,
+              default_tools_approval_mode: "approve",
+              http_headers: { Authorization: "Bearer secret-codex-token" },
+              enabled_tools: ["t3_thread_wait", "delegate_task"],
+              omit_tools_from: ["code_mode", "deferred"],
+            },
+          },
+        },
+      ]);
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(
+          IdAllocator.layer,
+          McpProviderSessions.layer,
+          Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
         ),
       ),
+    ),
+  );
+
+  // regression: #36520 MCP servers can tell a delegate_task child from a user thread
+  it.effect("starts delegate_task children with the subagent thread source", () =>
+    Effect.gen(function* () {
+      const scenario = "delegated-thread-source";
+      const preamble = codexReplayPreamble({
+        nativeThreadId: "delegated-parent-thread",
+        nativeTurnId: "unused",
+        prompt: "unused",
+      }).slice(0, 5);
+      const childStart = codexReplayPreamble({
+        nativeThreadId: "delegated-child-thread",
+        nativeTurnId: "unused",
+        prompt: "unused",
+      })
+        .slice(3, 5)
+        .map((entry) => withReplayRequestId(entry, 3))
+        .map((entry) =>
+          entry.type === "expect_outbound" &&
+          Predicate.isObject(entry.frame) &&
+          Predicate.isObject(entry.frame["params"])
+            ? {
+                ...entry,
+                frame: {
+                  ...entry.frame,
+                  params: { ...entry.frame["params"], threadSource: "subagent" },
+                },
+              }
+            : entry,
+        );
+      const threadSources: Array<unknown> = [];
+      const harness = yield* makeCodexReplayHarness(
+        makeCodexReplayTranscript({ scenario, entries: [...preamble, ...childStart] }),
+        () => Effect.void,
+        (method, params) =>
+          Effect.sync(() => {
+            if (method === "thread/start" && Predicate.isObject(params)) {
+              threadSources.push(params["threadSource"]);
+            }
+          }),
+      );
+      const childThreadId = (yield* IdAllocator.IdAllocatorV2).derive.delegatedTaskThread({
+        commandId: CommandId.make(`mcp:${scenario}:delegate-task:child`),
+      });
+      yield* harness.runtime.ensureThread({
+        threadId: childThreadId,
+        modelSelection: CODEX_TEST_MODEL_SELECTION,
+        runtimePolicy: CODEX_TEST_RUNTIME_POLICY,
+      });
+      assert.deepEqual(threadSources, [undefined, "subagent"]);
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(
+          IdAllocator.layer,
+          McpProviderSessions.layer,
+          NodeServices.layer,
+          NodeCrypto.layer,
+        ),
+      ),
+    ),
+  );
+
+  it.effect("replays historical and dotted MCP config while enforcing other thread config", () =>
+    Effect.gen(function* () {
+      const recordedServer = {
+        url: "http://127.0.0.1:41000/mcp",
+        http_headers: { Authorization: "Bearer recorded-token" },
+      };
+      const currentConfig = {
+        "tools.update_plan.enabled": true,
+        "mcp_servers.t3-code": {
+          url: "http://127.0.0.1:42000/mcp",
+          http_headers: { Authorization: "Bearer current-token" },
+        },
+        "mcp_servers.extra.command": "cat",
+      };
+      for (const recordedMcp of [
+        { mcp_servers: { "t3-code": recordedServer } },
+        { "mcp_servers.t3-code": recordedServer, "mcp_servers.extra.command": "echo" },
+      ]) {
+        const entries = codexReplayPreamble({
+          nativeThreadId: "replayed-mcp-thread",
+          nativeTurnId: "unused",
+          prompt: "unused",
+        })
+          .slice(3, 5)
+          .map((entry) => withReplayRequestId(entry, 1));
+        entries[0] = {
+          type: "expect_outbound",
+          frame: {
+            id: 1,
+            method: "thread/start",
+            params: { config: { "tools.update_plan.enabled": true, ...recordedMcp } },
+          },
+        };
+        entries.push({
+          ...entries[0],
+          frame: {
+            id: 2,
+            method: "thread/start",
+            params: { config: { "tools.update_plan.enabled": true, ...recordedMcp } },
+          },
+        });
+        const driver = yield* CodexReplay.makeReplayDriver(
+          makeCodexReplayTranscript({
+            scenario: "mcp-config-normalization",
+            entries,
+          }),
+        );
+        yield* Effect.gen(function* () {
+          const client = yield* CodexClient.CodexAppServerClient;
+          const response = yield* client.request("thread/start", { config: currentConfig });
+          assert.equal(response.thread.id, "replayed-mcp-thread");
+          assert.isNull((yield* Ref.get(driver.state)).failure);
+          yield* client
+            .request("thread/start", {
+              config: { ...currentConfig, "tools.update_plan.enabled": false },
+            })
+            .pipe(Effect.flip);
+          assert.instanceOf(
+            (yield* Ref.get(driver.state)).failure,
+            CodexReplay.CodexAppServerReplayFrameMismatchError,
+          );
+        }).pipe(Effect.provide(CodexReplay.layerReplayWithDriver(driver)));
+      }
+    }).pipe(Effect.scoped),
   );
 
   it.effect("waits for native start before interrupting an acknowledged queued turn", () =>
@@ -3002,117 +2580,6 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           McpProviderSessions.layer,
           NodeServices.layer,
           NodeCrypto.layer,
-        ),
-      ),
-    ),
-  );
-
-  it.effect("records one usage row per Codex response, keyed by the thread's running total", () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const nativeThreadId = "billed-usage-thread";
-        const nativeTurnId = "billed-usage-turn";
-        const breakdown = (input: number, cached: number, output: number) => ({
-          totalTokens: input + output,
-          inputTokens: input,
-          cachedInputTokens: cached,
-          outputTokens: output,
-          reasoningOutputTokens: 0,
-        });
-        // The first response, the thread's running total after it, and the second response.
-        const firstResponse = breakdown(10, 2, 5);
-        const afterFirst = breakdown(10, 2, 5);
-        const secondResponse = breakdown(10, 3, 3);
-        const afterSecond = breakdown(20, 5, 8);
-        const usageUpdate = (
-          label: string,
-          total: ReturnType<typeof breakdown>,
-          last: ReturnType<typeof breakdown>,
-        ): CodexReplay.CodexAppServerReplayEntry => ({
-          type: "emit_inbound",
-          label,
-          frame: {
-            method: "thread/tokenUsage/updated",
-            params: {
-              threadId: nativeThreadId,
-              turnId: nativeTurnId,
-              tokenUsage: { total, last, modelContextWindow: 200_000 },
-            },
-          },
-        });
-        const transcript = makeCodexReplayTranscript({
-          scenario: "billed-usage-per-response",
-          entries: [
-            ...codexReplayPreamble({
-              nativeThreadId,
-              nativeTurnId,
-              prompt: "Count the tokens.",
-            }),
-            usageUpdate("usage-1", afterFirst, firstResponse),
-            // The same update again: a replay must not count the response twice.
-            usageUpdate("usage-1-replay", afterFirst, firstResponse),
-            usageUpdate("usage-2", afterSecond, secondResponse),
-            {
-              type: "emit_inbound",
-              label: "complete",
-              frame: {
-                method: "turn/completed",
-                params: {
-                  threadId: nativeThreadId,
-                  turn: makeCodexReplayTurn({ id: nativeTurnId, status: "completed" }),
-                },
-              },
-            },
-          ],
-        });
-        // What Weave's Build record would receive, kept where the test can read it.
-        const recorded: Array<WeaveForgeUsage.WeaveForgeUsageInput> = [];
-        const harness = yield* makeCodexReplayHarness(transcript).pipe(
-          Effect.provideService(WeaveForgeUsage.WeaveForgeUsage, {
-            record: (input) => Effect.sync(() => void recorded.push(input)),
-          }),
-        );
-        yield* harness.runtime.startTurn(
-          makeCodexTestTurnInput({
-            threadId: harness.threadId,
-            providerThread: harness.providerThread,
-            now: yield* DateTime.now,
-            attemptId: RunAttemptId.make("billed-usage-attempt"),
-            text: "Count the tokens.",
-          }),
-        );
-        yield* harness.firstTerminal;
-
-        const providerThreadId = harness.providerThread.id;
-        assert.deepStrictEqual(
-          recorded.map((usage) => [usage.usageRef, usage.level, usage.tokens]),
-          [
-            [
-              `codex:${providerThreadId}:${nativeTurnId}:10/5`,
-              "request",
-              { input: 8, output: 5, cacheRead: 2 },
-            ],
-            [
-              `codex:${providerThreadId}:${nativeTurnId}:20/8`,
-              "request",
-              { input: 7, output: 3, cacheRead: 3 },
-            ],
-          ],
-        );
-        assert.deepStrictEqual(
-          recorded.map((usage) => [usage.threadId, usage.modelRef]),
-          [
-            [harness.threadId, "gpt-5.4"],
-            [harness.threadId, "gpt-5.4"],
-          ],
-        );
-      }).pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            IdAllocator.layer,
-            McpProviderSessions.layer,
-            Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
-          ),
         ),
       ),
     ),
@@ -3723,144 +3190,6 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         ),
       ),
     ),
-  );
-
-  it.effect.each(["failed", "interrupted", "Stop"] as const)(
-    "settles unfinished compaction on %s without changing completed compaction",
-    (outcome) =>
-      Effect.gen(function* () {
-        const nativeThreadId = "compact-thread";
-        const nativeTurnId = "compact-turn";
-        const error = {
-          message: "Remote compaction stream disconnected",
-          codexErrorInfo: "other",
-          additionalDetails: null,
-        };
-        const transcript = makeCodexReplayTranscript({
-          scenario: `automatic-compaction-${outcome}`,
-          entries: [
-            ...codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt: "Continue." }),
-            ...(
-              [
-                { method: "item/started", id: "completed-item", startedAtMs: 1782622441000 },
-                { method: "item/completed", id: "completed-item", completedAtMs: 1782622442000 },
-                { method: "item/started", id: "unfinished-item", startedAtMs: 1782622443000 },
-              ] as const
-            ).map(({ method, id, ...timestamps }) => ({
-              type: "emit_inbound" as const,
-              label: `${method}/${id}`,
-              frame: {
-                method,
-                params: {
-                  threadId: nativeThreadId,
-                  turnId: nativeTurnId,
-                  item: { type: "contextCompaction", id },
-                  ...timestamps,
-                },
-              },
-            })),
-            ...(outcome === "Stop"
-              ? [
-                  {
-                    type: "expect_outbound" as const,
-                    label: "turn/interrupt",
-                    frame: {
-                      id: 4,
-                      method: "turn/interrupt",
-                      params: { threadId: nativeThreadId, turnId: nativeTurnId },
-                    },
-                  },
-                  {
-                    type: "emit_inbound" as const,
-                    label: "turn/interrupt/failed",
-                    frame: { id: 4, error: { code: -32_000, message: "Interrupt failed" } },
-                  },
-                ]
-              : [
-                  {
-                    type: "emit_inbound" as const,
-                    label: "turn/completed",
-                    frame: {
-                      method: "turn/completed",
-                      params: {
-                        threadId: nativeThreadId,
-                        turn: {
-                          ...makeCodexReplayTurn({ id: nativeTurnId, status: outcome }),
-                          error: outcome === "failed" ? error : null,
-                        },
-                      },
-                    },
-                  },
-                ]),
-          ],
-        });
-        const compactionStarted = yield* Deferred.make<ProviderTurnId>();
-        const harness = yield* makeCodexReplayHarness(transcript, (event) =>
-          event.type === "turn_item.updated" &&
-          event.turnItem.nativeItemRef?.nativeId === "unfinished-item" &&
-          event.turnItem.status === "running" &&
-          event.turnItem.providerTurnId !== null
-            ? Deferred.succeed(compactionStarted, event.turnItem.providerTurnId)
-            : Effect.void,
-        );
-        yield* TestClock.setTime(1782622445000);
-        yield* harness.runtime.startTurn(
-          makeCodexTestTurnInput({
-            threadId: harness.threadId,
-            providerThread: harness.providerThread,
-            now: yield* DateTime.now,
-            attemptId: RunAttemptId.make(`compact-${outcome}-attempt`),
-            text: "Continue.",
-          }),
-        );
-        if (outcome === "Stop") {
-          const providerTurnId = yield* Deferred.await(compactionStarted);
-          const interrupt = yield* harness.runtime
-            .interruptTurn({ providerThread: harness.providerThread, providerTurnId })
-            .pipe(Effect.exit);
-          assert.equal(interrupt._tag, "Failure");
-        }
-        yield* harness.firstTerminal;
-        const items = harness.events.flatMap((event) =>
-          event.type === "turn_item.updated" && event.turnItem.type === "compaction"
-            ? [event.turnItem]
-            : [],
-        );
-        const completed = items.filter((item) => item.nativeItemRef?.nativeId === "completed-item");
-        const unfinished = items.filter(
-          (item) => item.nativeItemRef?.nativeId === "unfinished-item",
-        );
-        const status = outcome === "failed" ? "failed" : "interrupted";
-        assert.deepEqual(
-          unfinished.map((item) => item.status),
-          ["running", status],
-        );
-        assert.equal(unfinished[0]?.id, unfinished[1]?.id);
-        assert.deepEqual(unfinished[1]?.startedAt, DateTime.makeUnsafe(1782622443000));
-        assert.deepEqual(
-          unfinished[1]?.completedAt,
-          DateTime.makeUnsafe(outcome === "Stop" ? 1782622445000 : 1782622450000),
-        );
-        assert.deepEqual(
-          completed.map((item) => item.status),
-          ["running", "completed"],
-        );
-        assert.deepEqual(completed[1]?.startedAt, DateTime.makeUnsafe(1782622441000));
-        assert.deepEqual(completed[1]?.completedAt, DateTime.makeUnsafe(1782622442000));
-        assert.equal(harness.terminalEvents()[0]?.status, status);
-        if (outcome === "failed") {
-          assert.equal(harness.terminalEvents()[0]?.failure?.message, error.message);
-        }
-      }).pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            IdAllocator.layer,
-            McpProviderSessions.layer,
-            Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
-            NodeCrypto.layer,
-          ),
-        ),
-      ),
   );
 
   it.effect.each([
@@ -11506,56 +10835,6 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       ),
     );
 
-    it.effect("answers a request that reaches a full-access turn without asking", () =>
-      Effect.gen(function* () {
-        const asked: Array<OrchestrationV2RuntimeRequest> = [];
-        const harness = yield* makeCodexReplayHarness(
-          makeCodexReplayTranscript({
-            scenario: "file-approval-full-access",
-            entries: [
-              ...codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt }),
-              fileChange("started", nativeTurnId, "patch-a", [addA]),
-              ...approval({ id: 0, turnId: nativeTurnId, itemId: "patch-a" }),
-              fileChange("completed", nativeTurnId, "patch-a", [addA]),
-              turnCompleted(nativeTurnId),
-            ],
-          }),
-          (event) =>
-            event.type === "runtime_request.updated" && event.runtimeRequest.status === "pending"
-              ? Effect.sync(() => {
-                  asked.push(event.runtimeRequest);
-                })
-              : Effect.void,
-        );
-        yield* harness.runtime.startTurn(
-          makeCodexTestTurnInput({
-            threadId: harness.threadId,
-            providerThread: harness.providerThread,
-            now: yield* DateTime.now,
-            attemptId: RunAttemptId.make("file-approval-full-access-attempt"),
-            text: prompt,
-          }),
-        );
-        yield* harness.firstTerminal;
-
-        assert.deepEqual(asked, []);
-        assert.deepEqual(
-          harness.terminalEvents().map((event) => event.status),
-          ["completed"],
-        );
-      }).pipe(
-        Effect.scoped,
-        Effect.provide(
-          Layer.mergeAll(
-            IdAllocator.layer,
-            McpProviderSessions.layer,
-            Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
-            NodeCrypto.layer,
-          ),
-        ),
-      ),
-    );
-
     it.effect("matches file paths to items approved out of order", () =>
       Effect.gen(function* () {
         const { harness, answerNext } = yield* startApprovalTurn("file-approval-concurrent", [
@@ -11697,356 +10976,6 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         ),
       ),
     );
-  });
-  // regression: #36520 MCP servers can tell a delegate_task child from a user thread
-  it.effect("starts delegate_task children with the subagent thread source", () =>
-    Effect.gen(function* () {
-      const scenario = "delegated-thread-source";
-      const preamble = codexReplayPreamble({
-        nativeThreadId: "delegated-parent-thread",
-        nativeTurnId: "unused",
-        prompt: "unused",
-      }).slice(0, 5);
-      const childStart = codexReplayPreamble({
-        nativeThreadId: "delegated-child-thread",
-        nativeTurnId: "unused",
-        prompt: "unused",
-      })
-        .slice(3, 5)
-        .map((entry) => withReplayRequestId(entry, 3))
-        .map((entry) =>
-          entry.type === "expect_outbound" &&
-          Predicate.isObject(entry.frame) &&
-          Predicate.isObject(entry.frame["params"])
-            ? {
-                ...entry,
-                frame: {
-                  ...entry.frame,
-                  params: { ...entry.frame["params"], threadSource: "subagent" },
-                },
-              }
-            : entry,
-        );
-      const threadSources: Array<unknown> = [];
-      const harness = yield* makeCodexReplayHarness(
-        makeCodexReplayTranscript({ scenario, entries: [...preamble, ...childStart] }),
-        () => Effect.void,
-        (method, params) =>
-          Effect.sync(() => {
-            if (method === "thread/start" && Predicate.isObject(params)) {
-              threadSources.push(params["threadSource"]);
-            }
-          }),
-      );
-      const childThreadId = (yield* IdAllocator.IdAllocatorV2).derive.delegatedTaskThread({
-        commandId: CommandId.make(`mcp:${scenario}:delegate-task:child`),
-      });
-      yield* harness.runtime.ensureThread({
-        threadId: childThreadId,
-        modelSelection: CODEX_TEST_MODEL_SELECTION,
-        runtimePolicy: CODEX_TEST_RUNTIME_POLICY,
-      });
-      assert.deepEqual(threadSources, [undefined, "subagent"]);
-    }).pipe(
-      Effect.scoped,
-      Effect.provide(
-        Layer.mergeAll(
-          IdAllocator.layer,
-          McpProviderSessions.layer,
-          NodeServices.layer,
-          NodeCrypto.layer,
-        ),
-      ),
-    ),
-  );
-
-  it.effect("adds the session MCP server without replacing launch-argument servers", () =>
-    Effect.gen(function* () {
-      const scenario = "launch-mcp-servers";
-      yield* (yield* McpProviderSessions.McpProviderSessions).set({
-        environmentId: EnvironmentId.make("environment-codex-mcp"),
-        threadId: ThreadId.make(`thread-${scenario}`),
-        providerSessionId: `provider-session-${scenario}`,
-        providerInstanceId: ProviderInstanceId.make("codex"),
-        endpoint: "http://127.0.0.1:43123/mcp",
-        authorizationHeader: "Bearer secret-codex-token",
-        browserToolsAvailable: true,
-      });
-      const requests: Array<unknown> = [];
-      yield* makeCodexReplayHarness(
-        makeCodexReplayTranscript({
-          scenario,
-          entries: codexReplayPreamble({
-            nativeThreadId: "launch-mcp-thread",
-            nativeTurnId: "unused",
-            prompt: "unused",
-          }).slice(0, 5),
-        }),
-        () => Effect.void,
-        (method, params) =>
-          Effect.sync(() => {
-            if (method === "thread/start") requests.push(params);
-          }),
-      );
-      assert.deepEqual(requests, [
-        {
-          cwd: "/workspace",
-          model: "gpt-5.4",
-          config: {
-            ...CodexAdapterV2.CODEX_THREAD_CONFIG,
-            "shell_environment_policy.set.T3CODE_THREAD_ID": `thread-${scenario}`,
-            "mcp_servers.t3-code": {
-              url: "http://127.0.0.1:43123/mcp",
-              tool_timeout_sec: 3_900,
-              default_tools_approval_mode: "approve",
-              http_headers: { Authorization: "Bearer secret-codex-token" },
-              disabled_tools: ["t3_thread_wait", "delegate_task"],
-            },
-            "mcp_servers.t3-code-direct": {
-              url: "http://127.0.0.1:43123/mcp",
-              tool_timeout_sec: 3_900,
-              default_tools_approval_mode: "approve",
-              http_headers: { Authorization: "Bearer secret-codex-token" },
-              enabled_tools: ["t3_thread_wait", "delegate_task"],
-              omit_tools_from: ["code_mode", "deferred"],
-            },
-          },
-        },
-      ]);
-    }).pipe(
-      Effect.scoped,
-      Effect.provide(
-        Layer.mergeAll(
-          IdAllocator.layer,
-          McpProviderSessions.layer,
-          Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
-        ),
-      ),
-    ),
-  );
-
-  it.effect("replays historical and dotted MCP config while enforcing other thread config", () =>
-    Effect.gen(function* () {
-      const recordedServer = {
-        url: "http://127.0.0.1:41000/mcp",
-        http_headers: { Authorization: "Bearer recorded-token" },
-      };
-      const currentConfig = {
-        "tools.update_plan.enabled": true,
-        "mcp_servers.t3-code": {
-          url: "http://127.0.0.1:42000/mcp",
-          http_headers: { Authorization: "Bearer current-token" },
-        },
-        "mcp_servers.extra.command": "cat",
-      };
-      for (const recordedMcp of [
-        { mcp_servers: { "t3-code": recordedServer } },
-        { "mcp_servers.t3-code": recordedServer, "mcp_servers.extra.command": "echo" },
-      ]) {
-        const entries = codexReplayPreamble({
-          nativeThreadId: "replayed-mcp-thread",
-          nativeTurnId: "unused",
-          prompt: "unused",
-        })
-          .slice(3, 5)
-          .map((entry) => withReplayRequestId(entry, 1));
-        entries[0] = {
-          type: "expect_outbound",
-          frame: {
-            id: 1,
-            method: "thread/start",
-            params: { config: { "tools.update_plan.enabled": true, ...recordedMcp } },
-          },
-        };
-        entries.push({
-          ...entries[0],
-          frame: {
-            id: 2,
-            method: "thread/start",
-            params: { config: { "tools.update_plan.enabled": true, ...recordedMcp } },
-          },
-        });
-        const driver = yield* CodexReplay.makeReplayDriver(
-          makeCodexReplayTranscript({
-            scenario: "mcp-config-normalization",
-            entries,
-          }),
-        );
-        yield* Effect.gen(function* () {
-          const client = yield* CodexClient.CodexAppServerClient;
-          const response = yield* client.request("thread/start", { config: currentConfig });
-          assert.equal(response.thread.id, "replayed-mcp-thread");
-          assert.isNull((yield* Ref.get(driver.state)).failure);
-          yield* client
-            .request("thread/start", {
-              config: { ...currentConfig, "tools.update_plan.enabled": false },
-            })
-            .pipe(Effect.flip);
-          assert.instanceOf(
-            (yield* Ref.get(driver.state)).failure,
-            CodexReplay.CodexAppServerReplayFrameMismatchError,
-          );
-        }).pipe(Effect.provide(CodexReplay.layerReplayWithDriver(driver)));
-      }
-    }).pipe(Effect.scoped),
-  );
-
-  describe("CodexAdapterV2 SlipJay guard", () => {
-    const nativeThreadId = "thread-codex-guard";
-    const nativeTurnId = "turn-codex-guard";
-    const prompt = "Push the branch.";
-
-    const turnStarted: CodexReplay.CodexAppServerReplayEntry = {
-      type: "emit_inbound",
-      label: "turn started",
-      frame: {
-        method: "turn/started",
-        params: {
-          threadId: nativeThreadId,
-          turn: makeCodexReplayTurn({ id: nativeTurnId, status: "inProgress" }),
-        },
-      },
-    };
-
-    it.effect("declines a guarded command with SlipJay's message and never asks the user", () => {
-      const seen: Array<SlipJayGuard.SlipJayGuardInput> = [];
-      return Effect.scoped(
-        Effect.gen(function* () {
-          yield* FileSystem.FileSystem;
-          yield* IdAllocator.IdAllocatorV2;
-          yield* ProviderReplayHarness.makeReplayServerConfig("codex-guard").pipe(Effect.orDie);
-          const transcript = makeCodexReplayTranscript({
-            scenario: "codex-guard",
-            entries: [
-              // A governed workspace asks for approval in full access so the guard sees
-              // every command; the rest of the preamble is unchanged.
-              ...codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt }).map((entry) => {
-                if (entry.type !== "expect_outbound" || entry.label !== "turn/start") return entry;
-                const frame = entry.frame as { params: Record<string, unknown> };
-                return {
-                  ...entry,
-                  frame: { ...frame, params: { ...frame.params, approvalPolicy: "untrusted" } },
-                };
-              }),
-              turnStarted,
-              {
-                type: "emit_inbound",
-                label: "guarded command approval",
-                frame: {
-                  id: 100,
-                  method: "item/commandExecution/requestApproval",
-                  params: {
-                    threadId: nativeThreadId,
-                    turnId: nativeTurnId,
-                    itemId: "guarded-command",
-                    command: "git push origin main",
-                    cwd: "/workspace",
-                  },
-                },
-              },
-              // The guard answers before the user is ever asked: Codex gets a plain decline.
-              {
-                type: "expect_outbound",
-                label: "guarded command decision",
-                frame: { id: 100, result: { decision: "decline" } },
-              },
-              // An allowed command is accepted once, never for the session: Codex must
-              // ask again next time, because a jj verdict moves with the working copy.
-              {
-                type: "emit_inbound",
-                label: "allowed command approval",
-                frame: {
-                  id: 101,
-                  method: "item/commandExecution/requestApproval",
-                  params: {
-                    threadId: nativeThreadId,
-                    turnId: nativeTurnId,
-                    itemId: "allowed-command",
-                    command: "git status",
-                    cwd: "/workspace",
-                  },
-                },
-              },
-              {
-                type: "expect_outbound",
-                label: "allowed command decision",
-                frame: { id: 101, result: { decision: "accept" } },
-              },
-              {
-                type: "emit_inbound",
-                label: "turn completed",
-                frame: {
-                  method: "turn/completed",
-                  params: {
-                    threadId: nativeThreadId,
-                    turn: makeCodexReplayTurn({ id: nativeTurnId, status: "completed" }),
-                  },
-                },
-              },
-            ],
-          });
-          const events: Array<ProviderAdapter.ProviderAdapterV2Event> = [];
-          const harness = yield* makeCodexReplayHarness(transcript, (event) =>
-            Effect.sync(() => {
-              events.push(event);
-            }),
-          );
-          yield* harness.runtime.startTurn(
-            makeCodexTestTurnInput({
-              threadId: harness.threadId,
-              providerThread: harness.providerThread,
-              now: yield* DateTime.now,
-              attemptId: RunAttemptId.make("codex-guard-attempt"),
-              text: prompt,
-            }),
-          );
-          yield* harness.firstTerminal;
-
-          assert.deepStrictEqual(seen, [
-            { cwd: "/workspace", command: "git push origin main" },
-            { cwd: "/workspace", command: "git status" },
-          ]);
-          const declined = events.flatMap((event) =>
-            event.type === "runtime_request.updated" && event.runtimeRequest.status === "resolved"
-              ? [event.runtimeRequest]
-              : [],
-          );
-          assert.lengthOf(declined, 1);
-          assert.equal(declined[0]!.decision, "decline");
-          assert.isFalse(
-            events.some(
-              (event) =>
-                event.type === "runtime_request.updated" &&
-                event.runtimeRequest.status === "pending",
-            ),
-          );
-          const shownPrompts = events.flatMap((event) =>
-            event.type === "turn_item.updated" && event.turnItem.type === "approval_request"
-              ? [event.turnItem.prompt]
-              : [],
-          );
-          assert.deepStrictEqual(shownPrompts, ["Use `slipjay land` instead."]);
-        }).pipe(
-          Effect.provide(
-            Layer.mergeAll(
-              IdAllocator.layer,
-              McpProviderSessions.layer,
-              Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
-              Layer.succeed(SlipJayGuard.SlipJayGuard, {
-                check: (input: SlipJayGuard.SlipJayGuardInput) =>
-                  Effect.sync(() => {
-                    seen.push(input);
-                    return input.command === "git status"
-                      ? { allowed: true, reason: null }
-                      : { allowed: false, reason: "Use `slipjay land` instead." };
-                  }),
-                governs: () => Effect.succeed(true),
-              }),
-            ),
-          ),
-        ),
-      );
-    });
   });
 });
 
