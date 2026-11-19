@@ -189,7 +189,8 @@ export function useComposerSelection(input: ComposerSelectionInput) {
       !resolvedModel ||
       (instanceId === shownInstanceId &&
         shownSelection.instanceId === instanceId &&
-        shownSelection.model === resolvedModel)
+        shownSelection.model === resolvedModel &&
+        shownSelection.pinned === true)
     ) {
       // Re-picking the shown model keeps its options and saves it again if that save failed.
       if (resolvedModel && !isLocalDraftThread) applyThreadModelPick(threadRef);
@@ -212,12 +213,16 @@ export function useComposerSelection(input: ComposerSelectionInput) {
             )
           ? threadSelection.options
           : undefined;
-    const nextModelSelection = withModelDefaultOptions(
-      pickOptions !== undefined && pickOptions.length > 0
-        ? { instanceId, model: resolvedModel, options: [...pickOptions] }
-        : { instanceId, model: resolvedModel },
-      settings,
-    );
+    // Picking a model on one account keeps the thread there; the pooled row follows the order.
+    const nextModelSelection: ModelSelection = {
+      ...withModelDefaultOptions(
+        pickOptions !== undefined && pickOptions.length > 0
+          ? { instanceId, model: resolvedModel, options: [...pickOptions] }
+          : { instanceId, model: resolvedModel },
+        settings,
+      ),
+      pinned: true,
+    };
     const modelChangeBlockReason = getStartedThreadModelChangeBlockReason({
       hasStartedSession: activeRuntime !== null,
       supportsProviderSwitchingViaHandoff,

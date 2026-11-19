@@ -1,9 +1,4 @@
-import type {
-  EnvironmentId,
-  PooledModelKey,
-  ProviderDriverKind,
-  ProviderInstanceId,
-} from "@t3tools/contracts";
+import type { EnvironmentId, ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
 import {
   type CSSProperties,
   type ReactElement,
@@ -19,7 +14,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
 import { providerModelKey } from "../../../modelOrdering";
 import type { ProviderInstanceEntry } from "../../../providerInstances";
 import { resolveModelPickerSelectedModel } from "../../../modelSelection";
-import { getPooledModelLabel, saveModelLabel, selectModelSlotLabels } from "../modelLabels";
+import { saveModelLabel, selectModelSlotLabels } from "../modelLabels";
 import { getTriggerDisplayModelName, type ModelEsque } from "../providerIconUtils";
 import { FAVORITE_SLOTS, resolveFavoriteSlots } from "./favoriteSlots.logic";
 
@@ -80,8 +75,8 @@ export function DeviceModelSlider(props: {
   renderOverflow: (trigger: ReactElement) => ReactNode;
   /** Fast mode is on for the chosen model; it is set from the full picker. */
   fast?: boolean;
-  /** The pooled model the selection follows, whose own name the overflow tag shows when renamed. */
-  pooledKey?: PooledModelKey | null;
+  /** The pooled model's name while the selection follows the account order. */
+  pooledName?: string | undefined;
   ref?: Ref<DeviceModelSliderHandle>;
 }) {
   const { favorites } = useEnvironmentModelPreferences(props.environmentId);
@@ -142,7 +137,9 @@ export function DeviceModelSlider(props: {
     FAVORITE_SLOTS,
   );
   const active = resolveSlot(activeInstanceId, props.model);
-  const activeIndex = slots.findIndex((slot) => slot.key === active?.key);
+  // A favorite names one account, so a pooled model following the order sits on the overflow.
+  const activeIndex =
+    props.pooledName === undefined ? slots.findIndex((slot) => slot.key === active?.key) : -1;
 
   const selectSlot = (index: number) => {
     const slot = slots[index];
@@ -163,9 +160,7 @@ export function DeviceModelSlider(props: {
     });
   };
   const position = activeIndex >= 0 ? activeIndex : FAVORITE_SLOTS;
-  const pooledLabel =
-    props.pooledKey == null ? undefined : getPooledModelLabel(slotLabels, props.pooledKey);
-  const overflowLabel = activeIndex < 0 && active ? (pooledLabel ?? active.label) : null;
+  const overflowLabel = activeIndex < 0 && active ? (props.pooledName ?? active.label) : null;
   const activeEntry = instanceEntries.find((entry) => entry.instanceId === activeInstanceId);
   const providerLight = activeEntry
     ? (activeEntry.accentColor ?? PROVIDER_LIGHTS[activeEntry.driverKind])

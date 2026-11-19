@@ -23,7 +23,7 @@ import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
 import { useClientSettings } from "~/hooks/useSettings";
-import { getCustomModelLabel, getPooledModelLabel, selectModelSlotLabels } from "./modelLabels";
+import { getCustomModelLabel, selectModelSlotLabels } from "./modelLabels";
 import { ModelPickerContent } from "./ModelPickerContent";
 import type { ModelPickerPooling } from "./modelPickerPooling";
 import { resolveModelPickerSelectedModel } from "../../modelSelection";
@@ -187,8 +187,9 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       : selectedInstanceOptions[0]);
   const pooledActive = props.pooling?.active;
   const selectedCustomLabel =
+    // Following the account order, the trigger names the model; the account shows in the picker.
     (pooledActive && pooledActive.pinned === null
-      ? getPooledModelLabel(slotLabels, pooledActive.key)
+      ? props.pooling?.models.find((model) => model.key === pooledActive.key)?.displayName
       : undefined) ??
     (selectedModel || props.model
       ? getCustomModelLabel(slotLabels, activeInstanceId, selectedModel?.slug ?? props.model)

@@ -216,8 +216,10 @@ none, and the turn continues on the next account. T3 Code also reads that accoun
 again now** to clear it, in **Settings → Accounts** and on its card here. Usage readings fill the
 bars but never decide which account runs.
 
-To use one account on purpose, open the model's **Accounts** list in the picker and choose it: that
-thread stays there, even while the account is skipped, and waits for its reset instead of moving.
+To use one account on purpose, pick the model on that account: from the model's **Accounts** list,
+your favorites or the slider. That thread stays there, even while the account is skipped, and waits
+for its reset instead of moving. Only the pooled model's own row follows your order, and the
+composer then shows the model's name rather than an account.
 Delegation and scheduled tasks behave the same way: naming a provider instance pins it, naming the
 model alone follows your order.
 
