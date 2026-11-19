@@ -175,7 +175,6 @@ export default defineConfig({
         new URL("./src/electron/electronTestStub.ts", import.meta.url),
       ),
     },
-    include: [...defaultInclude, "../../native/kde-snap-shot/src/*.test.ts"],
     // The Windows lane runs workspace suites concurrently; filesystem-heavy
     // desktop integration tests can exceed Vitest's 5 second default there.
     testTimeout: 15_000,

@@ -60,6 +60,14 @@ it("keeps the tool while typing a tool key in the comment", () => {
   const comment = shadowRoot.querySelector("textarea");
   if (!comment) throw new Error("comment textarea not found");
 
+  // The editor is hidden until a pick, and jsdom does not focus inside a hidden ancestor (the editor opens with an inline display).
+  let node: Node | null = comment;
+  while (node) {
+    if (node instanceof HTMLElement && getComputedStyle(node).display === "none") {
+      node.style.display = "flex";
+    }
+    node = node.parentNode ?? (node instanceof ShadowRoot ? node.host : null);
+  }
   comment.focus();
   comment.dispatchEvent(new KeyboardEvent("keydown", { key: "r", bubbles: true, composed: true }));
 
