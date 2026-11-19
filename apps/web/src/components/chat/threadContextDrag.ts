@@ -2,6 +2,7 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
 import { type RefObject, useEffect, useSyncExternalStore } from "react";
 
+import type { ThreadContextDropRef } from "./threadContextDrop.logic";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { readThreadShells } from "../../state/entities";
 
@@ -11,7 +12,7 @@ export function useThreadContextDrop(
   targetRef: RefObject<EventTarget | null>,
   environmentId: EnvironmentId,
   targetKey: string,
-  onDrop: (refs: ReadonlyArray<ScopedThreadRef>, isActive: () => boolean) => void,
+  onDrop: (refs: ReadonlyArray<ThreadContextDropRef>, isActive: () => boolean) => void,
 ) {
   // Reused composers must dispatch a drop to the current thread.
   const handleDrop = useStableCallback(onDrop);
@@ -21,7 +22,7 @@ export function useThreadContextDrop(
     if (!target) return;
     let active = true;
     const listener = (event: Event) =>
-      handleDrop((event as CustomEvent<ReadonlyArray<ScopedThreadRef>>).detail, () => active);
+      handleDrop((event as CustomEvent<ReadonlyArray<ThreadContextDropRef>>).detail, () => active);
     target.addEventListener(THREAD_CONTEXT_DROP_EVENT, listener);
     return () => {
       active = false;
@@ -92,7 +93,7 @@ export function endThreadContextDrag() {
 
 export function dropThreadContext(
   point: { x: number; y: number },
-  threads: ReadonlyArray<ScopedThreadRef>,
+  threads: ReadonlyArray<ThreadContextDropRef>,
 ): boolean {
   return handToComposer(findDropTarget(point), threads);
 }

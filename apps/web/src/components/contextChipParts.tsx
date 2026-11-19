@@ -3,6 +3,7 @@ import type {
   ImageAnnotationMark,
   PullRequestContextMetadata,
 } from "@t3tools/contracts";
+import { T, useGT } from "gt-react";
 import { CircleDashedIcon, FilmIcon, ImageIcon } from "lucide-react";
 import {
   useEffect,
@@ -76,6 +77,7 @@ export function ContextChipPopover(props: {
   accent?: string | undefined;
   children: ReactNode;
 }) {
+  const gt = useGT();
   return (
     <Popover>
       <PopoverTrigger
@@ -88,7 +90,7 @@ export function ContextChipPopover(props: {
                 : undefined
             }
             render={<button type="button" />}
-            aria-label={`${props.accessibleLabel}. Show details`}
+            aria-label={gt("{label}. Show details", { label: props.accessibleLabel })}
             data-markdown-copy={props.copyMarkdown}
           />
         }
@@ -113,6 +115,7 @@ export function PullRequestChip(props: {
   copyMarkdown?: string;
   onOpen: (event: MouseEvent<HTMLElement>, url: string) => void;
 }) {
+  const gt = useGT();
   const previewTarget = usePullRequestPreviewTarget(props.environmentId, props.metadata.url);
   const displayState =
     props.metadata.state === "open" && props.metadata.isDraft ? "draft" : props.metadata.state;
@@ -121,7 +124,11 @@ export function PullRequestChip(props: {
     <ContextChip
       kind={props.kind}
       render={<button type="button" />}
-      aria-label={`Open ${props.kindLabel} ${props.label}: ${props.metadata.title}`}
+      aria-label={gt("Open {kind} {label}: {title}", {
+        kind: props.kindLabel,
+        label: props.label,
+        title: props.metadata.title,
+      })}
       data-markdown-copy={props.copyMarkdown}
       onClick={(event) => props.onOpen(event, props.metadata.url)}
       onAuxClick={(event) => props.onOpen(event, props.metadata.url)}
@@ -167,11 +174,12 @@ export function ImageChipButton({
   disabled?: boolean | undefined;
   onPreviewError?: (() => void) | undefined;
 }) {
+  const gt = useGT();
   return (
     <ContextChip
       kind="image"
       render={<button type="button" disabled={disabled} />}
-      aria-label={`Image attachment, ${name}, ${size}`}
+      aria-label={gt("Image attachment, {name}, {size}", { name, size })}
       {...props}
     >
       {previewUrl ? (
@@ -347,12 +355,13 @@ function FileChipContent(props: {
 }
 
 export function UnresolvedChip(props: { label: string; tooltip: string; copyMarkdown?: string }) {
+  const gt = useGT();
   return (
     <ContextChipShell
       icon={<CircleDashedIcon />}
       label={props.label}
       state="unresolved"
-      aria-label={`Unavailable context, ${props.label}`}
+      aria-label={gt("Unavailable context, {label}", { label: props.label })}
       data-markdown-copy={props.copyMarkdown}
       tooltip={props.tooltip}
     />
@@ -366,12 +375,13 @@ export function ImageAnnotationDetails(props: {
   marks: ReadonlyArray<ImageAnnotationMark>;
   onEdit?: (() => void) | undefined;
 }) {
+  const gt = useGT();
   return (
     <div className="overflow-hidden rounded-lg border border-border/70 bg-background/70">
       {props.imageUrl ? (
         <img
           src={props.imageUrl}
-          alt={`${props.imageName} with numbered marks`}
+          alt={gt("{name} with numbered marks", { name: props.imageName })}
           className="max-h-64 w-full border-border/70 border-b bg-muted object-contain"
         />
       ) : null}
@@ -387,7 +397,7 @@ export function ImageAnnotationDetails(props: {
       {props.onEdit ? (
         <div className="border-border/70 border-t px-3 py-2">
           <Button size="xs" variant="outline" onClick={props.onEdit}>
-            Edit marks
+            <T>Edit marks</T>
           </Button>
         </div>
       ) : null}

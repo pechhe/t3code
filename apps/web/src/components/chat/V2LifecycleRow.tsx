@@ -3,6 +3,7 @@ import {
   CONTEXT_COMPACTION_WINDOW_TOO_SMALL,
   contextCompactionModelName,
 } from "@t3tools/client-runtime/work-log/presentation";
+import { T, Var, msg, useGT } from "gt-react";
 import { ThreadHoverCardPopup } from "../ThreadHoverCard";
 import { AgentElapsed } from "./AgentElapsed";
 import {
@@ -76,6 +77,7 @@ import {
   applyProviderInstanceSettings,
   brandProviderInstanceEntries,
   deriveProviderInstanceEntries,
+  hasInstanceBadge,
   shouldShowInstanceBadge,
   type ProviderInstanceEntry,
   entryAnswersTo,
@@ -108,12 +110,13 @@ export function V2LifecycleRow(props: {
   readonly onOpenThread: (threadId: ThreadId, hash?: string) => void;
 }) {
   const { item } = props;
+  const gt = useGT();
   if (item.type === "run_interrupt_result") {
     if (item.cause === "move" || item.moved === true)
       return <TimelineSystemDivider label={item.message} icon={FolderInputIcon} />;
     return (
       <TimelineSystemDivider
-        label="Run interrupted"
+        label={gt("Run interrupted")}
         detail={item.message}
         tone={
           item.cause === "provider-abort" || item.cause === "server-close" ? "neutral" : "danger"
@@ -169,9 +172,11 @@ export function V2LifecycleRow(props: {
     const relatedThreadId = item.source.type === "run" ? item.source.threadId : item.targetThreadId;
     return (
       <TimelineSystemDivider
-        label={item.source.type === "run" ? "Forked from conversation" : "Conversation fork"}
+        label={
+          item.source.type === "run" ? gt("Forked from conversation") : gt("Conversation fork")
+        }
         icon={GitForkIcon}
-        actionLabel={item.source.type === "run" ? "Open source conversation" : "Open fork"}
+        actionLabel={item.source.type === "run" ? gt("Open source conversation") : gt("Open fork")}
         onAction={() => props.onOpenThread(relatedThreadId)}
       />
     );
@@ -187,15 +192,19 @@ export function V2LifecycleRow(props: {
             <MessageSquareIcon className="size-4 text-secondary-label" aria-hidden />
           </span>
           <span className="min-w-0 flex-1 truncate text-sm font-medium">
-            {item.title ?? "Created thread"}
+            {item.title ?? gt("Created thread")}
           </span>
           <Button
             size="xs"
             variant="outline"
-            aria-label={`Open ${item.title ?? "created thread"}`}
+            aria-label={
+              item.title != null
+                ? gt("Open {title}", { title: item.title })
+                : gt("Open created thread")
+            }
             onClick={() => props.onOpenThread(item.targetThreadId)}
           >
-            Open chat
+            <T>Open chat</T>
           </Button>
         </div>
       );
@@ -204,13 +213,25 @@ export function V2LifecycleRow(props: {
       <WorkLogRow
         data-v2-item-type={item.type}
         icon={<T3Wordmark className="size-4 text-icon-muted" aria-hidden />}
-        label={<>Created thread{item.title ? ` · ${item.title}` : ""}</>}
+        label={
+          item.title ? (
+            <T>
+              Created thread · <Var>{item.title}</Var>
+            </T>
+          ) : (
+            <T>Created thread</T>
+          )
+        }
         trailing={
           <InlineButton
-            aria-label={`Open ${item.title ?? "created thread"}`}
+            aria-label={
+              item.title != null
+                ? gt("Open {title}", { title: item.title })
+                : gt("Open created thread")
+            }
             onClick={() => props.onOpenThread(item.targetThreadId)}
           >
-            Open chat
+            <T>Open chat</T>
           </InlineButton>
         }
       />
@@ -225,7 +246,7 @@ export function V2LifecycleRow(props: {
         origin={item.origin}
         status={item.status}
         driver={item.driver}
-        title={formatSubagentDisplayTitle(item.title ?? "Subagent")}
+        title={formatSubagentDisplayTitle(item.title ?? gt("Subagent"))}
         result={item.result}
         progress={item.progress}
         startedAt={item.startedAt}
@@ -244,14 +265,23 @@ const STATUS_VISUALS: Record<
   OrchestrationV2TurnItem["status"],
   { dotClass: string; label: string }
 > = {
-  pending: { dotClass: "bg-info", label: "Queued" },
-  running: { dotClass: "bg-info", label: "Running" },
-  waiting: { dotClass: "bg-info", label: "Waiting" },
-  idle: { dotClass: "bg-muted-foreground/50", label: "Idle · resumable" },
-  completed: { dotClass: "bg-success", label: "Completed" },
-  failed: { dotClass: "bg-destructive", label: "Failed" },
-  cancelled: { dotClass: "bg-muted-foreground/60", label: "Stopped" },
-  interrupted: { dotClass: "bg-muted-foreground/60", label: "Stopped" },
+  pending: { dotClass: "bg-info", label: msg("Queued", { $context: "subagent status" }) },
+  running: { dotClass: "bg-info", label: msg("Running", { $context: "subagent status" }) },
+  waiting: { dotClass: "bg-info", label: msg("Waiting", { $context: "subagent status" }) },
+  idle: {
+    dotClass: "bg-muted-foreground/50",
+    label: msg("Idle · resumable", { $context: "subagent status" }),
+  },
+  completed: { dotClass: "bg-success", label: msg("Completed", { $context: "subagent status" }) },
+  failed: { dotClass: "bg-destructive", label: msg("Failed", { $context: "subagent status" }) },
+  cancelled: {
+    dotClass: "bg-muted-foreground/60",
+    label: msg("Stopped", { $context: "subagent status" }),
+  },
+  interrupted: {
+    dotClass: "bg-muted-foreground/60",
+    label: msg("Stopped", { $context: "subagent status" }),
+  },
 };
 
 function subagentStatusVisual(
@@ -287,6 +317,7 @@ function SubagentAvatar({
   iconUrl,
   accentColor,
   showBadge,
+  anyInstanceBadge,
   status,
   pausedByParentStop,
   size = "default",
@@ -297,6 +328,7 @@ function SubagentAvatar({
   iconUrl?: string | undefined;
   accentColor?: string | undefined;
   showBadge: boolean;
+  anyInstanceBadge: boolean;
   status?: OrchestrationV2TurnItem["status"] | undefined;
   pausedByParentStop?: true | undefined;
   size?: "default" | "sm" | undefined;
@@ -329,8 +361,9 @@ function SubagentAvatar({
       {status ? (
         <span
           className={cn(
-            "absolute -right-px -bottom-px rounded-full",
+            "absolute -right-px rounded-full",
             small ? "size-1.5 ring-1 ring-background" : "size-2 ring-2 ring-background",
+            anyInstanceBadge ? "-top-px" : "-bottom-px",
             subagentStatusVisual(status, pausedByParentStop).dotClass,
           )}
         />
@@ -383,6 +416,9 @@ export function EnvironmentSubagentAvatar({
     const entry = all.find((candidate) => entryAnswersTo(candidate, providerInstanceId));
     return entry !== undefined && shouldShowInstanceBadge(entry, all);
   });
+  const anyInstanceBadge = useAtomValue(providersAtom, (providers) =>
+    hasInstanceBadge(entries(providers)),
+  );
   const iconUrl = useAtomValue(
     providersAtom,
     (providers) =>
@@ -396,6 +432,7 @@ export function EnvironmentSubagentAvatar({
       iconUrl={iconUrl}
       accentColor={accentColor}
       showBadge={showBadge}
+      anyInstanceBadge={anyInstanceBadge}
     />
   );
 }
@@ -452,7 +489,14 @@ function SubagentPill(props: {
         size="sm"
       />
       <span className="min-w-0 truncate font-medium text-foreground">{props.topic}</span>
-      {props.round === null ? null : <span className="shrink-0">· Follow-up {props.round}</span>}
+      {props.round === null ? null : (
+        <span className="shrink-0">
+          ·{" "}
+          <T>
+            Follow-up <Var>{props.round}</Var>
+          </T>
+        </span>
+      )}
       <span className={cn("shrink-0", props.failed && "text-destructive")}>{props.verb}</span>
       {props.timing === null ? null : (
         <>
@@ -488,6 +532,7 @@ export function SubagentReturnChip(props: {
   readonly onJump: (subagentId: NodeId, childThreadId: ThreadId | null) => void;
   readonly fallback: ReactNode;
 }) {
+  const gt = useGT();
   // Follow-up tasks share a child conversation; this notice reports a particular task result.
   const agent = useAtomValue(
     environmentThreadDetails.threadAtom(props.parentRef),
@@ -525,7 +570,7 @@ export function SubagentReturnChip(props: {
       verb={subagentReturnVerb(props.outcome)}
       failed={failed}
       timing={formatShortTimestamp(returnedAt ?? props.createdAt, props.timestampFormat)}
-      ariaLabel={`Jump to ${name}`}
+      ariaLabel={gt("Jump to {title}", { title: name })}
       kind="notification"
       subagentId={undefined}
       onActivate={() => props.onJump(agent.id, childThreadId)}
@@ -552,6 +597,7 @@ function SubagentFollowUpChip(props: {
   readonly elapsed: ReactNode;
   readonly onOpen: (() => void) | undefined;
 }) {
+  const gt = useGT();
   return (
     <SubagentPill
       parentRef={props.parentRef}
@@ -564,7 +610,10 @@ function SubagentFollowUpChip(props: {
       verb={subagentFollowUpVerb(props.status, props.reviewing)}
       failed={props.status === "failed"}
       timing={props.elapsed}
-      ariaLabel={`Open ${props.name} · follow-up ${props.round}`}
+      ariaLabel={gt("Open {title} · follow-up {round}", {
+        title: props.name,
+        round: props.round,
+      })}
       kind="subagent"
       subagentId={props.subagentId}
       onActivate={props.onOpen}
@@ -619,6 +668,7 @@ function SubagentTimelineLink(props: {
   const role = localRole ?? remote?.agentTask?.role;
   const topic = role ? agentTaskTopic(props.title, role) : props.title;
   const remoteEnvironment = useEnvironment(remote?.environmentId ?? null);
+  const gt = useGT();
   const navigate = useNavigate();
   // A task in a linked environment opens there, if this client is connected to it.
   const open =
@@ -742,7 +792,7 @@ function SubagentTimelineLink(props: {
               type="button"
               data-v2-item-type="subagent"
               data-subagent-id={props.subagentId}
-              aria-label={`Open ${props.title}`}
+              aria-label={gt("Open {title}", { title: props.title })}
               aria-description={statusLabel}
               onClick={open}
               className={cn(
@@ -836,7 +886,8 @@ function EnvironmentHandoffRow({
 
 /** Marks where `/clear` or an automation started a new provider session in this thread. */
 export function FreshSessionRow() {
-  return <TimelineSystemDivider label="New session" icon={EraserIcon} />;
+  const gt = useGT();
+  return <TimelineSystemDivider label={gt("New session")} icon={EraserIcon} />;
 }
 
 /** A same-harness model or effort change. Shows only what changed. */
@@ -874,6 +925,7 @@ export function HandoffRow(props: {
   const { to } = props.endpoints;
   const fromEndpoints = props.rollover ? [] : props.endpoints.from;
   const showAccount = handoffCrossesAccounts(props.endpoints, props.providers);
+  const gt = useGT();
   const settings = useAtomValue(serverEnvironment.settingsValueAtom(props.environmentId));
   const derived = deriveProviderInstanceEntries(props.providers);
   const entries = settings ? applyProviderInstanceSettings(derived, settings, null) : derived;
@@ -881,10 +933,10 @@ export function HandoffRow(props: {
     <TimelineSystemDivider
       label={
         props.rollover
-          ? "Context rolled over"
+          ? gt("Context rolled over")
           : props.pending
-            ? "Context handoff pending"
-            : "Context handoff"
+            ? gt("Context handoff pending")
+            : gt("Context handoff")
       }
       icon={ArrowRightLeftIcon}
       showDetailSeparator={false}

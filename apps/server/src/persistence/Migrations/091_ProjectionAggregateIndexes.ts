@@ -62,6 +62,6 @@ export default Effect.gen(function* () {
   yield* sql`
     CREATE INDEX orchestration_v2_projection_turn_items_message_ordinal_idx
     ON orchestration_v2_projection_turn_items(thread_id, json_extract(payload_json, '$.messageId'), ordinal)
-    WHERE type IN ('user_message', 'assistant_message')
+    WHERE type IN ('user_message', 'assistant_message') AND json_valid(payload_json)
   `;
 });

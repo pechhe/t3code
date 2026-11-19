@@ -56,6 +56,7 @@ const serviceLayer = (
 ) => {
   const deps = Layer.mergeAll(
     Layer.mock(ThreadLaunchService.ThreadLaunchService)({
+      isNonGitProject: () => Effect.succeed(false),
       launch: (input) =>
         Ref.update(launched, (all) => [...all, input.modelSelection]).pipe(
           Effect.as({ threadId: ThreadId.make("thread:run-1") } as never),

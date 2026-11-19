@@ -731,7 +731,12 @@ it.effect("starts a measurement only as the calling thread, never for a linked e
         );
         expect(exit._tag, JSON.stringify(bad)).toBe("Failure");
       }
-      expect((yield* call("t3_champions_measurement", linkScope, args)).isError).toBe(true);
+      // A linked environment is an outside client, so the measurement tool is not listed to it:
+      // the call is refused as unknown before it can reach the service.
+      const linked = yield* Effect.flip(call("t3_champions_measurement", linkScope, args));
+      expect(linked).toMatchObject({
+        message: "Tool 't3_champions_measurement' not found",
+      });
       expect(h.measured).toHaveLength(1);
     }).pipe(Effect.provide(h.layer));
   }),

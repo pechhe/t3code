@@ -1,5 +1,6 @@
 import type { DraftId } from "~/composerDraftStore";
 import type { ScopedProjectRef } from "@t3tools/contracts";
+import { T, useGT } from "gt-react";
 import { MessageSquareDashedIcon, PlusIcon } from "lucide-react";
 import { useAtomValue } from "@effect/atom-react";
 import {
@@ -98,6 +99,7 @@ export function DraftHeroHeadline({
   activeProjectRef,
   activeProjectTitle,
 }: DraftHeroHeadlineProps) {
+  const gt = useGT();
   const {
     chosenGroup,
     menuEntries,
@@ -150,7 +152,7 @@ export function DraftHeroHeadline({
     return (
       <div className="mx-auto flex w-full max-w-5xl flex-col items-center">
         <h1 className="w-full text-center font-normal text-2xl text-foreground tracking-tight sm:text-3xl">
-          Add a project to start
+          <T>Add a project to start</T>
         </h1>
       </div>
     );
@@ -161,13 +163,13 @@ export function DraftHeroHeadline({
       <h1
         aria-label={
           chosenGroup
-            ? `What should we build in ${chosenGroup.displayName}?`
-            : "What should we build without a project?"
+            ? gt("What should we build in {project}?", { project: chosenGroup.displayName })
+            : gt("What should we build without a project?")
         }
         className="w-full text-center font-normal text-2xl text-foreground tracking-tight sm:text-3xl"
       >
         <span ref={refFor(SENTENCE_LEAD_KEY)} className="inline-block">
-          What should we build in
+          <T>What should we build in</T>
         </span>{" "}
         {chosenGroup ? (
           <span
@@ -187,7 +189,7 @@ export function DraftHeroHeadline({
           <span ref={refFor(NO_PROJECT_KEY)} className="inline-flex align-middle">
             <span className="inline-flex h-8 items-center gap-1.5 rounded-md border border-dashed border-border px-2.5 font-semibold text-lg text-muted-foreground sm:h-9 sm:text-xl">
               <MessageSquareDashedIcon aria-hidden className="size-4.5" />
-              No project
+              <T>No project</T>
             </span>
           </span>
         )}
@@ -197,7 +199,7 @@ export function DraftHeroHeadline({
       </h1>
       <ProjectChipRow
         className="pointer-events-auto mt-3"
-        label={chosenGroup?.displayName ?? "No project"}
+        label={chosenGroup?.displayName ?? gt("No project")}
       >
         {rowEntries.map(({ group, targetProject }) => (
           <ProjectChip
@@ -241,7 +243,7 @@ export function DraftHeroHeadline({
               }
             >
               <MessageSquareDashedIcon aria-hidden className="size-3" />
-              No project
+              <T>No project</T>
             </TooltipTrigger>
             {noProjectShortcut ? (
               <TooltipPopup side="bottom">{noProjectShortcut}</TooltipPopup>
@@ -254,7 +256,7 @@ export function DraftHeroHeadline({
               <button
                 ref={refFor(ADD_PROJECT_KEY)}
                 type="button"
-                aria-label="Add project"
+                aria-label={gt("Add project")}
                 onClick={openAddProject}
                 className="inline-flex size-6 items-center justify-center rounded-md border border-dashed border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
               />
@@ -262,7 +264,9 @@ export function DraftHeroHeadline({
           >
             <PlusIcon aria-hidden className="size-3.5" />
           </TooltipTrigger>
-          <TooltipPopup side="bottom">Add project</TooltipPopup>
+          <TooltipPopup side="bottom">
+            <T>Add project</T>
+          </TooltipPopup>
         </Tooltip>
       </ProjectChipRow>
     </div>
@@ -279,6 +283,7 @@ export function ProjectChipRow(props: {
   readonly className?: string;
   readonly children: ReactNode;
 }) {
+  const gt = useGT();
   const typed = useRef({ text: "", at: 0 });
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const chips = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("button"));
@@ -307,7 +312,7 @@ export function ProjectChipRow(props: {
   return (
     <div
       role="group"
-      aria-label={`Project: ${props.label}`}
+      aria-label={gt("Project: {name}", { name: props.label })}
       onKeyDown={onKeyDown}
       className={cn("flex max-w-2xl flex-wrap justify-center gap-1.5", props.className)}
     >

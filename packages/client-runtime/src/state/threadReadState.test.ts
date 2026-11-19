@@ -24,19 +24,23 @@ describe("shared web and mobile unread derivation", () => {
     expect(hasUnseenThreadCompletion({ ...thread, readOnCompletionRunId: null })).toBe(true);
   });
 
-  it.each(["failed", "interrupted"] as const)(
-    "surfaces %s runs even on never-visited threads",
-    (status) => {
-      expect(hasUnseenThreadCompletion({ ...thread, latestRun: { ...run, status } })).toBe(true);
-      expect(
-        hasUnseenThreadCompletion({
-          ...thread,
-          latestRun: { ...run, status },
-          lastVisitedAt: null,
-        }),
-      ).toBe(true);
-    },
-  );
+  it("surfaces a failed run even on a never-visited thread", () => {
+    const failed = { ...run, status: "failed" as const };
+    expect(hasUnseenThreadCompletion({ ...thread, latestRun: failed })).toBe(true);
+    expect(hasUnseenThreadCompletion({ ...thread, latestRun: failed, lastVisitedAt: null })).toBe(
+      true,
+    );
+  });
+
+  it.each(["interrupted", "cancelled"] as const)("never presents a %s run as unseen", (status) => {
+    expect(
+      hasUnseenThreadCompletion({
+        ...thread,
+        readOnCompletionRunId: null,
+        latestRun: { ...run, status },
+      }),
+    ).toBe(false);
+  });
 
   it("does not carry quiet read state into the next run", () => {
     expect(

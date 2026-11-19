@@ -468,6 +468,35 @@ describe("VS Code theme import", () => {
     expect(getThemeColorsForMode(themes[2]!, "light")).toBeNull();
   });
 
+  it.each([
+    { name: "shared", light: "a {}", dark: "a {}", expected: [["Aurora", "a {}"]] },
+    { name: "light-only", light: "a {}", dark: undefined, expected: [["Aurora", "a {}"]] },
+    { name: "dark-only", light: undefined, dark: "a {}", expected: [["Aurora", "a {}"]] },
+    {
+      name: "conflicting",
+      light: "a {}",
+      dark: "b {}",
+      expected: [
+        ["Aurora Light", "a {}"],
+        ["Aurora Dark", "b {}"],
+      ],
+    },
+  ])("pairs light and dark halves with $name custom CSS", ({ light, dark, expected }) => {
+    const themes = pairVsCodeThemes(
+      (["light", "dark"] as const).map((appearance) => {
+        const css = appearance === "light" ? light : dark;
+        return parseThemeFile({
+          version: THEME_FILE_VERSION,
+          name: `Aurora ${appearance === "light" ? "Light" : "Dark"}`,
+          appearance,
+          colors: { canvas: appearance === "light" ? "#fafafa" : "#101014" },
+          ...(css ? { css } : {}),
+        });
+      }),
+    );
+    expect(themes.map((theme) => [theme.label, theme.css])).toEqual(expected);
+  });
+
   it("does not guess when a family is ambiguous", () => {
     const make = (name: string, type: "light" | "dark") =>
       parseVsCodeThemeFile({
@@ -485,22 +514,27 @@ describe("VS Code theme import", () => {
 
   it("tells same-named variants apart by their file names", () => {
     // Both Orchid theme files declare the same internal name.
-    const orchid = (bg: string) =>
-      parseVsCodeThemeFile({
+    const css = ".app { outline: 1px solid red; }";
+    const orchid = (bg: string) => ({
+      ...parseVsCodeThemeFile({
         name: "Orchid",
         type: "dark",
         colors: { "editor.background": bg, "editor.foreground": "#f8f8f2" },
-      });
+      }),
+      css,
+    });
     const themes = resolveThemeLabelCollisions([
       { theme: orchid("#282a36"), sourceName: "orchid.json" },
       { theme: orchid("#22232e"), sourceName: "orchid-soft.json" },
     ]);
     expect(themes.map((theme) => theme.label)).toEqual(["Orchid", "Orchid Soft"]);
     expect(themes.map((theme) => theme.id)).toEqual(["orchid", "orchid-soft"]);
+    expect(themes.map((theme) => theme.css)).toEqual([css, css]);
     const numbered = resolveThemeLabelCollisions([
       { theme: orchid("#282a36") },
       { theme: orchid("#22232e") },
     ]);
     expect(numbered.map((theme) => theme.label)).toEqual(["Orchid", "Orchid 2"]);
+    expect(numbered.map((theme) => theme.css)).toEqual([css, css]);
   });
 });

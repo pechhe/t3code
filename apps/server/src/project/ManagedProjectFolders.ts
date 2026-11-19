@@ -6,7 +6,7 @@ import {
   type ThreadId,
   VcsProcessSpawnError,
 } from "@t3tools/contracts";
-import { newProjectFolderName } from "@t3tools/shared/path";
+import { foldLatinDiacritics, newProjectFolderName } from "@t3tools/shared/path";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
@@ -136,7 +136,7 @@ export class ManagedProjectFolders extends Context.Service<
 >()("t3/project/ManagedProjectFolders") {}
 
 const folderWords = (text: string) =>
-  text
+  foldLatinDiacritics(text)
     .toLowerCase()
     .split(/[^a-z0-9]+/)
     .filter(Boolean)
@@ -271,15 +271,18 @@ const make = Effect.gen(function* () {
           return Effect.logWarning(unavailable.message).pipe(Effect.as(Result.fail(unavailable)));
         },
       ),
-      Effect.catchCause((cause) =>
-        Cause.hasInterrupts(cause)
-          ? Effect.interrupt
-          : Effect.succeed(Result.fail(new ScratchUnavailableError({ baseDir: config.baseDir }))),
-      ),
     ),
-    Duration.infinity,
+    // A failed git check (say, a timeout on a busy machine) is not an answer; ask again next time.
+    Exit.match({ onSuccess: () => Duration.infinity, onFailure: () => Duration.zero }),
   );
-  const scratchProbe = probe.pipe(Effect.onInterrupt(() => invalidate));
+  const scratchProbe = probe.pipe(
+    Effect.catchCause((cause) =>
+      Cause.hasInterrupts(cause)
+        ? Effect.interrupt
+        : Effect.succeed(Result.fail(new ScratchUnavailableError({ baseDir: config.baseDir }))),
+    ),
+    Effect.onInterrupt(() => invalidate),
+  );
   const realPath = (folder: string) =>
     fileSystem.realPath(folder).pipe(Effect.orElseSucceed(() => path.resolve(folder)));
 

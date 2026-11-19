@@ -2,7 +2,7 @@
 
 T3 Code writes some text for you: thread titles, commit messages, pull request titles and
 descriptions, branch names, and voice transcript cleanup. Pick the model for this in
-**Settings → Threads → Utility model**. **Settings → Source control** and
+**Settings → Threads → Utility model**. **Settings → Source control & issues** and
 **Settings → Voice** can each pick a different one.
 
 When the utility model is a Pi model and Pi Blackhole is installed, Pi Blackhole's memory worker
@@ -41,6 +41,6 @@ Turning a generator off or removing it sends its work back to the environment's 
 
 Review guides read the checkout over many steps, so they always use a coding agent. If your source
 control writer model is a text generator, review guides use Codex or Claude instead, and fail if
-neither is set up. To choose which, pick one in **Settings → Source control → Review guide model**.
+neither is set up. To choose which, pick one in **Settings → Source control & issues → Review guide model**.
 
 A [managed policy](./managed-policy.md) that limits providers also turns off text generators.

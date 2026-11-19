@@ -5,6 +5,7 @@ import {
   type ScopedThreadRef,
 } from "@t3tools/contracts";
 import { serializeAssistantCitation } from "@t3tools/shared/assistantCitations";
+import { msg, useGT } from "gt-react";
 import { CopyIcon, QuoteIcon } from "lucide-react";
 import { use, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -18,9 +19,15 @@ import {
   observeSelectionActions,
   resolveSelectionActionPlacement,
 } from "~/lib/selectionActions";
-import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
+import { type ClipboardTarget, writeTextToClipboard } from "~/hooks/useCopyToClipboard";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
+
+const citationClipboardTarget: ClipboardTarget = {
+  target: "citation",
+  unavailableMessage: msg("Clipboard API is unavailable while copying the citation."),
+  failureMessage: msg("Failed to copy the citation to the clipboard."),
+};
 
 function escapeHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -45,6 +52,7 @@ export function AssistantSelectionToolbar({
   const toolbarRef = useRef<HTMLDivElement>(null);
   const actionsRef = useRef<ReturnType<typeof observeSelectionActions> | null>(null);
   const backgroundThread = use(BackgroundThreadContext);
+  const gt = useGT();
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- measures the toolbar DOM node and clamps its position inside the window before paint
   useLayoutEffect(() => {
@@ -206,19 +214,19 @@ export function AssistantSelectionToolbar({
     const { citation } = selection;
     window.getSelection()?.removeAllRanges();
     dismiss();
-    void writeTextToClipboard(serializeAssistantCitation(citation), "citation", {
+    void writeTextToClipboard(serializeAssistantCitation(citation), citationClipboardTarget, {
       "text/html": `<blockquote>${escapeHtml(citation.text)}</blockquote>`,
     }).then(
       () =>
         toastManager.add({
           type: "success",
-          title: "Citation copied",
-          description: "Paste it into any thread's composer to cite this response there.",
+          title: gt("Citation copied"),
+          description: gt("Paste it into any thread's composer to cite this response there."),
         }),
       (error: Error) =>
         toastManager.add({
           type: "error",
-          title: "Could not copy citation",
+          title: gt("Could not copy citation"),
           description: error.message,
         }),
     );
@@ -242,22 +250,24 @@ export function AssistantSelectionToolbar({
         size="xs"
         variant="glass"
         disabled={tooLong}
-        aria-label={tooLong ? "Selection is too long to reply to" : "Reply with this selection"}
+        aria-label={
+          tooLong ? gt("Selection is too long to reply to") : gt("Reply with this selection")
+        }
         onClick={cite}
       >
         <QuoteIcon aria-hidden="true" className="size-3.5" />
-        {tooLong ? "Shorten selection" : "Reply"}
+        {tooLong ? gt("Shorten selection") : gt("Reply")}
       </Button>
       {tooLong ? null : (
         <Button
           type="button"
           size="xs"
           variant="glass"
-          aria-label="Copy citation to paste into another thread"
+          aria-label={gt("Copy citation to paste into another thread")}
           onClick={copy}
         >
           <CopyIcon aria-hidden="true" className="size-3.5" />
-          Copy for another thread
+          {gt("Copy for another thread")}
         </Button>
       )}
     </div>,

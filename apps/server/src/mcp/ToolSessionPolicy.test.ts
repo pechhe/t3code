@@ -97,9 +97,9 @@ const session = (
 // These ceilings catch tools growing unnoticed. An editor lists every tool; providers load them lazily.
 // Raise one only in the change that grows it, and say why in that change.
 const budgets: ReadonlyArray<[string, SessionToolProfile | undefined, number]> = [
-  ["editor", undefined, 150_000],
-  ["editor worker", session("implementation", "implementer"), 150_000],
-  ["reader", session("source-reader", "reviewer"), 44_000],
+  ["editor", undefined, 152_000],
+  ["editor worker", session("implementation", "implementer"), 152_000],
+  ["reader", session("source-reader", "reviewer"), 45_000],
   ["browser", session("phi", "browser"), 37_000],
   ["researcher", session("web-research", "researcher"), 19_500],
 ];

@@ -156,9 +156,7 @@ it("grants bounded browsing only from what the server recorded about the thread"
       shell({ ...linked, agentTask: task("implementer", { browserTasks: true }) }),
     ),
   ).toBe(true);
-  expect(
-    boundedBrowserEligible(shell({ ...linked, agentTask: task("implementer") })),
-  ).toBe(false);
+  expect(boundedBrowserEligible(shell({ ...linked, agentTask: task("implementer") }))).toBe(false);
   expect(
     boundedBrowserEligible(shell({ ...linked, agentTask: task("scout", { browserTasks: true }) })),
   ).toBe(false);

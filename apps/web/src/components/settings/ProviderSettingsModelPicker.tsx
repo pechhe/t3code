@@ -83,7 +83,7 @@ export function ProviderSettingsModelPicker(props: {
     <div className="flex items-center justify-end gap-1.5">
       {model === "" ? null : (
         <SettingResetButton
-          label={props.label}
+          ariaLabel={`Reset ${props.label} to default`}
           tooltip={props.emptyLabel}
           disabled={props.disabled ?? false}
           onClick={clear}

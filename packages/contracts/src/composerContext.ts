@@ -1,5 +1,7 @@
 import * as Schema from "effect/Schema";
 
+import { SnapShotSource } from "./chatAttachment.ts";
+
 import { AssistantCitation } from "./assistantCitations.ts";
 import {
   EnvironmentId,
@@ -43,7 +45,7 @@ const COMPOSER_CONTEXT_ELEMENT_HTML_MAX_CHARS = 8_000;
 const COMPOSER_CONTEXT_ELEMENT_STYLES_MAX_CHARS = 8_000;
 export const COMPOSER_CONTEXT_REVIEW_TEXT_MAX_CHARS = 16_000;
 export const COMPOSER_CONTEXT_REVIEW_DIFF_MAX_CHARS = 32_000;
-const COMPOSER_CONTEXT_PREVIEW_COMMENT_MAX_CHARS = 8_000;
+export const COMPOSER_CONTEXT_PREVIEW_COMMENT_MAX_CHARS = 8_000;
 
 export const ComposerContextId = TrimmedNonEmptyString.check(
   Schema.isMaxLength(CONTEXT_ID_MAX_CHARS),
@@ -100,6 +102,7 @@ export const ImageContextRecord = Schema.Struct({
   ...recordBase,
   kind: Schema.Literal("image"),
   ...attachmentBinding,
+  source: Schema.optional(SnapShotSource),
 });
 export type ImageContextRecord = typeof ImageContextRecord.Type;
 
@@ -180,8 +183,7 @@ export type PreviewAnnotationContextRecord = typeof PreviewAnnotationContextReco
 /** A position as a fraction of the image's width or height. */
 const ImageFraction = Schema.Finite.check(Schema.isBetween({ minimum: 0, maximum: 1 }));
 /** The longest note one image mark can carry. */
-export const IMAGE_ANNOTATION_NOTE_MAX_CHARS = COMPOSER_CONTEXT_PREVIEW_COMMENT_MAX_CHARS;
-const ImageAnnotationNote = BoundedString(IMAGE_ANNOTATION_NOTE_MAX_CHARS);
+const ImageAnnotationNote = BoundedString(COMPOSER_CONTEXT_PREVIEW_COMMENT_MAX_CHARS);
 
 /** One numbered mark the user drew on an image, with their note about it. */
 export const ImageAnnotationMark = Schema.Union([

@@ -167,6 +167,7 @@ describe("layerSettingsWatcher", () => {
         reconcile: () => Queue.offer(reconciled, undefined),
         setAliases: () => Effect.void,
         reloadSecrets: () => Effect.sync(() => void reloads++),
+        rebuild: () => Effect.void,
         applySecret: () => Effect.succeed([]),
       });
       yield* Layer.build(

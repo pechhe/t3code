@@ -102,6 +102,7 @@ it.effect.each([
         Layer.mock(ThreadManagement.ThreadManagementService)({
           recoverDelegatedTask: () => Effect.void,
         }),
+        Layer.mock(ProjectionStore.ProjectionStoreV2)({}),
         ServerSettings.layerTest(),
         NodeCrypto.layer,
         Layer.mock(ProviderTurnStart.ProviderTurnStartServiceV2)({

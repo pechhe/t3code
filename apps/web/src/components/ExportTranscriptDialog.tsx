@@ -1,3 +1,4 @@
+import { msg } from "gt-react";
 import { useAtomValue } from "@effect/atom-react";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type {
@@ -92,7 +93,11 @@ function ExportTranscriptDialog(props: { threadRef: ScopedThreadRef; onClose: ()
     reportFailure: false,
   });
   const { copyToClipboard } = useCopyToClipboard<void>({
-    target: "transcript",
+    target: {
+      target: "transcript",
+      unavailableMessage: msg("Clipboard API is unavailable while copying the transcript."),
+      failureMessage: msg("Failed to copy the transcript to the clipboard."),
+    },
     onCopy: () => toastManager.add({ type: "success", title: "Transcript copied" }),
     onError: (error) => reportFailure("Could not copy the transcript", error),
   });

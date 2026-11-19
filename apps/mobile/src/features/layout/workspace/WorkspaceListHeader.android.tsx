@@ -1,4 +1,5 @@
 import { useAway } from "../../../state/away";
+import { useGT } from "gt-react-native";
 import { useEffect, useState } from "react";
 import { useNavigation, useNavigationState } from "@react-navigation/native";
 import { BackHandler, Keyboard } from "react-native";
@@ -15,6 +16,7 @@ import {
 
 export function WorkspaceListHeader(props: WorkspaceListHeaderProps) {
   const away = useAway();
+  const gt = useGT();
   const navigation = useNavigation();
   const workspace = useWorkspaceTabs();
   const isTabActive = workspace?.isTabActive;
@@ -80,10 +82,10 @@ export function WorkspaceListHeader(props: WorkspaceListHeaderProps) {
         {
           accessibilityLabel:
             away.state === "mixed"
-              ? `Away on for ${away.on} of ${away.total}`
+              ? gt("Away on for {on} of {total}", { on: away.on, total: away.total })
               : away.state === "on"
-                ? "Away on"
-                : "Away off",
+                ? gt("Away on")
+                : gt("Away off"),
           icon: "moon",
           selected: away.state !== "off",
           disabled: away.total === 0,
@@ -94,7 +96,7 @@ export function WorkspaceListHeader(props: WorkspaceListHeaderProps) {
         connectionState.hasConnections
           ? [
               {
-                title: "Filter threads",
+                title: gt("Filter threads"),
                 icon: workspaceListFilterIcon(props.filter.customized),
                 items: props.filter.items,
               },

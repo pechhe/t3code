@@ -4,6 +4,7 @@ import { Tool } from "effect/ai";
 import { ProjectId, ThreadId, TrimmedString } from "@t3tools/contracts";
 
 import { advertisedJsonSchema } from "./advertisedJsonSchema.ts";
+import { ThemeToolkit } from "./toolkits/theme/tools.ts";
 
 it("drops JSON noise, merges tagged unions, flattens check fragments, and keeps null where it is required", () => {
   const Every = Schema.Struct({ ms: Schema.Int });
@@ -76,4 +77,19 @@ it("keeps descriptions of transformed parameters, such as ids built on TrimmedSt
     },
     required: ["threadId", "threadIds", "note"],
   });
+});
+
+it("advertises only string enum values, which Gemini requires", () => {
+  const enumValues: Array<unknown> = [];
+  const collect = (node: unknown): void => {
+    if (Array.isArray(node)) return node.forEach(collect);
+    if (typeof node !== "object" || node === null) return;
+    for (const [key, value] of Object.entries(node)) {
+      if (key === "enum" && Array.isArray(value)) enumValues.push(...value);
+      else collect(value);
+    }
+  };
+  collect(advertisedJsonSchema(ThemeToolkit.tools.t3_theme_set));
+
+  expect(enumValues.filter((value) => typeof value !== "string")).toEqual([]);
 });

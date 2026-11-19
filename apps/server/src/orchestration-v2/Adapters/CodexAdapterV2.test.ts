@@ -233,7 +233,15 @@ describe("CodexAdapterV2 runtime policy", () => {
       assert.equal(auto.approvalPolicy, "on-request");
       assert.equal(auto.approvalsReviewer, "auto_review");
       assert.equal(auto.sandboxPolicy?.type, "workspaceWrite");
-      assert.equal(fullAccess.approvalPolicy, "never");
+      assert.deepEqual(fullAccess.approvalPolicy, {
+        granular: {
+          mcp_elicitations: true,
+          request_permissions: false,
+          rules: false,
+          sandbox_approval: false,
+          skill_approval: false,
+        },
+      });
       assert.equal(fullAccess.approvalsReviewer, "user");
       assert.equal(fullAccess.sandboxPolicy?.type, "dangerFullAccess");
 
@@ -636,12 +644,12 @@ describe("CodexAdapterV2 process spawning", () => {
             url: "http://127.0.0.1:43123/mcp",
             tool_timeout_sec: 3_900,
             default_tools_approval_mode: "approve",
-            enabled_tools: ["t3_thread_wait"],
+            enabled_tools: ["t3_thread_wait", "delegate_task"],
             omit_tools_from: ["code_mode", "deferred"],
             http_headers: { Authorization: "Bearer secret-codex-token" },
           },
           "mcp_servers.t3-code": {
-            disabled_tools: ["t3_thread_wait"],
+            disabled_tools: ["t3_thread_wait", "delegate_task"],
             url: "http://127.0.0.1:43123/mcp",
             tool_timeout_sec: 3_900,
             // Claude pre-approves its wildcard, so Codex pre-approves the same server instead
@@ -1069,6 +1077,10 @@ function codexReplayPreamble(input: {
   readonly sentPrompt?: string;
   readonly effort?: string;
   readonly asksForEdits?: boolean;
+  readonly turnPolicy?: Pick<
+    typeof CodexClient.V2TurnStartParams.Type,
+    "approvalPolicy" | "sandboxPolicy"
+  >;
 }): Array<CodexReplay.CodexAppServerReplayEntry> {
   return [
     {
@@ -1167,6 +1179,7 @@ function codexReplayPreamble(input: {
           approvalsReviewer: "user",
           sandboxPolicy:
             input.asksForEdits === true ? { type: "workspaceWrite" } : { type: "dangerFullAccess" },
+          ...input.turnPolicy,
           summary: "auto",
           ...(input.effort === undefined ? {} : { effort: input.effort }),
           collaborationMode: {
@@ -4264,7 +4277,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
     { hook: "wrong-turn", status: "interrupted", expected: false },
     { hook: "wrong-thread", status: "interrupted", expected: false },
     { hook: "unscoped", status: "interrupted", expected: false },
-    { hook: "stopped", status: "completed", expected: false },
+    { hook: "stopped", status: "completed", expected: true },
     { hook: "stopped", status: "failed", expected: false },
   ] as const)(
     "correlates $hook hook output with a $status turn only",
@@ -6789,7 +6802,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
     }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
   });
 
-  it.effect("Stop ends a background command no Codex process tracks any more", () =>
+  it.effect("a background command ends with the Codex process that ran it", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "t3-bg-stale-workspace-" });
@@ -6864,21 +6877,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         yield* worker.drain();
         yield* Fiber.join(settled);
         yield* worker.drain();
-        const before = yield* orchestrator.getThreadShell(threadId);
-        assert.deepEqual(
-          before?.pendingBackgroundTasks?.map((task) => task.kind),
-          ["command"],
-          "the thread still shows the command the gone process never finished",
-        );
-        const run = (yield* orchestrator.getThreadProjection(threadId)).runs.at(-1)!;
-        yield* orchestrator.dispatch({
-          type: "run.interrupt",
-          commandId: CommandId.make("stop-background-untracked"),
-          threadId,
-          runId: run.id,
-          holdQueue: true,
-        });
-        yield* worker.drain();
+        // The process that ran it is gone, so the command ends with it; no Stop is needed.
         const projection = yield* orchestrator.getThreadProjection(threadId);
         assert.deepEqual(
           projection.turnItems.flatMap((item) =>
@@ -12105,6 +12104,68 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       ),
     );
   });
+  // regression: #36520 MCP servers can tell a delegate_task child from a user thread
+  it.effect("starts delegate_task children with the subagent thread source", () =>
+    Effect.gen(function* () {
+      const scenario = "delegated-thread-source";
+      const preamble = codexReplayPreamble({
+        nativeThreadId: "delegated-parent-thread",
+        nativeTurnId: "unused",
+        prompt: "unused",
+      }).slice(0, 5);
+      const childStart = codexReplayPreamble({
+        nativeThreadId: "delegated-child-thread",
+        nativeTurnId: "unused",
+        prompt: "unused",
+      })
+        .slice(3, 5)
+        .map((entry) => withReplayRequestId(entry, 3))
+        .map((entry) =>
+          entry.type === "expect_outbound" &&
+          Predicate.isObject(entry.frame) &&
+          Predicate.isObject(entry.frame["params"])
+            ? {
+                ...entry,
+                frame: {
+                  ...entry.frame,
+                  params: { ...entry.frame["params"], threadSource: "subagent" },
+                },
+              }
+            : entry,
+        );
+      const threadSources: Array<unknown> = [];
+      const harness = yield* makeCodexReplayHarness(
+        makeCodexReplayTranscript({ scenario, entries: [...preamble, ...childStart] }),
+        () => Effect.void,
+        (method, params) =>
+          Effect.sync(() => {
+            if (method === "thread/start" && Predicate.isObject(params)) {
+              threadSources.push(params["threadSource"]);
+            }
+          }),
+      );
+      const childThreadId = (yield* IdAllocator.IdAllocatorV2).derive.delegatedTaskThread({
+        commandId: CommandId.make(`mcp:${scenario}:delegate-task:child`),
+      });
+      yield* harness.runtime.ensureThread({
+        threadId: childThreadId,
+        modelSelection: CODEX_TEST_MODEL_SELECTION,
+        runtimePolicy: CODEX_TEST_RUNTIME_POLICY,
+      });
+      assert.deepEqual(threadSources, [undefined, "subagent"]);
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(
+          IdAllocator.layer,
+          McpProviderSessions.layer,
+          NodeServices.layer,
+          NodeCrypto.layer,
+        ),
+      ),
+    ),
+  );
+
   it.effect("adds the session MCP server without replacing launch-argument servers", () =>
     Effect.gen(function* () {
       const scenario = "launch-mcp-servers";
@@ -12145,14 +12206,14 @@ describe("CodexAdapterV2 post-settle continuation", () => {
               tool_timeout_sec: 3_900,
               default_tools_approval_mode: "approve",
               http_headers: { Authorization: "Bearer secret-codex-token" },
-              disabled_tools: ["t3_thread_wait"],
+              disabled_tools: ["t3_thread_wait", "delegate_task"],
             },
             "mcp_servers.t3-code-direct": {
               url: "http://127.0.0.1:43123/mcp",
               tool_timeout_sec: 3_900,
               default_tools_approval_mode: "approve",
               http_headers: { Authorization: "Bearer secret-codex-token" },
-              enabled_tools: ["t3_thread_wait"],
+              enabled_tools: ["t3_thread_wait", "delegate_task"],
               omit_tools_from: ["code_mode", "deferred"],
             },
           },

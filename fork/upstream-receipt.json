@@ -3,35 +3,36 @@
   "kind": "update",
   "upstream": {
     "baseline": {
-      "tag": "v0.1.10-nightly.20261113.4643",
-      "sha": "9a35ab0afeae64ac7c3bf92d674ead365cf55e10"
-    },
-    "target": {
       "tag": "v0.1.10-nightly.20261114.4669",
       "sha": "db2cc2026427c5eb647a08538c12402341db0fab"
+    },
+    "target": {
+      "tag": "v0.1.11-nightly.20261118.4903",
+      "sha": "6927cfe2adb0867eb098009a5eb35e42da2b13a1"
     }
   },
   "fork": {
-    "base": "95e949e82b2496b1ff8bc393ae35ede428752735"
+    "base": "0fcdd0c798217cfbc81da2693b641bec1acd1e1a"
   },
   "record": {
     "path": "fork/differences.md",
-    "blob": "a2035bad05ebe19e6e2198a7889f7ef48df73a91"
+    "blob": "6fe514de3a83c42644147d6c6270351f4253216a"
   },
   "policy": {
-    "requiredLandingVerificationSha256": "f57f8da576ea5674b21d79bbc7768f8e0c381aa98726cc2705048b36ea3176a7"
+    "requiredLandingVerificationSha256": "230d5ccc7a6f5448a531a1604e1c0b1749bc790393e469a1f5b41771d7269243"
   },
-  "attempt": "v0.1.10-nightly.20261114.4669@1794633187",
-  "reviewedAt": "2026-11-14T12:07:25.980Z",
+  "attempt": "v0.1.11-nightly.20261118.4903@1795043000",
+  "reviewedAt": "2026-11-19T07:55:55.000Z",
   "reviewer": {
-    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:372c3053-a730-46dd-a0ba-7e28d569daec",
-    "model": "gpt-6-luna"
+    "thread": "mcp:launch:2b19898c153d176b708e29b45e8dc21ac4891e9f16dee281ddef657ce9ba5810",
+    "model": "claude-opus-5-5"
   },
   "coverage": {
-    "upstreamCommits": 151,
+    "upstreamCommits": 1161,
     "entriesConsidered": [
       "compact-line",
       "compact-model",
+      "utility-model",
       "experiments",
       "agent-policy-roles",
       "provider-overload-failover",
@@ -49,9 +50,10 @@
       "slipjay-command-guard",
       "landing-test-parallelism",
       "timeline-layout-test-fixture",
+      "web-browser-test-removal",
       "build-items-hq",
       "repository-chips-hq",
-      "thread-workflow-chip",
+      "agent-role-chip",
       "arc-runs",
       "unattended-threads",
       "thread-watches",
@@ -67,6 +69,7 @@
       "screen-recording-video",
       "snapshot-overlay",
       "device-composer",
+      "pi-blackhole-status",
       "image-annotation",
       "side-chat",
       "no-project-chats",
@@ -82,6 +85,7 @@
       "fork-updater",
       "fork-guidance",
       "perf-persistence-reads",
+      "thread-detail-expiry",
       "perf-secret-reads",
       "perf-landing-refresh",
       "perf-persistence-writes",
@@ -99,275 +103,435 @@
       "mcp-orchestration-annotations",
       "dpop-forwarded-proto",
       "claude-missing-transcript-resume",
+      "pi-failed-switch-connection-replacement",
+      "pi-out-of-turn-compaction",
+      "pi-extension-status-banner-removed",
       "claude-full-access-no-prompts",
       "bounded-decisions",
       "browser-decision-evaluation",
       "bounded-browser-tasks",
+      "browser-script-runs",
       "ssh-launch-respects-boot-service",
       "unhandled-rejection-keeps-server",
       "champion-journey-checks",
       "shared-provider-setup",
       "stop-pauses-delegated-tasks",
-      "saved-and-temporary-secrets"
+      "saved-and-temporary-secrets",
+      "pi-idle-compaction",
+      "pi-context-loadout"
     ],
     "areas": [
-      "agent-defined theme colors and CSS alongside per-project theme selection",
-      "T3 Connect device approval, linked-environment discovery and migration numbering",
-      "server browser navigation, cancellation, crash recovery, timeout ownership and bounded tasks",
-      "managed delegation, follow-up result identity, Arc waits, Stop and thread handoff lifecycles",
-      "projection read narrowing, SQLite worker transfer batching and process cleanup",
-      "usage, VCS/checkpoint behavior, Web, desktop, mobile and CLI changes",
-      "dependency manifests and regenerated lockfile",
-      "all 79 recorded fork differences checked for overlap or retirement",
-      "Henry-directed mobile verification scope for future nightly updates"
+      "Assessment carried from the prior holder of this attempt (thread mcp:launch:74d0343f\u2026, died 00:07 GMT 19 Nov); no owner decision needed, migrations additive once renumbered",
+      "Full-app translation (gt-react/gt-react-native, msg/m, no-untranslated-copy): ~200 web and 30 mobile conflicts resolved on upstream's translated structure with fork behaviour re-applied; catalogs regenerated for web, mobile and desktop",
+      "New Issues page with GitHub, GitLab, Azure DevOps, Forgejo and Linear trackers, its RPC group and MCP tools, alongside the fork's Forge items",
+      "Native provider resume, failed-start handling, released-session subagent cleanup (#36569), restart crash-recovery budget",
+      "MCP outside-client tool hiding and the thread-bound declaration guard, reconciled with the fork's external owned work",
+      "Self-renewing pairing sessions and the /mcp browser-Origin refusal",
+      "Preview: staged snapshots, metadata-only snapshots, unload-before-remove, tab colour scheme, terminal kill escalation on shutdown",
+      "Persistence: provider commit batching (#38544), reader admission (#27979), message-order index (upstream 094 \u2192 fork 142), migrations 092\u2013098 \u2192 140\u2013146",
+      "Pi adapter session-file lifecycle merged with the fork's switch recovery and compaction",
+      "Dependencies: newer side per entry; gt-i18n aligned at 1.0.43 across client-runtime, shared and desktop; lockfile regenerated",
+      "All recorded fork differences checked for overlap or retirement",
+      "Entries listed in entriesConsidered with no disposition had no upstream overlap in this tag",
+      "Rebased onto t3peach 0fcdd0c79821 (T3-748 account order replacing account and model pools); 13 merge conflicts and the account-pools record entry reconciled, with T3-748's removals taking precedence"
     ],
     "exclusions": [
       {
-        "what": ".repos/effect-smol",
-        "why": "Upstream target omits this read-only vendored reference; keep the fork copy unchanged and unimported."
-      },
-      {
-        "what": "docs/operations/mobile-screens-fork.md",
-        "why": "Unchanged since the upstream baseline and upstream-owned."
-      },
-      {
-        "what": "Six focused test assertions that fail on both the candidate and bare upstream tag",
-        "why": "Per updater step 5, record the identical baseline failures and leave them untouched: two MessagesTimeline waiting-row cases, two GitVcsDriver expectations, one CheckpointStore authored-path expectation and one runtimeLayer queued-limited-user snooze case."
+        "what": "Environment-baseline test failures on this Mac (apps/server: binCli, cli/invocation x2, 081 migration, ManagedProjectFolders, ProjectSetupScriptRunner, GitVcsDriver x6, GitVcsDriverCore, CheckpointStore, pinnedRuntime, HandoffGit, RepositoryIdentityResolver, ClaudeSkills x2, PortScanner, SpawnWorker; packages/ssh tunnel x4; packages/shared shell DEBUG trap; apps/web composer list normalization x4; apps/desktop DesktopBackendConfiguration x17 and window readMedia)",
+        "why": "They fail identically on the fork base checked out at 738134fd72 on this Mac (paths under /private/var, git remote URL rewriting, macOS bash 3.2 eval exit code, temp-dir and native-module environment); per step 5 recorded and left."
       }
     ]
   },
   "dispositions": [
     {
-      "entry": "project-themes",
-      "upstream": "#35247 agent-defined theme colors and CSS",
-      "decision": "adapt",
+      "entry": "compact-line",
+      "upstream": "Translation wrapping in the timeline and composer;",
+      "decision": "retain",
       "requirements": [
-        "Theme CSS is attached to the selected theme and replaced when selection changes.",
-        "Keep per-project light/dark picks, rotation, chip tint, theme character, device colors and font precedence."
+        "Translation wrapping in the timeline and composer; the compact line's behaviour and the fork's worked-for fold label are unchanged, re-expressed through `msg`."
       ],
-      "evidence": [
-        "theme palette, project selection, CSS lifecycle and ThemeEditorPanel browser tests passed (11 files, 91 tests).",
-        "T3 Browser screenshot at /Users/henrypetch/.t3/userdata/browser-artifacts/browser-screenshot-localhost-mwg596qi-d82e0d9a.png shows the unsaved authoring dialog and Custom CSS field."
-      ]
+      "evidence": ["MessagesTimeline.logic.test.ts"]
     },
     {
-      "entry": "linked-environments",
-      "upstream": "#36419 T3 Connect approval; #29788 machine rediscovery; migrations 090-091",
-      "decision": "adapt",
+      "entry": "compact-model",
+      "upstream": "Upstream's start-time settle helper is hoisted to service scope;",
+      "decision": "retain",
       "requirements": [
-        "Preserve peer-link scope and cross-environment thread access.",
-        "Keep released migration IDs and aliases; remap new upstream migrations after fork migration 132."
+        "Upstream's start-time settle helper is hoisted to service scope; the fork's compaction model selection and settle inputs (execution override, handoff, compaction item) pass through it."
       ],
-      "evidence": [
-        "Auth and peer-link focused suites passed (5 files, 79 tests).",
-        "Migrations and preview-reconciliation suites passed; new migrations register as fork IDs 133-134."
-      ]
+      "evidence": ["ProviderTurnStartService.test.ts"]
     },
     {
-      "entry": "managed-browser-roles",
-      "upstream": "#36389 renderer crash recovery",
-      "decision": "adapt",
+      "entry": "utility-model",
+      "upstream": "Upstream renamed Source control settings to Source control & issues;",
+      "decision": "retain",
       "requirements": [
-        "Ordinary preview tabs may recover after renderer crash.",
-        "Task-owned and persistent-profile tabs close on crash so lease/session identity is not silently replaced; keep narrow endpoint and proxy policy."
+        "Upstream renamed Source control settings to Source control & issues; the fork's Utility model label stays in the docs."
       ],
       "evidence": [
-        "ServerBrowser.test.ts passed (105 tests), including managed/profile crash closure and ordinary preview recovery.",
-        "Managed access and proxy suites passed."
-      ]
-    },
-    {
-      "entry": "preview-browser-lifetime",
-      "upstream": "#36365 navigation recovery; #36241 request timeout ownership",
-      "decision": "adapt",
-      "requirements": [
-        "Adopt request-scoped timeout/navigation fixes.",
-        "A timed-out request cannot evict the shared browser or bypass profile-close ordering."
-      ],
-      "evidence": [
-        "PreviewAutomationBroker and ServerBrowser tests passed."
-      ]
-    },
-    {
-      "entry": "bounded-browser-tasks",
-      "upstream": "#36365 navigation cancellation; #29475 Stop cancels loading pages; #34922 timeout wording",
-      "decision": "adapt",
-      "requirements": [
-        "Keep lease, journal, at-most-once mutation, independent final-page checks and secret-field refusal.",
-        "Uncertain dispatch requires inspection before retry."
-      ],
-      "evidence": [
-        "BrowserTaskService, BrowserTaskBrowser, McpManagedBrowser, ManagedBrowserAccess, PreviewAutomationBroker and ServerBrowserPage focused suites passed (201 tests); ServerBrowser suite passed (105 tests)."
+        "Merged code read against both parents; covered by the apps/server, apps/web and package test runs and the four app typechecks listed under checks"
       ]
     },
     {
       "entry": "managed-delegation",
-      "upstream": "#36473 duplicate task items; #36411 awaited-work follow-up; #34958 child subagent waits; #32331 remote follower recovery",
+      "upstream": "Adopt upstream's narrower parent/run reads for delegated tasks, `status: \"starting\"` until the child's provider starts (including linked environments via `remoteDelegation.runStatus`), surrogate-safe ",
       "decision": "adapt",
       "requirements": [
-        "Reuse shared completion/follow-up mechanics only where exact child/run identity remains authoritative.",
-        "Preserve managed admission, round acknowledgements, Stop/resume authority and durable workspace custody."
+        "Adopt upstream's narrower parent/run reads for delegated tasks, `status: \"starting\"` until the child's provider starts (including linked environments via `remoteDelegation.runStatus`), surrogate-safe titles, `executedModel` on remote completion and user-facing dispatch error messages. Keep managed-role admission, pending blocking advice in task progress, custody receipts, result notes (abandoned, restart loop) and follow-up identity. A `t3_thread_send` follow-up now waits only on background work its own run started (upstream's rule in `delegatedTaskAwaitsWork`, b79d277cdda), applied to the fork's `delegatedTaskRunHold` too. Upstream moved a launched thread's first message into its create claim (#36682), which skipped the dispatch-mode limit check that ran on the separate message; `ThreadLaunchService` now checks the caller's `DispatchModeLimit` before the claim, so a caller still cannot start a thread above its own modes. Outside OAuth clients keep `delegate_task`, `task_status` and `task_cancel` for external owned work, which upstream hid; they are exempt from upstream's thread-bound guard through `servesOutsideClients`."
       ],
       "evidence": [
-        "OrchestratorMcpService, RunExecutionService, ThreadManagementService and ThreadStop suites passed (251 tests).",
-        "OrchestratorMcpToolkit.integration.test.ts still leaves the interrupted follow-up task row running; immediate status assertion and persisted terminal-row-event wait both failed after 120 seconds."
-      ]
-    },
-    {
-      "entry": "arc-runs",
-      "upstream": "#36411 and #34958 child follow-up waits",
-      "decision": "adapt",
-      "requirements": [
-        "Adopt per-result-run waits where equivalent.",
-        "Keep Arc plan/current state, parked waits, run ordinals and locked wake recheck."
-      ],
-      "evidence": [
-        "ArcRunReactor and delegation lifecycle suites passed in the seven-file focused run, excluding the documented bare-upstream failures."
-      ]
-    },
-    {
-      "entry": "thread-handoff",
-      "upstream": "#36360 Claude/Pi worktree-handoff continuation",
-      "decision": "adapt",
-      "requirements": [
-        "Adopt upstream worktree continuation.",
-        "Keep peer import acknowledgement, exact workspace custody, deterministic retry identity and no-loss release rules."
-      ],
-      "evidence": [
-        "ThreadHandoff, RunExecutionService and ThreadManagementService focused tests passed."
-      ]
-    },
-    {
-      "entry": "stop-pauses-delegated-tasks",
-      "upstream": "#32307 stale native-subagent Stop cleanup",
-      "decision": "adapt",
-      "requirements": [
-        "Adopt stale native work cleanup.",
-        "Preserve paused child state and human-message-only resume authority."
-      ],
-      "evidence": [
-        "ThreadStop and DelegatedCompletionDelivery focused tests passed."
-      ]
-    },
-    {
-      "entry": "delegated-work-visibility",
-      "upstream": "#36334 waiting status for foreground subagents",
-      "decision": "adapt",
-      "requirements": [
-        "Adopt explicit waiting status while keeping parent-side work panel, role/status detail and request precedence."
-      ],
-      "evidence": [
-        "threadShell focused tests passed.",
-        "Two MessagesTimeline waiting-row assertions failed on the bare upstream target and candidate; recorded as baseline failures."
-      ]
-    },
-    {
-      "entry": "subagent-return-chip",
-      "upstream": "#36473 duplicate delegated-thread-item prevention",
-      "decision": "adapt",
-      "requirements": [
-        "Prevent duplicate child-thread items while keeping fork return chips, round anchors and one-card-per-task presentation."
-      ],
-      "evidence": [
-        "ProviderTurnStartService.test.ts passed.",
-        "MessagesTimeline.logic.test.ts has two waiting-row failures also present on bare upstream; remaining tests passed."
-      ]
-    },
-    {
-      "entry": "run-interrupt-cause",
-      "upstream": "#32307 Stop cleanup",
-      "decision": "adapt",
-      "requirements": [
-        "Adopt cleanup while preserving interrupt cause, Stop attribution and move/provider-abort distinctions."
-      ],
-      "evidence": [
-        "ThreadStop and RunExecutionService focused tests passed."
-      ]
-    },
-    {
-      "entry": "quiet-run-read-state",
-      "upstream": "#36233 visit stores only read state",
-      "decision": "adapt",
-      "requirements": [
-        "Adopt read-state-only visit writes.",
-        "Keep run-bound read-on-completion, explicit unread reversal and quiet-success notification suppression."
-      ],
-      "evidence": [
-        "runtimeLayer and client unread/notification tests passed in the focused compatibility suites."
-      ]
-    },
-    {
-      "entry": "perf-persistence-reads",
-      "upstream": "#36434 page-only thread-list metadata; #36371 idle-branch read avoidance",
-      "decision": "adapt",
-      "requirements": [
-        "Adopt narrower metadata and timer reads.",
-        "Keep reader routing, batched shell reads, authoritative command decisions, replay anchors and per-thread pruning."
-      ],
-      "evidence": [
-        "ThreadSettlementService, ThreadPullRequestService, ProjectionStore and MCP activity tests passed; no new performance claim is made.",
-        "packages/shared/src/nodeSqliteClient.test.ts: 33 tests pass, including cancellation after the first batch and a subsequent read on the same worker."
-      ]
-    },
-    {
-      "entry": "perf-persistence-writes",
-      "upstream": "#36067 batched SQLite worker result transfer",
-      "decision": "adapt",
-      "requirements": [
-        "Adopt batched worker responses.",
-        "Keep bounded writer admission, pinned-reader ceiling, transaction timing and response ordering."
-      ],
-      "evidence": [
-        "packages/shared/src/nodeSqliteClient.test.ts passed within the 213-test persistence/usage group."
-      ]
-    },
-    {
-      "entry": "agent-process-ledger",
-      "upstream": "#36465 relay client orphan reaper; #34959 wrapped OpenCode server cleanup",
-      "decision": "adapt",
-      "requirements": [
-        "Adopt upstream cleanup for relay and wrapped OpenCode servers.",
-        "Keep fork process-group tracking for remaining providers/terminals and desktop-quit recovery."
-      ],
-      "evidence": [
-        "OpenCode, relay and process-ledger focused tests included in the successful server suites."
+        "OrchestratorMcpService.test.ts",
+        "Orchestrator.control-reads.test.ts",
+        "RemoteDelegation tests"
       ]
     },
     {
       "entry": "slipjay-workspaces",
-      "upstream": "#36332 fetched-commit checkpoint filter; #36379/#36268 remote default branch; #36366 project-root refusal",
+      "upstream": "Adopt upstream's launch retry project check, outside-client worktree default, non-Git project fallback and `ThreadLaunchBranchExistsError` in `ThreadLaunchService` and the project launch tool;",
       "decision": "adapt",
       "requirements": [
-        "Adopt Git-only worktree/checkpoint fixes.",
-        "Preserve Jujutsu driver and SlipJay allocation, ownership and recovery."
+        "Adopt upstream's launch retry project check, outside-client worktree default, non-Git project fallback and `ThreadLaunchBranchExistsError` in `ThreadLaunchService` and the project launch tool; in a SlipJay repository a worktree base still resolves to a SlipJay workspace. Storage cleanup keeps SlipJay workspaces out of upstream's branch-following and linked-worktree removal. Upstream leaves a running root command open when a write fails under a live provider; adopted, while the fork still interrupts open background items whenever the provider stream itself ends, a workspace handoff included. The fork's older `.git`-must-be-a-file gate in storage cleanup is removed, since upstream's annex-aware `worktreePathReason` covers it."
+      ],
+      "evidence": ["ThreadLaunchService.test.ts", "handlers.test.ts"]
+    },
+    {
+      "entry": "slipjay-workspace-archive",
+      "upstream": "Upstream's storage cleanup now follows branches and removes linked worktrees itself;",
+      "decision": "retain",
+      "requirements": [
+        "Upstream's storage cleanup now follows branches and removes linked worktrees itself; SlipJay workspaces skip both and keep `releaseSlipJayWorkspace`. Known pre-existing gap: `worktreePathReason` still runs before the SlipJay checks."
       ],
       "evidence": [
-        "The affected GitVcsDriver and CheckpointStore assertions fail identically on the bare upstream target; failures are recorded and left per step 5.",
-        "WorkspaceProvider and related lifecycle tests passed."
+        "Merged code read against both parents; covered by the apps/server, apps/web and package test runs and the four app typechecks listed under checks"
       ]
+    },
+    {
+      "entry": "slipjay-command-guard",
+      "upstream": "Codex keeps `untrusted` approval under the command guard and uses upstream's granular policy otherwise.",
+      "decision": "retain",
+      "requirements": [
+        "Codex keeps `untrusted` approval under the command guard and uses upstream's granular policy otherwise."
+      ],
+      "evidence": ["CodexAdapterV2.test.ts"]
+    },
+    {
+      "entry": "web-browser-test-removal",
+      "upstream": "Upstream's new browser tests and render scenarios are dropped by `fork-reconcile drop`;",
+      "decision": "retain",
+      "requirements": [
+        "Upstream's new browser tests and render scenarios are dropped by `fork-reconcile drop`; the browser and render Vitest projects stay deleted."
+      ],
+      "evidence": [
+        "Merged code read against both parents; covered by the apps/server, apps/web and package test runs and the four app typechecks listed under checks"
+      ]
+    },
+    {
+      "entry": "build-items-hq",
+      "upstream": "Upstream adds an Issues page with GitHub, GitLab, Azure DevOps, Forgejo and Linear trackers, issue tools and thread issue links;",
+      "decision": "retain",
+      "requirements": [
+        "Upstream adds an Issues page with GitHub, GitLab, Azure DevOps, Forgejo and Linear trackers, issue tools and thread issue links; adopted alongside. It does not cover Weave Forge, so the fork's Forge items on threads, Forge watches and Forge tools stay. Two issue-link surfaces now exist: upstream's for external trackers, the fork's for Forge; reassess when upstream's tracker list can host a Forge adapter."
+      ],
+      "evidence": [
+        "Merged code read against both parents; covered by the apps/server, apps/web and package test runs and the four app typechecks listed under checks"
+      ]
+    },
+    {
+      "entry": "arc-runs",
+      "upstream": "Upstream's queued-run start and `thread.fork` lock condition are adopted;",
+      "decision": "retain",
+      "requirements": [
+        "Upstream's queued-run start and `thread.fork` lock condition are adopted; the Arc-run permit and vault-write authorization stay (side chats checked with `isSideChatThread`)."
+      ],
+      "evidence": ["ArcRunReactor.test.ts", "Orchestrator tests"]
+    },
+    {
+      "entry": "thread-watches",
+      "upstream": "Upstream's snooze suppression of notifications is adopted inside the fork's quiet-completion gate.",
+      "decision": "retain",
+      "requirements": [
+        "Upstream's snooze suppression of notifications is adopted inside the fork's quiet-completion gate."
+      ],
+      "evidence": ["ThreadNotificationCoordinator.logic.test.ts"]
+    },
+    {
+      "entry": "linked-environments",
+      "upstream": "Adopt upstream's self-renewing pairing sessions and its `/mcp` refusal of requests carrying a browser `Origin` (peer and CLI calls send none;",
+      "decision": "adapt",
+      "requirements": [
+        "Adopt upstream's self-renewing pairing sessions and its `/mcp` refusal of requests carrying a browser `Origin` (peer and CLI calls send none; MCP Apps traffic uses the WebSocket). Peer-link renewal, `PEER_THREAD_TOOLS` and cross-environment thread reads are unchanged."
+      ],
+      "evidence": ["EnvironmentAuth.test.ts", "McpHttpServer.test.ts", "PeerLinks.test.ts"]
     },
     {
       "entry": "account-pools",
-      "upstream": "#525f Windows/WSL usage dedup; #36367 Codex re-emitted snapshots; #36430 OpenCode 1 usage",
+      "upstream": "Upstream's refill-in usage labels and bare proxy 429 handling",
       "decision": "adapt",
       "requirements": [
-        "Adopt corrected usage ingestion.",
-        "Keep pool ranking, member reservations, usage-limit handoff and per-thread credential refresh."
+        "Upstream's refill-in usage labels (which already carry the \u21bb prefix) are adopted in the Usage left view on T3-748's account order; the merge's resolutions against the retired pool design (pool settings rows, pooled fields, Assume usage left) were dropped with it. Upstream treats a bare proxy 429 with no reset time as a usage limit with `resetAt: null`; the fork keeps its rule that a limit naming no reset time is a provider error (`api_error_429`), so an account is never marked limited indefinitely, and upstream's 429 test rows are adjusted to it."
+      ],
+      "evidence": ["ClaudeAdapterV2.test.ts", "composerDraftStore.test.ts"]
+    },
+    {
+      "entry": "phi-browser-backend",
+      "upstream": "Adopt upstream's staged snapshot tracking, overlap guard and metadata-only snapshot (no pixels) in `ServerBrowserPage`, and optional screenshots over MCP.",
+      "decision": "adapt",
+      "requirements": [
+        "Adopt upstream's staged snapshot tracking, overlap guard and metadata-only snapshot (no pixels) in `ServerBrowserPage`, and optional screenshots over MCP. The fork's secret refusal, locator scope, CSS-width image sizing and saved screenshots are kept."
+      ],
+      "evidence": ["ServerBrowserPage.test.ts", "McpHttpServer.test.ts"]
+    },
+    {
+      "entry": "managed-browser-roles",
+      "upstream": "Upstream's tab colour scheme and reclaim guard are adopted beside task leases and bounded idle timeouts in `ServerBrowser`.",
+      "decision": "retain",
+      "requirements": [
+        "Upstream's tab colour scheme and reclaim guard are adopted beside task leases and bounded idle timeouts in `ServerBrowser`."
+      ],
+      "evidence": ["ServerBrowser.test.ts"]
+    },
+    {
+      "entry": "screen-recording-video",
+      "upstream": "Upstream's MCP App model context (`McpAppModelContext.forProvider`) is passed to steering alongside the fork's video frames.",
+      "decision": "retain",
+      "requirements": [
+        "Upstream's MCP App model context (`McpAppModelContext.forProvider`) is passed to steering alongside the fork's video frames."
+      ],
+      "evidence": ["ProviderTurnControlService.test.ts"]
+    },
+    {
+      "entry": "snapshot-overlay",
+      "upstream": "Upstream renamed the draft move to `moveComposerContent`, which moves content only into an empty destination (#36578);",
+      "decision": "adopt",
+      "requirements": [
+        "Upstream renamed the draft move to `moveComposerContent`, which moves content only into an empty destination (#36578); the overlay's new-chat and resume paths use it in place of the fork's `moveComposerPromptAndImages`, which is removed."
       ],
       "evidence": [
-        "OpenCode usage and shared usage-merge tests passed in the 213-test persistence/usage group."
+        "Merged code read against both parents; covered by the apps/server, apps/web and package test runs and the four app typechecks listed under checks"
       ]
     },
     {
-      "entry": null,
-      "upstream": "Remaining non-overlapping changes in the 151-commit v0.1.10-nightly.20261114.4669 integration",
-      "decision": "adopt",
+      "entry": "device-composer",
+      "upstream": "Upstream added its own reasoning-effort shortcuts (`composer.increaseEffort`/`decreaseEffort`, #19928);",
+      "decision": "retain",
       "requirements": [
-        "Keep upstream changes that do not conflict with recorded fork behavior or contracts."
+        "Upstream added its own reasoning-effort shortcuts (`composer.increaseEffort`/`decreaseEffort`, #19928); the fork's earlier `composer.effortUp`/`effortDown` commands stay, so saved keybindings keep working, and the settings labels use upstream's translated text for them."
+      ],
+      "evidence": ["KeybindingsSettings.logic.test.ts"]
+    },
+    {
+      "entry": "image-annotation",
+      "upstream": "The attachment strip's tile keeps the annotate action;",
+      "decision": "retain",
+      "requirements": [
+        "The attachment strip's tile keeps the annotate action; upstream's copy-snapshot action is adopted only in the snapshot details."
       ],
       "evidence": [
-        "Merged target tree and focused integration suites; upstream implementation remains upstream-authored."
+        "Merged code read against both parents; covered by the apps/server, apps/web and package test runs and the four app typechecks listed under checks"
       ]
+    },
+    {
+      "entry": "side-chat",
+      "upstream": "Upstream excludes delegated app threads from thread lists;",
+      "decision": "retain",
+      "requirements": [
+        "Upstream excludes delegated app threads from thread lists; the fork's hidden side-chat filter is combined with it."
+      ],
+      "evidence": [
+        "Merged code read against both parents; covered by the apps/server, apps/web and package test runs and the four app typechecks listed under checks"
+      ]
+    },
+    {
+      "entry": "no-project-chats",
+      "upstream": "The fork's move-to-project helpers stay in the thread toolkit beside upstream's pin ordering.",
+      "decision": "retain",
+      "requirements": [
+        "The fork's move-to-project helpers stay in the thread toolkit beside upstream's pin ordering."
+      ],
+      "evidence": [
+        "Merged code read against both parents; covered by the apps/server, apps/web and package test runs and the four app typechecks listed under checks"
+      ]
+    },
+    {
+      "entry": "web-client-customisation",
+      "upstream": "Upstream translated the whole client (gt-react, `msg`/`m`, `no-untranslated-copy`).",
+      "decision": "adapt",
+      "requirements": [
+        "Upstream translated the whole client (gt-react, `msg`/`m`, `no-untranslated-copy`). Fork behaviour is kept on upstream's translated structure; copy the merge touched in fork features is wrapped, while fork-only files the merge did not touch stay English and are reported by the lint rule (i18n debt, not yet in upstream's catalogs). `gt-i18n` moves to 1.0.43 in client-runtime, shared and desktop so web and shared helpers share one message type."
+      ],
+      "evidence": ["web, mobile and client-runtime typechecks", "focused web logic tests"]
+    },
+    {
+      "entry": "mobile-fork-screens",
+      "upstream": "Mobile takes upstream's translated structure;",
+      "decision": "adopt",
+      "requirements": [
+        "Mobile takes upstream's translated structure; the fork's settings screens (Experiments, Secrets, Champions) register titles in upstream's `ROUTE_TITLES` table, and fork renames other mobile files import (`forgeHomeProjectScopes`) are kept with upstream's resolver argument."
+      ],
+      "evidence": ["mobile typecheck"]
+    },
+    {
+      "entry": "fork-name",
+      "upstream": "Translation wrapping on the welcome page and sidebar: `Welcome to T3 Peach` and the Peach wordmark stay.",
+      "decision": "retain",
+      "requirements": [
+        "Translation wrapping on the welcome page and sidebar: `Welcome to T3 Peach` and the Peach wordmark stay."
+      ],
+      "evidence": [
+        "Merged code read against both parents; covered by the apps/server, apps/web and package test runs and the four app typechecks listed under checks"
+      ]
+    },
+    {
+      "entry": "perf-persistence-reads",
+      "upstream": "Adopt upstream's message-order index (#upstream migration 094, fork 142), which recreates the fork's migration-91 `message_ordinal_idx` with a `json_valid` filter under the same name, so the fork's ow",
+      "decision": "adapt",
+      "requirements": [
+        "Adopt upstream's message-order index (#upstream migration 094, fork 142), which recreates the fork's migration-91 `message_ordinal_idx` with a `json_valid` filter under the same name, so the fork's own index is retired by that migration; migration 91's source gains the same filter so fresh databases match. Adopt upstream's narrow delegated-task and run reads (`readDelegatedCompletionPlanRecords`, run counts, `remoteDelegation.runStatus`) in the Orchestrator and `OrchestratorMcpService`, and the active-shell archived filter (migration 146). Reader routing, pooled shell batches and settled-thread compaction are unchanged; upstream ships none of them. `isNodeStored` keeps its in-SQLite scalar comparison and now fills upstream's per-batch node cache (#38544), so a provider batch reads each node once. A reader's startup wait uses the caller's restore, as upstream's reader admission (#27979) does."
+      ],
+      "evidence": [
+        "142_TurnItemMessageOrdinalIndex.test.ts",
+        "Orchestrator.control-reads.test.ts",
+        "OrchestratorMcpService.test.ts"
+      ]
+    },
+    {
+      "entry": "perf-persistence-writes",
+      "upstream": "Upstream batches provider commits but still persists streamed text every 50 ms and has no bounded checkpoint gate, so the retirement condition is unmet;",
+      "decision": "retain",
+      "requirements": [
+        "Upstream batches provider commits but still persists streamed text every 50 ms and has no bounded checkpoint gate, so the retirement condition is unmet; the 400 ms stream flush and the WAL admission gate stay. Upstream migrations 092\u2013098 are renumbered 140\u2013146 after released fork migration 139. The fork's writer lease takes a free writer at once (`takeIfAvailable`), so upstream's provider commit batch (#38544) could re-take the writer it had just released ahead of another thread's queued write; the batch now yields once before its next transaction while writers wait, so their wake runs first. A FIFO lease in `nodeSqliteClient` was tried and deadlocked side-chat tests."
+      ],
+      "evidence": ["Migrations tests", "nodeSqliteClient.test.ts"]
+    },
+    {
+      "entry": "perf-markdown-blocks",
+      "upstream": "Adopt upstream's finished-block render-once fix (#33794: `render.remember` after commit) inside the fork's renderer;",
+      "decision": "adapt",
+      "requirements": [
+        "Adopt upstream's finished-block render-once fix (#33794: `render.remember` after commit) inside the fork's renderer; it does not meet the retirement condition (heading IDs, whole-message offsets, per-origin links, newest-two reveal), so the fork's fallbacks stay. Adopt upstream's double-click selection of inline code beside the fork's click-to-copy wrapper."
+      ],
+      "evidence": [
+        "Merged code read against both parents; covered by the apps/server, apps/web and package test runs and the four app typechecks listed under checks"
+      ]
+    },
+    {
+      "entry": "agent-process-ledger",
+      "upstream": "Pi's owned-process reporting is kept beside upstream's `backgroundTasksEndWithProcess`;",
+      "decision": "retain",
+      "requirements": [
+        "Pi's owned-process reporting is kept beside upstream's `backgroundTasksEndWithProcess`; Claude and Codex unchanged. Upstream's shutdown now finishes a closed terminal's kill escalation (#37113: it waits out the grace and sends SIGKILL) instead of interrupting it; adopted, and the ledger still watches the terminal's group until it exits."
+      ],
+      "evidence": ["terminal/Manager.test.ts. Evidence: provider-pi adapter.test.ts"]
+    },
+    {
+      "entry": "dev-state-tooling",
+      "upstream": "Upstream's first-start Cargo build of the native resource monitor is adopted beside the fork's SlipJay workspace home defaults.",
+      "decision": "retain",
+      "requirements": [
+        "Upstream's first-start Cargo build of the native resource monitor is adopted beside the fork's SlipJay workspace home defaults."
+      ],
+      "evidence": [
+        "Merged code read against both parents; covered by the apps/server, apps/web and package test runs and the four app typechecks listed under checks"
+      ]
+    },
+    {
+      "entry": "session-tool-listings",
+      "upstream": "Upstream hides thread-acting tools from outside clients (`hiddenFromOutsideClients`) and requires every thread-bound declaration to carry it.",
+      "decision": "adapt",
+      "requirements": [
+        "Upstream hides thread-acting tools from outside clients (`hiddenFromOutsideClients`) and requires every thread-bound declaration to carry it. The fork's device-tool listing predicate (`listsDeviceTools`) now calls `hiddenFromOutsideClients` first, and `McpToolAccess` checks `isThreadBoundListing` (either predicate), so per-session listing classes stay as recorded. Declarations the fork keeps for outside clients (the delegated-task tools and `readsTask`, `inBrowserRun`, `cleansUpInBrowserRun`, `managesBrowserRun`, `contributes`, `setsAway`) are marked `servesOutsideClients`, since upstream's guard otherwise refuses to build a toolkit holding an unmarked thread-bound declaration; the remaining act-as-caller tools now carry `hiddenFromOutsideClients`. With upstream's tool and description growth the MCP tool-list budget is 150,067 bytes and the editor and reader session ceilings 152,000 and 45,000."
+      ],
+      "evidence": ["McpToolAccess.test.ts", "core.test.ts"]
+    },
+    {
+      "entry": "run-interrupt-cause",
+      "upstream": "Upstream adds lost-tool-call interruption on run end (`interruptLostToolCalls`) beside the fork's interrupted turn items;",
+      "decision": "retain",
+      "requirements": [
+        "Upstream adds lost-tool-call interruption on run end (`interruptLostToolCalls`) beside the fork's interrupted turn items; an item the fork already interrupted is not emitted twice."
+      ],
+      "evidence": ["RunExecutionService.test.ts"]
+    },
+    {
+      "entry": "ws-rpc-group-split",
+      "upstream": "Upstream's new `WsIssuesRpcGroup` and its 13 handlers are registered as their own fork group (`layerWsIssuesRpc`);",
+      "decision": "adapt",
+      "requirements": [
+        "Upstream's new `WsIssuesRpcGroup` and its 13 handlers are registered as their own fork group (`layerWsIssuesRpc`); upstream's checkout status refresh and terminal viewer id are ported into the split handlers."
+      ],
+      "evidence": ["ws.test.ts", "RpcAuthorization.test.ts"]
+    },
+    {
+      "entry": "mcp-orchestration-annotations",
+      "upstream": "Upstream adds `EnabledWhen hiddenFromOutsideClients` to the orchestrator tools without annotating them equivalently;",
+      "decision": "retain",
+      "requirements": [
+        "Upstream adds `EnabledWhen hiddenFromOutsideClients` to the orchestrator tools without annotating them equivalently; its listing guard is adopted beside the fork's `destructiveHint`/`openWorldHint` values."
+      ],
+      "evidence": ["core.test.ts"]
+    },
+    {
+      "entry": "dpop-forwarded-proto",
+      "upstream": "Upstream's pairing-session renewal touches the same auth service but not forwarded-protocol DPoP verification;",
+      "decision": "retain",
+      "requirements": [
+        "Upstream's pairing-session renewal touches the same auth service but not forwarded-protocol DPoP verification; unchanged."
+      ],
+      "evidence": ["EnvironmentAuth.test.ts"]
+    },
+    {
+      "entry": "claude-missing-transcript-resume",
+      "upstream": "Upstream's native resume starts fresh when an imported session's transcript is lost, but only for imported sessions and without the per-account config-folder check, so the retirement condition is unme",
+      "decision": "retain",
+      "requirements": [
+        "Upstream's native resume starts fresh when an imported session's transcript is lost, but only for imported sessions and without the per-account config-folder check, so the retirement condition is unmet. The fork's broader check (transcript empty or missing) is kept inside upstream's restructured resume path, with upstream's `resume: true` start flag. Reassess when upstream's check covers every resume."
+      ],
+      "evidence": ["ClaudeAdapterV2.test.ts", "ProviderTurnStartService.test.ts"]
+    },
+    {
+      "entry": "pi-failed-switch-connection-replacement",
+      "upstream": "Upstream's Pi adapter now spawns with `--session`, activates the session at start and adopts a live session file on resume.",
+      "decision": "adapt",
+      "requirements": [
+        "Upstream's Pi adapter now spawns with `--session`, activates the session at start and adopts a live session file on resume. Merged into one `startConnection`: a failed activation starts a fresh connection, the fork's switch recovery replaces a failed switch's connection, and resume skips the switch when Pi already reports the target file."
+      ],
+      "evidence": ["provider-pi adapter.test.ts (199 tests)"]
+    },
+    {
+      "entry": "pi-out-of-turn-compaction",
+      "upstream": "Kept inside the merged Pi event pump;",
+      "decision": "retain",
+      "requirements": [
+        "Kept inside the merged Pi event pump; compaction restarts reopen the connection's own session path."
+      ],
+      "evidence": ["provider-pi adapter.test.ts"]
+    },
+    {
+      "entry": "unhandled-rejection-keeps-server",
+      "upstream": "Upstream's Cursor guard test expects an AbortError not raised from `onStall` to exit the server;",
+      "decision": "retain",
+      "requirements": [
+        "Upstream's Cursor guard test expects an AbortError not raised from `onStall` to exit the server; the fork keeps logging every stray rejection, and that test now asserts the server keeps running."
+      ],
+      "evidence": ["packages/provider-cursor/src/server/CursorSdk.test.ts"]
+    },
+    {
+      "entry": "pi-idle-compaction",
+      "upstream": "Thread state keeps the fork's idle compaction beside upstream's superseded session files.",
+      "decision": "retain",
+      "requirements": [
+        "Thread state keeps the fork's idle compaction beside upstream's superseded session files."
+      ],
+      "evidence": ["provider-pi adapter.test.ts"]
+    },
+    {
+      "entry": "quiet-run-read-state",
+      "upstream": "#37475 a stopped run no longer shows as an unseen completion (web and mobile)",
+      "decision": "adapt",
+      "requirements": [
+        "Upstream stops showing a stopped run as an unseen completion (#37475, so an interrupted or cancelled run no longer gets the green Done badge). Adopted in the shared `hasUnseenThreadCompletion` that web and mobile both read, replacing the fork's rule that an interrupted run surfaced even on a never-visited thread; a failed run still does. Run-bound read-on-completion, explicit unread reversal and quiet-success suppression are unchanged."
+      ],
+      "evidence": ["threadReadState.test.ts", "Sidebar.logic.test.ts", "threadListV2.test.ts"]
     }
   ],
   "unresolved": [],
@@ -375,177 +539,47 @@
     {
       "command": "vp i",
       "result": "passed",
-      "note": "Lockfile and workspace packages installed in the assigned workspace."
+      "note": "Merge clone (lockfile from upstream, regenerated) and the assigned workspace."
     },
     {
-      "command": "focused theme tests (11 files)",
+      "command": "vp run typecheck (apps/server, apps/web, apps/mobile, apps/desktop, every package with a typecheck task)",
       "result": "passed",
-      "note": "91 tests passed, including palette, project selection, CSS lifecycle and ThemeEditorPanel browser coverage."
+      "note": "0 errors in each, in the merge clone after the final edits."
     },
     {
-      "command": "focused browser/MCP tests (6 files) and ServerBrowser.test.ts",
-      "result": "passed",
-      "note": "201 tests passed in the grouped browser suite and 105 ServerBrowser tests passed."
-    },
-    {
-      "command": "focused persistence/usage tests (8 files)",
-      "result": "passed",
-      "note": "213 tests passed, including SQLite worker, read routing, settlement and usage merge behavior."
-    },
-    {
-      "command": "focused auth/compatibility tests (5 files)",
-      "result": "passed",
-      "note": "79 tests passed, including Connect approval, peer links and shipped-client compatibility."
-    },
-    {
-      "command": "focused orchestration fixtures (4 files)",
-      "result": "passed",
-      "note": "251 tests passed across MCP service, run execution, thread management and Stop."
-    },
-    {
-      "command": "focused post-adaptation tests (9 files)",
-      "result": "passed",
-      "note": "369 tests passed after type/service fixture and server API reconciliation."
-    },
-    {
-      "command": "focused Arc, handoff, VCS, checkpoint, provider-start, thread-shell and timeline tests (7 files)",
+      "command": "vp test run src (apps/server)",
       "result": "failed",
-      "note": "468/473 tests passed on candidate. Five assertions failed: two MessagesTimeline waiting-row cases, two GitVcsDriver expectations, and one CheckpointStore authored-path expectation. The same five failures reproduced on bare upstream (245/250 tests) and were recorded as baseline failures; left unchanged."
+      "note": "Merge clone: 11406 passed, 22 failed, 25 skipped, all failures environment baselines (listed under exclusions) apart from the FoundationPersistence ordering case, since fixed in ProviderCommitBatch (see perf-persistence-writes)."
     },
     {
-      "command": "vp test run apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts -t reports distinct child results|reports identical child results|reports emoji child results|reports long child results",
+      "command": "vp test run (apps/web)",
       "result": "failed",
-      "note": "After two attempts, the interrupted follow-up row remained running and its terminal row event was not persisted; the second persisted-event wait ended at 120 seconds. Superseded after fixing task-scoped run selection; the full integration test file now passes 4/4."
+      "note": "6224 passed; 4 composer list-normalization cases fail identically at the fork base (environment baseline)."
     },
     {
-      "command": "vp run --filter t3 typecheck",
+      "command": "vp test run packages",
       "result": "failed",
-      "note": "The first run exited 2 with 570 suggestions and five TS377035 Effect layer-order warnings, but no TypeScript errors. Replaced parallel Layer.mergeAll dependencies with the existing Layer.provideMerge pattern; the final candidate typecheck exits 0. Bare upstream exits 0 with 511 suggestions."
+      "note": "All merge-caused failures fixed (nodeSqliteClient reader restore, Cursor guard, ACP bridge fixture); remaining ssh tunnel and shell DEBUG-trap cases fail identically on bare upstream."
     },
     {
-      "command": "vp run --filter @t3tools/web typecheck",
+      "command": "vp test run (apps/desktop)",
       "result": "failed",
-      "note": "Two attempts report missing shouldPreserveAssistantLineBreaks and MESSAGE_HEADING_LEVEL in TimelineAssistantRows.tsx; stopped after the second attempt. Superseded after restoring the missing renderer imports; the check now exits 0."
+      "note": "37 failures, the same 37 failing at the fork base apart from one upstream-added WSL case in DesktopBackendConfiguration that fails with the base's existing CryptoError ('Mac.key: Expected the key as a Uint8Array'); that file passes on bare upstream, so the error is pre-existing fork behaviour, not this merge."
     },
     {
-      "command": "vp run --filter @t3tools/mobile typecheck",
+      "command": "vp run i18n:generate (apps/web, apps/mobile, apps/desktop)",
       "result": "passed",
-      "note": "Passed after aligning project-scope helper calls and adding the current thread id to AssistantMarkdownContent."
+      "note": "Catalogs regenerated after wrapping fork copy the merge touched."
     },
     {
-      "command": "t3_browser_task screenshot of Settings > Appearance > Create theme",
-      "result": "passed",
-      "note": "The Custom CSS label was visible; screenshot saved at /Users/henrypetch/.t3/userdata/browser-artifacts/browser-screenshot-localhost-mwg596qi-d82e0d9a.png."
-    },
-    {
-      "command": "node scripts/test-landing.ts --plan",
-      "result": "passed",
-      "note": "Candidate not rebased onto the single integration parent, so the plan selects the complete suite: 67 files; 2332 deferred."
-    },
-    {
-      "command": "vp run mobile:install ios 09431D53-CC06-4F70-BBF0-873B62482527",
+      "command": "node scripts/check-changed.ts --repo <workspace> --reconcile",
       "result": "failed",
-      "note": "The first three attempts failed from workspace Git metadata, missing CocoaPods and inherited GIT_WORK_TREE in a nested clone. A scoped Git metadata shim let Expo fingerprint the JJ checkout without passing those variables to Pod; the iPhone 18 Pro client then installed successfully. The app paired to the isolated backend and opened a seeded thread; the disposable environment was removed afterward."
+      "note": "format, unused patches, graphql, knip, typecheck (42 packages) and react compiler pass. lint fails only on errors that exist identically at the fork base (i18n debt in fork-only files, SnapShotOverlay/ImageAnnotator effects, ThreadStatusIndicators static classes, provider-pi status comment, mobile thread-work-log). test (470 files) fails only on the environment baselines listed under exclusions."
     },
     {
-      "command": "t3_browser_task navigate to Settings > Connections",
+      "command": "independent review (code-review, scope change, two partial reviewers: server/packages/reconciliation and web/mobile)",
       "result": "passed",
-      "note": "The empty saved-environment state loaded in the isolated web client; the seed has no Connect devices, so the conditional approval row was absent."
-    },
-    {
-      "command": "node scripts/fork-upstream-receipt.ts verify --repo /Users/henrypetch/Engineering/t3code --rev candidate --landed t3peach@origin",
-      "result": "failed",
-      "note": "Earlier verification refused the receipt while unresolved evidence items remained. Superseded after all checks passed and the final receipt reconciled; the final verify exits 0."
-    },
-    {
-      "command": "focused process-ledger, peer-link, read-state and notification tests (7 files)",
-      "result": "failed",
-      "note": "275/276 tests passed. The one runtimeLayer snooze case also failed on the bare upstream tag and is recorded as a baseline failure; the other six files passed."
-    },
-    {
-      "command": "bare upstream comparison: runtimeLayer queued-limited-user snooze case",
-      "result": "failed",
-      "note": "The same OrchestratorDispatchError reproduced on v0.1.10-nightly.20261114.4669; recorded and left per updater step 5."
-    },
-    {
-      "command": "vp test run packages/shared/src/nodeSqliteClient.test.ts",
-      "result": "passed",
-      "note": "All 33 tests passed, including the new cancellation-after-first-chunk regression and a subsequent read on the same worker."
-    },
-    {
-      "command": "vp run --filter @t3tools/shared typecheck",
-      "result": "passed",
-      "note": "Exit 0; four TS377141 suggestions, no type errors."
-    },
-    {
-      "command": "code-review reviewer · gpt-6.1-sol · candidate 022dfc3327070beb1c90d14271411536a49fa8e8",
-      "result": "failed",
-      "note": "Initial review of 022dfc found three blocking defects and incomplete rendered evidence. The follow-up review of pinned candidate 86d44adeacbb21cfa97d65bea7709f46eb7d8f31 confirms all three fixes and closes the screenshot item; no findings remain."
-    },
-    {
-      "command": "vp fmt packages/shared/src/nodeSqliteClient.ts packages/shared/src/nodeSqliteClient.test.ts --write",
-      "result": "passed",
-      "note": "Formatted both changed files."
-    },
-    {
-      "command": "node scripts/test-landing.ts --plan (after SQLite fix)",
-      "result": "passed",
-      "note": "Candidate remains on a merge commit rather than the single integration parent; plan selects the complete suite: 67 files and 2332 deferred."
-    },
-    {
-      "command": "vp test run apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts",
-      "result": "passed",
-      "note": "All four reports of distinct, identical, emoji and long child results passed after the completion guard was scoped to delegatedTaskRuns(child, taskId), including the persisted terminal-row assertion."
-    },
-    {
-      "command": "vp run --filter @t3tools/web typecheck",
-      "result": "passed",
-      "note": "Exit 0 after restoring shouldPreserveAssistantLineBreaks and MESSAGE_HEADING_LEVEL imports used by SentMessageTimelineRow."
-    },
-    {
-      "command": "vp run --filter t3 typecheck",
-      "result": "passed",
-      "note": "Exit 0 after correcting five Layer.mergeAll dependency warnings in runtimeLayer.ts with Layer.provideMerge. The candidate still has 570 non-error TS377141 suggestions; the bare upstream tag exits 0 with 511."
-    },
-    {
-      "command": "vp run --filter @t3tools/web typecheck after SentMessageTimelineRow regression",
-      "result": "passed",
-      "note": "Exit 0 after restoring markdown line-break and heading-level imports and adding the browser regression."
-    },
-    {
-      "command": "vp test run apps/web/src/components/chat/MessagesTimeline.browser.test.tsx -t 'renders text sent to the user by an agent'",
-      "result": "passed",
-      "note": "The sent-message timeline row rendered both paragraphs. One test passed, 71 cases skipped by the filter."
-    },
-    {
-      "command": "node scripts/mobile-native-client.ts ensure ios 09431D53-CC06-4F70-BBF0-873B62482527",
-      "result": "passed",
-      "note": "Built and installed the iOS dev client on iPhone 18 Pro for fingerprint 178514ac359836aefe6e7904f5dbe998d0f1d2ab after scoping Git metadata to read-only Expo discovery."
-    },
-    {
-      "command": "vp run dev:client; pair-client.sh; open seeded mobile thread",
-      "result": "passed",
-      "note": "The app paired to the isolated workspace backend and opened the seeded “Spotify playlist from Instagram reels” thread with its messages rendered. Removed the disposable environment and closed the device session at teardown."
-    },
-    {
-      "command": "node scripts/test-landing.ts --plan",
-      "result": "passed",
-      "note": "Landing test selection completed successfully. The unre-based candidate selects the complete suite; no tests were run by the planning command."
-    },
-    {
-      "command": "node scripts/fork-upstream-receipt.ts verify --repo /Users/henrypetch/Engineering/t3code --rev 3b8210ea57e269b8f8470721af596e3aac338c06 --landed 5adb987a755a125e2d36764e16225c20b08afe79",
-      "result": "passed",
-      "note": "Receipt schema, upstream and fork base pins, record blob, entry coverage and dispositions all validate; no unresolved evidence remains."
-    },
-    {
-      "command": "code-review reviewer · gpt-6.1-sol · candidate 86d44adeacbb21cfa97d65bea7709f46eb7d8f31",
-      "result": "passed",
-      "note": "Rebase follow-up of pinned candidate 05a2f6734611777b4d72d6e47397ff6c14aa15b also found no blockers; the prior SQLite, delegation and renderer fixes remain intact. The 95e949 first-parent custody change, HomeRouteScreen resolution and lockfile were verified."
-    },
-    {
-      "command": "code-review reviewer · gpt-6.1-sol · candidate 05a2f6734611777b4d72d6e47397ff6c14aa15b",
-      "result": "passed",
-      "note": "Rebase follow-up: Standards and Spec axes had no findings. Verified WorkspaceCustody monorepo subdirectory behavior and tests, HomeRouteScreen helper resolution, lockfile and receipt pins. The prior fixes remain unchanged."
+      "note": "0 blocking. Fixed: @cursor/sdk patch pairing in docs/dependencies.md; stopped-run rule moved into the shared hasUnseenThreadCompletion (one copy, recorded under quiet-run-read-state); Needs-you pill detail resolved through m(); mobile Secrets search terms restored; ThreadNow details button restored. Rejected: dispositions for entries with no upstream overlap (the receipt names them in entriesConsidered; only decided overlaps carry a disposition)."
     }
   ],
   "result": "reconciled"

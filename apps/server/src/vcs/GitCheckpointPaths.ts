@@ -8,6 +8,21 @@ const STABLE_OUTPUT_CONFIG = ["-c", "diff.relative=false", "-c", "log.showSignat
 // Reflog subjects that only move a ref. Unknown subjects conservatively count as creating a commit.
 const REF_MOVE_REFLOG_SUBJECT =
   /^(?:$|(?:checkout|reset|branch|clone|fetch)\b|[^:]*\((?:start|finish|abort|reset)\): |(?:merge|pull|rebase|cherry-pick)\b[^()]*: fast-forward$)/i;
+// A turn with more recent commits than this skips the HEAD probe and scans every reflog.
+const HEAD_REFLOG_PROBE_LIMIT = 512;
+
+function parseCheckpointReflogEntry(line: string) {
+  const [commit = "", selector = "", ...subject] = line.split(" ");
+  return {
+    commit,
+    fetched: selector.startsWith("refs/remotes/"),
+    subject: subject.join(" "),
+  };
+}
+
+function isLocalReflogCreation(entry: ReturnType<typeof parseCheckpointReflogEntry>) {
+  return !entry.fetched && !REF_MOVE_REFLOG_SUBJECT.test(entry.subject);
+}
 
 /** Filters clean imported upstream changes out of a turn's checkpoint summary. */
 export const listGitCheckpointAuthoredPaths = Effect.fn("listGitCheckpointAuthoredPaths")(
@@ -34,12 +49,13 @@ export const listGitCheckpointAuthoredPaths = Effect.fn("listGitCheckpointAuthor
     const [, endHead = ""] = toLine.split(" ");
     if (startHead === "" || endHead === "" || startHead === endHead) return null;
 
-    const listLines = (args: ReadonlyArray<string>, stdin?: string) =>
+    const listLines = (args: ReadonlyArray<string>, stdin?: string, timeoutMs?: number) =>
       read({
         operation,
         cwd: input.cwd,
         args: ["-c", "log.showSignature=false", ...args],
         ...(stdin === undefined ? {} : { stdin }),
+        ...(timeoutMs === undefined ? {} : { timeoutMs }),
         maxOutputBytes: CHECKPOINT_DIFF_MAX_OUTPUT_BYTES,
         outputMode: "error",
       }).pipe(Effect.map((result) => result.stdout.split("\n").filter((line) => line !== "")));
@@ -68,14 +84,7 @@ export const listGitCheckpointAuthoredPaths = Effect.fn("listGitCheckpointAuthor
         "--all",
         `--since=@${capturedAt}`,
         "--format=%H %gD %gs",
-      ])).map((line) => {
-        const [commit = "", selector = "", ...subject] = line.split(" ");
-        return {
-          commit,
-          fetched: selector.startsWith("refs/remotes/"),
-          subject: subject.join(" "),
-        };
-      });
+      ])).map(parseCheckpointReflogEntry);
       const fetchedTips = new Set(
         entries
           .filter((entry) => entry.fetched && entry.subject !== "update by push")
@@ -83,9 +92,7 @@ export const listGitCheckpointAuthoredPaths = Effect.fn("listGitCheckpointAuthor
       );
       if (fetchedTips.size === 0) return fetchedTips;
       const createdHere = new Set(
-        entries
-          .filter((entry) => !entry.fetched && !REF_MOVE_REFLOG_SUBJECT.test(entry.subject))
-          .map((entry) => entry.commit),
+        entries.filter(isLocalReflogCreation).map((entry) => entry.commit),
       );
       const fetched = yield* listLines(
         ["rev-list", `--since=@${capturedAt}`, "--stdin"],
@@ -104,9 +111,38 @@ export const listGitCheckpointAuthoredPaths = Effect.fn("listGitCheckpointAuthor
       ],
       { concurrency: 2 },
     );
+    // HEAD's own reflog usually proves every recent commit local, sparing the full reflog scan.
+    const unprovenCommits = new Set(recentCommits);
+    if (recentCommits.length > 0 && recentCommits.length <= HEAD_REFLOG_PROBE_LIMIT) {
+      yield* listLines(
+        [
+          "log",
+          "--walk-reflogs",
+          `--max-count=${HEAD_REFLOG_PROBE_LIMIT}`,
+          "HEAD",
+          `--since=@${capturedAt}`,
+          "--format=%H %gD %gs",
+        ],
+        undefined,
+        1_000,
+      ).pipe(
+        Effect.map((lines) => {
+          for (const line of lines) {
+            const entry = parseCheckpointReflogEntry(line);
+            if (isLocalReflogCreation(entry)) unprovenCommits.delete(entry.commit);
+          }
+        }),
+        Effect.catch((error) =>
+          Effect.logDebug("local authorship probe failed; using full reflogs", {
+            operation,
+            errorTag: error._tag,
+          }),
+        ),
+      );
+    }
     // Unreadable reflogs retain all recent commits as authored, matching the previous behavior.
     const importedCommits =
-      recentCommits.length === 0
+      unprovenCommits.size === 0
         ? new Set<string>()
         : yield* listImportedCommits.pipe(Effect.orElseSucceed(() => new Set<string>()));
     const ownCommits = recentCommits.filter((commit) => !importedCommits.has(commit));

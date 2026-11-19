@@ -10,6 +10,7 @@ import {
   type RuntimeMode,
   type ThreadId,
 } from "@t3tools/contracts";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
@@ -17,6 +18,7 @@ import * as Ref from "effect/Ref";
 import * as Struct from "effect/Struct";
 import type * as Layer from "effect/Layer";
 import type * as Scope from "effect/Scope";
+import { McpSchema } from "effect/ai";
 import type { Tool, Toolkit } from "effect/ai";
 
 import {
@@ -82,6 +84,16 @@ type Forwarded<P, A, E, R> = (
 let forwardedOf: <Handler>(
   declaration: Declaration<Handler>,
 ) => Forwarded<never, unknown, unknown, unknown> | undefined;
+
+/**
+ * Declarations whose handler serves an outside client itself (owned tasks, browser runs), so
+ * `routed` lets their tools stay listed outside a thread.
+ */
+const servesOutsideClients = new WeakSet<Declaration<unknown>>();
+const outsideClientsToo = <D extends Declaration<unknown>>(declaration: D): D => {
+  servesOutsideClients.add(declaration);
+  return declaration;
+};
 
 type CheckedHandlerOf<D> = D extends Declaration<infer Handler> ? Handler : never;
 
@@ -395,18 +407,20 @@ export const inBrowserRun = <P, A, E, R>(
   runs: BrowserRuns.BrowserRuns["Service"],
   handle: (params: P) => Effect.Effect<A, E, R>,
 ) =>
-  declare(
-    (params: P) =>
-      usingRun(runs, { checkSettings: true }).pipe(
-        Effect.flatMap((run) =>
-          Effect.provideService(
-            handle(params),
-            McpInvocationContext.McpInvocationContext,
-            run.scope,
-          ).pipe(Effect.tap((result) => runs.charge(run.runId, browserRunResultBytes(result)))),
+  outsideClientsToo(
+    declare(
+      (params: P) =>
+        usingRun(runs, { checkSettings: true }).pipe(
+          Effect.flatMap((run) =>
+            Effect.provideService(
+              handle(params),
+              McpInvocationContext.McpInvocationContext,
+              run.scope,
+            ).pipe(Effect.tap((result) => runs.charge(run.runId, browserRunResultBytes(result)))),
+          ),
         ),
-      ),
-    undefined,
+      undefined,
+    ),
   );
 
 /** Closing a run's tab stays possible after browser access is turned off. */
@@ -414,39 +428,43 @@ export const cleansUpInBrowserRun = <P, A, E, R>(
   runs: BrowserRuns.BrowserRuns["Service"],
   handle: (params: P) => Effect.Effect<A, E, R>,
 ) =>
-  declare(
-    (params: P) =>
-      usingRun(runs, { checkSettings: false }).pipe(
-        Effect.flatMap((run) =>
-          Effect.provideService(
-            handle(params),
-            McpInvocationContext.McpInvocationContext,
-            run.scope,
+  outsideClientsToo(
+    declare(
+      (params: P) =>
+        usingRun(runs, { checkSettings: false }).pipe(
+          Effect.flatMap((run) =>
+            Effect.provideService(
+              handle(params),
+              McpInvocationContext.McpInvocationContext,
+              run.scope,
+            ),
           ),
         ),
-      ),
-    undefined,
+      undefined,
+    ),
   );
 
 /** Opening and closing a run: the handler checks the caller itself (`BrowserRunAccess.ts`). */
 export const managesBrowserRun = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
-  declare(handle, undefined);
+  outsideClientsToo(declare(handle, undefined));
 
 /** External clients read their owned tasks; T3 callers retain the existing live-run gate. */
 export const readsTask = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
-  declare(
-    (params: P) =>
-      McpInvocationContext.McpInvocationContext.pipe(
-        Effect.flatMap((scope) =>
-          scope.thread === undefined && scope.client !== undefined
-            ? handle(params)
-            : requireThreadCaller.pipe(
-                Effect.andThen(writingCaller),
-                Effect.flatMap(() => handle(params)),
-              ),
+  outsideClientsToo(
+    declare(
+      (params: P) =>
+        McpInvocationContext.McpInvocationContext.pipe(
+          Effect.flatMap((scope) =>
+            scope.thread === undefined && scope.client !== undefined
+              ? handle(params)
+              : requireThreadCaller.pipe(
+                  Effect.andThen(writingCaller),
+                  Effect.flatMap(() => handle(params)),
+                ),
+          ),
         ),
-      ),
-    undefined,
+      undefined,
+    ),
   );
 
 export const readsAsCaller = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
@@ -723,23 +741,25 @@ export type Contributor =
 export const contributes = <P, A, E, R>(
   handle: (params: P, from: Contributor) => Effect.Effect<A, E, R>,
 ) =>
-  declare(
-    (params: P) =>
-      McpInvocationContext.McpInvocationContext.pipe(
-        Effect.flatMap((scope) =>
-          scope.thread === undefined && scope.client?.linked === true
-            ? handle(params, {
-                kind: "link",
-                sessionId: scope.client.sessionId,
-                label: scope.client.label,
-              })
-            : requireThreadCaller.pipe(
-                Effect.andThen(orchestratingCaller),
-                Effect.flatMap((caller) => handle(params, { kind: "thread", caller })),
-              ),
+  outsideClientsToo(
+    declare(
+      (params: P) =>
+        McpInvocationContext.McpInvocationContext.pipe(
+          Effect.flatMap((scope) =>
+            scope.thread === undefined && scope.client?.linked === true
+              ? handle(params, {
+                  kind: "link",
+                  sessionId: scope.client.sessionId,
+                  label: scope.client.label,
+                })
+              : requireThreadCaller.pipe(
+                  Effect.andThen(orchestratingCaller),
+                  Effect.flatMap((caller) => handle(params, { kind: "thread", caller })),
+                ),
+          ),
         ),
-      ),
-    undefined,
+      undefined,
+    ),
   );
 
 /**
@@ -749,19 +769,21 @@ export const contributes = <P, A, E, R>(
 export const setsAway = <P, A, E, R>(
   handle: (params: P, fromPeer: boolean) => Effect.Effect<A, E, R>,
 ) =>
-  declare(
-    (params: P) =>
-      McpInvocationContext.McpInvocationContext.pipe(
-        Effect.flatMap((scope) =>
-          scope.client?.access === "peer-threads"
-            ? handle(params, true)
-            : orchestratingCaller.pipe(
-                Effect.tap((caller) => assertFullAccess(caller, fullAccessRequired)),
-                Effect.flatMap(() => handle(params, false)),
-              ),
+  outsideClientsToo(
+    declare(
+      (params: P) =>
+        McpInvocationContext.McpInvocationContext.pipe(
+          Effect.flatMap((scope) =>
+            scope.client?.access === "peer-threads"
+              ? handle(params, true)
+              : orchestratingCaller.pipe(
+                  Effect.tap((caller) => assertFullAccess(caller, fullAccessRequired)),
+                  Effect.flatMap(() => handle(params, false)),
+                ),
+          ),
         ),
-      ),
-    undefined,
+      undefined,
+    ),
   );
 
 type CheckServices = Effect.Services<typeof orchestratingCaller>;
@@ -880,8 +902,19 @@ const routed = Effect.fn("McpToolAccess.routed")(function* <Tools extends Record
   const handlers: Record<string, unknown> = { ...checked };
   for (const [name, declaration] of Object.entries<Declaration<unknown>>(declarations)) {
     const tool = toolkit.tools[name];
-    if (tool === undefined || !takesLinkedEnvironment(tool)) continue;
+    if (tool === undefined) continue;
     const remote = remoteCheckOf(declaration);
+    if (
+      remote === undefined &&
+      !servesOutsideClients.has(declaration) &&
+      !McpInvocationContext.isThreadBoundListing(
+        Context.getOrUndefined(tool.annotations, McpSchema.EnabledWhen),
+      )
+    )
+      return yield* Effect.die(
+        `${name} acts as its calling thread, so outside clients must not be offered it.`,
+      );
+    if (!takesLinkedEnvironment(tool)) continue;
     const forwarded = forwardedOf(declaration) as
       | Forwarded<object, unknown, Tool.Failure<Tools[keyof Tools]>, never>
       | undefined;

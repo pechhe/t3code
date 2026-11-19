@@ -70,6 +70,9 @@ The main checkout defaults to `~/.t3/dev/userdata`. An explicit `--home-dir` win
 Inside a SlipJay workspace directory where no workspace root is recognised, the runner refuses to start instead of using the shared home; pass `--home-dir`.
 `vp run migrate-dev-db` follows the same default; `--base-dir` overrides it.
 The first start seeds an empty database from a read-only snapshot of `~/.t3/userdata/statev2.sqlite` only when the source is at most 500 MiB; use `--no-seed` or `T3CODE_DEV_SEED=0` to skip it. Larger sources require an explicit `vp run migrate-dev-db`.
+The first start in any checkout also builds the native resource monitor with Cargo when
+`native/resource-monitor/target` has no binary. Without Rust, dev starts with a warning
+and no process telemetry; install Rust and run `vp run build:resource-monitor`.
 Never run a development server against the live `~/.t3/userdata`.
 See [test data](#test-data) for copying a consistent database snapshot.
 
@@ -437,6 +440,7 @@ C/C++ build tools, libsecret development headers, pkg-config, and ImageMagick.
 Bytecode preparation also runs packaged Electron and requires GTK, NSS, ALSA, and GBM runtime libraries.
 Install Rust 1.95 or newer through [rustup](https://rust-lang.org/install), using the stable
 toolchain as release CI does.
+The packaged ELF compatibility check uses binutils’ `readelf`, included by the C/C++ toolchain.
 
 Ubuntu 24.04 and Debian 13:
 

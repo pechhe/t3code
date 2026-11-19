@@ -4,6 +4,10 @@ import {
   type OrchestrationV2ThreadStanding,
   type RunId,
 } from "@t3tools/contracts";
+import {
+  effectiveSnoozed,
+  type ThreadSnoozeShell,
+} from "@t3tools/client-runtime/state/thread-settled";
 
 export type ThreadNotificationKind = "input" | "completion";
 
@@ -62,6 +66,21 @@ export function isQuietThreadCompletion(report: ThreadRunReport): boolean {
       report.latestRun?.status,
     )
   );
+}
+
+/**
+ * Whether completion notifications are suppressed by snooze. A completion that landed
+ * during the snooze stays suppressed even when its update is processed after the wake.
+ */
+export function isSnoozedForNotification(
+  thread: ThreadSnoozeShell,
+  completedAt: number | null,
+  now: number,
+): boolean {
+  if (effectiveSnoozed(thread, { now: new Date(now).toISOString() })) return true;
+  if (completedAt === null) return false;
+  if (thread.snoozedAt != null && completedAt < Date.parse(thread.snoozedAt)) return false;
+  return effectiveSnoozed(thread, { now: new Date(completedAt).toISOString() });
 }
 
 /**
@@ -191,16 +210,18 @@ export function createThreadNotificationGate<Key>(
       key: Key,
       prior: ThreadNotificationObservation | undefined,
       next: ThreadNotificationObservation,
-      options: { readonly archived: boolean; readonly quiet: boolean },
+      options: { readonly archived: boolean; readonly quiet: boolean; readonly snoozed: boolean },
     ): void {
       // The grace survives updates that keep the wake's completion; anything else cancels it.
       const pending = releases.get(key);
-      if (pending?.at === next.completedAt && !options.archived && !options.quiet) {
+      const silenced = options.archived || options.quiet || options.snoozed;
+      if (pending?.at === next.completedAt && !silenced) {
         if (pending.cancel === undefined) release(key, pending.at);
         return;
       }
       cancelRelease(key);
-      if (!prior || options.archived || options.quiet) skip(key, next.completedAt);
+      // The first sighting, archived or snoozed threads, and stopped or silent runs never notify completion.
+      if (!prior || silenced) skip(key, next.completedAt);
       const fresh = attend(key, prior, next);
       if (next.standing === undefined) observeRuntime(key, prior, next, options, fresh);
       else observeStanding(key, prior, next, options, fresh);

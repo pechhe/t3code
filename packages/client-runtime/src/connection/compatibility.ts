@@ -1,3 +1,5 @@
+import { msg } from "gt-i18n";
+import { translatableDetail } from "../errors/translatable.ts";
 import {
   LIVE_RESPONSE_STREAMING_QUERY_PARAM,
   CHAMPION_THREADS_CAPABILITY,
@@ -23,11 +25,20 @@ export function orchestrationProtocolCompatibilityError(
   return serverProtocolVersion > ORCHESTRATION_PROTOCOL_VERSION
     ? new ConnectionBlockedError({
         reason: "unsupported",
-        detail: `This client is not supported by this server. Update your app or use a compatible release to connect to ${descriptor.label}.`,
+        ...translatableDetail(
+          msg(
+            "This client is not supported by this server. Update your app or use a compatible release to connect to {host}.",
+            { host: descriptor.label },
+          ),
+        ),
       })
     : new ConnectionBlockedError({
         reason: "unsupported",
-        detail: `This client requires a newer server. Update T3 Code on ${descriptor.label} to connect.`,
+        ...translatableDetail(
+          msg("This client requires a newer server. Update T3 Code on {host} to connect.", {
+            host: descriptor.label,
+          }),
+        ),
         ...(canSelfUpdate(descriptor) ? { serverUpdateRequired: true } : {}),
       });
 }

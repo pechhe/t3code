@@ -179,6 +179,49 @@ const slipJayRef = Effect.fnUntraced(function* (root: string) {
   return Option.some(`${config.value.remote ?? "origin"}/${config.value.integrationBranch}`);
 });
 
+// Ignored files that checks read: generated sources, declarations, and env files.
+const checkInput = /(^|\/)\.(generated|astro)\/|\.d\.ts$|(^|\/)\.env[^/]*$/;
+const inNodeModules = /(^|\/)node_modules\//;
+
+// Pathspecs don't stop git from walking an ignored directory, and on Windows it follows pnpm's
+// junctions in node_modules until MAX_PATH. `--directory` lists one without entering it.
+// `gitOptions` lets a jj workspace without a .git list its files through the integration store.
+export const ignoredCheckInputs = Effect.fn("checkChanged.ignoredCheckInputs")(function* (
+  root: string,
+  gitOptions: ReadonlyArray<string> = [],
+) {
+  const list = (args: ReadonlyArray<string>) =>
+    git(root, [...gitOptions, "ls-files", "-z", ...args]).pipe(
+      Effect.map((stdout) => stdout.toString().split("\0").filter(Boolean)),
+    );
+  const ignored = ["--others", "--ignored", "--exclude-standard"];
+  // `--directory` hides a directory where the index has a file; `-k` lists those.
+  const [listed, replaced] = yield* Effect.all(
+    [list([...ignored, "--directory"]), list(["-k", "--directory"])],
+    { concurrency: 2 },
+  );
+  const entries = [...new Set([...listed, ...replaced])].sort();
+  // git lists an untracked directory whose contents are all ignored together with them;
+  // listing it again would walk its node_modules.
+  const directories = entries.filter(
+    (entry, index) =>
+      entry.endsWith("/") && !inNodeModules.test(entry) && !entries[index + 1]?.startsWith(entry),
+  );
+  const files = entries.filter((entry) => !entry.endsWith("/"));
+  // Calls fit Windows' 32,767-character command line: 16 covers `:(literal)`, quotes, a space.
+  // `.git/` matches nothing; it stops git starting its walk inside a nested repository.
+  const longest = directories.reduce((max, dir) => Math.max(max, dir.length), 0);
+  const size = Math.max(1, Math.floor(30_000 / (longest + 16)));
+  for (let start = 0; start < directories.length; start += size) {
+    const batch = directories.slice(start, start + size).map((dir) => `:(literal)${dir}`);
+    files.push(...(yield* list([...ignored, "--", ":(literal).git/", ...batch])));
+  }
+  // A nested repository is listed by its directory, as the old pathspecs listed it.
+  return files
+    .filter((file) => !inNodeModules.test(file) && (file.endsWith("/") || checkInput.test(file)))
+    .sort();
+});
+
 export const comparisonBase = Effect.fn("checkChanged.comparisonBase")(function* (
   root: string,
   explicitRef: Option.Option<string>,
@@ -353,20 +396,8 @@ const checkChanged = Effect.fn("checkChanged")(function* (input: {
     );
     const ignored = reconciliation
       ? []
-      : yield* lines(
-          // The store's work tree is the integration checkout; these files are read here.
-          ...(jjHead ? [`--work-tree=${root}`] : []),
-          "ls-files",
-          "--others",
-          "--ignored",
-          "--exclude-standard",
-          "--",
-          ":(glob)**/.generated/**",
-          ":(glob)**/.astro/**",
-          ":(glob)**/*.d.ts",
-          ":(glob)**/.env*",
-          ":(exclude,glob)**/node_modules/**",
-        );
+      : // The store's work tree is the integration checkout; these files are read here.
+        yield* ignoredCheckInputs(store, jjHead ? [`--work-tree=${root}`] : []);
     for (const file of [
       // Raw bytes of changed files too: .gitattributes normalizes line endings in
       // the diff, but the formatter reads the file as it is on disk.
@@ -572,9 +603,11 @@ const checkChanged = Effect.fn("checkChanged")(function* (input: {
   ).pipe(Effect.catch((error) => Effect.succeed({ ok: false, output: error.message })));
 
   // CI's Lint job checks that generated GraphQL operations match their sources.
-  const graphql = ["apps/server", "packages/source-control-github"].filter((dir) =>
-    files.some((file) => file.startsWith(`${dir}/`)),
-  );
+  const graphql = [
+    "apps/server",
+    "packages/issue-tracker-linear",
+    "packages/source-control-github",
+  ].filter((dir) => files.some((file) => file.startsWith(`${dir}/`)));
   const filters = (names: ReadonlyArray<string>) => names.flatMap((name) => ["--filter", name]);
   const typecheckWorkers = Math.min(concurrency, affected.length);
   const command = (name: string, args: ReadonlyArray<string>) => ({ name, run: vp(args) });

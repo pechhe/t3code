@@ -133,6 +133,8 @@ import * as PullRequestsHandlers from "./toolkits/pullRequests/handlers.ts";
 import * as ToolSearchHandlers from "./toolkits/toolSearch/handlers.ts";
 import { CallMcpTool, ToolSearchToolkit } from "./toolkits/toolSearch/tools.ts";
 import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
+import * as IssuesHandlers from "./toolkits/issues/handlers.ts";
+import { IssuesToolkit } from "./toolkits/issues/tools.ts";
 import * as DeviceHandlers from "./toolkits/device/handlers.ts";
 import {
   DeviceScreenshotTool,
@@ -146,6 +148,7 @@ import * as MessageHandlers from "./toolkits/message/handlers.ts";
 import { HtmlPreviewTool, HtmlPreviewToolkit, HtmlRenderToolkit } from "./toolkits/html/tools.ts";
 import { GuardToolkit } from "./toolkits/guard/tools.ts";
 import * as GuardHandlers from "./toolkits/guard/handlers.ts";
+import { MCP_HTTP_PATH } from "../httpCors.ts";
 import { requestUrl } from "../requestUrl.ts";
 import * as RunSetupReportHttp from "./RunSetupReportHttp.ts";
 
@@ -221,6 +224,38 @@ const normalizeMcpHttpResponse = (
     ? HttpServerResponse.setStatus(response, 202)
     : response;
 };
+
+// The first protocol is the fallback for clients that offer an unknown version.
+const mcpProtocols = [McpProtocol.v2025_06_18, McpProtocol.v2026_07_28] as const;
+
+/**
+ * Effect answers 400 to a notification a sessionless protocol does not define, because it requires
+ * `_meta` before it checks the method. The Go MCP SDK still sends `notifications/roots/list_changed`
+ * there and closes its connection on that 400. Remove once Effect ignores undefined notifications.
+ */
+const isUndefinedNotification = Effect.fnUntraced(function* (
+  request: HttpServerRequest.HttpServerRequest,
+) {
+  const method = request.headers["mcp-method"];
+  const protocol = mcpProtocols.find(
+    (candidate) => candidate.protocolVersion === request.headers["mcp-protocol-version"],
+  );
+  if (
+    request.method !== "POST" ||
+    protocol?.runtime._tag !== "Stateless" ||
+    !method?.startsWith("notifications/") ||
+    protocol.clientRpcs.requests.has(method)
+  ) {
+    return false;
+  }
+  const message = yield* Effect.orElseSucceed(request.json, () => undefined);
+  return (
+    Predicate.isReadonlyObject(message) &&
+    message.jsonrpc === "2.0" &&
+    message.method === method &&
+    !Predicate.hasProperty(message, "id")
+  );
+});
 
 // Session tokens are `<payload>.<signature>`; registry tokens are a bare base64url secret.
 const looksLikeProviderToken = (token: string) => token.length > 0 && !token.includes(".");
@@ -367,12 +402,18 @@ const makeMcpAuthMiddleware = Effect.fn("McpHttpServer.makeAuthMiddleware")(
         const limited = McpInvocationContext.withRuntimeModeCeiling(asked, runtimeModeCeiling);
         const linkedEnvironments = yield* linksEnabled;
         if (limited.client?.linked === true && !linkedEnvironments) return linkedEnvironmentsOff;
-        return { ...limited, linkedEnvironments };
+        const origin = Option.getOrUndefined(Option.map(requestUrl(request), (url) => url.origin));
+        return { ...limited, linkedEnvironments, origin };
       });
       // Untraced: a span here would wrap the tool call; the HTTP server span already covers it.
       return Effect.fnUntraced(function* (httpEffect) {
-        const admitted = yield* authenticateRequest(yield* HttpServerRequest.HttpServerRequest);
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        // The transport allows no browser Origin; refuse it before credentials, as the MCP spec requires.
+        if (request.headers.origin !== undefined) return HttpServerResponse.empty({ status: 403 });
+        const admitted = yield* authenticateRequest(request);
         if (HttpServerResponse.isHttpServerResponse(admitted)) return admitted;
+        if (yield* isUndefinedNotification(request))
+          return HttpServerResponse.empty({ status: 202 });
         return yield* httpEffect.pipe(
           Effect.provideService(McpInvocationContext.McpInvocationContext, admitted),
           Effect.map(normalizeMcpHttpResponse),
@@ -606,7 +647,9 @@ const previewSnapshotFailure = Effect.fn("previewSnapshotFailure")(function <E>(
       : "PreviewSnapshotError";
   // Preview errors contain server-authored recovery guidance, never page output.
   const message =
-    isPreviewAutomationError(firstFailure) || isPreviewScreenshotSaveError(firstFailure)
+    isPreviewAutomationError(firstFailure) ||
+    isPreviewScreenshotSaveError(firstFailure) ||
+    isOrchestratorMcpFailure(firstFailure)
       ? firstFailure.message
       : parameterValidationMessage(firstFailure);
   const result = new McpSchema.CallToolResult({
@@ -687,18 +730,30 @@ const registerPreviewSnapshot = Effect.fn("McpHttpServer.registerPreviewSnapshot
                 readonly url: string;
                 /** Absent when a saved login's value may show on the page. */
                 readonly screenshot?: {
-                  readonly mimeType: "image/png";
-                  readonly data: string;
+                  readonly mimeType?: "image/png";
+                  readonly data?: string;
                   readonly width: number;
                   readonly height: number;
                 };
                 readonly fullScreenshot?: { readonly data: string };
               };
               const { screenshot, fullScreenshot, ...page } = snapshot;
+              const requestedImage = payload?.includeImage === true;
+              const needsPixels = payload?.save === true || requestedImage;
+              if (
+                needsPixels &&
+                screenshot !== undefined &&
+                (screenshot.mimeType !== "image/png" || !screenshot.data)
+              ) {
+                return yield* new OrchestratorMcpFailure({
+                  code: "invalid_request",
+                  message: "Preview snapshot did not contain requested PNG pixels.",
+                });
+              }
               const png =
-                screenshot === undefined
-                  ? undefined
-                  : new Uint8Array(Buffer.from(screenshot.data, "base64"));
+                needsPixels && screenshot?.data
+                  ? new Uint8Array(Buffer.from(screenshot.data, "base64"))
+                  : undefined;
               const screenshotPath =
                 payload?.save === true && png !== undefined
                   ? yield* saveBrowserScreenshot(
@@ -709,7 +764,7 @@ const registerPreviewSnapshot = Effect.fn("McpHttpServer.registerPreviewSnapshot
                     )
                   : undefined;
               // Providers replay images on later requests, and some reject them; include images only when requested.
-              const includeImage = payload?.includeImage === true && png !== undefined;
+              const includeImage = requestedImage && png !== undefined;
               if (screenshotPath !== undefined && !includeImage) {
                 const saved = {
                   url: cutText(snapshot.url, MAX_SNAPSHOT_IDENTIFIER_CHARS),
@@ -727,7 +782,7 @@ const registerPreviewSnapshot = Effect.fn("McpHttpServer.registerPreviewSnapshot
                   ? {}
                   : {
                       screenshot: {
-                        mimeType: screenshot.mimeType,
+                        mimeType: "image/png" as const,
                         width: screenshot.width,
                         height: screenshot.height,
                       },
@@ -758,7 +813,7 @@ const registerPreviewSnapshot = Effect.fn("McpHttpServer.registerPreviewSnapshot
                         },
                       ]),
                   ...(includeImage && png !== undefined
-                    ? [{ type: "image" as const, data: png, mimeType: "image/png" }]
+                    ? [{ type: "image" as const, data: png, mimeType: "image/png" as const }]
                     : []),
                 ],
               });
@@ -1503,6 +1558,8 @@ export const layerPullRequestsToolkit = toolkitRegistration(
   PullRequestsHandlers.layer,
 ).pipe(Layer.provide(PullRequestWatchService.layer));
 
+const layerIssuesToolkit = toolkitRegistration(IssuesToolkit, IssuesHandlers.layer);
+
 const layerDeviceStandardToolkitRegistration = toolkitRegistration(
   DeviceStandardToolkit,
   DeviceHandlers.layerStandard,
@@ -1787,9 +1844,8 @@ export const layerMcpTransport = <RA, RE, RR>(registrations: Layer.Layer<RA, RE,
   McpServer.layerHttp({
     name: "T3 Code",
     version: packageJson.version,
-    path: "/mcp",
-    // The first protocol is the fallback for clients that offer an unknown version.
-    protocols: [McpProtocol.v2025_06_18, McpProtocol.v2026_07_28],
+    path: MCP_HTTP_PATH,
+    protocols: mcpProtocols,
     allowSessionTermination: true,
     registrations: Layer.mergeAll(registrations, layerToolSearch),
   }).pipe(Layer.provide(layerMcpAuthMiddleware));
@@ -1815,6 +1871,7 @@ export const layerTools = Layer.mergeAll(
   ),
   toolkitRegistration(TerminalToolkit, TerminalHandlers.layer),
   layerPullRequestsToolkit,
+  layerIssuesToolkit,
   layerDeviceToolkit,
   layerHtmlToolkit,
   layerMessageToolkit,

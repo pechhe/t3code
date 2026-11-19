@@ -4,6 +4,7 @@ import {
   type ThreadPullRequestLink,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2Run,
+  type OrchestrationV2ProviderThread,
   type OrchestrationV2ThreadProjection,
   type OrchestrationV2TurnItem,
   EventId,
@@ -923,4 +924,79 @@ it("updates compactionSummary once when a compaction completes live", () => {
     }),
   });
   expect(repeated?.compactionSummary).toEqual({ compactionCount: 2, freedTokens: 220_000 });
+});
+
+describe("provider-thread.updated", () => {
+  const providerThread = (
+    id: string,
+    overrides: Partial<OrchestrationV2ProviderThread> = {},
+  ): OrchestrationV2ProviderThread =>
+    ({
+      id: ProviderThreadId.make(id),
+      driver: "codex",
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      providerSessionId: null,
+      appThreadId: threadId,
+      ownerNodeId: null,
+      nativeThreadRef: null,
+      nativeConversationHeadRef: null,
+      status: "active",
+      firstRunOrdinal: 1,
+      lastRunOrdinal: 1,
+      handoffIds: [],
+      forkedFrom: null,
+      createdAt: now,
+      updatedAt: now,
+      ...overrides,
+    }) as OrchestrationV2ProviderThread;
+  const apply = (payload: unknown) =>
+    applyOrchestrationV2ProjectionEvent(emptyProjection, {
+      id: "event-provider-thread",
+      type: "provider-thread.updated",
+      threadId,
+      occurredAt: now,
+      payload,
+    } as OrchestrationV2DomainEvent);
+
+  it("moves the thread's active provider thread to the new one", () => {
+    // The shell already knows the old thread, as it would after a provider switch.
+    const projection = applyOrchestrationV2ProjectionEvent(emptyProjection, {
+      id: "event-previous-thread",
+      type: "provider-thread.updated",
+      threadId,
+      occurredAt: now,
+      payload: providerThread("provider-thread-previous"),
+    } as OrchestrationV2DomainEvent);
+    expect(projection?.thread.activeProviderThreadId).toBe(
+      ProviderThreadId.make("provider-thread-previous"),
+    );
+
+    const next = applyOrchestrationV2ProjectionEvent(projection, {
+      id: "event-next-thread",
+      type: "provider-thread.updated",
+      threadId,
+      occurredAt: now,
+      payload: providerThread("provider-thread-next"),
+    } as OrchestrationV2DomainEvent);
+    expect(next?.thread.activeProviderThreadId).toBe(ProviderThreadId.make("provider-thread-next"));
+  });
+
+  it("keeps the active provider thread for queued placeholders and other threads", () => {
+    const queued = apply(
+      providerThread("provider-thread-queued", {
+        status: "not_loaded",
+        firstRunOrdinal: null,
+        providerSessionId: null,
+      }),
+    );
+    expect(queued?.thread.activeProviderThreadId).toBeNull();
+
+    const foreign = apply(
+      providerThread("provider-thread-foreign", { appThreadId: ThreadId.make("other-thread") }),
+    );
+    expect(foreign?.thread.activeProviderThreadId).toBeNull();
+    expect(foreign?.providerThreads.map((thread) => thread.id)).toEqual([
+      ProviderThreadId.make("provider-thread-foreign"),
+    ]);
+  });
 });

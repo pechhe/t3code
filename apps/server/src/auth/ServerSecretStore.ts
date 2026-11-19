@@ -9,6 +9,7 @@ import * as Predicate from "effect/Predicate";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
+import * as Semaphore from "effect/Semaphore";
 
 import * as ServerConfig from "../config.ts";
 
@@ -171,6 +172,9 @@ const makeAtDirectory = Effect.fn("ServerSecretStore.makeAtDirectory")(function*
   );
 
   const resolveSecretPath = (name: string) => path.join(secretsDir, `${name}.bin`);
+  const emptySecretRepair = yield* Semaphore.make(1);
+  const isMissingOrNonEmpty = (secret: Option.Option<Uint8Array>) =>
+    Option.isNone(secret) || secret.value.byteLength > 0;
 
   // Some readers check a secret on every thread event, and each read queues on Node's I/O pool.
   // Another process (the `t3 connect` CLI) can rewrite these files, so reads are cached only
@@ -311,6 +315,19 @@ const makeAtDirectory = Effect.fn("ServerSecretStore.makeAtDirectory")(function*
 
   const getOrCreateRandom: ServerSecretStore["Service"]["getOrCreateRandom"] = (name, bytes) =>
     get(name).pipe(
+      // Older builds could persist a 0-byte secret, which is never a usable key. Re-read under
+      // the permit, and keep it until an interrupted removal settles, so a caller that saw the
+      // empty file cannot remove a key another caller created.
+      Effect.filterOrElse(isMissingOrNonEmpty, () =>
+        emptySecretRepair.withPermits(1)(
+          get(name).pipe(
+            Effect.filterOrElse(isMissingOrNonEmpty, () =>
+              remove(name).pipe(Effect.as(Option.none<Uint8Array>())),
+            ),
+            Effect.uninterruptible,
+          ),
+        ),
+      ),
       Effect.flatMap(
         Option.match({
           onSome: Effect.succeed,

@@ -154,6 +154,14 @@ export class RemoteDelegation extends Context.Service<
       },
     ) => Effect.Effect<OrchestratorMcpTaskCancelResult, OrchestratorMcpFailure>;
     /**
+     * The status of the task's run there, or null when it cannot be read: an
+     * unreachable machine reads as no news rather than failing the read here.
+     */
+    readonly runStatus: (
+      scope: ThreadScope,
+      task: OrchestrationV2Subagent,
+    ) => Effect.Effect<OrchestratorMcpThreadRun["status"] | null>;
+    /**
      * Follows every open remote task until it ends, including after a
      * restart, and a finished one again when a Stop here owes it a stop there.
      */
@@ -775,6 +783,7 @@ const make = Effect.gen(function* () {
     stoppedThere: "ran-out" | "stopped" | undefined,
     stopCount?: number,
     custodyHandoff?: NonNullable<OrchestrationV2RemoteTaskChild["custodyHandoff"]>,
+    executedModel?: string,
   ) {
     const attempt = yield* random.uuidV4();
     yield* threads
@@ -788,6 +797,7 @@ const make = Effect.gen(function* () {
         ...(stoppedThere === undefined ? {} : { stoppedThere }),
         ...(stopCount === undefined ? {} : { stopCount }),
         ...(custodyHandoff === undefined ? {} : { custodyHandoff }),
+        ...(executedModel === undefined ? {} : { executedModel }),
       })
       .pipe(
         Effect.catch((error) =>
@@ -889,7 +899,8 @@ const make = Effect.gen(function* () {
       afterPosition = read.nextPosition;
     }
     reply = error ?? reply;
-    if (reply === undefined) return undefined;
+    const executedModel = run?.executedModel ?? undefined;
+    if (reply === undefined) return { text: undefined, executedModel };
     let text = reply.text ?? "";
     let textOffset = reply.textTruncated ? (reply.nextTextOffset ?? null) : null;
     while (textOffset !== null) {
@@ -910,9 +921,13 @@ const make = Effect.gen(function* () {
         : `${text}\n\n(Workspace in ${remote.label}: ${run.handoff.workspacePath}${
             run.handoff.revision === null ? ", no revision recorded" : ` at ${run.handoff.revision}`
           }. The change stays there.)`;
-    return run === undefined
-      ? handedBack
-      : withExecutedModelNote(handedBack, run.model, run.executedModel);
+    return {
+      text:
+        run === undefined
+          ? handedBack
+          : withExecutedModelNote(handedBack, run.model, run.executedModel),
+      executedModel,
+    };
   });
 
   /**
@@ -1276,8 +1291,8 @@ const make = Effect.gen(function* () {
       yield* complete(
         parentThreadId,
         taskId,
-        reply === undefined ? "failed" : "completed",
-        reply ?? "The thread in the linked environment has no run to follow.",
+        reply.text === undefined ? "failed" : "completed",
+        reply.text ?? "The thread in the linked environment has no run to follow.",
         "ran-out",
       );
       return yield* settled(parentThreadId, taskId);
@@ -1313,7 +1328,7 @@ const make = Effect.gen(function* () {
       parentThreadId,
       taskId,
       terminalStatus(resultRun.status),
-      result ?? noReply,
+      result.text ?? noReply,
       "ran-out",
       undefined,
       remote.runId === undefined
@@ -1324,6 +1339,7 @@ const make = Effect.gen(function* () {
             receiptRef: CustodyPeer.receiptRef(remote.threadId, remote.runId, resultRun.runId),
             acknowledged: false,
           },
+      result.executedModel,
     );
     yield* acknowledgeHandoff(parentThreadId, taskId);
     return yield* settled(parentThreadId, taskId);
@@ -1464,6 +1480,20 @@ const make = Effect.gen(function* () {
     },
   );
 
+  const runStatus = Effect.fn("RemoteDelegation.runStatus")(
+    function* (scope: ThreadScope, task: OrchestrationV2Subagent) {
+      const remote = task.remoteChild;
+      if (remote?.runId === undefined) return null;
+      const read = yield* forwarding.readThread(
+        followScope(scope.thread, remote),
+        remote.environmentId,
+        { threadId: remote.threadId, limit: 1, runLimit: 50 },
+      );
+      return read.recentRuns.find((run) => run.runId === remote.runId)?.status ?? null;
+    },
+    Effect.orElseSucceed(() => null),
+  );
+
   const start: RemoteDelegation["Service"]["start"] = () =>
     forkParked(
       Effect.gen(function* () {
@@ -1503,6 +1533,7 @@ const make = Effect.gen(function* () {
     followUp,
     pendingThere,
     cancel,
+    runStatus,
     start,
   });
 });

@@ -1,10 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { normalizeProviderAccentColor } from "@t3tools/client-runtime/state/provider-instance-display";
-import {
-  collectLimitAccounts,
-  collectLimitPools,
-  formatDuration,
-} from "@t3tools/shared/usageLimits";
+import { collectLimitAccounts, collectLimitPools } from "@t3tools/shared/usageLimits";
+import { formatDuration } from "@t3tools/shared/usageLimitsCopy";
 import { useNavigate } from "@tanstack/react-router";
 import { useSyncExternalStore } from "react";
 

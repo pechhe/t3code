@@ -1,3 +1,4 @@
+import { msg } from "gt-react";
 import { useAtomValue } from "@effect/atom-react";
 import { CopyIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
@@ -297,7 +298,13 @@ export function WebhookEndpointField({
     serverEnvironment.rotateScheduledTaskWebhookToken.permissionAtom(environmentId),
   );
   const httpBaseUrl = useEnvironmentHttpBaseUrl(environmentId);
-  const { copyToClipboard, isCopied } = useCopyToClipboard({ target: "webhook URL" });
+  const { copyToClipboard, isCopied } = useCopyToClipboard({
+    target: {
+      target: "webhook URL",
+      unavailableMessage: msg("Clipboard API is unavailable while copying the webhook URL."),
+      failureMessage: msg("Failed to copy the webhook URL to the clipboard."),
+    },
+  });
   const rotate = useAtomCommand(serverEnvironment.rotateScheduledTaskWebhookToken, {
     label: "scheduled task rotate webhook token",
   });

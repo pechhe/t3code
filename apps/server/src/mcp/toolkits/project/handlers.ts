@@ -4,10 +4,13 @@ import {
   MessageId,
   ThreadId,
   OrchestratorMcpFailure,
+  type OrchestrationV2ThreadLaunchWorkspaceStrategy,
   ProjectId,
+  T3_PROJECT_FILE_NAME,
 } from "@t3tools/contracts";
 import * as Digest from "effect/crypto/Digest";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Hex from "effect/encoding/Hex";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -28,13 +31,18 @@ import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.t
 import * as Repositories from "../../../sourceControl/SourceControlRepositoryService.ts";
 import * as WorkspaceProvider from "../../../project/WorkspaceProvider.ts";
 import * as ServerSettings from "../../../serverSettings.ts";
+import * as GitVcsDriver from "../../../vcs/GitVcsDriver.ts";
 import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
 import * as ManagedAgent from "../../../agents/ManagedAgentService.ts";
 import * as DelegationModelShadow from "../../../agents/DelegationModelShadow.ts";
 import { admitLinkedRole } from "../../../peer/LinkedRoleAdmission.ts";
 import * as DateTime from "effect/DateTime";
 import { resolveNewThreadModelSelection } from "@t3tools/shared/usageLimits";
-import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import {
+  resolveProjectFileBackedSetting,
+  resolveProjectSettings,
+} from "@t3tools/shared/projectSettings";
+import { parseT3ProjectFile } from "@t3tools/shared/t3ProjectFile";
 import { resolveRuntimeMode } from "../../delegatedTaskModes.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
@@ -126,12 +134,15 @@ const connectionHandler: McpToolAccess.Handlers<
 function worktreeCheckHint(
   error:
     | ThreadLaunch.ThreadLaunchBaseRefError
+    | ThreadLaunch.ThreadLaunchBranchExistsError
     | ThreadLaunch.ThreadLaunchBranchConflictError
     | ThreadLaunch.ThreadLaunchNotRepositoryError,
   strategy: { readonly startFromOrigin?: boolean | undefined },
 ) {
   if (error._tag === "ThreadLaunchNotRepositoryError")
     return `Use workspaceStrategy: {type: "root"}, or pass the projectId of a Git repository.`;
+  if (error._tag === "ThreadLaunchBranchExistsError")
+    return "Pass a branch name that does not exist yet, or omit branch to get a generated name.";
   if (error._tag === "ThreadLaunchBranchConflictError") {
     const sibling = error.branch.replaceAll("/", "-");
     return `Use a name that does not nest under or contain an existing branch${
@@ -144,6 +155,56 @@ function worktreeCheckHint(
       : ", or set startFromOrigin:true if it exists only on a remote."
   }`;
 }
+
+/** The composer falls back to the project's t3.json when no setting picks the mode. */
+const projectFileThreadEnvMode = Effect.fn("mcp.projectFileThreadEnvMode")(function* (
+  workspaceRoot: string,
+) {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const contents = yield* fileSystem
+    .readFileString(`${workspaceRoot}/${T3_PROJECT_FILE_NAME}`)
+    .pipe(Effect.orElseSucceed(() => null));
+  return resolveProjectFileBackedSetting(
+    "defaultThreadEnvMode",
+    null,
+    contents === null ? null : parseT3ProjectFile(contents),
+  ).value;
+});
+
+/** Branches from the checkout's current branch, as the composer does; a checkout with no commit or a detached HEAD stays shared. */
+const defaultWorktreeStrategy = Effect.fn("mcp.defaultWorktreeStrategy")(function* (
+  workspaceRoot: string,
+): Effect.fn.Return<
+  OrchestrationV2ThreadLaunchWorkspaceStrategy | undefined,
+  OrchestratorMcpFailure,
+  GitVcsDriver.GitVcsDriver
+> {
+  const git = yield* GitVcsDriver.GitVcsDriver;
+  const hasCommit = yield* git.resolveCommit({ cwd: workspaceRoot, revision: "HEAD" }).pipe(
+    Effect.as(true),
+    Effect.orElseSucceed(() => false),
+  );
+  if (!hasCommit) return undefined;
+  // symbolic-ref skips the index, so a held index lock cannot drop the launch into the shared checkout.
+  const head = yield* git
+    .execute({
+      operation: "mcp.defaultWorktreeStrategy",
+      cwd: workspaceRoot,
+      args: ["symbolic-ref", "--quiet", "--short", "HEAD"],
+      allowNonZeroExit: true,
+      timeoutMs: 5_000,
+    })
+    .pipe(Effect.orElseSucceed(() => null));
+  if (head?.exitCode === 1) return undefined;
+  const branch = head?.exitCode === 0 ? head.stdout.trim() : "";
+  if (branch.length === 0)
+    return yield* new OrchestratorMcpFailure({
+      code: "orchestration_error",
+      message:
+        "Could not read the project's current branch for the new worktree. No thread was created. Retry, or pass workspaceStrategy.",
+    });
+  return { type: "worktree" as const, baseRef: branch };
+});
 
 export const handlers = {
   t3_thread_launch: McpToolAccess.startsThreads(
@@ -226,6 +287,11 @@ export const handlers = {
         const launchedModel =
           launched === null || launched.deletedAt !== null ? undefined : launched.modelSelection;
         const replaying = launchedModel !== undefined;
+        if (launched !== null && replaying && launched.projectId !== projectId)
+          return yield* new OrchestratorMcpFailure({
+            code: "invalid_request",
+            message: "A launch retry must use the original project.",
+          });
         // A role delegated from a linked environment resolves here, under this policy; a task
         // delegated without one never runs here as an unmanaged thread while a policy is set.
         const delegatedHere = linkOrigin !== undefined && input.delegatedFrom !== undefined;
@@ -268,7 +334,8 @@ export const handlers = {
           if (provider !== undefined)
             yield* OrchestrationMcp.requireAdvertisedModel(provider, input.modelSelection.model);
         }
-        if (!replaying && input.workspaceStrategy?.type === "existing_worktree") {
+        // A retry rechecks the worktree too: the key alone must not reach another checkout.
+        if (input.workspaceStrategy?.type === "existing_worktree") {
           const project = yield* readProject;
           if (project === undefined)
             return yield* new OrchestratorMcpFailure({
@@ -288,8 +355,41 @@ export const handlers = {
                 "worktreePath must be a git worktree or jj workspace of the project's repository.",
             });
         }
+        const projectSettings =
+          replaying || project === undefined
+            ? undefined
+            : yield* ServerSettings.ServerSettingsService.pipe(
+                Effect.flatMap((settings) => settings.getSettings),
+                Effect.mapError(unavailable),
+                Effect.map(
+                  (settings) => resolveProjectSettings(settings, projectId, project).settings,
+                ),
+              );
+        // An outside caller that names no workspace follows the new-threads-in-a-worktree
+        // default, as the composer does.
+        const requestedStrategy =
+          input.workspaceStrategy === undefined &&
+          forgeItem === undefined &&
+          admitted === undefined &&
+          caller === undefined &&
+          project !== undefined &&
+          projectSettings !== undefined &&
+          (projectSettings.defaultThreadEnvMode ??
+            (yield* projectFileThreadEnvMode(project.workspaceRoot))) === "worktree"
+            ? yield* defaultWorktreeStrategy(project.workspaceRoot)
+            : input.workspaceStrategy;
+        // An omitted startFromOrigin follows the new-worktree setting, as the composer and
+        // t3_worktree_handoff do. Otherwise a stale local branch silently becomes the base.
+        const strategy =
+          projectSettings !== undefined &&
+          requestedStrategy?.type === "worktree" &&
+          requestedStrategy.startFromOrigin === undefined
+            ? {
+                ...requestedStrategy,
+                startFromOrigin: projectSettings.newWorktreesStartFromOrigin,
+              }
+            : requestedStrategy;
         // Reject unresolved base refs and blocked branch names before accepting a launch; worktree provisioning happens later.
-        const strategy = input.workspaceStrategy;
         if (!replaying && strategy?.type === "worktree")
           yield* ThreadLaunch.ThreadLaunchService.pipe(
             Effect.flatMap((launches) =>
@@ -315,15 +415,7 @@ export const handlers = {
         // project's effective defaults, as the composer does. Its mode stays
         // within the ceiling it was approved with.
         const projectDefaults =
-          caller === undefined && !replaying && admitted === undefined
-            ? yield* ServerSettings.ServerSettingsService.pipe(
-                Effect.flatMap((settings) => settings.getSettings),
-                Effect.mapError(unavailable),
-                Effect.map(
-                  (settings) => resolveProjectSettings(settings, projectId, project).settings,
-                ),
-              )
-            : undefined;
+          caller === undefined && admitted === undefined ? projectSettings : undefined;
         const modelSelection =
           admitted?.binding.effective ??
           input.modelSelection ??
@@ -376,12 +468,10 @@ export const handlers = {
             admitted !== undefined
               ? admitted.workspaceStrategy
               : forgeItem === undefined
-                ? (input.workspaceStrategy ?? { type: "root" })
+                ? (strategy ?? { type: "root" })
                 : { type: "worktree", baseRef: "HEAD", forgeItem },
           rootIsDefault:
-            admitted === undefined &&
-            input.workspaceStrategy === undefined &&
-            forgeItem === undefined,
+            admitted === undefined && strategy === undefined && forgeItem === undefined,
           ...(admitted === undefined ? {} : { agentTask: admitted.binding }),
           ...(input.watch === true && caller !== undefined ? { watchedBy: caller.id } : {}),
           ...(input.message === undefined && attachments.length === 0
@@ -672,6 +762,13 @@ export const handlers = {
   [WEAVE_NAMES.connectionTool]: connectionHandler,
   t3_project_delete: McpToolAccess.writesEnvironment((input) =>
     Effect.gen(function* () {
+      const folders = yield* ManagedProjectFolders.ManagedProjectFolders;
+      if (yield* folders.isScratchProject(input.projectId))
+        return yield* new OrchestratorMcpFailure({
+          code: "invalid_request",
+          message:
+            '"No project" is the built-in scratch project and cannot be deleted through MCP. The user can remove it in Settings.',
+        });
       const projects = yield* Project.ProjectService;
       const clones = yield* ProjectCloneTracker.ProjectCloneTracker;
       return yield* mutateProjectWithClone(projects, clones, {

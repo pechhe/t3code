@@ -119,6 +119,13 @@ describe("V2 preview upgrade", () => {
         [137, "ThreadDetailExpiry"],
         [138, "ThreadWatchesToWaits"],
         [139, "BrowserScriptRuns"],
+        [140, "QueuedTurnInputIndexJsonValid"],
+        [141, "ProviderTurnAttemptIndex"],
+        [142, "TurnItemMessageOrdinalIndex"],
+        [143, "TurnItemInlineWorkOutput"],
+        [144, "RepairStaleTitleRegeneration"],
+        [145, "IssueTrackerBindings"],
+        [146, "ActiveShellIndexIndexes"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -281,6 +288,13 @@ describe("V2 preview upgrade", () => {
         [137, "ThreadDetailExpiry"],
         [138, "ThreadWatchesToWaits"],
         [139, "BrowserScriptRuns"],
+        [140, "QueuedTurnInputIndexJsonValid"],
+        [141, "ProviderTurnAttemptIndex"],
+        [142, "TurnItemMessageOrdinalIndex"],
+        [143, "TurnItemInlineWorkOutput"],
+        [144, "RepairStaleTitleRegeneration"],
+        [145, "IssueTrackerBindings"],
+        [146, "ActiveShellIndexIndexes"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );

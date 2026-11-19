@@ -19,11 +19,13 @@ import {
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import { msg } from "gt-i18n";
 import type * as Electron from "electron";
 
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as ElectronDialog from "../../electron/ElectronDialog.ts";
 import * as DesktopSnapShot from "../../snapShot/DesktopSnapShot.ts";
+import { m } from "../../i18n/messages.ts";
 import * as DesktopWindow from "../../window/DesktopWindow.ts";
 import * as IpcChannels from "../channels.ts";
 import * as DesktopIpc from "../DesktopIpc.ts";
@@ -122,7 +124,7 @@ export const previewSnapShotConfig = DesktopIpc.makeIpcMethod({
         defaultPath: Option.fromUndefinedOr(state.shortcutConfigPath),
         filters: [
           {
-            name: "Desktop config",
+            name: m(msg("Desktop config")),
             extensions: state.linuxBackend === "niri" ? ["kdl"] : ["conf", "lua"],
           },
         ],

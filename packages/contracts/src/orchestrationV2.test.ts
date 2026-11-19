@@ -7,6 +7,7 @@ import {
   compactAtBounds,
   isSideChatThread,
   latestProviderTurnForAttempt,
+  OrchestrationV2CheckpointFileSummary,
   OrchestrationV2ProviderCapabilities,
   OrchestrationV2ProviderThread,
   OrchestrationV2ProviderThreadJson,
@@ -27,6 +28,7 @@ const decodeOrchestrationV2TurnItem = Schema.decodeUnknownSync(OrchestrationV2Tu
 const decodeOrchestrationV2TurnItemJson = Schema.decodeUnknownSync(OrchestrationV2TurnItemJson);
 const encodeOrchestrationV2TurnItemJson = Schema.encodeSync(OrchestrationV2TurnItemJson);
 const decodeOrchestrationV2Subagent = Schema.decodeUnknownSync(OrchestrationV2Subagent);
+const decodeCheckpointFileSummary = Schema.decodeSync(OrchestrationV2CheckpointFileSummary);
 const encodeOrchestrationV2SubagentJson = Schema.encodeSync(OrchestrationV2SubagentJson);
 const decodeOrchestrationV2ProviderThreadJson = Schema.decodeUnknownSync(
   OrchestrationV2ProviderThreadJson,
@@ -399,6 +401,15 @@ describe("orchestration V2 contracts", () => {
           speed: "standard",
         });
       }
+    },
+  );
+
+  it.each([" leading.ts", "src/trailing.ts "])(
+    "decodes the checkpoint file path %j exactly",
+    (path) => {
+      expect(
+        decodeCheckpointFileSummary({ path, kind: "added", additions: 1, deletions: 0 }).path,
+      ).toBe(path);
     },
   );
 

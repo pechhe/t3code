@@ -1,4 +1,5 @@
 import { type ProviderDriverKind, type ProviderInstanceId } from "@t3tools/contracts";
+import { T, useGT } from "gt-react";
 import { memo, type ReactNode, useRef } from "react";
 import { CheckIcon, PencilIcon, RotateCcwIcon, StarIcon } from "lucide-react";
 import { getDisplayModelName } from "./providerIconUtils";
@@ -19,6 +20,7 @@ export function InlineModelRenameInput(props: {
   onCommit: (nextName: string, restoreFocus: boolean) => void;
   onCancel: () => void;
 }) {
+  const gt = useGT();
   const focusedRef = useRef(false);
   const handledRef = useRef(false);
 
@@ -58,7 +60,7 @@ export function InlineModelRenameInput(props: {
         type="text"
         defaultValue={props.initialValue}
         placeholder={props.placeholder}
-        aria-label="Model name"
+        aria-label={gt("Model name")}
         autoFocus
         className={cn(
           "h-6 min-w-0 flex-1 rounded border border-ring/60 bg-background px-1.5 text-sm font-normal leading-snug text-foreground outline-none",
@@ -98,7 +100,7 @@ export function InlineModelRenameInput(props: {
                 type="button"
                 size="icon-xs"
                 variant="ghost-muted"
-                aria-label="Reset model name"
+                aria-label={gt("Reset model name")}
                 onMouseDown={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
@@ -121,7 +123,7 @@ export function InlineModelRenameInput(props: {
             }
           />
           <TooltipPopup side="top" align="center">
-            Reset to default name
+            {gt("Reset to default name")}
           </TooltipPopup>
         </Tooltip>
       ) : null}
@@ -164,6 +166,7 @@ export const ModelListRow = memo(function ModelListRow(props: {
   /** A grip over the logo, which shows on hover, for a row in a sortable list. */
   dragHandle?: ReactNode;
 }) {
+  const gt = useGT();
   const { dragHandle } = props;
   const model = {
     slug: props.slug,
@@ -245,14 +248,14 @@ export const ModelListRow = memo(function ModelListRow(props: {
             {props.showNewBadge ? (
               <span
                 className="shrink-0 rounded border border-update/35 bg-update/15 px-0.5 py-px text-3xs font-bold uppercase leading-none tracking-wide text-update-foreground"
-                aria-label="New model"
+                aria-label={gt("New model")}
               >
-                New
+                {gt("New", { $context: "badge on a newly added model" })}
               </span>
             ) : null}
             {props.unavailable ? (
               <Badge variant="outline" size="sm">
-                Unavailable
+                <T context="badge on a model that cannot be selected">Unavailable</T>
               </Badge>
             ) : null}
           </div>
@@ -283,14 +286,14 @@ export const ModelListRow = memo(function ModelListRow(props: {
                       onKeyDown={(event) => {
                         event.stopPropagation();
                       }}
-                      aria-label="Rename model"
+                      aria-label={gt("Rename model")}
                     >
                       <PencilIcon className="size-3" />
                     </Button>
                   }
                 />
                 <TooltipPopup side="top" align="center">
-                  Rename model (F2)
+                  {gt("Rename model (F2)")}
                 </TooltipPopup>
               </Tooltip>
             ) : null}
@@ -308,7 +311,9 @@ export const ModelListRow = memo(function ModelListRow(props: {
                       event.stopPropagation();
                     }}
                     disabled={Boolean(props.disabledReason)}
-                    aria-label={props.isFavorite ? "Remove from favorites" : "Add to favorites"}
+                    aria-label={
+                      props.isFavorite ? gt("Remove from favorites") : gt("Add to favorites")
+                    }
                   >
                     <StarIcon
                       className={cn(
@@ -322,7 +327,7 @@ export const ModelListRow = memo(function ModelListRow(props: {
                 }
               />
               <TooltipPopup side="top" align="center">
-                {props.isFavorite ? "Remove from favorites" : "Add to favorites"}
+                {props.isFavorite ? gt("Remove from favorites") : gt("Add to favorites")}
               </TooltipPopup>
             </Tooltip>
             {props.jumpLabel ? <Kbd>{props.jumpLabel}</Kbd> : null}

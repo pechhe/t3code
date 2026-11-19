@@ -58,7 +58,7 @@ describe("ProviderSettingsForm helpers", () => {
     const environmentId = "environment-1" as never;
 
     const withoutAccounts = deriveProviderSettingsFields(claude!);
-    const withAccounts = deriveProviderSettingsFields(claude!, {}, environmentId);
+    const withAccounts = deriveProviderSettingsFields(claude!, {}, undefined, environmentId);
 
     expect(withoutAccounts.some((field) => field.key === "compactModel")).toBe(false);
     expect(withoutAccounts.some((field) => field.key === "compactModelInstanceId")).toBe(false);

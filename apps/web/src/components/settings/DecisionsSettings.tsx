@@ -152,7 +152,7 @@ function ModelRow() {
       resetAction={
         mixed || model !== DEFAULT_OPENROUTER_DECISION_MODEL ? (
           <SettingResetButton
-            label="OpenRouter model"
+            ariaLabel="Reset OpenRouter model to default"
             onClick={() =>
               updateSettings({ decisionOpenRouterModel: DEFAULT_OPENROUTER_DECISION_MODEL })
             }
@@ -254,7 +254,7 @@ export function DecisionsSettings() {
           resetAction={
             mixed || provider !== DEFAULT_DECISION_PROVIDER ? (
               <SettingResetButton
-                label="decision provider"
+                ariaLabel="Reset decision provider to default"
                 onClick={() => updateSettings({ decisionProvider: DEFAULT_DECISION_PROVIDER })}
               />
             ) : null

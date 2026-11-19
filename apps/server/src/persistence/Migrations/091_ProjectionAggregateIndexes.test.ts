@@ -75,6 +75,7 @@ it.layer(NodeSqliteClient.layer({ filename: ":memory:" }))("projection aggregate
         SELECT json_extract(payload_json, '$.messageId') AS message_id, MIN(ordinal) AS ordinal
         FROM orchestration_v2_projection_turn_items
         WHERE thread_id = 'thread' AND type IN ('user_message', 'assistant_message')
+          AND json_valid(payload_json)
         GROUP BY json_extract(payload_json, '$.messageId')
         ORDER BY message_id
       `;
@@ -93,6 +94,7 @@ it.layer(NodeSqliteClient.layer({ filename: ":memory:" }))("projection aggregate
         SELECT json_extract(payload_json, '$.messageId') AS message_id, MIN(ordinal) AS ordinal
         FROM orchestration_v2_projection_turn_items
         WHERE thread_id = 'thread' AND type IN ('user_message', 'assistant_message')
+          AND json_valid(payload_json)
         GROUP BY json_extract(payload_json, '$.messageId')
       `;
       assert.isTrue(plan.some(({ detail }) => detail.includes("turn_items_message_ordinal_idx")));

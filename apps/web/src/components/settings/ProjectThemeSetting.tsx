@@ -39,7 +39,7 @@ export function ProjectThemeSetting({ projectKey }: { projectKey: string }) {
       headerAction={
         projectTheme !== null ? (
           <SettingResetButton
-            label="project theme"
+            ariaLabel="Reset project theme to default"
             tooltip="Use the app theme"
             onClick={() => setProjectTheme(projectKey, null)}
           />

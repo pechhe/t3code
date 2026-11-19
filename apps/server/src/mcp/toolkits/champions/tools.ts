@@ -51,7 +51,7 @@ import {
 import { ForwardedChampionApproval } from "../../../champions/ChampionApproval.ts";
 import { ChampionDirectoryResult } from "../../../champions/ChampionDirectory.ts";
 import * as Schema from "effect/Schema";
-import { Tool, Toolkit } from "effect/ai";
+import { McpSchema, Tool, Toolkit } from "effect/ai";
 import * as Champions from "../../../champions/ChampionService.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
@@ -134,7 +134,8 @@ const report = Tool.make("t3_champions_report", {
   success: ChampionDetail,
 })
   .annotate(Tool.Readonly, false)
-  .annotate(Tool.Destructive, false);
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 const learning_search = Tool.make("t3_champions_learning_search", {
   ...shared,
   description:
@@ -195,7 +196,8 @@ const confirm_learning = Tool.make("t3_champions_confirm_learning", {
   success: ChampionLearningEntry,
 })
   .annotate(Tool.Readonly, false)
-  .annotate(Tool.Destructive, false);
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 const investigation = Tool.make("t3_champions_investigation", {
   ...shared,
   description:
@@ -225,7 +227,8 @@ const measurement = Tool.make("t3_champions_measurement", {
   success: ChampionMeasurement,
 })
   .annotate(Tool.Readonly, false)
-  .annotate(Tool.Destructive, false);
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 const finding_action = Tool.make("t3_champions_finding_action", {
   ...shared,
   description:
@@ -272,7 +275,8 @@ const synthesize = Tool.make("t3_champions_synthesize", {
   success: ChampionRecommendation,
 })
   .annotate(Tool.Readonly, false)
-  .annotate(Tool.Destructive, false);
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 const learning_read = Tool.make("t3_champions_learning_read", {
   ...shared,
   description:
@@ -328,7 +332,8 @@ const check_context = Tool.make("t3_champions_check_context", {
   success: ChampionCheckContext,
 })
   .annotate(Tool.Readonly, true)
-  .annotate(Tool.Destructive, false);
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 const journeys_start = Tool.make("t3_champions_journeys_start", {
   ...shared,
   description:
@@ -337,7 +342,8 @@ const journeys_start = Tool.make("t3_champions_journeys_start", {
   success: ChampionJourneyPlan,
 })
   .annotate(Tool.Readonly, false)
-  .annotate(Tool.Destructive, false);
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 const journey_candidate = Tool.make("t3_champions_journey_candidate", {
   ...shared,
   description:
@@ -346,7 +352,8 @@ const journey_candidate = Tool.make("t3_champions_journey_candidate", {
   success: Schema.Struct({ candidateId: Schema.String }),
 })
   .annotate(Tool.Readonly, false)
-  .annotate(Tool.Destructive, false);
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 const candidate_replay = Tool.make("t3_champions_candidate_replay", {
   ...shared,
   description:
@@ -355,7 +362,8 @@ const candidate_replay = Tool.make("t3_champions_candidate_replay", {
   success: ChampionCandidateReplay,
 })
   .annotate(Tool.Readonly, false)
-  .annotate(Tool.Destructive, false);
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 const candidate_settle = Tool.make("t3_champions_candidate_settle", {
   ...shared,
   description:
@@ -364,7 +372,8 @@ const candidate_settle = Tool.make("t3_champions_candidate_settle", {
   success: ChampionCandidateSettled,
 })
   .annotate(Tool.Readonly, false)
-  .annotate(Tool.Destructive, false);
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 const journey_record = Tool.make("t3_champions_journey_record", {
   ...shared,
   description:

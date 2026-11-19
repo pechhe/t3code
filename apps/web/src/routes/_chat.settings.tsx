@@ -3,6 +3,7 @@ import { useSharedProviderSetup } from "../components/settings/SharedProviderSet
 import { workspaceAreaProps } from "../lib/workspaceFocus";
 import { Outlet, createFileRoute, redirect, useLocation } from "@tanstack/react-router";
 import { useDeferredValue, useEffect, useState, type ReactNode } from "react";
+import { T, useGT, useMessages } from "gt-react";
 import { RotateCcwIcon } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { useSettingsRestore } from "../components/settings/SettingsPanels";
@@ -41,7 +42,9 @@ function RestoreDeviceDefaultsButton({ onRestored }: { onRestored: () => void })
       onClick={() => void restoreDefaults()}
     >
       <RotateCcwIcon className="mx-1 size-3.5" />
-      <span className="max-sm:sr-only">Restore device defaults</span>
+      <span className="max-sm:sr-only">
+        <T>Restore device defaults</T>
+      </span>
     </Button>
   );
 }
@@ -49,6 +52,8 @@ function RestoreDeviceDefaultsButton({ onRestored }: { onRestored: () => void })
 function SettingsScopeBoundary({ pathname, children }: { pathname: string; children: ReactNode }) {
   const { scope, connectedEnvironments } = useSettingsScope();
   const { environments } = useEnvironments();
+  const gt = useGT();
+  const m = useMessages();
   const hash = useLocation({ select: (location) => location.hash });
   const searchTarget = getSettingsSearchTargetScope(hash);
   const autoSettlementAvailability = searchTarget?.requiresThreadAutoSettlement
@@ -67,8 +72,13 @@ function SettingsScopeBoundary({ pathname, children }: { pathname: string; child
         eligibleEnvironmentIds={autoSettlementAvailability.eligibleEnvironmentIds}
       >
         {autoSettlementAvailability.eligibleEnvironmentIds.length > 0
-          ? `${searchTarget.title} requires a supporting environment. Choose one to continue.`
-          : `${searchTarget.title} requires a supporting environment. Connect or update an environment to continue.`}
+          ? gt("{title} requires a supporting environment. Choose one to continue.", {
+              title: m(searchTarget.title),
+            })
+          : gt(
+              "{title} requires a supporting environment. Connect or update an environment to continue.",
+              { title: m(searchTarget.title) },
+            )}
       </SettingsScopeNotice>
     );
   }
@@ -85,7 +95,10 @@ function SettingsScopeBoundary({ pathname, children }: { pathname: string; child
         : "all";
     return (
       <SettingsScopeNotice target={target} targetId={hash}>
-        {`${searchTarget.title} is not available for the selected target. Choose its owning scope to continue.`}
+        {gt(
+          "{title} is not available for the selected target. Choose its owning scope to continue.",
+          { title: m(searchTarget.title) },
+        )}
       </SettingsScopeNotice>
     );
   }
@@ -96,6 +109,7 @@ function SettingsScopeBoundary({ pathname, children }: { pathname: string; child
     pathname,
     scope,
     connectedEnvironments.length,
+    m,
   );
   if (unavailableMessage !== null)
     return (
@@ -122,7 +136,8 @@ function SettingsPageBody({ pathname }: { pathname: string }) {
 }
 
 function SettingsContentLayout() {
-  const contentArea = workspaceAreaProps("settings", 1, "Settings content");
+  const gt = useGT();
+  const contentArea = workspaceAreaProps("settings", 1, gt("Settings content"));
   const location = useLocation();
   const setSearchQuery = useSettingsSearchQuery((state) => state.setQuery);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- clears the shared search store when this Settings session unmounts
@@ -135,7 +150,7 @@ function SettingsContentLayout() {
   const [restoreSignal, setRestoreSignal] = useState(0);
 
   return (
-    <AppRouteModal label="Settings">
+    <AppRouteModal label={gt("Settings")}>
       <div className="relative flex min-h-0 flex-1">
         <SettingsSidebarNav pathname={location.pathname} />
         <div {...contentArea} className="flex min-h-0 min-w-0 flex-1 flex-col">

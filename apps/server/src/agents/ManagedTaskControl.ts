@@ -23,6 +23,7 @@ import {
 } from "../orchestration-v2/DispatchModeLimit.ts";
 import { resolveRuntimeMode, resolveInteractionMode } from "../mcp/delegatedTaskModes.ts";
 import * as ManagedAgent from "./ManagedAgentService.ts";
+import { userFacingDispatchErrorMessage } from "../orchestration-v2/UserFacingErrors.ts";
 
 // Internal authority only; never a schema accepted from an RPC or MCP payload.
 export interface CancellationIntent {
@@ -228,7 +229,7 @@ export const layer = Layer.effect(
               Effect.mapError((error) =>
                 failure(
                   "orchestration_error",
-                  `Unable to dispose delegated task ${input.taskId} completion delivery: ${errorMessage(error)}`,
+                  `Unable to dispose delegated task ${input.taskId} completion delivery: ${userFacingDispatchErrorMessage(error) ?? errorMessage(error)}`,
                 ),
               ),
             );
@@ -262,7 +263,7 @@ export const layer = Layer.effect(
           Effect.mapError((error) =>
             failure(
               "task_not_cancellable",
-              `Unable to stop delegated task ${input.taskId}: ${errorMessage(error)}`,
+              `Unable to stop delegated task ${input.taskId}: ${userFacingDispatchErrorMessage(error) ?? errorMessage(error)}`,
             ),
           ),
         );

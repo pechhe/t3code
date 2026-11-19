@@ -215,6 +215,7 @@ const layerProviderTurnControlServiceProvided = ProviderTurnControlService.layer
     Layer.mergeAll(
       VideoFrames.layerLive,
       layerEventSink,
+      McpAppModelContext.layer,
       ProjectionStore.layer,
       layerProviderSessionManagerProvided,
     ),
@@ -409,6 +410,7 @@ const layerEffectExecutorProvided = EffectWorker.layerExecutor.pipe(
       layerRuntimeRequestServiceProvided,
       layerThreadTitleRegenerationProvided,
       layerThreadManagementProvided,
+      ProjectionStore.layer,
     ),
   ),
 );

@@ -1,3 +1,6 @@
+import { msg, useGT } from "gt-react";
+import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
+import { m } from "~/i18n/messages";
 import { useLoadBalancedEnvironment } from "../../hooks/useLoadBalancedEnvironment";
 import { useLogicalProjectEnvironments } from "../../hooks/useLogicalProjectEnvironments";
 import { useScratchProject } from "../../hooks/useScratchProject";
@@ -36,6 +39,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import type { DraftSessionState } from "../../composerDraftStore";
 import { loadBalancingSendWarning } from "./composerSend.logic";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
+import { seedDraftModelSelection } from "../../lib/seedDraftModelSelection";
 import { draftFanoutSelectionsAtom } from "./chatViewSend";
 
 interface DraftEnvironmentRoutingInput {
@@ -86,6 +90,20 @@ export function isAutomaticDraftEnvironment(
   );
 }
 
+// Multiple-model selections are kept per route, so a draft moving machine takes them along.
+function carryFanoutSelections(
+  draft: Pick<DraftSessionState, "environmentId" | "threadId">,
+  environmentId: EnvironmentId,
+) {
+  if (draft.environmentId === environmentId) return;
+  const selectionsOn = (id: EnvironmentId) =>
+    draftFanoutSelectionsAtom(scopedThreadKey(scopeThreadRef(id, draft.threadId)));
+  appAtomRegistry.set(
+    selectionsOn(environmentId),
+    appAtomRegistry.get(selectionsOn(draft.environmentId)),
+  );
+}
+
 /**
  * Which machine an unsent draft runs on: automatic load balancing across the
  * project's machines, or a manual switch, which may first open a scratch
@@ -93,6 +111,7 @@ export function isAutomaticDraftEnvironment(
  * target machine prepares one, and the playbook link follows.
  */
 export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) {
+  const gt = useGT();
   const {
     draftId,
     draftThread,
@@ -229,18 +248,7 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
         return false;
       }
       const projectRef = scopeProjectRef(target.environmentId, target.projectId);
-      if (originalDraft && target.environmentId !== originalDraft.environmentId) {
-        appAtomRegistry.set(
-          draftFanoutSelectionsAtom(
-            scopedThreadKey(scopeThreadRef(target.environmentId, originalDraft.threadId)),
-          ),
-          appAtomRegistry.get(
-            draftFanoutSelectionsAtom(
-              scopedThreadKey(scopeThreadRef(originalDraft.environmentId, originalDraft.threadId)),
-            ),
-          ),
-        );
-      }
+      if (originalDraft) carryFanoutSelections(originalDraft, target.environmentId);
       // The send must read the target project's composer and provider context after retargeting.
       flushSync(() =>
         setDraftThreadContext(draftId, {
@@ -260,6 +268,8 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
       (environment) => environment.environmentId === resources.environmentId,
     );
     if (!target?.projectId) return;
+    const draft = getDraftSession(draftId);
+    if (draft) carryFanoutSelections(draft, target.environmentId);
     setDraftThreadContext(draftId, {
       loadBalancedEnvironmentId: target.environmentId,
     });
@@ -270,6 +280,7 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
     draftId,
     eligibleEnvironments,
     sendInFlightRef,
+    getDraftSession,
     setDraftThreadContext,
   ]);
   // A recommendation can outlive a machine-local pin. Apply it only after that
@@ -308,9 +319,12 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
       toastManager.add({
         type: "warning",
         id: "load-balancing-attachments",
-        title: "Keep attachments on this machine",
-        description:
-          "Remove attachments before choosing automatic routing, then attach them on the selected machine.",
+        title: m(msg("Keep attachments on this machine")),
+        description: m(
+          msg(
+            "Remove attachments before choosing automatic routing, then attach them on the selected machine.",
+          ),
+        ),
       });
       return;
     }
@@ -330,10 +344,10 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
   const onAutoEnvironmentStable = useStableCallback(onAutoEnvironment);
   const autoEnvironmentLabel = automaticEnvironment
     ? !needsLoadBalancing
-      ? "Auto balance"
+      ? gt("Auto balance")
       : loadBalancing.pending
-        ? "Checking machines…"
-        : "Auto balance unavailable"
+        ? gt("Checking machines…")
+        : gt("Auto balance unavailable")
     : undefined;
 
   // A change in flight belongs to the draft and project it started on.
@@ -399,6 +413,7 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
         const nextPrompt = replaceTriagePlaybookLink(prompt, triagePrompt);
         if (nextPrompt !== prompt) setPrompt(draftId, nextPrompt);
       }
+      carryFanoutSelections(currentDraft, target.environmentId);
       const projectRef = scopeProjectRef(target.environmentId, project.id);
       const balancedEnvironmentId =
         logicalProjectEnvironments.find(
@@ -429,6 +444,7 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
           ...selection,
         });
       }
+      seedDraftModelSelection(draftId, projectRef);
     };
     const finish = () => {
       if (environmentChangeRef.current === request) environmentChangeRef.current = null;
@@ -456,8 +472,8 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "Could not switch machine",
-            description: error instanceof Error ? error.message : "An error occurred.",
+            title: m(msg("Could not switch machine")),
+            description: thrownErrorMessage(error, m) ?? m(msg("An error occurred.")),
           }),
         );
       }
@@ -468,7 +484,7 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
       if (triagePrompt === null) return;
       const project =
         knownProject ??
-        (await openScratchProject(target.environmentId, "Could not switch machine"));
+        (await openScratchProject(target.environmentId, m(msg("Could not switch machine"))));
       if (project) retarget(project, triagePrompt);
     };
     setBusyEnvironmentChange(request);

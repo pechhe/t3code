@@ -256,7 +256,7 @@ export function SnapShotOverlayFrame({ children }: { readonly children: ReactNod
     useSnapShotOverlaySession.getState().endConversation(conversation, Date.now());
     void startOverlayDraft().then((draftId) => {
       if (draftId) {
-        useComposerDraftStore.getState().moveComposerPromptAndImages(composerTarget, draftId);
+        useComposerDraftStore.getState().moveComposerContent(composerTarget, draftId);
       } else {
         // No fresh chat: the conversation carries on.
         useSnapShotOverlaySession.getState().forgetEnded();
@@ -287,7 +287,7 @@ export function SnapShotOverlayFrame({ children }: { readonly children: ReactNod
     if (!ended) return;
     forgetEnded();
     show();
-    useComposerDraftStore.getState().moveComposerPromptAndImages(draftId, ended.threadRef);
+    useComposerDraftStore.getState().moveComposerContent(draftId, ended.threadRef);
     void router.navigate({
       to: "/$environmentId/$threadId",
       params: buildThreadRouteParams(ended.threadRef),

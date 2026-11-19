@@ -84,9 +84,6 @@ export type AssetUrlState =
       readonly fileRevision?: string;
     };
 
-export const MISSING_FILE_ACCESS_MESSAGE =
-  "This connection cannot read host files. Pair again with a new link to view it.";
-
 export function blockedAssetUrlState(
   resource: AssetResource | null,
   fileAccess: {

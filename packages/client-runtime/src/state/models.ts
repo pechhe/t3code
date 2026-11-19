@@ -20,6 +20,8 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
+import { mFallback, msg } from "gt-i18n";
+import type { MFunctionType } from "gt-i18n/types";
 
 import { formatSubagentDisplayTitle } from "./subagentDisplay.ts";
 
@@ -98,6 +100,8 @@ export interface ThreadRunSummary {
    * instead of "Thinking".
    */
   readonly providerStartingLabel?: string;
+  /** `providerStartingLabel` as a `msg()` string; display sites resolve this one. */
+  readonly providerStartingLabelMsg?: string;
   readonly sourcePlanRef?: {
     readonly threadId: ThreadId;
     readonly planId: PlanId;
@@ -225,6 +229,8 @@ export interface EnvironmentThreadShell {
   readonly linkedPullRequest?: ThreadLinkedPullRequest | null;
   readonly branchPullRequest?: ThreadLinkedPullRequest | null;
   readonly readOnCompletionRunId?: RunId | null;
+  /** Absent from rows built before issue linking; the server sends an empty list. */
+  readonly issues?: ReadonlyArray<import("@t3tools/contracts").ThreadIssueLink>;
   /**
    * Server-tracked visited watermark. `undefined` means the environment's
    * server predates visited tracking and clients should fall back to any
@@ -339,6 +345,7 @@ export function presentThreadShell(
     pullRequests: threadPullRequestsOf(thread),
     linkedPullRequest: thread.linkedPullRequest ?? null,
     branchPullRequest: thread.branchPullRequest ?? null,
+    issues: thread.issues ?? [],
     lineage: thread.lineage,
     sideChat: thread.sideChat === true,
     forkedFrom: thread.forkedFrom,
@@ -461,23 +468,27 @@ export function hasUnseenThreadCompletion(thread: {
 }): boolean {
   const run = thread.latestRun;
   if (!run?.completedAt) return false;
+  // A stopped run is not a completion the user missed.
+  if (run.status === "interrupted" || run.status === "cancelled") return false;
   if (isQuietRunCompletion(thread.readOnCompletionRunId, run.runId, run.status)) return false;
   const completedAt = Date.parse(run.completedAt);
   if (Number.isNaN(completedAt)) return false;
   if (!thread.lastVisitedAt) {
-    return (
-      thread.readOnCompletionRunId === run.runId &&
-      (run.status === "failed" || run.status === "interrupted")
-    );
+    return thread.readOnCompletionRunId === run.runId && run.status === "failed";
   }
   const lastVisitedAt = Date.parse(thread.lastVisitedAt);
   return Number.isNaN(lastVisitedAt) || completedAt > lastVisitedAt;
 }
 
-export function formatWorkingDurationLabel(elapsedMs: number): string {
+export function formatWorkingDurationLabel(
+  elapsedMs: number,
+  resolve: MFunctionType = mFallback,
+): string {
   const seconds = Number.isFinite(elapsedMs) ? Math.max(0, Math.floor(elapsedMs / 1000)) : 0;
-  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 60) return resolve(msg("{count}s", { count: seconds }));
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  if (minutes < 60) return resolve(msg("{count}m", { count: minutes }));
+  return resolve(
+    msg("{hours}h {minutes}m", { hours: Math.floor(minutes / 60), minutes: minutes % 60 }),
+  );
 }

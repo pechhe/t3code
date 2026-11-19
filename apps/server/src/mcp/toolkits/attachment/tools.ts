@@ -13,7 +13,7 @@ import {
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
-import { Tool, Toolkit } from "effect/ai";
+import { McpSchema, Tool, Toolkit } from "effect/ai";
 import * as ServerSecretStore from "../../../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../../../config.ts";
 import * as DocumentText from "../../../provider/DocumentText.ts";
@@ -36,9 +36,12 @@ const shared = {
 const AttachmentUploadTool = Tool.make("t3_attachment_prepare_upload", {
   ...shared,
   description:
-    "Get an upload URL. POST the file's exact bytes to `relativeUrl` on this MCP server's HTTP origin, then send via `t3_thread_send_attachments` with the returned `attachmentId`.",
+    "Get an upload URL. POST the file's exact bytes to `uploadUrl` (else this server's `relativeUrl`), then send via `t3_thread_send_attachments` with the returned `attachmentId`.",
   parameters: Schema.Struct({ upload: AttachmentCreateUploadUrlInput }),
-  success: AttachmentCreateUploadUrlResult,
+  success: Schema.Struct({
+    ...AttachmentCreateUploadUrlResult.fields,
+    uploadUrl: Schema.optionalKey(Schema.String),
+  }),
 }).annotate(Tool.Destructive, false);
 const AttachmentDiscardTool = Tool.make("t3_attachment_discard", {
   ...shared,
@@ -96,7 +99,9 @@ const VideoFramesTool = Tool.make("t3_video_frames", {
       }),
     ),
   }),
-}).annotate(Tool.Readonly, true);
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 export const AttachmentToolkit = Toolkit.make(
   AttachmentUploadTool,
   AttachmentDiscardTool,

@@ -3,6 +3,7 @@ import {
   AgentTaskBinding,
   AgentTaskLinkedRequest,
   WEAVE_NAMES,
+  clampedPositiveInt,
   NonNegativeInt,
   ForgeItemReferenceInput,
   ModelSelection,
@@ -33,6 +34,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as DocumentText from "../../../provider/DocumentText.ts";
 import * as ServerConfig from "../../../config.ts";
+import * as GitVcsDriver from "../../../vcs/GitVcsDriver.ts";
 import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../../../serverSettings.ts";
 import * as ThreadImportService from "../../../orchestration-v2/ThreadImportService.ts";
@@ -71,7 +73,7 @@ const ProjectListTool = Tool.make("t3_project_list", {
   parameters: Schema.Struct({
     environmentId: OrchestratorMcpEnvironmentTarget,
     cursor: Schema.optional(NonNegativeInt),
-    limit: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 100 }))),
+    limit: Schema.optional(clampedPositiveInt(100)),
   }),
   success: Schema.Struct({
     projects: Schema.Array(Project),
@@ -119,7 +121,11 @@ const ProjectDeleteTool = Tool.make("t3_project_delete", {
     projectId: ProjectId,
     force: Schema.optionalKey(Schema.Boolean),
   }),
-  dependencies: [...shared.dependencies, ProjectCloneTracker.ProjectCloneTracker],
+  dependencies: [
+    ...shared.dependencies,
+    ProjectCloneTracker.ProjectCloneTracker,
+    ManagedProjectFolders.ManagedProjectFolders,
+  ],
 }).annotate(Tool.Destructive, true);
 const ProjectCloneTool = Tool.make("t3_project_clone", {
   ...shared,
@@ -207,6 +213,7 @@ const ThreadLaunchTool = Tool.make("t3_thread_launch", {
     ForgeWorkItems.ForgeWorkItems,
     ManagedProjectFolders.ManagedProjectFolders,
     WorkspaceProvider.WorkspaceProvider,
+    GitVcsDriver.GitVcsDriver,
     Path.Path,
     FileSystem.FileSystem,
     ServerConfig.ServerConfig,

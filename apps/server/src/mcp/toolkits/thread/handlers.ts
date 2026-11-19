@@ -12,6 +12,7 @@ import {
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import { modelSelectionCommandType } from "@t3tools/shared/model";
+import { topOfPinnedRunOrderKey } from "@t3tools/shared/pinOrderKey";
 
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
@@ -28,6 +29,7 @@ import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.t
 import * as ProjectService from "../../../project/ProjectService.ts";
 import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
 import * as ThreadProjectMove from "../../../orchestration-v2/ThreadProjectMoveService.ts";
+import type * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
 import * as ThreadDirectory from "../../../peers/ThreadDirectory.ts";
 import * as ScheduledTasks from "../../../scheduledTasks/ScheduledTaskService.ts";
@@ -83,6 +85,20 @@ const assertMovableToProject = Effect.fn("mcp.assertMovableToProject")(function*
     return yield* invalid("Choose a project other than No project.");
   const target = yield* projects.getById(targetProjectId).pipe(Effect.mapError(unavailable));
   if (Option.isNone(target)) return yield* invalid("The project was not found.");
+});
+
+/**
+ * Places an agent pin at the top of the Pinned section, as a client pin is placed.
+ * Without a key the sidebar sorts the pin below every keyed pin. Ordering is
+ * best effort: if the index cannot be read, the pin still lands, keyless.
+ */
+const topOfPinnedRunKey = Effect.fn("mcp.topOfPinnedRunKey")(function* (
+  threads: Pick<ThreadManagement.ThreadManagementService["Service"], "listActiveShellIndex">,
+) {
+  const index = yield* threads.listActiveShellIndex().pipe(Effect.orElseSucceed(() => null));
+  if (index === null) return undefined;
+  const pinnedKeys = index.flatMap((entry) => (entry.pinnedAt == null ? [] : [entry.pinOrderKey]));
+  return topOfPinnedRunOrderKey(pinnedKeys) ?? undefined;
 });
 
 const readQuestion = Effect.fn("mcp.readQuestion")(function* (input: {
@@ -155,6 +171,7 @@ export const handlers = {
               link: McpInvocationContext.threadLinkFor(scope, threadId),
             }),
         lastRunStatus: task.lastRunStatus,
+        lastRunError: task.lastRunError,
         runCount: task.runCount,
         nextRunAt: task.nextRunAt,
       };
@@ -371,11 +388,9 @@ export const handlers = {
   ),
   t3_thread_setup: McpToolAccess.reads((input) =>
     Effect.gen(function* () {
-      const { projection } = yield* readThread(
-        input.threadId,
-        ["turnItems", "runs"],
-        { turnItemTypes: ["dynamic_tool"] },
-      );
+      const { projection } = yield* readThread(input.threadId, ["turnItems", "runs"], {
+        turnItemTypes: ["dynamic_tool"],
+      });
       const runs = RunSetupRecorder.setupWindow(projection.runs, {
         limit: input.limit ?? 10,
         beforeOrdinal: input.beforeOrdinal,
@@ -510,6 +525,14 @@ export const handlers = {
         case "mark_unread":
           command = { ...common, type: "thread.mark-unread" };
           break;
+        case "pin": {
+          // Always send a key, as the client does: the reducer ignores it for a
+          // thread that is already pinned, and a projection read before this
+          // command can be stale if an unpin commits in between.
+          const orderKey = yield* topOfPinnedRunKey(threads);
+          command = { ...common, type: "thread.pin", ...(orderKey ? { orderKey } : {}) };
+          break;
+        }
         default:
           command = { ...common, type: `thread.${input.action}` };
       }

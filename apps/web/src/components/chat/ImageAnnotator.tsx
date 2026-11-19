@@ -1,4 +1,4 @@
-import { IMAGE_ANNOTATION_NOTE_MAX_CHARS } from "@t3tools/contracts";
+import { COMPOSER_CONTEXT_PREVIEW_COMMENT_MAX_CHARS } from "@t3tools/contracts";
 import { EraserIcon, MousePointer2Icon, MoveUpRightIcon, Undo2Icon, XIcon } from "lucide-react";
 import {
   useEffect,
@@ -468,7 +468,7 @@ export function ImageAnnotator(props: {
                     type="text"
                     placeholder="What should change here?"
                     value={mark.note}
-                    maxLength={IMAGE_ANNOTATION_NOTE_MAX_CHARS}
+                    maxLength={COMPOSER_CONTEXT_PREVIEW_COMMENT_MAX_CHARS}
                     aria-label="Annotation note"
                     onChange={(event) => updateNote(mark.id, event.currentTarget.value)}
                     onKeyDown={(event) => onNoteKeyDown(event, mark.id)}

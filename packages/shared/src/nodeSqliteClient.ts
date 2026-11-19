@@ -218,6 +218,9 @@ const hasLargeBinding = (params: ReadonlyArray<unknown>): boolean => {
   }
 };
 
+// A reader refuses a database outside WAL mode with this code; retrying cannot change that.
+const NOT_WAL = "ERR_SQLITE_NOT_WAL";
+
 // Inline worker source also runs in bundles and single-executable builds without module files.
 const workerSource = `
 const { parentPort, workerData } = require("node:worker_threads");
@@ -239,7 +242,9 @@ try {
   // Reads the header, so a file that is not a database fails here rather than on first use.
   const mode = String(next.prepare("PRAGMA journal_mode").get().journal_mode).toLowerCase();
   // Without WAL a reader's shared lock blocks the writer's commits, so refuse.
-  if (workerData.requireWal && mode !== "wal") throw new Error("database uses journal_mode " + mode + ", not wal");
+  if (workerData.requireWal && mode !== "wal") {
+    throw Object.assign(new Error("database uses journal_mode " + mode + ", not wal"), { code: ${JSON.stringify(NOT_WAL)} });
+  }
   db = next;
   parentPort.postMessage({ type: "ready" });
 } catch (error) {
@@ -418,11 +423,14 @@ parentPort.on("message", (request) => {
     parentPort.close();
     return;
   }
-  const { id, sql, params, cached, values, raw, safeIntegers, received } = request;
+  const { id, sql, params, cached, values, raw, safeIntegers, received, savepoints } = request;
   let operation = "open";
   const startedAt = performance.now();
+  let iterator;
   try {
     if (db === undefined) throw new Error("database connection is unavailable");
+    operation = "execute";
+    for (const savepoint of savepoints) db.exec(savepoint);
     operation = "prepare";
     const statement = prepare(sql, cached);
     operation = "execute";
@@ -432,7 +440,8 @@ parentPort.on("message", (request) => {
       let rows = [];
       let bytes = 0;
       let pendingBatch = false;
-      for (const row of statement.iterate(...params)) {
+      iterator = statement.iterate(...params);
+      for (const row of iterator) {
         let rowBytes = 0;
         for (const key in row) {
           const value = row[key];
@@ -458,6 +467,10 @@ parentPort.on("message", (request) => {
       parentPort.postMessage({ id, rows: raw ? result : [], executionMs: performance.now() - startedAt, inTransaction: db.isTransaction });
     }
   } catch (error) {
+    // A step that throws leaves its statement active; an active write blocks every later COMMIT.
+    try {
+      iterator?.return();
+    } catch {}
     // A failed iterator can report its previous SQLite error when the statement is reused.
     statements.delete(sql);
     parentPort.postMessage({ id, error: { operation, ...describe(error) }, inTransaction: db?.isTransaction });
@@ -535,6 +548,8 @@ const endsReadTransaction = (sql: string) => /^\s*ROLLBACK\b|^\s*COMMIT\b/i.test
 // WAL readers run concurrently; one worker serialized every read behind the slowest transaction.
 const READER_COUNT = 4;
 const READER_STARTUP_TIMEOUT = Duration.seconds(10);
+const READER_RETRY_DELAY = Duration.seconds(1);
+const READER_RETRY_MAX_DELAY = Duration.minutes(1);
 
 // Bind transactions to one worker; fail after its exit instead of resuming outside the transaction on a replacement.
 const makeWorkerConnection = Effect.fnUntraced(function* (options: {
@@ -555,6 +570,8 @@ const makeWorkerConnection = Effect.fnUntraced(function* (options: {
       }
     | undefined;
   let nextRequestId = 0;
+  // Materialize nested savepoints with the next statement; empty jobs need no worker round trip.
+  const pendingSavepoints: string[] = [];
   // A replacement writer would lose the pragmas callers set on it, such as foreign_keys.
   let writerStopped: string | undefined;
 
@@ -711,8 +728,10 @@ const makeWorkerConnection = Effect.fnUntraced(function* (options: {
             ...input,
             cached,
             received,
-            ...(admission ? { type: "admit" } : {}),
+            ...(admission ? { type: "admit" } : { savepoints: [...pendingSavepoints] }),
           });
+          // An unsent savepoint must stay queued, or its rollback would target an older sibling's.
+          if (!admission) pendingSavepoints.length = 0;
           return Effect.sync(() => {
             const request = pending.get(id);
             if (admission) {
@@ -759,12 +778,27 @@ const makeWorkerConnection = Effect.fnUntraced(function* (options: {
       executeUnprepared(sql, params, rowTransform) {
         // Read snapshots need deferred BEGIN; readonly connections reject IMMEDIATE and EXCLUSIVE.
         const statement = readOnly && /^\s*BEGIN\b/i.test(sql) ? "BEGIN" : sql;
-        const effect = request({
-          sql: statement,
-          params: params ?? [],
-          cached: false,
-          values: false,
-          raw: false,
+        const effect = Effect.suspend(() => {
+          if (!readOnly && /^SAVEPOINT effect_sql_\d+$/.test(statement)) {
+            pendingSavepoints.push(statement);
+            return Effect.succeed([]);
+          }
+          const rollback = /^ROLLBACK TO SAVEPOINT (effect_sql_\d+)$/.exec(statement);
+          if (rollback !== null) {
+            const pending = pendingSavepoints.lastIndexOf(`SAVEPOINT ${rollback[1]}`);
+            if (pending !== -1) {
+              pendingSavepoints.splice(pending);
+              return Effect.succeed([]);
+            }
+          }
+          if (statement === "COMMIT" || statement === "ROLLBACK") pendingSavepoints.length = 0;
+          return request({
+            sql: statement,
+            params: params ?? [],
+            cached: false,
+            values: false,
+            raw: false,
+          });
         });
         return rowTransform ? Effect.map(effect, rowTransform) : effect;
       },
@@ -840,9 +874,44 @@ const makeWorkerConnection = Effect.fnUntraced(function* (options: {
   });
 });
 
-// A reader that cannot start turns off the whole pool, so routing never picks a dead slot.
+const startFailure = (error: SqlError) => {
+  const cause = error.reason.cause;
+  return {
+    reason: cause instanceof Error ? cause.message : error.message,
+    permanent: Predicate.hasProperty(cause, "code") && cause.code === NOT_WAL,
+  };
+};
+
+// A reader that cannot start turns off the whole pool, so routing never picks a dead slot, until
+// one background retry starts it again.
 const makeReader = Effect.fnUntraced(function* (filename: string, pool: { unavailable: boolean }) {
   const acquire = yield* makeWorkerConnection({ filename, role: "reader", readOnly: true });
+  const scope = yield* Effect.scope;
+  const context = yield* Effect.context<never>();
+
+  const recover = (delay: Duration.Duration): Effect.Effect<void> =>
+    Effect.sleep(delay).pipe(
+      Effect.andThen(acquire),
+      Effect.matchEffect({
+        onSuccess: () =>
+          Effect.suspend(() => {
+            pool.unavailable = false;
+            return Effect.logInfo(
+              "SQLite reader worker available again; reads use the reader workers",
+            );
+          }),
+        onFailure: (error) => {
+          const { reason, permanent } = startFailure(error);
+          return permanent
+            ? Effect.logInfo(
+                "SQLite reader worker retries stopped permanently; reads use the writer",
+                { reason },
+              )
+            : recover(Duration.min(Duration.times(delay, 2), READER_RETRY_MAX_DELAY));
+        },
+      }),
+    );
+
   return Effect.suspend((): Effect.Effect<Connection | undefined> =>
     pool.unavailable
       ? Effect.undefined
@@ -851,10 +920,17 @@ const makeReader = Effect.fnUntraced(function* (filename: string, pool: { unavai
           Effect.catch((error) => {
             if (pool.unavailable) return Effect.undefined;
             pool.unavailable = true;
-            const cause = error.reason.cause;
+            const { reason, permanent } = startFailure(error);
+            // Pool state belongs to the client: never log or retry with the failed read's services.
             return Effect.logWarning("SQLite reader worker unavailable; reads use the writer", {
-              reason: cause instanceof Error ? cause.message : error.message,
-            }).pipe(Effect.as(undefined));
+              reason,
+            }).pipe(
+              Effect.andThen(
+                permanent ? Effect.void : Effect.forkIn(recover(READER_RETRY_DELAY), scope),
+              ),
+              Effect.updateContext((_: Context.Context<never>) => context),
+              Effect.as(undefined),
+            );
           }),
         ),
   );
@@ -1208,7 +1284,9 @@ const make = Effect.fn("makeWithDatabase")(function* (
         readerBusy[slot] = false;
         return readerPermits.release(1);
       }).pipe(Effect.asVoid);
-      return restore(available[slot]!).pipe(
+      // The reader's startup wait uses the caller's restore, not readOnly's, which may have
+      // been captured outside a mask.
+      return restore(Effect.provideService(available[slot]!, ReadOnly, restore)).pipe(
         Effect.onError(() => release),
         Effect.flatMap((reader): Effect.Effect<Lease> =>
           reader === undefined
