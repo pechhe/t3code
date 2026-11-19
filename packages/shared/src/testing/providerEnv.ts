@@ -16,6 +16,10 @@ const KEPT_ENV = new Set([
 ]);
 
 if (process.env.T3CODE_TEST_KEEP_PROVIDER_ENV !== "1") {
+  // A host gitconfig (insteadOf URL rewrites, aliases) changes what git prints, so tests that assert
+  // remote URLs pass or fail by whose machine runs them.
+  process.env.GIT_CONFIG_GLOBAL = "/dev/null";
+  process.env.GIT_CONFIG_NOSYSTEM = "1";
   for (const key of Object.keys(process.env)) {
     if (KEPT_ENV.has(key)) continue;
     if (PROVIDER_ENV_PREFIXES.some((prefix) => key.startsWith(prefix))) {

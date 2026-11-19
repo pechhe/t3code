@@ -2093,7 +2093,12 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
       return result.stdout;
     }),
 
-    listAuthoredPaths: (input) => listGitCheckpointAuthoredPaths(input, execute),
+    // A turn that began with a branch switch is measured from where it landed, not from the
+    // checkpoint taken before the switch.
+    listAuthoredPaths: Effect.fn("GitVcsDriver.checkpoints.listAuthoredPaths")(function* (input) {
+      const fromCheckpointRef = (yield* resolveTurnStart(input)) as typeof input.fromCheckpointRef;
+      return yield* listGitCheckpointAuthoredPaths({ ...input, fromCheckpointRef }, execute);
+    }),
 
     deleteCheckpointRefs: Effect.fn("GitVcsDriver.checkpoints.deleteCheckpointRefs")(
       function* (input) {
