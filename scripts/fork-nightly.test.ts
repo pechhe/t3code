@@ -437,7 +437,11 @@ async function seedRepos(f: Fixture) {
   return head;
 }
 
-/** Publishes a new upstream nightly that t3peach does not contain. */
+/**
+ * Publishes a new upstream nightly that t3peach does not contain. Call it after any
+ * `landIntegration`: a landing merges a branch cut from `main`, so a tag published earlier
+ * is already an ancestor of t3peach, and its attempt settles as landed.
+ */
 async function publishUpstreamTag(f: Fixture, tag: string, date: string) {
   const work = NodePath.join(f.root, "work");
   await NodeFSP.writeFile(NodePath.join(work, tag), tag);
@@ -1466,6 +1470,73 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
     );
 
     it(
+      "counts unclaimed deliveries across the tags that supersede them, so one stall is reported once",
+      async () => {
+        await withFixture(async (f) => {
+          await seedRepos(f);
+          const zero = { T3FORK_REDISPATCH_SECONDS: "0" };
+          const carried = async (tag: string) => (await attemptOf(f, tag)).dispatches;
+
+          await publishUpstreamTag(f, OLD_TAG, "2099-01-01T00:00:00Z");
+          await run(f, [], zero);
+          expect(await attemptOf(f, OLD_TAG)).toMatchObject({
+            phase: "dispatched",
+            dispatches: 1,
+          });
+
+          // A newer nightly supersedes an attempt nobody claimed, and inherits its delivery:
+          // nightlies arrive faster than the limit, so the tally has to survive them.
+          const MID_TAG = "v0.1.5-nightly.20990102.1";
+          const NEXT_TAG = "v0.1.6-nightly.20990103.1";
+          const LAST_TAG = "v0.1.7-nightly.20990104.1";
+          await publishUpstreamTag(f, MID_TAG, "2099-01-02T00:00:00Z");
+          await run(f, [], zero);
+          expect(await attemptOf(f, OLD_TAG)).toMatchObject({
+            phase: "superseded",
+            supersededBy: MID_TAG,
+          });
+          expect(await carried(MID_TAG)).toBe(2);
+          await publishUpstreamTag(f, NEXT_TAG, "2099-01-03T00:00:00Z");
+          await run(f, [], zero);
+          expect(await carried(NEXT_TAG)).toBe(3);
+          expect(await curlCalls(f)).toHaveLength(3);
+
+          // The third unclaimed delivery is the last: a newer tag blocks and says so.
+          await publishUpstreamTag(f, LAST_TAG, "2099-01-04T00:00:00Z");
+          await run(f, [], zero);
+          expect(await attemptOf(f, LAST_TAG)).toMatchObject({
+            phase: "blocked",
+            blocked: { kind: "evidence" },
+          });
+          expect(await curlCalls(f)).toHaveLength(3);
+          const notes = (await nightlyLog(f))
+            .split("\n")
+            .filter((line) => line.includes("No agent picked up"));
+          expect(notes).toHaveLength(1);
+          expect(notes[0]).toContain(LAST_TAG);
+
+          // A still newer tag carries the reported stall: it stays blocked, silently.
+          const NEWER_TAG = "v0.1.8-nightly.20990105.1";
+          await publishUpstreamTag(f, NEWER_TAG, "2099-01-05T00:00:00Z");
+          await run(f, [], zero);
+          expect(await carried(NEWER_TAG)).toBe(3);
+          expect(await attemptOf(f, NEWER_TAG)).toMatchObject({
+            phase: "blocked",
+            blocked: { kind: "evidence" },
+          });
+          expect(await curlCalls(f)).toHaveLength(3);
+          expect((await nightlyLog(f)).match(/No agent picked up/g)).toHaveLength(1);
+          await expectNoBuild(f);
+
+          // A claim starts the tally over.
+          expect((await run(f, ["attempt", NEWER_TAG, "claim", "threadA"])).code).toBe(0);
+          expect(await attemptOf(f, NEWER_TAG)).toMatchObject({ phase: "claimed", dispatches: 0 });
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
       "records a failed webhook delivery and retries it on the next run",
       async () => {
         await withFixture(async (f) => {
@@ -1571,6 +1642,74 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
             quietNotified: true,
           });
           expect((await nightlyLog(f)).match(/has made no progress/g)).toHaveLength(1);
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "dates a live claim in place when its holder re-runs it, so a long landing keeps its hold",
+      async () => {
+        // The fixture's `date` stub reports this clock, so the claim's age is the fixture's.
+        const nowEpoch = 1_800_000_000;
+        await withFixture(async (f) => {
+          await seedRepos(f);
+          const sha = await publishUpstreamTag(f, OLD_TAG, "2099-01-01T00:00:00Z");
+          const claimed = {
+            tag: OLD_TAG,
+            sha,
+            attempt: `${OLD_TAG}@1`,
+            phase: "claimed",
+            claimedBy: "threadA",
+            dispatches: 2,
+            updatedEpoch: nowEpoch - 600,
+            quietNotified: true,
+          };
+          await writeJson(stateFile(f, "attempts", `${OLD_TAG}.json`), claimed);
+
+          const refreshed = await run(f, ["attempt", OLD_TAG, "claim", "threadA"], {
+            T3_TEST_NOW_EPOCH: `${nowEpoch}`,
+          });
+          expect(refreshed.code).toBe(0);
+          expect(JSON.parse(refreshed.stdout)).toMatchObject({
+            attempt: claimed.attempt,
+            phase: "claimed",
+            claimedBy: "threadA",
+            updatedEpoch: nowEpoch,
+          });
+          const after = await attemptOf(f, OLD_TAG);
+          expect(after).toEqual({
+            tag: OLD_TAG,
+            sha,
+            attempt: claimed.attempt,
+            phase: "claimed",
+            claimedBy: "threadA",
+            dispatches: 2,
+            updatedEpoch: nowEpoch,
+            updatedAt: expect.any(String),
+          });
+          // It is a liveness signal, not a new claim: it dates the attempt and touches nothing else.
+          expect(await readText(NodePath.join(f.root, "probe.log"))).toBe("");
+          expect(await curlCalls(f)).toEqual([]);
+
+          // A newer nightly cannot dispatch mid-flight while the claim it must respect is fresh.
+          await publishUpstreamTag(f, NEW_TAG, "2099-01-02T00:00:00Z");
+          await run(f, [], { T3FORK_REDISPATCH_SECONDS: "3600", T3_TEST_NOW_EPOCH: `${nowEpoch}` });
+          expect(await curlCalls(f)).toEqual([]);
+          expect(await exists(stateFile(f, "attempts", `${NEW_TAG}.json`))).toBe(false);
+          expect(await nightlyLog(f)).toContain(`upstream ${NEW_TAG} waits for attempt`);
+
+          // A recorded landing stays landed: a refresh never demotes it to a held claim.
+          const landed = await run(f, ["attempt", OLD_TAG, "landed", "land-1", "4dac6de090"]);
+          expect(landed.code).toBe(0);
+          const relanded = await run(f, ["attempt", OLD_TAG, "claim", "threadA"], {
+            T3_TEST_NOW_EPOCH: `${nowEpoch + 60}`,
+          });
+          expect(relanded.code).toBe(0);
+          expect(await attemptOf(f, OLD_TAG)).toMatchObject({
+            phase: "landed",
+            claimedBy: "threadA",
+          });
         });
       },
       TIMEOUT,
@@ -2396,6 +2535,9 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
     const NOW = Date.parse("2026-03-01T00:00:00Z") / 1000;
     const INTERVAL = 2 * 24 * 3600;
     const defaults = { T3FORK_UPDATE_INTERVAL_SECONDS: "", T3_TEST_NOW_EPOCH: `${NOW}` };
+    // A dispatch made inside the interval the newest integration started, rather than one an
+    // integration landed after (which waits instead of being re-sent).
+    const DISPATCHED_INSIDE = Date.parse("2026-02-28T18:00:00Z") / 1000;
     const updates = async (f: Fixture) =>
       (await curlCalls(f)).filter((call) => call.body.action === "update");
 
@@ -2458,8 +2600,8 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
           phase: "dispatched",
           action: "update",
           dispatches: 1,
-          dispatchedAt: 0,
-          updatedEpoch: 0,
+          dispatchedAt: DISPATCHED_INSIDE,
+          updatedEpoch: DISPATCHED_INSIDE,
         });
         // A build of the landed attempt that stopped before it finished: its recorded
         // owner is a pid and group nothing runs, so the hour reads it as interrupted.
@@ -2539,8 +2681,8 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
           phase: "dispatched",
           action: "update",
           dispatches: 1,
-          dispatchedAt: 0,
-          updatedEpoch: 0,
+          dispatchedAt: DISPATCHED_INSIDE,
+          updatedEpoch: DISPATCHED_INSIDE,
         });
 
         const interval = {
@@ -2567,6 +2709,58 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
         expect((await updates(f)).map((call) => call.body.tag)).toEqual([OLD_TAG, OLD_TAG]);
         expect(await exists(stateFile(f, "attempts", `${NEW_TAG}.json`))).toBe(false);
         expect(await attemptOf(f, OLD_TAG)).toMatchObject({ phase: "dispatched", dispatches: 3 });
+      });
+    });
+
+    it("holds a dispatch the newest integration landed after for the interval, instead of re-sending it", async () => {
+      await withFixture(async (f) => {
+        await seedRepos(f);
+        await landIntegration(f, BUILD_TAG, "2026-02-28T12:00:00Z");
+        const sha = await publishUpstreamTag(f, OLD_TAG, "2026-02-28T05:00:00Z");
+        // Sent at 06:00 for an update still in flight; that update landed at 12:00.
+        const dispatchedAt = Date.parse("2026-02-28T06:00:00Z") / 1000;
+        await writeJson(stateFile(f, "attempts", `${OLD_TAG}.json`), {
+          tag: OLD_TAG,
+          sha,
+          attempt: `${OLD_TAG}@1`,
+          phase: "dispatched",
+          action: "update",
+          dispatches: 1,
+          dispatchedAt,
+          updatedEpoch: dispatchedAt,
+        });
+        await publishUpstreamTag(f, NEW_TAG, "2026-02-28T14:00:00Z");
+
+        const interval = {
+          T3FORK_UPDATE_INTERVAL_SECONDS: `${INTERVAL}`,
+          T3_TEST_NOW_EPOCH: `${NOW}`,
+          T3FORK_REDISPATCH_SECONDS: "0",
+        };
+        expect((await run(f, [], interval)).code).toBe(0);
+        // The newer tag waits for the interval, and the overtaken dispatch waits with it
+        // rather than being re-sent into an update the branch has already taken.
+        expect(await updates(f)).toEqual([]);
+        expect(await attemptOf(f, OLD_TAG)).toMatchObject({ phase: "dispatched", dispatches: 1 });
+        expect(await nightlyLog(f)).toContain(`upstream ${NEW_TAG} waits`);
+        expect(await nightlyLog(f)).toContain(
+          `${OLD_TAG} was dispatched before the newest upstream integration landed`,
+        );
+
+        // Repeated hours do not wear it down into a block, so no false failure is reported.
+        expect((await run(f, [], interval)).code).toBe(0);
+        expect(await updates(f)).toEqual([]);
+        expect(await attemptOf(f, OLD_TAG)).toMatchObject({ phase: "dispatched", dispatches: 1 });
+        expect(await nightlyLog(f)).not.toContain("No agent picked up");
+
+        // Once the interval has passed, the newer tag supersedes it and is sent itself.
+        expect(
+          (await run(f, [], { ...interval, T3_TEST_NOW_EPOCH: `${NOW + 36 * 3600}` })).code,
+        ).toBe(0);
+        expect(await attemptOf(f, OLD_TAG)).toMatchObject({
+          phase: "superseded",
+          supersededBy: NEW_TAG,
+        });
+        expect((await updates(f)).map((call) => call.body.tag)).toEqual([NEW_TAG]);
       });
     });
   });

@@ -89,7 +89,8 @@ LABEL=com.pechhe.t3code-fork-nightly
 # force-quit, macOS unloads jobs an agent inside it `launchctl submit`ted, but
 # keeps agents in ~/Library/LaunchAgents, which Background Task Management manages.
 INSTALL_JOB="${T3FORK_INSTALL_JOB:-com.pechhe.t3code-install-on-quit}"
-# An unclaimed dispatch is sent again after this long, at most MAX_DISPATCHES times.
+# An unclaimed dispatch is sent again after this long; MAX_DISPATCHES consecutive unclaimed
+# deliveries, counted across the tags that supersede each other, block the run.
 REDISPATCH_SECONDS="${T3FORK_REDISPATCH_SECONDS:-10800}"
 MAX_DISPATCHES=3
 # A new update is dispatched only once this long has passed since the newest upstream
@@ -686,20 +687,55 @@ dispatch() {
   fi
 }
 
-# Sends a dispatched attempt again once nobody claimed it in time, and gives up
-# visibly after MAX_DISPATCHES deliveries.
+# Sends a dispatched attempt again once nobody claimed it in time, unless a landing overtook
+# it, and gives up visibly after MAX_DISPATCHES consecutive unclaimed deliveries.
 redispatch_due() {
-  local tag="$1" action="$2" file dispatched dispatches
+  local tag="$1" action="$2" file dispatched
   file="$(attempt_file "$tag")"
-  dispatched="$(json_get "$file" .dispatchedAt)"
-  dispatches="$(json_get "$file" .dispatches)"
-  if [ $(($(now) - ${dispatched:-0})) -lt "$REDISPATCH_SECONDS" ]; then return 0; fi
-  if [ "${dispatches:-0}" -ge "$MAX_DISPATCHES" ]; then
-    attempt_set "$tag" '.phase = "blocked" | .blocked = {kind: "evidence", summary: "no agent claimed the attempt after repeated dispatches", resumeBy: "fork-nightly.sh attempt <tag> retry, after fixing the scheduled task"}'
-    notify "No agent picked up upstream $tag after $dispatches dispatches; see $STATE/attempts"
-  else
-    dispatch "$tag" "$action"
+  # A dispatch a later landing overtook is not the update in flight: it was sent into the
+  # update that landed, so it waits for the interval that landing started instead of being
+  # re-sent into it, and the ordinary rules resume once the interval has passed.
+  if stale_dispatch "$file" && ! interval_elapsed; then
+    log "upstream $tag was dispatched before the newest upstream integration landed; it waits for the update interval"
+    return 0
   fi
+  dispatched="$(json_get "$file" .dispatchedAt)"
+  if [ $(($(now) - ${dispatched:-0})) -lt "$REDISPATCH_SECONDS" ]; then return 0; fi
+  unclaimed_exhausted "$tag" || dispatch "$tag" "$action"
+}
+
+# Whether this unlanded attempt was dispatched before the newest integration landed, so that
+# landing, not this attempt, is what the branch is now waiting on.
+stale_dispatch() {
+  local file="$1" dispatched landed
+  [ "$(json_get "$file" .phase)" = dispatched ] || return 1
+  dispatched="$(json_get "$file" .dispatchedAt)"
+  landed="$(integration_landed_epoch)" || return 1
+  [ -n "$dispatched" ] && [ "$dispatched" -lt "$landed" ]
+}
+
+# Whether the wait since the newest integration landed has passed, so a new update may start.
+interval_elapsed() {
+  local since
+  [ "$UPDATE_INTERVAL_SECONDS" -gt 0 ] || return 0
+  since="$(since_integration_landed)" || return 0
+  [ "$since" -ge "$UPDATE_INTERVAL_SECONDS" ]
+}
+
+# Blocks a tag whose consecutive unclaimed deliveries reached MAX_DISPATCHES, and says so
+# once: the tally carries over the tags that supersede each other, so a stall is reported
+# for the run of unclaimed dispatches rather than once per nightly.
+unclaimed_exhausted() {
+  local tag="$1" file dispatches
+  file="$(attempt_file "$tag")"
+  dispatches="$(json_get "$file" .dispatches)"
+  [ "${dispatches:-0}" -ge "$MAX_DISPATCHES" ] || return 1
+  attempt_set "$tag" '.phase = "blocked" | .blocked = {kind: "evidence", summary: "no agent claimed the attempt after repeated dispatches", resumeBy: "fork-nightly.sh attempt <tag> retry, after fixing the scheduled task"}'
+  if [ -z "$(json_get "$file" .unclaimedNotified)" ]; then
+    notify "No agent picked up the last $dispatches update dispatches, up to upstream $tag; see $STATE/attempts"
+    attempt_set "$tag" '.unclaimedNotified = true'
+  fi
+  return 0
 }
 
 # Says once when a claim has made no progress for a redispatch interval, so an
@@ -745,10 +781,10 @@ settle_landed_attempts() {
 # One update is in flight at a time, so two agents never build competing merges.
 # A claimed or owner-blocked update holds every newer tag back.
 update_attempts() {
-  local tag="$1" sha="$2" file
+  local tag="$1" sha="$2" file carried=0 carried_notified=""
   for file in "$STATE"/attempts/*.json; do
     [ -f "$file" ] || continue
-    local other phase reason
+    local other phase reason dispatches
     other="$(json_get "$file" .tag)"
     phase="$(json_get "$file" .phase)"
     reason="$(json_get "$file" .blocked.kind)"
@@ -766,6 +802,14 @@ update_attempts() {
       notify_quiet_claim "$other" "$file" "upstream $tag is held back by"
       return 0
     fi
+    # Nobody claimed this attempt, so its deliveries are consecutive with the next tag's:
+    # the tally carries over, and the tag that supersedes an exhausted run blocks instead
+    # of dispatching into a scheduler that is not picking work up.
+    if [ "$phase" = dispatched ] || [ -n "$(json_get "$file" .unclaimedNotified)" ]; then
+      dispatches="$(json_get "$file" .dispatches)"
+      [ "${dispatches:-0}" -le "$carried" ] || carried="$dispatches"
+      [ -z "$(json_get "$file" .unclaimedNotified)" ] || carried_notified=1
+    fi
     attempt_set "$other" --arg by "$tag" '.phase = "superseded" | .supersededBy = $by'
   done
 
@@ -773,7 +817,14 @@ update_attempts() {
   file="$(attempt_file "$tag")"
   clear_unavailable "$tag"
   case "$(json_get "$file" .phase)" in
-    new | dispatch-failed | retry | awaiting-manual) dispatch "$tag" update ;;
+    new)
+      if [ "$carried" -gt 0 ]; then
+        attempt_set "$tag" --argjson n "$carried" --arg reported "$carried_notified" \
+          '.dispatches = $n | if $reported != "" then .unclaimedNotified = true else . end'
+      fi
+      unclaimed_exhausted "$tag" || dispatch "$tag" update
+      ;;
+    dispatch-failed | retry | awaiting-manual) dispatch "$tag" update ;;
     dispatched) redispatch_due "$tag" update ;;
     blocked) log "upstream $tag is blocked: $(json_get "$file" .blocked.summary)" ;;
     claimed) notify_quiet_claim "$tag" "$file" "upstream $tag is waiting on" ;;
@@ -798,29 +849,33 @@ redispatch_unclaimed_attempts() {
 # The newest upstream integration on a commit's first-parent history.
 integration_of() { git rev-list --first-parent --merges -n1 "$1"; }
 
-# Seconds since the newest upstream integration landed on the branch, from that merge
-# commit's committer time: a hand-run update counts, so no per-tag state is needed, and
-# only an upstream merge is measured, so landing fork work (a linear commit) neither
-# starts nor ends an interval.
-since_integration_landed() {
+# When the newest upstream integration landed on the branch, in epoch seconds, from that merge
+# commit's committer time: a hand-run update counts, so no per-tag state is needed, and only an
+# upstream merge is measured, so landing fork work (a linear commit) neither starts nor ends an
+# interval.
+integration_landed_epoch() {
   local landed
   landed="$(integration_of "origin/$BRANCH")"
   [ -n "$landed" ] || return 1
-  echo $(($(now) - $(git show -s --format=%ct "$landed")))
+  git show -s --format=%ct "$landed"
 }
 
-# Whether the hour may start a new update for this tag: one it has not begun waits for
-# the interval since the newest integration landed, while an attempt already recorded
+# Seconds since the newest upstream integration landed on the branch.
+since_integration_landed() {
+  local landed
+  landed="$(integration_landed_epoch)" || return 1
+  echo $(($(now) - landed))
+}
+
+# Whether the hour may start a new update for this tag: one it has not begun waits for the
+# interval since the newest integration landed, while an attempt already recorded
 # (sent, claimed, blocked, retried, or waiting on its release) keeps the present rules.
 update_due() {
-  local since
   case "$(json_get "$(attempt_file "$1")" .phase)" in
     "" | new | unpublished) ;;
     *) return 0 ;;
   esac
-  [ "$UPDATE_INTERVAL_SECONDS" -gt 0 ] || return 0
-  since="$(since_integration_landed)" || return 0
-  [ "$since" -ge "$UPDATE_INTERVAL_SECONDS" ]
+  interval_elapsed
 }
 
 # Whether the selected build holds this integration and has reached both machines.
@@ -914,6 +969,15 @@ attempt_command() {
         echo "attempt $(json_get "$file" .attempt) is already landed and active" >&2
         exit 3
       fi
+      # The holder re-running its claim dates it in place: a merge and landing submission
+      # can take hours, and an aging claim would let a newer tag dispatch mid-flight. It is
+      # no new claim, so it neither resumes a block, reads the release again nor demotes a
+      # landed attempt.
+      if [ "$holder" = "$thread" ] && { [ "$phase" = claimed ] || [ "$phase" = landed ]; }; then
+        attempt_set "$tag" 'del(.quietNotified)'
+        cat "$file"
+        return 0
+      fi
       local gap rc=0
       gap="$(release_gap "$tag")" || rc=$?
       if [ "$rc" -eq 1 ]; then
@@ -951,7 +1015,7 @@ attempt_command() {
           exit 3
         fi
       fi
-      attempt_set "$tag" --arg t "$thread" '.phase = "claimed" | .claimedBy = $t | del(.blocked) | del(.quietNotified)'
+      attempt_set "$tag" --arg t "$thread" '.phase = "claimed" | .claimedBy = $t | .dispatches = 0 | del(.blocked) | del(.quietNotified) | del(.unclaimedNotified)'
       ;;
     landed)
       attempt_set "$tag" --arg op "${3:?operation}" --arg c "${4:?commit}" \
@@ -1030,7 +1094,7 @@ attempt_command() {
       if [ -n "$INV_STATE" ] && { [ "$(inv .claim.tag)" = "$tag" ] || [ "$(inv .tag)" = "$tag" ]; }; then
         invocation_discard
       fi
-      attempt_set "$tag" '.phase = "retry" | .dispatches = 0 | del(.blocked) | del(.claimedBy) | del(.quietNotified) | del(.interruptionRecoveries)'
+      attempt_set "$tag" '.phase = "retry" | .dispatches = 0 | del(.blocked) | del(.claimedBy) | del(.quietNotified) | del(.unclaimedNotified) | del(.interruptionRecoveries)'
       ;;
     *)
       echo "unknown attempt action $action" >&2
