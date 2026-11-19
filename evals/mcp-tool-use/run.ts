@@ -87,10 +87,11 @@ import { ThreadToolkit } from "../../apps/server/src/mcp/toolkits/thread/tools.t
 import { WorktreeToolkit } from "../../apps/server/src/mcp/toolkits/worktree/tools.ts";
 import {
   CLAUDE_HARNESS_EXTRA_TOOLS,
-  CLAUDE_MANAGED_WRITER_TOOLS,
   CLAUDE_PROVIDER,
+  CLAUDE_READ_ONLY_ALLOWED_TOOLS,
   makeClaudeQueryOptions,
 } from "../../apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts";
+import { CLAUDE_MANAGED_WRITER_EXTRA_TOOLS } from "../../apps/server/src/orchestration-v2/Adapters/ClaudeRoleTools.ts";
 import { proxyConfig } from "../shared/proxy.ts";
 import { changeRequestsCreatedBy } from "../../apps/server/src/orchestration-v2/PullRequestSyncReactor.ts";
 import { type BackgroundWait, makeBackgroundWait } from "./backgroundWait.ts";
@@ -550,7 +551,11 @@ const pastedSecret = (name: string, input: Readonly<Record<string, unknown>>) =>
 // T3 turns these harness tools off for every thread: its own delegate_task and web tools replace them.
 const HARNESS_EXTRAS: ReadonlySet<string> = new Set(CLAUDE_HARNESS_EXTRA_TOOLS);
 // A managed Claude writer keeps only the coding set of built-ins.
-const WRITER_TOOLS: ReadonlySet<string> = new Set([...CLAUDE_MANAGED_WRITER_TOOLS, "ToolSearch"]);
+const WRITER_TOOLS: ReadonlySet<string> = new Set([
+  ...CLAUDE_READ_ONLY_ALLOWED_TOOLS,
+  ...CLAUDE_MANAGED_WRITER_EXTRA_TOOLS,
+  "ToolSearch",
+]);
 const isWriterTool = (name: string) => WRITER_TOOLS.has(name.slice(name.lastIndexOf("_") + 1));
 // Captures may carry a harness prefix on a tool's name, so match on what follows the last `_`.
 const isHarnessExtra = (name: string) => HARNESS_EXTRAS.has(name.slice(name.lastIndexOf("_") + 1));
