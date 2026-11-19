@@ -67,6 +67,16 @@ script: `preview_snapshot` with `save: true` returns a `screenshotPath`, and fre
 storage means each run pairs with the token the server prints. Diff the images per pixel
 and expect only the caret, relative ages and live chips to differ.
 
+States that live only in a running server, such as a pending approval, need one dev server
+for both: capture the candidate, `jj new <base>` so Vite serves the base source (the server
+code must not differ), capture again, then `jj edit` back. Start Replay threads in a plain
+Git project: in a SlipJay-backed one each takes a real workspace from the shared spare pool.
+A Replay `approval` stays pending once `"defaultRuntimeMode": "approval-required"` is in the
+worktree's `.t3/userdata/settings.json`. In the script, poll `preview_evaluate` rather than
+`preview_wait_for`, which stops at 15 s; treat `document.body.innerText.length > 100` as
+loaded; give hover cards a fixed wait; and pass `--output-limit 33554432`, since every
+snapshot counts against it.
+
 ## Verify and retain
 
 Exercise the affected flow and capture the state that proves it works. If the page
