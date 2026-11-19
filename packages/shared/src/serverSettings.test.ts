@@ -135,6 +135,7 @@ describe("serverSettings helpers", () => {
       accountOrder: ["codex", "claudeAgent"],
       pooledModelKeys: ["gpt-6-2-sol"],
       modelAccountsRemoved: { "gpt-6-2-sol": ["pi:openrouter"] },
+      modelAccountsAdded: { "kimi-k3": ["pi:openrouter"] },
       accountSkips: { claudeAgent: null },
     });
     expect(next.accountOrder).toEqual(["codex", "claudeAgent"]);
@@ -146,6 +147,10 @@ describe("serverSettings helpers", () => {
       "gpt-6-2-sol": ["pi:openrouter"],
     });
     expect(next.accountSkips).toEqual({ codex: { "gpt-6-2-sol": skip } });
+    expect(
+      applyServerSettingsPatch(next, { modelAccountsAdded: { "kimi-k3": null } })
+        .modelAccountsAdded,
+    ).toEqual({});
   });
 
   it("replaces the model compact points so a cleared model does not survive", () => {

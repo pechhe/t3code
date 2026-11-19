@@ -429,6 +429,7 @@ export function applyServerSettingsPatch(
     worktreeCleanup: worktreeCleanupPatch,
     // Merged per entry below; its `null` removals must not reach deepMerge.
     modelAccountsRemoved: modelAccountsRemovedPatch,
+    modelAccountsAdded: modelAccountsAddedPatch,
     usageLimitSources: usageLimitSourcesPatch,
     usageSlotBudgets: usageSlotBudgetsPatch,
     accountSkips: accountSkipsPatch,
@@ -664,6 +665,14 @@ export function applyServerSettingsPatch(
           modelAccountsRemoved: mergeSettingsEntries(
             current.modelAccountsRemoved,
             modelAccountsRemovedPatch,
+          ),
+        }
+      : {}),
+    ...(modelAccountsAddedPatch !== undefined
+      ? {
+          modelAccountsAdded: mergeSettingsEntries(
+            current.modelAccountsAdded ?? {},
+            modelAccountsAddedPatch,
           ),
         }
       : {}),

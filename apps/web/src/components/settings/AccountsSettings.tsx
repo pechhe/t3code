@@ -21,6 +21,7 @@ import {
   multiAccountModels,
   type AccountInfo,
   type PooledModel,
+  type PooledAccount,
 } from "@t3tools/shared/accountPools";
 import { ArrowDownIcon, ArrowUpIcon, GripVerticalIcon, PlusIcon, XIcon } from "lucide-react";
 import { Link } from "@tanstack/react-router";
@@ -104,12 +105,19 @@ function EnvironmentAccounts({ environmentId }: { environmentId: EnvironmentId }
     next.splice(to, 0, id);
     update({ accountOrder: next });
   };
-  const setRemoved = (key: PooledModelKey, account: AccountId, removed: boolean) => {
-    const current = settings.modelAccountsRemoved[key] ?? [];
-    const next = removed
-      ? [...current.filter((id) => id !== account), account]
-      : current.filter((id) => id !== account);
-    update({ modelAccountsRemoved: { [key]: next.length > 0 ? next : null } });
+  // A pay-as-you-go account is off a model until added, so its toggle edits the added list.
+  const setRemoved = (key: PooledModelKey, entry: PooledAccount, removed: boolean) => {
+    const listOf = (lists: Readonly<Record<string, ReadonlyArray<AccountId>>> | undefined) => {
+      const listed = entry.metered ? !removed : removed;
+      const current = (lists?.[key] ?? []).filter((id) => id !== entry.account.id);
+      const next = listed ? [...current, entry.account.id] : current;
+      return { [key]: next.length > 0 ? next : null };
+    };
+    update(
+      entry.metered
+        ? { modelAccountsAdded: listOf(settings.modelAccountsAdded) }
+        : { modelAccountsRemoved: listOf(settings.modelAccountsRemoved) },
+    );
   };
   const addModel = (key: PooledModelKey) => update({ pooledModelKeys: [...listed, key] });
   const removeModel = (key: PooledModelKey) =>
@@ -266,7 +274,7 @@ function PooledModelsList(props: {
   disabled: boolean;
   onAdd: (key: PooledModelKey) => void;
   onRemove: (key: PooledModelKey) => void;
-  onSetRemoved: (key: PooledModelKey, account: AccountId, removed: boolean) => void;
+  onSetRemoved: (key: PooledModelKey, entry: PooledAccount, removed: boolean) => void;
 }) {
   return (
     <>
@@ -319,15 +327,16 @@ function PooledModelsList(props: {
                   >
                     <AccountIcon account={entry.account} />
                     {entry.account.label}
+                    {entry.metered ? (
+                      <span className="text-muted-foreground no-underline">pay as you go</span>
+                    ) : null}
                     <Button
                       type="button"
                       size="icon-tiny"
                       variant="ghost-muted"
                       disabled={props.disabled}
                       aria-label={`${entry.removed ? "Use" : "Don't use"} ${entry.account.label} for ${model.displayName}`}
-                      onClick={() =>
-                        props.onSetRemoved(model.key, entry.account.id, !entry.removed)
-                      }
+                      onClick={() => props.onSetRemoved(model.key, entry, !entry.removed)}
                     >
                       {entry.removed ? <PlusIcon /> : <XIcon />}
                     </Button>

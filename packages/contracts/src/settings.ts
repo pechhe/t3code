@@ -1774,6 +1774,8 @@ export const ServerSettings = Schema.Struct({
   modelAccountsRemoved: Schema.Record(PooledModelKey, Schema.Array(AccountId)).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
+  /** Pay-as-you-go accounts the user put on a model, by pooled model key; others never pool. */
+  modelAccountsAdded: Schema.optionalKey(Schema.Record(PooledModelKey, Schema.Array(AccountId))),
   /** Accounts passed over after a usage limit. The server writes them; Try again now clears one. */
   accountSkips: AccountSkips.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   // Only the server writes these. Absent on a server that can't share its provider setup.
@@ -2225,6 +2227,9 @@ export const ServerSettingsPatch = Schema.Struct({
   modelAccountsRemoved: Schema.optionalKey(
     Schema.Record(PooledModelKey, Schema.NullOr(Schema.Array(AccountId))),
   ),
+  modelAccountsAdded: Schema.optionalKey(
+    Schema.Record(PooledModelKey, Schema.NullOr(Schema.Array(AccountId))),
+  ),
   // Merge per account, replacing its skips whole; null (Try again now) removes them.
   accountSkips: Schema.optionalKey(
     Schema.Record(AccountId, Schema.NullOr(Schema.Record(PooledModelKey, AccountSkip))),
@@ -2278,6 +2283,7 @@ export function requiredScopesForServerSettingsPatch(
       key === "accountOrder" ||
       key === "pooledModelKeys" ||
       key === "modelAccountsRemoved" ||
+      key === "modelAccountsAdded" ||
       key === "accountSkips" ||
       key === "usageLimitSources" ||
       key === "usageSlotBudgets" ||

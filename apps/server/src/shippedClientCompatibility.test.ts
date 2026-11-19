@@ -117,6 +117,7 @@ const forkSettings = {
   accountOrder: ["claudeAgent", "pi:antigravity"],
   pooledModelKeys: ["claude-opus-5-5"],
   modelAccountsRemoved: { "claude-opus-5-5": ["pi:openrouter"] },
+  modelAccountsAdded: { "claude-opus-5-5": ["pi:anthropic"] },
   accountSkips: {
     claudeAgent: { "claude-opus-5-5": { until: "2026-11-19T13:40:00.000Z", reportedReset: true } },
   },

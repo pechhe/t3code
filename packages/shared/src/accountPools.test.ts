@@ -360,6 +360,39 @@ describe("the models the user adds", () => {
     expect(pooledModels([a, b], hiddenOnA)).toEqual([]);
   });
 
+  it("leaves a pay-as-you-go account off a model until the user adds it", () => {
+    const pi = provider(
+      "pi",
+      "pi",
+      [
+        ["openrouter/anthropic/sonnet", "Sonnet"],
+        ["claude-subscription-hfpetch/sonnet", "Sonnet"],
+      ],
+      {
+        usageSlots: [
+          {
+            accountKey: "openrouter",
+            label: "openrouter",
+            usageLimits: { checkedAt: iso(NOW), windows: [] },
+            metered: true,
+          },
+        ],
+      },
+    );
+    const accountsOf = (settings: Parameters<typeof pooledModels>[1]) =>
+      pooledModels([a, pi], settings).flatMap((model) =>
+        model.accounts.map((entry) => [entry.account.id, entry.removed]),
+      );
+    expect(accountsOf(routing(["sonnet"]))).toEqual([
+      ["a", false],
+      ["pi:openrouter", true],
+      ["pi:claude-subscription-hfpetch", false],
+    ]);
+    expect(
+      accountsOf({ ...routing(["sonnet"]), modelAccountsAdded: { sonnet: ["pi:openrouter"] } }),
+    ).toContainEqual(["pi:openrouter", false]);
+  });
+
   it("seeds the models Henry uses: his favorites and the models his roles name", () => {
     const pi = provider("pi", "pi", [
       ["antigravity/gemini-4-hydrogen", "Gemini 4 Hydrogen (Antigravity)"],

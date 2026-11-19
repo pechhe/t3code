@@ -63,6 +63,10 @@ export function useComposerPooling(input: {
     input.environmentId,
     (s) => s.providerModelPreferences,
   );
+  const modelAccountsAdded = useEnvironmentSettings(
+    input.environmentId,
+    (s) => s.modelAccountsAdded,
+  );
   const slotLabels = useClientSettings(selectModelSlotLabels);
   const models = withPooledModelLabels(
     pooledModels(input.providers, {
@@ -70,6 +74,7 @@ export function useComposerPooling(input: {
       pooledModelKeys,
       modelAccountsRemoved,
       providerModelPreferences,
+      modelAccountsAdded,
     }),
     slotLabels,
   );

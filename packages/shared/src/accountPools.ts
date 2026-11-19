@@ -27,6 +27,8 @@ export type AccountRoutingSettings = Pick<
 > & {
   /** A model hidden on an account is one that account does not offer. */
   readonly providerModelPreferences?: ServerSettings["providerModelPreferences"] | undefined;
+  /** Absent means no pay-as-you-go account was added, so none pools. */
+  readonly modelAccountsAdded?: ServerSettings["modelAccountsAdded"] | undefined;
 };
 
 // ── Usage readings ──────────────────────────────────────────────────────────────────────────
@@ -272,7 +274,10 @@ export interface PooledAccount {
   readonly provider: ServerProvider;
   /** The slug this account runs the model under. */
   readonly model: string;
+  /** Off this model: taken off by the user, or billed per use and not added by them. */
   readonly removed: boolean;
+  /** Billed per use, so it serves the model only when the user adds it. */
+  readonly metered: boolean;
 }
 
 export interface PooledModel {
@@ -284,8 +289,19 @@ export interface PooledModel {
 
 type ServingSettings = Pick<
   AccountRoutingSettings,
-  "modelAccountsRemoved" | "providerModelPreferences"
+  "modelAccountsRemoved" | "providerModelPreferences" | "modelAccountsAdded"
 >;
+
+/** A Pi sub-provider billed per use, as its usage slot reports. */
+const isMeteredAccount = (provider: ServerProvider, modelSlug: string): boolean => {
+  if (provider.driver !== "pi") return false;
+  const accountKey = piAccountKeyOf(modelSlug);
+  return (
+    accountKey !== undefined &&
+    provider.usageSlots?.some((slot) => slot.accountKey === accountKey && slot.metered === true) ===
+      true
+  );
+};
 
 const servingEntries = (providers: ReadonlyArray<ServerProvider>, settings: ServingSettings) => {
   const byKey = new Map<PooledModelKey, { names: string[]; accounts: PooledAccount[] }>();
@@ -300,12 +316,16 @@ const servingEntries = (providers: ReadonlyArray<ServerProvider>, settings: Serv
       const entry = byKey.get(key) ?? { names: [], accounts: [] };
       // One account offering a model twice (an alias and its target) serves it once.
       if (entry.accounts.some((existing) => existing.account.id === account.id)) continue;
+      const metered = isMeteredAccount(provider, model.slug);
       entry.names.push(model.name);
       entry.accounts.push({
         account,
         provider,
         model: model.slug,
-        removed: settings.modelAccountsRemoved[key]?.includes(account.id) === true,
+        removed: metered
+          ? settings.modelAccountsAdded?.[key]?.includes(account.id) !== true
+          : settings.modelAccountsRemoved[key]?.includes(account.id) === true,
+        metered,
       });
       byKey.set(key, entry);
     }

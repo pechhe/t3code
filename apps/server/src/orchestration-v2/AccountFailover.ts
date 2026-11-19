@@ -60,6 +60,7 @@ export const failoverSelection = (input: {
     | "modelAccountsRemoved"
     | "accountSkips"
     | "providerModelPreferences"
+    | "modelAccountsAdded"
   >;
   readonly nowMs: number;
   readonly options?: PickOptions | undefined;

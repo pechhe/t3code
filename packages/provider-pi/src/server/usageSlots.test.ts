@@ -146,6 +146,8 @@ describe("readPiUsageSlots", () => {
       const anthropic = slots.find((slot) => slot.accountKey === "anthropic")!;
       expect(anthropic.usageLimits.unavailable?.reason).toBe("unsupported");
       expect(anthropic.usageLimits.windows).toEqual([]);
+      expect(anthropic.metered).toBe(true);
+      expect(opencode.metered).toBeUndefined();
 
       // Two hosts answer the quota summary; neither duplicates a bucket.
       expect(calls.filter((url) => url.includes("retrieveUserQuotaSummary"))).toHaveLength(2);

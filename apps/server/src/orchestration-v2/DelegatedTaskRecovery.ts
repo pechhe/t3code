@@ -75,6 +75,7 @@ export const planDelegatedRecovery = Effect.fn("DelegatedTaskRecovery.plan")(fun
     | "modelAccountsRemoved"
     | "accountSkips"
     | "providerModelPreferences"
+    | "modelAccountsAdded"
   >;
   readonly readOnly?: boolean | undefined;
   readonly nowMs: number;

@@ -26,7 +26,11 @@ import {
 type Manifest = AgentPolicyManifest;
 type RoutingSettings = Pick<
   AccountRoutingSettings,
-  "accountOrder" | "pooledModelKeys" | "modelAccountsRemoved" | "providerModelPreferences"
+  | "accountOrder"
+  | "pooledModelKeys"
+  | "modelAccountsRemoved"
+  | "providerModelPreferences"
+  | "modelAccountsAdded"
 >;
 const EMPTY_ROUTING: RoutingSettings = {
   accountOrder: [],

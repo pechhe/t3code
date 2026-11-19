@@ -230,6 +230,8 @@ export const ServerProviderUsageSlot = Schema.Struct({
   /** Identifies the account behind the credential, never the credential itself. */
   account: Schema.optional(TrimmedNonEmptyString),
   usageLimits: ServerProviderUsageLimits,
+  /** Billed per use (an API key with no allowance to read), so pools leave it out by default. */
+  metered: Schema.optionalKey(Schema.Boolean),
 });
 export type ServerProviderUsageSlot = typeof ServerProviderUsageSlot.Type;
 

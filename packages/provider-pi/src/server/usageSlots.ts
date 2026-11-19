@@ -745,12 +745,20 @@ export const probePiUsageSlots = Effect.fn("PiUsageSlots.probePiUsageSlots")(fun
     }
 
     // An API key reports no remaining credit, so its allowance comes from a budget, not a probe.
+    if (credential.type === "api_key") {
+      return {
+        ...unavailable(
+          { ...base, checkedAt },
+          "unsupported",
+          "Set a monthly budget to track this account's spend.",
+        ),
+        metered: true,
+      };
+    }
     return unavailable(
       { ...base, checkedAt },
-      credential.type === "api_key" ? "unsupported" : "probeFailed",
-      credential.type === "api_key"
-        ? "Set a monthly budget to track this account's spend."
-        : "This account's provider reports no usage limits to T3.",
+      "probeFailed",
+      "This account's provider reports no usage limits to T3.",
     );
   });
 
