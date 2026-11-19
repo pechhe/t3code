@@ -1,7 +1,13 @@
-import { attachThreadsToComposer } from "../chat/threadContextDrag";
-import { backgroundWorkIsOnlyWatches } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
+import { insertThreadsIntoComposer } from "../chat/threadContextDrag";
 import { ProjectChip } from "../ProjectChip";
-import { toastManager } from "../ui/toast";
+import { resolveSidebarThreadRowStatus } from "./SidebarThreadRowStatus.logic";
+import {
+  draftSurfaceClassName,
+  SidebarThreadRowHoverActions,
+  SidebarThreadRowTrigger,
+  SidebarTooltipButton,
+  type SidebarThreadRowSurfaceState,
+} from "./SidebarThreadRowChrome";
 import { useAtomMount } from "@effect/atom-react";
 import { asLaunchingThread } from "@t3tools/client-runtime/state/thread-inbox";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "../ThreadHoverCard";
@@ -46,14 +52,12 @@ import {
   AnchorIcon,
   AlarmClockOffIcon,
   ArrowRightLeftIcon,
-  CheckIcon,
   CircleAlertIcon,
   CircleCheckIcon,
   CircleDashedIcon,
   CircleDotDashedIcon,
   ClockIcon,
   GitBranchIcon,
-  LinkIcon,
   MessageCircleQuestionIcon,
   PinIcon,
   PinOffIcon,
@@ -62,14 +66,11 @@ import {
   TerminalIcon,
   Undo2Icon,
   UserRoundIcon,
-  XIcon,
 } from "lucide-react";
 import {
-  forwardRef,
   memo,
   useRef,
   useState,
-  type ComponentPropsWithoutRef,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -101,9 +102,6 @@ import {
   type SidebarDropVerb,
   resolveSidebarRowStatus,
   resolveThreadLastVisitedAt,
-  threadStandingAttention,
-  hasPlanReadyPrompt,
-  shouldRecedeSidebarThread,
   resolveWorkingStartedAt,
   useRetainedValue,
   withoutRemovedCheckout,
@@ -124,14 +122,12 @@ import {
 } from "../ThreadStatusIndicators";
 import { pickSnoozePreset, resolveSnoozePresets, type SnoozePreset } from "../Sidebar.snooze";
 import { useSubagentActivity, useThreadShell } from "../../state/entities";
-import { subagentActivityLabel } from "@t3tools/client-runtime/state/threads";
 import { AgentElapsed } from "../chat/AgentElapsed";
-import { SUBAGENT_STATUS_PRESENTATION } from "../chat/subagentStatusPresentation";
 import { ProjectFavicon, type ProjectFaviconProject } from "../ProjectFavicon";
 import { ThreadSearchMatchExcerpt } from "../ThreadSearchMatch";
 import { makeWorkspaceFileDropHandlers } from "../chat/workspaceFileDrop";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
-import { getTriggerDisplayModelName } from "../chat/providerIconUtils";
+import { getTriggerDisplayModelName, resolveModelSubProvider } from "../chat/providerIconUtils";
 import { shouldShowInstanceBadge, type ProviderInstanceEntry } from "../../providerInstances";
 import { useThreadRunningTerminalIds } from "../../state/terminalSessions";
 import { Button, InlineButton } from "../ui/button";
@@ -232,7 +228,7 @@ function SidebarProviderStack(props: {
       driverKind={currentEntry.driverKind}
       displayName={currentEntry.displayName}
       model={currentModel}
-      subProvider={currentEntry.models.find((model) => model.slug === currentModel)?.subProvider}
+      subProvider={resolveModelSubProvider(currentEntry.models, currentModel)}
       accentColor={currentEntry.accentColor}
       acpRegistryAgentId={currentEntry.acpRegistryAgentId}
       acpRegistryIconUrl={currentEntry.acpRegistryIconUrl}
@@ -356,10 +352,10 @@ function SidebarThreadTooltip({
                 providerEntry?.displayName ?? thread.runtime?.providerName ?? modelInstanceId
               }
               model={thread.modelSelection.model}
-              subProvider={
-                providerEntry?.models.find((model) => model.slug === thread.modelSelection.model)
-                  ?.subProvider
-              }
+              subProvider={resolveModelSubProvider(
+                providerEntry?.models,
+                thread.modelSelection.model,
+              )}
               accentColor={providerEntry?.accentColor}
               acpRegistryAgentId={providerEntry?.acpRegistryAgentId}
               acpRegistryIconUrl={providerEntry?.acpRegistryIconUrl}
@@ -483,142 +479,12 @@ function SnoozeMenuButton(props: {
   );
 }
 
-type SidebarThreadRowSurfaceState = {
-  readonly variantAction: string | null;
-  readonly isActive: boolean;
-  readonly isSelected: boolean;
-  readonly hasUnsentDraft: boolean;
-  readonly shouldRecede: boolean;
-  readonly status: string;
-  readonly isFileDragOver: boolean;
-  readonly isDragging: boolean;
-};
-
-const SidebarThreadRowTrigger = forwardRef<
-  HTMLDivElement,
-  ComponentPropsWithoutRef<"div"> & {
-    readonly surface: SidebarThreadRowSurfaceState;
-    readonly layout: "card" | "slim";
-    readonly twoLine?: boolean;
-    readonly inFolder?: boolean;
-  }
->(function SidebarThreadRowTrigger(
-  { surface, layout, twoLine = false, inFolder = false, className, ...props },
-  ref,
-) {
-  const {
-    variantAction,
-    isActive,
-    isSelected,
-    hasUnsentDraft,
-    shouldRecede,
-    status,
-    isFileDragOver,
-    isDragging,
-  } = surface;
-  return (
-    <div
-      {...props}
-      ref={ref}
-      className={cn(
-        "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none group-focus-visible/sidebar-row:ring-2 group-focus-visible/sidebar-row:ring-inset group-focus-visible/sidebar-row:ring-ring",
-        variantAction === "unsettle" &&
-          !isActive &&
-          "[&:not(:hover):not(:focus-within)_*:not(.live-activity-focus_*)]:text-secondary-label",
-        isActive
-          ? "bg-sidebar-row-active text-sidebar-foreground light:ring-1 light:ring-inset light:ring-sidebar-border/70"
-          : isSelected
-            ? "bg-sidebar-row-selected text-sidebar-foreground light:ring-1 light:ring-inset light:ring-sidebar-border/70"
-            : hasUnsentDraft
-              ? cn(draftSurfaceClassName, "text-sidebar-foreground")
-              : shouldRecede
-                ? "text-sidebar-muted-foreground/75 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
-                : "bg-transparent text-sidebar-foreground hover:bg-sidebar-row-hover",
-        shouldRecede &&
-          (status === "preparing" || status === "working") &&
-          "opacity-70 transition-opacity hover:opacity-100 focus-within:opacity-100 motion-reduce:transition-none",
-        isFileDragOver && "ring-1 ring-inset ring-primary/70",
-        isFileDragOver && !isActive && !isSelected && "bg-sidebar-row-hover",
-        isDragging &&
-          "bg-sidebar bg-linear-to-b from-sidebar-row-active to-sidebar-row-active text-sidebar-foreground opacity-100 shadow-lg",
-        layout === "slim" &&
-          (twoLine
-            ? "flex flex-col justify-center px-2.5 py-1.5"
-            : "flex h-9 items-center gap-2.5 px-2.5"),
-        layout === "slim" && inFolder && "ps-9",
-        className,
-      )}
-    />
-  );
-});
-
-type SidebarTooltipButtonProps = Omit<ComponentPropsWithoutRef<"button">, "className"> & {
-  readonly kind: "woke" | "unsettle" | "settle" | "discard" | "insert" | "settle-label";
-  readonly isWoke?: boolean;
-  readonly compact?: boolean;
-  readonly statusTone?: string;
-};
-
-const SidebarTooltipButton = forwardRef<HTMLButtonElement, SidebarTooltipButtonProps>(
-  function SidebarTooltipButton(
-    { kind, isWoke = false, compact = false, statusTone, children, ...props },
-    ref,
-  ) {
-    const className =
-      kind === "woke"
-        ? cn(
-            "inline-flex cursor-pointer items-center gap-1 rounded-sm font-medium outline-none hover:underline focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-            compact && "text-xs text-warning-foreground",
-            statusTone,
-          )
-        : kind === "unsettle"
-          ? cn(
-              "pointer-events-none absolute inset-y-0 right-0 -mr-1 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-any-hover/sidebar-row:pointer-events-auto group-any-hover/sidebar-row:opacity-100",
-              isWoke && "group-any-hover/sidebar-row:static",
-            )
-          : kind === "settle"
-            ? cn(
-                "pointer-events-none absolute inset-y-0 right-0 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-2 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-any-hover/sidebar-row:pointer-events-auto group-any-hover/sidebar-row:opacity-100",
-                isWoke && "group-any-hover/sidebar-row:static",
-              )
-            : kind === "discard"
-              ? "inline-flex cursor-pointer items-center rounded-md bg-transparent px-1.5 text-xs text-muted-foreground hover:text-foreground"
-              : kind === "insert"
-                ? "inline-flex h-full cursor-pointer items-center rounded-md bg-transparent px-1.5 text-xs text-muted-foreground hover:text-foreground"
-                : "-mr-1 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground hover:text-foreground";
-    return (
-      <button {...props} ref={ref} className={className}>
-        {children ??
-          (kind === "woke" ? (
-            <>
-              <AlarmClockIcon aria-hidden className={compact ? "size-3" : "size-4 shrink-0"} />
-              <span role="status">
-                <T context="thread status: woke from snooze">Woke</T>
-              </span>
-            </>
-          ) : kind === "unsettle" ? (
-            <Undo2Icon className="mb-px size-3.5" />
-          ) : kind === "settle" || kind === "settle-label" ? (
-            <>
-              <CheckIcon className={kind === "settle" ? "size-3" : "size-3.5"} />
-              {kind === "settle-label" ? <T>Settle</T> : null}
-            </>
-          ) : kind === "discard" ? (
-            <XIcon className="size-3.5" />
-          ) : (
-            <LinkIcon className="size-3" />
-          ))}
-      </button>
-    );
-  },
-);
-
 type SortableThreadRowBag = Pick<
   ReturnType<typeof useSortable>,
   "listeners" | "setNodeRef" | "transform" | "transition" | "isDragging"
 >;
 
-export const draftSurfaceClassName = "bg-warning/4 hover:bg-warning/8";
+export { draftSurfaceClassName };
 export const draftPenClassName = "size-3 shrink-0 text-warning-foreground";
 
 // useSortable memoizes on its `disabled` object, so a fresh one per render
@@ -922,14 +788,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   const isUnread = hasUnseenCompletion({ ...thread, lastVisitedAt });
   const status = resolveSidebarRowStatus({ ...thread, lastVisitedAt });
   const subagentActivity = useSubagentActivity(scopeThreadRef(thread.environmentId, thread.id));
-  // Own requests come first, so only a thread with none speaks for its subagent.
-  const delegatedRequestLabel =
-    !thread.hasPendingApprovals &&
-    !thread.hasPendingUserInput &&
-    subagentActivity !== null &&
-    (subagentActivity.status === "approval" || subagentActivity.status === "input")
-      ? subagentActivityLabel(subagentActivity)
-      : null;
   const isParked = (thread.parkedWaits?.length ?? 0) > 0 && !props.ownerSnoozed;
   const parkedSubtitle = props.parkedSubtitle;
   const lastVisitedDate = lastVisitedAt === undefined ? null : parseTimestampDate(lastVisitedAt);
@@ -938,134 +796,17 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     wokeAtDate !== null &&
     (lastVisitedDate === null || lastVisitedDate < wokeAtDate) &&
     thread.settledOverride !== "settled";
-  // Background work always recedes when it is not selected: an unread parent
-  // completion must not pull a still-working thread back into the foreground.
-  // Ready and action-required rows keep their unread and wake prominence.
-  // Standing adds a stalled child and an owner-only wait; a more specific status still wins.
-  const standingAttention =
-    thread.standing?.question !== undefined || status === "waiting" || status === "ready"
-      ? threadStandingAttention(thread.standing, thread.parkedWaitGaveUp)
-      : null;
-  const planReady = status === "ready" && hasPlanReadyPrompt(thread);
-  const shouldRecede =
-    standingAttention === null &&
-    !planReady &&
-    shouldRecedeSidebarThread({
-      status,
-      isUnread,
-      isWoke,
-      isActive: props.isActive,
-      isSelected,
-    });
-  const topStatus =
-    standingAttention !== "needs_you" && (status === "preparing" || status === "working")
-      ? {
-          label:
-            status === "preparing"
-              ? gt("Setting up")
-              : thread.goal?.status === "active"
-                ? gt("Goal", { $context: "thread status: working on a goal" })
-                : gt("Working", { $context: "thread status" }),
-          icon: "working" as const,
-          className: "text-info-foreground",
-        }
-      : standingAttention === "needs_you"
-        ? {
-            label:
-              thread.standing?.waitsOnPerson?.need === "acceptance"
-                ? gt("Needs you · accept {reference}", {
-                    reference:
-                      thread.standing.waitsOnPerson.ref ??
-                      `#${thread.standing.waitsOnPerson.number}`,
-                  })
-                : gt("Needs you"),
-            icon: "input" as const,
-            className: "text-indigo-600 dark:text-indigo-300",
-          }
-        : standingAttention === "gave_up"
-          ? {
-              label: gt("Wait gave up"),
-              icon: "waiting" as const,
-              className: "text-warning-foreground",
-            }
-          : standingAttention === "stalled"
-            ? {
-                label: gt("Stalled"),
-                icon: "waiting" as const,
-                className: "text-warning-foreground",
-              }
-            : status === "waiting" && subagentActivity !== null
-              ? {
-                  label: subagentActivityLabel(subagentActivity),
-                  icon:
-                    subagentActivity.status === "working"
-                      ? ("working" as const)
-                      : ("waiting" as const),
-                  className: SUBAGENT_STATUS_PRESENTATION[subagentActivity.status].className,
-                }
-              : status === "waiting"
-                ? {
-                    label: backgroundWorkIsOnlyWatches(thread.pendingBackgroundTasks ?? [])
-                      ? gt("Watching")
-                      : gt("Waiting", { $context: "thread status" }),
-                    icon: "waiting" as const,
-                    className: "text-muted-foreground",
-                  }
-                : status === "approval"
-                  ? {
-                      label:
-                        delegatedRequestLabel ??
-                        gt("Approval", { $context: "thread status: needs approval" }),
-                      icon: "approval" as const,
-                      className: "text-warning-foreground",
-                    }
-                  : status === "input"
-                    ? {
-                        label:
-                          delegatedRequestLabel ??
-                          gt("Input", { $context: "thread status: needs user input" }),
-                        icon: "input" as const,
-                      }
-                    : status === "request"
-                      ? {
-                          label: gt("Request", { $context: "thread status: guest request" }),
-                          icon: "request" as const,
-                        }
-                      : status === "limited"
-                        ? {
-                            label: gt("Limited", { $context: "thread status: usage limited" }),
-                            icon: "failed" as const,
-                            className: "text-warning-foreground",
-                          }
-                        : status === "failed"
-                          ? {
-                              label: gt("Failed", { $context: "thread status" }),
-                              icon: "failed" as const,
-                              className: "text-error-foreground",
-                            }
-                          : planReady
-                            ? {
-                                label: gt("Plan ready", {
-                                  $context: "thread status: a plan awaits review",
-                                }),
-                                icon: "input" as const,
-                                className: "text-violet-600 dark:text-violet-300",
-                              }
-                            : isWoke
-                              ? {
-                                  label: gt("Woke", {
-                                    $context: "thread status: woke from snooze",
-                                  }),
-                                  icon: "woke" as const,
-                                  className: "text-warning-foreground",
-                                }
-                              : isUnread && variantAction !== "unsnooze"
-                                ? {
-                                    label: gt("Done", { $context: "thread status" }),
-                                    icon: "done" as const,
-                                    className: "text-success",
-                                  }
-                                : null;
+  const { shouldRecede, topStatus } = resolveSidebarThreadRowStatus({
+    thread,
+    status,
+    isUnread,
+    isWoke,
+    isActive: props.isActive,
+    isSelected,
+    variantAction,
+    subagentActivity,
+    resolve: messages,
+  });
   const isWokeStatus = topStatus?.icon === "woke";
 
   const branchMismatch = resolveLocalCheckoutBranchMismatch({
@@ -1170,12 +911,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   const handleInsertClick = (event: ReactMouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
-    if (attachThreadsToComposer([threadRef])) return;
-    toastManager.add({
-      type: "warning",
-      title: messages(msg("No composer to insert into")),
-      description: messages(msg("Open a thread, then try again.")),
-    });
+    insertThreadsIntoComposer([threadRef], messages);
   };
   const handleActionPointerDown = (event: ReactPointerEvent) => {
     if (!event.isPrimary || event.button !== 0) return;
@@ -1820,48 +1556,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                       <RelativeTimeLabel timestamp={resolveThreadActivityTimestamp(thread)} />
                     )}
                   </span>
-                  <span
-                    className={cn(
-                      // Mouse clicks leave Settle focused; focus-within would pin controls over
-                      // the status label after the pointer leaves. Use focus-visible instead.
-                      "pointer-events-none absolute inset-y-0 right-0 flex items-stretch opacity-0 transition-opacity has-[:focus-visible]:pointer-events-auto has-[:focus-visible]:static has-[:focus-visible]:opacity-100 group-any-hover/sidebar-row:pointer-events-auto group-any-hover/sidebar-row:static group-any-hover/sidebar-row:opacity-100",
-                      snoozeMenuOpen && "pointer-events-auto static opacity-100",
-                    )}
+                  <SidebarThreadRowHoverActions
+                    snoozeMenuOpen={snoozeMenuOpen}
+                    onDiscardDraft={hasUnsentDraft ? handleDiscardDraftClick : null}
+                    onInsert={handleInsertClick}
+                    onSettle={props.settlementSupported ? handleSettleClick : null}
+                    onSettlePointerDown={handleActionPointerDown}
                   >
-                    {hasUnsentDraft ? (
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <SidebarTooltipButton
-                              kind="discard"
-                              type="button"
-                              aria-label={gt("Discard draft")}
-                              onClick={handleDiscardDraftClick}
-                            />
-                          }
-                        />
-                        <TooltipPopup side="top">
-                          <T>Discard draft</T>
-                        </TooltipPopup>
-                      </Tooltip>
-                    ) : null}
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <SidebarTooltipButton
-                            kind="insert"
-                            type="button"
-                            aria-label={gt("Insert thread into the composer")}
-                            onClick={handleInsertClick}
-                            onPointerDown={(event) => event.stopPropagation()}
-                            onDoubleClick={(event) => event.stopPropagation()}
-                          />
-                        }
-                      />
-                      <TooltipPopup>
-                        <T>Insert into the composer</T>
-                      </TooltipPopup>
-                    </Tooltip>
                     {showSnoozeButton ? (
                       <SnoozeMenuButton
                         open={snoozeMenuOpen}
@@ -1871,25 +1572,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                         environmentId={thread.environmentId}
                       />
                     ) : null}
-                    {props.settlementSupported ? (
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <SidebarTooltipButton
-                              kind="settle-label"
-                              type="button"
-                              aria-label={gt("Settle thread")}
-                              onClick={handleSettleClick}
-                              onPointerDown={handleActionPointerDown}
-                            />
-                          }
-                        />
-                        <TooltipPopup>
-                          <T>Settle thread</T>
-                        </TooltipPopup>
-                      </Tooltip>
-                    ) : null}
-                  </span>
+                  </SidebarThreadRowHoverActions>
                   {jumpHintLabel ? <JumpHintBadge label={jumpHintLabel} /> : null}
                 </span>
               )}

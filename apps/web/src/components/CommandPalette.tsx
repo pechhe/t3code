@@ -75,10 +75,8 @@ import {
   FileSearchIcon,
   FolderGit2Icon,
   FolderIcon,
-  FolderInputIcon,
   FolderPlusIcon,
   MessageSquareDashedIcon,
-  DownloadIcon,
   LinkIcon,
   MessageSquareIcon,
   MonitorUpIcon,
@@ -88,7 +86,6 @@ import {
   MonitorIcon,
   PinIcon,
   PinOffIcon,
-  ShieldCheckIcon,
   PlugIcon,
   SquarePenIcon,
   TextSearchIcon,
@@ -143,7 +140,6 @@ import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { useScratchProject } from "../hooks/useScratchProject";
 import { useMoveThreadToProject } from "../hooks/useMoveThreadToProject";
 import { useNewProject } from "../hooks/useNewProject";
-import { threadRuntimeIsActive } from "@t3tools/client-runtime/state/models";
 import { useStartTriage } from "../hooks/useStartTriage";
 import { pickTriageEnvironment } from "../lib/triageTarget";
 import { useOrderWhileOpen } from "../hooks/useOrderWhileOpen";
@@ -258,7 +254,6 @@ import {
 import {
   buildNewThreadInProjectItems,
   buildProjectSearchItems,
-  projectFaviconIcon,
 } from "./CommandPaletteProjectItems";
 import {
   CommandPaletteSubmitButton,
@@ -279,7 +274,9 @@ import { Checkbox } from "./ui/checkbox";
 import { ProjectFilePicker } from "./files/ProjectFilePicker";
 import { openLinkPullRequestDialog } from "./pullRequest/LinkPullRequestDialog";
 import { openLinkForgeItemDialog } from "./forgeItem/LinkForgeItemDialog";
-import { openExportTranscriptDialog } from "./ExportTranscriptDialog";
+import { buildExportTranscriptItem } from "./exportTranscriptPaletteItem";
+import { buildChampionsItem } from "./champions/commandPaletteChampionItems";
+import { buildMoveToProjectItem } from "./commandPalette/moveToProjectItem";
 import { useForgeConnected } from "../state/forgeWorkItems";
 import { canShareWithGuestAtom } from "./chat/guestShareAvailability";
 import { openGuestShareDialog } from "./chat/guestShareDialogState";
@@ -1446,51 +1443,14 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
-  const activeThreadProject = activeThread
-    ? projects.find(
-        (project) =>
-          project.environmentId === activeThread.environmentId &&
-          project.id === activeThread.projectId,
-      )
-    : undefined;
-  if (
-    activeThread &&
-    activeThreadProject &&
-    isScratchProject(activeThreadProject, scratchWorkspaceRootFor(activeThread.environmentId))
-  ) {
-    const moveTargets = projects.filter(
-      (project) =>
-        project.environmentId === activeThread.environmentId &&
-        project.id !== activeThreadProject.id,
-    );
-    if (moveTargets.length > 0) {
-      actionItems.push({
-        kind: "submenu",
-        value: "action:move-thread-to-project",
-        searchTerms: ["move", "project", "no project", "scratch"],
-        title: gt("Move to project…"),
-        icon: <FolderInputIcon className={ITEM_ICON_CLASS} />,
-        addonIcon: <FolderInputIcon className={ADDON_ICON_CLASS} />,
-        groups: [
-          {
-            value: "projects",
-            label: gt("Move to project"),
-            items: moveTargets.map((project): CommandPaletteActionItem => ({
-              kind: "action",
-              value: `move-thread-to-project:${project.id}`,
-              title: project.title,
-              searchTerms: [project.title, "move", "project"],
-              icon: projectFaviconIcon(project),
-              disabled: threadRuntimeIsActive(activeThread.runtime),
-              run: async () => {
-                await moveThreadToProject(activeThread, project.id);
-              },
-            })),
-          },
-        ],
-      });
-    }
-  }
+  const moveToProjectItem = buildMoveToProjectItem({
+    resolve: messages,
+    activeThread,
+    projects,
+    scratchWorkspaceRootFor,
+    moveThreadToProject,
+  });
+  if (moveToProjectItem) actionItems.push(moveToProjectItem);
 
   if (triageEnvironmentId !== null && canTriage) {
     actionItems.push({
@@ -1644,17 +1604,7 @@ function OpenCommandPaletteDialog(props: {
   }
 
   if (activeThread !== null) {
-    const thread = activeThread;
-    actionItems.push({
-      kind: "action",
-      value: "action:export-transcript",
-      searchTerms: ["export", "transcript", "copy", "markdown", "download", "review"],
-      title: gt("Export transcript…"),
-      icon: <DownloadIcon className={ITEM_ICON_CLASS} />,
-      run: async () => {
-        openExportTranscriptDialog(scopeThreadRef(thread.environmentId, thread.id));
-      },
-    });
+    actionItems.push(buildExportTranscriptItem({ resolve: messages, thread: activeThread }));
   }
 
   if (
@@ -1952,16 +1902,12 @@ function OpenCommandPaletteDialog(props: {
     },
   });
 
-  actionItems.push({
-    kind: "action",
-    value: "action:champions",
-    searchTerms: ["champions", "champion", "metrics", "health", "quality", "monitor", "findings"],
-    title: gt("Open champions"),
-    icon: <ShieldCheckIcon className={ITEM_ICON_CLASS} />,
-    run: async () => {
-      await navigate({ to: "/champions" });
-    },
-  });
+  actionItems.push(
+    buildChampionsItem({
+      resolve: messages,
+      openChampions: () => navigate({ to: "/champions" }),
+    }),
+  );
 
   actionItems.push({
     kind: "action",

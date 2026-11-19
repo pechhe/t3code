@@ -14,6 +14,13 @@ import { decodeMsg, msg, useMessages } from "gt-react";
 import { TYPOGRAPHY_ADVANCED_STORAGE_KEY } from "../../appearanceFonts";
 import { writeLocalStorageValue } from "../../hooks/useLocalStorage";
 import type { MessageResolver } from "../../i18n/messages";
+import {
+  AGENT_BROWSER_BACKEND_SETTINGS_SEARCH_ITEMS,
+  APPEARANCE_FEEL_SETTINGS_SEARCH_ITEMS,
+  DELEGATION_SETTINGS_SEARCH_ITEMS,
+  SNAP_SHOT_OVERLAY_SETTINGS_SEARCH_ITEMS,
+  VERSION_CONTROL_SETTINGS_SEARCH_ITEMS,
+} from "./forkSettingsSearchItems";
 import { commandLabel } from "./KeybindingsSettings.logic";
 import type { ResolvedSettingsScope } from "./settingsScope";
 
@@ -254,46 +261,7 @@ export const SETTINGS_SEARCH_ITEMS = [
       "decisions jev typesafe openai luna openrouter provider model api key credits test bounded questions",
     ],
   },
-  {
-    id: "delegation",
-    title: msg("Delegation"),
-    to: "/settings/delegation",
-    searchTerms: [
-      "agent models notes roles jobs subagents reviewer advisor effort order policy subscription conservation usage remaining threshold reserve",
-    ],
-  },
-  {
-    id: "delegation-child-permissions",
-    title: msg("Helper permissions"),
-    to: "/settings/delegation",
-    scope: "environment",
-    environmentOnly: true,
-    searchTerms: ["delegated child runtime mode subagent permissions"],
-  },
-  {
-    id: "delegation-trusted-claude-writers",
-    title: msg("Let Claude helpers write with full access"),
-    to: "/settings/delegation",
-    scope: "environment",
-    environmentOnly: true,
-    searchTerms: ["trusted claude writers delegated subagent host access"],
-  },
-  {
-    id: "delegation-advisor-idle-close",
-    title: msg("Close idle advisors"),
-    to: "/settings/delegation",
-    scope: "environment",
-    environmentOnly: true,
-    searchTerms: ["advisor timeout idle close subagent"],
-  },
-  {
-    id: "delegation-model-shadow",
-    title: msg("Record the Decisions provider's model pick"),
-    to: "/settings/delegation",
-    scope: "environment",
-    environmentOnly: true,
-    searchTerms: ["shadow decision model pick delegation jev measurement"],
-  },
+  ...DELEGATION_SETTINGS_SEARCH_ITEMS,
   {
     id: "experiments",
     title: msg("Experiments"),
@@ -523,44 +491,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/appearance",
     searchTerms: [msg("long lines code blocks diffs file previews")],
   },
-  {
-    id: "interface-sounds",
-    title: msg("Interface sounds"),
-    to: "/settings/appearance",
-    searchTerms: [msg("click tick audio sound effects hover composer sidebar mute")],
-  },
-  {
-    id: "send-sound",
-    title: msg("Send sound"),
-    to: "/settings/appearance",
-    searchTerms: ["sound audio send message air release pneumatic tube bell click dial"],
-  },
-  {
-    id: "queue-sound",
-    title: msg("Queue sound"),
-    to: "/settings/appearance",
-    searchTerms: ["sound audio queue queued message latch drop slot click dial"],
-  },
-  {
-    id: "settle-sound",
-    title: msg("Settle sound"),
-    to: "/settings/appearance",
-    searchTerms: [
-      "sound audio settle settled done thread seat tick press pair soft detent whoosh metal stamp filed switch tap",
-    ],
-  },
-  {
-    id: "send-motion",
-    title: msg("Send motion"),
-    to: "/settings/appearance",
-    searchTerms: ["animation send message slide lift vacuum fly transition motion"],
-  },
-  {
-    id: "composer-finish",
-    title: msg("Composer finish"),
-    to: "/settings/appearance",
-    searchTerms: ["composer metal chassis silver anodized black screen colour color skin peach"],
-  },
+  ...APPEARANCE_FEEL_SETTINGS_SEARCH_ITEMS,
   {
     id: "project-grouping",
     title: msg("Project grouping"),
@@ -1125,13 +1056,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/snap-shot",
     targetId: "snap-shot-enabled",
   },
-  {
-    id: "snap-shot-overlay-shortcut",
-    title: msg("Show or hide shortcut"),
-    to: "/settings/snap-shot",
-    targetId: "snap-shot-enabled",
-    searchTerms: ["snapshot overlay conversation hide show"],
-  },
+  ...SNAP_SHOT_OVERLAY_SETTINGS_SEARCH_ITEMS,
   {
     id: "snap-shot-sound",
     title: msg("Capture sound"),
@@ -1209,13 +1134,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     scope: "project-defaults",
     searchTerms: [msg("allow disable enable open drive preview tools sessions project override")],
   },
-  {
-    id: "agent-browser-backends",
-    title: msg("Agent browser"),
-    to: "/settings/browser",
-    scope: "project-defaults",
-    searchTerms: ["phi t3 integrated backend default preview tools project override"],
-  },
+  ...AGENT_BROWSER_BACKEND_SETTINGS_SEARCH_ITEMS,
   {
     id: "device-sources",
     title: msg("Device sources"),
@@ -1320,13 +1239,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/browser",
     searchTerms: [msg("agent opens browser device simulator pop into view hide")],
   },
-  {
-    id: "version-control-preference",
-    title: msg("Version control"),
-    to: "/settings/source-control",
-    scope: "project-defaults",
-    searchTerms: ["git slipjay jujutsu jj project repository convert banner"],
-  },
+  ...VERSION_CONTROL_SETTINGS_SEARCH_ITEMS,
   {
     id: "automatic-pull",
     title: msg("Automatically pull"),

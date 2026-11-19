@@ -43,7 +43,6 @@ import { ThreadFind, ThreadFindCanvas } from "./chat/ThreadFindProvider";
 import { closeThreadFind, openThreadFind, useThreadFindOpen } from "./chat/threadFindStore";
 import { THREAD_FIND_BAR_RESERVED_HEIGHT } from "./chat/ThreadFindBar";
 import { usageLimitRecoveryBannerItem } from "./chat/UsageLimitRecoveryBanner";
-import { TriangleAlertIcon } from "lucide-react";
 import { useProjectSuggestionBannerItem } from "./chat/ProjectSuggestionBanner";
 import { useSelectedWorkspace } from "../hooks/useSelectedWorkspace";
 import { ReleaseButton } from "./ReleaseButton";
@@ -58,7 +57,11 @@ import {
   SnapShotOverlayAbove,
   SnapShotOverlayDockPill,
 } from "./snapShot/SnapShotOverlayChat";
-import { useSnapShotOverlayDock } from "./snapShot/snapShotOverlayDock";
+import {
+  type ChatViewPresentation,
+  useSnapShotOverlayComposerFocus,
+  useSnapShotOverlayDock,
+} from "./snapShot/snapShotOverlayDock";
 import { DRAFT_HERO_TRANSITION_DURATION_MS } from "./chat/draftHeroTransition";
 import { useBottomDraftHeroStore } from "~/lib/draftHeroAtBottom";
 import { useReportMainComposerFrame } from "./snapShot/useReportMainComposerFrame";
@@ -103,7 +106,6 @@ import {
   type ScopedThreadRef,
   type ThreadId,
   ProviderInteractionMode,
-  resolveClaudeCompactionSetting,
   resolveIdleCompaction,
   RuntimeMode,
 } from "@t3tools/contracts";
@@ -168,7 +170,7 @@ import {
   assistantCitationFromLocation,
   useSideChatCitationReveal,
 } from "../lib/assistantCitationNavigation";
-import { subagentRoundTaskIdFromLocation } from "../lib/subagentRoundNavigation";
+import { subagentRoundAnchor } from "../lib/subagentRoundNavigation";
 import type { AssistantCitationSourceAnchor } from "~/lib/assistantTextSelection";
 import { useStore } from "zustand";
 import { shallow } from "zustand/vanilla/shallow";
@@ -285,7 +287,7 @@ import { type TerminalContextDraft } from "../lib/terminalContext";
 import { collectInlineContextIds } from "../lib/composerContextReferences";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { useKnownTerminalSessions, useThreadRunningTerminalIds } from "../state/terminalSessions";
-import { useEnvironmentQuery, useEnvironmentQueryRefresh } from "../state/query";
+import { useEnvironmentQueryRefresh } from "../state/query";
 import { useEnvironmentScope } from "~/state/session";
 import { primaryServerKeybindingsAtom, serverEnvironment } from "../state/server";
 import { hostEnvironmentIdAtom } from "../state/primaryEnvironment";
@@ -377,10 +379,9 @@ import { ComposerBannerStack, type ComposerBannerStackItem } from "./chat/Compos
 import { modelFallbackBannerItem } from "./chat/ComposerUsageLimits";
 import { ComposerSurface } from "./chat/ComposerSurface";
 import { resolveThreadSyncPhase } from "../threadSync";
-import {
-  hasAvailableCompactionProvider,
-  resolveCompactionModelDisplayName,
-} from "./chat/compaction.logic";
+import { hasAvailableCompactionProvider } from "./chat/compaction.logic";
+import { useResumeCompactionModelName } from "./chat/useResumeCompactionModelName";
+import { gitProjectBannerItem } from "./chat/gitProjectBannerItem";
 import {
   deriveLatestContextWindowSnapshot,
   hasDismissedResumeCompaction,
@@ -457,12 +458,6 @@ const EMPTY_AUTO_UPDATE_ENVIRONMENTS: ReadonlyArray<EnvironmentPresentation> = [
 const EMPTY_COMPOSER_BANNER_ITEMS: ReadonlyArray<ComposerBannerStackItem> = [];
 
 const EMPTY_PENDING_FILE_SURFACE_IDS: ReadonlySet<string> = new Set();
-
-/**
- * `overlay` is the SnapShot overlay's compact chat: the timeline and composer only, without the
- * header, side panels, terminal or draft hero.
- */
-type ChatViewPresentation = "app" | "overlay";
 
 type ChatViewProps =
   | {
@@ -666,18 +661,7 @@ export default function ChatView(props: ChatViewProps) {
       ? { citation: locationCitation, key: citationActivation }
       : null
   ) as AssistantCitationRequest | null;
-  // A follow-up pill links to the child thread with its delegated task id; the child run that
-  // answers that task is the round to land on.
-  const roundAnchor = (() => {
-    const taskId = subagentRoundTaskIdFromLocation(citationLocation.href);
-    const run =
-      taskId === null
-        ? undefined
-        : serverProjection?.runs.find((candidate) => candidate.delegatedTaskId === taskId);
-    return run === undefined || taskId === null
-      ? null
-      : { runId: run.id, key: `${taskId}:${run.id}` };
-  })();
+  const roundAnchor = subagentRoundAnchor(citationLocation.href, serverProjection?.runs);
   useSideChatCitationReveal(embedded ? null : routeThreadRef, locationCitation, citationActivation);
   const citationHistory = useCitedHistory(citationRequest);
   const { resolvedTheme } = useTheme();
@@ -1886,21 +1870,12 @@ export default function ChatView(props: ChatViewProps) {
   // attachment.
   const liveIsSlipJay =
     gitStatusAtom === null || selectedWorkspace?.attachment ? undefined : slipJayCheckout !== null;
-  // Git is a supported choice: only a project set to SlipJay is nudged to convert.
-  const gitProjectBannerItem: ComposerBannerStackItem | null =
-    liveIsGitRepo === true &&
-    liveIsSlipJay === false &&
-    activeProjectSettings.settings.versionControl === "slipjay"
-      ? {
-          id: "git-project",
-          variant: "warning",
-          icon: <TriangleAlertIcon />,
-          title: gt("This is a Git project"),
-          description: gt(
-            "Set to SlipJay, so it should convert to Jujutsu. Change it in Source control settings.",
-          ),
-        }
-      : null;
+  const gitProjectBanner = gitProjectBannerItem({
+    isGitRepo: liveIsGitRepo,
+    isSlipJay: liveIsSlipJay,
+    versionControl: activeProjectSettings.settings.versionControl,
+    resolve: messages,
+  });
   // A provider-native subagent cannot take messages: a status bar replaces the
   // composer and its strips. Its approvals and questions are asked on the
   // top-level parent thread.
@@ -1988,23 +1963,11 @@ export default function ChatView(props: ChatViewProps) {
 
   const { focusComposer: focusComposerStable, scheduleComposerFocus: scheduleComposerFocusStable } =
     useComposerFocus(composerRef);
-  // The overlay's composer comes back from its dock ready for a follow-up, once it has risen:
-  // focusing it on the way up would scroll the overlay to it.
-  const overlayComposerStackRef = useRef<HTMLDivElement>(null);
-  const overlayComposerRaised =
-    overlayPresentation && overlayDock.prompt !== null && !overlayDock.docked;
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- focuses the overlay composer after its DOM entrance animations settle
-  useEffect(() => {
-    if (!overlayComposerRaised) return;
-    const cancellation = { cancelled: false };
-    const rising = overlayComposerStackRef.current?.getAnimations() ?? [];
-    void Promise.allSettled(rising.map((animation) => animation.finished)).then(() => {
-      if (!cancellation.cancelled) focusComposerStable();
-    });
-    return () => {
-      cancellation.cancelled = true;
-    };
-  }, [focusComposerStable, overlayComposerRaised]);
+  const overlayComposerStackRef = useSnapShotOverlayComposerFocus(
+    overlayPresentation,
+    overlayDock,
+    focusComposerStable,
+  );
   const canInterruptRunningThread =
     canOperateThread && deriveCanInterruptRunningThread(activeThread !== undefined, activeRuntime);
   const onInterrupt = async () => {
@@ -2716,51 +2679,17 @@ export default function ChatView(props: ChatViewProps) {
     })
       ? activeContextWindow.usedTokens
       : null;
-  const unsetCompactionModel =
-    selectedProviderEntry !== undefined &&
-    resolveClaudeCompactionSetting(settings, selectedProviderEntry.instanceId).model.trim() === "";
-  const choreWorkerCompactionQuery = useEnvironmentQuery(
-    resumeCompactionTokens !== null && unsetCompactionModel
-      ? serverEnvironment.agentPolicyCompactionModel({ environmentId, input: {} })
-      : null,
-  );
-  const choreWorkerSelection = choreWorkerCompactionQuery.data?.selection ?? null;
-  const resumeCompactionModelName =
-    resumeCompactionTokens !== null &&
-    selectedProviderEntry !== undefined &&
-    activeThread !== undefined
-      ? resolveCompactionModelDisplayName({
-          setting: resolveClaudeCompactionSetting(settings, selectedProviderEntry.instanceId),
-          conversationInstanceId: selectedProviderEntry.instanceId,
-          conversationModel:
-            resolveSelectableModel(
-              selectedProviderEntry.driverKind,
-              activeThread.modelSelection.model,
-              selectedProviderEntry.models,
-            ) ?? activeThread.modelSelection.model,
-          models:
-            providerInstanceEntries.find(
-              (entry) =>
-                entry.instanceId ===
-                resolveClaudeCompactionSetting(settings, selectedProviderEntry.instanceId)
-                  .instanceId,
-            )?.models ?? selectedProviderEntry.models,
-          usages: (serverProjection?.providerTurns ?? []).flatMap((turn) =>
-            turn.tokenUsage !== undefined && turn.providerThreadId === activeProviderThread?.id
-              ? [turn.tokenUsage]
-              : [],
-          ),
-          usedTokens: resumeCompactionTokens,
-          now: `${nowMinute}:00.000Z`,
-          choreWorker: {
-            selection: choreWorkerSelection,
-            models:
-              providerInstanceEntries.find(
-                (entry) => entry.instanceId === choreWorkerSelection?.instanceId,
-              )?.models ?? [],
-          },
-        })
-      : null;
+  const resumeCompactionModelName = useResumeCompactionModelName({
+    environmentId,
+    settings,
+    selectedProviderEntry,
+    providerInstanceEntries,
+    threadModel: activeThread?.modelSelection.model,
+    providerTurns: serverProjection?.providerTurns ?? [],
+    providerThreadId: activeProviderThread?.id,
+    resumeCompactionTokens,
+    nowMinute,
+  });
   const [fullHistoryThreadKeys, setFullHistoryThreadKeys] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -2896,7 +2825,7 @@ export default function ChatView(props: ChatViewProps) {
       freshSessionAvailable && freshSessionArmed && activePendingApproval === null
         ? [freshSessionBannerItem(() => disarmFreshSession(routeThreadKey), messages)]
         : [];
-    const gitProjectItems = gitProjectBannerItem === null ? [] : [gitProjectBannerItem];
+    const gitProjectItems = gitProjectBanner === null ? [] : [gitProjectBanner];
     if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
       return [
         ...feedbackBannerItems,

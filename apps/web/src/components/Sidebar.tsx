@@ -33,8 +33,6 @@ import { restrictToFirstScrollableAncestor, restrictToVerticalAxis } from "@dnd-
 import {
   canSnooze,
   effectiveSnoozed,
-  parkedThreadSubtitle,
-  parkedWaitTimeLeft,
   threadWokeAt,
 } from "@t3tools/client-runtime/state/thread-settled";
 import {
@@ -211,7 +209,6 @@ import {
   resolveSidebarDropTarget,
   resolveSidebarDropVerb,
   resolveSidebarThreadSection,
-  threadQuestionSubtitle,
   compareWaitingThreads,
   resolveSidebarReorderableThreadKeys,
   searchSidebarThreads,
@@ -235,14 +232,11 @@ import {
   restrictBelowSidebarLabel,
 } from "./Sidebar.drag";
 import { SidebarPointerSensor } from "./Sidebar.pointer";
+import { sidebarRowWaitingProps } from "./sidebar/sidebarRowWaiting";
+import { isWorkingRowDrag } from "./sidebar/sidebarDrag.logic";
 import { createSidebarListMotion } from "./Sidebar.motion";
 import { createSidebarShiftGuard } from "./Sidebar.shiftGuard";
-import {
-  pickSnoozePreset,
-  resolveSnoozePresets,
-  snoozeWakeLabel,
-  type SnoozePreset,
-} from "./Sidebar.snooze";
+import { pickSnoozePreset, resolveSnoozePresets, type SnoozePreset } from "./Sidebar.snooze";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { deriveProviderEntriesByEnvironment } from "../providerInstances";
 import { useStableCallback } from "../hooks/useStableCallback";
@@ -2039,9 +2033,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     listMotionRef.current?.update(listMotionPass.animate && shelvesUnchanged);
   }, [listMotionPass, shelfExpansionKey]);
   const handleThreadDragOver = (event: DragOverEvent) => {
-    // Working rows have no lifecycle drop; they only drag out as context.
     const target =
-      event.over && sectionByThreadKey.get(String(event.active.id)) !== "working"
+      event.over && !isWorkingRowDrag(sectionByThreadKey.get(String(event.active.id)))
         ? resolveSidebarDropTarget(sidebarListItems, String(event.active.id), String(event.over.id))
         : null;
     setDragState((current) =>
@@ -2120,7 +2113,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     const activeThread = threadByKey.get(activeKey);
     if (
       activeSection === undefined ||
-      activeSection === "working" ||
+      isWorkingRowDrag(activeSection) ||
       target === null ||
       activeThread === undefined
     )
@@ -3501,27 +3494,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             sweepAction={
                               actionSweep?.keys.has(threadKey) ? actionSweep.action : null
                             }
-                            snoozeWakeLabelText={
-                              section !== "snoozed"
-                                ? null
-                                : !effectiveSnoozed(thread, { now: snoozeNow }) &&
-                                    (thread.parkedWaits?.length ?? 0) > 0
-                                  ? parkedWaitTimeLeft(thread.parkedWaits, Date.parse(snoozeNow))
-                                  : thread.snoozedUntil != null
-                                    ? snoozeWakeLabel(
-                                        thread.snoozedUntil,
-                                        { now: new Date().toISOString() },
-                                        messages,
-                                      )
-                                    : null
-                            }
-                            ownerSnoozed={effectiveSnoozed(thread, { now: snoozeNow })}
-                            parkedSubtitle={
-                              effectiveSnoozed(thread, { now: snoozeNow })
-                                ? gt("Snoozed by you")
-                                : (threadQuestionSubtitle(thread, messages) ??
-                                  parkedThreadSubtitle(thread.parkedWaits, Date.parse(snoozeNow)))
-                            }
+                            {...sidebarRowWaitingProps({
+                              thread,
+                              section,
+                              snoozeNow,
+                              messages,
+                            })}
                             wokeAt={threadWokeAt(thread, { now: snoozeNow })}
                             isActive={routeRowThreadKey === threadKey}
                             revealRef={

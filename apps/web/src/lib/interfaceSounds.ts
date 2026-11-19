@@ -1,13 +1,7 @@
 /**
- * Interface sounds: the composer's machined press and rotary clicks (peach-pi's
- * recordings), the keycaps' clicks, the synthesised cue that replaces the
- * click on a send or a queue, the cue that marks a thread settling (one of them peach-pi's metal whoosh),
- * and the sidebar's hover tick (YardSmith's synthesised detent).
- *
- * Browsers keep audio silent until the page sees a gesture, so the context starts
- * on the first pointer or key press and anything earlier is skipped. Between
- * bursts it suspends, so an idle window holds no audio output open. Everything is
- * quiet while the `interfaceSounds` client setting is off.
+ * Browsers keep audio silent until the page sees a gesture, so the context starts on the
+ * first pointer or key press and anything earlier is skipped. Between bursts it suspends,
+ * so an idle window holds no audio output open.
  */
 import type { QueueSound, SendSound, SettleSound } from "@t3tools/contracts/settings";
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
@@ -410,10 +404,22 @@ export function dialClicks(queued: boolean): boolean {
 }
 
 /** The sound of a dispatch: the chosen send cue, or the queue cue when the message waits. */
-export function playDispatchCue(queued: boolean): void {
+function playDispatchCue(queued: boolean): void {
   const settings = getClientSettings();
   const cue = queued ? QUEUE_CUES[settings.queueSound] : SEND_CUES[settings.sendSound];
   if (cue) synth(cue);
+}
+
+/**
+ * A device-composer send. A click already pressed the dial; a keyboard send presses it here,
+ * then the dispatch cue plays.
+ */
+export function playDeviceSendCue(queued: boolean, keyboard: boolean, pressDial: () => void) {
+  if (keyboard) {
+    pressDial();
+    if (dialClicks(queued)) pressClick()();
+  }
+  playDispatchCue(queued);
 }
 
 /** A send sound as a send plays it, for choosing one in Settings. */

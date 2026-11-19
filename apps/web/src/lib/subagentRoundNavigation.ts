@@ -1,3 +1,5 @@
+import type { RunId } from "@t3tools/contracts";
+
 const SUBAGENT_ROUND_HASH_PREFIX = "subagent-round=";
 
 /** A follow-up pill's link lands on its round inside the reviewer's conversation. */
@@ -17,4 +19,20 @@ export function subagentRoundTaskIdFromLocation(href: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * A follow-up pill links to the child thread with its delegated task id; the child run that
+ * answers that task is the round to land on.
+ */
+export function subagentRoundAnchor(
+  href: string,
+  runs: ReadonlyArray<{ readonly id: RunId; readonly delegatedTaskId?: string | undefined }> = [],
+): { readonly runId: RunId; readonly key: string } | null {
+  const taskId = subagentRoundTaskIdFromLocation(href);
+  const run =
+    taskId === null ? undefined : runs.find((candidate) => candidate.delegatedTaskId === taskId);
+  return run === undefined || taskId === null
+    ? null
+    : { runId: run.id, key: `${taskId}:${run.id}` };
 }

@@ -54,6 +54,19 @@ because that often means only that no tab exists yet. Stop only if `preview_open
 4. Capture every state with `t3_browser_task` `steps`, and embed each returned `path` in
    your reply as a Markdown image.
 
+## Compare before and after
+
+For a change that must look identical, capture both builds the same way rather than
+eyeballing a live dev server: under load its first lazy chunks can fail ("T3 Code failed
+to start"), and live data (runner chips, ages) differs between runs anyway. Build the web
+app (`vp build` in `apps/web`) for the base and for the candidate, keep each `dist`,
+and serve one at a time with the plain server (`node apps/server/src/bin.ts --base-dir .t3
+--port <5733-8733> --no-browser`, which serves `apps/web/dist`), restoring the same copy
+of `.t3/userdata/statev2.sqlite` before each run. Drive both with one `t3 browser run`
+script: `preview_snapshot` with `save: true` returns a `screenshotPath`, and fresh run
+storage means each run pairs with the token the server prints. Diff the images per pixel
+and expect only the caret, relative ages and live chips to differ.
+
 ## Verify and retain
 
 Exercise the affected flow and capture the state that proves it works. If the page

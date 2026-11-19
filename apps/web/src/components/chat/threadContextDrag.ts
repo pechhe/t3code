@@ -1,10 +1,13 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
 import { type RefObject, useEffect, useSyncExternalStore } from "react";
+import { msg } from "gt-react";
 
 import type { ThreadContextDropRef } from "./threadContextDrop.logic";
 import { useStableCallback } from "../../hooks/useStableCallback";
+import type { MessageResolver } from "../../i18n/messages";
 import { readThreadShells } from "../../state/entities";
+import { toastManager } from "../ui/toast";
 
 const THREAD_CONTEXT_DROP_EVENT = "t3-thread-context-drop";
 
@@ -99,8 +102,20 @@ export function dropThreadContext(
 }
 
 /** Hands threads to the composer on screen, as a drop would. False when no composer is open. */
-export function attachThreadsToComposer(threads: ReadonlyArray<ScopedThreadRef>): boolean {
+function attachThreadsToComposer(threads: ReadonlyArray<ScopedThreadRef>): boolean {
   return handToComposer(document.querySelector<HTMLElement>(`[${DROP_TARGET_ATTRIBUTE}]`), threads);
+}
+
+export function insertThreadsIntoComposer(
+  threads: ReadonlyArray<ScopedThreadRef>,
+  messages: MessageResolver,
+) {
+  if (attachThreadsToComposer(threads)) return;
+  toastManager.add({
+    type: "warning",
+    title: messages(msg("No composer to insert into")),
+    description: messages(msg("Open a thread, then try again.")),
+  });
 }
 
 function handToComposer(
@@ -121,7 +136,7 @@ export function threadContextDropTargetProps() {
  * clipboard). Null when any token is not a known thread, so ordinary text pastes untouched. An
  * id known to several environments resolves to `preferredEnvironmentId` when it is one of them.
  */
-export function resolvePastedThreadIds(
+function resolvePastedThreadIds(
   text: string,
   preferredEnvironmentId: EnvironmentId,
 ): ScopedThreadRef[] | null {
@@ -135,5 +150,18 @@ export function resolvePastedThreadIds(
     if (!match) return null;
     refs.push(scopeThreadRef(match.environmentId, match.id));
   }
+  return refs;
+}
+
+/** A copied thread id (the thread menu's "Copy thread ID") pastes as a thread chip: takes the paste and returns its threads. */
+export function takePastedThreadIds(
+  event: { preventDefault(): void; stopPropagation(): void },
+  text: string,
+  preferredEnvironmentId: EnvironmentId,
+): ScopedThreadRef[] | null {
+  const refs = resolvePastedThreadIds(text, preferredEnvironmentId);
+  if (refs === null) return null;
+  event.preventDefault();
+  event.stopPropagation();
   return refs;
 }

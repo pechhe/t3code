@@ -1,14 +1,6 @@
-import {
-  FULL_ACCESS_OVERRIDE_QUESTION,
-  fullAccessOverrideExplanation,
-} from "@t3tools/client-runtime/state/thread-requests";
-import { InlineButton } from "../ui/button";
-import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
-import { composerFloatingLayerProps } from "./composerEventScope";
 import type { ProviderApprovalDecision } from "@t3tools/contracts";
 import type { ReactNode } from "react";
-import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
-import { ShieldIcon } from "lucide-react";
+import { ComposerPendingApprovalRow, ComposerRequestDrawer } from "./ComposerPendingApprovalPanel";
 import { copySnapshot } from "./copySnapshot";
 import { VoiceInputSetup } from "./VoiceInputSetup";
 import { useComposerTypingGuard } from "./useComposerTypingGuard";
@@ -147,11 +139,7 @@ import {
   type ImageMark,
 } from "../../lib/imageAnnotation";
 import { ImageAnnotator } from "./ImageAnnotator";
-import {
-  ComposerScreenRecordControl,
-  useComposerScreenRecordingAvailable,
-} from "./ComposerScreenRecordControl";
-import { startScreenRecording, useScreenRecording } from "./screenRecordingSession";
+import { useComposerScreenRecording } from "./useComposerScreenRecording";
 import { useNavigate } from "@tanstack/react-router";
 import {
   attachmentsToReleaseOnUploadCapabilityLoss,
@@ -221,7 +209,7 @@ import {
 } from "~/lib/composerContextRecords";
 import { rememberCopiedComposerAttachments } from "~/lib/copiedComposerAttachments";
 import {
-  resolvePastedThreadIds,
+  takePastedThreadIds,
   threadContextDropTargetProps,
   useThreadContextDrop,
 } from "./threadContextDrag";
@@ -253,7 +241,7 @@ import {
 } from "./ComposerAttachmentStrip";
 import { CollapsedComposerStopAction, ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { ComposerFooterPrimaryActions } from "./ComposerFooterControls";
-import { dialClicks, playDispatchCue, pressClick } from "~/lib/interfaceSounds";
+import { playDeviceSendCue } from "~/lib/interfaceSounds";
 import { recordSendOrigin } from "~/lib/sendMotion";
 import { compactOnSendTokens } from "./compactOnSend.logic";
 import { type ThreadCompactionSavings } from "./device/blackholeStatus.logic";
@@ -262,7 +250,6 @@ import { type DeviceModelSliderHandle } from "./device/DeviceModelSlider";
 import type { ModelPickerPooling } from "./modelPickerPooling";
 import { useComposerPooling } from "./useComposerPooling";
 import { type DeviceReasoningDialHandle } from "./device/DeviceReasoningDial";
-import { ComposerDelegatedRequestSource } from "./ComposerDelegatedRequestSource";
 import type { SubagentPanelRequest } from "./SubagentPanel";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
@@ -1247,11 +1234,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
 
   const composerEditorRef = useRef<ComposerPromptEditorHandle>(null);
   const pasteAsTextShortcutUntilRef = useRef(0);
-  const screenRecordingAvailable = useComposerScreenRecordingAvailable();
-  const screenRecording = useScreenRecording();
-  const recordingIntoThisDraft =
-    screenRecording.origin !== null &&
-    composerTargetKey(screenRecording.origin.target) === composerDraftTargetKey;
   const composerFormRef = useRef<HTMLFormElement>(null);
   const composerSurfaceRef = useRef<HTMLDivElement>(null);
   const providerInputRejectedRef = useRef(false);
@@ -1409,6 +1391,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     (!activePendingProgress ||
       (supportsQuestionAttachments &&
         activePendingProgress.activeQuestion?.allowCustomAnswer !== false));
+  const screenRecording = useComposerScreenRecording({
+    enabled: props.screenRecordingEnabled && showComposerAttachAction,
+    target: composerDraftTarget,
+    threadTitle: activeThread?.title,
+    fileStagingLimit,
+    device: deviceComposer,
+  });
   const composerFooterHasWideActions = activePendingProgress !== null;
 
   const editPromptFromTraits = (edit: (prompt: string) => string) => {
@@ -2454,14 +2443,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       event?.preventDefault();
       return false;
     }
-    // The recording attaches only once it stops, so a send now would leave it behind.
-    if (recordingIntoThisDraft) {
+    if (screenRecording.blocksSend()) {
       event?.preventDefault();
-      toastManager.add({
-        type: "info",
-        title: gt("Still recording your screen."),
-        description: gt("Stop the recording, then send once it's attached."),
-      });
       return false;
     }
     if (pendingDraftWork.has(attachmentTargetKey)) {
@@ -2507,12 +2490,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     if (!submission.didDispatch) return false;
     // A click already pressed the dial; keyboard sends press it here.
     if (deviceComposer) {
-      const queued = resolvedDispatchMode === "queue" && !activePendingProgress;
-      if (!event) {
-        setSendPressKey((key) => key + 1);
-        if (dialClicks(queued)) pressClick()();
-      }
-      playDispatchCue(queued);
+      playDeviceSendCue(resolvedDispatchMode === "queue" && !activePendingProgress, !event, () =>
+        setSendPressKey((key) => key + 1),
+      );
     }
     onTypingGuardSend();
     if (shouldBlurMobileComposerOnSubmit()) {
@@ -2769,27 +2749,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     ? restingControlsIconOnlyBlockCount
     : expandedControlsIconOnlyBlockCount;
   const pendingRequestPanel = activePendingApproval ? (
-    <ComposerBanner.Row layout="approval" data-chat-composer-collapsed-controls="true">
-      <ComposerBanner.Icon>
-        <ShieldIcon />
-      </ComposerBanner.Icon>
-      <ComposerBanner.Content>
-        <ComposerPendingApprovalPanel
-          approval={activePendingApproval}
-          pendingCount={pendingApprovals.length}
-        />
-      </ComposerBanner.Content>
-      <ComposerBanner.Actions>
-        <ComposerPendingApprovalActions
-          requestId={activePendingApproval.requestId}
-          disabled={!canOperateThread}
-          isResponding={respondingRequestIds.includes(activePendingApproval.requestId)}
-          options={activePendingApproval.options}
-          canRespond={activePendingApproval.responseCapability === "live"}
-          onRespondToApproval={onRespondToApproval}
-        />
-      </ComposerBanner.Actions>
-    </ComposerBanner.Row>
+    <ComposerPendingApprovalRow
+      approval={activePendingApproval}
+      pendingCount={pendingApprovals.length}
+      canOperateThread={canOperateThread}
+      respondingRequestIds={respondingRequestIds}
+      onRespondToApproval={onRespondToApproval}
+    />
   ) : pendingUserInputs.length > 0 ? (
     <ComposerPendingUserInputPanel
       pendingUserInputs={pendingUserInputs}
@@ -3222,24 +3188,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       },
     });
   };
-  const startScreenRecordingStable = useStableCallback(() => {
-    if (fileStagingLimit === null) return;
-    const target = composerDraftTarget;
-    void startScreenRecording(
-      {
-        target,
-        title: activeThread?.title || gt("New thread"),
-        open: () =>
-          void (typeof target === "string"
-            ? navigate({ to: "/draft/$draftId", params: buildDraftThreadRouteParams(target) })
-            : navigate({
-                to: "/$environmentId/$threadId",
-                params: buildThreadRouteParams(target),
-              })),
-      },
-      fileStagingLimit,
-    );
-  });
 
   const attachDroppedThreadFile = useEffectEvent((file: File) => addComposerAttachments([file]));
   const importDroppedThread = useEffectEvent(
@@ -3377,11 +3325,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       return;
     }
 
-    // A copied thread id (the thread menu's "Copy thread ID") becomes a thread chip.
-    const pastedThreads = resolvePastedThreadIds(plainText, environmentId);
+    const pastedThreads = takePastedThreadIds(event, plainText, environmentId);
     if (pastedThreads !== null) {
-      event.preventDefault();
-      event.stopPropagation();
       attachThreadContexts(
         pastedThreads,
         () => attachmentTargetKeyRef.current === attachmentTargetKey,
@@ -3821,14 +3766,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         focusComposer={focusComposer}
       />
     ) : null;
-  const screenRecordControl =
-    props.screenRecordingEnabled && showComposerAttachAction && screenRecordingAvailable ? (
-      <ComposerScreenRecordControl
-        busy={screenRecording.state.phase !== "idle"}
-        device={deviceComposer}
-        onStart={startScreenRecordingStable}
-      />
-    ) : null;
   return (
     <form
       ref={composerFormRef}
@@ -3898,23 +3835,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           <ComposerBannerStack items={shelfItems} />
           {requestPanelRowId !== null ? null : showComposerTopDrawer &&
             hasBlockingComposerTopDrawer ? (
-            <ComposerBanner.Attachment>
-              <ComposerBanner.Root
-                data-chat-composer-top-drawer="true"
-                variant={activePendingApproval ? "warning" : "info"}
-                density={activePendingApproval ? "spacious" : "default"}
-              >
-                {delegatedRequestRef !== null &&
-                (activePendingApproval || pendingUserInputs.length > 0) ? (
-                  <ComposerDelegatedRequestSource
-                    threadRef={delegatedRequestRef}
-                    kind={activePendingApproval ? "approval" : "input"}
-                    onOpenThread={onOpenRelatedThread}
-                  />
-                ) : null}
-                {pendingRequestPanel}
-              </ComposerBanner.Root>
-            </ComposerBanner.Attachment>
+            <ComposerRequestDrawer
+              approval={activePendingApproval !== null}
+              delegatedRequestRef={delegatedRequestRef}
+              onOpenThread={onOpenRelatedThread}
+            >
+              {pendingRequestPanel}
+            </ComposerRequestDrawer>
           ) : null}
         </ComposerBanner.Column>
         <ComposerStashBadge
@@ -4274,7 +4201,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   className="flex min-w-0 flex-1 flex-nowrap items-center justify-end gap-2"
                 >
                   {composerAttachButton}
-                  {deviceComposer ? null : screenRecordControl}
+                  {deviceComposer ? null : screenRecording.control}
                   <div
                     ref={attachExpandedComposerControls}
                     data-chat-composer-controls="footer"
@@ -4287,7 +4214,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     {composerControls}
                   </div>
                   {/* On the device composer the machine lever leads the row, so Rec sits between Fast and Send. */}
-                  {deviceComposer ? screenRecordControl : null}
+                  {deviceComposer ? screenRecording.control : null}
                   <ComposerFooterPrimaryActions
                     // Stop state belongs to one thread; the composer stays mounted across threads.
                     key={`${environmentId}:${activeThreadId ?? "new"}`}
@@ -4402,92 +4329,5 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         </ComposerSurface.Main>
       </div>
     </form>
-  );
-});
-
-interface ComposerPendingApprovalPanelProps {
-  approval: PendingApproval;
-  pendingCount: number;
-  className?: string;
-}
-
-const ComposerPendingApprovalPanel = memo(function ComposerPendingApprovalPanel({
-  approval,
-  pendingCount,
-  className,
-}: ComposerPendingApprovalPanelProps) {
-  const gt = useGT();
-  const Detail = approval.requestKind === "mcp-elicitation" ? "span" : "code";
-  const fallbackLabel =
-    approval.requestKind === "mcp-elicitation"
-      ? "App access approval"
-      : approval.requestKind === "command"
-        ? "Command approval"
-        : approval.requestKind === "file-read"
-          ? "File read approval"
-          : approval.requestKind === "permission"
-            ? "App permission approval"
-            : "File change approval";
-  const detailAriaLabel =
-    approval.requestKind === "mcp-elicitation"
-      ? "App access request"
-      : approval.requestKind === "command"
-        ? "Command"
-        : approval.requestKind === "file-read"
-          ? "File to read"
-          : approval.requestKind === "permission"
-            ? "Permission request"
-            : "File change";
-
-  return (
-    <span
-      aria-label={fallbackLabel}
-      className={cn("flex min-w-0 flex-1 flex-col items-start gap-1", className)}
-      role="group"
-    >
-      <span className="flex w-full min-w-0 items-center gap-2 text-2xs text-muted-foreground">
-        <span className="shrink-0 font-medium text-warning">{fallbackLabel}</span>
-        {approval.appName ? <span className="min-w-0 truncate">{approval.appName}</span> : null}
-        {approval.fullAccessOverride ? (
-          <Popover>
-            <PopoverTrigger openOnHover render={<InlineButton tone="muted" />}>
-              {FULL_ACCESS_OVERRIDE_QUESTION}
-            </PopoverTrigger>
-            <PopoverPopup
-              {...composerFloatingLayerProps}
-              aria-label={FULL_ACCESS_OVERRIDE_QUESTION}
-              tooltipStyle
-              side="top"
-              className="max-w-[min(22rem,calc(100vw-2rem))] whitespace-normal"
-            >
-              {fullAccessOverrideExplanation(approval.fullAccessOverride)}
-            </PopoverPopup>
-          </Popover>
-        ) : null}
-        {pendingCount > 1 ? (
-          <span className="ml-auto shrink-0 tabular-nums">1/{pendingCount}</span>
-        ) : null}
-      </span>
-      <Detail
-        aria-label={detailAriaLabel}
-        className={cn(
-          "block w-full min-w-0 overflow-auto text-xs text-foreground [scrollbar-width:thin] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70 [&::-webkit-scrollbar]:h-1.5",
-          approval.requestKind === "mcp-elicitation"
-            ? "max-h-20 whitespace-pre-wrap font-sans wrap-break-word"
-            : "max-h-40 whitespace-pre-wrap font-mono wrap-anywhere",
-        )}
-        data-approval-detail="complete"
-        tabIndex={0}
-      >
-        {approval.responseCapability === "not_resumable"
-          ? gt("Provider process is gone. Interrupt or restart the run to respond.")
-          : approval.detail || fallbackLabel}
-      </Detail>
-      {approval.reason ? (
-        <span className="w-full min-w-0 text-2xs text-muted-foreground wrap-break-word">
-          {approval.reason}
-        </span>
-      ) : null}
-    </span>
   );
 });

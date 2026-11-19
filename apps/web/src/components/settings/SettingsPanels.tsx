@@ -109,6 +109,10 @@ import {
   syncAutoSettleDaysField,
 } from "./SettingsPanels.logic";
 import {
+  INTERFACE_FEEL_SETTING_DEFAULTS,
+  getChangedInterfaceFeelSettingLabels,
+} from "./interfaceFeelSettings.logic";
+import {
   SETTINGS_PICKER_TRIGGER_CLASSNAME,
   SettingResetButton,
   SettingsPageContainer,
@@ -556,16 +560,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       ? [gt("Snooze options")]
       : []),
     ...(settings.wordWrap !== DEFAULT_UNIFIED_SETTINGS.wordWrap ? [gt("Word wrap")] : []),
-    ...(settings.interfaceSounds !== DEFAULT_UNIFIED_SETTINGS.interfaceSounds
-      ? [gt("Interface sounds")]
-      : []),
-    ...(settings.sendMotion !== DEFAULT_UNIFIED_SETTINGS.sendMotion ? [gt("Send motion")] : []),
-    ...(settings.sendSound !== DEFAULT_UNIFIED_SETTINGS.sendSound ? [gt("Send sound")] : []),
-    ...(settings.queueSound !== DEFAULT_UNIFIED_SETTINGS.queueSound ? [gt("Queue sound")] : []),
-    ...(settings.settleSound !== DEFAULT_UNIFIED_SETTINGS.settleSound ? [gt("Settle sound")] : []),
-    ...(settings.composerFinish !== DEFAULT_UNIFIED_SETTINGS.composerFinish
-      ? [gt("Composer finish")]
-      : []),
+    ...getChangedInterfaceFeelSettingLabels(settings, messages),
     ...getChangedTypographySettingLabels(settings, messages),
     ...(settings.diffFilesCollapsed !== DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed
       ? [gt("Default diff file state")]
@@ -711,12 +706,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       notificationMode: DEFAULT_UNIFIED_SETTINGS.notificationMode,
       inAppNotificationsEnabled: DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled,
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
-      interfaceSounds: DEFAULT_UNIFIED_SETTINGS.interfaceSounds,
-      sendMotion: DEFAULT_UNIFIED_SETTINGS.sendMotion,
-      sendSound: DEFAULT_UNIFIED_SETTINGS.sendSound,
-      queueSound: DEFAULT_UNIFIED_SETTINGS.queueSound,
-      settleSound: DEFAULT_UNIFIED_SETTINGS.settleSound,
-      composerFinish: DEFAULT_UNIFIED_SETTINGS.composerFinish,
+      ...INTERFACE_FEEL_SETTING_DEFAULTS,
       diffFilesCollapsed: DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed,
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
       diffLayout: DEFAULT_UNIFIED_SETTINGS.diffLayout,

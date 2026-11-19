@@ -83,7 +83,6 @@ import React, {
   Suspense,
   type ComponentProps,
   type ClipboardEvent as ReactClipboardEvent,
-  type MouseEvent as ReactMouseEvent,
   use,
   memo,
   useEffect,
@@ -105,6 +104,7 @@ import { parseComposerContextHref } from "@t3tools/shared/composerContextReferen
 import { parseThreadLinkHref } from "@t3tools/shared/threadLinks";
 import { AssistantCitationEmbed } from "./chat/AssistantCitationChip";
 import { MarkdownThreadLink } from "./chat/MarkdownThreadLink";
+import { CopyableInlineCode } from "./chat/CopyableInlineCode";
 import { forgeItemNumberFromUrl } from "@t3tools/shared/forgeLinks";
 import { useThreadForgeOrigin } from "~/state/forgeWorkItems";
 import { ForgeMentionChip } from "./forgeItem/ForgeMentionChip";
@@ -199,7 +199,7 @@ import { sourceControlClients } from "@t3tools/client-runtime/source-control-cli
 import { useOpenChangeRequestLink } from "~/lib/openPullRequestLink";
 import { textDirection } from "~/textDirection";
 import { useOpenLink } from "../browser/useOpenLink";
-import { useCopyToClipboard, writeTextToClipboard } from "../hooks/useCopyToClipboard";
+import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
 import { isPreviewAvailableFor } from "../browser/previewRuntime";
 import {
   isBrowserPreviewFile,
@@ -414,48 +414,6 @@ const GITHUB_ALERT_PRESENTATIONS: Record<
     titleClassName: "text-red-600 dark:text-red-400",
   },
 };
-
-function bounceCopiedInlineCode(element: HTMLElement) {
-  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-  if (element.getClientRects().length !== 1) return;
-  for (const animation of element.getAnimations()) animation.cancel();
-  element.dataset.copyBounce = "";
-  element.animate([{ scale: 1 }, { scale: 0.93, offset: 0.35 }, { scale: 1.02 }, { scale: 1 }], {
-    duration: 260,
-    easing: "ease-out",
-  }).onfinish = () => {
-    delete element.dataset.copyBounce;
-  };
-}
-
-/** Inline code copies its text on click; a text selection is left alone. */
-function CopyableInlineCode({
-  text,
-  children,
-  ...props
-}: React.ComponentProps<"code"> & { text: string }) {
-  const { copyToClipboard } = useCopyToClipboard({
-    target: {
-      target: "code",
-      unavailableMessage: msg("Clipboard API is unavailable while copying code."),
-      failureMessage: msg("Failed to copy code to the clipboard."),
-    },
-    timeout: 1200,
-  });
-  return (
-    <code
-      {...props}
-      className={cn(props.className, "cursor-pointer")}
-      onClick={(event) => {
-        if (window.getSelection()?.toString()) return;
-        copyToClipboard(text);
-        bounceCopiedInlineCode(event.currentTarget);
-      }}
-    >
-      {children}
-    </code>
-  );
-}
 
 function normalizeMarkdownLinkHrefKey(href: string): string {
   const normalizedHref = normalizeMarkdownLinkDestination(href);
@@ -1172,11 +1130,6 @@ function markdownHeadingRenderer(level: 1 | 2 | 3 | 4 | 5 | 6) {
   };
 }
 
-// Native word selection stops at hyphens and dots, so a double-click takes the whole span.
-function selectInlineCode(event: ReactMouseEvent<HTMLElement>) {
-  window.getSelection()?.selectAllChildren(event.currentTarget);
-}
-
 const CHAT_MARKDOWN_COMPONENTS = {
   h1: markdownHeadingRenderer(1),
   h2: markdownHeadingRenderer(2),
@@ -1641,7 +1594,6 @@ const CHAT_MARKDOWN_COMPONENTS = {
     );
   },
   code: function MarkdownCode({ node, children, className, ...props }) {
-    const insideLink = use(MarkdownLinkContext);
     const { cwd, imageBaseDir, inlineCodeFileLinkMetaByText, fileLinkChip, mathEnabled, inline } =
       use(ChatMarkdownRendererContext);
     const math = mathEnabled ? mathKind(className) : null;
@@ -1666,20 +1618,8 @@ const CHAT_MARKDOWN_COMPONENTS = {
           inlineCodeFilePathCandidate(codeText) ?? codeText.trim(),
         );
       }
-      if (insideLink) {
-        return (
-          <code {...props} className={className} onDoubleClick={selectInlineCode}>
-            {children}
-          </code>
-        );
-      }
       return (
-        <CopyableInlineCode
-          {...props}
-          className={className}
-          text={codeText}
-          onDoubleClick={selectInlineCode}
-        >
+        <CopyableInlineCode {...props} className={className} text={codeText}>
           {children}
         </CopyableInlineCode>
       );

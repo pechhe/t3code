@@ -57,3 +57,10 @@ export function getProviderRowLabel(
   }
   return `${providerDisplayName} · ${sub}`;
 }
+
+export function resolveModelSubProvider(
+  models: ReadonlyArray<Pick<ModelEsque, "slug" | "subProvider">> | undefined,
+  model: string,
+): string | undefined {
+  return models?.find((entry) => entry.slug === model)?.subProvider;
+}

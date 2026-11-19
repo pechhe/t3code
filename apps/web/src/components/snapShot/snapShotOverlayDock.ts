@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 
 import type { ChatMessage } from "~/types";
@@ -68,8 +68,41 @@ export function useSnapShotOverlayDock(
   );
   const [expanded, setExpanded] = useState(false);
   const { turn, ...dock } = resolveSnapShotOverlayDock(messages, working, placement);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- publishes the overlay's working turn to the session store the overlay window shares
   useEffect(() => {
     if (report) useSnapShotOverlaySession.getState().setWorkingTurn(turn);
   }, [report, turn]);
   return { ...dock, expanded, setExpanded };
 }
+
+/**
+ * The overlay's composer comes back from its dock ready for a follow-up, once it has risen:
+ * focusing it on the way up would scroll the overlay to it. Returns the composer stack's ref.
+ */
+export function useSnapShotOverlayComposerFocus(
+  overlayPresentation: boolean,
+  dock: SnapShotOverlayDock,
+  focusComposer: () => void,
+) {
+  const composerStackRef = useRef<HTMLDivElement>(null);
+  const composerRaised = overlayPresentation && dock.prompt !== null && !dock.docked;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- focuses the overlay composer after its DOM entrance animations settle
+  useEffect(() => {
+    if (!composerRaised) return;
+    const cancellation = { cancelled: false };
+    const rising = composerStackRef.current?.getAnimations() ?? [];
+    void Promise.allSettled(rising.map((animation) => animation.finished)).then(() => {
+      if (!cancellation.cancelled) focusComposer();
+    });
+    return () => {
+      cancellation.cancelled = true;
+    };
+  }, [focusComposer, composerRaised]);
+  return composerStackRef;
+}
+
+/**
+ * `overlay` is the SnapShot overlay's compact chat: the timeline and composer only, without the
+ * header, side panels, terminal or draft hero.
+ */
+export type ChatViewPresentation = "app" | "overlay";
