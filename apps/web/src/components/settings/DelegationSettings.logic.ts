@@ -24,8 +24,15 @@ import {
 } from "@t3tools/contracts";
 
 type Manifest = AgentPolicyManifest;
-type RoutingSettings = Pick<AccountRoutingSettings, "accountOrder" | "modelAccountsRemoved">;
-const EMPTY_ROUTING: RoutingSettings = { accountOrder: [], modelAccountsRemoved: {} };
+type RoutingSettings = Pick<
+  AccountRoutingSettings,
+  "accountOrder" | "pooledModelKeys" | "modelAccountsRemoved"
+>;
+const EMPTY_ROUTING: RoutingSettings = {
+  accountOrder: [],
+  pooledModelKeys: [],
+  modelAccountsRemoved: {},
+};
 
 export const isAnyAccountBinding = (binding: Pick<Binding, "anyAccount" | "poolId">): boolean =>
   binding.anyAccount === true || binding.poolId !== undefined;

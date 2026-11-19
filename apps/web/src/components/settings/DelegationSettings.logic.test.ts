@@ -8,7 +8,7 @@ import {
   ProviderDriverKind,
   ServerProvider,
 } from "@t3tools/contracts";
-import { pooledModels } from "@t3tools/shared/accountPools";
+import { multiAccountModels, pooledModels } from "@t3tools/shared/accountPools";
 import {
   addEntry,
   catalogModels,
@@ -459,17 +459,20 @@ describe("delegation settings", () => {
         },
       ],
     });
-    const routing = {
-      accountOrder: [AccountId.make("pi:antigravity"), AccountId.make("claude")],
+    const accountOrder = [AccountId.make("pi:antigravity"), AccountId.make("claude")];
+    const pooledModelKeys = multiAccountModels([claude, pi], {
+      accountOrder,
       modelAccountsRemoved: {},
-    };
+    }).map((model) => model.key);
+    const routing = { accountOrder, pooledModelKeys, modelAccountsRemoved: {} };
     const pools = pooledModels([claude, pi], routing);
     const pool = pools[0]!;
 
     // When the first account in user order is removed from the model, the catalog binding
     // uses the first non-removed account's driver and slug with anyAccount: true.
     const removedRouting = {
-      accountOrder: [AccountId.make("pi:antigravity"), AccountId.make("claude")],
+      accountOrder,
+      pooledModelKeys,
       modelAccountsRemoved: { [pool.key]: [AccountId.make("pi:antigravity")] },
     };
     const catalog = catalogModels([claude, pi], removedRouting);
@@ -652,6 +655,7 @@ describe("delegation settings", () => {
     expect(
       unavailableReason({ ...opus!, anyAccount: true }, [limited, piReady], {
         now: Date.parse("2026-10-15T01:00:00Z"),
+        routing: { accountOrder: [], pooledModelKeys: ["claude-opus"], modelAccountsRemoved: {} },
       }),
     ).toBeNull();
     expect(
@@ -659,6 +663,7 @@ describe("delegation settings", () => {
         now: Date.parse("2026-10-15T01:00:00Z"),
         routing: {
           accountOrder: [],
+          pooledModelKeys: ["claude-opus"],
           modelAccountsRemoved: { "claude-opus": [AccountId.make("pi:antigravity")] },
         },
       }),

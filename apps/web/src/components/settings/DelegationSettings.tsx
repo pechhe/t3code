@@ -269,7 +269,8 @@ function PolicyEditor({
   const saved = data.snapshot.manifest;
   const accountOrder = useScopedSettings((settings) => settings.accountOrder);
   const modelAccountsRemoved = useScopedSettings((settings) => settings.modelAccountsRemoved);
-  const routing = { accountOrder, modelAccountsRemoved };
+  const pooledModelKeys = useScopedSettings((settings) => settings.pooledModelKeys ?? []);
+  const routing = { accountOrder, pooledModelKeys, modelAccountsRemoved };
   const pools = pooledModels(data.providers, routing);
   const catalog = catalogModels(data.providers, routing);
   const [draft, setDraft] = useState<Manifest>(() => editableManifest(saved, catalog, pools));

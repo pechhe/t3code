@@ -10,10 +10,12 @@ import {
   accountIdOf,
   firstAccount,
   listAccounts,
+  multiAccountModels,
   nextAccount,
   nextLocalMidnightMs,
   pooledModelKeyOf,
   pooledModels,
+  seedPooledModelKeys,
   selectionOnAccount,
   skipAfterLimit,
   withSkip,
@@ -63,10 +65,19 @@ const henrysProviders: ReadonlyArray<ServerProvider> = fixture.map((entry) =>
   ),
 );
 
-const noSettings = { accountOrder: [], modelAccountsRemoved: {} };
+const routing = (pooledModelKeys: ReadonlyArray<string> = []) => ({
+  accountOrder: [],
+  pooledModelKeys,
+  modelAccountsRemoved: {},
+});
+
+const everyModelOnSeveralAccounts = multiAccountModels(henrysProviders, routing()).map(
+  (model) => model.key,
+);
 
 describe("pooledModels on Henry's providers", () => {
-  const pools = pooledModels(henrysProviders, noSettings);
+  // Henry adds every model several accounts serve, so the matching shows once each.
+  const pools = pooledModels(henrysProviders, routing(everyModelOnSeveralAccounts));
   const byKey = (key: string) => pools.find((pool) => pool.key === key);
   const accountsOf = (pool: PooledModel | undefined) =>
     pool?.accounts.map((entry) => `${entry.account.id} ${entry.model}`);
@@ -201,7 +212,11 @@ describe("the account order", () => {
   const b = provider("b", "claudeAgent", [["opus", "Opus"]]);
   const c = provider("c", "codex", [["opus", "Opus"]]);
   const pool = (order: ReadonlyArray<string>, removed: ReadonlyArray<string> = []) =>
-    pooledModels([c, b, a], { accountOrder: order, modelAccountsRemoved: { opus: removed } })[0]!;
+    pooledModels([c, b, a], {
+      accountOrder: order,
+      pooledModelKeys: ["opus"],
+      modelAccountsRemoved: { opus: removed },
+    })[0]!;
 
   it("tries accounts top to bottom, new accounts at the bottom, passing over removed ones", () => {
     expect(firstAccount(pool(["a", "b"]), {}, NOW)?.account.id).toBe("a");
@@ -285,6 +300,77 @@ describe("the account order", () => {
         withSkip(skips, "a", "opus", { until: iso(NOW + 2 * HOUR), reportedReset: false }, NOW),
       ),
     ).toEqual(["sonnet", "opus"]);
+  });
+});
+
+describe("the models the user adds", () => {
+  const a = provider("a", "claudeAgent", [
+    ["opus", "Opus"],
+    ["sonnet", "Sonnet"],
+  ]);
+  const b = provider("b", "claudeAgent", [
+    ["opus", "Opus"],
+    ["sonnet", "Sonnet"],
+  ]);
+
+  it("pools only listed models, and finds every model several accounts serve to offer them", () => {
+    expect(pooledModels([a, b], routing(["opus"])).map((model) => model.key)).toEqual(["opus"]);
+    expect(pooledModels([a, b], routing())).toEqual([]);
+    expect(multiAccountModels([a, b], routing()).map((model) => model.key)).toEqual([
+      "opus",
+      "sonnet",
+    ]);
+  });
+
+  it("seeds the models Henry uses: his favorites and the models his roles name", () => {
+    const pi = provider("pi", "pi", [
+      ["antigravity/gemini-4-hydrogen", "Gemini 4 Hydrogen (Antigravity)"],
+      ["openrouter/google/gemini-4-hydrogen", "Gemini 4 Hydrogen"],
+      ["openrouter/moonshotai/kimi-k3", "Kimi K3"],
+      ["antigravity/claude-opus-5-5", "Claude Opus 5.5 (Antigravity)"],
+    ]);
+    const claude = provider("claude-yardsmith", "claudeAgent", [
+      ["claude-opus-5-5", "Claude Opus 5.5"],
+    ]);
+    const codex = provider("codex", "codex", [["gpt-6.2-sol", "GPT-6.2 Sol"]]);
+    const seeds = (input: {
+      favorites: ReadonlyArray<{ provider: string; model: string }>;
+      roleModels: ReadonlyArray<{ driver: string; model: string }>;
+    }) =>
+      seedPooledModelKeys({
+        providers: [pi, claude, codex],
+        favorites: input.favorites.map((favorite) => ({
+          provider: ProviderInstanceId.make(favorite.provider),
+          model: favorite.model,
+        })),
+        roleModels: input.roleModels.map((binding) => ({
+          driver: ProviderDriverKind.make(binding.driver),
+          model: binding.model,
+        })),
+      });
+
+    expect(
+      seeds({
+        favorites: [
+          { provider: "pi", model: "antigravity/gemini-4-hydrogen" },
+          { provider: "claude-yardsmith", model: "claude-opus-5-5" },
+          // Favoriting a model twice seeds it once.
+          { provider: "pi", model: "antigravity/gemini-4-hydrogen" },
+        ],
+        roleModels: [
+          { driver: "codex", model: "gpt-6.2-sol" },
+          { driver: "claudeAgent", model: "claude-opus-5-5" },
+        ],
+      }),
+      // GPT-6.2 Sol has one account, so the list could never show it: it isn't seeded.
+    ).toEqual(["gemini-4-hydrogen", "claude-opus-5-5"]);
+    // A model no account serves any more, such as a removed login's, seeds nothing.
+    expect(
+      seeds({
+        favorites: [{ provider: "pi", model: "opencode-go/kimi-k3" }],
+        roleModels: [{ driver: "cursor", model: "composer-3" }],
+      }),
+    ).toEqual([]);
   });
 });
 

@@ -349,6 +349,7 @@ export function useThreadComposerState(input: {
       ? null
       : modelSelection,
     serverConfig?.providers ?? [],
+    serverConfig?.settings?.pooledModelKeys ?? [],
   );
   const runtimeMode = selectedDraft.runtimeMode ?? selectedThread?.runtimeMode ?? null;
   // Plan mode is not offered to users; every send runs in build mode.

@@ -1,6 +1,7 @@
 /**
- * A pool is one model served by several accounts, tried in the user's one account order. Usage
- * readings fill the Usage bars and supply reset times; they never decide routing.
+ * A pool is one model the user added to their pooled models, served by several accounts and tried
+ * in the user's one account order. Usage readings fill the Usage bars and supply reset times; they
+ * never decide routing.
  */
 import type {
   AccountId,
@@ -8,6 +9,7 @@ import type {
   AccountSkips,
   ModelSelection,
   PooledModelKey,
+  ProviderDriverKind,
   ProviderInstanceId,
   ProviderOptionDescriptor,
   ProviderOptionSelection,
@@ -21,7 +23,7 @@ import * as DateTime from "effect/DateTime";
 
 export type AccountRoutingSettings = Pick<
   ServerSettings,
-  "accountOrder" | "modelAccountsRemoved" | "accountSkips"
+  "accountOrder" | "pooledModelKeys" | "modelAccountsRemoved" | "accountSkips"
 >;
 
 // ── Usage readings ──────────────────────────────────────────────────────────────────────────
@@ -304,8 +306,8 @@ const servingEntries = (
   return byKey;
 };
 
-/** Every model offered by more than one account, each with its accounts in the user's order. */
-export const pooledModels = (
+/** Every model more than one account serves, each with its accounts in the user's order. */
+export const multiAccountModels = (
   providers: ReadonlyArray<ServerProvider>,
   settings: Pick<AccountRoutingSettings, "accountOrder" | "modelAccountsRemoved">,
 ): ReadonlyArray<PooledModel> => {
@@ -331,6 +333,21 @@ export const pooledModels = (
   );
 };
 
+/**
+ * The models the user added to their pooled models that more than one account serves. Any other
+ * model is an ordinary model of each account: it runs on the account picked, and no limit moves it.
+ */
+export const pooledModels = (
+  providers: ReadonlyArray<ServerProvider>,
+  settings: Pick<
+    AccountRoutingSettings,
+    "accountOrder" | "pooledModelKeys" | "modelAccountsRemoved"
+  >,
+): ReadonlyArray<PooledModel> => {
+  const listed = new Set(settings.pooledModelKeys ?? []);
+  return multiAccountModels(providers, settings).filter((pool) => listed.has(pool.key));
+};
+
 /** The pooled model a selection runs, when its model is offered by more than one account. */
 export const pooledModelOf = (
   pools: ReadonlyArray<PooledModel>,
@@ -342,6 +359,62 @@ export const pooledModelOf = (
         entry.provider.instanceId === selection.instanceId && entry.model === selection.model,
     ),
   );
+
+/** The pooled key of a named model, read from the first enabled account that serves it. */
+const keyOfNamedModel = (
+  providers: ReadonlyArray<ServerProvider>,
+  find: (provider: ServerProvider) => ServerProviderModel | undefined,
+): PooledModelKey | undefined => {
+  for (const provider of providers) {
+    const model = provider.enabled ? find(provider) : undefined;
+    if (model === undefined) continue;
+    const key = pooledModelKeyOf(provider, model);
+    if (key !== undefined) return key;
+  }
+  return undefined;
+};
+
+/**
+ * The models to pool when the setting is first written: those the user favorited and those their
+ * delegation roles name, so nobody loses pooling they already had. A mention fewer than two accounts
+ * serve is left out, as the list never shows it; the list is the user's from then on.
+ */
+export const seedPooledModelKeys = (input: {
+  readonly providers: ReadonlyArray<ServerProvider>;
+  readonly favorites: ReadonlyArray<{
+    readonly provider: ProviderInstanceId;
+    readonly model: string;
+  }>;
+  readonly roleModels: ReadonlyArray<{
+    readonly driver: ProviderDriverKind;
+    readonly model: string;
+  }>;
+}): ReadonlyArray<PooledModelKey> => {
+  const keys = [
+    ...input.favorites.map((favorite) =>
+      keyOfNamedModel(input.providers, (provider) =>
+        provider.instanceId === favorite.provider
+          ? provider.models.find((model) => model.slug === favorite.model)
+          : undefined,
+      ),
+    ),
+    ...input.roleModels.map((binding) =>
+      keyOfNamedModel(input.providers, (provider) =>
+        provider.driver === binding.driver
+          ? provider.models.find((model) => model.slug === binding.model)
+          : undefined,
+      ),
+    ),
+  ];
+  const offered = new Set(
+    multiAccountModels(input.providers, { accountOrder: [], modelAccountsRemoved: {} }).map(
+      (model) => model.key,
+    ),
+  );
+  return [...new Set(keys)].filter(
+    (key): key is PooledModelKey => key !== undefined && offered.has(key),
+  );
+};
 
 // ── Skips ───────────────────────────────────────────────────────────────────────────────────
 

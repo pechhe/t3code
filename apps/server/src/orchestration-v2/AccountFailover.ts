@@ -55,7 +55,7 @@ export const failoverSelection = (input: {
   readonly providers: ReadonlyArray<ServerProvider>;
   readonly settings: Pick<
     ServerSettingsValue,
-    "accountOrder" | "modelAccountsRemoved" | "accountSkips"
+    "accountOrder" | "pooledModelKeys" | "modelAccountsRemoved" | "accountSkips"
   >;
   readonly nowMs: number;
   readonly options?: PickOptions | undefined;

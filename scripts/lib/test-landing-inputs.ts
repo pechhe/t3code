@@ -49,6 +49,8 @@ const SOURCE_SPAWNERS = [
     "cliCompileCache.test.ts",
     "outboundHttp.test.ts",
     "processRunner.test.ts",
+    // Spawns apps/server/src/bin.ts to check the CLI keeps log warnings out of JSON output.
+    "binCli.test.ts",
     // Spawns apps/server/src/bin.ts to drive the managed runtime's CLI.
     "provider/CodexManagedRuntime.test.ts",
   ),

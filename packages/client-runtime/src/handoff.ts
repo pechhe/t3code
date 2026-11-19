@@ -3,6 +3,7 @@ import type {
   OrchestrationV2ModelSwitch,
   OrchestrationV2Run,
   OrchestrationV2TurnItem,
+  PooledModelKey,
   ProviderInstanceId,
   ServerProvider,
   ServerProviderModel,
@@ -28,6 +29,8 @@ export function resolvePendingHandoff(
   projection: Pick<ThreadStructure, "runs" | "visibleTurnItems" | "thread"> | null | undefined,
   selection: ModelSelection | null | undefined,
   providers: ReadonlyArray<ServerProvider>,
+  /** The environment's pooled models: only those keep their account when the model alone is picked. */
+  pooledModelKeys: ReadonlyArray<PooledModelKey>,
 ): HandoffEndpoints | null {
   // A thread with an empty timeline has nothing to hand off. Any loaded row
   // counts: paging can leave a window of only tool rows.
@@ -41,7 +44,7 @@ export function resolvePendingHandoff(
   )?.modelSelection;
   if (from === undefined || selection == null) return null;
   // The server keeps the thread on its account for the same model.
-  const to = keepsAccount(selection, providers, projection.thread.modelSelection);
+  const to = keepsAccount(selection, providers, projection.thread.modelSelection, pooledModelKeys);
   const source = providers.find((provider) => provider.instanceId === from.instanceId);
   const target = providers.find((provider) => provider.instanceId === to.instanceId);
   const needsHandoff =
@@ -57,9 +60,14 @@ function keepsAccount(
   selection: ModelSelection,
   providers: ReadonlyArray<ServerProvider>,
   current: ModelSelection,
+  pooledModelKeys: ReadonlyArray<PooledModelKey>,
 ): ModelSelection {
   if (selection.pinned === true) return selection;
-  const pools = pooledModels(providers, { accountOrder: [], modelAccountsRemoved: {} });
+  const pools = pooledModels(providers, {
+    accountOrder: [],
+    pooledModelKeys,
+    modelAccountsRemoved: {},
+  });
   const pool = pooledModelOf(pools, selection);
   if (pool === undefined || pooledModelOf(pools, current) !== pool) return selection;
   const kept = pool.accounts.find(

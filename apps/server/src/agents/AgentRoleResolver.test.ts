@@ -1199,6 +1199,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       });
       const skipped = (untilMs: number) => ({
         accountOrder: [],
+        pooledModelKeys: [claudeModel],
         modelAccountsRemoved: {},
         accountSkips: {
           [claude.instanceId]: {

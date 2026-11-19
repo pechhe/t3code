@@ -17,6 +17,7 @@ import {
 } from "@t3tools/contracts";
 import {
   listAccounts,
+  multiAccountModels,
   pooledModels,
   type AccountInfo,
   type PooledModel,
@@ -35,12 +36,20 @@ import {
 } from "../accounts/AccountSkip";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { Button } from "../ui/button";
-import { Input } from "../ui/input";
+import {
+  Combobox,
+  ComboboxEmpty,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxPopup,
+  ComboboxSearchInput,
+  ComboboxTrigger,
+} from "../ui/combobox";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 import { useSettingsScope } from "./SettingsScopeContext";
 import { useInstanceEntries } from "./useInstanceEntries";
 
-/** Settings → Accounts: the order T3 tries accounts in, and which accounts serve each model. */
+/** Settings → Accounts: the order T3 tries accounts in, and the models it picks an account for. */
 export function AccountsSettings() {
   const { environments, environment } = useSettingsScope();
   const environmentId = environment?.environmentId ?? environments[0]?.environmentId;
@@ -75,9 +84,13 @@ function EnvironmentAccounts({ environmentId }: { environmentId: EnvironmentId }
   const update = useUpdateEnvironmentSettings(environmentId);
   const canManage = useEnvironmentScope(environmentId, AuthProvidersManageScope);
   const accounts = listAccounts(providers, settings.accountOrder);
+  const listed = settings.pooledModelKeys ?? [];
   const models = pooledModels(providers, settings).toSorted((a, b) =>
     a.displayName.localeCompare(b.displayName),
   );
+  const candidates = multiAccountModels(providers, settings)
+    .filter((model) => !listed.includes(model.key))
+    .toSorted((a, b) => a.displayName.localeCompare(b.displayName));
   const ids = accounts.map((account) => account.id);
   const move = (id: AccountId, steps: number) => {
     const from = ids.indexOf(id);
@@ -94,6 +107,9 @@ function EnvironmentAccounts({ environmentId }: { environmentId: EnvironmentId }
       : current.filter((id) => id !== account);
     update({ modelAccountsRemoved: { [key]: next.length > 0 ? next : null } });
   };
+  const addModel = (key: PooledModelKey) => update({ pooledModelKeys: [...listed, key] });
+  const removeModel = (key: PooledModelKey) =>
+    update({ pooledModelKeys: listed.filter((listedKey) => listedKey !== key) });
   return (
     <>
       <SettingsSection title="Account order" id="accounts">
@@ -109,8 +125,15 @@ function EnvironmentAccounts({ environmentId }: { environmentId: EnvironmentId }
           />
         </SettingsRow>
       </SettingsSection>
-      <SettingsSection title="Models on several accounts" id="accounts-models">
-        <PooledModelsList models={models} disabled={!canManage} onSetRemoved={setRemoved} />
+      <SettingsSection title="Models" id="accounts-models">
+        <PooledModelsList
+          models={models}
+          candidates={candidates}
+          disabled={!canManage}
+          onAdd={addModel}
+          onRemove={removeModel}
+          onSetRemoved={setRemoved}
+        />
       </SettingsSection>
     </>
   );
@@ -231,40 +254,44 @@ function AccountOrderRow(props: {
 
 function PooledModelsList(props: {
   models: ReadonlyArray<PooledModel>;
+  candidates: ReadonlyArray<PooledModel>;
   disabled: boolean;
+  onAdd: (key: PooledModelKey) => void;
+  onRemove: (key: PooledModelKey) => void;
   onSetRemoved: (key: PooledModelKey, account: AccountId, removed: boolean) => void;
 }) {
-  const [query, setQuery] = useState("");
-  const normalized = query.trim().toLowerCase();
-  const shown = props.models.filter(
-    (model) =>
-      normalized.length === 0 ||
-      model.displayName.toLowerCase().includes(normalized) ||
-      model.accounts.some((entry) => entry.account.label.toLowerCase().includes(normalized)),
-  );
   return (
     <>
       <SettingsRow
-        title="Matched by name"
-        description="Each model here is one choice in the model picker. Remove an account from a model if the match is wrong or you don't want it used for that model."
+        title="Models T3 Code picks the account for"
+        description="Each model you add is one choice in the model picker, run on its accounts in the order above. Take an account off a model with ×. Models you haven't added run on the account you pick."
         control={
-          <Input
-            size="sm"
-            type="search"
-            placeholder="Filter models"
-            aria-label="Filter models"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
+          <AddModelPicker
+            candidates={props.candidates}
+            disabled={props.disabled}
+            onAdd={props.onAdd}
           />
         }
       />
-      {shown.map((model) => {
+      {props.models.length === 0 ? (
+        <p className="px-3 text-sm text-muted-foreground sm:px-4">
+          No models are added yet. Add one to let T3 Code choose between the accounts that serve it.
+        </p>
+      ) : null}
+      {props.models.map((model) => {
         const inUse = model.accounts.filter((entry) => !entry.removed).length;
         return (
           <SettingsRow
             key={model.key}
             title={model.displayName}
             status={`${inUse} of ${model.accounts.length} in use`}
+            control={
+              <RemoveModelButton
+                label={model.displayName}
+                disabled={props.disabled}
+                onRemove={() => props.onRemove(model.key)}
+              />
+            }
           >
             <div className="mt-1.5 flex flex-wrap gap-1.5">
               {model.accounts.map((entry) => (
@@ -294,5 +321,87 @@ function PooledModelsList(props: {
         );
       })}
     </>
+  );
+}
+
+function RemoveModelButton(props: { label: string; disabled: boolean; onRemove: () => void }) {
+  return (
+    <Button
+      type="button"
+      size="icon-xs"
+      variant="ghost-muted"
+      disabled={props.disabled}
+      aria-label={`Remove ${props.label} from the models T3 Code picks an account for`}
+      onClick={props.onRemove}
+    >
+      <XIcon />
+    </Button>
+  );
+}
+
+/** Adds a model T3 Code may pick the account for, searching the ones several accounts serve. */
+function AddModelPicker(props: {
+  candidates: ReadonlyArray<PooledModel>;
+  disabled: boolean;
+  onAdd: (key: PooledModelKey) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const normalized = query.trim().toLowerCase();
+  const shown = props.candidates.filter(
+    (model) =>
+      normalized.length === 0 ||
+      model.displayName.toLowerCase().includes(normalized) ||
+      model.accounts.some((entry) => entry.account.label.toLowerCase().includes(normalized)),
+  );
+  const keys = shown.map((model) => model.key);
+  const close = () => {
+    setOpen(false);
+    setQuery("");
+  };
+  return (
+    <Combobox
+      items={keys}
+      filteredItems={keys}
+      filter={null}
+      autoHighlight
+      open={open}
+      onOpenChange={(next) => (next ? setOpen(true) : close())}
+      onValueChange={(key) => {
+        if (typeof key !== "string") return;
+        props.onAdd(key as PooledModelKey);
+        close();
+      }}
+    >
+      <ComboboxTrigger
+        aria-label="Add a model T3 Code picks the account for"
+        disabled={props.disabled || props.candidates.length === 0}
+        render={<Button size="xs" variant="outline" />}
+      >
+        <PlusIcon />
+        Add model
+      </ComboboxTrigger>
+      <ComboboxPopup align="end" className="w-80">
+        <ComboboxSearchInput
+          aria-label="Search models"
+          placeholder="Search models..."
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        <ComboboxEmpty>No models are left to add.</ComboboxEmpty>
+        <ComboboxList className="max-h-72">
+          {shown.map((model, index) => (
+            <ComboboxItem key={model.key} index={index} value={model.key}>
+              <span className="flex min-w-0 flex-col">
+                <span className="block truncate">{model.displayName}</span>
+                <span className="block truncate text-xs text-muted-foreground">
+                  {model.accounts.map((entry) => entry.account.label).join(", ")}
+                </span>
+              </span>
+            </ComboboxItem>
+          ))}
+        </ComboboxList>
+      </ComboboxPopup>
+    </Combobox>
   );
 }

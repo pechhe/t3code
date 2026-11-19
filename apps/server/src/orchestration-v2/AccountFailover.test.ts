@@ -193,7 +193,7 @@ const withFailover = <A, E, R>(
     });
   });
 
-const settingsLayer = ServerSettings.layerTest();
+const settingsLayer = ServerSettings.layerTest({ pooledModelKeys: [MODEL] });
 
 describe("accounts A, B and C serving one model, in that order", () => {
   it.effect("moves a limited turn to B and back to A at midnight when no reset was reported", () =>
@@ -338,5 +338,24 @@ describe("accounts A, B and C serving one model, in that order", () => {
         assert.strictEqual(yield* delegate({}), "B");
         assert.strictEqual(yield* delegate({ agentTask: { role: "reviewer" } }), "A");
       }).pipe(Effect.provide(settingsLayer)),
+  );
+
+  it.effect("leaves a model the user did not add to the account it is picked on", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(NOW);
+      const settings = yield* ServerSettings.ServerSettingsService;
+      yield* settings.updateSettings({ pooledModelKeys: [] });
+      // The same model on three accounts, picked on B: it runs on B and no limit moves it.
+      assert.strictEqual(yield* newThreadAccount(on("B")), "B");
+      assert.strictEqual(
+        AccountFailover.failoverSelection({
+          selection: on("B"),
+          providers,
+          settings: yield* settings.getSettings,
+          nowMs: NOW,
+        }),
+        undefined,
+      );
+    }).pipe(Effect.provide(settingsLayer)),
   );
 });

@@ -195,10 +195,17 @@ using a proxy through `ANTHROPIC_AUTH_TOKEN`.
 ### One model on several accounts
 
 When more than one account serves the same model (two Claude logins, Claude through Pi's
-sub-providers, Kimi on OpenCode Go and OpenRouter), the model picker shows that model once and
-T3 Code picks the account. Set the order it tries them in **Settings → Accounts**, where you can
-also take an account off one model. Pi's Antigravity logins count as one account, because Pi
-already moves between them.
+sub-providers, Kimi on OpenCode Go and OpenRouter), you can have T3 Code pick the account. Add the
+model under **Settings → Accounts** and the picker shows it once; the same page sets the order it
+tries your accounts in, and takes an account off one model. Pi's Antigravity logins count as one
+account, because Pi already moves between them.
+
+Only models you add there are pooled. Every other model stays under each account exactly as it
+would without pooling: pick the account in the model picker and the thread runs there, and reaching
+a usage limit leaves it waiting on that account rather than moving it. The list starts with the
+models you have favorited and the ones your delegation roles name; **Add model** offers the rest of
+the models two or more accounts serve, and a model you remove goes back to running on the account
+you pick.
 
 A new thread starts on the first account in your order that is not skipped, and keeps that account
 for as long as it works. When a run stops at a usage limit, that account is skipped for that model

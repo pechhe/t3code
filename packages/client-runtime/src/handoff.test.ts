@@ -107,10 +107,10 @@ describe("pending context handoff", () => {
       ],
     };
 
-    expect(resolvePendingHandoff(projection, selection, providers)).not.toBeNull();
-    expect(resolvePendingHandoff(starting, selection, providers)).toBeNull();
+    expect(resolvePendingHandoff(projection, selection, providers, [])).not.toBeNull();
+    expect(resolvePendingHandoff(starting, selection, providers, [])).toBeNull();
     expect(
-      resolvePendingHandoff(starting, { instanceId: from, model: "source" }, providers),
+      resolvePendingHandoff(starting, { instanceId: from, model: "source" }, providers, []),
     ).toEqual({
       from: [selection],
       to: { instanceId: from, model: "source" },
@@ -135,7 +135,7 @@ describe("pending context handoff", () => {
         ],
       };
 
-      expect(resolvePendingHandoff(unstarted, selection, [])).toEqual({
+      expect(resolvePendingHandoff(unstarted, selection, [], [])).toEqual({
         from: [{ instanceId: from, model: "source" }],
         to: selection,
       });
@@ -143,26 +143,30 @@ describe("pending context handoff", () => {
   );
 
   it("appears on selection, updates the destination, and disappears on returning", () => {
-    expect(resolvePendingHandoff(projection, { instanceId: to, model: "first" }, [])).toEqual({
+    expect(resolvePendingHandoff(projection, { instanceId: to, model: "first" }, [], [])).toEqual({
       from: [{ instanceId: from, model: "source" }],
       to: { instanceId: to, model: "first" },
     });
     expect(
-      resolvePendingHandoff(projection, { instanceId: to, model: "second" }, [])?.to.model,
+      resolvePendingHandoff(projection, { instanceId: to, model: "second" }, [], [])?.to.model,
     ).toBe("second");
-    expect(resolvePendingHandoff(projection, { instanceId: from, model: "source" }, [])).toBeNull();
-    expect(resolvePendingHandoff(projection, { instanceId: from, model: "other" }, [])).toBeNull();
+    expect(
+      resolvePendingHandoff(projection, { instanceId: from, model: "source" }, [], []),
+    ).toBeNull();
+    expect(
+      resolvePendingHandoff(projection, { instanceId: from, model: "other" }, [], []),
+    ).toBeNull();
   });
   it("stays hidden while the thread's timeline is empty", () => {
     const empty = { ...projection, visibleTurnItems: [] };
-    expect(resolvePendingHandoff(empty, { instanceId: to, model: "first" }, [])).toBeNull();
+    expect(resolvePendingHandoff(empty, { instanceId: to, model: "first" }, [], [])).toBeNull();
     // Paging can leave a window of only tool rows after the prompt.
     const toolRowsOnly = {
       ...projection,
       visibleTurnItems: [{ item: { type: "command_execution" } }],
     } as unknown as OrchestrationV2ThreadProjection;
     expect(
-      resolvePendingHandoff(toolRowsOnly, { instanceId: to, model: "first" }, [])?.to.model,
+      resolvePendingHandoff(toolRowsOnly, { instanceId: to, model: "first" }, [], [])?.to.model,
     ).toBe("first");
   });
   it("resumes compatible account overlays without showing a handoff", () => {
@@ -172,7 +176,7 @@ describe("pending context handoff", () => {
       continuation: { groupKey: "shared" },
     })) as unknown as ServerProvider[];
     expect(
-      resolvePendingHandoff(projection, { instanceId: to, model: "target" }, providers),
+      resolvePendingHandoff(projection, { instanceId: to, model: "target" }, providers, []),
     ).toBeNull();
   });
   describe("with a model several accounts serve", () => {
@@ -198,7 +202,9 @@ describe("pending context handoff", () => {
 
     it("stays quiet when the model alone keeps the thread on its account", () => {
       expect(
-        resolvePendingHandoff(onYardsmith, { instanceId: hello, model: "opus" }, providers()),
+        resolvePendingHandoff(onYardsmith, { instanceId: hello, model: "opus" }, providers(), [
+          "opus",
+        ]),
       ).toBeNull();
     });
 
@@ -208,6 +214,7 @@ describe("pending context handoff", () => {
           onYardsmith,
           { instanceId: hello, model: "opus", pinned: true },
           providers(),
+          ["opus"],
         ),
       ).toEqual({
         from: [{ instanceId: yardsmith, model: "opus" }],

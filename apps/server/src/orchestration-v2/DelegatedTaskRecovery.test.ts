@@ -82,7 +82,12 @@ const plan = (input: {
     failure: input.failure,
     priorFailures: input.priorFailures ?? 0,
     providers: input.providers ?? [account("limited", 40), account("sibling", 20)],
-    settings: { accountOrder: [], modelAccountsRemoved: {}, accountSkips: {} },
+    settings: {
+      accountOrder: [],
+      pooledModelKeys: [model],
+      modelAccountsRemoved: {},
+      accountSkips: {},
+    },
     nowMs: NOW,
     otherModelAvailable: () => Effect.succeed(input.otherModel ?? false),
   });
@@ -202,6 +207,7 @@ describe("makeRecoverDelegatedRun", () => {
       const settings = {
         getSettings: Effect.succeed({
           accountOrder: [],
+          pooledModelKeys: [model],
           modelAccountsRemoved: {},
           accountSkips: {},
         }),

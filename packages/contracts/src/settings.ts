@@ -1828,6 +1828,12 @@ export const ServerSettings = Schema.Struct({
   ),
   /** The user's one account order: a model's accounts are tried top to bottom. */
   accountOrder: Schema.Array(AccountId).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  /**
+   * The models pooled, by pooled model key: only these are one picker entry tried in the account
+   * order. Absent until the server seeds it once from the favorites and role models in use, so an
+   * empty list means the user pooled nothing.
+   */
+  pooledModelKeys: Schema.optionalKey(Schema.Array(PooledModelKey)),
   /** Accounts the user took off a model, by pooled model key. */
   modelAccountsRemoved: Schema.Record(PooledModelKey, Schema.Array(AccountId)).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
@@ -2314,6 +2320,7 @@ export const ServerSettingsPatch = Schema.Struct({
   // Replace whole maps to avoid half-merged driver configs.
   providerInstances: Schema.optionalKey(Schema.Record(ProviderInstanceId, ProviderInstanceConfig)),
   accountOrder: Schema.optionalKey(Schema.Array(AccountId)),
+  pooledModelKeys: Schema.optionalKey(Schema.Array(PooledModelKey)),
   // Merge per model; null removes an entry.
   modelAccountsRemoved: Schema.optionalKey(
     Schema.Record(PooledModelKey, Schema.NullOr(Schema.Array(AccountId))),
@@ -2369,6 +2376,7 @@ export function requiredScopesForServerSettingsPatch(
       key === "providers" ||
       key === "providerInstances" ||
       key === "accountOrder" ||
+      key === "pooledModelKeys" ||
       key === "modelAccountsRemoved" ||
       key === "accountSkips" ||
       key === "usageLimitSources" ||

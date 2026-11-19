@@ -54,7 +54,15 @@ export function useComposerPooling(input: {
     (s) => s.modelAccountsRemoved,
   );
   const skips = useEnvironmentSettings(input.environmentId, (s) => s.accountSkips);
-  const models = pooledModels(input.providers, { accountOrder, modelAccountsRemoved });
+  const pooledModelKeys = useEnvironmentSettings(
+    input.environmentId,
+    (s) => s.pooledModelKeys ?? [],
+  );
+  const models = pooledModels(input.providers, {
+    accountOrder,
+    pooledModelKeys,
+    modelAccountsRemoved,
+  });
   const pooled = pooledModelOf(models, input.selection);
   const account = selectionAccountId(input.providers, input.selection);
   return {

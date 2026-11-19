@@ -1229,7 +1229,7 @@ describe("the Vitest runner", () => {
       NodeFS.writeFileSync(NodePath.join(root, "pkg/src/a.test.ts"), body);
       NodeFS.mkdirSync(NodePath.join(root, "pkg/idle"));
       NodeFS.writeFileSync(NodePath.join(root, "pkg/idle/b.test.ts"), body);
-      // A browser project that runs no file never closes, so the idle one must never start.
+      // A project that runs no file must never start: an idle browser project never closes.
       NodeFS.writeFileSync(
         NodePath.join(root, "pkg/running.ts"),
         'import * as NodeFS from "node:fs";\nexport default (project) => {\n  NodeFS.writeFileSync(`${project.name}.json`, JSON.stringify(project.vitest.projects.map((p) => p.name)));\n};\n',
@@ -1237,10 +1237,9 @@ describe("the Vitest runner", () => {
       NodeFS.writeFileSync(
         NodePath.join(root, "pkg/vitest.config.ts"),
         [
-          'import { playwright } from "vite-plus/test/browser-playwright";',
           "export default { test: { projects: [",
           '  { test: { name: "used", include: ["src/**/*.test.ts"], globalSetup: ["./running.ts"] } },',
-          '  { test: { name: "idle", include: ["idle/**/*.test.ts"], globalSetup: ["./running.ts"], browser: { enabled: true, provider: playwright(), headless: true, instances: [{ browser: "chromium" }] } } },',
+          '  { test: { name: "idle", include: ["idle/**/*.test.ts"], globalSetup: ["./running.ts"] } },',
           "] } };",
           "",
         ].join("\n"),

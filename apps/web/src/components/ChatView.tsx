@@ -2668,6 +2668,7 @@ export default function ChatView(props: ChatViewProps) {
     serverProjection,
     pendingHandoffSelectionUsable ? pendingHandoffSelection : null,
     providerStatuses,
+    settings.pooledModelKeys ?? [],
   );
   const compactThreadUnavailable =
     !canOperateThread ||
