@@ -3650,7 +3650,6 @@
   "f9904f78d3003f58": "Checkout rapide des worktrees",
   "67937aa49179285e": "Sur Mac, clone les nouveaux worktrees depuis une copie en cache dans le dossier T3 home au lieu d’écrire chaque fichier. Utilise le checkout Git normal quand ce n’est pas possible. La désactivation supprime le cache.",
   "d6ada5ec242e37ff": "Limites d’utilisation",
-  "736ddd68425e7b73": "Switch pooled account on limit",
   "6f588d0d3dca9350": "Auto-resume limited threads",
   "20e3a8aab5f9426a": "Reporter jusqu’à la réinitialisation des limites",
   "0769f91ca46e3003": "Reporte les fils jusqu’à la réinitialisation de leurs limites d’utilisation. Activez la reprise automatique pour que l’agent continue après la réinitialisation.",

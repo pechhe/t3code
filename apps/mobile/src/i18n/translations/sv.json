@@ -3656,7 +3656,6 @@
   "f9904f78d3003f58": "Snabb utcheckning av worktree",
   "67937aa49179285e": "På en Mac klonas nya worktrees från en utcheckning som cachas i T3-hemmappen i stället för att varje fil skrivs. Använder Gits vanliga utcheckning när det inte går. Om du stänger av det tas cachen bort.",
   "d6ada5ec242e37ff": "Användningsgränser",
-  "736ddd68425e7b73": "Switch pooled account on limit",
   "6f588d0d3dca9350": "Auto-resume limited threads",
   "20e3a8aab5f9426a": "Snooza tills gränserna återställs",
   "0769f91ca46e3003": "Snooza trådar tills deras användningsgränser återställs. Aktivera automatisk återupptagning för att fortsätta agenten efter återställningen.",

@@ -108,7 +108,6 @@ export function AutoSettleSettingsRows(props: {
     patch: Partial<AutoSettleSettings> & {
       autoResumeLimitedThreads?: boolean;
       snoozeLimitedThreads?: boolean;
-      switchPooledAccountOnLimit?: boolean;
     },
   ) => props.write(patch);
 
@@ -135,13 +134,6 @@ export function AutoSettleSettingsRows(props: {
     <View className="gap-6">
       {!projectSelected ? (
         <SettingsSection title={gt("Usage limits")}>
-          <SettingsSwitchRow
-            icon="clock"
-            label={gt("Switch pooled account on limit")}
-            value={uniformMobileSetting(displayTargets, "switchPooledAccountOnLimit")}
-            disabled={disabled}
-            onValueChange={(value) => writeToAll({ switchPooledAccountOnLimit: value })}
-          />
           <SettingsSwitchRow
             icon="clock"
             label={gt("Auto-resume limited threads")}
