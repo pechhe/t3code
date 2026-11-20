@@ -64,6 +64,7 @@ import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
 import * as DateTime from "effect/DateTime";
 import * as SqlClient from "effect/sql/SqlClient";
+import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodeHttp from "node:http";
 import type * as NodeNet from "node:net";
@@ -2025,6 +2026,96 @@ it.effect.each([
         const next = yield* service.get({ id: config.id });
         assert.isNotNull(next.champion.outstandingCheckId);
         assert.isTrue(next.champion.attention.every((line) => !line.startsWith("Skipped this ")));
+      }),
+    ),
+);
+
+it.effect(
+  "ends a claim made without a model as skipped when collection fails and still no model can run",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        f.realProjectRoot();
+        yield* accepted(service, [
+          collectedMetric(node("console.error('disk gone');process.exit(3)")),
+        ]);
+        yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
+        f.available(false);
+        yield* TestClock.adjust("1 minute");
+        yield* service.runDue;
+        yield* service.runDue;
+        const skipped = yield* service.get({ id: config.id });
+        const sql = yield* SqlClient.SqlClient;
+        assert.deepEqual(f.counts(), { launches: 0, sends: 0 });
+        assert.isNull(skipped.champion.outstandingCheckId);
+        assert.isTrue(skipped.champion.attention[0]!.startsWith("Skipped this check"));
+        assert.deepEqual(
+          skipped.champion.attention.filter((line) => line.includes("dispatch unavailable")),
+          [],
+        );
+        const activity = (yield* service.history({ id: config.id })).activity;
+        assert.equal(activity.filter((entry) => entry.kind === "check-skipped").length, 1);
+        assert.equal(activity.filter((entry) => entry.kind === "dispatch-unavailable").length, 0);
+        const checks = yield* sql<{
+          document_json: string;
+        }>`SELECT document_json FROM champion_checks`.pipe(Effect.orDie);
+        assert.equal(checks.length, 1);
+        const stored = JSON.parse(checks[0]!.document_json) as {
+          cancelled: boolean;
+          executionAttempt?: unknown;
+        };
+        assert.isTrue(stored.cancelled);
+        assert.isUndefined(stored.executionAttempt);
+      }),
+    ),
+);
+
+it.effect(
+  "gives a claim made without a model its model and dispatches it when collection fails after one is back",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        const root = f.realProjectRoot();
+        const claimed = NodePath.join(root, "claimed");
+        const go = NodePath.join(root, "go");
+        const armed = NodePath.join(root, "armed");
+        yield* Effect.sync(() => {
+          NodeChildProcess.execFileSync("mkfifo", [claimed, go]);
+        });
+        // Once armed, the command fails only when the test lets it, so the claim is made while no model can run.
+        yield* accepted(service, [
+          collectedMetric(
+            node(
+              "const fs=require('fs');if(!fs.existsSync(process.argv[3])){console.log(1);process.exit(0)}fs.writeFileSync(process.argv[1],'x');fs.readFileSync(process.argv[2]);process.exit(3)",
+              claimed,
+              go,
+              armed,
+            ),
+          ),
+        ]);
+        NodeFS.writeFileSync(armed, "");
+        yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
+        f.available(false);
+        yield* TestClock.adjust("1 minute");
+        const sweep = yield* Effect.forkChild(service.runDue);
+        yield* Effect.promise(() => NodeFS.promises.readFile(claimed));
+        // The model returns after the claim and before the sweep dispatches it.
+        f.available(true);
+        yield* Effect.promise(() => NodeFS.promises.writeFile(go, "go"));
+        yield* Fiber.join(sweep);
+        const started = yield* service.get({ id: config.id });
+        const claim = started.champion.outstandingCheckId;
+        assert.isNotNull(claim);
+        assert.equal(f.counts().launches + f.counts().sends, 1);
+        const sql = yield* SqlClient.SqlClient;
+        const rows = yield* sql<{
+          document_json: string;
+        }>`SELECT document_json FROM champion_checks WHERE id = ${claim}`.pipe(Effect.orDie);
+        const stored = JSON.parse(rows[0]!.document_json) as { executionAttempt?: unknown };
+        assert.isDefined(stored.executionAttempt);
+        assert.isTrue(
+          started.champion.attention.every((line) => !line.startsWith("Skipped this ")),
+        );
       }),
     ),
 );

@@ -1105,9 +1105,31 @@ const make = Effect.gen(function* () {
     );
     return attempt;
   });
-  const dispatchCheck = Effect.fn("ChampionService.dispatchCheck")(function* (check: Check) {
-    const doc = yield* read(check.championId);
-    if ((yield* readCheck(check.id)).cancelled) return;
+  const dispatchCheck = Effect.fn("ChampionService.dispatchCheck")(function* (claimed: Check) {
+    const doc = yield* read(claimed.championId);
+    if ((yield* readCheck(claimed.id)).cancelled) return;
+    let check = claimed;
+    // A claim made while no model could run (only a check the server might finish itself is claimed so) gets its
+    // model now, or ends as skipped, so it never retries a dispatch that cannot succeed.
+    if (check.executionAttempt === undefined) {
+      const resolved = yield* resolveAttempt(doc, check).pipe(Effect.result);
+      if (resolved._tag === "Failure") {
+        const detail = resolved.failure.detail;
+        if (resolved.failure.reason === "unavailable" && detail?.startsWith(SKIPPED))
+          return yield* recordSkip({
+            id: check.championId,
+            kind: check.kind,
+            message: detail,
+            advance: false,
+            ended: check,
+          });
+        return yield* resolved.failure;
+      }
+      check = { ...check, executionAttempt: resolved.success };
+      yield* mutate(
+        saveCheck({ ...(yield* readCheck(check.id)), executionAttempt: resolved.success }),
+      );
+    }
     if (check.executionAttempt === undefined)
       return yield* new ChampionError({ reason: "unavailable" });
     const modelSelection = check.executionAttempt.resolvedSelection;
