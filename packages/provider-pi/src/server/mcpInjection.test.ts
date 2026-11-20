@@ -2,17 +2,20 @@ import { assert, describe, expect, it } from "@effect/vitest";
 import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 
 import {
-  T3_MCP_AGENT_SERVERS_ENV,
   T3_MCP_BEARER_ENV,
   T3_MCP_URL_ENV,
+  T3_PI_RUNTIME_MODE_ENV,
+  T3_PI_MCP_EXTENSION_PATH_ENV,
+} from "./mcpExtensionSource.ts";
+import {
+  PI_T3_EXTENSION_SOURCE,
+  T3_MCP_AGENT_SERVERS_ENV,
   T3_PI_READ_ONLY_ENV,
   T3_PI_READ_ONLY_SHELL_ENV,
   T3_PI_INSTRUCTIONS_ENV,
   T3_PI_AGENT_ROLE_ENV,
   T3_PI_AGENT_CONFIG_ROOT_ENV,
-  T3_PI_RUNTIME_MODE_ENV,
-  T3_PI_MCP_EXTENSION_PATH_ENV,
-} from "./mcpExtensionSource.ts";
+} from "./piT3Extension.ts";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
@@ -24,7 +27,6 @@ import {
   materializePiT3McpExtension,
   resolvePiLaunchArgs,
 } from "./mcpInjection.ts";
-import { PI_T3_MCP_EXTENSION_SOURCE } from "./mcpExtensionSource.ts";
 
 const threadId = ThreadId.make("thread-pi-t3-mcp");
 
@@ -325,7 +327,8 @@ describe("pi T3 MCP injection", () => {
     assert.include(launch.args, "--extension=./user.ts");
     assert.include(launch.args, "./other.ts");
     assert.notInclude(launch.args, "--no-extensions");
-    assert.include(launch.args, "--no-mcp");
+    // Pi's own MCP serves T3's and the agent servers' tools, so it stays on while any are allowed.
+    assert.notInclude(launch.args, "--no-mcp");
     assert.deepEqual(launch.args.slice(-2), ["--extension", "/tmp/cache/pi-t3-mcp-extension.ts"]);
     const excluded = launch.args.indexOf("--exclude-tools");
     assert.deepEqual(launch.args.slice(excluded, excluded + 2), [
@@ -348,6 +351,7 @@ describe("pi T3 MCP injection", () => {
       extensionPath: "/tmp/cache/pi-t3-mcp-extension.ts",
       readOnlyTools: true,
     });
+    assert.include(withoutMcp.args, "--no-mcp");
     assert.deepEqual(
       withoutMcp.args.slice(
         withoutMcp.args.indexOf("--tools"),
@@ -422,9 +426,9 @@ describe("materializePiT3McpExtension", () => {
             // partial read means the writer truncated the file mid-write.
             if (text.value.length === 0) {
               anomalies.push("empty: truncated mid-write");
-            } else if (text.value.length !== PI_T3_MCP_EXTENSION_SOURCE.length) {
+            } else if (text.value.length !== PI_T3_EXTENSION_SOURCE.length) {
               anomalies.push(
-                `partial: ${text.value.length} of ${PI_T3_MCP_EXTENSION_SOURCE.length} chars`,
+                `partial: ${text.value.length} of ${PI_T3_EXTENSION_SOURCE.length} chars`,
               );
             }
           }),

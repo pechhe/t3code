@@ -41,7 +41,7 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 import { AgentScope } from "@t3tools/shared/AgentScope";
 import { makePiAdapterV2, PiAdapterV2Driver, type PiAdapterV2Options } from "./adapter.ts";
 import type { PiRpcRecord } from "./rpc.ts";
-import { loadMcpBridge } from "./mcpBridge.testkit.ts";
+import { loadPiT3Extension } from "./piT3Extension.testkit.ts";
 import { PI_T3_SERVICE_TIER_COMMAND } from "./mcpExtensionSource.ts";
 
 const layerTest = Layer.mergeAll(
@@ -768,20 +768,26 @@ describe("PiAdapterV2", () => {
           value === undefined ? undefined : readSpawnEnv(value),
         ]),
       );
-      const bridge = yield* Effect.promise(() =>
-        loadMcpBridge({ modern: true, environment, agentServers: [weave] }),
+      const extension = yield* Effect.promise(() => loadPiT3Extension({ environment }));
+      extension.hook<(event: unknown) => void>("session_start")({});
+      // A read-only thread keeps both its t3-code and agent connections, each with its own credential.
+      assert.deepEqual(
+        extension.servers.map((server) => [
+          server.name,
+          server.config.url,
+          server.config.headers.Authorization,
+        ]),
+        [
+          ["t3-code", "http://fixture.invalid/mcp/browser", "Bearer fixture-browser-token"],
+          [weave.name, weave.url, weave.authorizationHeader],
+        ],
       );
-      const ctx = { ui: { notify: assert.fail } };
-      yield* Effect.promise(() => bridge.handlers.get("session_start")!({ systemPrompt: "" }, ctx));
-      assert.isDefined(bridge.tools.find((tool) => tool.name === "mcp__t3-code__preview_snapshot"));
-      assert.isDefined(bridge.tools.find((tool) => tool.name === "mcp__weave__weave_forge_read"));
-      assert.isTrue(bridge.transports.some((transport) => transport.url.endsWith("/mcp/browser")));
       const sections: Record<string, string> = {};
       yield* Effect.promise(async () => {
-        await bridge.handlers.get("before_agent_start")!(
-          { systemPrompt: "", systemPromptOptions: { sections } },
-          ctx,
-        );
+        await extension.hook<(event: unknown) => Promise<unknown>>("before_agent_start")({
+          systemPrompt: "",
+          systemPromptOptions: { sections },
+        });
       });
       assert.include(sections.t3_code_orchestration ?? "", "preview_open");
     }).pipe(Effect.scoped, Effect.provide(layerTest)),

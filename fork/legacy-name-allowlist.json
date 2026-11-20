@@ -250,9 +250,9 @@
     "reason": "Proves a legacy-registered native thread keeps the retained MCP server name."
   },
   {
-    "path": "packages/provider-pi/src/server/mcpExtensionSource.test.ts",
+    "path": "packages/provider-pi/src/server/piT3Extension.test.ts",
     "category": "compatibility-aliases",
-    "reason": "Documents or proves the retained MCP server name for legacy-registered native threads."
+    "reason": "Proves a legacy-registered agent server keeps the retained MCP server name and its approvals."
   },
   {
     "path": "packages/shared/src/forgeLinks.test.ts",

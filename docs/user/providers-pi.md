@@ -102,6 +102,11 @@ order. See [One model on several accounts](usage.md#one-model-on-several-account
   environment, including `PI_CODING_AGENT_DIR` if set. Trust the folder or its parent with `/trust`,
   then start a new thread using that same worktree. Launch arguments with `--no-approve` keep
   project files off without the notice.
+- T3 Code's tools reach Pi through Pi's built-in MCP support. If they are missing, check that it
+  is on (**Built-in → mcp** in `pi config`, and no `--no-mcp` in the launch arguments) and that no
+  other extension replaces it. If a thread warns that a server in an `mcp.json` replaces its own,
+  rename or remove that server (`t3-code`, or the name of one of the thread's connections such as
+  `weave`).
 - To see context usage on web and desktop, turn on **Context window** in **Settings → Appearance →
   Thread details**. It appears once Pi reports usage for the thread. Some model providers only
   report usage when a response completes, so it can wait for the first reply.

@@ -13,20 +13,22 @@ import {
   agentCommandEnvironment,
 } from "@t3tools/provider-core/server/mcpSession";
 import {
-  T3_MCP_AGENT_SERVERS_ENV,
   PI_T3_MCP_EXTENSION_FILENAME,
-  PI_T3_MCP_EXTENSION_SOURCE,
   T3_MCP_BEARER_ENV,
   T3_MCP_URL_ENV,
+  T3_PI_RUNTIME_MODE_ENV,
+  T3_PI_MCP_EXTENSION_PATH_ENV,
+} from "./mcpExtensionSource.ts";
+import {
+  PI_T3_EXTENSION_SOURCE,
+  T3_MCP_AGENT_SERVERS_ENV,
   T3_PI_INSTRUCTIONS_ENV,
   T3_PI_AGENT_ROLE_ENV,
   T3_PI_AGENT_CONFIG_ROOT_ENV,
   piChildInstructionsFor,
   T3_PI_READ_ONLY_ENV,
   T3_PI_READ_ONLY_SHELL_ENV,
-  T3_PI_RUNTIME_MODE_ENV,
-  T3_PI_MCP_EXTENSION_PATH_ENV,
-} from "./mcpExtensionSource.ts";
+} from "./piT3Extension.ts";
 
 import { PI_READ_ONLY_SHELL_FILENAME, PI_READ_ONLY_SHELL_SOURCE } from "./readOnlyShellSource.ts";
 
@@ -273,7 +275,7 @@ export const materializePiT3McpExtension = Effect.fn("materializePiT3McpExtensio
   const extensionDest = piT3McpExtensionDestPath(cacheDir);
   for (const [filename, source] of [
     [PI_READ_ONLY_SHELL_FILENAME, PI_READ_ONLY_SHELL_SOURCE],
-    [PI_T3_MCP_EXTENSION_FILENAME, PI_T3_MCP_EXTENSION_SOURCE],
+    [PI_T3_MCP_EXTENSION_FILENAME, PI_T3_EXTENSION_SOURCE],
   ] as const) {
     const dest = `${cacheDir.replace(/\\/g, "/")}/${filename}`;
     const existing = yield* fs.readFileString(dest).pipe(Effect.orElseSucceed(() => ""));
@@ -364,7 +366,11 @@ export function buildPiRpcLaunch(input: {
         ]
       : input.readOnlyTools === true
         ? [
-            ...(!launchArgs.includes("--no-mcp") ? ["--no-mcp"] : []),
+            // Pi's own MCP serves T3's and the agent servers' tools, so it stays on when any are
+            // allowed; the allowlist below keeps the user's other servers' tools out.
+            ...(allowedReadOnlyMcpPatterns.length === 0 && !launchArgs.includes("--no-mcp")
+              ? ["--no-mcp"]
+              : []),
             "--tools",
             readOnlyAllowedTools.join(","),
             "--exclude-tools",

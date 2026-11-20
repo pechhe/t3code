@@ -78,6 +78,8 @@ import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
 import { attachTaskImages, TASK_IMAGE_TOOLS } from "./taskImages.ts";
 import * as McpToolAccess from "./McpToolAccess.ts";
+import { withProgressHeartbeat } from "./McpProgressHeartbeat.ts";
+import { summariseResultSchema } from "./McpResultSchemaSummary.ts";
 import * as McpToolExposure from "./McpToolExposure.ts";
 import { MCP_TOOL_EXPOSURE_HEADER } from "@t3tools/provider-core/server/mcpSession";
 import * as OrchestratorMcpService from "./OrchestratorMcpService.ts";
@@ -1293,6 +1295,34 @@ const withToolSpans = Effect.fn("McpHttpServer.withToolSpans")(function* <A, E, 
   return yield* registration.pipe(Effect.provideService(McpServer.McpServer, tracingServer));
 });
 
+/**
+ * Fork: a call carrying a progress token gets `notifications/progress` while its handler runs, and
+ * each tool advertises a summarised result schema.
+ */
+const withForkToolRegistration = Effect.fn("McpHttpServer.withForkToolRegistration")(function* <
+  A,
+  E,
+  R,
+>(registration: Effect.Effect<A, E, R>) {
+  const server = yield* McpServer.McpServer;
+  const notifyProgress = (progress: Parameters<Parameters<typeof withProgressHeartbeat>[0]>[0]) =>
+    server.notifications["notifications/progress"](progress).pipe(Effect.ignoreCause);
+  const forkServer = McpServer.McpServer.of({
+    ...server,
+    addTool: Effect.fn("McpServer.addTool")(function (options) {
+      return server.addTool({
+        ...options,
+        tool: new McpSchema.Tool({
+          ...options.tool,
+          outputSchema: summariseResultSchema(options.tool.outputSchema),
+        }),
+        handle: (payload) => withProgressHeartbeat(notifyProgress, options.handle(payload)),
+      });
+    }),
+  });
+  return yield* registration.pipe(Effect.provideService(McpServer.McpServer, forkServer));
+});
+
 /** `McpServer.registerToolkit` advertises the full codec schema; agents get the compact one. */
 const withAdvertisedSchemas = Effect.fn("McpHttpServer.withAdvertisedSchemas")(function* <
   Tools extends Record<string, Tool.Any>,
@@ -1463,11 +1493,13 @@ export const toolkitRegistration = <Tools extends Record<string, Tool.Any>, EX, 
           : (Toolkit.make(...kept.map(([, tool]) => tool)) as unknown as Toolkit.Toolkit<Tools>);
       yield* withToolAnalytics(
         withToolSpans(
-          withAdvertisedSchemas(
-            listed,
-            withTaskImages(
-              withUndecodedTaskRecord(
-                McpServer.registerToolkit(decodeAsAdvertised(listedForReadOnly(listed))),
+          withForkToolRegistration(
+            withAdvertisedSchemas(
+              listed,
+              withTaskImages(
+                withUndecodedTaskRecord(
+                  McpServer.registerToolkit(decodeAsAdvertised(listedForReadOnly(listed))),
+                ),
               ),
             ),
           ),
@@ -1513,7 +1545,7 @@ const imageToolRegistration = <Tools extends Record<string, Tool.Any>, A, E, R, 
   register: Effect.Effect<A, E, R>,
   handlers: McpToolAccess.HandlersLayer<Tools, EX, RX>,
 ) =>
-  Layer.effectDiscard(withToolAnalytics(withToolSpans(register))).pipe(
+  Layer.effectDiscard(withToolAnalytics(withToolSpans(withForkToolRegistration(register)))).pipe(
     Layer.provide(McpToolAccess.HandlersLayer.layer(handlers)),
   );
 

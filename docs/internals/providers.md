@@ -30,8 +30,12 @@ full-access replies use `once` so they cannot widen a supervised thread's permis
 server. On 2.x, a session-wide approval also replies `once` and becomes T3's own rule on that session.
 
 Pi runs the user's own `pi` install in RPC mode and owns native extension, package, and project
-trust discovery. T3 injects only its namespaced MCP bridge, so a Pi session behaves as it does in
-the Pi TUI. Pi session files back native resume, rollback, and same-instance thread forks.
+trust discovery. Stdio RPC is the only supported host boundary: Pi's experimental client/server
+stack was removed unreleased in Pi 1.1.0. T3 injects one extension, which registers the thread's
+T3 and agent MCP servers with Pi's own MCP support and keeps T3's permission hooks, so a Pi
+session behaves as it does in the Pi TUI. A server of the same name in the user's `mcp.json`
+overrides a registration there, so the extension reports that clash; long T3 tool calls stay
+alive because T3's MCP endpoint streams progress to clients that send a progress token. Pi session files back native resume, rollback, and same-instance thread forks.
 Forks use Pi's CLI in the destination directory because RPC session switching retains the source
 session's cwd. Provider switches still use portable handoff summaries.
 See the [adapter](../../packages/provider-pi/src/server/adapter.ts).
