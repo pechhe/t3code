@@ -71,6 +71,9 @@ States that live only in a running server, such as a pending approval, need one 
 for both: capture the candidate, `jj new <base>` so Vite serves the base source (the server
 code must not differ), capture again, then `jj edit` back. Start Replay threads in a plain
 Git project: in a SlipJay-backed one each takes a real workspace from the shared spare pool.
+Choosing a SlipJay project in a new draft takes one too, before anything is sent, and stopping
+the server with that thread alive leaves the workspace held (`slipjay remove` keeps it, custody
+recovery-required): delete those threads in the client before stopping the server.
 A Replay `approval` stays pending once `"defaultRuntimeMode": "approval-required"` is in the
 worktree's `.t3/userdata/settings.json`. In the script, poll `preview_evaluate` rather than
 `preview_wait_for`, which stops at 15 s; treat `document.body.innerText.length > 100` as
