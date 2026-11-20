@@ -17,7 +17,7 @@
 #   is sent or built. A tag without them is skipped with the missing asset
 #   recorded on its attempt (`unavailable`), so it never holds a complete newer
 #   release back, and is sent once the release appears.
-#   A new update goes out only once the update interval (two days, or
+#   A new update goes out only once the update interval (seven days, or
 #   T3FORK_UPDATE_INTERVAL_SECONDS) has passed since the newest upstream integration
 #   landed on the branch; the newest publishable tag goes then, and the tags in between
 #   are skipped. Everything else above, and an attempt already sent, keeps running
@@ -97,7 +97,7 @@ MAX_DISPATCHES=3
 # integration landed on the branch, so updates cost one agent session per interval
 # rather than one per tag. 0 removes the wait. The landing that starts a new interval is
 # an upstream merge, not an ordinary commit, so landing a fork change resets nothing.
-UPDATE_INTERVAL_SECONDS="${T3FORK_UPDATE_INTERVAL_SECONDS:-$((2 * 24 * 3600))}"
+UPDATE_INTERVAL_SECONDS="${T3FORK_UPDATE_INTERVAL_SECONDS:-$((7 * 24 * 3600))}"
 
 # The desktop build needs rustup's toolchain, which the login shell does not put on PATH.
 export PATH="/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH"

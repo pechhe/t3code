@@ -2547,7 +2547,7 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
     it("holds a newer publishable tag until the interval since the newest integration landed", async () => {
       await withFixture(async (f) => {
         await seedRepos(f);
-        // The integration landed 12 hours ago, so the default two days are part spent.
+        // The integration landed 12 hours ago, so the default seven days are part spent.
         await landIntegration(f, BUILD_TAG, "2026-02-28T12:00:00Z");
         await publishUpstreamTag(f, OLD_TAG, "2026-02-28T13:00:00Z");
 
@@ -2557,12 +2557,12 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
         expect(await nightlyLog(f)).toContain(`upstream ${OLD_TAG} waits`);
 
         // A second before the interval, the tag still waits.
-        await run(f, [], { ...defaults, T3_TEST_NOW_EPOCH: `${NOW + 36 * 3600 - 1}` });
+        await run(f, [], { ...defaults, T3_TEST_NOW_EPOCH: `${NOW + 156 * 3600 - 1}` });
         expect(await updates(f)).toEqual([]);
         expect(await exists(stateFile(f, "attempts", `${OLD_TAG}.json`))).toBe(false);
 
         // At the interval the newest tag is dispatched, once.
-        await run(f, [], { ...defaults, T3_TEST_NOW_EPOCH: `${NOW + 36 * 3600}` });
+        await run(f, [], { ...defaults, T3_TEST_NOW_EPOCH: `${NOW + 156 * 3600}` });
         expect((await updates(f)).map((call) => call.body.tag)).toEqual([OLD_TAG]);
         expect(await attemptOf(f, OLD_TAG)).toMatchObject({ phase: "dispatched", dispatches: 1 });
       });
