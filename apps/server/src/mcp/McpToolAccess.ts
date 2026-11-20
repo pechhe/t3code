@@ -43,8 +43,9 @@ import {
   drivesOwnBrowser,
 } from "./ManagedBrowserAccess.ts";
 import { resolveInteractionMode, resolveRuntimeMode } from "./delegatedTaskModes.ts";
+import { checkAdvisorCaller } from "./advisorAccess.ts";
+import { assertBelowDelegationLimit } from "./delegationLimits.ts";
 import {
-  assertBelowDelegationLimit,
   assertFullAccess,
   assertExternalWorkOwner,
   assertLiveCaller,
@@ -188,24 +189,7 @@ const orchestratingCaller = refuseReadOnlyClient.pipe(
   Effect.tap(refuseConfinedWrites),
 );
 
-export const advisorAccess = writingCaller.pipe(
-  Effect.tap((caller) =>
-    caller.caller?.agentTask?.sourceAccess === "read-only"
-      ? Effect.fail(
-          new OrchestratorMcpFailure({
-            code: "capability_denied",
-            message:
-              "A read-only worker may consult its parent but cannot launch or control a dedicated advisor.",
-          }),
-        )
-      : Effect.void,
-  ),
-  Effect.tap((caller) =>
-    caller.caller === undefined
-      ? Effect.void
-      : assertBelowDelegationLimit(caller.threads, caller.caller),
-  ),
-);
+export const advisorAccess = writingCaller.pipe(Effect.tap(checkAdvisorCaller));
 
 const requireThreadCaller = McpInvocationContext.McpInvocationContext.pipe(
   Effect.flatMap((scope) => McpInvocationContext.requireThreadScope(scope, "This tool")),

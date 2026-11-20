@@ -5,7 +5,7 @@ import * as Digest from "effect/crypto/Digest";
 import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import { weaveAgentRole } from "../weave/WeaveAgentConnections.ts";
 import * as ExternalWork from "../agents/ExternalAgentWorkService.ts";
-import { assertBelowDelegationLimit } from "./threadAccess.ts";
+import { assertBelowDelegationLimit } from "./delegationLimits.ts";
 import * as Hex from "effect/encoding/Hex";
 import * as Result from "effect/Result";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
@@ -1874,11 +1874,10 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
           return taskId;
         }),
       );
-      // Isolated writers and pinned readers elsewhere share one lock, so neither can launch
-      // into a workspace the other has just claimed; the lock is held through prepareRun.
-      // One mask from the lock wait to the await, so a caller that goes away once the run is
-      // committed still reaches the wake upgrade: only the lock wait and the await itself are
-      // restored to interruptible.
+      // Isolated writers and pinned readers share one lock, held through prepareRun, so neither
+      // launches into a workspace the other just claimed. One mask spans the lock wait to the
+      // await, so a caller that leaves after the run commits still reaches the wake upgrade;
+      // only the lock wait and the await itself stay interruptible.
       return yield* Effect.uninterruptibleMask((restore) =>
         Effect.gen(function* () {
           const launched = yield* Effect.exit(

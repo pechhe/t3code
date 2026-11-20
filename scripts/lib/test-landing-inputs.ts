@@ -103,6 +103,7 @@ const ACP_AGENT_SPAWNERS = [
     "provider/AcpRegistryProbe.test.ts",
     "provider/Drivers/AntigravityDriver.test.ts",
     "provider/GrokProvider.test.ts",
+    "provider/GrokProvider.fork.test.ts",
     "provider/acp/AcpJsonRpcConnection.test.ts",
     "provider/acp/AcpSessionRuntime.processTree.test.ts",
   ),

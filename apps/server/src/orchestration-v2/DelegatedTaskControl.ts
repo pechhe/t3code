@@ -24,11 +24,11 @@ import type {
 } from "@t3tools/contracts";
 import { isOrchestrationV2WorkActive } from "@t3tools/contracts";
 import { latestExecutedRun } from "@t3tools/shared/orchestrationV2ThreadError";
+import { type delegatedTaskProgress } from "@t3tools/provider-core/server/subagentProjection";
 import {
   abandonedBackgroundWorkNote,
   delegatedTaskRunHold,
-  type delegatedTaskProgress,
-} from "@t3tools/provider-core/server/subagentProjection";
+} from "@t3tools/provider-core/server/delegatedTaskHold";
 import { delegatedTaskResultRun, delegatedTaskRuns, runOutcome } from "./RestartBackgroundNote.ts";
 
 import type { PendingOrchestrationEffectV2 } from "./EffectOutbox.ts";

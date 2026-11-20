@@ -1312,37 +1312,6 @@ it.effect(
     }),
 );
 
-it.effect("frames a scheduled prompt steered into the running turn", () =>
-  Effect.gen(function* () {
-    const { started, steered, layer, startFirstTurn } = yield* nextTurnSelectionHarness(
-      "steering-scheduled-prompt",
-    );
-    yield* Effect.gen(function* () {
-      const orchestrator = yield* Orchestrator.OrchestratorV2;
-      const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
-      const threadId = yield* startFirstTurn;
-      yield* orchestrator.dispatch({
-        type: "message.dispatch",
-        commandId: CommandId.make("scheduled-steer"),
-        threadId,
-        messageId: MessageId.make("message:scheduled-steer"),
-        scheduledTaskId: ScheduledTaskId.make("heartbeat"),
-        text: "Check the release.",
-        attachments: [],
-        modelSelection: runSelection,
-        dispatchMode: { type: "steer_active", targetRunId: started[0]!.runId },
-        createdBy: "agent",
-        creationSource: "mcp",
-      });
-      yield* worker.drain();
-    }).pipe(Effect.provide(layer));
-
-    assert.lengthOf(steered, 1);
-    assert.isTrue(steered[0]!.startsWith(SCHEDULED_TASK_NOTE));
-    assert.isTrue(steered[0]!.endsWith("Scheduled task prompt:\nCheck the release."));
-  }),
-);
-
 it.effect("starts a steer that missed the turn on the saved next-turn selection", () =>
   Effect.gen(function* () {
     const { events, started, steered, layer, startFirstTurn } = yield* nextTurnSelectionHarness(

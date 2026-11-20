@@ -13,10 +13,8 @@ import type {
   OrchestrationV2TurnItem,
   ThreadId,
 } from "@t3tools/contracts";
-import {
-  delegatedTaskProgress,
-  delegatedTaskProgressTurnItems,
-} from "@t3tools/provider-core/server/subagentProjection";
+import { delegatedTaskProgress } from "@t3tools/provider-core/server/subagentProjection";
+import { delegatedTaskProgressTurnItems } from "@t3tools/provider-core/server/delegatedTaskHold";
 import { reportLabel } from "@t3tools/provider-core/server/notification";
 import * as DateTime from "effect/DateTime";
 

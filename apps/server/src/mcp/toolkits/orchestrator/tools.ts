@@ -1,8 +1,5 @@
 import * as CustodyPeer from "../../../workspace/custodyPeerProtocol.ts";
 import {
-  OrchestratorMcpAdvice,
-  OrchestratorMcpAskAdviceWireInput,
-  ThreadId,
   AgentTaskOutcomeInput,
   SecretsListInput,
   SecretsListResult,
@@ -63,6 +60,7 @@ import * as Schema from "effect/Schema";
 import * as Struct from "effect/Struct";
 
 import * as AdviceMcpService from "../../AdviceMcpService.ts";
+import * as Advice from "./advice.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as PeerForwarding from "../../../peer/PeerForwarding.ts";
 import * as PeerLinkRequests from "../../../peer/PeerLinkRequests.ts";
@@ -154,12 +152,7 @@ const OrchestratorCapabilitiesTool = Tool.make("orchestrator_capabilities", {
   .annotate(Tool.Idempotent, true);
 
 const AskAdviceTool = Tool.make("ask_advice", {
-  description:
-    "Consult your managed parent (default) or explicit advisor after investigating consequential ambiguity, a brief conflict or shared contracts. Decide routine reversible details locally. Supply question and stable clientRequestId; include the investigation and recommendation in the question or separate optional fields. blocking defaults true; set false when independent work can continue. Reuse the existing answer instead of acknowledging or repeating it. Blocking pending: end your turn; the answer wakes you. Nonblocking: continue independent work. read/answer/cancel use requestId and workerThreadId; only the immediate parent answers. Follow-ups need a fresh id, followsRequestId and newEvidence. A new advisor reads your workspace; sourceRevision pins it; taskId reuses that advisor. Advice grants no authority or human approval.",
-  parameters: OrchestratorMcpAskAdviceWireInput,
-  success: Schema.Union([OrchestratorMcpAdvice, OrchestratorMcpDelegateTaskResult]),
-  failure: OrchestratorMcpFailure,
-  failureMode: "return",
+  ...Advice.askAdviceToolOptions,
   dependencies: [...dependencies, AdviceMcpService.AdviceMcpService],
 }).annotate(Tool.Idempotent, true);
 
@@ -174,23 +167,6 @@ const CustodyPeerTool = Tool.make(CustodyPeer.toolName, {
     McpInvocationContext.McpInvocationContext,
     ThreadManagementService.ThreadManagementService,
   ],
-}).annotate(McpSchema.EnabledWhen, McpInvocationContext.onlyForLinkedEnvironments);
-
-const AdvicePeerTool = Tool.make("t3_advice_peer", {
-  description:
-    "Internal delivery for the authenticated peer session that owns this managed delegation.",
-  parameters: Schema.Struct({
-    action: Schema.Literals(["read", "answer", "delivered", "wait", "cancel"]),
-    workerThreadId: ThreadId,
-    parentThreadId: ThreadId,
-    seen: Schema.optional(Schema.String.check(Schema.isMaxLength(64_000))),
-    requestId: Schema.optional(TrimmedNonEmptyString),
-    answer: Schema.optional(TrimmedNonEmptyString),
-  }),
-  success: Schema.Array(OrchestratorMcpAdvice),
-  failure: OrchestratorMcpFailure,
-  failureMode: "return",
-  dependencies: [McpInvocationContext.McpInvocationContext, AdviceMcpService.AdviceMcpService],
 }).annotate(McpSchema.EnabledWhen, McpInvocationContext.onlyForLinkedEnvironments);
 
 const DelegateTaskTool = Tool.make("delegate_task", {
@@ -553,7 +529,7 @@ export const OrchestratorToolkit = Toolkit.make(
   AgentRolesTool,
   OrchestratorCapabilitiesTool,
   AskAdviceTool,
-  AdvicePeerTool,
+  Advice.AdvicePeerTool,
   CustodyPeerTool,
   DelegateTaskTool,
   TaskStatusTool,

@@ -15,6 +15,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import type { RequestedModel } from "../agents/AgentRoleResolver.ts";
+import * as DelegationModelShadow from "../agents/DelegationModelShadow.ts";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import { occupantsEverywhere } from "../agents/workspaceIdentity.ts";
 import { resolveRuntimeMode } from "../mcp/delegatedTaskModes.ts";
@@ -282,4 +283,73 @@ export const revalidateLinkedRole = Effect.fn("LinkedRoleAdmission.revalidate")(
       ),
     })
     .pipe(Effect.mapError((error) => refuse(error.message)));
+});
+
+/**
+ * `t3_thread_launch`'s side of a linked environment's managed role. A role delegated from a
+ * linked environment resolves here, under this policy; a task delegated without one never runs
+ * here as an unmanaged thread while a policy is set.
+ */
+export const admitLinkedLaunch = Effect.fn("LinkedRoleAdmission.admitLaunch")(function* (input: {
+  readonly linked: boolean;
+  readonly delegatedFrom: unknown;
+  readonly delegatedRole: AgentTaskLinkedRequest | undefined;
+  readonly replaying: boolean;
+  readonly threadId: ThreadId;
+  readonly projectId: ProjectId;
+  readonly title: string;
+  readonly ceiling: RuntimeMode;
+  readonly runtimeMode: RuntimeMode | undefined;
+}) {
+  const delegatedHere = input.linked && input.delegatedFrom !== undefined;
+  if (input.delegatedRole !== undefined && !delegatedHere)
+    return yield* new OrchestratorMcpFailure({
+      code: "invalid_request",
+      message: "delegatedRole is set only by a linked environment's delegate_task.",
+    });
+  if (input.delegatedRole === undefined && delegatedHere && !input.replaying) {
+    const policy = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
+    if (Option.isSome(policy) && (yield* policy.value.configured()))
+      return yield* new OrchestratorMcpFailure({
+        code: "capability_denied",
+        message:
+          "This environment has a role policy, so a task delegated here must name a role: call agent_roles with this environmentId, then delegate_task with agentTask.",
+      });
+  }
+  const admitted =
+    input.delegatedRole === undefined || input.replaying
+      ? undefined
+      : yield* admitLinkedRole({
+          threadId: input.threadId,
+          projectId: input.projectId,
+          title: input.title,
+          request: input.delegatedRole,
+          ceiling: input.ceiling,
+          runtimeMode: input.runtimeMode,
+        });
+  return { delegatedHere, admitted };
+});
+
+/** This environment's policy admitted the role, so the pick is recorded here, once. */
+export const recordLinkedPick = Effect.fn("LinkedRoleAdmission.recordPick")(function* (
+  admitted: AdmittedLinkedRole,
+  thread: {
+    readonly id: ThreadId;
+    readonly projectId: ProjectId;
+    readonly modelSelection: { readonly model: string };
+  },
+  taskText: string,
+) {
+  const shadow = yield* Effect.serviceOption(DelegationModelShadow.DelegationModelShadow);
+  if (Option.isSome(shadow))
+    yield* shadow.value.observe({
+      threadId: thread.id,
+      projectId: thread.projectId,
+      role: admitted.binding.role,
+      taskClass: admitted.binding.taskClass,
+      eligible: Effect.succeed(admitted.eligible),
+      chosenModel: thread.modelSelection.model,
+      reassigned: false,
+      taskText,
+    });
 });

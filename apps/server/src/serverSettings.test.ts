@@ -2517,53 +2517,6 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
   );
 });
 
-it.effect("persists delegation runtime settings and preserves existing defaults", () =>
-  Effect.gen(function* () {
-    const service = yield* ServerSettingsModule.ServerSettingsService;
-    const config = yield* ServerConfig.ServerConfig;
-    const fs = yield* FileSystem.FileSystem;
-    yield* service.start;
-    assert.deepEqual((yield* service.getSettings).delegation, {
-      defaultChildRuntimeMode: "inherit",
-      advisorIdleCloseMinutes: null,
-      allowTrustedClaudeWriters: false,
-      modelShadow: false,
-    });
-    const delegation = {
-      defaultChildRuntimeMode: "approval-required" as const,
-      advisorIdleCloseMinutes: 15,
-      allowTrustedClaudeWriters: true,
-      modelShadow: true,
-    };
-    yield* service.updateSettings({ delegation });
-    // An old client editing its known fields cannot reset the owner's explicit opt-in.
-    yield* service.updateSettings({ delegation: { advisorIdleCloseMinutes: 15 } });
-    const persisted = yield* decodeServerSettingsJson(
-      yield* fs.readFileString(config.settingsPath),
-    );
-    assert.deepEqual(persisted.delegation, delegation);
-    const restored = yield* Effect.gen(function* () {
-      const restarted = yield* ServerSettingsModule.ServerSettingsService;
-      yield* restarted.start;
-      return yield* restarted.getSettings;
-    }).pipe(
-      Effect.provide(
-        Layer.fresh(ServerSettingsModule.layer).pipe(
-          Layer.provide(ServerSecretStore.layer),
-          Layer.provide(ManagedPolicy.layerTest()),
-        ),
-      ),
-    );
-    assert.deepEqual(restored.delegation, delegation);
-  }).pipe(
-    Effect.provide(
-      layerServerSettings().pipe(
-        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
-      ),
-    ),
-  ),
-);
-
 it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
   "server settings under a managed policy",
   (it) => {

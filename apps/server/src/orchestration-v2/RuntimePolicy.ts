@@ -1,12 +1,9 @@
-import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as ServerConfig from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
-import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import {
   isRuntimeModeAbove,
   managedRuntimeModeCeilingMessage,
   ModelSelection,
-  resolveProjectProviderInstanceEnabled,
   OrchestrationV2AppThread,
   ProjectId,
   ProviderInstanceId,
@@ -28,7 +25,7 @@ import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProjectStore from "./ProjectStore.ts";
-import { pinnedBinding } from "../agents/followup.ts";
+import * as ManagedRuntimePolicy from "./ManagedRuntimePolicy.ts";
 
 export class RuntimePolicyResolveError extends Schema.TaggedError<RuntimePolicyResolveError>()(
   "RuntimePolicyResolveError",
@@ -232,141 +229,25 @@ export const layerFromProjectStore: Layer.Layer<
         // The thread's own point, else the one set for its model in the server settings.
         const compactAt = input.thread.compactAt ?? modelCompactAt;
         // A Spec lead runs under a top-level thread's policy; its role was admitted at dispatch.
-        if (input.thread.agentTask !== undefined && isLeafAgentTask(input.thread.agentTask)) {
-          const managed = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
-          if (Option.isNone(managed) || instance === undefined)
-            return yield* new RuntimePolicyResolveError({
-              projectId: input.thread.projectId,
-              providerInstanceId: input.modelSelection.instanceId,
-            });
-          const owner = input.thread.agentTask.externalOwner;
-          if (owner !== undefined) {
-            const environment = yield* Effect.serviceOption(ServerEnvironment.ServerEnvironment);
-            if (
-              owner.projectId !== input.thread.projectId ||
-              Option.isNone(environment) ||
-              (yield* environment.value.getEnvironmentId) !== owner.environmentId
-            )
-              return yield* new RuntimePolicyResolveError({
+        if (input.thread.agentTask !== undefined && isLeafAgentTask(input.thread.agentTask))
+          return yield* ManagedRuntimePolicy.resolve({
+            thread: input.thread,
+            agentTask: input.thread.agentTask,
+            modelSelection: input.modelSelection,
+            instance,
+            cwd,
+            projects,
+            sandboxTempRootFor,
+            compactAt,
+            modelCompactAt,
+            utilityModel,
+            fail: (cause) =>
+              new RuntimePolicyResolveError({
                 projectId: input.thread.projectId,
                 providerInstanceId: input.modelSelection.instanceId,
-              });
-          }
-          const settings = yield* Effect.serviceOption(ServerSettings.ServerSettingsService);
-          if (
-            Option.isNone(settings) ||
-            !(yield* settings.value.getSettings.pipe(
-              Effect.map((value) =>
-                resolveProjectProviderInstanceEnabled(
-                  value,
-                  input.thread.projectId,
-                  input.modelSelection.instanceId,
-                ),
-              ),
-              Effect.orElseSucceed(() => false),
-            ))
-          )
-            return yield* new RuntimePolicyResolveError({
-              projectId: input.thread.projectId,
-              providerInstanceId: input.modelSelection.instanceId,
-            });
-          // An isolated helper is the only thread in its workspace, so judged as that
-          // workspace's own lead it would be refused as the lead's checkout. Its workspace is
-          // checked as a separate workspace of the project's repository instead; the lead and
-          // live occupants were checked when the task was admitted.
-          const isolated = input.thread.agentTask.workspaceAssignment === "isolated";
-          const leadless = isolated || input.thread.worktreePath === null;
-          const projectRoot = isolated
-            ? yield* projects.get(input.thread.projectId).pipe(
-                Effect.map((project) => Option.getOrUndefined(project)?.workspaceRoot),
-                Effect.mapError(
-                  (cause) =>
-                    new RuntimePolicyResolveError({
-                      projectId: input.thread.projectId,
-                      providerInstanceId: input.modelSelection.instanceId,
-                      cause,
-                    }),
-                ),
-              )
-            : cwd;
-          yield* managed.value
-            .validate({
-              binding: pinnedBinding(input.thread.agentTask, input.thread.followupSourceRevision),
-              selection: input.modelSelection,
-              projectId: input.thread.projectId,
-              providers: [yield* instance.snapshot.getSnapshot],
-              ceiling: input.thread.runtimeMode,
-              runtimeMode: input.thread.runtimeMode,
-              workspacePath: isolated ? null : input.thread.worktreePath,
-              ...(leadless && projectRoot !== undefined ? { projectRoot } : {}),
-            })
-            .pipe(
-              Effect.mapError(
-                (cause) =>
-                  new RuntimePolicyResolveError({
-                    projectId: input.thread.projectId,
-                    providerInstanceId: input.modelSelection.instanceId,
-                    cause,
-                  }),
-              ),
-            );
-          // A sandboxed writer also writes the repository store it shares with every other
-          // workspace, because committing and even reading history snapshot into it, and a temp
-          // root of its own outside the workspace, so a build's temp files never land in the
-          // checkout it reports.
-          const sandboxedWriter =
-            input.thread.agentTask.sourceAccess !== "read-only" &&
-            input.thread.agentTask.executionBoundary !== "trusted-host-access";
-          const repositoryRoots = sandboxedWriter
-            ? yield* managed.value.repositoryRoots(input.thread.agentTask)
-            : [];
-          const sandboxTempRoot = sandboxedWriter
-            ? yield* sandboxTempRootFor(input.thread).pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new RuntimePolicyResolveError({
-                      projectId: input.thread.projectId,
-                      providerInstanceId: input.modelSelection.instanceId,
-                      cause,
-                    }),
-                ),
-              )
-            : undefined;
-          return ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
-            runtimeMode: input.thread.runtimeMode,
-            interactionMode: "default",
-            cwd,
-            managedAgent: true,
-            ...(sandboxTempRoot === undefined ? {} : { sandboxTempRoot }),
-            ...(compactAt == null ? {} : { compactAt }),
-            ...(modelCompactAt == null ? {} : { modelCompactAt }),
-            ...(utilityModel === undefined ? {} : { utilityModel }),
-            ...(input.thread.agentTask.toolProfile === "web-research" ? { webResearch: true } : {}),
-            ...(input.thread.agentTask.sourceAccess === "read-only" &&
-            input.thread.agentTask.toolProfile === "source-reader"
-              ? { readOnlyShell: true }
-              : {}),
-            approvalPolicy: "never",
-            sandboxPolicy:
-              input.thread.agentTask.sourceAccess === "read-only"
-                ? { type: "readOnly", networkAccess: true }
-                : input.thread.agentTask.executionBoundary === "trusted-host-access"
-                  ? { type: "dangerFullAccess" }
-                  : {
-                      type: "workspaceWrite",
-                      writableRoots: [
-                        cwd,
-                        ...repositoryRoots,
-                        ...(sandboxTempRoot === undefined ? [] : [sandboxTempRoot]),
-                      ],
-                      // An explicitly sandboxed writer still reaches the network for DNS,
-                      // credentials and installs; its writes stay inside writableRoots.
-                      networkAccess: true,
-                      excludeTmpdirEnvVar: true,
-                      excludeSlashTmp: true,
-                    },
+                ...(cause === undefined ? {} : { cause }),
+              }),
           });
-        }
         return ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
           runtimeMode: providerRuntimeMode(input.thread.runtimeMode, supportedRuntimeModes),
           interactionMode: input.thread.interactionMode,

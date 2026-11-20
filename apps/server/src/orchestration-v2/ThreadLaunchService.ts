@@ -1,5 +1,6 @@
 import * as RunCustody from "./RunWorkspaceCustody.ts";
 import { DEFAULT_WAIT_MS } from "./parkedWait.ts";
+import { rebindRootTask, withForgeItem } from "./ThreadLaunchDelegation.ts";
 import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
 import * as ProjectCloneTracker from "../project/ProjectCloneTracker.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
@@ -350,17 +351,6 @@ function describeCause(error: unknown): string {
   }
   return messages.join(" Caused by: ");
 }
-
-/**
- * A launch naming the item by the contract's older key (`buildItem`) reads as `forgeItem` from
- * here on, so a saved client keeps binding the item's workspace.
- */
-const withForgeItem = (strategy: ThreadLaunchWorkspaceStrategy): ThreadLaunchWorkspaceStrategy =>
-  strategy.type !== "worktree" ||
-  strategy.forgeItem !== undefined ||
-  strategy.buildItem === undefined
-    ? strategy
-    : { ...strategy, forgeItem: strategy.buildItem };
 
 const MAX_REPLACEMENT_DETAIL_CHARS = 1500;
 
@@ -1721,15 +1711,12 @@ const make = Effect.gen(function* () {
         );
         const initialWorktreePath =
           workspaceStrategy.type === "existing_worktree" ? workspaceStrategy.worktreePath : null;
-        // A task a link sent to a project's root runs in the folder this launch allocated, so
-        // the folder, not the root the caller could not know to avoid, is the workspace it was given.
-        const agentTask =
-          input.agentTask !== undefined &&
-          initialWorktreePath !== null &&
-          requestedStrategy.type === "root" &&
-          input.agentTask.workspacePath === project.workspaceRoot
-            ? { ...input.agentTask, workspacePath: initialWorktreePath }
-            : input.agentTask;
+        const agentTask = rebindRootTask({
+          agentTask: input.agentTask,
+          initialWorktreePath,
+          requestedStrategy,
+          workspaceRoot: project.workspaceRoot,
+        });
         // The claim commits the thread with its first run, so the orchestrator's recheck under
         // the thread's lock cannot see it: refuse a caller's limit before the thread exists.
         if (input.reuseExistingThread !== true) {

@@ -1,10 +1,7 @@
 import * as CustodyPeer from "../workspace/custodyPeerProtocol.ts";
-import { adviceVersion } from "../agents/adviceDelivery.ts";
 import {
   CommandId,
-  OrchestratorMcpAdvice,
   type EnvironmentId,
-  type ModelSelection,
   NodeId,
   OrchestratorMcpCapabilitiesInput,
   OrchestratorMcpCapabilitiesResult,
@@ -23,9 +20,7 @@ import {
   type RunId,
   type ThreadId,
 } from "@t3tools/contracts";
-import * as AdviceService from "../agents/AdviceService.ts";
 import * as PeerMcpClient from "./PeerMcpClient.ts";
-import * as Schema from "effect/Schema";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
@@ -42,7 +37,7 @@ import { withExecutedModelNote } from "@t3tools/provider-core/server/subagentPro
 
 import type * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
 import { ProjectToolkit } from "../mcp/toolkits/project/tools.ts";
-import { delegationDepth } from "../mcp/threadAccess.ts";
+import { delegationDepth } from "../mcp/delegationLimits.ts";
 import {
   resolveInteractionMode,
   resolveRuntimeMode,
@@ -57,6 +52,7 @@ import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolv
 import { forkParked } from "../serverActivation.ts";
 import * as PeerForwarding from "./PeerForwarding.ts";
 import * as PeerLinks from "./PeerLinks.ts";
+import * as RemoteManaged from "./RemoteManagedDelegation.ts";
 
 /** How long one follow of a remote task waits on its thread there before checking again. */
 const FOLLOW_WAIT_MS = 30_000;
@@ -95,10 +91,7 @@ const RemoteCapabilitiesTool = Tool.make("orchestrator_capabilities", {
  */
 export class RemoteDelegation extends Context.Service<
   RemoteDelegation,
-  {
-    readonly pendingAdvice: (
-      workerThreadId: ThreadId,
-    ) => Effect.Effect<OrchestratorMcpAdvice | undefined, OrchestratorMcpFailure>;
+  RemoteManaged.RemoteManagedDelegationApi & {
     readonly delegate: (
       scope: ThreadScope,
       input: OrchestratorMcpDelegateTaskInput & {
@@ -107,27 +100,6 @@ export class RemoteDelegation extends Context.Service<
         };
       },
     ) => Effect.Effect<{ readonly taskId: NodeId }, OrchestratorMcpFailure>;
-    /**
-     * Continues a finished managed task in its thread there, which keeps its role, model,
-     * workspace and permissions, and records the new run as a task here.
-     */
-    readonly followup: (
-      scope: ThreadScope,
-      task: OrchestrationV2Subagent,
-      input: {
-        readonly text: string;
-        readonly clientRequestId: string;
-        readonly mode: OrchestratorMcpDelegateTaskInput["mode"];
-      },
-    ) => Effect.Effect<{ readonly taskId: NodeId }, OrchestratorMcpFailure>;
-    /**
-     * Whether a running task's thread there waits on a question or an approval, which is
-     * answered there. Unreachable reads as not waiting.
-     */
-    readonly pendingThere: (
-      scope: ThreadScope,
-      task: OrchestrationV2Subagent,
-    ) => Effect.Effect<boolean>;
     /**
      * A `t3_thread_send` there that started or queued a run on the thread of
      * one of this thread's tasks that has its result: like a follow-up to a
@@ -186,7 +158,6 @@ const isFinal = (error: OrchestratorMcpFailure) =>
 
 const make = Effect.gen(function* () {
   const followRetry = yield* FollowRetrySchedule;
-  const advice = yield* Effect.serviceOption(AdviceService.AdviceService);
   const peers = yield* Effect.serviceOption(PeerMcpClient.PeerMcpClient);
   const forwarding = yield* PeerForwarding.PeerForwarding;
   const links = yield* PeerLinks.PeerLinks;
@@ -322,52 +293,7 @@ const make = Effect.gen(function* () {
       }
       const parentNodeId = parentRun.rootNodeId;
       const { target } = input;
-      // A role, its model and its tool profile are resolved by the environment that runs the
-      // task, under its own policy: this side sends the role and at most a requested model,
-      // never a workspace, and refuses before anything starts there if that side cannot.
-      const managed = input.agentTask;
-      // No revision crosses the link: the other checkout may not hold it.
-      if (managed?.sourceRevision !== undefined || managed?.review !== undefined) {
-        return yield* new OrchestratorMcpFailure({
-          code: "invalid_request",
-          message:
-            "A task in a linked environment cannot be pinned to a source revision, which that checkout may not hold. Run a pinned reader or a reviewer here, or omit sourceRevision.",
-        });
-      }
-      if (managed?.role === "lead") {
-        return yield* new OrchestratorMcpFailure({
-          code: "invalid_request",
-          message:
-            "A Spec (an `implementer` given forgeItem) runs only in its own environment. Launch a thread there with t3_thread_launch and its forgeItem, or hand the Spec out here.",
-        });
-      }
-      if (
-        managed !== undefined &&
-        input.offPolicyReason !== undefined &&
-        target.model === undefined
-      ) {
-        return yield* new OrchestratorMcpFailure({
-          code: "invalid_request",
-          message:
-            "offPolicyReason with agentTask requires target.model to name the alternate model.",
-        });
-      }
-      if (managed !== undefined) {
-        const resolved = yield* links
-          .resolve(target.environmentId)
-          .pipe(
-            Effect.mapError(
-              (error) =>
-                new OrchestratorMcpFailure({ code: "capability_denied", message: error.message }),
-            ),
-          );
-        if (resolved.capabilities.linkedRoleDelegation !== true) {
-          return yield* new OrchestratorMcpFailure({
-            code: "capability_denied",
-            message: `${resolved.link.label} runs a T3 Code version that cannot resolve a managed role, so nothing was started there. Update it, or omit target.environmentId to run this role here.`,
-          });
-        }
-      }
+      const managed = yield* RemoteManaged.admit(links, input);
       // A worktree there would branch from a commit this checkout has and the
       // other may not, so a remote task runs in that project's checkout.
       if (input.isolation === "worktree") {
@@ -378,8 +304,7 @@ const make = Effect.gen(function* () {
         });
       }
       // The provider and model inherit as they do for a task here. Another
-      // provider there has no model to inherit, so the caller names one. A role's
-      // model is that side's choice, from what the caller may name.
+      // provider there has no model to inherit, so the caller names one.
       const inherited = parent.thread.modelSelection;
       const instanceId =
         target.driverKind === undefined
@@ -433,49 +358,7 @@ const make = Effect.gen(function* () {
         {
           projectId,
           title,
-          ...(managed !== undefined || model === undefined
-            ? {}
-            : {
-                modelSelection: {
-                  instanceId,
-                  model,
-                  ...(options === undefined ? {} : { options }),
-                },
-              }),
-          ...(managed === undefined
-            ? {}
-            : {
-                delegatedRole: {
-                  role: managed.role,
-                  taskClass: managed.taskClass,
-                  workId: managed.workId,
-                  attemptId: managed.attemptId,
-                  ...(managed.browser === undefined ? {} : { browser: managed.browser }),
-                  ...(managed.executionRequirement === undefined
-                    ? {}
-                    : { executionRequirement: managed.executionRequirement }),
-                  ...(managed.readOnly === undefined ? {} : { readOnly: managed.readOnly }),
-                  ...(managed.authorModel === undefined
-                    ? {}
-                    : { authorModel: managed.authorModel }),
-                  ...(input.offPolicyReason === undefined
-                    ? {}
-                    : { offPolicyReason: input.offPolicyReason }),
-                  ...(target.providerInstanceId === undefined &&
-                  target.model === undefined &&
-                  target.options === undefined
-                    ? {}
-                    : {
-                        selection: {
-                          ...(target.providerInstanceId === undefined
-                            ? {}
-                            : { instanceId: target.providerInstanceId }),
-                          ...(target.model === undefined ? {} : { model: target.model }),
-                          ...(target.options === undefined ? {} : { options: target.options }),
-                        },
-                      }),
-                },
-              }),
+          ...RemoteManaged.launchSelection(input, { instanceId, model, options }),
           ...(runtimeMode === undefined ? {} : { runtimeMode }),
           ...(interactionMode === undefined ? {} : { interactionMode }),
           message: task,
@@ -489,21 +372,12 @@ const make = Effect.gen(function* () {
           },
         },
       );
-      // That side resolved no role, as only an older peer would: stop what it started.
       if (managed !== undefined && launched.agentTask === undefined) {
-        const started: OrchestrationV2RemoteTaskChild = {
-          environmentId: target.environmentId,
-          threadId: launched.threadId,
-          label: target.environmentId,
-        };
-        yield* stopThere(followScope(scope.thread, started), started, "stop").pipe(
-          Effect.ignoreCause({ log: true }),
+        return yield* RemoteManaged.refuseUnresolvedRole(
+          (started) => stopThere(followScope(scope.thread, started), started, "stop"),
+          target.environmentId,
+          launched.threadId,
         );
-        return yield* new OrchestratorMcpFailure({
-          code: "capability_denied",
-          message:
-            "The linked environment did not resolve the role, so its thread there was stopped. Update it, or omit target.environmentId to run this role here.",
-        });
       }
       const link = yield* links.get(target.environmentId).pipe(
         Effect.map(Option.getOrUndefined),
@@ -520,163 +394,13 @@ const make = Effect.gen(function* () {
         ...(launched.runId === null ? {} : { runId: launched.runId }),
         ...(launched.agentTask === undefined ? {} : { agentTask: launched.agentTask }),
       };
-      const recorded = yield* record(scope, {
+      const taskId = yield* managedRemote.record(scope, {
         parentRunId: parentRun.id,
         parentNodeId,
         commandId,
         task,
         title: input.title,
         modelSelection: launched.modelSelection,
-        remoteChild,
-        completionWake: input.mode === "wait" ? "settled_only" : "always",
-      });
-      yield* followOne(scope.thread.threadId, recorded).pipe(Effect.forkIn(followers));
-      return { taskId: recorded };
-    },
-  );
-
-  /** Records a task here for `remoteChild`'s run there, or finds the one a replay recorded. */
-  const record = Effect.fn("RemoteDelegation.record")(function* (
-    scope: ThreadScope,
-    input: {
-      readonly parentRunId: RunId;
-      readonly parentNodeId: NodeId;
-      readonly commandId: CommandId;
-      readonly task: string;
-      readonly title: string | undefined;
-      readonly modelSelection: ModelSelection;
-      readonly remoteChild: OrchestrationV2RemoteTaskChild;
-      readonly completionWake: "settled_only" | "always";
-    },
-  ) {
-    const { commandId, task, remoteChild } = input;
-    const parentRunId = input.parentRunId;
-    const parentNodeId = input.parentNodeId;
-    const recorded = yield* threads
-      .dispatch({
-        type: "delegated_task.remote.request",
-        commandId,
-        parentThreadId: scope.thread.threadId,
-        parentRunId,
-        parentNodeId,
-        task,
-        ...(input.title === undefined ? {} : { title: input.title }),
-        // The driver runs there; this side only labels the task with it.
-        driver: ProviderDriverKind.make("remote"),
-        modelSelection: input.modelSelection,
-        remoteChild,
-        completionWake: input.completionWake,
-      })
-      .pipe(
-        // The cause goes to the log; the caller learns only that recording failed.
-        Effect.tapError((cause) =>
-          Effect.logWarning("remote-delegation.record-failed", {
-            parentThreadId: scope.thread.threadId,
-            cause,
-          }),
-        ),
-        Effect.mapError(
-          () =>
-            new OrchestratorMcpFailure({
-              code: "orchestration_error",
-              message: "Unable to record the delegated task.",
-            }),
-        ),
-        // Nothing here follows a thread the task was never recorded for, so stop it there.
-        // A crash between the launch and this record still leaves it running there
-        // until a retry with the same clientRequestId records it.
-        Effect.tapError(() =>
-          stopThere(followScope(scope.thread, remoteChild), remoteChild, "stop").pipe(
-            Effect.ignoreCause({ log: true }),
-          ),
-        ),
-      );
-    const taskEvent = recorded.storedEvents.find(
-      (stored) => stored.event.type === "subagent.updated",
-    );
-    const taskId =
-      taskEvent?.event.type === "subagent.updated"
-        ? taskEvent.event.payload.id
-        : // A replayed request recorded the task the first time.
-          yield* threads.getThreadRecords(scope.thread.threadId, ["subagents"]).pipe(
-            Effect.map(
-              ({ subagents }) =>
-                subagents.find(
-                  (task) =>
-                    task.remoteChild?.threadId === remoteChild.threadId &&
-                    task.remoteChild.runId === remoteChild.runId,
-                )?.id,
-            ),
-            Effect.orElseSucceed(() => undefined),
-          );
-    if (taskId === undefined) {
-      return yield* new OrchestratorMcpFailure({
-        code: "orchestration_error",
-        message: "The delegated task was not recorded.",
-      });
-    }
-    return taskId;
-  });
-
-  const followup: RemoteDelegation["Service"]["followup"] = Effect.fn("RemoteDelegation.followup")(
-    function* (scope, task, input) {
-      const remote = task.remoteChild;
-      if (remote?.agentTask === undefined || task.result === null) {
-        return yield* new OrchestratorMcpFailure({
-          code: "invalid_request",
-          message:
-            remote === undefined
-              ? `Delegated task ${task.id} is not remote.`
-              : remote.agentTask === undefined
-                ? "Only a managed task can continue its conversation."
-                : "The agent is busy or awaiting result publication. Retry after publication.",
-        });
-      }
-      const parent = yield* threads.getThreadRecords(scope.thread.threadId, ["runs"]).pipe(
-        Effect.mapError(
-          () =>
-            new OrchestratorMcpFailure({
-              code: "thread_not_found",
-              message: "The calling thread was not found.",
-            }),
-        ),
-      );
-      const parentRun = parent.runs
-        .filter(ThreadManagement.isActiveRun)
-        .toSorted((left, right) => right.ordinal - left.ordinal)[0];
-      if (
-        parentRun === undefined ||
-        parentRun.rootNodeId === null ||
-        parentRun.providerInstanceId !== scope.thread.providerInstanceId
-      ) {
-        return yield* new OrchestratorMcpFailure({
-          code: "parent_not_active",
-          message: "Delegated tasks require an active run owned by this MCP provider session.",
-        });
-      }
-      const sent = yield* forwarding.sendThread(scope, remote.environmentId, {
-        threadId: remote.threadId,
-        message: input.text,
-        mode: "queue",
-        clientRequestId: `followup:${scope.thread.threadId}:${input.clientRequestId}`,
-      });
-      const remoteChild: OrchestrationV2RemoteTaskChild = {
-        environmentId: remote.environmentId,
-        threadId: remote.threadId,
-        label: remote.label,
-        ...(remote.title === undefined ? {} : { title: remote.title }),
-        runId: sent.runId,
-        agentTask: remote.agentTask,
-      };
-      const taskId = yield* record(scope, {
-        parentRunId: parentRun.id,
-        parentNodeId: parentRun.rootNodeId,
-        commandId: CommandId.make(
-          `command:mcp:${encodeURIComponent(scope.requestNamespace)}:remote-followup:${encodeURIComponent(input.clientRequestId)}`,
-        ),
-        task: input.text,
-        title: task.title ?? undefined,
-        modelSelection: task.modelSelection ?? remote.agentTask.effective,
         remoteChild,
         completionWake: input.mode === "wait" ? "settled_only" : "always",
       });
@@ -941,12 +665,7 @@ const make = Effect.gen(function* () {
       text += part.text ?? "";
       textOffset = part.textTruncated ? (part.nextTextOffset ?? null) : null;
     }
-    const handedBack =
-      run?.handoff === undefined
-        ? text
-        : `${text}\n\n(Workspace in ${remote.label}: ${run.handoff.workspacePath}${
-            run.handoff.revision === null ? ", no revision recorded" : ` at ${run.handoff.revision}`
-          }. The change stays there.)`;
+    const handedBack = RemoteManaged.withHandback(text, run, remote.label);
     return {
       text:
         run === undefined
@@ -1028,63 +747,6 @@ const make = Effect.gen(function* () {
         Effect.ignoreCause({ log: true }),
       );
     });
-
-  const readAdvice = Effect.fn("RemoteDelegation.readAdvice")(function* (
-    parentThreadId: ThreadId,
-    remote: OrchestrationV2RemoteTaskChild,
-    thread: {
-      readonly runtimeMode: import("@t3tools/contracts").RuntimeMode;
-      readonly interactionMode: import("@t3tools/contracts").ProviderInteractionMode;
-    },
-  ) {
-    let inspection: { readonly blocking: boolean; readonly seen: string } | undefined;
-    if (remote.agentTask !== undefined && Option.isSome(advice) && Option.isSome(peers)) {
-      yield* peers.value
-        .call({
-          environmentId: remote.environmentId,
-          tool: "t3_advice_peer",
-          arguments: { action: "read", workerThreadId: remote.threadId, parentThreadId },
-          limits: { runtimeMode: thread.runtimeMode, interactionMode: thread.interactionMode },
-          success: Schema.Array(OrchestratorMcpAdvice),
-        })
-        .pipe(
-          Effect.flatMap((requests) => {
-            inspection = {
-              blocking: requests.some(
-                (request) => request.status === "pending" && request.blocking,
-              ),
-              seen: adviceVersion(requests),
-            };
-            return Effect.forEach(
-              requests,
-              (request) =>
-                advice.value.receiveRemote(remote.environmentId, request).pipe(
-                  Effect.andThen(
-                    peers.value.call({
-                      environmentId: remote.environmentId,
-                      tool: "t3_advice_peer",
-                      arguments: {
-                        action: "delivered",
-                        workerThreadId: remote.threadId,
-                        parentThreadId,
-                        requestId: request.requestId,
-                      },
-                      limits: {
-                        runtimeMode: thread.runtimeMode,
-                        interactionMode: thread.interactionMode,
-                      },
-                      success: Schema.Array(OrchestratorMcpAdvice),
-                    }),
-                  ),
-                ),
-              { discard: true },
-            );
-          }),
-          Effect.tapError(() => advice.value.remoteUnavailable(remote.threadId)),
-        );
-    }
-    return inspection;
-  });
 
   /**
    * One wait on the task's thread there; true once the task here is done.
@@ -1228,7 +890,7 @@ const make = Effect.gen(function* () {
       yield* acknowledgeHandoff(parentThreadId, taskId);
       return true;
     }
-    const inspection = yield* readAdvice(parentThreadId, remote, thread);
+    const inspection = yield* managedRemote.readAdvice(parentThreadId, remote, thread);
     const endedHere = threads
       .streamStoredEventsFrom({
         threadId: parentThreadId,
@@ -1247,54 +909,17 @@ const make = Effect.gen(function* () {
           Option.isSome(ended) ? Effect.succeed({ endedHere: true } as const) : Effect.never,
         ),
       );
-    if (inspection?.blocking && Option.isSome(peers) && Option.isSome(advice)) {
-      const result = yield* peers.value
-        .call({
-          environmentId: remote.environmentId,
-          tool: "t3_advice_peer",
-          arguments: { action: "wait", workerThreadId: remote.threadId, parentThreadId },
-          limits: { runtimeMode: thread.runtimeMode, interactionMode: thread.interactionMode },
-          success: Schema.Array(OrchestratorMcpAdvice),
-        })
-        .pipe(
-          Effect.tapError(() => advice.value.remoteUnavailable(remote.threadId)),
-          Effect.raceFirst(endedHere),
-        );
-      if (!("endedHere" in result))
-        yield* Effect.forEach(
-          result,
-          (request) => advice.value.receiveRemote(remote.environmentId, request),
-          { discard: true },
-        );
+    if (
+      yield* managedRemote.awaitBlockingAdvice(
+        parentThreadId,
+        remote,
+        thread,
+        inspection,
+        endedHere,
+      )
+    )
       return false;
-    }
-    const adviceChanged =
-      inspection === undefined || Option.isNone(peers) || Option.isNone(advice)
-        ? Effect.never
-        : peers.value
-            .call({
-              environmentId: remote.environmentId,
-              tool: "t3_advice_peer",
-              arguments: {
-                action: "wait",
-                workerThreadId: remote.threadId,
-                parentThreadId,
-                seen: inspection.seen,
-              },
-              limits: { runtimeMode: thread.runtimeMode, interactionMode: thread.interactionMode },
-              success: Schema.Array(OrchestratorMcpAdvice),
-            })
-            .pipe(
-              Effect.flatMap((requests) =>
-                Effect.forEach(
-                  requests,
-                  (request) => advice.value.receiveRemote(remote.environmentId, request),
-                  { discard: true },
-                ),
-              ),
-              Effect.as({ adviceChanged: true } as const),
-              Effect.tapError(() => advice.value.remoteUnavailable(remote.threadId)),
-            );
+    const adviceChanged = managedRemote.adviceChanged(parentThreadId, remote, thread, inspection);
     const waited = yield* forwarding
       .waitForThread(scope, remote.environmentId, {
         threadId: remote.threadId,
@@ -1309,7 +934,7 @@ const make = Effect.gen(function* () {
     // The next look reads the result and stops it there.
     if ("endedHere" in waited || "adviceChanged" in waited) return false;
     if (waited.timedOut) return false;
-    if ((yield* readAdvice(parentThreadId, remote, thread))?.blocking) return false;
+    if ((yield* managedRemote.readAdvice(parentThreadId, remote, thread))?.blocking) return false;
     // A task recorded without its run waits on the thread's latest; a
     // thread there with none has nothing left to wait for.
     if (waited.runId === null) {
@@ -1423,21 +1048,6 @@ const make = Effect.gen(function* () {
         ),
       );
     });
-
-  const pendingThere: RemoteDelegation["Service"]["pendingThere"] = (scope, task) => {
-    const remote = task.remoteChild;
-    if (remote === undefined || task.result !== null) return Effect.succeed(false);
-    return forwarding
-      .readThread(followScope(scope.thread, remote), remote.environmentId, {
-        threadId: remote.threadId,
-        limit: 1,
-        runLimit: 1,
-      })
-      .pipe(
-        Effect.map((read) => read.thread.pendingRequestCount > 0),
-        Effect.orElseSucceed(() => false),
-      );
-  };
 
   const cancel: RemoteDelegation["Service"]["cancel"] = Effect.fn("RemoteDelegation.cancel")(
     function* (scope, task, input) {
@@ -1556,14 +1166,20 @@ const make = Effect.gen(function* () {
       }).pipe(Effect.ignoreCause({ log: true })),
     );
 
+  const managedRemote = yield* RemoteManaged.make({
+    threads,
+    forwarding,
+    peers,
+    followScope,
+    stopThere,
+    follow: (parentThreadId, taskId) =>
+      followOne(parentThreadId, taskId).pipe(Effect.forkIn(followers), Effect.asVoid),
+  });
+
   return RemoteDelegation.of({
-    pendingAdvice: Effect.fn("RemoteDelegation.pendingAdvice")((workerThreadId) =>
-      Option.isSome(advice) ? advice.value.pending(workerThreadId) : Effect.undefined,
-    ),
+    ...managedRemote.api,
     delegate,
-    followup,
     followUp,
-    pendingThere,
     cancel,
     runStatus,
     start,

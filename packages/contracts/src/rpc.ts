@@ -10,7 +10,7 @@ import {
 } from "./secretManagement.ts";
 import { BackgroundPolicySnapshot, HostPowerSnapshot } from "./background.ts";
 import { ModelSelection } from "./modelSelection.ts";
-import { ResolvedDelegationStance } from "./providerPolicy.ts";
+import { ResolvedDelegationStance } from "./delegationStance.ts";
 import { DecisionStatus, DecisionTestResult } from "./decisionRouting.ts";
 import {
   Experiment,

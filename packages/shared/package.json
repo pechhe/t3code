@@ -459,6 +459,10 @@
       "types": "./src/Array.ts",
       "import": "./src/Array.ts"
     },
+    "./delegatedBackgroundWork": {
+      "types": "./src/delegatedBackgroundWork.ts",
+      "import": "./src/delegatedBackgroundWork.ts"
+    },
     "./orchestrationV2PendingBackgroundWork": {
       "types": "./src/orchestrationV2PendingBackgroundWork.ts",
       "import": "./src/orchestrationV2PendingBackgroundWork.ts"

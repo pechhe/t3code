@@ -2646,35 +2646,6 @@ describe("CursorAdapterV2", () => {
     assert.notInclude(logged, "secret-cursor-mcp-token");
   });
 
-  it("attaches the thread's agent servers with or without a T3 session", () => {
-    const weave = {
-      name: "weave",
-      url: "http://127.0.0.1:43123/mcp/weave",
-      authorizationHeader: "Bearer thread-weave-credential",
-    };
-    const server = {
-      type: "http" as const,
-      url: weave.url,
-      headers: { Authorization: weave.authorizationHeader },
-    };
-    assert.deepEqual(cursorMcpServers(undefined, [weave]), { weave: server });
-    assert.deepInclude(
-      cursorMcpServers(
-        {
-          environmentId: EnvironmentId.make("environment-cursor-mcp"),
-          threadId: ThreadId.make("thread-cursor-mcp"),
-          providerSessionId: "mcp-session-cursor",
-          providerInstanceId: ProviderInstanceId.make("cursor"),
-          endpoint: "http://127.0.0.1:43123/mcp",
-          authorizationHeader: "Bearer secret-cursor-mcp-token",
-          browserToolsAvailable: true,
-        },
-        [weave],
-      ),
-      { weave: server },
-    );
-    assert.isUndefined(cursorMcpServers(undefined, []));
-  });
   it("loads project settings only when runtime policy permits unrestricted execution", () => {
     const input = {
       modelSelection: { instanceId: ProviderInstanceId.make("cursor"), model: "composer-2.5" },

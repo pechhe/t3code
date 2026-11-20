@@ -47,6 +47,7 @@ import * as Stream from "effect/Stream";
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import { mcpToolPresentation } from "@t3tools/provider-core/server/mcpToolPresentation";
 import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
+import { cursorAgentMcpServers } from "./agentServers.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
 import { CursorTransportFailure } from "./transportFailure.ts";
@@ -233,16 +234,7 @@ export function cursorMcpServers(
             },
           },
         }),
-    ...Object.fromEntries(
-      agentServers.map((server) => [
-        server.name,
-        {
-          type: "http" as const,
-          url: server.url,
-          headers: { Authorization: server.authorizationHeader },
-        },
-      ]),
-    ),
+    ...cursorAgentMcpServers(agentServers),
   };
 }
 

@@ -2,6 +2,8 @@ import * as Predicate from "effect/Predicate";
 import * as SchemaAST from "effect/SchemaAST";
 import { Tool } from "effect/ai";
 
+import { flattenAllOf } from "./advertisedAllOf.ts";
+
 type Json = unknown;
 type JsonObject = { [key: string]: Json };
 
@@ -91,18 +93,7 @@ const compact = (schema: Json, optional: boolean): Json => {
           )
         : compact(value, false);
   }
-  // A check's JSON fragment arrives under `allOf`; one naming no key the schema already has reads flat.
-  if (Array.isArray(result.allOf)) {
-    const { allOf, ...rest } = result;
-    const parts = allOf.filter((part): part is JsonObject => Predicate.isObject(part));
-    const keys = parts.flatMap((part) => Object.keys(part));
-    if (
-      parts.length === allOf.length &&
-      new Set(keys).size === keys.length &&
-      keys.every((key) => !(key in rest))
-    )
-      result = Object.assign(rest, ...parts);
-  }
+  result = flattenAllOf(result);
   if (Array.isArray(result.anyOf)) {
     const branches = result.anyOf
       .flatMap((branch) => (isBareAnyOf(branch) ? branch.anyOf : [branch]))

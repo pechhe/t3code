@@ -35,9 +35,7 @@ import * as WorkspaceProvider from "../../../project/WorkspaceProvider.ts";
 import * as ServerSettings from "../../../serverSettings.ts";
 import * as GitVcsDriver from "../../../vcs/GitVcsDriver.ts";
 import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
-import * as ManagedAgent from "../../../agents/ManagedAgentService.ts";
-import * as DelegationModelShadow from "../../../agents/DelegationModelShadow.ts";
-import { admitLinkedRole } from "../../../peer/LinkedRoleAdmission.ts";
+import { admitLinkedLaunch, recordLinkedPick } from "../../../peer/LinkedRoleAdmission.ts";
 import * as DateTime from "effect/DateTime";
 import { resolveNewThreadModelSelection } from "@t3tools/shared/usageLimits";
 import {
@@ -52,14 +50,8 @@ import * as OrchestrationMcp from "../../OrchestratorMcpService.ts";
 import * as ForgeWorkItems from "../../../weave/ForgeWorkItems.ts";
 import * as WeaveAgentConnections from "../../../weave/WeaveAgentConnections.ts";
 import * as SecretRequests from "../../../secrets/SecretRequests.ts";
-import {
-  logWhyNotDelegated,
-  newCommandId,
-  readCaller,
-  requireWhyNotDelegated,
-  resolveProjectId,
-  unavailable,
-} from "../../threadAccess.ts";
+import { logWhyNotDelegated, requireWhyNotDelegated } from "../../delegationLimits.ts";
+import { newCommandId, readCaller, resolveProjectId, unavailable } from "../../threadAccess.ts";
 import { ProjectToolkit } from "./tools.ts";
 
 const isAboveCeilingError = Schema.is(OrchestratorRuntimeModeAboveCeilingError);
@@ -325,34 +317,17 @@ export const handlers = {
             code: "invalid_request",
             message: "A launch retry must use the original project.",
           });
-        // A role delegated from a linked environment resolves here, under this policy; a task
-        // delegated without one never runs here as an unmanaged thread while a policy is set.
-        const delegatedHere = linkOrigin !== undefined && input.delegatedFrom !== undefined;
-        if (input.delegatedRole !== undefined && !delegatedHere)
-          return yield* new OrchestratorMcpFailure({
-            code: "invalid_request",
-            message: "delegatedRole is set only by a linked environment's delegate_task.",
-          });
-        if (input.delegatedRole === undefined && delegatedHere && !replaying) {
-          const policy = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
-          if (Option.isSome(policy) && (yield* policy.value.configured()))
-            return yield* new OrchestratorMcpFailure({
-              code: "capability_denied",
-              message:
-                "This environment has a role policy, so a task delegated here must name a role: call agent_roles with this environmentId, then delegate_task with agentTask.",
-            });
-        }
-        const admitted =
-          input.delegatedRole === undefined || replaying
-            ? undefined
-            : yield* admitLinkedRole({
-                threadId,
-                projectId,
-                title: input.title,
-                request: input.delegatedRole,
-                ceiling: context.limits.runtimeMode,
-                runtimeMode: input.runtimeMode,
-              });
+        const { delegatedHere, admitted } = yield* admitLinkedLaunch({
+          linked: linkOrigin !== undefined,
+          delegatedFrom: input.delegatedFrom,
+          delegatedRole: input.delegatedRole,
+          replaying,
+          threadId,
+          projectId,
+          title: input.title,
+          ceiling: context.limits.runtimeMode,
+          runtimeMode: input.runtimeMode,
+        });
         const project = replaying ? undefined : yield* readProject;
         if (!replaying && project === undefined)
           return yield* new OrchestratorMcpFailure({
@@ -581,21 +556,8 @@ export const handlers = {
           }),
         );
         const thread = result.projection.thread;
-        if (admitted !== undefined && !result.resumed) {
-          const shadow = yield* Effect.serviceOption(DelegationModelShadow.DelegationModelShadow);
-          // This environment's policy admitted the role, so the pick is recorded here, once.
-          if (Option.isSome(shadow))
-            yield* shadow.value.observe({
-              threadId: thread.id,
-              projectId: thread.projectId,
-              role: admitted.binding.role,
-              taskClass: admitted.binding.taskClass,
-              eligible: Effect.succeed(admitted.eligible),
-              chosenModel: thread.modelSelection.model,
-              reassigned: false,
-              taskText: input.message ?? "",
-            });
-        }
+        if (admitted !== undefined && !result.resumed)
+          yield* recordLinkedPick(admitted, thread, input.message ?? "");
         if (!result.resumed && caller !== undefined)
           yield* logWhyNotDelegated({
             launchedFrom: caller.id,

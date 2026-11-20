@@ -4,9 +4,9 @@
 import { PULL_REQUEST_LINKING_INSTRUCTIONS } from "@t3tools/provider-core/server/runtimeInstructions";
 import {
   T3_CODE_ORCHESTRATION_INSTRUCTIONS,
-  t3ChildInstructions,
   t3OrchestrationText,
 } from "@t3tools/provider-core/server/orchestrationInstructions";
+import { t3ChildInstructions } from "@t3tools/provider-core/server/delegatedChildInstructions";
 
 import {
   PI_FILE_CHANGE_TOOLS,

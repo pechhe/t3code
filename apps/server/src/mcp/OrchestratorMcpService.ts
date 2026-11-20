@@ -125,9 +125,9 @@ import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterReg
 import {
   subagentResultForRun,
   delegatedTaskProgress,
-  delegatedTaskProgressTurnItems,
   delegatedTaskReportRuns,
 } from "@t3tools/provider-core/server/subagentProjection";
+import { delegatedTaskProgressTurnItems } from "@t3tools/provider-core/server/delegatedTaskHold";
 import {
   DispatchModeLimit,
   type DispatchModeRefusal,
@@ -179,13 +179,8 @@ import {
   resolveRuntimeMode,
   runtimeModeRank,
 } from "./delegatedTaskModes.ts";
-import {
-  assertTargetWithinLimits,
-  isLiveCallerShell,
-  logWhyNotDelegated,
-  requireWhyNotDelegated,
-  threadNotFound,
-} from "./threadAccess.ts";
+import { assertTargetWithinLimits, isLiveCallerShell, threadNotFound } from "./threadAccess.ts";
+import { logWhyNotDelegated, requireWhyNotDelegated } from "./delegationLimits.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as RemoteDelegation from "../peer/RemoteDelegation.ts";
 import * as ManagedDelegation from "./ManagedDelegation.ts";

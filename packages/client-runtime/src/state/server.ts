@@ -45,6 +45,7 @@ import {
   createEnvironmentSubscriptionAtomFamily,
   createRuntimeCommand,
 } from "./runtime.ts";
+import { createDelegationEnvironmentAtoms } from "./delegationEnvironmentAtoms.ts";
 import * as EnvironmentRegistry from "../connection/registry.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import { safeErrorLogAttributes } from "../errors/safeLog.ts";
@@ -947,25 +948,14 @@ export function createServerEnvironmentAtoms<R, E>(
     registry: AtomRegistry.AtomRegistry,
   ) =>
     Effect.sync(() => registry.update(secretInventoryVersion(environmentId), (value) => value + 1));
-  const delegationStanceVersion = Atom.family((_environmentId: EnvironmentId) =>
-    Atom.make(0).pipe(Atom.keepAlive),
-  );
-  const delegationStanceResolve = createEnvironmentGuardedRpcQueryAtomFamily(runtime, {
-    label: "environment-data:server:delegation-stance:resolve",
-    tag: WS_METHODS.delegationStanceResolve,
-    refreshTrigger: ({ environmentId }) => delegationStanceVersion(environmentId),
-  });
-  const invalidateDelegationStance = (
-    { environmentId }: { readonly environmentId: EnvironmentId },
-    registry: AtomRegistry.AtomRegistry,
-  ) =>
-    Effect.sync(() =>
-      registry.update(delegationStanceVersion(environmentId), (value) => value + 1),
-    );
   const configConcurrency = {
     mode: "serial" as const,
     key: ({ environmentId }: { readonly environmentId: string }) => environmentId,
   };
+  const delegation = createDelegationEnvironmentAtoms(runtime, {
+    configScheduler,
+    configConcurrency,
+  });
   const fetchedMachineCatalogsAtom = Atom.family((environmentId: EnvironmentId) =>
     Atom.make<ReadonlyArray<FetchedMachineCatalog>>([]).pipe(
       Atom.keepAlive,
@@ -1459,10 +1449,6 @@ export function createServerEnvironmentAtoms<R, E>(
     readonly environmentId: EnvironmentId;
     readonly input: EnvironmentRpcInput<typeof WS_METHODS.subscribeServerLifecycle>;
   }) => welcomeFamily(target.environmentId);
-  const championsLive = createEnvironmentRpcSubscriptionAtomFamily(runtime, {
-    label: "environment-data:champions:live",
-    tag: WS_METHODS.championsSubscribe,
-  });
   const updateSettings = createEnvironmentRpcCommand(runtime, {
     label: "environment-data:server:update-settings",
     tag: WS_METHODS.serverUpdateSettings,
@@ -1627,40 +1613,7 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:scheduled-task:webhook-delivery",
       tag: WS_METHODS.scheduledTasksGetWebhookDelivery,
     }),
-    championsLive,
-    championRecommendation: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:champions:recommendation",
-      tag: WS_METHODS.championsRecommendation,
-    }),
-    championRuntimeState: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:champions:runtime-state",
-      tag: WS_METHODS.championsRuntimeState,
-      refreshTrigger: ({ environmentId }) => championsLive({ environmentId, input: {} }),
-    }),
-    championLearning: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:champions:learning",
-      tag: WS_METHODS.championsLearningQuery,
-    }),
-    championLearningSearch: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:champions:learning-search",
-      tag: WS_METHODS.championsLearningSearch,
-      refreshTrigger: ({ environmentId }) => championsLive({ environmentId, input: {} }),
-    }),
-    championLearningRead: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:champions:learning-read",
-      tag: WS_METHODS.championsLearningRead,
-      refreshTrigger: ({ environmentId }) => championsLive({ environmentId, input: {} }),
-    }),
-    championDetail: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:champions:detail",
-      tag: WS_METHODS.championsGet,
-      refreshTrigger: ({ environmentId }) => championsLive({ environmentId, input: {} }),
-    }),
-    championHistory: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:champions:history",
-      tag: WS_METHODS.championsHistory,
-      refreshTrigger: ({ environmentId }) => championsLive({ environmentId, input: {} }),
-    }),
+    ...delegation,
     scheduledTasksLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:server:scheduled-tasks:live",
       tag: WS_METHODS.scheduledTasksSubscribe,
@@ -1931,21 +1884,9 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:experiments:list",
       tag: WS_METHODS.experimentsList,
     }),
-    delegationStanceResolve,
-    agentPolicyRead: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:agent-policy:read",
-      tag: WS_METHODS.agentPolicyRead,
-    }),
     agentPolicyCompactionModel: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:agent-policy:compaction-model",
       tag: WS_METHODS.agentPolicyCompactionModel,
-    }),
-    agentPolicySave: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:agent-policy:save",
-      tag: WS_METHODS.agentPolicySave,
-      scheduler: configScheduler,
-      concurrency: configConcurrency,
-      onSuccess: invalidateDelegationStance,
     }),
     experimentsAssignments: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:experiments:assignments",
@@ -1982,50 +1923,6 @@ export function createServerEnvironmentAtoms<R, E>(
       tag: WS_METHODS.experimentsTransition,
       scheduler: configScheduler,
       concurrency: configConcurrency,
-    }),
-    startChampionInvestigation: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:champions:start-investigation",
-      tag: WS_METHODS.championsStartInvestigation,
-    }),
-    cancelChampionInvestigation: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:champions:cancel-investigation",
-      tag: WS_METHODS.championsCancelInvestigation,
-    }),
-    upsertChampion: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:champions:Upsert",
-      tag: WS_METHODS.championsUpsert,
-    }),
-    setChampionModels: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:champions:SetModels",
-      tag: WS_METHODS.championsSetModels,
-    }),
-    setChampionLifecycle: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:champions:SetLifecycle",
-      tag: WS_METHODS.championsSetLifecycle,
-    }),
-    setupChampion: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:champions:Setup",
-      tag: WS_METHODS.championsSetup,
-    }),
-    runChampionCheck: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:champions:RunCheck",
-      tag: WS_METHODS.championsRunCheck,
-    }),
-    changeChampionMetrics: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:champions:change-metrics",
-      tag: WS_METHODS.championsChangeMetrics,
-    }),
-    cancelChampionSetup: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:champions:cancel-setup",
-      tag: WS_METHODS.championsCancelSetup,
-    }),
-    startChampionMetricsLead: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:champions:start-metrics-lead",
-      tag: WS_METHODS.championsStartMetricsLead,
-    }),
-    championFindingAction: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:champions:FindingAction",
-      tag: WS_METHODS.championsFindingAction,
     }),
     upsertScheduledTask: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:scheduled-task:upsert",

@@ -1,12 +1,10 @@
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
-import * as AdviceMcpService from "../../AdviceMcpService.ts";
 import {
-  OrchestratorMcpAskAdviceInput,
-  OrchestratorMcpAskAdviceWireInput,
   AgentTaskCallerRequest,
   OrchestratorMcpFailure,
   OrchestratorMcpSchedule,
 } from "@t3tools/contracts";
+import * as Advice from "./advice.ts";
 import { OrchestratorToolkit } from "./tools.ts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -18,7 +16,8 @@ import * as PeerLinks from "../../../peer/PeerLinks.ts";
 import * as RemoteDelegation from "../../../peer/RemoteDelegation.ts";
 import * as ThreadHandoff from "../../../peer/handoff/ThreadHandoff.ts";
 import { ProjectToolkit } from "../project/tools.ts";
-import { assertBelowDelegationLimit, loadCaller, readCaller } from "../../threadAccess.ts";
+import { assertBelowDelegationLimit } from "../../delegationLimits.ts";
+import { loadCaller, readCaller } from "../../threadAccess.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as OrchestratorMcpService from "../../OrchestratorMcpService.ts";
@@ -32,25 +31,7 @@ const refuseCheckBack = new OrchestratorMcpFailure({
   message:
     "Scheduled tasks can no longer be check-backs. To look again later, wait with `watch`: a `target` of `{kind:'time', at}` (or the event itself, such as a Production release), `expectedMinutes` for an event, and a `note` to yourself. T3 wakes the thread then. Use `schedule_task` with purpose `long_running` only for work that repeats or runs without this thread.",
 });
-const decodeAdvice = Schema.decodeUnknownEffect(OrchestratorMcpAskAdviceInput);
 const decodeAgentTask = Schema.decodeUnknownEffect(AgentTaskCallerRequest);
-
-const executeAdvice = Effect.fn("AdviceMcp.execute")(function* (
-  input: typeof OrchestratorMcpAskAdviceWireInput.Type,
-) {
-  const scope = yield* McpInvocationContext.McpInvocationContext;
-  const decoded = yield* decodeAdvice(input).pipe(
-    Effect.mapError(
-      () =>
-        new OrchestratorMcpFailure({
-          code: "invalid_request",
-          message:
-            "Ask requires structured question, evidence, recommendation, blocking and clientRequestId; read/cancel require requestId; answer also requires workerThreadId and answer.",
-        }),
-    ),
-  );
-  return yield* (yield* AdviceMcpService.AdviceMcpService).execute(scope, decoded);
-});
 
 export const handlers = {
   agent_task_outcome: McpToolAccess.writes((input) =>
@@ -83,8 +64,8 @@ export const handlers = {
   ),
   ask_advice: McpToolAccess.either(
     (input) => input.action === "ask" && input.destination === "advisor",
-    McpToolAccess.startsThreads(() => ({}), executeAdvice, "stamped"),
-    McpToolAccess.reads(executeAdvice),
+    McpToolAccess.startsThreads(() => ({}), Advice.executeAdvice, "stamped"),
+    McpToolAccess.reads(Advice.executeAdvice),
   ),
   t3_workspace_custody_handoff: McpToolAccess.reads((input) =>
     Effect.gen(function* () {
@@ -117,12 +98,7 @@ export const handlers = {
       return { version: 1 as const, acknowledged: true as const };
     }),
   ),
-  t3_advice_peer: McpToolAccess.reads((input) =>
-    Effect.gen(function* () {
-      const scope = yield* McpInvocationContext.McpInvocationContext;
-      return yield* (yield* AdviceMcpService.AdviceMcpService).peer(scope, input);
-    }),
-  ),
+  t3_advice_peer: McpToolAccess.reads(Advice.advicePeer),
   delegate_task: McpToolAccess.writes((input) =>
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;

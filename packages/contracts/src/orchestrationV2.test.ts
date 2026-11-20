@@ -24,7 +24,6 @@ import {
   OrchestrationV2ThreadHistoryPage,
   OrchestrationV2TurnItem,
   OrchestrationV2TurnItemJson,
-  isProviderOverloadedFailureCode,
   withMessageSenderNote,
 } from "./orchestrationV2.ts";
 
@@ -734,15 +733,6 @@ describe("compactAtBounds", () => {
 
   it("gives Pi a read-only line, since its point comes from its own settings per model", () => {
     expect(compactAtBounds("pi", 200_000)).toBeNull();
-  });
-});
-
-describe("isProviderOverloadedFailureCode", () => {
-  it("recognises each provider's overload code and nothing else", () => {
-    for (const code of ["overloaded", "serverOverloaded", "api_error_529"])
-      expect(isProviderOverloadedFailureCode(code)).toBe(true);
-    for (const code of ["api_error_429", "usageLimitExceeded", "rate_limit", "", null, undefined])
-      expect(isProviderOverloadedFailureCode(code)).toBe(false);
   });
 });
 

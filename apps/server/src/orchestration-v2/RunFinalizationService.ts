@@ -16,6 +16,7 @@ import * as VcsStatusBroadcaster from "../vcs/VcsStatusBroadcaster.ts";
 import * as WorkspaceEntries from "../workspace/WorkspaceEntries.ts";
 import * as CheckpointCapture from "./CheckpointCaptureService.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
+import * as RunHandoffRecording from "./RunHandoffRecording.ts";
 
 export class RunFinalizationError extends Schema.TaggedError<RunFinalizationError>()(
   "RunFinalizationError",
@@ -184,25 +185,7 @@ export const layerObserver = Layer.effect(
     );
     return {
       refreshAfterTurn: pullRequests.refreshAfterTurn,
-      recordHandoff: Effect.fn("RunFinalizationService.recordHandoff")(
-        function* ({ threadId, runId }) {
-          const thread = yield* projections.getThreadShell(threadId);
-          if (!thread?.agentTask) return;
-          // A run that already gave way to another has nothing left to read.
-          if (thread.activeRunId !== null && thread.activeRunId !== runId) return;
-          yield* managed.recordHandoff(thread.agentTask, { threadId, runId });
-        },
-        (effect, { threadId, runId }) =>
-          effect.pipe(
-            Effect.catch((error) =>
-              Effect.logWarning("failed to record a handoff revision after run completion", {
-                threadId,
-                runId,
-                detail: error.message,
-              }),
-            ),
-          ),
-      ),
+      recordHandoff: RunHandoffRecording.make({ projections, managed }),
       refresh: Effect.fn("RunFinalizationService.refresh")(
         function* ({ cwd, threadId, runId }) {
           const [, local] = yield* Effect.all(

@@ -1,13 +1,6 @@
 import { SecretStorage } from "./secretManagement.ts";
-import {
-  AgentRole,
-  StoredAgentRole,
-  AgentTaskCallerRequest,
-  type AgentTaskRequest,
-  AgentTaskBinding,
-  AgentTaskHandoff,
-  AgentTaskWireRequest,
-} from "./agentPolicy.ts";
+import { AgentTaskHandoff } from "./agentPolicy.ts";
+import * as DelegationFields from "./orchestratorMcpDelegationFields.ts";
 import { ExperimentOutcomeInput } from "./experiments.ts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -203,21 +196,7 @@ export type OrchestratorMcpTerminalDelegatedTaskStatus =
   typeof OrchestratorMcpTerminalDelegatedTaskStatus.Type;
 
 export const OrchestratorMcpDelegateTaskInput = Schema.Struct({
-  externalSessionKey: Schema.optional(TrimmedNonEmptyString),
-  agentTask: Schema.optional(AgentTaskCallerRequest),
-  followup: Schema.optional(
-    Schema.Struct({
-      taskId: NodeId,
-      sourceRevision: Schema.optional(TrimmedNonEmptyString),
-      changes: TrimmedNonEmptyString.check(Schema.isMaxLength(10_000)),
-    }).annotate({
-      description:
-        "Continue an owned, idle managed task in its existing conversation, workspace, model and permissions: taskId is any earlier ID, changes say what happened since, sourceRevision pins the revision. Pass no agentTask, target, isolation or mode.",
-    }),
-  ),
-  offPolicyReason: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(500))).annotate({
-    description: "Rare fallback: why no policy role or model fits.",
-  }),
+  ...DelegationFields.managedDelegateTaskInputFields,
   task: Schema.optional(OrchestratorMcpPrompt),
   // Some providers send the whole target object as JSON text.
   target: Schema.optional(
@@ -246,27 +225,9 @@ export const OrchestratorMcpDelegateTaskInput = Schema.Struct({
       "Omit unless asked for a supervised child; narrow modes pause for approval, not read-only. Above yours rejects.",
   }),
   interactionMode: Schema.optional(OrchestratorMcpInteractionMode),
-  forgeItem: Schema.optional(ForgeItemReferenceInput).annotate({
-    description:
-      "Top-level threads only: a Forge Spec (number or ref) the `implementer` owns in its own workspace and lands.",
-  }),
+  ...DelegationFields.forgeItemField,
 });
 export type OrchestratorMcpDelegateTaskInput = typeof OrchestratorMcpDelegateTaskInput.Type;
-/** A `delegate_task` input once the server has filled in the task's workspace. */
-export type OrchestratorMcpResolvedDelegateTaskInput = Omit<
-  OrchestratorMcpDelegateTaskInput,
-  "agentTask"
-> & { readonly agentTask?: AgentTaskRequest | undefined };
-
-/**
- * The wire form advertises `agentTask` once, offering only the current roles while accepting
- * `lead` and retired names; the handler decodes it with `AgentTaskCallerRequest` before the service sees it.
- */
-export const OrchestratorMcpDelegateTaskWireInput = Schema.Struct({
-  ...OrchestratorMcpDelegateTaskInput.fields,
-  agentTask: Schema.optional(AgentTaskWireRequest),
-});
-export type OrchestratorMcpDelegateTaskWireInput = typeof OrchestratorMcpDelegateTaskWireInput.Type;
 
 // Set only on results for still-running tasks whose completion will wake the parent.
 export const ORCHESTRATOR_MCP_RUNNING_TASK_NEXT =
@@ -274,45 +235,6 @@ export const ORCHESTRATOR_MCP_RUNNING_TASK_NEXT =
 // A string, not a literal: linked environments on other versions send their own wording.
 const OrchestratorMcpRunningTaskNext = Schema.String;
 
-/**
- * Whether T3 recorded the council's roster in Weave Forge. Absent when the Spec is not a Forge
- * Spec, since there is no roster to record. `recorded: false` never stops the review: the lead
- * records the roster by hand with `weave_forge_council`, using each member's `taskRef`.
- */
-export const OrchestratorMcpCouncilRoster = Schema.Union([
-  Schema.Struct({ recorded: Schema.Literal(true) }),
-  Schema.Struct({ recorded: Schema.Literal(false), reason: TrimmedNonEmptyString }),
-]);
-export type OrchestratorMcpCouncilRoster = typeof OrchestratorMcpCouncilRoster.Type;
-
-/** A Spec review sat as a council: every member's task, and the makers that could not sit. */
-export const OrchestratorMcpReviewCouncil = Schema.Struct({
-  /** False when fewer than two makers could sit, so one reviewer runs instead. */
-  formed: Schema.Boolean,
-  members: Schema.Array(
-    Schema.Struct({
-      maker: TrimmedNonEmptyString,
-      /** What the member records as `review.reviewer.taskRef`, and the roster names. */
-      taskRef: TrimmedNonEmptyString,
-      taskId: NodeId,
-      model: Schema.NullOr(Schema.String),
-    }),
-  ),
-  missing: Schema.Array(
-    Schema.Struct({
-      maker: TrimmedNonEmptyString,
-      model: TrimmedNonEmptyString,
-      reason: TrimmedNonEmptyString,
-    }),
-  ),
-  /**
-   * T3 records this roster in Forge itself, keyed by the round's clientRequestId. Only when
-   * `recorded` is false does the lead record it by hand with `weave_forge_council`, with the
-   * members' `taskRef` (never `taskId`) and this round's clientRequestId as `clientRef`.
-   */
-  roster: Schema.optional(OrchestratorMcpCouncilRoster),
-});
-export type OrchestratorMcpReviewCouncil = typeof OrchestratorMcpReviewCouncil.Type;
 // Optional: linked environments on older versions omit it.
 const OrchestratorMcpExecutedModel = Schema.NullOr(Schema.String).annotate({
   description:
@@ -341,14 +263,7 @@ export const OrchestratorMcpAdvice = Schema.Struct({
 export type OrchestratorMcpAdvice = typeof OrchestratorMcpAdvice.Type;
 
 export const OrchestratorMcpDelegateTaskResult = Schema.Struct({
-  launchState: Schema.optional(
-    Schema.Literals(["prepared", "accepted", "cancelled", "launch-unknown", "refused"]),
-  ),
-  failureReason: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  assignmentIds: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
-  agentTask: Schema.optional(AgentTaskBinding),
-  /** Present once an isolated scoped-write task has finished. */
-  handoff: Schema.optional(AgentTaskHandoff),
+  ...DelegationFields.managedDelegateTaskResultFields,
   taskId: NodeId,
   /** Null for a task that runs in a linked environment; see `remoteChild`. */
   childThreadId: Schema.NullOr(ThreadId),
@@ -365,10 +280,7 @@ export const OrchestratorMcpDelegateTaskResult = Schema.Struct({
   }),
   workState: Schema.Literals(["working", "waiting_for_children", "result_available"]),
   hasPendingChildRuns: Schema.Boolean,
-  pausedByParentStop: Schema.optional(Schema.Literal(true)).annotate({
-    description:
-      "Stopping its parent thread interrupted it. The parent's next message from a person continues it as a new task, so do not delegate it again.",
-  }),
+  ...DelegationFields.pausedByParentStopField,
   latestTerminalRunId: Schema.NullOr(RunId),
   latestTerminalStatus: Schema.NullOr(OrchestratorMcpTerminalDelegatedTaskStatus),
   latestTerminalSummary: Schema.NullOr(Schema.String),
@@ -393,8 +305,7 @@ export const OrchestratorMcpDelegateTaskResult = Schema.Struct({
     description: "True only on the timed-out wait call. The child keeps running.",
   }),
   next: Schema.optional(OrchestratorMcpRunningTaskNext),
-  /** A Spec review the policy sits as a council; the fields above are its first member's. */
-  council: Schema.optional(OrchestratorMcpReviewCouncil),
+  ...DelegationFields.councilField,
 });
 export type OrchestratorMcpDelegateTaskResult = typeof OrchestratorMcpDelegateTaskResult.Type;
 
@@ -432,12 +343,7 @@ export const OrchestratorMcpCreateThreadsInput = Schema.Struct({
     Schema.isMaxLength(20),
   ),
   clientRequestId: Schema.optional(OrchestratorMcpClientRequestId),
-  whyNotDelegated: Schema.optional(
-    Schema.String.annotate({
-      description:
-        "Required inside a thread: one sentence on why these must be separate top-level threads rather than `delegate_task` children.",
-    }),
-  ),
+  ...DelegationFields.whyNotDelegatedField,
 });
 export type OrchestratorMcpCreateThreadsInput = typeof OrchestratorMcpCreateThreadsInput.Type;
 
@@ -624,80 +530,6 @@ export const OrchestratorMcpThreadListResult = Schema.Struct({
   environments: Schema.Array(OrchestratorMcpPeerResult(OrchestratorMcpThreadListPage)),
 });
 export type OrchestratorMcpThreadListResult = typeof OrchestratorMcpThreadListResult.Type;
-
-/** Every field is optional: a new advisor defaults to reading the caller's own workspace unpinned. */
-const OrchestratorMcpAdviceAdvisor = Schema.Struct({
-  workspacePath: Schema.optional(TrimmedNonEmptyString),
-  sourceRevision: Schema.optional(TrimmedNonEmptyString),
-  workId: Schema.optional(TrimmedNonEmptyString),
-  taskId: Schema.optional(NodeId),
-  target: Schema.optional(
-    Schema.Struct({
-      providerInstanceId: OrchestratorMcpTarget.fields.providerInstanceId,
-      model: OrchestratorMcpTarget.fields.model,
-      options: OrchestratorMcpTarget.fields.options,
-    }),
-  ),
-});
-
-const adviceQuestionInputFields = {
-  ...OrchestratorMcpAdviceQuestion.fields,
-  evidence: OrchestratorMcpAdviceQuestion.fields.evidence.pipe(
-    Schema.withDecodingDefault(Effect.succeed("Not supplied separately.")),
-  ),
-  recommendation: OrchestratorMcpAdviceQuestion.fields.recommendation.pipe(
-    Schema.withDecodingDefault(Effect.succeed("No recommendation supplied.")),
-  ),
-  blocking: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-};
-
-export const OrchestratorMcpAskAdviceInput = Schema.Union([
-  Schema.Struct({
-    action: Schema.Literal("ask"),
-    destination: Schema.optional(Schema.Literal("parent")),
-    clientRequestId: OrchestratorMcpClientRequestId,
-    ...adviceQuestionInputFields,
-  }),
-  Schema.Struct({
-    action: Schema.Literal("ask"),
-    destination: Schema.Literal("advisor"),
-    clientRequestId: OrchestratorMcpClientRequestId,
-    ...adviceQuestionInputFields,
-    advisor: Schema.optional(OrchestratorMcpAdviceAdvisor),
-  }),
-  Schema.Struct({
-    action: Schema.Literals(["read", "cancel"]),
-    requestId: OrchestratorMcpClientRequestId,
-    workerThreadId: Schema.optional(ThreadId),
-    environmentId: OrchestratorMcpEnvironmentTarget,
-  }),
-  Schema.Struct({
-    action: Schema.Literal("answer"),
-    requestId: OrchestratorMcpClientRequestId,
-    workerThreadId: ThreadId,
-    environmentId: OrchestratorMcpEnvironmentTarget,
-    answer: TrimmedNonEmptyString.check(Schema.isMaxLength(32_000)),
-  }),
-]);
-export type OrchestratorMcpAskAdviceInput = typeof OrchestratorMcpAskAdviceInput.Type;
-
-export const OrchestratorMcpAskAdviceWireInput = Schema.Struct({
-  action: Schema.Literals(["ask", "read", "answer", "cancel"]),
-  destination: Schema.optional(Schema.Literals(["parent", "advisor"])),
-  clientRequestId: Schema.optional(OrchestratorMcpClientRequestId),
-  requestId: Schema.optional(OrchestratorMcpClientRequestId),
-  workerThreadId: Schema.optional(ThreadId),
-  // Advice authenticates the parent here before forwarding to its worker.
-  environmentId: Schema.optional(EnvironmentId),
-  question: Schema.optional(OrchestratorMcpAdviceQuestion.fields.question),
-  evidence: Schema.optional(OrchestratorMcpAdviceQuestion.fields.evidence),
-  recommendation: Schema.optional(OrchestratorMcpAdviceQuestion.fields.recommendation),
-  blocking: Schema.optional(Schema.Boolean),
-  followsRequestId: Schema.optional(OrchestratorMcpClientRequestId),
-  newEvidence: OrchestratorMcpAdviceQuestion.fields.newEvidence,
-  answer: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(32_000))),
-  advisor: Schema.optional(OrchestratorMcpAdviceAdvisor),
-});
 
 export const OrchestratorMcpThreadSearchInput = Schema.Struct({
   ...OrchestrationSearchThreadsInput.fields,
@@ -1217,14 +1049,7 @@ export const OrchestratorMcpScheduleTaskInput = Schema.Struct({
         "Post here, else new thread per run. Unset: true in own project, else false; updates keep it.",
     }),
   ),
-  agentRole: Schema.optional(Schema.NullOr(StoredAgentRole)).annotate({
-    description:
-      "Role whose policy picks the model at each run. Defaults to 'implementer' unless modelSelection is explicit. Cannot combine a role with modelSelection.",
-  }),
-  modelSelection: Schema.optional(ModelSelection).annotate({
-    description:
-      "Explicit provider, model and options for new runs instead of a role. Creates an unbound task by default; a bound task follows its thread's model.",
-  }),
+  ...DelegationFields.scheduleTaskRoleFields,
   freshSession: Schema.optional(
     Schema.Boolean.annotate({
       description:
@@ -1236,18 +1061,6 @@ export const OrchestratorMcpScheduleTaskInput = Schema.Struct({
 });
 export type OrchestratorMcpScheduleTaskInput = typeof OrchestratorMcpScheduleTaskInput.Type;
 
-/**
- * The wire form advertises `schedule` compactly: the handler decodes it with
- * `OrchestratorMcpSchedule`, including the compatibility JSON-string shape.
- */
-export const OrchestratorMcpScheduleTaskWireInput = Schema.Struct({
-  ...OrchestratorMcpScheduleTaskInput.fields,
-  schedule: Schema.Unknown.annotate({
-    description:
-      "Trigger object: {type:'interval', everyMs}, {type:'fixed_time', timeOfDay, weekdays?}, or {type:'webhook'}. Never stringify it unless the provider requires the compatibility form.",
-  }),
-});
-export type OrchestratorMcpScheduleTaskWireInput = typeof OrchestratorMcpScheduleTaskWireInput.Type;
 /** `schedule_task` creates a task, or updates one when `scheduledTaskId` is given. */
 export const OrchestratorMcpSaveScheduledTaskInput = Schema.Struct({
   ...OrchestratorMcpScheduleTaskInput.fields,
@@ -1266,11 +1079,7 @@ export const OrchestratorMcpScheduledTask = Schema.Struct({
   enabled: Schema.Boolean,
   projectId: ProjectId,
   boundThreadId: Schema.NullOr(ThreadId),
-  agentRole: Schema.NullOr(AgentRole).annotate({
-    description:
-      "Subagent role this task runs as; its policy picks the model. Null for an explicit model or a legacy task saved before roles.",
-  }),
-  modelSelection: Schema.optional(ModelSelection),
+  ...DelegationFields.scheduledTaskRoleFields,
   freshSession: Schema.Boolean,
   purpose: ScheduledTaskPurpose,
   schedule: ScheduledTaskSchedule,
@@ -1316,33 +1125,12 @@ export const OrchestratorMcpUpdateScheduledTaskInput = Schema.Struct({
   schedule: Schema.optional(OrchestratorMcpSchedule),
   enabled: Schema.optional(Schema.Boolean),
   bindToCurrentThread: Schema.optional(Schema.Boolean),
-  agentRole: Schema.optional(Schema.NullOr(StoredAgentRole)).annotate({
-    description:
-      "A role switches to role selection; null keeps the saved model as the task's model. Cannot combine a role with modelSelection. Omit both to keep the current choice.",
-  }),
-  modelSelection: Schema.optional(ModelSelection).annotate({
-    description:
-      "Replace the saved model and switch off role selection. A bound task must also set bindToCurrentThread:false. Omit to keep the current choice.",
-  }),
+  ...DelegationFields.updateScheduledTaskRoleFields,
   freshSession: Schema.optional(Schema.Boolean),
   purpose: Schema.optional(ScheduledTaskPurpose),
 });
 export type OrchestratorMcpUpdateScheduledTaskInput =
   typeof OrchestratorMcpUpdateScheduledTaskInput.Type;
-
-/**
- * The wire form advertises `schedule` without repeating the whole schedule
- * union: `schedule_task` already declares it once, and the handler decodes this
- * object with that same schema.
- */
-export const OrchestratorMcpUpdateScheduledTaskWireInput = Schema.Struct({
-  ...OrchestratorMcpUpdateScheduledTaskInput.fields,
-  schedule: Schema.optional(Schema.Unknown).annotate({
-    description: "Replacement schedule, as schedule_task accepts it. Omit to keep the current one.",
-  }),
-});
-export type OrchestratorMcpUpdateScheduledTaskWireInput =
-  typeof OrchestratorMcpUpdateScheduledTaskWireInput.Type;
 
 export const OrchestratorMcpRequestReleaseApprovalInput = Schema.Struct({
   repository: TrimmedNonEmptyString.annotate({

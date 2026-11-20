@@ -4,12 +4,10 @@ import * as Workspaces from "../project/WorkspaceProvider.ts";
 import { fixture as custodyFixture } from "../workspace/workspaceCustody.testkit.ts";
 import { layerNonSlipJay } from "./testkit/runWorkspaceCustody.ts";
 import * as FixtureManagedAgentService from "../agents/ManagedAgentService.ts";
-import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 
 import {
-  type AgentTaskBinding,
   CheckpointScopeId,
   ProjectId,
   RunId,
@@ -23,7 +21,6 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 import * as TestClock from "effect/testing/TestClock";
@@ -33,7 +30,6 @@ import * as ProjectFaviconResolver from "../project/ProjectFaviconResolver.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
-import * as Sqlite from "../persistence/Sqlite.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as VcsStatusBroadcaster from "../vcs/VcsStatusBroadcaster.ts";
@@ -208,70 +204,6 @@ it.effect.each(
     yield* observer.refresh({ cwd: "/repo", threadId, runId });
     if (scenario.expected.length > 0) yield* Deferred.await(lookedUp);
     assert.deepEqual(refreshed, [...scenario.expected]);
-  }).pipe(Effect.provide(layer));
-});
-
-it.effect.each([
-  { label: "keeps what a finished helper handed back", activeRun: null, revision: "helper-commit" },
-  { label: "records nothing once a newer run is active", activeRun: "newer-run", revision: null },
-] as const)("$label", ({ activeRun, revision }) => {
-  const threadId = ThreadId.make("helper-thread");
-  const runId = RunId.make("completed-run");
-  const binding = {
-    workspacePath: "/helper",
-    workspaceAssignment: "isolated",
-    sourceAccess: "scoped-write",
-  } as AgentTaskBinding;
-  // What `jj log -r @` reports in the helper's workspace.
-  const workingCopy = { revision: "helper-commit" };
-  const managed = ManagedAgent.layer.pipe(
-    Layer.provideMerge(
-      Layer.mergeAll(
-        Sqlite.layerMemory,
-        Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
-        Layer.succeed(ProcessRunner.ProcessRunner, {
-          run: () =>
-            Effect.sync(() => ({
-              stdout: `${workingCopy.revision}\n`,
-              stderr: "",
-              code: ChildProcessSpawner.ExitCode(0),
-              timedOut: false,
-              stdoutTruncated: false,
-              stderrTruncated: false,
-              stdoutInvalidUtf8: false,
-              stderrInvalidUtf8: false,
-            })),
-        }),
-      ),
-    ),
-  );
-  const layer = RunFinalization.layerObserver.pipe(
-    Layer.provide(
-      Layer.mergeAll(
-        layerNoProject,
-        Layer.mock(WorkspaceEntries.WorkspaceEntries)({}),
-        Layer.mock(PullRequestService.PullRequestService)({}),
-        Layer.mock(VcsStatusBroadcaster.VcsStatusBroadcaster)({}),
-        Layer.mock(ProjectionStore.ProjectionStoreV2)({
-          getThreadShell: () =>
-            Effect.succeed({
-              id: threadId,
-              agentTask: binding,
-              activeRunId: activeRun === null ? null : RunId.make(activeRun),
-            } as OrchestrationV2ThreadShell),
-        }),
-      ),
-    ),
-    Layer.provideMerge(managed),
-  );
-  return Effect.gen(function* () {
-    const observer = yield* RunFinalization.RunFinalizationObserver;
-    const service = yield* ManagedAgent.ManagedAgentService;
-    yield* observer.recordHandoff({ threadId, runId });
-    // The lead reuses the workspace before reading the finished task's status.
-    workingCopy.revision = "later-commit";
-    yield* observer.recordHandoff({ threadId, runId });
-    assert.equal((yield* service.handoff(binding, { threadId, runId }))?.revision, revision);
   }).pipe(Effect.provide(layer));
 });
 

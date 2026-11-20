@@ -290,11 +290,11 @@ import {
   makeSubagentChildThread,
   subagentResultForRun,
   delegatedTaskProgress,
-  delegatedTaskProgressTurnItems,
   delegatedTaskReportRuns,
   monitorUpdateRunIds,
   subagentThreadTitle,
 } from "@t3tools/provider-core/server/subagentProjection";
+import { delegatedTaskProgressTurnItems } from "@t3tools/provider-core/server/delegatedTaskHold";
 import {
   forkableSourceRunStatusError,
   isForkableSourceRunStatus,

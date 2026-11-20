@@ -42,6 +42,7 @@ import * as Stream from "effect/Stream";
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
 import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
+import { museSessionMcpServers } from "./agentServers.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import { buildRuntimeInstructions } from "@t3tools/provider-core/server/runtimeInstructions";
 import { museModelCapabilities, resolveMuseReasoningEffort } from "./modelCatalog.ts";
@@ -1961,18 +1962,7 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
           const config =
             servers.length > 0
               ? {
-                  mcpServers: Object.fromEntries(
-                    servers.map((server) => [
-                      server.name,
-                      {
-                        // Muse's required default fails runs if a server is unreachable; make it optional.
-                        transport: "streamableHttp",
-                        mode: "optional",
-                        url: server.url,
-                        headers: { Authorization: server.authorizationHeader },
-                      },
-                    ]),
-                  ),
+                  mcpServers: museSessionMcpServers(servers),
                 }
               : undefined;
           const startModel = yield* resolveModel(args.modelSelection);

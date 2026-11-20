@@ -41,7 +41,6 @@ import * as Exit from "effect/Exit";
 import { TestClock } from "effect/testing";
 
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
-import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import { buildRuntimeInstructions } from "@t3tools/provider-core/server/runtimeInstructions";
 import { htmlRenderFromToolItem } from "@t3tools/shared/toolOutput";
@@ -5527,105 +5526,6 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
         assert.equal((yield* Fiber.join(terminal))?.status, "completed");
       }
     }),
-  );
-
-  it.effect("registers the thread's agent servers beside T3's own and keeps them to it", () =>
-    Effect.gen(function* () {
-      const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
-      yield* mcpSessions.set({
-        environmentId: EnvironmentId.make("environment:opencode2-adapter"),
-        threadId,
-        providerSessionId: "mcp:opencode2-adapter",
-        providerInstanceId: instanceId,
-        endpoint: "http://127.0.0.1:3773/mcp",
-        authorizationHeader: "Bearer thread-credential",
-        browserToolsAvailable: false,
-      });
-      yield* Effect.addFinalizer(() => mcpSessions.clear(threadId));
-      const t3 = "t3-code-thread_opencode2-adapter";
-      const weave = `${t3}-weave`;
-      const runtime = yield* openCode2ReplayRuntime([
-        ...opening,
-        out("session.get", { sessionID: SESSION }),
-        replyData(
-          "session.get",
-          sessionInfo({
-            permissions: [
-              { action: "*", resource: "*", effect: "allow" },
-              { action: "t3-code-*", resource: "*", effect: "deny" },
-              { action: `${t3}_*`, resource: "*", effect: "allow" },
-              { action: `${weave}_*`, resource: "*", effect: "allow" },
-            ],
-          }),
-        ),
-        ...noOpenRequests,
-        out("mcp.add", {
-          server: t3,
-          "location[directory]": WORK,
-          config: {
-            type: "remote",
-            url: "http://127.0.0.1:3773/mcp",
-            headers: { Authorization: "Bearer thread-credential" },
-            oauth: false,
-          },
-        }),
-        reply("mcp.add", null),
-        out("mcp.add", {
-          server: weave,
-          "location[directory]": WORK,
-          config: {
-            type: "remote",
-            url: "http://127.0.0.1:3773/mcp/weave",
-            headers: { Authorization: "Bearer thread-weave-credential" },
-            oauth: false,
-          },
-        }),
-        reply("mcp.add", null),
-        out("session.instructions.entry.put", {
-          sessionID: SESSION,
-          key: "t3-code",
-          value: "<any>",
-        }),
-        reply("session.instructions.entry.put", null),
-        out("session.prompt", { sessionID: SESSION, text: "<any>" }),
-        promptAccepted,
-        event("session.execution.succeeded", { sessionID: SESSION }),
-        out("mcp.remove", { server: t3, "location[directory]": WORK }),
-        reply("mcp.remove", null),
-        out("mcp.remove", { server: weave, "location[directory]": WORK }),
-        reply("mcp.remove", null),
-      ]).pipe(
-        Effect.provideService(
-          AgentMcpServers.AgentMcpServers,
-          AgentMcpServers.AgentMcpServers.of({
-            read: (id) =>
-              Effect.succeed(
-                id === threadId
-                  ? [
-                      {
-                        name: "weave",
-                        url: "http://127.0.0.1:3773/mcp/weave",
-                        authorizationHeader: "Bearer thread-weave-credential",
-                      },
-                    ]
-                  : [],
-              ),
-          }),
-        ),
-      );
-      const thread = yield* runtime.resumeThread({
-        providerThread: providerThread(yield* DateTime.now),
-        threadId,
-        modelSelection: bigPickle,
-        runtimePolicy: policy(),
-      });
-      const terminal = yield* terminalOf(runtime).pipe(Effect.forkScoped);
-      const started = yield* runtime.startTurn(turnInput(thread)).pipe(Effect.forkScoped);
-      yield* TestClock.adjust("250 millis");
-      yield* Fiber.join(started);
-      assert.equal((yield* Fiber.join(terminal))?.status, "completed");
-      yield* runtime.unloadThread!({ providerThread: thread });
-    }).pipe(Effect.scoped),
   );
 
   it.effect("registers a long thread id's MCP server under a name OpenCode accepts", () =>

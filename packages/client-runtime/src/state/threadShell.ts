@@ -1,6 +1,6 @@
 import { mFallback, msg } from "gt-i18n";
 import type { MFunctionType } from "gt-i18n/types";
-import { championNeedsInbox } from "./threadInbox.ts";
+import { championNeedsInbox } from "./championInbox.ts";
 import type {
   AgentRole,
   EnvironmentId,

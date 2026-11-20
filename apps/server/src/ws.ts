@@ -188,9 +188,9 @@ import {
   shouldPublishShellApplicationEvent,
   skipUnchangedThreadShells,
   toShellApplicationEvent,
-  withoutChampionThreads,
   type ShellApplicationEvent,
 } from "./orchestration-v2/ShellStream.ts";
+import { withoutChampionThreads } from "./orchestration-v2/ChampionThreadVisibility.ts";
 import {
   ORCHESTRATION_V2_PROJECTION_SCHEMA_VERSION,
   type ShellSnapshotOptions,

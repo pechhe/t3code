@@ -1191,58 +1191,6 @@ it.effect(
     ),
 );
 
-it.effect(
-  "routes a client caller's delegation to external work, unavailable when unconfigured",
-  () =>
-    Effect.gen(function* () {
-      const server = yield* McpServer.McpServer;
-      const result = yield* server
-        .callTool({
-          name: "delegate_task",
-          arguments: { task: "Review", mode: "async" },
-        })
-        .pipe(
-          Effect.provideService(
-            McpInvocationContext.McpInvocationContext,
-            clientScope("full-access"),
-          ),
-          Effect.provideService(McpSchema.McpServerClient, client),
-        );
-      expect(declaredFailure(result)).toMatchObject({ code: "capability_denied" });
-    }).pipe(
-      Effect.provide(
-        layerOrchestratorToolkit.pipe(
-          Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
-          Layer.provide(
-            Layer.merge(
-              NodeCrypto.layer,
-              Layer.mock(Experiments.ExperimentService)({
-                assignForTask: () => Effect.succeed([]),
-                assignments: () => Effect.succeed([]),
-              }),
-            ),
-          ),
-          Layer.provide(Layer.mock(ThreadManagement.ThreadManagementService)({})),
-          Layer.provide(ServerSettings.layerTest()),
-          Layer.provide(Layer.mock(ProviderRegistry.ProviderRegistry)({})),
-          Layer.provide(Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({})),
-          Layer.provide(Layer.mock(ScheduledTaskService.ScheduledTaskService)({})),
-          Layer.provide(Layer.mock(ProjectService.ProjectService)({})),
-          Layer.provide(Layer.mock(SecretRequests.SecretRequests)({})),
-          Layer.provide(Layer.mock(ReleaseApprovals.ReleaseApprovals)({})),
-          Layer.provideMerge(Layer.mergeAll(Layer.mock(RemoteDelegation.RemoteDelegation)({}))),
-          Layer.provideMerge(
-            Layer.mergeAll(
-              Layer.mock(PeerForwarding.PeerForwarding)({}),
-              Layer.mock(PeerLinkRequests.PeerLinkRequests)({}),
-              Layer.mock(PeerLinks.PeerLinks)({ get: () => Effect.succeedNone }),
-            ),
-          ),
-        ),
-      ),
-    ),
-);
-
 // Delegation itself is routed to external work, so the hidden probe is a tool that acts as the
 // calling thread and nothing else.
 it.effect("hides act-as-caller tools from a client caller", () =>

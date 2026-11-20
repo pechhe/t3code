@@ -32,11 +32,11 @@ import {
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import {
-  championThreadHiddenFromList,
   loadShellUnlessResumable,
   loadSubscriberShellSnapshot,
   projectIdentitiesDigest,
 } from "./ShellStream.ts";
+import { championThreadHiddenFromList } from "./ChampionThreadVisibility.ts";
 import { boundedSnapshotResponseFields } from "./ThreadStream.ts";
 import { projectThreadProjectionForWire } from "./WireProjection.ts";
 

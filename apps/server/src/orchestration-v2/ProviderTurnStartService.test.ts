@@ -516,12 +516,8 @@ function makeLocalCommandHarness(input: {
   readonly exposesNativeTurnId?: boolean;
   readonly goalDriver?: "opencode" | "antigravity";
   readonly worktreePath?: string;
-  readonly projectRoot?: string;
-  readonly baseDir?: string;
   /** Defaults to a git branch whenever a worktree is bound; null is a SlipJay workspace. */
   readonly branch?: string | null;
-  /** The thread is a delegated task, whose workspace belongs to the work that assigned it. */
-  readonly delegated?: boolean;
   readonly deliverTurn?: boolean;
   readonly worktreesDir?: string;
   readonly workspaceRoot?: string;
@@ -718,7 +714,6 @@ function makeLocalCommandHarness(input: {
             : "feature/restore",
       worktreePath: input.worktreePath ?? null,
       lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
-      ...(input.delegated === true ? { agentTask: { role: "implementer" } } : {}),
     } as OrchestrationV2ThreadProjection["thread"],
     runs: [
       ...(input.previousNativeSession
@@ -1483,7 +1478,6 @@ function makeLocalCommandHarness(input: {
       Effect.succeed({
         cwd: thread.worktreePath ?? "/tmp/native-account-command",
         runtimeMode: thread.runtimeMode,
-        managedAgent: input.delegated === true,
       } as never),
   );
   const createWorktree = vi.fn<GitWorkflow.GitWorkflowService["Service"]["createWorktree"]>(() =>
@@ -1644,10 +1638,7 @@ function makeLocalCommandHarness(input: {
         ),
         layerWorktreeLocation(
           input.worktreesDir,
-          {
-            ...(input.attachmentsDir === undefined ? {} : { attachmentsDir: input.attachmentsDir }),
-            ...(input.baseDir === undefined ? {} : { baseDir: input.baseDir }),
-          },
+          input.attachmentsDir === undefined ? {} : { attachmentsDir: input.attachmentsDir },
           input.claude?.settings,
         ),
         input.fileSystem === undefined
@@ -1663,8 +1654,7 @@ function makeLocalCommandHarness(input: {
         Layer.mock(ProjectService.ProjectService)({
           getById: () =>
             Effect.succeedSome({
-              workspaceRoot:
-                input.projectRoot ?? input.workspaceRoot ?? "/tmp/native-account-project",
+              workspaceRoot: input.workspaceRoot ?? "/tmp/native-account-project",
             } as never),
         }),
         Layer.mock(ProjectionStore.ProjectionStoreV2)({
@@ -1786,37 +1776,6 @@ function makeLocalCommandHarness(input: {
     }).pipe(Effect.provide(layer)),
   };
 }
-
-effectIt.effect("uses the current stance on each turn of a thread with native history", () =>
-  Effect.gen(function* () {
-    const harness = makeLocalCommandHarness({
-      text: "Continue",
-      previousNativeSession: true,
-      previousMessages: ["Earlier work"],
-      deliverTurn: true,
-    });
-    const initial = harness.projection();
-    harness.setProjection({
-      ...initial,
-      thread: { ...initial.thread, stanceChoice: { stance: "orchestrate", chosenBy: "owner" } },
-    });
-    yield* harness.start;
-    expect(harness.startTurn.mock.calls[0]?.[0].message.text).toContain(
-      "Delegation stance: orchestrate",
-    );
-    harness.setProjection({
-      ...initial,
-      thread: { ...initial.thread, stanceChoice: { stance: "implement", chosenBy: "owner" } },
-    });
-    yield* harness.start;
-    expect(harness.startTurn.mock.calls[1]?.[0].message.text).toContain(
-      "Delegation stance: implement",
-    );
-    expect(harness.startTurn.mock.calls[1]?.[0].message.text).not.toContain(
-      "Delegation stance: orchestrate",
-    );
-  }),
-);
 
 effectIt.effect.each([
   {
@@ -3551,68 +3510,6 @@ effectIt.effect("starts another provider in the same checkout while a turn is pe
   }),
 );
 
-effectIt.effect.each([
-  { delegated: true, attached: false, files: ["AGENTS.md", "CLAUDE.md"] },
-  { delegated: true, attached: false, files: ["AGENTS.md"] },
-  { delegated: true, attached: false, files: [] },
-  { delegated: false, attached: false, files: ["AGENTS.md", "CLAUDE.md"] },
-  { delegated: true, attached: true, files: ["AGENTS.md", "CLAUDE.md"] },
-])(
-  "delivers workspace instruction pointers without changing attached turns: %j",
-  ({ delegated, attached, files }) =>
-    Effect.gen(function* () {
-      const fileSystem = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const worktreePath = yield* fileSystem.makeTempDirectoryScoped({
-        prefix: "t3-instructions-",
-      });
-      for (const file of files) {
-        yield* fileSystem.writeFileString(path.join(worktreePath, file), "Workspace guidance.");
-      }
-      const harness = makeLocalCommandHarness({
-        text: "Continue",
-        delegated,
-        deliverTurn: true,
-        worktreePath,
-        branch: null,
-        fileSystem,
-      });
-      if (attached) {
-        const projection = harness.projection();
-        harness.setProjection({
-          ...projection,
-          thread: {
-            ...projection.thread,
-            workspaceAttachments: [
-              {
-                projectId: ProjectId.make("attached-project"),
-                workspacePath: path.join(worktreePath, "attached"),
-                branch: null,
-                origin: "adopted",
-                attachedAt: "2026-09-04T12:00:00Z",
-                releasedAt: null,
-              },
-            ],
-          },
-        });
-      }
-
-      yield* harness.start;
-
-      expect(harness.startTurn).toHaveBeenCalledOnce();
-      const text = harness.startTurn.mock.calls[0]![0].message.text;
-      if (delegated) {
-        expect(text).toContain(worktreePath);
-        for (const file of ["AGENTS.md", "CLAUDE.md"]) {
-          expect(text.includes(file)).toBe(files.includes(file));
-        }
-        expect(text.includes("land each repository")).toBe(attached);
-      } else {
-        expect(text).toBe(`${delegationStanceNote("flexible")}\n\nUser message:\nContinue`);
-      }
-    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
-);
-
 effectIt.effect("fails a starting run when its recovery state cannot be read", () =>
   Effect.gen(function* () {
     const harness = makeLocalCommandHarness({
@@ -3795,55 +3692,6 @@ effectIt.effect("does not overwrite a run interrupted while its provider session
   }),
 );
 
-effectIt.effect(
-  "fails a starting run when its last start attempt is refused by runtime policy",
-  () =>
-    Effect.gen(function* () {
-      const harness = makeLocalCommandHarness({ text: "Continue" });
-      harness.resolveRuntimePolicy.mockReturnValue(
-        Effect.fail(
-          new RuntimePolicy.RuntimePolicyResolveError({
-            projectId: "project" as never,
-            providerInstanceId: "codex" as never,
-            cause: new Error("The workspace is not at the stated sourceRevision."),
-          }),
-        ) as never,
-      );
-
-      yield* harness.start;
-
-      expect(harness.open).not.toHaveBeenCalled();
-      const projection = harness.projection();
-      expect(projection.runs.at(-1)).toMatchObject({ status: "failed", startedAt: null });
-      expect(projection.turnItems).toMatchObject([
-        {
-          type: "error",
-          title: "Provider turn failed to start",
-          failure: { message: "The workspace is not at the stated sourceRevision." },
-        },
-      ]);
-    }),
-);
-
-effectIt.effect("leaves the run starting when a runtime policy refusal will be retried", () =>
-  Effect.gen(function* () {
-    const harness = makeLocalCommandHarness({ text: "Continue" });
-    harness.resolveRuntimePolicy.mockReturnValue(
-      Effect.fail(
-        new RuntimePolicy.RuntimePolicyResolveError({
-          projectId: "project" as never,
-          providerInstanceId: "codex" as never,
-        }),
-      ) as never,
-    );
-
-    yield* harness.startWithRetry.pipe(Effect.flip);
-
-    expect(harness.writeIfRunCurrent).not.toHaveBeenCalled();
-    expect(harness.projection().runs.at(-1)?.status).toBe("starting");
-  }),
-);
-
 effectIt.effect("does not mistake a failed state read for a superseded run", () =>
   Effect.gen(function* () {
     const harness = makeLocalCommandHarness({ text: "Continue", failReadsAfterRunning: true });
@@ -3932,260 +3780,6 @@ effectIt.effect("fails a run whose workspace is gone without starting a provider
       },
     ]);
   }),
-);
-
-effectIt.effect("says a delegated task's removed workspace is not replaced", () =>
-  Effect.gen(function* () {
-    const harness = makeLocalCommandHarness({
-      text: "Continue",
-      worktreePath: "/tmp/released-slipjay-workspace",
-      branch: null,
-      delegated: true,
-      fileSystem: FileSystem.makeNoop({ exists: () => Effect.succeed(false) }),
-    });
-
-    yield* harness.start;
-
-    expect(harness.startRootRun).not.toHaveBeenCalled();
-    expect(harness.projection().runs.at(-1)?.status).toBe("failed");
-    const [item] = harness.projection().turnItems;
-    expect(item).toMatchObject({ type: "error", title: "Workspace missing" });
-    expect(item?.type === "error" ? item.failure.message : "").toContain(
-      "T3 does not replace a delegated task's workspace",
-    );
-  }),
-);
-
-const boundWorkspaceFixture = Effect.fn("test.boundWorkspaceFixture")(function* (
-  kind:
-    | "git"
-    | "git-subdirectory"
-    | "git-subdirectory-root"
-    | "jj"
-    | "jj-git"
-    | "scratch"
-    | "non-repository",
-) {
-  const fs = yield* FileSystem.FileSystem;
-  const runner = yield* ProcessRunner.ProcessRunner;
-  const root = yield* fs.makeTempDirectoryScoped();
-  const projectRoot = kind === "scratch" ? `${root}/scratch` : `${root}/project`;
-  const worktreePath = kind === "scratch" ? `${projectRoot}/child` : `${root}/workspace`;
-  const run = (command: string, args: ReadonlyArray<string>, cwd?: string) =>
-    runner
-      .run({ command, args, cwd })
-      .pipe(Effect.tap((result) => Effect.sync(() => expect(result.code).toBe(0))));
-  if (kind === "git-subdirectory" || kind === "git-subdirectory-root") {
-    // A project rooted in a subdirectory of its repository, bound to the same subdirectory or,
-    // as a workspace allocation binds it, to the root of the checkout.
-    const repository = `${root}/repository`;
-    yield* run("git", ["init", repository]);
-    yield* fs.makeDirectory(`${repository}/apps/web`, { recursive: true });
-    yield* fs.writeFileString(`${repository}/apps/web/README.md`, "web\n");
-    yield* run("git", ["add", "."], repository);
-    yield* run(
-      "git",
-      ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "initial"],
-      repository,
-    );
-    yield* run("git", ["worktree", "add", "-b", "task", `${root}/workspace`], repository);
-    return {
-      fs,
-      projectRoot: `${repository}/apps/web`,
-      worktreePath:
-        kind === "git-subdirectory" ? `${root}/workspace/apps/web` : `${root}/workspace`,
-      baseDir: root,
-    };
-  }
-  if (kind === "git" || kind === "jj-git") {
-    yield* run("git", ["init", projectRoot]);
-    yield* run(
-      "git",
-      [
-        "-c",
-        "user.name=Test",
-        "-c",
-        "user.email=test@example.com",
-        "commit",
-        "--allow-empty",
-        "-m",
-        "initial",
-      ],
-      projectRoot,
-    );
-    if (kind === "jj-git") yield* run("jj", ["git", "init", "--colocate", projectRoot]);
-    yield* run("git", ["worktree", "add", "-b", "task", worktreePath], projectRoot);
-  } else if (kind === "jj") {
-    yield* run("jj", ["git", "init", projectRoot]);
-    yield* run("jj", ["workspace", "add", worktreePath], projectRoot);
-  } else {
-    yield* fs.makeDirectory(projectRoot);
-    yield* fs.makeDirectory(worktreePath);
-  }
-  return { fs, projectRoot, worktreePath, baseDir: root };
-});
-
-effectIt.effect.each([
-  { state: "empty", continuation: false },
-  { state: "empty", continuation: true },
-  { state: "absent", continuation: false },
-  { state: "absent", continuation: true },
-  { state: "foreign", continuation: false },
-  { state: "subdirectory", continuation: false },
-])(
-  "refuses a delegated invalid checkout ($state, continuation: $continuation)",
-  ({ state, continuation }) =>
-    Effect.gen(function* () {
-      const { fs, projectRoot, worktreePath } = yield* boundWorkspaceFixture("git");
-      const harness = makeLocalCommandHarness({
-        text: continuation ? "Continue" : "Start",
-        projectRoot,
-        worktreePath,
-        delegated: true,
-        fileSystem: fs,
-        failReadsAfterRunning: true,
-        ...(continuation
-          ? { previousTurn: { runStatus: "completed", turnStatus: "completed" } as const }
-          : {}),
-      });
-      yield* fs.remove(worktreePath, { recursive: true });
-      if (state !== "absent") yield* fs.makeDirectory(worktreePath);
-      if (state === "foreign") {
-        const runner = yield* ProcessRunner.ProcessRunner;
-        expect((yield* runner.run({ command: "git", args: ["init", worktreePath] })).code).toBe(0);
-      } else if (state === "subdirectory") {
-        yield* fs.remove(worktreePath, { recursive: true });
-        yield* fs.makeDirectory(`${projectRoot}/empty`);
-        yield* fs.symlink(`${projectRoot}/empty`, worktreePath);
-      }
-
-      yield* harness.start;
-
-      expect(harness.open).not.toHaveBeenCalled();
-      expect(harness.startRootRun).not.toHaveBeenCalled();
-      expect(harness.createWorktree).not.toHaveBeenCalled();
-      expect(harness.projection().runs.at(-1)?.status).toBe("failed");
-      const [item] = harness.projection().turnItems;
-      expect(item).toMatchObject({
-        type: "error",
-        title: state === "absent" ? "Workspace missing" : "Workspace invalid",
-      });
-      expect(item?.type === "error" ? item.failure.message : "").toContain(
-        "ask its lead to assign the work again",
-      );
-      expect(harness.projection().thread.worktreePath).toBe(worktreePath);
-      if (state === "empty") expect(yield* fs.readDirectory(worktreePath)).toEqual([]);
-      if (state === "absent") expect(yield* fs.exists(worktreePath)).toBe(false);
-    }).pipe(
-      Effect.scoped,
-      Effect.provide(
-        ProcessRunner.layer.pipe(
-          Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
-        ),
-      ),
-    ),
-);
-
-effectIt.effect.each([
-  "git",
-  "git-subdirectory",
-  "git-subdirectory-root",
-  "jj",
-  "jj-git",
-  "scratch",
-  "non-repository",
-] as const)("starts a delegated task in its valid %s workspace", (kind) =>
-  Effect.gen(function* () {
-    const { fs, projectRoot, worktreePath, baseDir } = yield* boundWorkspaceFixture(kind);
-    const harness = makeLocalCommandHarness({
-      text: "Start",
-      baseDir,
-      projectRoot,
-      worktreePath,
-      branch: null,
-      delegated: true,
-      fileSystem: fs,
-      failReadsAfterRunning: true,
-    });
-
-    yield* harness.start;
-
-    expect(harness.open).toHaveBeenCalledOnce();
-    expect(harness.startRootRun).toHaveBeenCalledOnce();
-    expect(harness.createWorktree).not.toHaveBeenCalled();
-    expect(harness.projection().runs.at(-1)?.status).toBe("running");
-    expect(harness.resolveRuntimePolicy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        thread: expect.objectContaining({ worktreePath }),
-      }),
-    );
-  }).pipe(
-    Effect.scoped,
-    Effect.provide(
-      ProcessRunner.layer.pipe(
-        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
-      ),
-    ),
-  ),
-);
-
-effectIt.effect("refuses a subdirectory project's task bound to a different folder", () =>
-  Effect.gen(function* () {
-    const { fs, projectRoot, worktreePath, baseDir } =
-      yield* boundWorkspaceFixture("git-subdirectory-root");
-    const elsewhere = `${worktreePath}/packages/other`;
-    yield* fs.makeDirectory(elsewhere, { recursive: true });
-    const harness = makeLocalCommandHarness({
-      text: "Start",
-      baseDir,
-      projectRoot,
-      worktreePath: elsewhere,
-      branch: null,
-      delegated: true,
-      fileSystem: fs,
-      failReadsAfterRunning: true,
-    });
-
-    yield* harness.start;
-
-    expect(harness.open).not.toHaveBeenCalled();
-    expect(harness.projection().turnItems[0]).toMatchObject({
-      type: "error",
-      title: "Workspace invalid",
-    });
-  }).pipe(
-    Effect.scoped,
-    Effect.provide(ProcessRunner.layer.pipe(Layer.provideMerge(NodeServices.layer))),
-  ),
-);
-
-effectIt.effect.each([
-  { kind: "git-subdirectory-root", folder: "apps/web" },
-  { kind: "git-subdirectory", folder: null },
-  { kind: "git", folder: null },
-] as const)("names the project's folder from the checkout root: $kind", ({ kind, folder }) =>
-  Effect.gen(function* () {
-    const { fs, projectRoot, worktreePath, baseDir } = yield* boundWorkspaceFixture(kind);
-    const harness = makeLocalCommandHarness({
-      text: "Continue",
-      deliverTurn: true,
-      baseDir,
-      projectRoot,
-      worktreePath,
-      branch: null,
-      fileSystem: fs,
-    });
-
-    yield* harness.start;
-
-    const text = harness.startTurn.mock.calls[0]![0].message.text;
-    if (folder === null)
-      expect(text).toBe(`${delegationStanceNote("flexible")}\n\nUser message:\nContinue`);
-    else expect(text).toContain(`\`${folder}\``);
-  }).pipe(
-    Effect.scoped,
-    Effect.provide(ProcessRunner.layer.pipe(Layer.provideMerge(NodeServices.layer))),
-  ),
 );
 
 const CLAUDE_INSTANCE = "claudeAgent";

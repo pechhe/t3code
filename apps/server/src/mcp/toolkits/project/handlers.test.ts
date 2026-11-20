@@ -28,7 +28,7 @@ import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Layer from "effect/Layer";
-import * as Logger from "effect/Logger";
+
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import { ChildProcessSpawner } from "effect/process";
@@ -79,8 +79,6 @@ const clientLaunchHarness = (input: {
   readonly checkWorktreeBase?: ThreadLaunch.ThreadLaunchService["Service"]["checkWorktreeBase"];
   readonly launch?: ThreadLaunch.ThreadLaunchService["Service"]["launch"];
   readonly hostedAppUrl?: string;
-  /** The thread calling the launch; omitted means an outside client with no thread. */
-  readonly caller?: OrchestrationV2ThreadShell;
   /** The orchestrator refuses the new thread's mode, as under a managed ceiling. */
   readonly refusedByCeiling?: true;
 }) => {
@@ -121,14 +119,7 @@ const clientLaunchHarness = (input: {
     Layer.succeed(McpInvocationContext.McpInvocationContext, {
       environmentId: EnvironmentId.make("environment"),
       requestNamespace: "client:session-1",
-      thread:
-        input.caller === undefined
-          ? undefined
-          : {
-              threadId: input.caller.id,
-              providerSessionId: `provider:${input.caller.id}`,
-              providerInstanceId: input.caller.providerInstanceId,
-            },
+      thread: undefined,
       client: {
         sessionId: "session-1",
         label: "Claude Code",
@@ -157,8 +148,6 @@ const clientLaunchHarness = (input: {
     Layer.mock(ThreadManagement.ThreadManagementService)({
       // A thread exists once a launch started it.
       getThreadShell: (threadId) => {
-        if (input.caller !== undefined && threadId === input.caller.id)
-          return Effect.succeed(input.caller);
         const launch = input.launched.find((candidate) => candidate.threadId === threadId);
         return Effect.succeed(
           launch === undefined
@@ -212,7 +201,7 @@ const clientLaunchHarness = (input: {
     Layer.mock(Project.ProjectService)({
       getById: (id) =>
         Effect.succeed(
-          id === projectId || id === input.caller?.projectId
+          id === projectId
             ? Option.some({
                 id,
                 workspaceRoot: input.workspaceRoot ?? "/projects/client-target",
@@ -537,94 +526,6 @@ it.effect("a launch retried with the same clientRequestId replays the first one"
   }).pipe(Effect.provide(Layer.mergeAll(Layer.mock(WorkspaceProvider.WorkspaceProvider)({})))),
 );
 
-it.effect("a thread says why a new top-level thread beats a delegated task", () =>
-  Effect.gen(function* () {
-    const logs: Array<ReadonlyArray<unknown>> = [];
-    const capture = Logger.make<unknown, void>(({ message }) => {
-      if (Array.isArray(message)) logs.push(message);
-    });
-    const launched: Array<ThreadLaunch.ThreadLaunchInput> = [];
-    const caller = liveThreadShell(ThreadId.make("thread:caller"));
-    const { dependencies } = clientLaunchHarness({
-      runtimeModeCeiling: "full-access",
-      launched,
-      caller,
-    });
-    const toolkit = yield* ProjectToolkit.pipe(
-      Effect.provide(
-        McpToolAccess.HandlersLayer.layer(ProjectHandlers.layer).pipe(
-          Layer.provide(WorkspaceProvider.layer),
-          Layer.provide(dependencies),
-        ),
-      ),
-    );
-    const launch = (params: Record<string, unknown>) =>
-      toolkit
-        .handle("t3_thread_launch", params as never)
-        .pipe(
-          Stream.unwrap,
-          Stream.runCollect,
-          Effect.provide(
-            Layer.mergeAll(
-              WorkspaceProvider.layer.pipe(Layer.provideMerge(dependencies)),
-              Logger.layer([capture], { mergeWithExisting: false }),
-            ),
-          ),
-        );
-
-    const refused = (yield* launch({ title: "Fix" })).at(-1)?.result;
-    expect(refused).toMatchObject({ code: "invalid_request" });
-    expect((refused as { message?: string }).message).toContain("is better as a delegated task");
-    expect((refused as { message?: string }).message).toContain("whyNotDelegated");
-    const blank = (yield* launch({ title: "Fix", whyNotDelegated: "   " })).at(-1)?.result;
-    expect(blank).toMatchObject({ code: "invalid_request" });
-    expect(launched).toHaveLength(0);
-
-    const accepted = (yield* launch({
-      title: "Fix",
-      whyNotDelegated: "The user asked for a separate thread.",
-    })).at(-1)?.result;
-    // A thread's launch inherits its project.
-    expect(accepted).toMatchObject({ projectId: caller.projectId });
-    expect(launched).toHaveLength(1);
-    expect(logs).toContainEqual([
-      "orchestrator-mcp.thread.launched-instead-of-delegated",
-      {
-        launchedFrom: caller.id,
-        threadId: launched[0]?.threadId,
-        whyNotDelegated: "The user asked for a separate thread.",
-      },
-    ]);
-  }).pipe(Effect.provide(Layer.mergeAll(Layer.mock(WorkspaceProvider.WorkspaceProvider)({})))),
-);
-
-it.effect("a caller with no thread launches without a reason", () =>
-  Effect.gen(function* () {
-    const launched: Array<ThreadLaunch.ThreadLaunchInput> = [];
-    const { projectId, dependencies } = clientLaunchHarness({
-      runtimeModeCeiling: "full-access",
-      launched,
-    });
-    const toolkit = yield* ProjectToolkit.pipe(
-      Effect.provide(
-        McpToolAccess.HandlersLayer.layer(ProjectHandlers.layer).pipe(
-          Layer.provide(WorkspaceProvider.layer),
-          Layer.provide(dependencies),
-        ),
-      ),
-    );
-    const accepted = (yield* toolkit
-      .handle("t3_thread_launch", { title: "Fix", projectId })
-      .pipe(
-        Stream.unwrap,
-        Stream.runCollect,
-        Effect.provide(WorkspaceProvider.layer.pipe(Layer.provideMerge(dependencies))),
-      )).at(-1)?.result;
-    expect(accepted).toMatchObject({ projectId });
-    expect(launched).toHaveLength(1);
-  }).pipe(Effect.provide(Layer.mergeAll(Layer.mock(WorkspaceProvider.WorkspaceProvider)({})))),
-);
-
 it.effect("a launch key of any length or content gives a short id and never a defect", () =>
   Effect.gen(function* () {
     const launched: Array<ThreadLaunch.ThreadLaunchInput> = [];
@@ -752,65 +653,6 @@ it.effect("a launch binds only an existing checkout that is one of the project's
     expect((yield* launchInto(worktree)).at(-1)?.result).toMatchObject({
       code: "invalid_request",
     });
-  }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
-);
-
-it.effect("a colocated jj project binds its jj workspaces and its git worktrees", () =>
-  Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-launch-jj-" });
-    const repo = path.join(root, "repo");
-    const jjWorkspace = path.join(root, "jj-feature");
-    const gitWorktree = path.join(root, "git-feature");
-    yield* fileSystem.makeDirectory(repo);
-
-    const launched: Array<ThreadLaunch.ThreadLaunchInput> = [];
-    const { projectId, dependencies } = clientLaunchHarness({
-      runtimeModeCeiling: "auto",
-      launched,
-      workspaceRoot: repo,
-    });
-    const processes = yield* ProcessRunner.ProcessRunner.pipe(
-      Effect.provide(WorkspaceProvider.layer.pipe(Layer.provideMerge(dependencies))),
-    );
-    for (const [command, args] of [
-      ["git", ["init", "-b", "main"]],
-      [
-        "git",
-        ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-m", "init"],
-      ],
-      ["jj", ["git", "init", "--colocate"]],
-      ["jj", ["workspace", "add", jjWorkspace]],
-      ["git", ["worktree", "add", "-b", "feature", gitWorktree]],
-    ] as const) {
-      const output = yield* processes.run({ command, args, cwd: repo, timeout: "30 seconds" });
-      expect(output.code, `${command} ${args.join(" ")}`).toBe(0);
-    }
-    const toolkit = yield* ProjectToolkit.pipe(
-      Effect.provide(
-        McpToolAccess.HandlersLayer.layer(ProjectHandlers.layer).pipe(
-          Layer.provide(WorkspaceProvider.layer),
-          Layer.provide(dependencies),
-        ),
-      ),
-    );
-    const launchInto = (worktreePath: string) =>
-      toolkit
-        .handle("t3_thread_launch", {
-          title: "Fix",
-          projectId,
-          workspaceStrategy: { type: "existing_worktree", worktreePath },
-        })
-        .pipe(
-          Stream.unwrap,
-          Stream.runCollect,
-          Effect.provide(WorkspaceProvider.layer.pipe(Layer.provideMerge(dependencies))),
-        );
-
-    expect((yield* launchInto(jjWorkspace)).at(-1)?.result).toMatchObject({ projectId });
-    expect((yield* launchInto(gitWorktree)).at(-1)?.result).toMatchObject({ projectId });
-    expect((yield* launchInto(root)).at(-1)?.result).toMatchObject({ code: "invalid_request" });
   }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 

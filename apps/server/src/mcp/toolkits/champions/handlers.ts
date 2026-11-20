@@ -13,6 +13,7 @@ import * as Champions from "../../../champions/ChampionService.ts";
 import * as PeerForwarding from "../../../peer/PeerForwarding.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
+import * as DelegationLimits from "../../delegationLimits.ts";
 import * as ThreadAccess from "../../threadAccess.ts";
 import { ChampionsToolkit } from "./tools.ts";
 const isChampionError = Schema.is(ChampionError);
@@ -152,7 +153,7 @@ export const handlers = {
             ? Effect.flatMap(ThreadAccess.loadCaller(), (caller) =>
                 caller.caller === undefined
                   ? Effect.void
-                  : ThreadAccess.assertBelowDelegationLimit(caller.threads, caller.caller),
+                  : DelegationLimits.assertBelowDelegationLimit(caller.threads, caller.caller),
               )
             : Effect.void,
         ),

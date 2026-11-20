@@ -84,14 +84,13 @@ import {
   ProviderApprovalFullAccessOverride,
   ProviderApprovalOption,
   ProviderInteractionMode,
-  DelegationStance,
-  DelegationStanceChoice,
   ProviderRequestKind,
   ProviderUserInputAnswers,
   UserInputAttachments,
   UserInputAttachmentAnswerPayload,
   RuntimeMode,
 } from "./providerPolicy.ts";
+import { DelegationStance, DelegationStanceChoice } from "./delegationStance.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
 import { OrchestrationProjectShell } from "./orchestrationProject.ts";
 import {

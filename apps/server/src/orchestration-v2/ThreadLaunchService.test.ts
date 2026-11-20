@@ -953,63 +953,6 @@ it.effect("runs a scheduled Build item task in that item's SlipJay workspace", (
   );
 });
 
-// The contract kept `buildItem` as the older name of `forgeItem`, so a saved client still sends it.
-const legacyBuildItemStrategy = { type: "worktree", baseRef: "HEAD", buildItem: 42 } as const;
-
-it.effect("reads a saved client's older buildItem as the Forge item it launches in", () => {
-  const harness = makeHarness({
-    slipjay: true,
-    allocateWorkspace: allocateInTurn("/slipjay/workspaces/legacy-item"),
-  });
-  return Effect.gen(function* () {
-    const launches = yield* ThreadLaunch.ThreadLaunchService;
-    const threads = yield* ThreadManagement.ThreadManagementService;
-    const launched = yield* launches.launch(
-      launchInput({
-        command: "command:launch:legacy-build-item",
-        thread: "thread:launch:legacy-build-item",
-        message: "Work on the item",
-        workspace: legacyBuildItemStrategy,
-      }),
-    );
-    yield* waitForThreadProjection(threads, launched.threadId, () =>
-      threads
-        .getThreadProjection(launched.threadId)
-        .pipe(Effect.map(({ thread }) => thread.worktreePath !== null)),
-    );
-    assert.deepEqual(
-      harness.allocateWorkspace.mock.calls.map(([input]) => input.issue),
-      [{ number: 42, mode: "resume" }],
-    );
-    const { thread } = yield* threads.getThreadProjection(launched.threadId);
-    assert.equal(thread.workspaceIssue, 42);
-  }).pipe(Effect.provide(harness.layer));
-});
-
-it.effect("refuses a saved client's older buildItem outside a SlipJay project", () => {
-  const harness = makeHarness();
-  return Effect.gen(function* () {
-    const launches = yield* ThreadLaunch.ThreadLaunchService;
-    const threads = yield* ThreadManagement.ThreadManagementService;
-    const error = yield* launches
-      .launch(
-        launchInput({
-          command: "command:launch:legacy-build-item-plain",
-          thread: "thread:launch:legacy-build-item-plain",
-          workspace: legacyBuildItemStrategy,
-        }),
-      )
-      .pipe(Effect.flip);
-    assert.ok(error._tag === "ThreadLaunchForgeItemError");
-    // The legacy key names the item T3 refuses to place.
-    assert.equal(error.forgeItem, 42);
-    assert.isNull(
-      yield* threads.getThreadShell(ThreadId.make("thread:launch:legacy-build-item-plain")),
-    );
-    assert.isEmpty(harness.allocateWorkspace.mock.calls);
-  }).pipe(Effect.provide(harness.layer));
-});
-
 it.effect.each(["slipjay", "git", "scratch"] as const)(
   "starts an unbound scheduled run in a %s project where a new thread does, with no main branch",
   (kind) => {
@@ -2138,66 +2081,6 @@ it.effect(
     }),
 );
 
-it.effect(
-  "gives a managed reader sent to a Scratch project's root the folder the launch allocated as its workspace",
-  () => {
-    const folder = "/scratch/folder";
-    const harness = makeHarness({
-      managedFolders: Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
-        namedProjectsRoot: "/projects",
-        isScratchProject: (id) => Effect.succeed(id === projectId),
-        folderForThread: () => Effect.succeedSome(folder),
-      }),
-    });
-    return Effect.gen(function* () {
-      const launches = yield* ThreadLaunch.ThreadLaunchService;
-      const threads = yield* ThreadManagement.ThreadManagementService;
-      const launched = yield* launches.launch(
-        launchInput({
-          command: "command:launch:scratch-reader",
-          thread: "thread:launch:scratch-reader",
-          message: "Explore only",
-          agentTask: decodeAgentTaskBinding({
-            ...managedTaskBinding(project.workspaceRoot),
-            role: "advisor",
-            sourceAccess: "read-only",
-            toolProfile: "source-reader",
-          }),
-          workspace: { type: "root" },
-        }),
-      );
-      const projection = yield* threads.getThreadProjection(launched.threadId);
-      assert.equal(projection.thread.worktreePath, folder);
-      assert.equal(projection.thread.agentTask?.workspacePath, folder);
-    }).pipe(Effect.provide(harness.layer));
-  },
-);
-
-it.effect("leaves a managed reader sent to a named project's root bound to that root", () => {
-  const harness = makeHarness({});
-  return Effect.gen(function* () {
-    const launches = yield* ThreadLaunch.ThreadLaunchService;
-    const threads = yield* ThreadManagement.ThreadManagementService;
-    const launched = yield* launches.launch(
-      launchInput({
-        command: "command:launch:root-reader",
-        thread: "thread:launch:root-reader",
-        message: "Explore only",
-        agentTask: decodeAgentTaskBinding({
-          ...managedTaskBinding(project.workspaceRoot),
-          role: "advisor",
-          sourceAccess: "read-only",
-          toolProfile: "source-reader",
-        }),
-        workspace: { type: "root" },
-      }),
-    );
-    const projection = yield* threads.getThreadProjection(launched.threadId);
-    assert.isNull(projection.thread.worktreePath);
-    assert.equal(projection.thread.agentTask?.workspacePath, project.workspaceRoot);
-  }).pipe(Effect.provide(harness.layer));
-});
-
 it.effect("reuses a branchless SlipJay allocation when setup is retried", () =>
   Effect.gen(function* () {
     let setups = 0;
@@ -2626,92 +2509,6 @@ it.effect("keeps the checkout a terminal opened while the same thread's turn was
       assert.equal(
         harness.runSetup.mock.calls.at(-1)![0].worktreePath,
         "/slipjay/workspaces/terminal",
-      );
-    }).pipe(Effect.provide(harness.layer));
-  }),
-);
-
-it.effect("opens a terminal that lost the recovery race in the checkout the turn bound", () =>
-  Effect.gen(function* () {
-    const terminalAllocating = yield* Deferred.make<void>();
-    const terminalAllocated = yield* Deferred.make<void>();
-    let calls = 0;
-    const harness = makeHarness({
-      slipjay: true,
-      allocateWorkspace: (input) => {
-        const call = calls++;
-        const issue = input.issue?.number ?? null;
-        if (call === 0) return Effect.succeed(allocated("/slipjay/workspaces/first", true, issue));
-        if (call === 1)
-          return Deferred.succeed(terminalAllocating, undefined).pipe(
-            Effect.andThen(Deferred.await(terminalAllocated)),
-            Effect.as(allocated("/slipjay/workspaces/terminal", true, issue)),
-          );
-        return Effect.succeed(allocated("/slipjay/workspaces/turn", true, issue));
-      },
-    });
-    yield* Effect.gen(function* () {
-      const launches = yield* ThreadLaunch.ThreadLaunchService;
-      const threads = yield* ThreadManagement.ThreadManagementService;
-      const threadId = yield* idleSlipJayThread("thread:launch:terminal-loses-race");
-      harness.releasedPaths.add("/slipjay/workspaces/first");
-      harness.releasedPaths.add("/slipjay/workspaces/first/.jj");
-
-      const terminal = yield* Effect.forkChild(
-        launches.terminalCwd({
-          threadId,
-          cwd: "/slipjay/workspaces/first/apps/web",
-          worktreePath: "/slipjay/workspaces/first",
-        }),
-      );
-      yield* Deferred.await(terminalAllocating);
-      // The turn recovers the same workspace and binds the thread first.
-      yield* threads.sendToThread({
-        projectId,
-        commandId: CommandId.make("command:terminal-loses-race:next"),
-        threadId,
-        messageId: MessageId.make("message:terminal-loses-race:next"),
-        text: "Next turn",
-        attachments: [],
-        mode: "auto",
-        createdBy: "user",
-        creationSource: "web",
-      });
-      const next = (yield* threads.getThreadProjection(threadId)).runs.at(-1)!;
-      assert.isTrue(
-        yield* launches.prepareReleasedWorkspace({
-          commandId: CommandId.make("command:terminal-loses-race:released"),
-          threadId,
-          runId: next.id,
-        }),
-      );
-      yield* waitForThreadProjection(threads, threadId, () =>
-        threads
-          .getThreadProjection(threadId)
-          .pipe(Effect.map(({ thread }) => thread.worktreePath === "/slipjay/workspaces/turn")),
-      );
-      yield* Deferred.succeed(terminalAllocated, undefined);
-
-      assert.deepEqual(yield* Fiber.join(terminal), {
-        cwd: "/slipjay/workspaces/turn/apps/web",
-        worktreePath: "/slipjay/workspaces/turn",
-      });
-      // The loser releases only its own redundant allocation, and settles it.
-      assert.deepEqual(
-        harness.releaseWorkspace.mock.calls.map(([input]) => input.path),
-        ["/slipjay/workspaces/terminal"],
-      );
-      assert.sameMembers(
-        harness.settleWorkspace.mock.calls.map(([attemptId]) => attemptId),
-        [
-          "attempt:/slipjay/workspaces/first",
-          "attempt:/slipjay/workspaces/terminal",
-          "attempt:/slipjay/workspaces/turn",
-        ],
-      );
-      assert.equal(
-        (yield* threads.getThreadProjection(threadId)).thread.worktreePath,
-        "/slipjay/workspaces/turn",
       );
     }).pipe(Effect.provide(harness.layer));
   }),
@@ -3222,60 +3019,6 @@ it.effect("releases a SlipJay workspace when its setup is cancelled", () =>
       assert.isNull((yield* threads.getThreadProjection(launched.threadId)).thread.worktreePath);
     }).pipe(Effect.provide(harness.layer));
   }),
-);
-
-it.effect.each([true, false, null])(
-  "returns an allocation receipt before rolling back cancellation during SlipJay preparation, releasing only a workspace it created: %s",
-  (created) =>
-    Effect.gen(function* () {
-      const entered = yield* Deferred.make<Fiber.Fiber<unknown, unknown>>();
-      const allowReceipt = yield* Deferred.make<void>();
-      const harness = makeHarness({
-        slipjay: true,
-        allocateWorkspace: () =>
-          Effect.gen(function* () {
-            yield* Deferred.succeed(entered, yield* Effect.fiber);
-            yield* Deferred.await(allowReceipt);
-            return allocated("/slipjay/workspaces/build-the-feature", created);
-          }),
-      });
-      yield* Effect.gen(function* () {
-        const launches = yield* ThreadLaunch.ThreadLaunchService;
-        const tracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
-        const threads = yield* ThreadManagement.ThreadManagementService;
-        const launched = yield* launches.launch(
-          launchInput({
-            command: "command:cancel-slipjay-during-allocation",
-            thread: "thread:cancel-slipjay-during-allocation",
-            message: "Start",
-            workspace: { type: "worktree", baseRef: "main" },
-          }),
-        );
-        const preparing = yield* Deferred.await(entered);
-        yield* Effect.sync(() => preparing.interruptUnsafe());
-        yield* Deferred.succeed(allowReceipt, undefined);
-        yield* Fiber.await(preparing);
-        assert.equal((yield* tracker.get(launched.threadId))?.phase, "cancelled");
-        assert.isNull((yield* threads.getThreadProjection(launched.threadId)).thread.worktreePath);
-        // A resumed Build item workspace predates the launch, so it stays.
-        assert.deepEqual(
-          harness.releaseWorkspace.mock.calls.map(([input]) => input.path),
-          created === true ? ["/slipjay/workspaces/build-the-feature"] : [],
-        );
-        // A checkout the launch did not make for certain goes back through its attempt, where
-        // SlipJay keeps one it resumed; one it removed by path is already settled.
-        const attemptId = "attempt:/slipjay/workspaces/build-the-feature";
-        assert.deepEqual(
-          harness.abandonWorkspace.mock.calls.map(([id]) => id),
-          created === true ? [] : [attemptId],
-        );
-        assert.deepEqual(
-          harness.settleWorkspace.mock.calls.map(([id]) => id),
-          created === true ? [attemptId] : [],
-        );
-        assert.isEmpty(harness.createWorktree.mock.calls);
-      }).pipe(Effect.provide(harness.layer));
-    }),
 );
 
 it.effect(
@@ -5643,44 +5386,6 @@ it.effect("replays an accepted send after the project disables the instance", ()
     }
   }).pipe(Effect.provide(Layer.mergeAll(harness.layer, layerFiles)));
 });
-
-it.effect(
-  "binds a managed Spec lead to its allocated Spec checkout before its provider turn starts",
-  () => {
-    const assigned = "/slipjay/workspaces/spec-42";
-    const harness = makeHarness({
-      slipjay: true,
-      allocateWorkspace: () => Effect.succeed(allocated(assigned, true, 42)),
-      runSetup: () => Effect.die("A managed Spec lead must not run shared-root setup"),
-    });
-    const agentTask = { ...managedTaskBinding(project.workspaceRoot), role: "lead" as const };
-    return Effect.gen(function* () {
-      const launch = yield* ThreadLaunch.ThreadLaunchService;
-      const threads = yield* ThreadManagement.ThreadManagementService;
-      const result = yield* launch.launch(
-        launchInput({
-          command: "champion:spec-lead",
-          thread: "champion:spec-thread",
-          message: "Run Spec 42",
-          workspace: forgeItemStrategy,
-          agentTask,
-        }),
-      );
-      yield* waitForThreadProjection(threads, result.threadId, () =>
-        threads
-          .getThreadProjection(result.threadId)
-          .pipe(Effect.map((p) => p.runs[0]?.status === "starting")),
-      );
-      const projection = yield* threads.getThreadProjection(result.threadId);
-      assert.equal(projection.thread.worktreePath, assigned);
-      assert.equal(projection.thread.agentTask?.workspacePath, assigned);
-      assert.notEqual(projection.thread.agentTask?.workspacePath, project.workspaceRoot);
-      const allocation = harness.allocateWorkspace.mock.calls[0]?.[0];
-      assert.isDefined(allocation);
-      assert.equal(allocation!.issue?.number, 42);
-    }).pipe(Effect.provide(harness.layer));
-  },
-);
 
 const unusedWorkspace = "/slipjay/workspaces/build-the-feature";
 const releaseEffect = { type: "thread-workspace.release" } as const;

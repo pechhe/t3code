@@ -22,7 +22,7 @@ import * as McpHttpServer from "../../McpHttpServer.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import { liveThreadShell } from "../../McpToolAccess.testkit.ts";
 import * as OrchestratorMcpService from "../../OrchestratorMcpService.ts";
-import { assertBelowDelegationLimit } from "../../threadAccess.ts";
+import { assertBelowDelegationLimit } from "../../delegationLimits.ts";
 import * as ThreadMetadataMcpService from "../../ThreadMetadataMcpService.ts";
 import * as OrchestratorHandlers from "./handlers.ts";
 import { OrchestratorToolkit } from "./tools.ts";

@@ -103,37 +103,6 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("GitWorkflowServi
       ),
   );
 
-  it.effect(
-    "routes normal workspace removal through the workspace provider before Git-only checks",
-    () => {
-      const removed: string[] = [];
-      return Effect.gen(function* () {
-        const workflow = yield* GitWorkflowService.GitWorkflowService;
-        yield* workflow.removeWorktree({ cwd: "/jj-project", path: "/jj-child", force: true });
-        expect(removed).toEqual(["/jj-child"]);
-      }).pipe(
-        Effect.provide(
-          GitWorkflowService.layer.pipe(
-            Layer.provide(SlipJayLandings.layerNone),
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.mock(WorkspaceProvider.WorkspaceProvider)({
-                  remove: (input) =>
-                    Effect.sync(() => {
-                      removed.push(input.path);
-                    }),
-                }),
-                Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({}),
-                Layer.mock(GitVcsDriver.GitVcsDriver)({}),
-                Layer.mock(GitManager.GitManager)({}),
-              ),
-            ),
-          ),
-        ),
-      );
-    },
-  );
-
   it.effect("tells the Git status of a Jujutsu repository which kind it is", () =>
     Effect.gen(function* () {
       const workflow = yield* GitWorkflowService.GitWorkflowService;

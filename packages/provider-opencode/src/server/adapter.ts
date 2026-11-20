@@ -72,6 +72,7 @@ import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/
 import { t3OrchestrationSystemPrompt } from "@t3tools/provider-core/server/orchestrationInstructions";
 import { buildRuntimeInstructions } from "@t3tools/provider-core/server/runtimeInstructions";
 import * as OpenCodeRuntime from "./OpenCodeRuntime.ts";
+import { addAgentServers, agentServerPermissionRules } from "./agentServers.ts";
 import { readableProviderErrorMessage } from "./providerErrorMessage.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
@@ -750,12 +751,7 @@ export function openCodePermissionRules(
     }
   }
 
-  // T3 refuses what this task's class may not call, so its own server needs no second rule here.
-  for (const name of runtimePolicy.managedAgent === true
-    ? ["t3-code", ...agentServerNames]
-    : agentServerNames) {
-    rules.push({ permission: `${name}_*`, pattern: "*", action: "allow" });
-  }
+  rules.push(...agentServerPermissionRules(runtimePolicy.managedAgent === true, agentServerNames));
 
   return rules;
 }
@@ -1134,19 +1130,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
         }
         // An external server may not reach T3's endpoints either.
         const agentServers = connection.external ? [] : yield* readAgentServers(input.threadId);
-        for (const server of agentServers) {
-          yield* OpenCodeRuntime.runOpenCodeSdk("mcp.add", () =>
-            client.mcp.add({
-              name: server.name,
-              config: {
-                type: "remote",
-                url: server.url,
-                headers: { Authorization: server.authorizationHeader },
-                oauth: false,
-              },
-            }),
-          );
-        }
+        yield* addAgentServers(client, agentServers);
         const agentServerNames = agentServers.map((server) => server.name);
 
         const now = yield* DateTime.now;

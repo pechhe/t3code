@@ -6,7 +6,7 @@ import {
 import * as Effect from "effect/Effect";
 
 import { RpcInstrumentation } from "../observability/RpcInstrumentation.ts";
-import { championThreadHiddenFromList } from "../orchestration-v2/ShellStream.ts";
+import { championThreadHiddenFromList } from "../orchestration-v2/ChampionThreadVisibility.ts";
 import * as Champions from "./ChampionService.ts";
 
 const ServerWsChampionsRpcGroup = WsChampionsRpcGroup.middleware(RpcInstrumentation);

@@ -1,5 +1,5 @@
 import { liveParkedWaitWoke } from "./parkedWait.ts";
-import { delegatedTaskProgressTurnItems } from "@t3tools/provider-core/server/subagentProjection";
+import { delegatedTaskProgressTurnItems } from "@t3tools/provider-core/server/delegatedTaskHold";
 import type { ProjectThreadAwarenessV2Input } from "@t3tools/shared/agentAwareness";
 import { applyOrchestrationV2ThreadVisit, pendingGuestMessageCount } from "@t3tools/contracts";
 import { applyThreadPullRequestLinkUpdate } from "../sourceControl/threadPullRequests.ts";

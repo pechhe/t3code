@@ -35,6 +35,14 @@
       "types": "./src/server/collectStreamText.ts",
       "import": "./src/server/collectStreamText.ts"
     },
+    "./server/delegatedChildInstructions": {
+      "types": "./src/server/delegatedChildInstructions.ts",
+      "import": "./src/server/delegatedChildInstructions.ts"
+    },
+    "./server/delegatedTaskHold": {
+      "types": "./src/server/delegatedTaskHold.ts",
+      "import": "./src/server/delegatedTaskHold.ts"
+    },
     "./server/driver": {
       "types": "./src/server/driver.ts",
       "import": "./src/server/driver.ts"

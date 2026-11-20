@@ -13,12 +13,12 @@ import {
   type AuthEnvironmentScope,
 } from "./auth.ts";
 import { ORCHESTRATION_V2_WS_METHODS } from "./orchestrationV2.ts";
+import { DELEGATION_GUARDED_RPC_SCOPES } from "./clientRpcPermissionsDelegation.ts";
 import { WS_METHODS } from "./rpc.ts";
 
 /** Incremental client enforcement; the server still authorizes every request. */
 export const CLIENT_GUARDED_RPC_SCOPES = {
-  [WS_METHODS.agentPolicySave]: AuthSettingsWriteScope,
-  [WS_METHODS.delegationStanceResolve]: AuthOrchestrationReadScope,
+  ...DELEGATION_GUARDED_RPC_SCOPES,
   [WS_METHODS.experimentsAdopt]: AuthSettingsWriteScope,
   [WS_METHODS.experimentsCreate]: AuthOrchestrationOperateScope,
   [WS_METHODS.experimentsTransition]: AuthOrchestrationOperateScope,
@@ -111,17 +111,6 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.retainedWeaveSignInStart]: AuthSettingsWriteScope,
   [WS_METHODS.retainedWeaveDisconnect]: AuthSettingsWriteScope,
   [WS_METHODS.forgeHomeDecide]: AuthSettingsWriteScope,
-  [WS_METHODS.championsStartInvestigation]: AuthOrchestrationOperateScope,
-  [WS_METHODS.championsCancelInvestigation]: AuthOrchestrationOperateScope,
-  [WS_METHODS.championsUpsert]: AuthOrchestrationOperateScope,
-  [WS_METHODS.championsSetModels]: AuthOrchestrationOperateScope,
-  [WS_METHODS.championsSetLifecycle]: AuthOrchestrationOperateScope,
-  [WS_METHODS.championsSetup]: AuthOrchestrationOperateScope,
-  [WS_METHODS.championsRunCheck]: AuthOrchestrationOperateScope,
-  [WS_METHODS.championsChangeMetrics]: AuthOrchestrationOperateScope,
-  [WS_METHODS.championsCancelSetup]: AuthOrchestrationOperateScope,
-  [WS_METHODS.championsStartMetricsLead]: AuthOrchestrationOperateScope,
-  [WS_METHODS.championsFindingAction]: AuthOrchestrationOperateScope,
   // Starts an agent session on this environment that can read its logs and database.
   [WS_METHODS.serverPrepareTriage]: AuthOrchestrationOperateScope,
   [WS_METHODS.scheduledTasksUpsert]: AuthOrchestrationOperateScope,

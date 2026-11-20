@@ -1,5 +1,4 @@
 import type {
-  AgentExecutionBoundary,
   ModelSelection,
   OrchestrationV2TurnItemStatus,
   OrchestrationV2ThreadShell,
@@ -12,6 +11,8 @@ import { resolveModelShortName } from "../providerClients.ts";
 import { isTerminalSubagentStatus } from "./subagentRuntime.ts";
 import { mFallback, msg } from "gt-i18n";
 import type { MFunctionType } from "gt-i18n/types";
+
+export { agentExecutionBoundaryLabel } from "./subagentDelegation.ts";
 
 export function subagentGroupSummary(
   members: ReadonlyArray<{ readonly status: OrchestrationV2TurnItemStatus }>,
@@ -64,21 +65,6 @@ export function summarizeSubagentStatuses(
     .filter((key) => counts[key] > 0)
     .map((key) => resolve(SUBAGENT_STATUS_COUNTS[key], { count: counts[key] }))
     .join(" · ");
-}
-
-/**
- * What a managed task's runtime technically enforces, in the words the operating guide
- * uses. A trusted writer's workspace is its assignment, not a sandbox.
- */
-export function agentExecutionBoundaryLabel(boundary: AgentExecutionBoundary): string {
-  switch (boundary) {
-    case "read-only":
-      return "Read-only";
-    case "workspace-sandbox":
-      return "Workspace sandbox";
-    case "trusted-host-access":
-      return "Trusted host access";
-  }
 }
 
 /** Formats Codex task paths for display while leaving provider identity untouched. */

@@ -1,9 +1,4 @@
-import { delegatedTaskResultRun, delegatedTaskRuns } from "./RestartBackgroundNote.ts";
-import {
-  delegatedTaskProgress,
-  delegatedTaskProgressTurnItems,
-  delegatedTaskRunHold,
-} from "@t3tools/provider-core/server/subagentProjection";
+import * as DelegatedCompletionGuard from "./DelegatedCompletionGuard.ts";
 import {
   CommandId,
   type OrchestrationV2Run,
@@ -129,11 +124,7 @@ export interface EventSinkV2Shape {
     readonly events: ReadonlyArray<OrchestrationV2DomainEvent>;
   }) => Effect.Effect<ReadonlyArray<OrchestrationV2StoredEvent>, EventSinkV2Error>;
   readonly writeWithEffects: (input: {
-    readonly guardDelegatedCompletion?: {
-      readonly threadId: ThreadId;
-      readonly runId: RunId;
-      readonly taskId?: NodeId;
-    };
+    readonly guardDelegatedCompletion?: DelegatedCompletionGuard.DelegatedCompletionGuard;
     /**
      * Rebuilds each run.updated from the stored row with only its delegatedCompletion replaced.
      * The batch must not also change that run's lifecycle.
@@ -513,45 +504,14 @@ const layerBase: Layer.Layer<
       const { committed } = yield* commitThenPublish(
         projectedThreadIds(input.events),
         Effect.gen(function* () {
-          if (input.guardDelegatedCompletion !== undefined) {
-            const guard = input.guardDelegatedCompletion;
-            const child = yield* projectionStore.getThreadRecords(
-              guard.threadId,
-              ["runs", "messages", "subagents", "providerThreads", "turnItems"],
-              {
-                messageRoles: ["user"],
-                ...delegatedTaskProgressTurnItems,
-              },
-            );
-            const pendingBlockingAdvice = yield* projectionStore.hasPendingBlockingAdvice(
-              guard.threadId,
-            );
-            const projection = { ...child, pendingBlockingAdvice };
-            const progress = delegatedTaskProgress(projection);
-            const run = child.runs.find((candidate) => candidate.id === guard.runId);
-            const originalTaskId =
-              child.thread.forkedFrom?.type === "node" ? child.thread.forkedFrom.nodeId : undefined;
-            const taskId = guard.taskId ?? run?.delegatedTaskId;
-            const followup = taskId !== undefined && taskId !== originalTaskId;
-            const taskRuns =
-              followup && taskId !== undefined ? delegatedTaskRuns(child, taskId) : [];
-            const ownedRunIds =
-              taskRuns.length === 0
-                ? undefined
-                : new Set(taskRuns.map((candidate) => candidate.id));
-            const latestTaskRun =
-              followup && taskId !== undefined
-                ? delegatedTaskResultRun(taskRuns)
-                : progress.resultRun;
-            if (
-              run === undefined ||
-              latestTaskRun?.id !== guard.runId ||
-              (followup
-                ? delegatedTaskRunHold(projection, run, ownedRunIds).held
-                : progress.state !== "result_available")
-            )
-              return { committed: [], outcomes: [] };
-          }
+          if (
+            input.guardDelegatedCompletion !== undefined &&
+            (yield* DelegatedCompletionGuard.refuses(
+              projectionStore,
+              input.guardDelegatedCompletion,
+            ))
+          )
+            return { committed: [], outcomes: [] };
           // Check ownership in the same transaction that claims the native session.
           const imported = input.unlessNativeThreadOwned;
           if (imported?.nativeThreadRef != null) {

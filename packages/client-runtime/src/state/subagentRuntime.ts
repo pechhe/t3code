@@ -10,6 +10,9 @@ import type {
 import { isOrchestrationV2WorkActive, isProviderNativeSubagentThread } from "@t3tools/contracts";
 import { mFallback, msg } from "gt-i18n";
 import type { MFunctionType } from "gt-i18n/types";
+import { isSubagentPausedByParentStop } from "./subagentDelegation.ts";
+
+export { isSubagentPausedByParentStop, PAUSED_SUBAGENT_LABEL } from "./subagentDelegation.ts";
 
 export type RuntimeSubagentStatus =
   | "pending"
@@ -91,16 +94,6 @@ const TERMINAL_STATUSES: ReadonlySet<RuntimeSubagentStatus> = new Set([
 export function isTerminalSubagentStatus(status: RuntimeSubagentStatus): boolean {
   return TERMINAL_STATUSES.has(status);
 }
-
-/** A task its parent's Stop interrupted; its status stays `interrupted`, and the parent's next message resumes it. */
-export function isSubagentPausedByParentStop(subagent: {
-  readonly status: RuntimeSubagentStatus;
-  readonly pausedByParentStop?: true | undefined;
-}): boolean {
-  return subagent.status === "interrupted" && subagent.pausedByParentStop === true;
-}
-
-export const PAUSED_SUBAGENT_LABEL = "Paused";
 
 export function isActiveSubagentStatus(status: RuntimeSubagentStatus): boolean {
   return isOrchestrationV2WorkActive(status);

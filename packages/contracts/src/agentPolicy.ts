@@ -7,7 +7,8 @@ import {
   ProjectId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
-import { DelegationStance, ResolvedDelegationStance, RuntimeMode } from "./providerPolicy.ts";
+import { DelegationStance, ResolvedDelegationStance } from "./delegationStance.ts";
+import { RuntimeMode } from "./providerPolicy.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
 import { BrowserBackend, PhiBrowserLane } from "./browserBackend.ts";
 import { ModelSelection } from "./modelSelection.ts";

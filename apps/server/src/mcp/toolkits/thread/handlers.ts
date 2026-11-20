@@ -16,8 +16,8 @@ import { topOfPinnedRunOrderKey } from "@t3tools/shared/pinOrderKey";
 
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
+import { assertBelowDelegationLimit } from "../../delegationLimits.ts";
 import {
-  assertBelowDelegationLimit,
   dispatchFailure,
   newCommandId,
   readCaller,

@@ -34,6 +34,7 @@ import * as ThreadTitleRegenerationService from "./ThreadTitleRegenerationServic
 import * as DelegatedTaskRecovery from "./DelegatedTaskRecovery.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 import * as ThreadLaunchService from "./ThreadLaunchService.ts";
+import * as DelegatedTaskEffects from "./DelegatedTaskEffects.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { continueRestartedRun } from "./RestartContinuation.ts";
 
@@ -799,35 +800,12 @@ export const layerExecutor: Layer.Layer<
                 ),
               );
           case "delegated-tasks.resume":
-            return threads
-              .resumeDelegatedTasks({ threadId: effect.threadId, commandId: effect.commandId })
-              .pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new OrchestrationEffectExecutionError({
-                      effectId: effect.id,
-                      effectType: effect.request.type,
-                      cause,
-                    }),
-                ),
-              );
           case "delegated-tasks.stop":
-            return threads
-              .stopDelegatedTasks({
-                threadId: effect.threadId,
-                commandId: effect.commandId,
-                reason: effect.request.reason,
-              })
-              .pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new OrchestrationEffectExecutionError({
-                      effectId: effect.id,
-                      effectType: effect.request.type,
-                      cause,
-                    }),
-                ),
-              );
+            return DelegatedTaskEffects.execute(
+              threads,
+              effect,
+              (input) => new OrchestrationEffectExecutionError(input),
+            );
         }
       }),
     });

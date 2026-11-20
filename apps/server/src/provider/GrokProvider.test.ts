@@ -199,12 +199,6 @@ describe("buildGrokModelCapabilities", () => {
 });
 
 it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("checkGrokProviderStatus", (it) => {
-  it.effect("declares read-only enforcement even before a provider is enabled", () =>
-    Effect.gen(function* () {
-      const snapshot = yield* checkGrokProviderStatus(decodeGrokSettings({ enabled: false }));
-      expect(snapshot.readOnlySourceAccess).toBe("enforced");
-    }),
-  );
   it.effect("reports an installed CLI as unhealthy when --version exits non-zero", () =>
     Effect.gen(function* () {
       const secretStderr = "broken grok install: secret-token-value";

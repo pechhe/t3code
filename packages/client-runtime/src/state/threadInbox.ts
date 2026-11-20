@@ -3,32 +3,6 @@ import { threadRuntimeIsActive, type EnvironmentThreadShell } from "./models.ts"
 import { toSortableTimestamp } from "./threadSort.ts";
 import { effectiveSnoozed } from "./threadSettled.ts";
 
-/**
- * A champion's own threads stay out of thread lists unless the thread itself waits on
- * someone. Champion attention and failed checks show on the Champion page and its
- * sidebar mark instead; listing them crowded the thread list with every check.
- */
-export function championNeedsInbox(
-  thread: Pick<
-    EnvironmentThreadShell,
-    | "champion"
-    | "hasPendingApprovals"
-    | "hasPendingUserInput"
-    | "hasActionableProposedPlan"
-    | "pendingSubagentRequest"
-    | "pendingGuestMessageCount"
-  >,
-): boolean {
-  return (
-    thread.champion === undefined ||
-    thread.hasPendingApprovals ||
-    thread.hasPendingUserInput ||
-    thread.hasActionableProposedPlan ||
-    thread.pendingSubagentRequest != null ||
-    (thread.pendingGuestMessageCount ?? 0) > 0
-  );
-}
-
 type WorkingThreadInput = Pick<
   EnvironmentThreadShell,
   | "hasActionableProposedPlan"
