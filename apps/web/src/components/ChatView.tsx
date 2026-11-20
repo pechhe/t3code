@@ -273,7 +273,11 @@ import { isPreviewFocused } from "../lib/previewFocus";
 import { getTerminalFocusOwner } from "../lib/terminalFocus";
 import { draftModelSelectionApplies, threadHasStarted } from "../lib/chatThreadActions";
 import { useDraftProjectUnchosen } from "../draftProjectChoiceStore";
-import { isProjectSelectionRequired, isUnstartedThreadShell } from "./chat/draftWarmThread.logic";
+import {
+  isProjectSelectionRequired,
+  isUnstartedThreadShell,
+  serverThreadOwnsDraft,
+} from "./chat/draftWarmThread.logic";
 import { useWarmDraftThread } from "./chat/useWarmDraftThread";
 import {
   deriveLogicalProjectKeyFromSettings,
@@ -1751,8 +1755,15 @@ export default function ChatView(props: ChatViewProps) {
     // Include optimistic sends to retire the row before the server echo.
     followUpSent: timelineMessages.filter((message) => message.role === "user").length > 1,
   });
-  // A launched draft's setup runs ahead of Send; its card shows once the thread is sent.
-  const shownWorktreeSetup = shouldShowWorktreeSetupCard({ isWarmDraftThread, isSendBusy })
+  const shownWorktreeSetup = shouldShowWorktreeSetupCard({
+    isUnsentDraft:
+      draftId !== null &&
+      draftThread !== null &&
+      localDraftThread !== undefined &&
+      !serverThreadOwnsDraft(serverThreadShell),
+    isSendBusy,
+    isPreparingWorktree,
+  })
     ? worktreeSetup
     : null;
   const onCancelWorktreeSetupStable = useStableCallback(() => void cancelWorktreeSetup());

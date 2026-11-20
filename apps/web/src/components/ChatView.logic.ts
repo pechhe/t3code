@@ -295,12 +295,16 @@ export function resolveWorktreeSetupProgress(input: {
   };
 }
 
-/** A launched draft's setup runs out of sight; its card appears once Send starts the thread. */
+/**
+ * An unsent draft's setup runs out of sight, including while its launched thread's shell is still
+ * on its way; Send shows it only if the workspace is still being prepared.
+ */
 export function shouldShowWorktreeSetupCard(input: {
-  isWarmDraftThread: boolean;
+  isUnsentDraft: boolean;
   isSendBusy: boolean;
+  isPreparingWorktree: boolean;
 }): boolean {
-  return !input.isWarmDraftThread || input.isSendBusy;
+  return !input.isUnsentDraft || (input.isSendBusy && input.isPreparingWorktree);
 }
 
 export function resolveDraftHeroState(input: {

@@ -1702,9 +1702,15 @@ describe("launched draft thread", () => {
     expect(resolveDraftHeroState({ ...base, ...patch })).toBe(hero);
   });
 
-  it("shows setup progress only once Send has started the thread", () => {
-    expect(shouldShowWorktreeSetupCard({ isWarmDraftThread: true, isSendBusy: false })).toBe(false);
-    expect(shouldShowWorktreeSetupCard({ isWarmDraftThread: true, isSendBusy: true })).toBe(true);
-    expect(shouldShowWorktreeSetupCard({ isWarmDraftThread: false, isSendBusy: false })).toBe(true);
+  it("shows an unsent draft's setup only when Send finds it still preparing", () => {
+    const show = (isUnsentDraft: boolean, isSendBusy: boolean, isPreparingWorktree: boolean) =>
+      shouldShowWorktreeSetupCard({ isUnsentDraft, isSendBusy, isPreparingWorktree });
+    // Typing, whether or not the launched thread's shell has arrived yet.
+    expect(show(true, false, true)).toBe(false);
+    expect(show(true, false, false)).toBe(false);
+    // Send on a warm draft whose setup already finished: nothing to show.
+    expect(show(true, true, false)).toBe(false);
+    expect(show(true, true, true)).toBe(true);
+    expect(show(false, false, false)).toBe(true);
   });
 });
