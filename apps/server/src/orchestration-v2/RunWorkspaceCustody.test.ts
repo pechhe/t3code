@@ -156,7 +156,9 @@ it.effect("a fresh command still retains an undelivered result after restart", (
           yield* custody.register(owner, { id: "delivery", kind: "delivery" });
           yield* custody.acknowledge(owner, "admission", "delivery-registered:task");
         });
-      yield* retainDelivery("dispatch").pipe(Effect.provide(RunCustody.layer));
+      // A restart builds custody afresh, so each server lifetime gets its own layers.
+      const server = Layer.provideMerge(RunCustody.layer, WorkspaceCustody.layer);
+      yield* retainDelivery("dispatch").pipe(Effect.provide(server));
       yield* Ref.set(f.controllerStart, "after-restart");
       const journal = yield* Journal.WorkspaceCustody;
       yield* Effect.gen(function* () {
@@ -175,11 +177,11 @@ it.effect("a fresh command still retains an undelivered result after restart", (
         yield* custody.acknowledge(owner, "delivery", "parent-consumed");
         yield* custody.settle(owner);
         assert.isTrue((yield* journal.list).every((epoch) => epoch.phase === "released"));
-      }).pipe(Effect.provide(RunCustody.layer));
+      }).pipe(Effect.provide(server));
     }).pipe(
       Effect.provide(
         Layer.mergeAll(
-          f.layer,
+          f.dependencies,
           NodeServices.layer,
           Layer.mock(Workspaces.WorkspaceProvider)({ resolve: () => Effect.succeed("slipjay") }),
         ),

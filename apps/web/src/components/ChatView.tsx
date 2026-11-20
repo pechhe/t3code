@@ -271,6 +271,9 @@ import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl"
 import { isPreviewFocused } from "../lib/previewFocus";
 import { getTerminalFocusOwner } from "../lib/terminalFocus";
 import { draftModelSelectionApplies, threadHasStarted } from "../lib/chatThreadActions";
+import { useDraftProjectUnchosen } from "../draftProjectChoiceStore";
+import { isProjectSelectionRequired, isUnstartedThreadShell } from "./chat/draftWarmThread.logic";
+import { useWarmDraftThread } from "./chat/useWarmDraftThread";
 import {
   deriveLogicalProjectKeyFromSettings,
   selectProjectGroupingSettings,
@@ -1069,6 +1072,13 @@ export default function ChatView(props: ChatViewProps) {
     (isServerThread ? activeThread?.runtimeMode : undefined) ??
     defaultRuntimeMode;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
+  // A launched draft: its server thread exists but nothing was sent, so it still shows as the draft.
+  const isWarmDraftThread =
+    draftId !== null &&
+    draftThread !== null &&
+    localDraftThread !== undefined &&
+    isUnstartedThreadShell(serverThreadShell);
+  const projectUnchosen = useDraftProjectUnchosen(draftId);
   const canCheckoutPullRequestIntoThread = canWriteSourceControl && isLocalDraftThread;
   const activeThreadId = activeThread?.id ?? null;
   // Turn items can lag projection hydration; keep the environment locked through that gap.
@@ -1315,6 +1325,27 @@ export default function ChatView(props: ChatViewProps) {
       activeProject,
       environmentById.get(activeProject.environmentId)?.serverConfig?.scratchWorkspaceRoot ?? null,
     );
+  const composerStanceChoice = useComposerDraftStore(
+    (store) => store.getComposerDraft(composerDraftTarget)?.stanceChoice ?? null,
+  );
+  useWarmDraftThread({
+    enabled: routeKind === "draft" && presentation === "app" && !embedded,
+    environmentId,
+    draftId,
+    threadId,
+    draftThread,
+    projectId: activeProject?.id ?? null,
+    projectUnchosen,
+    shell: serverThreadShell,
+    modelSelection:
+      localDraftThread === undefined ||
+      localDraftThread.modelSelection === NO_PROVIDER_MODEL_SELECTION
+        ? null
+        : localDraftThread.modelSelection,
+    runtimeMode,
+    stanceChoice: composerStanceChoice,
+    canOperate: canOperateThread && !activeEnvironmentUnavailable,
+  });
   const logicalProjectEnvironments = useLogicalProjectEnvironments(
     activeProject,
     activeProjectIsScratch && draftId !== null,
@@ -1733,7 +1764,7 @@ export default function ChatView(props: ChatViewProps) {
   const isDraftHeroState =
     !overlayPresentation &&
     resolveDraftHeroState({
-      isLocalDraftThread,
+      isLocalDraftThread: isLocalDraftThread || isWarmDraftThread,
       hasTimelineEntries: !timelineEmpty,
       isWorking,
       draftHeroDockRequested,
@@ -2396,12 +2427,13 @@ export default function ChatView(props: ChatViewProps) {
     canOverrideServerThreadEnvMode && pendingServerThreadBranchEntryForThread !== null
       ? pendingServerThreadBranchEntryForThread.branch
       : (activeThread?.branch ?? null);
-  const startFromOrigin = isLocalDraftThread
-    ? (draftThread?.startFromOrigin ?? false)
-    : canOverrideServerThreadEnvMode
-      ? (pendingServerThreadStartFromOriginByThreadId[activeThread?.id ?? ""] ??
-        activeProjectSettings.settings.newWorktreesStartFromOrigin)
-      : false;
+  const startFromOrigin =
+    isLocalDraftThread || isWarmDraftThread
+      ? (draftThread?.startFromOrigin ?? false)
+      : canOverrideServerThreadEnvMode
+        ? (pendingServerThreadStartFromOriginByThreadId[activeThread?.id ?? ""] ??
+          activeProjectSettings.settings.newWorktreesStartFromOrigin)
+        : false;
   const sendEnvMode = resolveSendEnvMode({
     requestedEnvMode: envMode,
     isGitRepo,
@@ -3142,6 +3174,7 @@ export default function ChatView(props: ChatViewProps) {
     activeMessageCount,
     isServerThread,
     isLocalDraftThread,
+    isWarmDraftThread,
     isGitRepo,
     phase,
     runtimeMode,
@@ -4089,9 +4122,11 @@ export default function ChatView(props: ChatViewProps) {
                                 forceExpandedOnMobile={
                                   forceExpandedMobileComposer && isDraftHeroState
                                 }
-                                projectSelectionRequired={
-                                  isLocalDraftThread && activeProject === null
-                                }
+                                projectSelectionRequired={isProjectSelectionRequired({
+                                  isDraft: isLocalDraftThread,
+                                  hasProject: activeProject !== null,
+                                  projectUnchosen,
+                                })}
                                 phase={phase}
                                 canSteer={!compactionBlocksSteer}
                                 canInterrupt={canInterruptRunningThread}

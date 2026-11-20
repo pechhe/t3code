@@ -16,7 +16,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
-import type * as ProviderRegistry from "../provider/ProviderRegistry.ts";
+import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import type * as ServerSettings from "../serverSettings.ts";
 import type * as Orchestrator from "./Orchestrator.ts";
 
@@ -45,7 +45,10 @@ export const make = (input: {
   ) {
     if (selection.pinned === true || options?.placed === true) return selection;
     if (Option.isNone(input.providerRegistry)) return selection;
-    const providers = yield* input.providerRegistry.value.getProviders;
+    // Routing runs on the thread-launch path, so it never waits on a usage-history scan.
+    const providers = yield* input.providerRegistry.value.getProviders.pipe(
+      Effect.provideService(ProviderRegistry.ProviderUsageWithoutScan, true),
+    );
     const settings = yield* input.serverSettings.getSettings.pipe(Effect.orDie);
     const pools = pooledModels(providers, settings);
     const pool = pooledModelOf(pools, selection);

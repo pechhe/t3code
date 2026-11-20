@@ -36,6 +36,7 @@ import {
   subscribeDraftThreadPromotion,
   useComposerDraftStore,
 } from "./composerDraftStore";
+import { subscribeWarmThreadDiscard } from "./draftWarmThread";
 import { startDefaultThemeAdoption } from "./hooks/useDefaultTheme";
 import { startEnvironmentThemeRepaint } from "./hooks/useEnvironmentTheme";
 import { startThemeBackground } from "./themeBackground";
@@ -298,6 +299,7 @@ export function startAppServices(): AppRouter {
     threadShellAtom: environmentThreadShells.quietThreadShellAtom,
     threadRefsAtom: environmentThreadShells.threadRefsAtom,
   });
+  subscribeWarmThreadDiscard();
   subscribeComposerDraftModelReconciliation({
     registry: appAtomRegistry,
     threadShellAtom: environmentThreadShells.threadShellAtom,

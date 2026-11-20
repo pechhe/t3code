@@ -156,6 +156,18 @@ const make = Effect.gen(function* () {
   const pid = yield* ControllerPid;
   const preparation = yield* Semaphore.make(1);
   let installedEntry: string | null = null;
+  // Capability, activation and this server's own identity hold for the server's lifetime, and each
+  // probe is a SlipJay process start, so a new epoch reuses them. SlipJay re-checks the activation on
+  // every claim; a refusal that it changed drops them.
+  const producers = new Map<
+    string,
+    {
+      readonly entry: string;
+      readonly activationId: string;
+      readonly controller: NonNullable<typeof Controller.Type.controller>;
+    }
+  >();
+  const ownControllers = new Map<string, NonNullable<typeof Controller.Type.controller>>();
 
   const failure = Effect.fn("WorkspaceCustody.failure")(function* (
     output: ProcessRunner.ProcessRunOutput,
@@ -167,6 +179,10 @@ const make = Effect.gen(function* () {
       Effect.flatMap(Schema.decodeUnknownEffect(Refusal)),
       Effect.option,
     );
+    if (Option.isSome(refusal) && refusal.value.code === "CLAIM_CAPABILITY_REQUIRED") {
+      producers.clear();
+      ownControllers.clear();
+    }
     if (Option.isSome(refusal))
       return `SlipJay refused workspace custody (${refusal.value.code})${refusal.value.reason ? `: ${refusal.value.reason}` : "."}`;
     const detail = output.stderr.trim().split("\n").at(-1)?.slice(0, 300);
@@ -382,6 +398,53 @@ const make = Effect.gen(function* () {
       .released(id, settlementRef)
       .pipe(Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "journal", cause })));
   });
+  const establishProducer = Effect.fn("WorkspaceCustody.establishProducer")(function* (
+    projectRoot: string,
+  ) {
+    const capability = yield* call({
+      projectRoot,
+      args: ["claims", "capability"],
+    }).pipe(
+      Effect.flatMap(Schema.decodeUnknownEffect(Capability)),
+      Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "capability", cause })),
+    );
+    if (!capability.ok || !capability.supported || !capability.producerEntry) {
+      return yield* new WorkspaceCustodyError({
+        stage: "capability",
+        cause: "Compatible custody producer is required.",
+      });
+    }
+    const activation = yield* call({
+      projectRoot,
+      entry: capability.producerEntry,
+      args: ["claims", "activate"],
+    }).pipe(
+      Effect.flatMap(Schema.decodeUnknownEffect(Activation)),
+      Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "activation", cause })),
+    );
+    const identity = yield* call({
+      projectRoot,
+      entry: capability.producerEntry,
+      args: ["claims", "controller", String(pid)],
+    }).pipe(
+      Effect.flatMap(Schema.decodeUnknownEffect(Controller)),
+      Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "controller", cause })),
+    );
+    if (!activation.ok || !identity.ok || identity.controller === null) {
+      return yield* new WorkspaceCustodyError({
+        stage: "activation",
+        cause: "Custody activation or controller identity unavailable.",
+      });
+    }
+    const producer = {
+      entry: capability.producerEntry,
+      activationId: activation.activationId,
+      controller: identity.controller,
+    };
+    producers.set(projectRoot, producer);
+    ownControllers.set(producer.entry, producer.controller);
+    return producer;
+  });
   return WorkspaceCustody.of({
     prepare: Effect.fn("WorkspaceCustody.prepare")((input) =>
       Effect.gen(function* () {
@@ -425,41 +488,8 @@ const make = Effect.gen(function* () {
           }
           return existing;
         }
-        const capability = yield* call({
-          projectRoot: input.projectRoot,
-          args: ["claims", "capability"],
-        }).pipe(
-          Effect.flatMap(Schema.decodeUnknownEffect(Capability)),
-          Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "capability", cause })),
-        );
-        if (!capability.ok || !capability.supported || !capability.producerEntry) {
-          return yield* new WorkspaceCustodyError({
-            stage: "capability",
-            cause: "Compatible custody producer is required.",
-          });
-        }
-        const activation = yield* call({
-          projectRoot: input.projectRoot,
-          entry: capability.producerEntry,
-          args: ["claims", "activate"],
-        }).pipe(
-          Effect.flatMap(Schema.decodeUnknownEffect(Activation)),
-          Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "activation", cause })),
-        );
-        const identity = yield* call({
-          projectRoot: input.projectRoot,
-          entry: capability.producerEntry,
-          args: ["claims", "controller", String(pid)],
-        }).pipe(
-          Effect.flatMap(Schema.decodeUnknownEffect(Controller)),
-          Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "controller", cause })),
-        );
-        if (!activation.ok || !identity.ok || identity.controller === null) {
-          return yield* new WorkspaceCustodyError({
-            stage: "activation",
-            cause: "Custody activation or controller identity unavailable.",
-          });
-        }
+        const producer =
+          producers.get(input.projectRoot) ?? (yield* establishProducer(input.projectRoot));
         const id = yield* crypto
           .uuidV4()
           .pipe(Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "journal", cause })));
@@ -471,11 +501,7 @@ const make = Effect.gen(function* () {
             ...input,
             id,
             credential: Redacted.make(`${id}:${secret}`),
-            producer: {
-              entry: capability.producerEntry,
-              activationId: activation.activationId,
-              controller: identity.controller,
-            },
+            producer,
           })
           .pipe(Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "journal", cause })));
       }).pipe(preparation.withPermits(1)),
@@ -513,8 +539,10 @@ const make = Effect.gen(function* () {
     }),
     register: Effect.fn("WorkspaceCustody.register")(function* (id, obligation) {
       const epoch = yield* get(id);
-      const identities = yield* Effect.forEach(obligation.processIds ?? [], (process) =>
-        call({
+      const identities = yield* Effect.forEach(obligation.processIds ?? [], (process) => {
+        const own = process.pid === pid ? ownControllers.get(epoch.producer.entry) : undefined;
+        if (own !== undefined) return Effect.succeed({ ...own, shared: process.shared });
+        return call({
           projectRoot: epoch.projectRoot,
           entry: epoch.producer.entry,
           args: ["claims", "controller", String(process.pid)],
@@ -526,8 +554,8 @@ const make = Effect.gen(function* () {
               : null,
           ),
           Effect.orElseSucceed(() => null),
-        ),
-      );
+        );
+      });
       yield* journal
         .register(id, {
           id: obligation.id,

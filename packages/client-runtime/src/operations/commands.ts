@@ -195,6 +195,18 @@ interface StartThreadBootstrap {
   readonly runSetupScript?: boolean;
 }
 
+/** A thread launched before its first message, so its workspace is ready when the user sends. */
+export interface LaunchEmptyThreadInput extends ThreadCommandInput {
+  readonly projectId: ProjectId;
+  readonly title: string;
+  readonly modelSelection: ModelSelection;
+  readonly runtimeMode: RuntimeMode;
+  readonly interactionMode: ProviderInteractionMode;
+  readonly stanceChoice?: DelegationStanceChoice;
+  readonly branch: string | null;
+  readonly worktreePath: string | null;
+}
+
 export interface StartThreadTurnInput extends ThreadCommandInput {
   readonly manualContinuationOfRunId?: RunId;
   readonly message: {
@@ -961,6 +973,29 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
     },
     resendAfterSocketLoss,
   );
+});
+
+export const launchEmptyThread = Effect.fn("EnvironmentCommands.launchEmptyThread")(function* (
+  input: LaunchEmptyThreadInput,
+) {
+  return yield* request(ORCHESTRATION_V2_WS_METHODS.launchThread, {
+    commandId: yield* allocateCommandId(input),
+    creationSource: input.creationSource ?? "web",
+    threadId: input.threadId,
+    projectId: input.projectId,
+    title: input.title,
+    modelSelection: input.modelSelection,
+    runtimeMode: input.runtimeMode,
+    interactionMode: input.interactionMode,
+    ...(input.stanceChoice === undefined ? {} : { stanceChoice: input.stanceChoice }),
+    workspaceStrategy: input.worktreePath
+      ? {
+          type: "existing_worktree" as const,
+          worktreePath: input.worktreePath,
+          ...(input.branch === null ? {} : { branch: input.branch }),
+        }
+      : { type: "root" as const, ...(input.branch === null ? {} : { branch: input.branch }) },
+  });
 });
 
 export const interruptThreadTurn = Effect.fn("EnvironmentCommands.interruptThreadTurn")(function* (

@@ -79,6 +79,15 @@ export type ProviderMaintenanceActionKind = "update";
 /** Short so a turn waits little for a read that is only a refinement of the cached one. */
 export const USAGE_REFRESH_TIMEOUT = Duration.seconds(8);
 
+/**
+ * Set on a request path that must not wait on a usage-history scan: provider reads then take slot
+ * spend from the last scan held in memory, and a stale one is refreshed in the background.
+ */
+export const ProviderUsageWithoutScan = Context.Reference<boolean>(
+  "t3/provider/ProviderUsageWithoutScan",
+  { defaultValue: () => false },
+);
+
 export class ProviderRegistry extends Context.Service<
   ProviderRegistry,
   {
@@ -1510,9 +1519,11 @@ export const layer = Layer.effect(
 
     // Conservation and slot budgets are derived on every read so they follow the latest usage.
     // Untraced: every provider read runs it, so a span per read would swamp traces.
-    const withDerivedUsage = Effect.fnUntraced(function* (
+    const budgetRefreshingRef = yield* Ref.make(false);
+    const deriveUsage = Effect.fnUntraced(function* (
       providers: ReadonlyArray<ServerProvider>,
-    ) {
+      cachedOnly: boolean,
+    ): Effect.fn.Return<ReadonlyArray<ServerProvider>> {
       const now = yield* DateTime.now;
       const nowMs = DateTime.toEpochMillis(now);
       const currentSettingsService = yield* Effect.serviceOption(
@@ -1597,7 +1608,18 @@ export const layer = Layer.effect(
               cached !== undefined && cached.key === cacheKey && cached.expiresAtMs > nowMs
                 ? Option.some(cached.summary)
                 : Option.none<UsageSummaryValue>();
-            if (Option.isNone(summary)) {
+            if (Option.isNone(summary) && cachedOnly) {
+              // Serve the last scan, however old, and refresh it off the caller's path.
+              if (cached !== undefined) summary = Option.some(cached.summary);
+              const claimed = yield* Ref.getAndSet(budgetRefreshingRef, true);
+              if (!claimed) {
+                yield* deriveUsage(providers, false).pipe(
+                  Effect.ignoreCause({ log: true }),
+                  Effect.ensuring(Ref.set(budgetRefreshingRef, false)),
+                  Effect.forkIn(serviceScope),
+                );
+              }
+            } else if (Option.isNone(summary)) {
               summary = yield* usageService.value
                 .readSummary({
                   sinceDay: asDay(earliestCycle),
@@ -1639,6 +1661,7 @@ export const layer = Layer.effect(
                 );
                 if (piProvider === undefined) continue;
                 const accountKey = slotId.slice(piProvider.instanceId.length + 1);
+                if (cachedOnly) continue;
                 const correctionSummary = yield* usageService.value
                   .readSummary({
                     sinceDay: asDay(correctionMs),
@@ -1685,6 +1708,9 @@ export const layer = Layer.effect(
       }
       return current;
     });
+
+    const withDerivedUsage = (providers: ReadonlyArray<ServerProvider>) =>
+      deriveUsage(providers, false);
 
     const prepareConservation = Effect.fn("ProviderRegistry.prepareConservation")(function* (
       supplied: ReadonlyArray<ServerProvider>,
@@ -1786,7 +1812,10 @@ export const layer = Layer.effect(
     });
 
     return {
-      getProviders: Ref.get(providersRef).pipe(Effect.flatMap(withDerivedUsage)),
+      getProviders: Effect.gen(function* () {
+        const providers = yield* Ref.get(providersRef);
+        return yield* deriveUsage(providers, yield* ProviderUsageWithoutScan);
+      }),
       refresh: (provider?: ProviderDriverKind) =>
         refresh(provider).pipe(
           Effect.catchCause(recoverRefreshFailure),

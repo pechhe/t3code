@@ -75,6 +75,7 @@ import * as EffectOutbox from "./EffectOutbox.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ThreadLaunch from "./ThreadLaunchService.ts";
+import * as ProviderSessionWarmup from "./ProviderSessionWarmup.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
 import * as ThreadTitleRegeneration from "./ThreadTitleRegenerationService.ts";
@@ -159,6 +160,8 @@ interface HarnessOptions {
     command: Parameters<ThreadManagement.ThreadManagementService["Service"]["dispatch"]>[0],
     dispatch: ThreadManagement.ThreadManagementService["Service"]["dispatch"],
   ) => ReturnType<ThreadManagement.ThreadManagementService["Service"]["dispatch"]>;
+  /** Records the provider warm-up a launch asks for, in order. */
+  readonly warmupCalls?: Array<string>;
   readonly isGitRepository?: CheckpointStore.CheckpointStore["Service"]["isGitRepository"];
 }
 
@@ -298,6 +301,13 @@ function makeHarness(options: HarnessOptions = {}) {
     }),
     layerServerSettings,
     ProviderRegistryMock.layer(options.providers),
+    options.warmupCalls === undefined
+      ? Layer.empty
+      : Layer.succeed(ProviderSessionWarmup.ProviderSessionWarmup, {
+          warm: (threadId) => Effect.sync(() => void options.warmupCalls!.push(`warm:${threadId}`)),
+          release: (threadId) =>
+            Effect.sync(() => void options.warmupCalls!.push(`release:${threadId}`)),
+        }),
     Layer.succeed(WorkspaceProvider.WorkspaceProvider, {
       resolve: () => Effect.succeed(options.slipjay === true ? "slipjay" : "git-worktree"),
       allocate: allocateWorkspace,
@@ -4711,6 +4721,7 @@ it.effect("shared intake preserves durable attachment bytes after a lost launch 
         prepareRun: launches.prepareRun,
         prepareReleasedWorkspace: launches.prepareReleasedWorkspace,
         terminalCwd: launches.terminalCwd,
+        releaseUnusedWorkspace: launches.releaseUnusedWorkspace,
       }),
       Effect.flip,
     );
@@ -5629,3 +5640,135 @@ it.effect(
     }).pipe(Effect.provide(harness.layer));
   },
 );
+
+const unusedWorkspace = "/slipjay/workspaces/build-the-feature";
+const releaseEffect = { type: "thread-workspace.release" } as const;
+
+const deleteThread = (threadId: ThreadId, commandId: string) =>
+  Effect.gen(function* () {
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    yield* threads.dispatch({
+      type: "thread.delete",
+      commandId: CommandId.make(commandId),
+      threadId,
+    });
+    const outbox = yield* EffectOutbox.EffectOutboxV2;
+    return (yield* outbox.listByCommandId(CommandId.make(commandId))).map(
+      (effect) => effect.request,
+    );
+  });
+
+it.effect("gives a deleted never-run thread's own SlipJay workspace back", () => {
+  const harness = makeHarness({ slipjay: true });
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const { threadId } = yield* launches.launch(
+      launchInput({ command: "command:warm", thread: "thread:warm" }),
+    );
+    yield* waitForThreadProjection(threads, threadId, () =>
+      threads
+        .getThreadProjection(threadId)
+        .pipe(Effect.map((projection) => projection.thread.worktreePath === unusedWorkspace)),
+    );
+    const requests = yield* deleteThread(threadId, "command:warm:delete");
+    assert.deepInclude(requests, releaseEffect);
+    assert.isTrue(yield* launches.releaseUnusedWorkspace(threadId));
+    assert.deepEqual(
+      harness.releaseWorkspace.mock.calls.map(([input]) => input),
+      [{ projectRoot: "/repo", path: unusedWorkspace }],
+    );
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect(
+  "stops a warm thread's workspace preparation when it is deleted, and still gives it back",
+  () => {
+    const entered = Deferred.makeUnsafe<void>();
+    const harness = makeHarness({
+      slipjay: true,
+      runSetup: () => Deferred.succeed(entered, undefined).pipe(Effect.andThen(Effect.never)),
+    });
+    return Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const { threadId } = yield* launches.launch(
+        launchInput({ command: "command:preparing", thread: "thread:preparing" }),
+      );
+      yield* Deferred.await(entered);
+      yield* deleteThread(threadId, "command:preparing:delete");
+      yield* launches.releaseUnusedWorkspace(threadId);
+      assert.isAbove(harness.releaseWorkspace.mock.calls.length, 0);
+      assert.isTrue(
+        harness.releaseWorkspace.mock.calls.every(([input]) => input.path === unusedWorkspace),
+      );
+    }).pipe(Effect.provide(harness.layer));
+  },
+);
+
+it.effect("keeps the workspace of a deleted thread that has run", () => {
+  const harness = makeHarness({ slipjay: true });
+  return Effect.gen(function* () {
+    const run = yield* launchSlipJayRun("thread:ran");
+    const requests = yield* deleteThread(run.threadId, "command:ran:delete");
+    assert.notDeepInclude(requests, releaseEffect);
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("leaves a managed task's workspace alone when its never-run thread is deleted", () => {
+  const harness = makeHarness({ slipjay: true });
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const { threadId } = yield* launches.launch(
+      launchInput({
+        command: "command:managed",
+        thread: "thread:managed",
+        workspace: { type: "existing_worktree", worktreePath: unusedWorkspace },
+        agentTask: managedTaskBinding(unusedWorkspace),
+      }),
+    );
+    yield* waitForThreadProjection(threads, threadId, () =>
+      threads
+        .getThreadProjection(threadId)
+        .pipe(Effect.map((projection) => projection.thread.worktreePath === unusedWorkspace)),
+    );
+    yield* deleteThread(threadId, "command:managed:delete");
+    assert.isFalse(yield* launches.releaseUnusedWorkspace(threadId));
+    assert.isEmpty(harness.releaseWorkspace.mock.calls);
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect(
+  "warms the provider once a message-less launch's workspace is ready, and frees it on delete",
+  () => {
+    const warmupCalls: Array<string> = [];
+    const harness = makeHarness({ slipjay: true, warmupCalls });
+    return Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const { threadId } = yield* launches.launch(
+        launchInput({ command: "command:warmed", thread: "thread:warmed" }),
+      );
+      yield* waitForThreadProjection(threads, threadId, () =>
+        Effect.succeed(warmupCalls.length > 0),
+      );
+      assert.deepEqual(warmupCalls, [`warm:${threadId}`]);
+      assert.equal(
+        (yield* threads.getThreadProjection(threadId)).thread.worktreePath,
+        unusedWorkspace,
+      );
+      yield* deleteThread(threadId, "command:warmed:delete");
+      yield* launches.releaseUnusedWorkspace(threadId);
+      assert.deepEqual(warmupCalls, [`warm:${threadId}`, `release:${threadId}`]);
+    }).pipe(Effect.provide(harness.layer));
+  },
+);
+
+it.effect("does not warm the provider for a launch that carries its first message", () => {
+  const warmupCalls: Array<string> = [];
+  const harness = makeHarness({ slipjay: true, warmupCalls });
+  return Effect.gen(function* () {
+    yield* launchSlipJayRun("thread:not-warmed");
+    assert.isEmpty(warmupCalls);
+  }).pipe(Effect.provide(harness.layer));
+});

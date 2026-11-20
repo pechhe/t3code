@@ -46,6 +46,48 @@ it.effect("reconciles the durable acquisition request and releases only a settle
   }),
 );
 
+it.effect(
+  "reuses the producer and this server's identity across epochs until SlipJay says activation changed",
+  () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      const probes = Effect.map(Ref.get(f.argumentsUsed), (args) => ({
+        capability: args.filter((arg) => arg === "capability").length,
+        activate: args.filter((arg) => arg === "activate").length,
+        controller: args.filter((arg) => arg === "controller").length,
+      }));
+      yield* Effect.gen(function* () {
+        const custody = yield* WorkspaceCustody.WorkspaceCustody;
+        const first = yield* custody.prepare({ ownerRef: "run-one", projectRoot: "/source" });
+        yield* custody.acquireExisting(first.id, "/source/worktree");
+        const second = yield* custody.prepare({ ownerRef: "run-two", projectRoot: "/source" });
+        yield* custody.register(second.id, {
+          id: "checkpoint",
+          kind: "checkpoint",
+          processIds: [{ pid: 123 }],
+        });
+        assert.deepEqual(yield* probes, { capability: 1, activate: 1, controller: 1 });
+        assert.deepEqual(
+          (yield* (yield* Journal.WorkspaceCustody).get(
+            second.id,
+          )).obligations[0]?.stopProcesses?.map((process) => process.start),
+          [first.producer.controller?.start],
+        );
+
+        yield* Ref.set(f.acquisitionRefusal, {
+          code: "CLAIM_CAPABILITY_REQUIRED",
+          reason: "Ownership activation capability missing or changed",
+        });
+        assert.equal(
+          (yield* custody.acquireExisting(second.id, "/source/worktree").pipe(Effect.result))._tag,
+          "Failure",
+        );
+        yield* custody.prepare({ ownerRef: "run-three", projectRoot: "/source" });
+        assert.deepEqual(yield* probes, { capability: 2, activate: 2, controller: 2 });
+      }).pipe(Effect.provide(f.layer));
+    }),
+);
+
 it.effect("does not resume previous-controller custody from logical run identity alone", () =>
   Effect.gen(function* () {
     const f = yield* fixture;

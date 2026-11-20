@@ -22,6 +22,8 @@ export const planThreadDeletion = Effect.fn("ThreadDeletion.planThreadDeletion")
     "thread" | "runs" | "attempts" | "nodes" | "runtimeRequests" | "subagents" | "providerSessions"
   >;
   readonly attachmentIds: ReadonlyArray<string>;
+  /** The thread never had a message or run, so the workspace it launched with is given back. */
+  readonly neverRan?: boolean;
   readonly now: DateTime.Utc;
   readonly idAllocator: IdAllocator.IdAllocatorV2["Service"];
 }): Effect.fn.Return<ThreadDeletionPlan, IdAllocator.IdAllocatorV2Error> {
@@ -229,6 +231,14 @@ export const planThreadDeletion = Effect.fn("ThreadDeletion.planThreadDeletion")
     threadId: command.threadId,
     request: { type: "preview.cleanup" },
   });
+  if (input.neverRan === true) {
+    effects.push({
+      id: `effect:${command.commandId}:thread-workspace.release`,
+      commandId: command.commandId,
+      threadId: command.threadId,
+      request: { type: "thread-workspace.release" },
+    });
+  }
   const attachmentIds = Array.from(new Set(input.attachmentIds));
   if (attachmentIds.length > 0) {
     effects.push({

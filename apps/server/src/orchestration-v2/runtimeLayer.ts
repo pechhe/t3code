@@ -67,6 +67,7 @@ import { layerThreadWorktreeRestore } from "../workspace/restoreMissingWorktree.
 import * as RunExecutionService from "./RunExecutionService.ts";
 import * as RunFinalizationService from "./RunFinalizationService.ts";
 import * as ResourceCleanupService from "./ResourceCleanupService.ts";
+import * as ProviderSessionWarmup from "./ProviderSessionWarmup.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 import * as RuntimeRequestService from "./RuntimeRequestService.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
@@ -169,6 +170,18 @@ export const layerProviderSessionManagerProvided = ProviderSessionManager.layer.
       layerProviderEventIngestorProvided,
       ProjectionStore.layer,
       ProviderInstallationGate.layer,
+    ),
+  ),
+);
+
+const layerProviderSessionWarmupProvided = ProviderSessionWarmup.layer.pipe(
+  Layer.provide(
+    Layer.mergeAll(
+      layerProviderSessionManagerProvided,
+      layerRuntimePolicyProvided,
+      ProviderAdapterRegistry.layerFromProviderInstanceRegistry,
+      ProjectionStore.layer,
+      IdAllocator.layer,
     ),
   ),
 );
@@ -331,6 +344,7 @@ const layerThreadLaunchProvided = ThreadLaunchService.layer.pipe(
       layerCommandReceiptStoreProvided,
       layerEventSink,
       IdAllocator.layer,
+      layerProviderSessionWarmupProvided,
     ).pipe(Layer.provideMerge(layerProjectService)),
   ),
 );
@@ -480,6 +494,11 @@ export const layerProduction = Layer.mergeAll(
       ThreadLaunchService.layerReleasedWorkspacePreparation.pipe(
         Layer.provide(layerThreadLaunchProvided),
         Layer.provide(layerWorkspaceAttachmentsProvided),
+      ),
+    ),
+    Layer.provide(
+      ThreadLaunchService.layerUnusedWorkspaceRelease.pipe(
+        Layer.provide(layerThreadLaunchProvided),
       ),
     ),
   ),

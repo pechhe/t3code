@@ -18,6 +18,7 @@ import {
   type DraftThreadState,
   useComposerDraftStore,
 } from "../composerDraftStore";
+import { useDraftProjectChoiceStore } from "../draftProjectChoiceStore";
 import { newDraftId, newThreadId } from "../lib/utils";
 import { orderItemsByPreferredIds } from "../components/Sidebar.logic";
 import {
@@ -42,6 +43,7 @@ import {
   threadHasStarted,
 } from "../lib/chatThreadActions";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
+import { serverThreadOwnsDraft } from "../components/chat/draftWarmThread.logic";
 import { readT3ProjectFile } from "../lib/t3ProjectFileDefaults";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentSummaries } from "../state/presentation";
@@ -113,6 +115,8 @@ export function createNewThreadHandler(router: AnyRouter) {
       retargetDraftId?: DraftId;
       /** Composer text for the draft, set before it shows. A draft with user text keeps it. */
       prompt?: string;
+      /** The draft opens with its project still to be chosen: the composer waits for a chip. */
+      projectUnchosen?: boolean;
     },
   ): Promise<{ draftId: DraftId; threadId: ThreadId } | null> => {
     const loadBalancingEnabled = getClientSettings().loadBalancingEnabled;
@@ -139,8 +143,10 @@ export function createNewThreadHandler(router: AnyRouter) {
       setModelSelection,
       setPrompt,
     } = useComposerDraftStore.getState();
-    // Never over text the user wrote: a draft can gain some while this awaits.
-    const seedPrompt = (draftId: DraftId) => {
+    // The seed never goes over text the user wrote: a draft can gain some while this awaits.
+    const prepareOpenedDraft = (draftId: DraftId) => {
+      // Marked before the draft shows, so it never opens unlocked.
+      if (options?.projectUnchosen) useDraftProjectChoiceStore.getState().markUnchosen(draftId);
       if (options?.prompt === undefined) return;
       if (composerDraftHasUserContent(getComposerDraft(draftId))) return;
       setPrompt(draftId, options.prompt);
@@ -264,10 +270,13 @@ export function createNewThreadHandler(router: AnyRouter) {
         if (abandonedSinceRequest() || !retargeted || retargeted.promotedTo != null) {
           return null;
         }
+        // A thread launched for the old project is given back, so the draft takes a new one.
+        const launchedThread =
+          readThreadShell(scopeThreadRef(retargeted.environmentId, retargeted.threadId)) !== null;
         // Same fresh workspace context as minting a new draft for the project.
         setLogicalProjectDraftThreadId(logicalProjectKey, projectRef, retargetDraftId, {
           ...freshEnvironmentSelection,
-          threadId: retargeted.threadId,
+          threadId: launchedThread ? newThreadId() : retargeted.threadId,
           createdAt: retargeted.createdAt,
           branch: options?.branch ?? null,
           worktreePath: options?.worktreePath ?? null,
@@ -288,7 +297,10 @@ export function createNewThreadHandler(router: AnyRouter) {
             setModelSelection(retargetDraftId, modelSelectionOverride, { replaceOptions: true });
           }
         }
-        return { draftId: retargetDraftId, threadId: retargeted.threadId };
+        return {
+          draftId: retargetDraftId,
+          threadId: getDraftSession(retargetDraftId)?.threadId ?? retargeted.threadId,
+        };
       })();
     }
     // Another opener (home's own first-project draft) may have reached this project's draft first.
@@ -318,7 +330,7 @@ export function createNewThreadHandler(router: AnyRouter) {
       storedDraftThread !== null &&
       storedDraftThread.promotedTo == null &&
       storedDraftThreadRef !== null &&
-      readThreadShell(storedDraftThreadRef) === null
+      !serverThreadOwnsDraft(readThreadShell(storedDraftThreadRef))
         ? storedDraftThread
         : null;
     if (storedDraftThreadRef && reusableStoredDraftThread === null) {
@@ -355,7 +367,8 @@ export function createNewThreadHandler(router: AnyRouter) {
             routeTargetNow?.kind === "draft" &&
             routeTargetNow.draftId === emptyStoredDraftThread.draftId;
           const promotedMeanwhile =
-            storedDraftThreadRef !== null && readThreadShell(storedDraftThreadRef) !== null;
+            storedDraftThreadRef !== null &&
+            serverThreadOwnsDraft(readThreadShell(storedDraftThreadRef));
           const remappedMeanwhile =
             getDraftSessionByLogicalProjectKey(logicalProjectKey)?.draftId !==
             emptyStoredDraftThread.draftId;
@@ -413,7 +426,7 @@ export function createNewThreadHandler(router: AnyRouter) {
           draftId: emptyStoredDraftThread.draftId,
           threadId: emptyStoredDraftThread.threadId,
         };
-        seedPrompt(emptyStoredDraftThread.draftId);
+        prepareOpenedDraft(emptyStoredDraftThread.draftId);
         const routeTargetAfterWrites = getCurrentRouteTarget();
         if (
           routeTargetAfterWrites?.kind === "draft" &&
@@ -452,7 +465,7 @@ export function createNewThreadHandler(router: AnyRouter) {
         interactionMode: latestActiveDraftThread.interactionMode,
         ...pickExplicitWorkspaceOptions(options),
       });
-      seedPrompt(currentRouteTarget.draftId);
+      prepareOpenedDraft(currentRouteTarget.draftId);
       return Promise.resolve({
         draftId: currentRouteTarget.draftId,
         threadId: latestActiveDraftThread.threadId,
@@ -472,7 +485,9 @@ export function createNewThreadHandler(router: AnyRouter) {
       if (
         racedDraft &&
         racedDraft.draftId !== storedDraftThread?.draftId &&
-        readThreadShell(scopeThreadRef(racedDraft.environmentId, racedDraft.threadId)) === null
+        !serverThreadOwnsDraft(
+          readThreadShell(scopeThreadRef(racedDraft.environmentId, racedDraft.threadId)),
+        )
       ) {
         setLogicalProjectDraftThreadId(logicalProjectKey, projectRef, racedDraft.draftId, {
           threadId: racedDraft.threadId,
@@ -481,7 +496,7 @@ export function createNewThreadHandler(router: AnyRouter) {
           interactionMode: racedDraft.interactionMode,
           ...pickExplicitWorkspaceOptions(options),
         });
-        seedPrompt(racedDraft.draftId);
+        prepareOpenedDraft(racedDraft.draftId);
         await router.navigate({
           to: "/draft/$draftId",
           params: { draftId: racedDraft.draftId },
@@ -509,7 +524,7 @@ export function createNewThreadHandler(router: AnyRouter) {
       if (modelSelectionOverride) {
         setModelSelection(draftId, modelSelectionOverride, { replaceOptions: true });
       }
-      seedPrompt(draftId);
+      prepareOpenedDraft(draftId);
       await router.navigate({
         to: "/draft/$draftId",
         params: { draftId },

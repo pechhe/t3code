@@ -122,6 +122,7 @@ export const layerExecutor: Layer.Layer<
       yield* ThreadTitleRegenerationService.ThreadTitleRegenerationService;
     const threads = yield* ThreadManagementService.ThreadManagementService;
     const releasedWorkspaces = yield* ThreadLaunchService.ReleasedWorkspacePreparation;
+    const unusedWorkspaces = yield* ThreadLaunchService.UnusedWorkspaceRelease;
     const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
     const settings = yield* ServerSettings.ServerSettingsService;
     const recoverDelegatedRun = yield* DelegatedTaskRecovery.makeRecoverDelegatedRun;
@@ -703,6 +704,18 @@ export const layerExecutor: Layer.Layer<
               Effect.flatMap(([, [failure]]) =>
                 failure === undefined ? Effect.void : Effect.fail(failure),
               ),
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationEffectExecutionError({
+                    effectId: effect.id,
+                    effectType: effect.request.type,
+                    cause,
+                  }),
+              ),
+            );
+          case "thread-workspace.release":
+            return unusedWorkspaces.release(effect.threadId).pipe(
+              Effect.asVoid,
               Effect.mapError(
                 (cause) =>
                   new OrchestrationEffectExecutionError({

@@ -71,6 +71,7 @@ import type * as Orchestrator from "./Orchestrator.ts";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import { randomUuidV4 } from "@t3tools/provider-core/server/randomUuid";
 import { DispatchModeLimit, exceededDispatchModeLimit } from "./DispatchModeLimit.ts";
+import * as ProviderSessionWarmup from "./ProviderSessionWarmup.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
 import * as WorkspaceAttachments from "./WorkspaceAttachments.ts";
 
@@ -320,6 +321,19 @@ export class ThreadLaunchService extends Context.Service<
       readonly cwd: string;
       readonly worktreePath?: string | null | undefined;
     }) => Effect.Effect<{ readonly cwd: string; readonly worktreePath: string | null }>;
+    /**
+     * Gives back the SlipJay workspace a deleted thread launched with, for a thread that never had
+     * a message or run. Stops a preparation still allocating it. Reports whether a bound workspace
+     * was released; a managed task's, a git branch worktree and a caller's own are left alone.
+     */
+    readonly releaseUnusedWorkspace: (
+      threadId: ThreadId,
+    ) => Effect.Effect<
+      boolean,
+      | Orchestrator.OrchestratorV2Error
+      | ProjectService.ProjectOperationError
+      | WorkspaceProvider.WorkspaceProviderError
+    >;
   }
 >()("t3/orchestration-v2/ThreadLaunchService") {}
 
@@ -366,6 +380,7 @@ function failureDetail(error: unknown): string {
 const make = Effect.gen(function* () {
   const projects = yield* ProjectService.ProjectService;
   const setupTracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
+  const providerWarmup = yield* Effect.serviceOption(ProviderSessionWarmup.ProviderSessionWarmup);
   const cloneTracker = yield* ProjectCloneTracker.ProjectCloneTracker;
   const terminals = yield* TerminalManager.TerminalManager;
   const git = yield* GitWorkflow.GitWorkflowService;
@@ -1527,7 +1542,13 @@ const make = Effect.gen(function* () {
     runId: RunId | null,
   ) {
     const preparation = Effect.gen(function* () {
-      const prepare = prepareInBackground(input, threadId, runId);
+      // A thread launched before its first message starts its provider once its workspace is ready.
+      const prepare =
+        runId === null && Option.isSome(providerWarmup)
+          ? prepareInBackground(input, threadId, runId).pipe(
+              Effect.andThen(providerWarmup.value.warm(threadId)),
+            )
+          : prepareInBackground(input, threadId, runId);
       if (
         runId === null ||
         (input.workspaceStrategy.type !== "worktree" && input.reusedWorktree === undefined)
@@ -2078,6 +2099,35 @@ const make = Effect.gen(function* () {
     return { thread, worktreePath: thread.worktreePath, project };
   });
 
+  const releaseUnusedWorkspace: ThreadLaunchService["Service"]["releaseUnusedWorkspace"] =
+    Effect.fn("ThreadLaunchService.releaseUnusedWorkspace")(function* (threadId) {
+      // A preparation still running removes what it made as it stops; one that finished bound
+      // its workspace to the thread, which is released below.
+      yield* setupTracker.cancel(threadId);
+      if (Option.isSome(providerWarmup)) yield* providerWarmup.value.release(threadId);
+      const { thread } = yield* threads.getThreadRecords(threadId, []);
+      if (
+        thread.worktreePath === null ||
+        thread.branch !== null ||
+        isLeafAgentTask(thread.agentTask)
+      ) {
+        return false;
+      }
+      const project = Option.getOrUndefined(yield* projects.getById(thread.projectId));
+      if (
+        project === undefined ||
+        (yield* workspaces.resolve(project.workspaceRoot)) !== "slipjay" ||
+        !(yield* workspaces.contains(project.workspaceRoot, thread.worktreePath))
+      ) {
+        return false;
+      }
+      yield* workspaces.release({
+        projectRoot: project.workspaceRoot,
+        path: thread.worktreePath,
+      });
+      return true;
+    });
+
   // A project move commits before any workspace exists, so nothing is left to clean up when
   // it fails; the chat's next turn prepares the project's workspace as a first message would.
   const movedWithoutWorkspace = (threadId: ThreadId) =>
@@ -2217,6 +2267,7 @@ const make = Effect.gen(function* () {
     prepareRun,
     prepareReleasedWorkspace,
     terminalCwd,
+    releaseUnusedWorkspace,
   });
 });
 
@@ -2232,6 +2283,21 @@ export class ReleasedWorkspacePreparation extends Context.Reference<{
 }>("t3/orchestration-v2/ReleasedWorkspacePreparation", {
   defaultValue: () => ({ prepare: () => Effect.succeed(false) }),
 }) {}
+
+/** Lets the effect worker give back the workspace of a deleted thread that never ran. */
+export class UnusedWorkspaceRelease extends Context.Reference<{
+  readonly release: ThreadLaunchService["Service"]["releaseUnusedWorkspace"];
+}>("t3/orchestration-v2/UnusedWorkspaceRelease", {
+  defaultValue: () => ({ release: () => Effect.succeed(false) }),
+}) {}
+
+export const layerUnusedWorkspaceRelease = Layer.effect(
+  UnusedWorkspaceRelease,
+  Effect.gen(function* () {
+    const launch = yield* ThreadLaunchService;
+    return { release: launch.releaseUnusedWorkspace };
+  }),
+);
 
 export const layerReleasedWorkspacePreparation = Layer.effect(
   ReleasedWorkspacePreparation,

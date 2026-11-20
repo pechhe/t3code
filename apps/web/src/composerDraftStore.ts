@@ -97,6 +97,7 @@ import {
   threadContextReference,
   environmentContextReference,
 } from "./lib/composerContextRecords";
+import { serverThreadOwnsDraft } from "./components/chat/draftWarmThread.logic";
 import { create } from "zustand";
 import { persist, type PersistStorage, type StorageValue } from "zustand/middleware";
 import { useShallow } from "zustand/react/shallow";
@@ -4925,6 +4926,19 @@ export function usePromotingDraftThreadKeys(): ReadonlyArray<string> {
   );
 }
 
+/** Threads of drafts still being composed; one with no run or message yet is a launched draft. */
+export function useLaunchedDraftThreadKeys(): ReadonlyArray<string> {
+  return useComposerDraftStore(
+    useShallow((state) =>
+      Object.values(state.draftThreadsByThreadKey).flatMap((draft) =>
+        draft.promotedTo
+          ? []
+          : [scopedThreadKey(scopeThreadRef(draft.environmentId, draft.threadId))],
+      ),
+    ),
+  );
+}
+
 export function markPromotedDraftThreadByRef(threadRef: ScopedThreadRef): void {
   const draftStore = useComposerDraftStore.getState();
   for (const [draftId, draftThread] of Object.entries(draftStore.draftThreadsByThreadKey)) {
@@ -5035,7 +5049,11 @@ export function subscribeDraftThreadPromotion(input: {
       const threadKey = scopedThreadKey(ref);
       if (!threadKeys.has(threadKey)) continue;
       if (!draftThread.promotedTo) {
-        arrived.push([DraftId.make(draftId), ref]);
+        // A launched thread is still the draft's until Send starts it. A shell that has not
+        // reached the atom yet is not a started one, so only a started shell promotes.
+        if (serverThreadOwnsDraft(get(input.threadShellAtom(ref)))) {
+          arrived.push([DraftId.make(draftId), ref]);
+        }
         continue;
       }
       const target = resolveDraftPromotionNavigationTarget({

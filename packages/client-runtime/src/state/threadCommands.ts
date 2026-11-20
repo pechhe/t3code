@@ -39,6 +39,7 @@ import {
   deleteThread,
   editQueuedRun,
   interruptThreadTurn,
+  launchEmptyThread,
   forkSideChat,
   forkThreadFromRun,
   keepSideChat,
@@ -408,6 +409,12 @@ export function createThreadEnvironmentAtoms<R, E>(
       permissionAtom: createCommandPermissions(runtime, ORCHESTRATION_V2_WS_METHODS.dispatchCommand)
         .permissionAtom,
     },
+    launchEmpty: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:launch-empty",
+      execute: launchEmptyThread,
+      scheduler,
+      concurrency,
+    }),
     startTurn: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:start-turn",
       execute: startThreadTurn,

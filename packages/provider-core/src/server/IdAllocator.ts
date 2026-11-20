@@ -133,6 +133,11 @@ export interface IdAllocatorV2Derive {
   readonly providerSession: (input: {
     readonly providerInstanceId: ProviderInstanceId;
   }) => ProviderSessionId;
+  /** A thread's first session on an instance, known before its first run so it can be opened ahead. */
+  readonly firstProviderSession: (input: {
+    readonly providerInstanceId: ProviderInstanceId;
+    readonly threadId: ThreadId;
+  }) => ProviderSessionId;
   readonly delegatedTaskNode: (input: { readonly commandId: CommandId }) => NodeId;
   readonly delegatedTaskThread: (input: { readonly commandId: CommandId }) => ThreadId;
   readonly delegatedTaskMessage: (input: { readonly commandId: CommandId }) => MessageId;
@@ -281,6 +286,17 @@ export const derive: IdAllocatorV2Derive = {
   providerSession: (input) =>
     ProviderSessionId.make(
       joinId("provider-session", "provider-instance", input.providerInstanceId, "shared"),
+    ),
+  firstProviderSession: (input) =>
+    ProviderSessionId.make(
+      joinId(
+        "provider-session",
+        "provider-instance",
+        input.providerInstanceId,
+        "thread",
+        input.threadId,
+        "first",
+      ),
     ),
   delegatedTaskNode: (input) => NodeId.make(joinId("node", "delegated-task", input.commandId)),
   delegatedTaskThread: (input) =>

@@ -28,9 +28,11 @@ if that project exists there. Otherwise it selects an environment that has it.
 
 ### Start without a project
 
-A thread does not need a project, and a new thread starts without one. To go back
-to no project after picking one, pick the **No project** chip on the new-thread
-screen, or press `mod+alt+n`. On mobile, pick **No project** from the project
+A thread does not need a project. A new thread from the sidebar's **New thread** button
+asks you to pick one first: the composer stays locked until you pick a project chip or
+**No project**. Picking one starts the thread's workspace and agent while you type, so
+sending starts the agent at once. To go back to no project after picking one, pick the
+**No project** chip on the new-thread screen, or press `mod+alt+n`. On mobile, pick **No project** from the project
 list. On web and desktop it starts on the machine the composer's machine switch was
 last left on, which is the newest thread's machine until you move it; move that
 switch before sending to run the draft somewhere else. On mobile it starts on the

@@ -48,6 +48,7 @@ import {
   type ShownOrder,
 } from "@t3tools/client-runtime/state/thread-search";
 import { foldSearchQuery, rankMessageMatches } from "@t3tools/shared/paletteSearch";
+import { serverThreadOwnsDraft } from "./chat/draftWarmThread.logic";
 import { findForMessageMatch, openThreadFindOnQuery } from "./chat/threadFindStore";
 import {
   threadRuntimeCanArchive,
@@ -269,6 +270,7 @@ import {
   composerDraftHasUserContent,
   DraftId,
   useComposerDraftStore,
+  useLaunchedDraftThreadKeys,
   usePromotingDraftThreadKeys,
 } from "../composerDraftStore";
 import { useShownThreadRouteTarget } from "../hooks/useShownThreadRouteTarget";
@@ -1120,14 +1122,20 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         );
   const threads = useQuietThreadShells();
   const promotingDraftThreadKeys = usePromotingDraftThreadKeys();
-  const listedThreads =
+  const launchedDraftThreadKeys = useLaunchedDraftThreadKeys();
+  const listedThreads = (
     promotingDraftThreadKeys.length === 0
       ? threads
       : threads.map((thread) =>
           promotingDraftThreadKeys.includes(threadShellKey(thread))
             ? asLaunchingThread(thread)
             : thread,
-        );
+        )
+  ).filter(
+    // A draft's launched thread is the draft, which has its own row once it holds text.
+    (thread) =>
+      !launchedDraftThreadKeys.includes(threadShellKey(thread)) || serverThreadOwnsDraft(thread),
+  );
   const routeRowThreadKey =
     routeThreadRef === null
       ? null

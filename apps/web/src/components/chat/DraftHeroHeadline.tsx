@@ -106,6 +106,7 @@ export function DraftHeroHeadline({
     rowEntries,
     selectProject,
     startScratch,
+    projectUnchosen,
     canChooseProject,
     hasResolvedProject,
     canStartWithoutProject,
@@ -162,9 +163,11 @@ export function DraftHeroHeadline({
     <div className="mx-auto flex w-full max-w-5xl flex-col items-center">
       <h1
         aria-label={
-          chosenGroup
-            ? gt("What should we build in {project}?", { project: chosenGroup.displayName })
-            : gt("What should we build without a project?")
+          projectUnchosen
+            ? undefined
+            : chosenGroup
+              ? gt("What should we build in {project}?", { project: chosenGroup.displayName })
+              : gt("What should we build without a project?")
         }
         className="w-full text-center font-normal text-2xl text-foreground tracking-tight sm:text-3xl"
       >
@@ -188,8 +191,14 @@ export function DraftHeroHeadline({
           // The same dashed chip as in the row: a stand-in the user swaps for a project.
           <span ref={refFor(NO_PROJECT_KEY)} className="inline-flex align-middle">
             <span className="inline-flex h-8 items-center gap-1.5 rounded-md border border-dashed border-border px-2.5 font-semibold text-lg text-muted-foreground sm:h-9 sm:text-xl">
-              <MessageSquareDashedIcon aria-hidden className="size-4.5" />
-              <T>No project</T>
+              {projectUnchosen ? (
+                <span aria-hidden>…</span>
+              ) : (
+                <>
+                  <MessageSquareDashedIcon aria-hidden className="size-4.5" />
+                  <T>No project</T>
+                </>
+              )}
             </span>
           </span>
         )}
@@ -227,7 +236,7 @@ export function DraftHeroHeadline({
             ) : null}
           </ProjectChip>
         ))}
-        {canStartWithoutProject && chosenGroup ? (
+        {canStartWithoutProject && (chosenGroup || projectUnchosen) ? (
           <Tooltip>
             <TooltipTrigger
               render={

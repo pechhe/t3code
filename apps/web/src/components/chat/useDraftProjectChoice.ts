@@ -6,11 +6,17 @@ import {
   useComposerDraftStore,
 } from "~/composerDraftStore";
 import { resolveEnvironmentMachineKind, type ScopedProjectRef } from "@t3tools/contracts";
-import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
+import {
+  scopedProjectKey,
+  scopeProjectRef,
+  scopeThreadRef,
+} from "@t3tools/client-runtime/environment";
+import { newThreadId } from "~/lib/utils";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { useEffect, useRef, useState } from "react";
 
+import { useDraftProjectChoiceStore, useDraftProjectUnchosen } from "~/draftProjectChoiceStore";
 import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
 import { useScratchProject } from "~/hooks/useScratchProject";
 import { useClientSettings } from "~/hooks/useSettings";
@@ -24,7 +30,7 @@ import {
   buildSidebarProjectSnapshots,
   projectGroupsSpanEnvironments,
 } from "~/sidebarProjectGrouping";
-import { useProjects, useThreadShells } from "~/state/entities";
+import { readThreadShell, useProjects, useThreadShells } from "~/state/entities";
 import { useEnvironments, usePrimaryEnvironmentId } from "~/state/environments";
 import { sortLogicalProjectsByRecentUse } from "../Sidebar.logic";
 
@@ -55,6 +61,7 @@ export function useDraftProjectChoice({
   const setModelSelection = useComposerDraftStore((store) => store.setModelSelection);
   const { scratchEnvironmentId, scratchWorkspaceRootFor, openScratchProject } = useScratchProject();
   const openProjectDraft = useNewThreadHandler();
+  const projectUnchosen = useDraftProjectUnchosen(draftId);
 
   const environmentLabelById = (() =>
     new Map(
@@ -155,17 +162,30 @@ export function useDraftProjectChoice({
       // A draft holding open browser tabs keeps them where they are; the project's own
       // draft opens instead.
       const keepsOpenPages = draftThreadHasOpenPreview(getDraftSession(draftId) ?? undefined);
+      // The draft counts as chosen once it moved, so its thread launches for this project.
       void openProjectDraft(
         scopeProjectRef(project.environmentId, project.id),
         keepsOpenPages ? undefined : { retargetDraftId: draftId },
-      );
+      ).then((opened) => {
+        if (opened !== null && !keepsOpenPages) {
+          useDraftProjectChoiceStore.getState().markChosen(draftId);
+        }
+      });
       return;
     }
+    const session = getDraftSession(draftId);
+    // A thread launched for the old project is given back; the draft takes a new one.
+    const launchedThread =
+      session !== null &&
+      session !== undefined &&
+      readThreadShell(scopeThreadRef(session.environmentId, session.threadId)) !== null;
     setLogicalProjectDraftThreadId(
       logicalProjectKey,
       scopeProjectRef(project.environmentId, project.id),
       draftId,
+      launchedThread ? { threadId: newThreadId() } : undefined,
     );
+    useDraftProjectChoiceStore.getState().markChosen(draftId);
     if (!hasExplicitComposerModelSelection(currentDraft)) {
       const environmentSettings = environments.find(
         (environment) => environment.environmentId === project.environmentId,
@@ -188,6 +208,10 @@ export function useDraftProjectChoice({
     }
   };
   const startScratch = async (): Promise<boolean> => {
+    if (isScratchDraft && projectUnchosen && draftId) {
+      useDraftProjectChoiceStore.getState().markChosen(draftId);
+      return true;
+    }
     if (scratchTargetEnvironmentId === null || isScratchDraft) {
       return false;
     }
@@ -219,6 +243,7 @@ export function useDraftProjectChoice({
     rowEntries,
     selectProject,
     startScratch,
+    projectUnchosen,
     canChooseProject,
     hasResolvedProject,
     canStartWithoutProject,

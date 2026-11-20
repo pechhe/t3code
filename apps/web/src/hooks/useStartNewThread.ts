@@ -4,9 +4,8 @@ import { useHandleNewThread } from "./useHandleNewThread";
 import { useScratchProject } from "./useScratchProject";
 
 /**
- * New thread, from the sidebar button or `chat.new`. It starts without a project, so it
- * never lands in the wrong one by default; the new-thread screen's project chips choose
- * one. A machine that offers no scratch folder starts in the current project instead.
+ * New thread, from the sidebar button. It starts with no project chosen, so it never lands
+ * in the wrong one by default; the composer waits until a project chip, or No project, is picked. A machine that offers no scratch folder starts in the current project instead.
  */
 export function useStartNewThread() {
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread } =
@@ -17,7 +16,7 @@ export function useStartNewThread() {
   return async () => {
     const environmentId = scratchEnvironmentId(newThreadEnvironmentId() ?? primaryEnvironmentId);
     if (environmentId !== null) {
-      await startScratchThread(environmentId);
+      await startScratchThread(environmentId, { projectUnchosen: true });
       return;
     }
     await startNewThreadFromContext({

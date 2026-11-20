@@ -200,6 +200,31 @@ const withFailover = <A, E, R>(
 const settingsLayer = ServerSettings.layerTest({ pooledModelKeys: [MODEL] });
 
 describe("accounts A, B and C serving one model, in that order", () => {
+  it.effect("routes from the registry's no-scan snapshot, never waiting on a usage scan", () =>
+    Effect.gen(function* () {
+      const serverSettings = yield* ServerSettings.ServerSettingsService;
+      const router = AccountRouting.make({
+        providerRegistry: Option.some({
+          ...makeProviderRegistryMock(providers),
+          getProviders: Effect.flatMap(ProviderRegistry.ProviderUsageWithoutScan, (withoutScan) =>
+            withoutScan ? Effect.succeed(providers) : Effect.die("routing waited on a usage scan"),
+          ),
+        }),
+        serverSettings,
+        getThreadShell: () => Effect.succeed(null),
+      });
+      const routed = yield* router.routeCommand({
+        type: "thread.create",
+        threadId: ThreadId.make("thread:new"),
+        modelSelection: on("A"),
+      } as unknown as OrchestrationV2ServerCommand);
+      assert.strictEqual(
+        routed.type === "thread.create" ? routed.modelSelection.instanceId : null,
+        "A",
+      );
+    }).pipe(Effect.provide(settingsLayer)),
+  );
+
   it.effect("moves a limited turn to B and back to A at midnight when no reset was reported", () =>
     Effect.gen(function* () {
       yield* TestClock.setTime(NOW);

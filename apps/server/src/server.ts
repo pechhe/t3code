@@ -3,6 +3,7 @@ import * as AdviceService from "./agents/AdviceService.ts";
 import * as PhiBrowser from "./preview/PhiBrowser.ts";
 import * as PhiBrowserRunner from "./preview/PhiBrowserRunner.ts";
 import * as AdvisorIdleCloseReactor from "./orchestration-v2/AdvisorIdleCloseReactor.ts";
+import * as UnusedThreadExpiryReactor from "./orchestration-v2/UnusedThreadExpiryReactor.ts";
 import * as WorkspaceProvider from "./project/WorkspaceProvider.ts";
 import * as SlipJayLandings from "./project/SlipJayLandings.ts";
 import * as SlipJayReleases from "./project/SlipJayReleases.ts";
@@ -770,6 +771,11 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
       yield* (yield* AdvisorIdleCloseReactor.AdvisorIdleCloseReactor).start();
     }),
   ).pipe(Layer.provide(AdvisorIdleCloseReactor.layer)),
+  Layer.effectDiscard(
+    Effect.gen(function* () {
+      yield* (yield* UnusedThreadExpiryReactor.UnusedThreadExpiryReactor).start();
+    }),
+  ).pipe(Layer.provide(UnusedThreadExpiryReactor.layer)),
   ExternalWork.layer.pipe(Layer.provide(ProcessRunner.layer)),
   AgentAwarenessRelay.layer,
   HeldHooksWaker.layer,

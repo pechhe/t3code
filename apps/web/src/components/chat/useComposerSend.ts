@@ -209,6 +209,8 @@ interface ComposerSendInput {
   readonly activeMessageCount: number;
   readonly isServerThread: boolean;
   readonly isLocalDraftThread: boolean;
+  /** The draft's server thread was launched ahead of Send, so Send dispatches to it. */
+  readonly isWarmDraftThread: boolean;
   readonly isGitRepo: boolean;
   readonly phase: SessionPhase;
   readonly runtimeMode: RuntimeMode;
@@ -312,6 +314,7 @@ export function useComposerSend(input: ComposerSendInput) {
     activeMessageCount,
     isServerThread,
     isLocalDraftThread,
+    isWarmDraftThread,
     isGitRepo,
     phase,
     runtimeMode,
@@ -372,6 +375,7 @@ export function useComposerSend(input: ComposerSendInput) {
     persistThreadSettingsForNextTurn,
     linkCheckoutPullRequest,
   } = input;
+  const sendsDraft = isLocalDraftThread || isWarmDraftThread;
   const linkedEnvironments = useLinkedEnvironments(environmentId);
   const handleNewThread = useNewThreadHandler();
   const navigate = useNavigate();
@@ -736,7 +740,7 @@ export function useComposerSend(input: ComposerSendInput) {
             serverSupportsWorktreeBootstrap:
               readEnvironmentPresentation(activeThread.environmentId)?.serverConfig?.environment
                 .capabilities.requiredWorktreeBootstrap === true,
-            isLocalDraftThread,
+            isLocalDraftThread: sendsDraft,
             isGitRepo,
             branch: activeThreadBranch,
           });
@@ -1289,9 +1293,7 @@ export function useComposerSend(input: ComposerSendInput) {
       beginLocalDispatch({
         preparingWorktree: multipleModelSelections !== null || Boolean(baseBranchForWorktree),
         submissionIntent:
-          submissionIntent === "background" && !isLocalDraftThread
-            ? "foreground"
-            : submissionIntent,
+          submissionIntent === "background" && !sendsDraft ? "foreground" : submissionIntent,
       });
       beginWorktreeSetup(
         multipleModelSelections === null && baseBranchForWorktree
@@ -1369,9 +1371,7 @@ export function useComposerSend(input: ComposerSendInput) {
         }),
       );
     }
-    const sentDraftThreadRef = isLocalDraftThread
-      ? scopeThreadRef(environmentId, threadIdForSend)
-      : null;
+    const sentDraftThreadRef = sendsDraft ? scopeThreadRef(environmentId, threadIdForSend) : null;
     const draftStanceChoice = isLocalDraftThread
       ? (useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)?.stanceChoice ??
         null)
@@ -1484,12 +1484,12 @@ export function useComposerSend(input: ComposerSendInput) {
             }
           : undefined;
       const backgroundThreadRef =
-        submissionIntent === "background" && isLocalDraftThread
+        submissionIntent === "background" && sendsDraft
           ? scopeThreadRef(environmentId, threadIdForSend)
           : null;
       // Read the live session, not the render snapshot: the draft is finalized away once the
       // thread exists.
-      const checkoutPullRequestUrl = isLocalDraftThread
+      const checkoutPullRequestUrl = sendsDraft
         ? checkoutPullRequestUrlToLink(
             draftId === null ? null : useComposerDraftStore.getState().getDraftSession(draftId),
           )
@@ -1601,7 +1601,7 @@ export function useComposerSend(input: ComposerSendInput) {
     }
 
     if (failure !== null) {
-      if (isLocalDraftThread && draftId && draftThread) {
+      if (sendsDraft && draftId && draftThread) {
         restoreFailedDraftThread(
           draftId,
           draftThread,

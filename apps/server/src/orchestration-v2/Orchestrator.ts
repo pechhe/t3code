@@ -1908,6 +1908,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     readonly adapter: ProviderAdapter.ProviderAdapterV2["Service"];
     readonly providerInstanceId: ProviderInstanceId;
     readonly threadId: ThreadId;
+    /** The thread has never run: its session may already be open ahead of this first run. */
+    readonly firstRun?: boolean;
   }) =>
     input.adapter.getCapabilities().pipe(
       Effect.flatMap((capabilities) =>
@@ -1917,10 +1919,17 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 providerInstanceId: input.providerInstanceId,
               }),
             )
-          : idAllocator.allocate.providerSession({
-              providerInstanceId: input.providerInstanceId,
-              threadId: input.threadId,
-            }),
+          : input.firstRun === true
+            ? Effect.succeed(
+                idAllocator.derive.firstProviderSession({
+                  providerInstanceId: input.providerInstanceId,
+                  threadId: input.threadId,
+                }),
+              )
+            : idAllocator.allocate.providerSession({
+                providerInstanceId: input.providerInstanceId,
+                threadId: input.threadId,
+              }),
       ),
     );
 
@@ -10031,6 +10040,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             adapter,
             providerInstanceId: modelSelection.instanceId,
             threadId: command.threadId,
+            firstRun: projection.runs.length === 0 && projection.providerThreads.length === 0,
           }),
         ));
       const providerThreadId =
@@ -10490,6 +10500,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           adapter,
           providerInstanceId: modelSelection.instanceId,
           threadId: command.threadId,
+          firstRun: projection.runs.length === 0 && projection.providerThreads.length === 0,
         }),
       ));
     const existingProviderSession = projection.providerSessions.find(
@@ -17766,6 +17777,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               attachmentIds: yield* projectionStore
                 .getThreadAttachmentIds(deletion.threadId)
                 .pipe(mapDispatchError(command)),
+              neverRan:
+                projection.runs.length === 0 &&
+                (yield* projectionStore
+                  .getMessageCount(deletion.threadId)
+                  .pipe(mapDispatchError(command))) === 0,
               now,
               idAllocator,
             }),

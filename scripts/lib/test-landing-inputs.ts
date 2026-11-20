@@ -53,6 +53,8 @@ const SOURCE_SPAWNERS = [
     "binCli.test.ts",
     // Spawns apps/server/src/bin.ts to drive the managed runtime's CLI.
     "provider/CodexManagedRuntime.test.ts",
+    // Spawns apps/server/src/bin.ts to run `t3 triage`.
+    "cli/triage.test.ts",
   ),
 ];
 const FIXTURE_DIRECTORY_READERS = serverTest(
@@ -161,6 +163,16 @@ export const INPUT_RULES: ReadonlyArray<InputRule> = [
     when: /^apps\/server\/src\/(?:provider|textGeneration|vcs|git|preview)\/(?:testing|testFixtures)\//,
     select: FIXTURE_DIRECTORY_READERS,
     reason: "fixture programs spawned from disk",
+  },
+  {
+    when: /^infra\/relay\/migrations\//,
+    select: ["infra/relay/src/environments/EnvironmentLinks.test.ts"],
+    reason: "test applies the relay's Postgres migrations from disk",
+  },
+  {
+    when: /^packaging\/aur\//,
+    select: ["scripts/aur-release.test.ts"],
+    reason: "test runs the AUR packaging files copied from disk",
   },
   {
     when: /^\.github\/triage\//,
