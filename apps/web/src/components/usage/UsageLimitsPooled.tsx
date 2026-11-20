@@ -3,18 +3,29 @@ import {
   collectLimitAccounts,
   collectLimitPools,
   displayLimitWindows,
+  groupLimitWindows,
+  hiddenLimitsOf,
   type LimitAccount,
+  limitPoolKey,
   type LimitPool,
   type LimitPoolMember,
   type LimitPoolWindow,
   paceRemainingPercent,
   remainingPercent,
   type ResetCreditChoice,
+  withoutHiddenLimits,
 } from "@t3tools/shared/usageLimits";
 import { T, useGT, useMessages } from "gt-react";
 import type { Popover as PopoverPrimitive } from "@base-ui/react/popover";
 import { normalizeProviderAccentColor } from "@t3tools/client-runtime/state/provider-instance-display";
-import { AlertTriangleIcon, ExternalLinkIcon, TicketIcon } from "lucide-react";
+import {
+  AlertTriangleIcon,
+  ChevronDownIcon,
+  EyeIcon,
+  EyeOffIcon,
+  ExternalLinkIcon,
+  TicketIcon,
+} from "lucide-react";
 import {
   createContext,
   Fragment,
@@ -37,6 +48,7 @@ import { Button } from "../ui/button";
 import { OpenAI } from "../Icons";
 import { Alert, AlertTitle } from "../ui/alert";
 import { Popover, PopoverCreateHandle, PopoverPopup, PopoverTrigger } from "../ui/popover";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { PaceIcon, ResetCreditDialog, barColor, usePaceMark, useResetCredit } from "./UsageLimits";
 import { UsageSlotBudgetEditor } from "./UsageSlotBudgetEditor";
 import { SkippedAccounts } from "../accounts/AccountSkip";
@@ -598,25 +610,36 @@ function PoolBar({
   );
 }
 
-function PoolWindowCard({
+function PoolWindowRow({
   pool,
   color,
   now,
   label,
+  emphasis,
   description,
 }: {
   readonly pool: LimitPoolWindow;
   readonly color: string;
   readonly now: number;
-  readonly label?: string | null | undefined;
+  readonly label: string | null;
+  /** A card's own name reads as a title; a level inside a named card reads as a caption. */
+  readonly emphasis: "title" | "level";
   readonly description?: string | undefined;
 }) {
   const nextRefill = pool.resets.find((reset) => reset.restoresPercent > 0);
   return (
-    <div className="grid items-center gap-x-6 gap-y-3 rounded-lg border border-border/60 p-4 md:grid-cols-[11rem_minmax(0,1fr)]">
+    <div className="grid items-center gap-x-6 gap-y-3 md:grid-cols-[11rem_minmax(0,1fr)]">
       <div className="flex flex-col gap-1">
         {label !== null ? (
-          <span className="text-sm font-medium text-foreground">{label ?? pool.label}</span>
+          <span
+            className={
+              emphasis === "title"
+                ? "text-sm font-medium text-foreground"
+                : "text-xs text-muted-foreground"
+            }
+          >
+            {label}
+          </span>
         ) : null}
         <span className="flex items-baseline gap-2">
           <span className="text-3xl font-semibold text-foreground tabular-nums">
@@ -643,57 +666,116 @@ function PoolWindowCard({
   );
 }
 
-function PoolSection({ pool, now }: { readonly pool: LimitPool; readonly now: number }) {
-  const color = barColor(pool.driver);
-  const label = providerClients.get(pool.driver)?.label ?? String(pool.driver);
-  const windows = displayLimitWindows(pool);
+function poolHeading(pool: LimitPool): string {
   const service = pool.machine ? `${pool.service} · ${pool.machine}` : pool.service;
-  const heading = service ?? label;
+  return service ?? providerClients.get(pool.driver)?.label ?? String(pool.driver);
+}
+
+function PoolIcon({ pool }: { readonly pool: LimitPool }) {
+  return (
+    <ProviderInstanceIcon
+      driverKind={pool.driver}
+      subProvider={pool.service}
+      displayName={poolHeading(pool)}
+      indicatorBackground="var(--background)"
+      className="size-5"
+      iconClassName="size-4 text-foreground/80"
+    />
+  );
+}
+
+function PoolSection({
+  pool,
+  now,
+  onHide,
+}: {
+  readonly pool: LimitPool;
+  readonly now: number;
+  readonly onHide: () => void;
+}) {
+  const color = barColor(pool.driver);
+  const heading = poolHeading(pool);
   // A card holding several logins says whose budget each control sets.
   const named = pool.accounts.length > 1;
   const m = useMessages();
+  const gt = useGT();
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="flex items-center gap-2 text-sm font-medium text-foreground">
-        <ProviderInstanceIcon
-          driverKind={pool.driver}
-          subProvider={pool.service}
-          displayName={heading}
-          indicatorBackground="var(--background)"
-          className="size-5"
-          iconClassName="size-4 text-foreground/80"
-        />
-        {heading}
-      </h2>
-      {windows.map((window) => {
+      <div className="flex items-center gap-2">
+        <h2 className="flex min-w-0 items-center gap-2 text-sm font-medium text-foreground">
+          <PoolIcon pool={pool} />
+          <span className="truncate">{heading}</span>
+        </h2>
+        <Tooltip>
+          <TooltipTrigger
+            render={<Button size="icon-xs" variant="ghost-muted" />}
+            aria-label={gt("Hide {name}", { name: heading })}
+            onClick={onHide}
+          >
+            <EyeOffIcon aria-hidden />
+          </TooltipTrigger>
+          <TooltipPopup>{gt("Hide", { $context: "hide a provider's limits" })}</TooltipPopup>
+        </Tooltip>
+      </div>
+      {groupLimitWindows(pool).map((group) => {
+        const single = group.windows.length === 1 ? group.windows[0]! : null;
         const details =
-          pool.driver === "cursor" ? cursorUsageWindowDetails(window.id, pool, m) : undefined;
-        const dollars = window.members.flatMap((member) =>
-          member.window?.usedUsd === undefined || member.window.limitUsd === undefined
-            ? []
-            : [
-                {
-                  account: member.account,
-                  environmentId: member.account.environments[0]?.environmentId ?? null,
-                  slotId: member.account.slot
-                    ? `${member.account.slot.instanceId}:${member.account.slot.accountKey}`
-                    : undefined,
-                  usedUsd: member.window.usedUsd,
-                  limitUsd: member.window.limitUsd,
-                },
-              ],
+          single && pool.driver === "cursor"
+            ? cursorUsageWindowDetails(single.window.id, pool, m)
+            : undefined;
+        const dollars = group.windows.flatMap(({ window }) =>
+          window.members.flatMap((member) =>
+            member.window?.usedUsd === undefined || member.window.limitUsd === undefined
+              ? []
+              : [
+                  {
+                    key: `${window.kind}:${window.id}:${member.account.key}`,
+                    account: member.account,
+                    environmentId: member.account.environments[0]?.environmentId ?? null,
+                    slotId: member.account.slot
+                      ? `${member.account.slot.instanceId}:${member.account.slot.accountKey}`
+                      : undefined,
+                    usedUsd: member.window.usedUsd,
+                    limitUsd: member.window.limitUsd,
+                  },
+                ],
+          ),
         );
         return (
-          <div key={`${window.kind}:${window.id}`} className="flex flex-col gap-2">
-            <PoolWindowCard
-              pool={window}
-              color={color}
-              now={now}
-              label={details?.label}
-              description={details?.description}
-            />
+          <div
+            key={group.windows.map(({ window }) => `${window.kind}:${window.id}`).join(",")}
+            className="flex flex-col gap-2"
+          >
+            <div className="flex flex-col gap-4 rounded-lg border border-border/60 p-4">
+              {single ? (
+                <PoolWindowRow
+                  pool={single.window}
+                  color={color}
+                  now={now}
+                  label={details ? details.label : single.window.label}
+                  emphasis="title"
+                  description={details?.description}
+                />
+              ) : (
+                <>
+                  {group.family ? (
+                    <span className="text-sm font-medium text-foreground">{group.family}</span>
+                  ) : null}
+                  {group.windows.map(({ window, level }) => (
+                    <PoolWindowRow
+                      key={`${window.kind}:${window.id}`}
+                      pool={window}
+                      color={color}
+                      now={now}
+                      label={level}
+                      emphasis={group.family ? "level" : "title"}
+                    />
+                  ))}
+                </>
+              )}
+            </div>
             {dollars.map((entry) => (
-              <div key={entry.account.key} className="flex flex-wrap items-center gap-3">
+              <div key={entry.key} className="flex flex-wrap items-center gap-3">
                 {named ? (
                   <AccountName account={entry.account} className="text-xs text-muted-foreground" />
                 ) : null}
@@ -741,20 +823,27 @@ function PoolSection({ pool, now }: { readonly pool: LimitPool; readonly now: nu
 export function UsageLimitsPooled({
   presentations,
   now,
+  hiddenPools,
+  onHiddenPoolsChange,
 }: {
   readonly presentations: Parameters<typeof collectLimitAccounts>[0];
   readonly now: number;
+  readonly hiddenPools: ReadonlySet<string>;
+  readonly onHiddenPoolsChange: (hiddenPools: readonly string[]) => void;
 }) {
   const gt = useGT();
   const m = useMessages();
   const [segmentPopover] = useState(() => PopoverCreateHandle<SegmentPayload>());
   const segmentPopoverActions = useRef<PopoverPrimitive.Root.Actions | null>(null);
-  const pools = collectLimitPools(collectLimitAccounts(presentations), now);
-  const notices = collectLimitNotices(presentations, m);
-  const externalLinks = collectExternalUsageLinks(presentations, m);
+  const allPools = collectLimitPools(collectLimitAccounts(presentations), now);
+  const pools = allPools.filter((pool) => !hiddenPools.has(limitPoolKey(pool)));
+  const hidden = allPools.filter((pool) => hiddenPools.has(limitPoolKey(pool)));
+  const shown = withoutHiddenLimits(presentations, hiddenLimitsOf(hidden));
+  const notices = collectLimitNotices(shown, m);
+  const externalLinks = collectExternalUsageLinks(shown, m);
   return (
     <div className="flex flex-col gap-8">
-      {pools.length === 0 && notices.length === 0 && externalLinks.length === 0 ? (
+      {allPools.length === 0 && notices.length === 0 && externalLinks.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           <T>No provider on the selected environments reports subscription limits.</T>
         </p>
@@ -762,7 +851,11 @@ export function UsageLimitsPooled({
       <SegmentPopoverContext value={segmentPopover}>
         {pools.map((pool) => (
           <Fragment key={pool.accounts.map((account) => account.key).join(":")}>
-            <PoolSection pool={pool} now={now} />
+            <PoolSection
+              pool={pool}
+              now={now}
+              onHide={() => onHiddenPoolsChange([...hiddenPools, limitPoolKey(pool)])}
+            />
           </Fragment>
         ))}
       </SegmentPopoverContext>
@@ -813,7 +906,57 @@ export function UsageLimitsPooled({
         </section>
       ))}
       <LimitNotices notices={notices} />
+      <HiddenPools
+        pools={hidden}
+        onShow={(pool) =>
+          onHiddenPoolsChange([...hiddenPools].filter((key) => key !== limitPoolKey(pool)))
+        }
+      />
     </div>
+  );
+}
+
+function HiddenPools({
+  pools,
+  onShow,
+}: {
+  readonly pools: readonly LimitPool[];
+  readonly onShow: (pool: LimitPool) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const gt = useGT();
+  if (pools.length === 0) return null;
+  return (
+    <section className="flex flex-col gap-2 border-t border-border/60 pt-4">
+      <Button
+        variant="ghost-muted"
+        size="xs"
+        aria-expanded={expanded}
+        className="self-start"
+        onClick={() => setExpanded((open) => !open)}
+      >
+        <EyeOffIcon aria-hidden />
+        {gt("{count} hidden", { count: pools.length })}
+        <ChevronDownIcon aria-hidden className={cn(!expanded && "-rotate-90")} />
+      </Button>
+      {expanded ? (
+        <ul className="flex flex-col gap-1">
+          {pools.map((pool) => (
+            <li
+              key={limitPoolKey(pool)}
+              className="flex items-center gap-2 ps-2 text-sm text-muted-foreground"
+            >
+              <PoolIcon pool={pool} />
+              <span className="min-w-0 truncate">{poolHeading(pool)}</span>
+              <Button variant="ghost-muted" size="xs" onClick={() => onShow(pool)}>
+                <EyeIcon aria-hidden />
+                {gt("Show", { $context: "show a hidden provider's limits again" })}
+              </Button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
   );
 }
 

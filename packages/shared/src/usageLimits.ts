@@ -192,6 +192,93 @@ export type LimitPresentations = ReadonlyMap<
   }
 >;
 
+/** Limits the user chose not to see: whole drivers, and single slots (environment, instance, account). */
+export interface HiddenLimits {
+  /** Every limit of these drivers, their sub-provider slots included. */
+  readonly drivers: ReadonlySet<ServerProvider["driver"]>;
+  /** These drivers' own limits, leaving their sub-provider slots on show. */
+  readonly ownLimits: ReadonlySet<ServerProvider["driver"]>;
+  readonly slots: ReadonlySet<string>;
+}
+
+const hiddenSlotKey = (environmentId: string, instanceId: string, accountKey: string) =>
+  environmentId + "|" + instanceId + "|" + accountKey;
+
+/** What hiding these pools hides: a sub-provider card its slots, a provider card its own limits. */
+export function hiddenLimitsOf(pools: readonly LimitPool[]): HiddenLimits {
+  return {
+    drivers: new Set(),
+    ownLimits: new Set(
+      pools.filter((pool) => pool.service === undefined).map((pool) => pool.driver),
+    ),
+    slots: new Set(
+      pools.flatMap((pool) =>
+        pool.service === undefined
+          ? []
+          : pool.accounts.flatMap(({ slot, environments }) =>
+              slot
+                ? environments.map(({ environmentId }) =>
+                    hiddenSlotKey(environmentId, slot.instanceId, slot.accountKey),
+                  )
+                : [],
+            ),
+      ),
+    ),
+  };
+}
+
+/** The presentations without hidden limits, so their cards, notices and links all go. */
+export function withoutHiddenLimits<
+  P extends (LimitPresentations extends ReadonlyMap<EnvironmentId, infer V> ? V : never),
+>(
+  presentations: ReadonlyMap<EnvironmentId, P>,
+  hidden: HiddenLimits,
+): ReadonlyMap<EnvironmentId, P> {
+  if (hidden.drivers.size === 0 && hidden.ownLimits.size === 0 && hidden.slots.size === 0) {
+    return presentations;
+  }
+  const hiddenDriver = (driver: ServerProvider["driver"]) =>
+    hidden.drivers.has(driver) || hidden.ownLimits.has(driver);
+  return new Map(
+    [...presentations].map(([id, presentation]) => {
+      const config = presentation.serverConfig;
+      if (config === null) return [id, presentation] as const;
+      return [
+        id,
+        {
+          ...presentation,
+          serverConfig: {
+            ...config,
+            providers: config.providers
+              .filter((provider) => !hidden.drivers.has(provider.driver))
+              .map((provider) =>
+                provider.usageSlots === undefined && !hidden.ownLimits.has(provider.driver)
+                  ? provider
+                  : {
+                      ...provider,
+                      ...(hidden.ownLimits.has(provider.driver) ? { usageLimits: undefined } : {}),
+                      usageSlots: provider.usageSlots?.filter(
+                        (slot) =>
+                          !hidden.slots.has(
+                            hiddenSlotKey(id, provider.instanceId, slot.accountKey),
+                          ),
+                      ),
+                    },
+              ),
+            usageLimitSources: config.usageLimitSources?.flatMap((source) => {
+              const accounts = source.accounts.filter((account) => !hiddenDriver(account.driver));
+              // A source left empty by hiding is hidden too, not reported as having no accounts.
+              return accounts.length === 0 && source.accounts.length > 0
+                ? []
+                : [{ ...source, accounts }];
+            }),
+          },
+        },
+      ] as const;
+    }),
+  );
+}
+
 export function collectExternalUsageLinks(
   presentations: LimitPresentations,
   accountLabel = (provider: string, environment: string) => `${provider} on ${environment}`,
@@ -578,6 +665,49 @@ export function displayLimitWindows(pool: LimitPool) {
   return pool.windows
     .filter((window) => !hideTotal || window.id !== "totalPercentUsed")
     .sort((left, right) => cursorUsageWindowRank(left.id) - cursorUsageWindowRank(right.id));
+}
+
+/** One allowance's windows, such as its 5-hour and weekly limits, shown together in one card. */
+export interface LimitWindowGroup {
+  /** The allowance, named when the windows' labels name it (Gemini in "Gemini · Weekly"). */
+  readonly family: string | null;
+  readonly windows: ReadonlyArray<{ readonly window: LimitPoolWindow; readonly level: string }>;
+}
+
+const LIMIT_LABEL_SEPARATOR = " · ";
+const LIMIT_LEVEL = /^(session|\d+-hour|daily|weekly|monthly)$/i;
+
+/**
+ * Groups a pool's shown windows by the allowance their label names around its level: "Gemini ·
+ * 5-hour" and "Gemini · Weekly" share a card, "Weekly · Fable" stands apart from plain "Weekly".
+ * A label naming no level, such as Cursor's "Cursor Models", is an allowance of its own.
+ */
+export function groupLimitWindows(pool: LimitPool): readonly LimitWindowGroup[] {
+  const groups = new Map<
+    string,
+    { family: string | null; windows: LimitWindowGroup["windows"][number][] }
+  >();
+  for (const window of displayLimitWindows(pool)) {
+    const parts = window.label.split(LIMIT_LABEL_SEPARATOR);
+    const levelAt = parts.findIndex((part) => LIMIT_LEVEL.test(part.trim()));
+    const family =
+      levelAt < 0
+        ? null
+        : parts.filter((_, index) => index !== levelAt).join(LIMIT_LABEL_SEPARATOR) || null;
+    const level = levelAt < 0 ? window.label : parts[levelAt]!;
+    const key = levelAt < 0 ? "label:" + window.kind + ":" + window.id : "family:" + (family ?? "");
+    const group = groups.get(key);
+    if (group) group.windows.push({ window, level });
+    else groups.set(key, { family, windows: [{ window, level }] });
+  }
+  return [...groups.values()];
+}
+
+/** Names a pool the same way across refreshes, so a choice about it (hiding it) sticks. */
+export function limitPoolKey(pool: LimitPool): string {
+  return pool.service === undefined
+    ? pool.driver
+    : `${pool.driver}:${pool.service}:${pool.accounts[0]?.environments[0]?.environmentId ?? ""}`;
 }
 
 const WINDOW_KIND_ORDER: Record<ServerProviderUsageWindow["kind"], number> = {

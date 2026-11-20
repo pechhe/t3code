@@ -12110,5 +12110,9 @@
   "27d76249d09eb69f": "Review-Leitfaden bereit",
   "faa3bb26abb39c93": "Review-Leitfaden fehlgeschlagen",
   "b7df38b7d8792d78": "Leitfaden öffnen",
-  "9e91e9a77b664e4e": "Review-Leitfaden konnte nicht gestartet werden"
+  "9e91e9a77b664e4e": "Review-Leitfaden konnte nicht gestartet werden",
+  "3bfddd583ca00d76": "{name} ausblenden",
+  "ea5ccbaca24e3271": "Ausblenden",
+  "c75c6f81435f113e": "{count} ausgeblendet",
+  "968a88563bb22435": "Einblenden"
 }

@@ -16,6 +16,7 @@ import {
   paceRemainingPercent,
   remainingPercent,
   type ResetCreditChoice,
+  withoutHiddenLimits,
 } from "@t3tools/shared/usageLimits";
 import { GaugeIcon, TrendingDownIcon, TrendingUpIcon } from "lucide-react";
 import { msg, T, useGT, useMessages } from "gt-react";
@@ -392,41 +393,37 @@ export function ResetCredits({
 export function UsageLimitsSection({
   selectedEnvironmentIds,
   hiddenProviders,
+  hiddenPools,
+  onHiddenPoolsChange,
   now,
 }: {
   readonly selectedEnvironmentIds: ReadonlySet<EnvironmentId> | null;
   readonly hiddenProviders: ReadonlySet<UsageProviderKind>;
+  readonly hiddenPools: ReadonlySet<string>;
+  readonly onHiddenPoolsChange: (hiddenPools: readonly string[]) => void;
   readonly now: number;
 }) {
   const presentations = useAtomValue(environmentPresentations.presentationsWithProvidersAtom);
-  const hiddenDrivers = new Set<ServerProvider["driver"]>(
-    [...hiddenProviders].map((provider) => PROVIDER_PRESENTATION[provider].driverKind),
+  const selected = withoutHiddenLimits(
+    new Map(
+      [...presentations].filter(
+        ([id]) => selectedEnvironmentIds === null || selectedEnvironmentIds.has(id),
+      ),
+    ),
+    {
+      drivers: new Set(
+        [...hiddenProviders].map((provider) => PROVIDER_PRESENTATION[provider].driverKind),
+      ),
+      ownLimits: new Set(),
+      slots: new Set(),
+    },
   );
-  const isVisible = (driver: ServerProvider["driver"]) => !hiddenDrivers.has(driver);
-  const selected = new Map(
-    [...presentations].flatMap(([id, presentation]) => {
-      if (selectedEnvironmentIds !== null && !selectedEnvironmentIds.has(id)) return [];
-      const config = presentation.serverConfig;
-      if (hiddenDrivers.size === 0 || config === null) return [[id, presentation] as const];
-      return [
-        [
-          id,
-          {
-            ...presentation,
-            serverConfig: {
-              ...config,
-              providers: config.providers.filter((provider) => isVisible(provider.driver)),
-              usageLimitSources: config.usageLimitSources?.flatMap((source) => {
-                const accounts = source.accounts.filter((account) => isVisible(account.driver));
-                return accounts.length === 0 && source.accounts.length > 0
-                  ? []
-                  : [{ ...source, accounts }];
-              }),
-            },
-          },
-        ] as const,
-      ];
-    }),
+  return (
+    <UsageLimitsPooled
+      presentations={selected}
+      now={now}
+      hiddenPools={hiddenPools}
+      onHiddenPoolsChange={onHiddenPoolsChange}
+    />
   );
-  return <UsageLimitsPooled presentations={selected} now={now} />;
 }

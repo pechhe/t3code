@@ -535,6 +535,8 @@ export function UsagePage() {
               <UsageLimitsSection
                 selectedEnvironmentIds={selectedEnvironmentIds}
                 hiddenProviders={hiddenProviders}
+                hiddenPools={new Set(preferences.hiddenLimitPools)}
+                onHiddenPoolsChange={(next) => updatePreferences({ hiddenLimitPools: next })}
                 now={limitsNow}
               />
             ) : shown === null ? (

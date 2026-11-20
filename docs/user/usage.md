@@ -119,7 +119,7 @@ setting removes it from `settings.json`.
 
 **Usage → Limits** pools every subscription account it can see per provider, so with several Codex
 or Claude accounts across your enabled environments and hubs you read one number per window rather than a
-list. Each window card shows how much of the pool is left and a bar with one segment per account,
+list. Each card is one allowance, with a row per window (5-hour, weekly, monthly): each row shows how much of the pool is left and a bar with one segment per account,
 kept in the same column across windows. Accounts count by plan size: a segment is as wide as its
 plan's multiplier (Max 20x is twenty times a Pro account), so the pooled figure is what is left of
 your combined allowance, not an average of percentages. Accounts are ordered by their next 5-hour
@@ -148,6 +148,10 @@ shows once here, from the freshest machine; the Usage page gives each machine it
 spend and monthly budgets are each machine's own. To hide a row, click the
 sliders button on the card and untick it; tick it again to bring it back.
 Filter with the environment dropdown to see what a single machine has.
+
+To hide a provider or service on **Usage → Limits**, click the eye button beside its name. Hidden
+cards and their notices move to **N hidden** at the bottom of the page; open it and click **Show** to
+bring one back. The choice is kept on this device.
 
 When a Claude or Codex account has no overall weekly quota left, its pooled session contribution
 shows 0% left. The next refill depends on both reset times: an exhausted session must also reset,

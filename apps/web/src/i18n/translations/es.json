@@ -12105,5 +12105,9 @@
   "27d76249d09eb69f": "Guía de revisión lista",
   "faa3bb26abb39c93": "Falló la guía de revisión",
   "b7df38b7d8792d78": "Abrir guía",
-  "9e91e9a77b664e4e": "No se pudo iniciar una guía de revisión"
+  "9e91e9a77b664e4e": "No se pudo iniciar una guía de revisión",
+  "3bfddd583ca00d76": "Ocultar {name}",
+  "ea5ccbaca24e3271": "Ocultar",
+  "c75c6f81435f113e": "{count} ocultos",
+  "968a88563bb22435": "Mostrar"
 }

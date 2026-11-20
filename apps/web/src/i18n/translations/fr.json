@@ -12110,5 +12110,9 @@
   "27d76249d09eb69f": "Guide de revue prêt",
   "faa3bb26abb39c93": "Échec du guide de revue",
   "b7df38b7d8792d78": "Ouvrir le guide",
-  "9e91e9a77b664e4e": "Impossible de démarrer un guide de revue"
+  "9e91e9a77b664e4e": "Impossible de démarrer un guide de revue",
+  "3bfddd583ca00d76": "Masquer {name}",
+  "ea5ccbaca24e3271": "Masquer",
+  "c75c6f81435f113e": "{count} masqués",
+  "968a88563bb22435": "Afficher"
 }

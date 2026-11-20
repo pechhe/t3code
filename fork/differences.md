@@ -1024,6 +1024,17 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Retire when:** upstream shows maker icons in multi-model harnesses and lets a model be renamed.
 - **Owner:** T3 Peach (recorded by T3-731; built in `3ca4d3225b`).
 
+### usage-limit-cards
+
+- **Kind:** durable extension
+- **Why:** Usage → Limits gave every window its own card, so one allowance's 5-hour and weekly limits sat apart, and a provider Henry does not track (an OpenRouter key with nothing to read) could not be put away.
+- **Requirements:** one card per allowance, with a row per window: windows whose labels name the same allowance around a level (5-hour, session, daily, weekly, monthly) share it, and a label naming no level (Cursor's model allowances, "Reported quota") stays apart; any provider or sub-provider card can be hidden from its heading, taking its notices and external links with it, and comes back from **N hidden** at the foot of the page; the choice is kept per device in the Usage page preferences.
+- **Integration points:** `groupLimitWindows`, `limitPoolKey`, `hiddenLimitsOf` and `withoutHiddenLimits` in `packages/shared/src/usageLimits.ts` (the provider filter in `UsageLimitsSection` uses the same filter); `PoolSection`, `PoolWindowRow` and `HiddenPools` in web `usage/UsageLimitsPooled.tsx`; `hiddenLimitPools` in `usagePagePreferences.ts`. Mobile keeps upstream's per-window cards.
+- **Proof:** packages/shared/src/usageLimits.test.ts ("shows one allowance's 5-hour and weekly limits in one card, and Cursor's allowances apart"; "hides a hidden card's notices with it, and leaves other cards and notices alone").
+- **Upstream:** none known; upstream shows one card per window and hides only whole providers.
+- **Retire when:** upstream groups an allowance's windows and lets a single card be hidden.
+- **Owner:** T3 Peach (Henry's request, 20 Nov 2026).
+
 ### mobile-fork-screens
 
 - **Decision:** `adopt` (v0.1.11-nightly.20261118.4903, 2026-11-19): Mobile takes upstream's translated structure; the fork's settings screens (Experiments, Secrets, Champions) register titles in upstream's `ROUTE_TITLES` table, and fork renames other mobile files import (`forgeHomeProjectScopes`) are kept with upstream's resolver argument. Evidence: mobile typecheck.

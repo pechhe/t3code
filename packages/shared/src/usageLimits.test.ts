@@ -12,6 +12,9 @@ import {
   conservationModelsOf,
   type LimitAccount,
   displayLimitWindows,
+  groupLimitWindows,
+  hiddenLimitsOf,
+  withoutHiddenLimits,
   cursorUsageWindowDetails,
   collectProviderUsageLimits,
   sameUsageLimitCommandCoverage,
@@ -1287,6 +1290,51 @@ describe("pooled account columns", () => {
       row.columns.map((member) => (member.window ? member.account.key : null)),
     );
 
+  it("shows one allowance's 5-hour and weekly limits in one card, and Cursor's allowances apart", () => {
+    const limit = (id: string, kind: "session" | "weekly", label: string) => ({
+      ...window,
+      id,
+      kind,
+      label,
+    });
+    const groups = (driver: string, windows: LimitAccount["limits"]["windows"]) =>
+      groupLimitWindows(
+        collectLimitPools(
+          [{ ...account("a", windows), driver: ProviderDriverKind.make(driver) }],
+          now,
+        )[0]!,
+      ).map((group) => [group.family, group.windows.map((entry) => entry.level)]);
+    expect(
+      groups("pi", [
+        limit("gemini-5h", "session", "Gemini · 5-hour"),
+        limit("3p-weekly", "weekly", "Claude & GPT (shared) · Weekly"),
+        limit("gemini-weekly", "weekly", "Gemini · Weekly"),
+      ]),
+    ).toEqual([
+      ["Gemini", ["5-hour", "Weekly"]],
+      ["Claude & GPT (shared)", ["Weekly"]],
+    ]);
+    expect(
+      groups("claudeAgent", [
+        limit("five_hour", "session", "Session"),
+        limit("seven_day", "weekly", "Weekly"),
+        limit("seven_day_fable", "weekly", "Weekly · Fable"),
+      ]),
+    ).toEqual([
+      [null, ["Session", "Weekly"]],
+      ["Fable", ["Weekly"]],
+    ]);
+    expect(
+      groups("cursor", [
+        limit("autoPercentUsed", "weekly", "Cursor Models"),
+        limit("apiPercentUsed", "weekly", "Other Models"),
+      ]),
+    ).toEqual([
+      [null, ["Cursor Models"]],
+      [null, ["Other Models"]],
+    ]);
+  });
+
   it.each([
     {
       reports: [
@@ -1984,6 +2032,71 @@ describe("collectLimitPools slot accounts", () => {
     expect(pools.map((pool) => pool.accounts.length)).toEqual([1, 1]);
     // Averaging these two would report 50% used and hide that one account is nearly out.
     expect(pools.map((pool) => pool.windows[0]?.usedPercent).toSorted()).toEqual([10, 90]);
+  });
+
+  it("hides a hidden card's notices with it, and leaves other cards and notices alone", () => {
+    const presentations = new Map([
+      [
+        EnvironmentId.make("mac"),
+        {
+          entry: { target: { label: "Mac" } },
+          serverConfig: {
+            providers: [
+              provider({
+                driver: pi,
+                usageLimits: {
+                  checkedAt,
+                  windows: [window("pi-session", 20)],
+                },
+                usageSlots: [
+                  {
+                    accountKey: "openrouter",
+                    label: "openrouter",
+                    account: "openrouter",
+                    usageLimits: {
+                      checkedAt,
+                      windows: [],
+                      unavailable: { reason: "probeFailed", message: "Set a monthly budget." },
+                    },
+                  },
+                  {
+                    accountKey: "commandcode",
+                    label: "commandcode",
+                    account: "commandcode",
+                    usageLimits: {
+                      checkedAt,
+                      windows: [],
+                      unavailable: { reason: "probeFailed", message: "No usage limits." },
+                    },
+                  },
+                ],
+              }),
+            ],
+          },
+        },
+      ],
+    ]);
+    const pools = collectLimitPools(collectLimitAccounts(presentations), now);
+    const shown = withoutHiddenLimits(
+      presentations,
+      hiddenLimitsOf(pools.filter((pool) => pool.service === "openrouter")),
+    );
+    expect(collectLimitNotices(shown)).toEqual(["commandcode: No usage limits."]);
+    expect(collectLimitPools(collectLimitAccounts(shown), now).map((pool) => pool.service)).toEqual(
+      [undefined, "commandcode"],
+    );
+    // The provider's own card hides only its own limits; its services keep their cards and notices.
+    const withoutOwn = withoutHiddenLimits(
+      presentations,
+      hiddenLimitsOf(pools.filter((pool) => pool.service === undefined)),
+    );
+    expect(collectLimitNotices(withoutOwn)).toEqual([
+      "openrouter: Set a monthly budget.",
+      "commandcode: No usage limits.",
+    ]);
+    expect(
+      collectLimitPools(collectLimitAccounts(withoutOwn), now).map((pool) => pool.service),
+    ).toEqual(["openrouter", "commandcode"]);
   });
 
   it("puts a service's logins on one card per machine, naming the machine when it has several", () => {
