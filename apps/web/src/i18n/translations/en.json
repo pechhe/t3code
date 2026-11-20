@@ -12127,5 +12127,10 @@
   "5dff60ad9cc1280e": "This month",
   "015d404c525517cd": "spent",
   "2d537629266debd7": "of {budget} budget",
-  "b2e250ad21d7e34a": "This cycle"
+  "b2e250ad21d7e34a": "This cycle",
+  "efefe0c4bd1e6a3a": "Model use",
+  "a830583f7f6b1ae6": "Off: it stays signed in for its usage meter, but no thread, delegated task or background job runs on it.",
+  "accbaf459a121a2c": "Threads, delegated tasks and background jobs can run on it.",
+  "c4fbf0779efe1d66": "Use {provider} for models",
+  "412ff569c59642e6": "Usage only"
 }

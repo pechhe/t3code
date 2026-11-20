@@ -10,7 +10,7 @@ import {
   isProviderAvailable,
   isUnconfiguredDefaultInstanceEnabled,
   resolveProjectProviderInstanceEnabled,
-  resolveProviderInstanceEnabled,
+  resolveProviderInstanceModelUse,
   resolveTextGenerationSelectionEnabled,
   textGeneratorForSelection,
   isProviderTextGenerationCapable,
@@ -57,7 +57,7 @@ export function isModelSelectionProviderEnabled(
     ? settings.providerInstances[instanceId]
     : undefined;
   if (instanceConfig !== undefined) {
-    return resolveProviderInstanceEnabled(instanceConfig);
+    return resolveProviderInstanceModelUse(instanceConfig);
   }
 
   return isUnconfiguredDefaultInstanceEnabled(instanceId);

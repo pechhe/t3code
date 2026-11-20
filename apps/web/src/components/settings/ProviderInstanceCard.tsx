@@ -819,7 +819,11 @@ export function ProviderInstanceCard({
 }: ProviderInstanceCardProps) {
   const gt = useGT();
   const m = useMessages();
-  const enabled = projectOverride?.effectiveEnabled ?? resolveProviderInstanceEnabled(instance);
+  const usageOnly = instance.usageOnly === true;
+  // A project's view of a usage-only instance would read as off; it is on, for its meter only.
+  const enabled = usageOnly
+    ? resolveProviderInstanceEnabled(instance)
+    : (projectOverride?.effectiveEnabled ?? resolveProviderInstanceEnabled(instance));
   const effectiveProvider = liveProvider && { ...liveProvider, enabled };
   const compatibility = enabled ? liveProvider?.compatibilityAdvisory : undefined;
   const statusKey = enabled ? getProviderStatusKey(effectiveProvider) : "disabled";
@@ -936,6 +940,11 @@ export function ProviderInstanceCard({
       return;
     }
     onUpdate({ ...instance, enabled: value });
+  };
+
+  const updateModelUse = (value: boolean) => {
+    const { usageOnly: _omit, ...rest } = instance;
+    onUpdate(value ? (rest as ProviderInstanceConfig) : { ...rest, usageOnly: true });
   };
 
   const updateAccentColor = (value: string) => {
@@ -1218,6 +1227,11 @@ export function ProviderInstanceCard({
                 </code>
               ) : null}
               {versionAdvisoryNode}
+              {enabled && usageOnly ? (
+                <Badge variant="outline" size="sm" className="shrink-0">
+                  <T>Usage only</T>
+                </Badge>
+              ) : null}
             </span>
             <span className="mt-0.5 flex items-start gap-1.5 text-xs leading-normal text-muted-foreground/80">
               {statusDotNode && !updateProgress ? (
@@ -1265,7 +1279,9 @@ export function ProviderInstanceCard({
           <ManagedControl reason={enabled ? undefined : managedDriverReason}>
             <Switch
               checked={enabled}
-              disabled={readOnly || (projectOverride !== undefined && !canWriteSettings)}
+              disabled={
+                readOnly || (projectOverride !== undefined && (usageOnly || !canWriteSettings))
+              }
               onCheckedChange={(checked) => updateEnabled(Boolean(checked))}
               aria-label={gt("Enable {provider}", { provider: displayName })}
             />
@@ -1409,6 +1425,24 @@ export function ProviderInstanceCard({
                 spellCheck={false}
               />
             </div>
+          }
+        />
+        <SettingsRow
+          title={gt("Model use")}
+          description={
+            usageOnly
+              ? gt(
+                  "Off: it stays signed in for its usage meter, but no thread, delegated task or background job runs on it.",
+                )
+              : gt("Threads, delegated tasks and background jobs can run on it.")
+          }
+          control={
+            <Switch
+              checked={!usageOnly}
+              disabled={readOnly || projectOverride !== undefined}
+              onCheckedChange={(checked) => updateModelUse(Boolean(checked))}
+              aria-label={gt("Use {provider} for models", { provider: displayName })}
+            />
           }
         />
         {commandGuard === null ? null : (

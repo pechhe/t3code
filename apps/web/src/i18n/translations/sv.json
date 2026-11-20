@@ -12125,5 +12125,10 @@
   "5dff60ad9cc1280e": "Denna månad",
   "015d404c525517cd": "spenderat",
   "2d537629266debd7": "av en budget på {budget}",
-  "b2e250ad21d7e34a": "Denna period"
+  "b2e250ad21d7e34a": "Denna period",
+  "efefe0c4bd1e6a3a": "Modellanvändning",
+  "a830583f7f6b1ae6": "Av: den förblir inloggad för sin användningsmätare, men inga trådar, delegerade uppgifter eller bakgrundsjobb körs på den.",
+  "accbaf459a121a2c": "Trådar, delegerade uppgifter och bakgrundsjobb kan köras på den.",
+  "c4fbf0779efe1d66": "Använd {provider} för modeller",
+  "412ff569c59642e6": "Endast användning"
 }

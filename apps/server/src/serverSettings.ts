@@ -17,6 +17,7 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   resolveProviderInstanceEnabled,
+  resolveProviderInstanceModelUse,
   ResponseStreamingMode,
   ServerSettings,
   ServerSettingsError,
@@ -738,7 +739,7 @@ function fallbackTextGenerationProvider(
     (instanceId, driver) =>
       // A default instance id can be configured with another driver.
       isDriverAllowed(settings.providerInstances[instanceId]?.driver ?? driver) &&
-      resolveProviderInstanceEnabled(
+      resolveProviderInstanceModelUse(
         settings.providerInstances[instanceId] ?? { driver, config: {} },
       ),
     { defaultModelSelection: settings.defaultModelSelection },

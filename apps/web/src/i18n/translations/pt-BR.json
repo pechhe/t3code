@@ -12117,5 +12117,10 @@
   "5dff60ad9cc1280e": "Este mês",
   "015d404c525517cd": "gastos",
   "2d537629266debd7": "de um orçamento de {budget}",
-  "b2e250ad21d7e34a": "Este ciclo"
+  "b2e250ad21d7e34a": "Este ciclo",
+  "efefe0c4bd1e6a3a": "Uso de modelos",
+  "a830583f7f6b1ae6": "Desativado: continua conectado para o medidor de uso, mas nenhuma conversa, tarefa delegada ou tarefa em segundo plano é executada nele.",
+  "accbaf459a121a2c": "Conversas, tarefas delegadas e tarefas em segundo plano podem ser executadas nele.",
+  "c4fbf0779efe1d66": "Usar {provider} para modelos",
+  "412ff569c59642e6": "Somente uso"
 }

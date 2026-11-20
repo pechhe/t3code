@@ -548,6 +548,21 @@ describe("resolveProjectProviderInstanceEnabled", () => {
     expect(resolveProjectProviderInstanceEnabled(settings, projectId, instanceId)).toBe(false);
   });
 
+  it("keeps a usage-only instance off for model use, whatever a project says", () => {
+    const settings: ServerSettings = {
+      ...DEFAULT_SERVER_SETTINGS,
+      providerInstances: {
+        [instanceId]: { driver: ProviderDriverKind.make("codex"), enabled: true, usageOnly: true },
+      },
+      projectSettingsOverrides: {
+        [projectId]: { providerInstances: { [instanceId]: { enabled: true } } },
+      },
+    };
+    expect(resolveProjectProviderInstanceEnabled(settings, projectId, instanceId)).toBe(false);
+    expect(resolveProjectProviderInstanceEnabled(settings, null, instanceId)).toBe(false);
+    expect(resolveProviderInstanceEnabled(settings.providerInstances[instanceId]!)).toBe(true);
+  });
+
   it("answers a former instance id as the instance a shared setup renamed it to", () => {
     const former = ProviderInstanceId.make("claudeAgent_pool1");
     const settings: ServerSettings = {

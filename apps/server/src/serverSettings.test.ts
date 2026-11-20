@@ -44,6 +44,8 @@ import { SECRET_REDACTED } from "./settingsSecrets.ts";
 import * as ManagedPolicy from "./policy/ManagedPolicy.ts";
 import { resolveProviderInstanceTerminalEnvironment } from "./terminal/Manager.ts";
 
+const decodeServerSettingsPatchOption = Schema.decodeOption(ServerSettingsPatch);
+
 const decodeServerSettings = Schema.decodeUnknownEffect(ServerSettings);
 const decodeServerSettingsJson = Schema.decodeUnknownEffect(Schema.fromJsonString(ServerSettings));
 const decodeServerSettingsPatch = Schema.decodeUnknownEffect(ServerSettingsPatch);
@@ -742,7 +744,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
           correctedAgain.usageSlotBudgets[slotId]?.correctedAt,
         );
 
-        const invalidPatch = Schema.decodeOption(ServerSettingsPatch)({
+        const invalidPatch = decodeServerSettingsPatchOption({
           usageSlotBudgets: { [slotId]: { correct: true } },
         });
         assert.isTrue(Option.isNone(invalidPatch));
@@ -888,22 +890,24 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
       ).pipe(Effect.provide(layerServerSettings())),
   );
 
-  it.effect("skips explicitly disabled default instances when choosing a fallback", () =>
-    Effect.gen(function* () {
-      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
-      const next = yield* serverSettings.updateSettings({
-        providerInstances: {
-          [ProviderInstanceId.make("codex")]: {
-            driver: ProviderDriverKind.make("codex"),
-            enabled: false,
-            config: {},
+  it.effect.each([{ enabled: false }, { enabled: true, usageOnly: true }])(
+    "skips a default instance off for model use (%o) when choosing a fallback",
+    (state) =>
+      Effect.gen(function* () {
+        const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+        const next = yield* serverSettings.updateSettings({
+          providerInstances: {
+            [ProviderInstanceId.make("codex")]: {
+              driver: ProviderDriverKind.make("codex"),
+              ...state,
+              config: {},
+            },
           },
-        },
-      });
+        });
 
-      assert.equal(next.textGenerationModelSelection.instanceId, "claudeAgent");
-      assert.equal(next.textGenerationModelSelection.model, "claude-haiku-5-5");
-    }).pipe(Effect.provide(layerServerSettings())),
+        assert.equal(next.textGenerationModelSelection.instanceId, "claudeAgent");
+        assert.equal(next.textGenerationModelSelection.model, "claude-haiku-5-5");
+      }).pipe(Effect.provide(layerServerSettings())),
   );
 
   // A backend behind a custom model may refuse the built-in default.

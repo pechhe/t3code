@@ -1843,6 +1843,11 @@ export const resolveProviderInstanceEnabled = (
   return instance.enabled ?? configEnabled ?? defaultEnabledForDriver(instance.driver);
 };
 
+/** Whether model work may run on the instance anywhere: enabled, and not kept for usage only. */
+export const resolveProviderInstanceModelUse = (
+  instance: Pick<ProviderInstanceConfig, "driver" | "enabled" | "usageOnly" | "config">,
+): boolean => instance.usageOnly !== true && resolveProviderInstanceEnabled(instance);
+
 export const resolveProjectProviderInstanceEnabled = (
   settings: Pick<ServerSettings, "providerInstances" | "projectSettingsOverrides"> &
     Partial<Pick<ServerSettings, "providerInstanceAliases">>,
@@ -1854,12 +1859,14 @@ export const resolveProjectProviderInstanceEnabled = (
     projectId,
     requestedInstanceId,
   );
-  if (override !== undefined) return override;
   const instanceConfig = Object.hasOwn(settings.providerInstances, instanceId)
     ? settings.providerInstances[instanceId]
     : undefined;
+  // Usage only outranks a project's switch: the instance stays live only for its usage meter.
+  if (instanceConfig?.usageOnly === true) return false;
+  if (override !== undefined) return override;
   return instanceConfig !== undefined
-    ? resolveProviderInstanceEnabled(instanceConfig)
+    ? resolveProviderInstanceModelUse(instanceConfig)
     : isUnconfiguredDefaultInstanceEnabled(instanceId);
 };
 
