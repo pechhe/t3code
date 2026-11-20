@@ -212,6 +212,9 @@ An empty database is a bad test. Seed your worktree's `.t3` with a copy of real 
 - Refresh `statev2.sqlite`, not `state.sqlite`. The server copies the V1 `state.sqlite` only when `statev2.sqlite` is missing.
 - Bring `secrets` and `settings.json` only if the flow under test needs them, and then only the file it needs, such as `secrets/weave-connection.bin` for the Weave connection. Never copy the whole `secrets` directory: its `cloud-*` files are the live relay identity, and a dev server holding them publishes as the real environment. The database copy already drops scheduled tasks, so a dev server never runs the developer's agents.
 - Copy in, never symlink. Data flows one way: into your sandbox, never back out.
+- A preview that copies `settings.json` reaches the developer's real providers: a Champion's **Check now** (or any thread) runs a real model on a real account unless every account that can serve it is skipped for its usage limit in that copy. Stage the skips first, then confirm in the model picker that every account of each model shows skipped before pressing anything.
+- `vp fmt` with no paths formats the whole repository and rewrites unrelated files (evaluation corpora, JSON fixtures); pass the changed files, or restore the strays before landing.
+- The landing gate runs a migration's test whenever `Migrations.ts` changes, so an old migration test that fails on the runner's SQLite blocks an unrelated landing; run it with `vp test run` before the first land of anything that adds a migration.
 
 ## Checks
 
