@@ -211,17 +211,22 @@ function iso(value: string | null | undefined): string | undefined {
   return Option.isSome(parsed) ? DateTime.formatIso(parsed.value) : undefined;
 }
 
-function antigravityWindows(summary: typeof AntigravitySummary.Type): ServerProviderUsageWindow[] {
-  const windows = new Map<string, ServerProviderUsageWindow>();
+/** Each reported bucket's window, or undefined for one the host reports disabled or without a reading. */
+function antigravityBuckets(
+  summary: typeof AntigravitySummary.Type,
+): Map<string, ServerProviderUsageWindow | undefined> {
+  const windows = new Map<string, ServerProviderUsageWindow | undefined>();
   const groups = summary.groups?.some((group) => group.buckets?.length)
     ? (summary.groups ?? [])
     : [{ displayName: undefined, buckets: summary.buckets ?? [] }];
   for (const group of groups) {
     const groupDisplayName = group.displayName?.trim();
     for (const bucket of group.buckets ?? []) {
-      if (bucket.disabled === true) continue;
       const remaining = bucket.remainingFraction;
-      if (remaining === undefined || !Number.isFinite(remaining)) continue;
+      if (bucket.disabled === true || remaining === undefined || !Number.isFinite(remaining)) {
+        windows.set(bucket.bucketId, undefined);
+        continue;
+      }
       const session = bucket.window === "5h";
       const weekly = bucket.window === "weekly";
       const resetsAt = iso(bucket.resetTime);
@@ -265,7 +270,7 @@ function antigravityWindows(summary: typeof AntigravitySummary.Type): ServerProv
       });
     }
   }
-  return [...windows.values()];
+  return windows;
 }
 
 function anthropicWindows(usage: typeof AnthropicUsage.Type): ServerProviderUsageWindow[] {
@@ -647,16 +652,19 @@ export const probePiUsageSlots = Effect.fn("PiUsageSlots.probePiUsageSlots")(fun
             )
             .pipe(
               Effect.flatMap(HttpClientResponse.schemaBodyJson(AntigravitySummary)),
-              Effect.map(antigravityWindows),
+              Effect.map(antigravityBuckets),
               Effect.timeout("10 seconds"),
-              Effect.orElseSucceed((): ServerProviderUsageWindow[] => []),
+              Effect.orElseSucceed(() => new Map<string, ServerProviderUsageWindow | undefined>()),
             ),
         { concurrency: 2 },
       );
-      // The two hosts report different groups; the metered host's reading of a bucket wins.
-      const windows = [
-        ...new Map(perEndpoint.flat().map((window) => [window.id, window])).values(),
-      ];
+      // Pi's sign-ins are metered on the daily host, so its reading of a bucket, disabled included,
+      // wins; cloudcode-pa only fills buckets daily leaves out.
+      const buckets = new Map<string, ServerProviderUsageWindow | undefined>();
+      for (const [id, window] of perEndpoint.flatMap((answer) => [...answer])) {
+        if (!buckets.has(id)) buckets.set(id, window);
+      }
+      const windows = [...buckets.values()].filter((window) => window !== undefined);
       return windows.length === 0
         ? unavailable(
             { ...base, checkedAt },

@@ -138,16 +138,24 @@ export const antigravityAccountFingerprint = (userInfo: unknown) =>
 
 /** Windows from a `retrieveUserQuotaSummary` answer requested at `requestedAt`. */
 export const antigravitySummaryWindows = (response: unknown, requestedAt: number) =>
-  decodeSummary(response).pipe(Effect.map((summary) => summaryWindows(summary, requestedAt)));
+  decodeSummary(response).pipe(
+    Effect.map((summary) =>
+      [...summaryBuckets(summary, requestedAt).values()].filter((window) => window !== undefined),
+    ),
+  );
 
-function summaryWindows(summary: typeof Summary.Type, requestedAt: number) {
-  const windows = new Map<string, ServerProviderUsageWindow>();
+/** Each reported bucket's window, or undefined for one the host reports disabled or without a reading. */
+function summaryBuckets(summary: typeof Summary.Type, requestedAt: number) {
+  const windows = new Map<string, ServerProviderUsageWindow | undefined>();
   const groups = summary.groups?.some((group) => group.buckets?.length)
     ? summary.groups
     : [{ buckets: summary.buckets }];
   for (const group of groups ?? []) {
     for (const bucket of group.buckets ?? []) {
-      if (bucket.disabled) continue;
+      if (bucket.disabled) {
+        windows.set(bucket.bucketId, undefined);
+        continue;
+      }
       // Argon and Carbon are metered separately from the default Gemini buckets.
       const family = bucket.bucketId.startsWith("gemini-argon-")
         ? group.displayName?.trim() || "Gemini Argon"
@@ -168,10 +176,10 @@ function summaryWindows(summary: typeof Summary.Type, requestedAt: number) {
         weekly ? "weekly" : session ? "session" : "other",
         windowDurationMins,
       );
-      if (window) windows.set(window.id, window);
+      windows.set(bucket.bucketId, window);
     }
   }
-  return [...windows.values()];
+  return windows;
 }
 
 /** Older accounts expose model quotas without a window length. Do not invent a reset cadence. */
@@ -294,13 +302,14 @@ export const makeAntigravityUsageProbe = Effect.fn("makeAntigravityUsageProbe")(
       account = cached.account;
     }
     const endpoints = ENDPOINTS[input.authMethod];
-    // Merge endpoints because quota groups differ; the metered host's reading of a bucket wins.
+    // Merge endpoints because quota groups differ; the metered host's reading of a bucket wins,
+    // including a bucket it reports disabled.
     const fetchWindows = Effect.fn("AntigravityUsageProbe.fetchWindows")(function* <E>(
       operation: string,
       parse: (
         response: unknown,
         requestedAt: number,
-      ) => Effect.Effect<ServerProviderUsageWindow[], E>,
+      ) => Effect.Effect<ReadonlyMap<string, ServerProviderUsageWindow | undefined>, E>,
     ) {
       const responses = yield* Effect.forEach(
         endpoints,
@@ -320,22 +329,28 @@ export const makeAntigravityUsageProbe = Effect.fn("makeAntigravityUsageProbe")(
               ),
             ).pipe(
               Effect.flatMap((response) => parse(response, requestedAt)),
-              Effect.orElseSucceed(() => []),
+              Effect.orElseSucceed(() => new Map<string, ServerProviderUsageWindow | undefined>()),
             );
           }),
         { concurrency: "unbounded" },
       );
-      const windows = new Map<string, ServerProviderUsageWindow>();
-      for (const window of responses.flat()) {
-        if (!windows.has(window.id)) windows.set(window.id, window);
+      const buckets = new Map<string, ServerProviderUsageWindow | undefined>();
+      for (const [id, window] of responses.flatMap((answer) => [...answer])) {
+        if (!buckets.has(id)) buckets.set(id, window);
       }
-      return [...windows.values()];
+      return [...buckets.values()].filter((window) => window !== undefined);
     });
-    const summary = yield* fetchWindows("retrieveUserQuotaSummary", antigravitySummaryWindows);
+    const summary = yield* fetchWindows("retrieveUserQuotaSummary", (response, requestedAt) =>
+      decodeSummary(response).pipe(Effect.map((answer) => summaryBuckets(answer, requestedAt))),
+    );
     const windows = summary.length
       ? summary
       : yield* fetchWindows("fetchAvailableModels", (response) =>
-          decodeModels(response).pipe(Effect.map(modelWindows)),
+          decodeModels(response).pipe(
+            Effect.map(
+              (models) => new Map(modelWindows(models).map((window) => [window.id, window])),
+            ),
+          ),
         );
     if (windows.length === 0) {
       return makeUnavailableUsageLimits({

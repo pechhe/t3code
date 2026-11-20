@@ -482,8 +482,19 @@ describe("Antigravity subscription limits", () => {
   it.effect("reports a personal account's quota from the daily endpoint it is metered on", () =>
     Effect.gen(function* () {
       yield* TestClock.setTime(DateTime.toEpochMillis(DateTime.makeUnsafe("2026-11-07T12:00:00Z")));
-      const argon = (remainingFraction: number, resetTime: string) => ({
+      const argon = (remainingFraction: number, resetTime: string, geminiDisabled: boolean) => ({
         groups: [
+          {
+            displayName: "Gemini Models",
+            buckets: [
+              {
+                bucketId: "gemini-5h",
+                window: "5h",
+                remainingFraction: 1,
+                disabled: geminiDisabled,
+              },
+            ],
+          },
           {
             displayName: "Gemini 4 Argon",
             buckets: [
@@ -500,8 +511,8 @@ describe("Antigravity subscription limits", () => {
       const { probe } = yield* fixture({
         authMethod: "oauth-personal",
         summaryByHost: {
-          "daily-cloudcode-pa.googleapis.com": argon(0.8623059, "2026-11-14T08:41:35Z"),
-          "cloudcode-pa.googleapis.com": argon(0, "2026-11-08T18:27:14Z"),
+          "daily-cloudcode-pa.googleapis.com": argon(0.8623059, "2026-11-14T08:41:35Z", true),
+          "cloudcode-pa.googleapis.com": argon(0, "2026-11-08T18:27:14Z", false),
         },
       });
       expect((yield* probe).windows).toEqual([

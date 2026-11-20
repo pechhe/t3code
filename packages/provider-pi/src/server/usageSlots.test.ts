@@ -532,6 +532,86 @@ describe("readPiUsageSlots", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
+  // Oracle: a personal sign-in's live answers, where only the daily host matches the Antigravity CLI.
+  it.effect("reads Antigravity quota from the daily host it is metered on", () =>
+    Effect.gen(function* () {
+      const home = yield* writeAuth({
+        antigravity: {
+          type: "oauth",
+          access: "ag-token",
+          refresh: "ag-refresh",
+          expires: FUTURE_MS,
+          email: "hfpetch@gmail.com",
+        },
+      });
+      const answers: Record<string, unknown> = {
+        "daily-cloudcode-pa.googleapis.com": {
+          groups: [
+            {
+              displayName: "Gemini Models",
+              buckets: [
+                { bucketId: "gemini-weekly", window: "weekly", remainingFraction: 0 },
+                { bucketId: "gemini-5h", window: "5h", remainingFraction: 1, disabled: true },
+              ],
+            },
+            {
+              displayName: "Claude and GPT models",
+              buckets: [
+                { bucketId: "3p-weekly", window: "weekly", remainingFraction: 0.4982036 },
+                { bucketId: "3p-5h", window: "5h", remainingFraction: 0 },
+              ],
+            },
+          ],
+        },
+        "cloudcode-pa.googleapis.com": {
+          groups: [
+            {
+              displayName: "Gemini Models",
+              buckets: [
+                { bucketId: "gemini-weekly", window: "weekly", remainingFraction: 0.8076352 },
+                { bucketId: "gemini-5h", window: "5h", remainingFraction: 1 },
+              ],
+            },
+            {
+              displayName: "Claude and GPT models",
+              buckets: [
+                { bucketId: "3p-weekly", window: "weekly", remainingFraction: 0 },
+                { bucketId: "3p-5h", window: "5h", remainingFraction: 1, disabled: true },
+              ],
+            },
+            {
+              displayName: "Gemini 4 Argon",
+              buckets: [
+                { bucketId: "gemini-argon-wtu-weekly", window: "weekly", remainingFraction: 0.35 },
+              ],
+            },
+          ],
+        },
+      };
+      const slots = yield* readPiUsageSlots({ environment: { HOME: home } }).pipe(
+        Effect.provideService(
+          HttpClient.HttpClient,
+          HttpClient.make((request) =>
+            Effect.succeed(
+              HttpClientResponse.fromWeb(
+                request,
+                Response.json(answers[new URL(request.url).host]),
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(
+        slots[0]?.usageLimits.windows.map((window) => [window.id, window.usedPercent]),
+      ).toEqual([
+        ["3p-5h", 100],
+        ["3p-weekly", expect.closeTo(50.18, 2)],
+        ["gemini-argon-wtu-weekly", expect.closeTo(65, 2)],
+        ["gemini-weekly", 100],
+      ]);
+    }).pipe(Effect.provide(layerTest)),
+  );
+
   it.effect(
     "reads every account from antigravity-accounts.json, refreshes expired idle tokens in memory, and keeps slot keys stable across active-account switches",
     () =>
