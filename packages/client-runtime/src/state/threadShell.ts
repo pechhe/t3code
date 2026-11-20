@@ -242,6 +242,7 @@ function ownSubagentStatus(thread: OrchestrationV2ThreadShell): SubagentStatus |
   if (request !== null) return request === "approval" ? "approval" : "input";
   if (thread.blockedOnThreadWait === true) return "waiting";
   if (isChildRunLive(thread)) return "working";
+  if ((thread.parkedWaits?.length ?? 0) > 0) return "waiting";
   return backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? []) ? "waiting" : null;
 }
 

@@ -127,7 +127,11 @@ export interface EventSinkV2Shape {
     readonly events: ReadonlyArray<OrchestrationV2DomainEvent>;
   }) => Effect.Effect<ReadonlyArray<OrchestrationV2StoredEvent>, EventSinkV2Error>;
   readonly writeWithEffects: (input: {
-    readonly guardDelegatedCompletion?: { readonly threadId: ThreadId; readonly runId: RunId };
+    readonly guardDelegatedCompletion?: {
+      readonly threadId: ThreadId;
+      readonly runId: RunId;
+      readonly taskId?: NodeId;
+    };
     /**
      * Rebuilds each run.updated from the stored row with only its delegatedCompletion replaced.
      * The batch must not also change that run's lifecycle.
@@ -512,7 +516,6 @@ const layerBase: Layer.Layer<
               ["runs", "messages", "subagents", "providerThreads", "turnItems"],
               {
                 messageRoles: ["user"],
-                monitorNotificationsOnly: true,
                 ...delegatedTaskProgressTurnItems,
               },
             );
@@ -524,17 +527,23 @@ const layerBase: Layer.Layer<
             const run = child.runs.find((candidate) => candidate.id === guard.runId);
             const originalTaskId =
               child.thread.forkedFrom?.type === "node" ? child.thread.forkedFrom.nodeId : undefined;
-            const followup =
-              run?.delegatedTaskId !== undefined && run.delegatedTaskId !== originalTaskId;
+            const taskId = guard.taskId ?? run?.delegatedTaskId;
+            const followup = taskId !== undefined && taskId !== originalTaskId;
+            const taskRuns =
+              followup && taskId !== undefined ? delegatedTaskRuns(child, taskId) : [];
+            const ownedRunIds =
+              taskRuns.length === 0
+                ? undefined
+                : new Set(taskRuns.map((candidate) => candidate.id));
             const latestTaskRun =
-              followup && run?.delegatedTaskId !== undefined
-                ? delegatedTaskResultRun(delegatedTaskRuns(child, run.delegatedTaskId))
+              followup && taskId !== undefined
+                ? delegatedTaskResultRun(taskRuns)
                 : progress.resultRun;
             if (
               run === undefined ||
               latestTaskRun?.id !== guard.runId ||
               (followup
-                ? delegatedTaskRunHold(projection, run).held
+                ? delegatedTaskRunHold(projection, run, ownedRunIds).held
                 : progress.state !== "result_available")
             )
               return { committed: [], outcomes: [] };

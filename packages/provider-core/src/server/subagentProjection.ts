@@ -385,7 +385,8 @@ export type DelegatedTaskProjection = {
     Pick<OrchestrationV2ConversationMessage, "runId" | "notification">
   >;
   readonly subagents: ReadonlyArray<
-    Pick<OrchestrationV2ThreadProjection["subagents"][number], "status" | "completionDelivery">
+    Pick<OrchestrationV2ThreadProjection["subagents"][number], "status" | "completionDelivery"> &
+      Partial<Pick<OrchestrationV2ThreadProjection["subagents"][number], "runId">>
   >;
   readonly providerThreads: ReadonlyArray<
     Pick<
@@ -426,6 +427,7 @@ function waitHoldsDelegatedResult(
 export function delegatedTaskRunHold(
   projection: DelegatedTaskProjection,
   resultRun: OrchestrationV2Run,
+  ownedRunIds?: ReadonlySet<OrchestrationV2Run["id"]>,
 ): {
   readonly held: boolean;
   readonly abandonedBackgroundWork: ReadonlyArray<OrchestrationV2PendingBackgroundTask>;
@@ -437,10 +439,21 @@ export function delegatedTaskRunHold(
       .filter((run) => ["failed", "cancelled", "interrupted"].includes(run.status))
       .map((run) => String(run.id)),
   );
-  // A follow-up waits only on the work its own run started: a roster resends the tasks an earlier
+  // A follow-up waits only on the work its own runs started: a roster resends the tasks an earlier
   // run left running, and the projection keeps each one's run.
-  const startedByResultRun = (task: OrchestrationV2PendingBackgroundTask) =>
-    task.runId === undefined || task.runId === resultRun.id;
+  const ownsRun = (runId: OrchestrationV2Run["id"] | null | undefined) =>
+    runId == null || runId === resultRun.id || ownedRunIds?.has(runId) === true;
+  const startedByResultRun = (task: OrchestrationV2PendingBackgroundTask) => ownsRun(task.runId);
+  const overtakenByLaterRun =
+    ownedRunIds !== undefined &&
+    projection.runs.some(
+      (run) =>
+        !ownsRun(run.id) &&
+        (run.startedAt !== null || run.ordinal === 1) &&
+        run.status !== "rolled_back" &&
+        run.status !== "queued" &&
+        runRanAfter(run, resultRun),
+    );
   const backgroundWork = [
     ...new Map(
       [
@@ -467,12 +480,15 @@ export function delegatedTaskRunHold(
     projection.thread.lineage?.relationshipToParent === "subagent";
   const holdsWork = managed ? delegatedCompletionHold(backgroundWork) : backgroundWork.length > 0;
   const held =
-    (projection.pendingBlockingAdvice === true && resultRun.status === "completed") ||
-    (projection.thread.agentTask !== undefined &&
-      (projection.thread.parkedWaits ?? []).some((wait) =>
-        waitHoldsDelegatedResult(wait.target),
-      )) ||
-    projection.subagents.some(subagentHoldsCompletion) ||
+    (!overtakenByLaterRun &&
+      ((projection.pendingBlockingAdvice === true && resultRun.status === "completed") ||
+        (projection.thread.agentTask !== undefined &&
+          (projection.thread.parkedWaits ?? []).some((wait) =>
+            waitHoldsDelegatedResult(wait.target),
+          )))) ||
+    projection.subagents.some(
+      (task) => (ownedRunIds === undefined || ownsRun(task.runId)) && subagentHoldsCompletion(task),
+    ) ||
     holdsWork;
   return {
     held,

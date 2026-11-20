@@ -33,7 +33,10 @@ export function hasUndeliveredDelegatedResult(
   return subagents.some(
     (task) =>
       task.origin === "app_owned" &&
-      task.status !== "idle" &&
+      (task.status === "completed" ||
+        task.status === "failed" ||
+        task.status === "cancelled" ||
+        task.status === "interrupted") &&
       (task.completionDelivery?.state === "pending" ||
         task.completionDelivery?.state === "claimed"),
   );
@@ -118,9 +121,44 @@ export const makeDelegationReads = <ReadError, ShellError>(deps: {
 
   const hasPendingBlockingAdvice = Effect.fn("ProjectionStore.hasPendingBlockingAdvice")(
     function* (threadId: ThreadId) {
-      const rows =
-        yield* sql`SELECT 1 FROM advice_consultations WHERE worker_thread_id = ${threadId} AND worker_environment_id IS NULL AND (status = 'pending' OR (status = 'answered' AND answer_delivered = 0)) AND json_extract(payload_json, '$.blocking') = 1 LIMIT 1`;
-      return rows.length > 0;
+      const rows = yield* sql<{
+        readonly status: "pending" | "answered" | "cancelled";
+        readonly worker_run_id: string | null;
+        readonly request_id: string;
+        readonly latest_run_id: string | null;
+        readonly latest_user_message_id: string | null;
+      }>`WITH latest_executed AS (
+            SELECT run_id, json_extract(payload_json, '$.userMessageId') AS user_message_id
+            FROM orchestration_v2_projection_runs
+            WHERE thread_id = ${threadId}
+              AND status <> 'queued'
+              AND NOT (status = 'cancelled' AND json_extract(payload_json, '$.startedAt') IS NULL)
+            ORDER BY completed_at IS NULL DESC, completed_at DESC, ordinal DESC, run_id DESC
+            LIMIT 1
+          )
+          SELECT
+            advice_consultations.status AS status,
+            advice_consultations.worker_run_id AS worker_run_id,
+            advice_consultations.request_id AS request_id,
+            (SELECT run_id FROM latest_executed) AS latest_run_id,
+            (SELECT user_message_id FROM latest_executed) AS latest_user_message_id
+          FROM advice_consultations
+          WHERE worker_thread_id = ${threadId}
+            AND worker_environment_id IS NULL
+            AND json_extract(payload_json, '$.blocking') = 1
+            AND (
+              status = 'pending'
+              OR (status = 'answered' AND answer_delivered = 0)
+            )`;
+      return rows.some(
+        (row) =>
+          row.status === "pending" ||
+          row.worker_run_id === null ||
+          row.latest_run_id === null ||
+          row.latest_run_id === row.worker_run_id ||
+          row.latest_user_message_id ===
+            `message:answer:advice:${encodeURIComponent(threadId)}:${encodeURIComponent(row.request_id)}`,
+      );
     },
     (effect, threadId) => effect.pipe(Effect.mapError(controlReadError(threadId))),
   );

@@ -29,7 +29,7 @@ import {
   delegatedTaskRunHold,
   type delegatedTaskProgress,
 } from "@t3tools/provider-core/server/subagentProjection";
-import { delegatedTaskResultRun, runOutcome } from "./RestartBackgroundNote.ts";
+import { delegatedTaskResultRun, delegatedTaskRuns, runOutcome } from "./RestartBackgroundNote.ts";
 
 import type { PendingOrchestrationEffectV2 } from "./EffectOutbox.ts";
 import {
@@ -319,19 +319,22 @@ export function followupPublicationHold(input: {
       >["abandonedBackgroundWork"];
     } {
   const { childControls, progress, task } = input;
-  const taskRuns = childControls.runs.filter((run) => run.delegatedTaskId === task.id);
+  const taskRuns = delegatedTaskRuns(childControls, task.id);
   const taskRun =
     taskRuns.length === 0
       ? task.id === input.originalTaskId
         ? progress.resultRun
         : undefined
       : delegatedTaskResultRun(taskRuns);
+  const ownedRunIds =
+    taskRuns.length === 0 ? undefined : new Set(taskRuns.map((candidate) => candidate.id));
   const hold =
     taskRun === undefined || input.terminalStatusOf(runOutcome(taskRun)) === null
       ? undefined
       : delegatedTaskRunHold(
           { ...childControls, pendingBlockingAdvice: input.pendingBlockingAdvice },
           taskRun,
+          ownedRunIds,
         );
   if (
     progress.state !== "result_available" &&
@@ -353,6 +356,8 @@ export function continuedDelegatedTaskId(
   const continuedRunId =
     command.restartContinuationOfRunId ??
     command.manualContinuationOfRunId ??
+    command.usageLimitContinuationOfRunId ??
+    command.delegatedCompletion?.parentRunId ??
     (command.dispatchMode.type === "restart_active" ? command.dispatchMode.targetRunId : undefined);
   return runs.find((run) =>
     continuedRunId === undefined
@@ -430,12 +435,19 @@ export const ensureAdviceMayDeliver = Effect.fnUntraced(function* <E, E2>(input:
       ? destination.lineage.parentThreadId
       : command.threadId;
   if (parentId !== null) {
-    const owner = (yield* input.loadParentSubagents(parentId)).findLast(
+    const tasks = (yield* input.loadParentSubagents(parentId)).filter(
       (task) =>
         task.origin === "app_owned" &&
         (task.childThreadId === delivery.workerThreadId ||
           task.remoteChild?.threadId === delivery.workerThreadId),
     );
+    const owner =
+      tasks.findLast(
+        (task) =>
+          task.result === null &&
+          task.completionDelivery?.state !== "disposed" &&
+          !["completed", "failed", "interrupted", "cancelled"].includes(task.status),
+      ) ?? tasks.at(-1);
     if (
       owner === undefined ||
       owner.result !== null ||

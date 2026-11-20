@@ -5252,18 +5252,27 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                     WHERE request.thread_id = child.thread_id AND request.status = 'pending'
                       AND json_extract(task.payload_json, '$.cancelledRunId') = node.run_id
                   ) OR (
-                    -- The original task still waits for the latest unheld work.
+                    -- Any unfinalized app-owned task whose child thread has settled all unheld runs.
                     (SELECT status FROM orchestration_v2_projection_runs
                      WHERE thread_id = child.thread_id
                        AND NOT (status = 'queued' AND json_extract(payload_json, '$.queueHeld') IS 1)
                      ORDER BY ordinal DESC LIMIT 1
                     ) IN ('completed', 'interrupted', 'failed', 'cancelled', 'rolled_back')
-                    AND NOT EXISTS (
-                    SELECT 1 FROM orchestration_v2_projection_context_transfers
-                    WHERE source_thread_id = child.thread_id
-                      AND target_thread_id = json_extract(child.payload_json, '$.lineage.parentThreadId')
-                      AND type = 'subagent_result'
-                  )))
+                    AND (
+                      EXISTS (
+                        SELECT 1 FROM orchestration_v2_projection_subagents AS task
+                        WHERE task.child_thread_id = child.thread_id
+                          AND task.origin = 'app_owned'
+                          AND json_extract(task.payload_json, '$.result') IS NULL
+                      )
+                      OR NOT EXISTS (
+                        SELECT 1 FROM orchestration_v2_projection_context_transfers
+                        WHERE source_thread_id = child.thread_id
+                          AND target_thread_id = json_extract(child.payload_json, '$.lineage.parentThreadId')
+                          AND type = 'subagent_result'
+                      )
+                    )
+                  ))
               `;
             case "restart-continuations":
               return sql`
@@ -8536,7 +8545,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 SELECT 1
                 FROM orchestration_v2_projection_subagents task
                 WHERE task.thread_id = t.thread_id
-                  AND task.status <> 'idle'
+                  AND task.status IN ('completed', 'failed', 'cancelled', 'interrupted')
                   AND task.completion_delivery_state IN ('pending', 'claimed')
                   AND task.origin = 'app_owned'
               ) AS has_undelivered_delegated_result,

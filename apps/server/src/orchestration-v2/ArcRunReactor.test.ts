@@ -1,3 +1,4 @@
+import * as SqlClient from "effect/sql/SqlClient";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it } from "@effect/vitest";
 import {
@@ -1886,6 +1887,66 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
         });
         assert.deepEqual(yield* standings, ["working", "working"]);
 
+        // A follow-up task starts with completionDelivery "pending" while still running/waiting;
+        // that must not count as an undelivered result before the task itself is terminal.
+        const parkedNow = DateTime.formatIso(yield* DateTime.now);
+        for (const task of [first, second]) {
+          const childThread = yield* projections.getThread(task.childThreadId!);
+          yield* (yield* EventSink.EventSinkV2).write({
+            events: [
+              {
+                id: EventId.make(`event:parked-child:${task.id}`),
+                type: "thread.metadata-updated",
+                threadId: childThread.id,
+                occurredAt: yield* DateTime.now,
+                payload: {
+                  ...childThread,
+                  agentTask: {
+                    role: "implementer",
+                    taskClass: "non-ui",
+                    workId: "arc",
+                    attemptId: "1",
+                    workspacePath: "/tmp",
+                    executionBoundary: "workspace-sandbox",
+                    requestFingerprint: "a".repeat(64),
+                    policyHash: "b".repeat(64),
+                    policyRevision: "1",
+                    briefHash: "c".repeat(64),
+                    sourceAccess: "scoped-write",
+                    toolProfile: "implementation",
+                    requested: { instanceId, model: "gpt-5", pinned: true, options: [] },
+                    assigned: null,
+                    effective: { instanceId, model: "gpt-5", pinned: true, options: [] },
+                    browserTasks: true,
+                  },
+                  parkedWaits: [
+                    {
+                      id: `wait:${task.id}`,
+                      title: "Build #7497",
+                      startedAt: parkedNow,
+                      expectedAt: parkedNow,
+                      givesUpAt: parkedNow,
+                      target: { kind: "build_item", number: 7497, until: "unblocked" },
+                    },
+                  ],
+                },
+              },
+            ],
+          });
+          const childRun = yield* latestRun(task.childThreadId!);
+          yield* finish(childRun);
+          yield* settleTask(task, "running", "pending");
+        }
+        yield* orchestrator.recoverDelegatedTasks;
+        const afterSweep = (yield* projections.getThreadRecords(parent.threadId, ["subagents"]))
+          .subagents;
+        assert.isNull(afterSweep.find((task) => task.id === first.id)?.result ?? null);
+        assert.equal(afterSweep.find((task) => task.id === first.id)?.status, "running");
+        assert.equal(
+          (yield* orchestrator.getThreadShell(parent.threadId))?.standing?.state,
+          "waiting",
+        );
+
         yield* settleTask(first, "completed", "pending");
         assert.deepEqual(yield* standings, ["working", "working"]);
 
@@ -1897,6 +1958,196 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
         assert.deepEqual(yield* standings, ["working", "working"]);
         yield* settleTask(second, "completed", "acknowledged");
         assert.deepEqual(yield* standings, ["finished", "finished"]);
+      }),
+  );
+
+  it.effect(
+    "continues an open follow-up across subagent wakes and advice answers, and recovers superseded follow-up tasks without leaving the parent working",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const projections = yield* ProjectionStore.ProjectionStoreV2;
+        const sink = yield* EventSink.EventSinkV2;
+        const parent = yield* setup("followup-wake-advice-parent", { arc: false });
+        const original = yield* delegateSpec(parent.threadId, parent.run, "spec-lead");
+        const childId = original.childThreadId!;
+        yield* finish(yield* latestRun(childId));
+        yield* settleTask(original, "completed", "acknowledged");
+
+        // Start follow-up F1 on the child thread.
+        yield* orchestrator.dispatch({
+          type: "message.dispatch",
+          createdBy: "agent",
+          creationSource: "mcp",
+          commandId: CommandId.make("command:followup-f1"),
+          threadId: childId,
+          senderThreadId: parent.threadId,
+          messageId: MessageId.make("message:followup-f1"),
+          text: "Land the Spec after review.",
+          attachments: [],
+          dispatchMode: { type: "queue_after_active" },
+        });
+        const f1Run = yield* latestRun(childId);
+        const f1TaskId = f1Run.delegatedTaskId!;
+        assert.isDefined(f1TaskId);
+        assert.notEqual(f1TaskId, original.id);
+
+        // F1 spawns a reviewer subagent on the child thread, then F1's turn ends.
+        const reviewerTask = yield* delegateSpec(childId, f1Run, "reviewer");
+        yield* finish(f1Run);
+        yield* finish(yield* latestRun(reviewerTask.childThreadId!));
+
+        // The reviewer's completion wakes the child thread (delegatedCompletion.parentRunId = f1Run.id),
+        // and that wake run asks blocking advice before completing.
+        const now = yield* DateTime.now;
+        const wakeRunId = RunId.make(`run:${childId}:reviewer-wake`);
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`INSERT INTO advice_consultations (
+          worker_thread_id, worker_run_id, request_id, parent_thread_id, fingerprint, payload_json, status, request_delivered, answer_delivered
+        ) VALUES (
+          ${childId}, ${wakeRunId}, 'quota-advice', ${parent.threadId}, 'fp', '{"blocking":true}', 'pending', 1, 0
+        )`;
+        yield* settleTask(reviewerTask, "completed", "acknowledged");
+        yield* sink.write({
+          events: [
+            {
+              id: EventId.make("event:reviewer-wake-msg"),
+              type: "message.updated",
+              threadId: childId,
+              runId: wakeRunId,
+              occurredAt: now,
+              payload: {
+                id: MessageId.make("message:reviewer-wake"),
+                threadId: childId,
+                runId: wakeRunId,
+                nodeId: null,
+                role: "user",
+                text: "Reviewer finished.",
+                attachments: [],
+                streaming: false,
+                createdBy: "agent",
+                creationSource: "server",
+                delegatedCompletion: {
+                  parentRunId: f1Run.id,
+                  generation: 1,
+                  taskIds: [reviewerTask.id],
+                },
+                createdAt: now,
+                updatedAt: now,
+              },
+            },
+            {
+              id: EventId.make("event:reviewer-wake-run"),
+              type: "run.updated",
+              threadId: childId,
+              runId: wakeRunId,
+              occurredAt: now,
+              payload: {
+                ...f1Run,
+                id: wakeRunId,
+                ordinal: f1Run.ordinal + 1,
+                userMessageId: MessageId.make("message:reviewer-wake"),
+                delegatedTaskId: undefined,
+                status: "completed",
+                startedAt: now,
+                completedAt: now,
+              },
+            },
+          ],
+        });
+
+        // Parent answers advice while F1 is still open (result === null): it must continue F1
+        // rather than minting a competing follow-up subagent row.
+        yield* orchestrator.dispatch({
+          type: "message.dispatch",
+          createdBy: "agent",
+          creationSource: "server",
+          commandId: CommandId.make("command:answer:advice:f1"),
+          threadId: childId,
+          senderThreadId: parent.threadId,
+          messageId: MessageId.make("message:answer:advice:f1"),
+          text: "Advice from parent: proceed with Opus.",
+          attachments: [],
+          adviceDelivery: {
+            workerThreadId: childId,
+            runId: wakeRunId,
+            blocking: true,
+          },
+          dispatchMode: { type: "queue_after_active" },
+        });
+        // An earlier answered-but-undelivered consultation on F1's initial run (whose wake dispatch
+        // failed before the child moved on) is overtaken by the later run and must not hold F1.
+        yield* sql`INSERT INTO advice_consultations (
+          worker_thread_id, worker_run_id, request_id, parent_thread_id, fingerprint, payload_json, status, request_delivered, answer_delivered
+        ) VALUES (
+          ${childId}, ${f1Run.id}, 'undelivered-advice', ${parent.threadId}, 'fp-old', '{"blocking":true}', 'answered', 1, 0
+        )`;
+        yield* sql`UPDATE advice_consultations SET status = 'answered', answer_delivered = 1 WHERE worker_thread_id = ${childId} AND request_id = 'quota-advice'`;
+        const adviceRun = yield* latestRun(childId);
+        assert.equal(adviceRun.delegatedTaskId, f1TaskId);
+        const tasksAfterAdvice = (yield* projections.getThreadRecords(parent.threadId, [
+          "subagents",
+        ])).subagents.filter((task) => task.childThreadId === childId);
+        assert.equal(tasksAfterAdvice.length, 2);
+
+        // Even if a later follow-up F2 was already recorded and completed after F1's untagged wake
+        // run, recovery finalizes F1 (and its turn item) with disposed delivery so the parent
+        // neither stays stuck in WORKING nor receives a stale wake.
+        const f2TaskId = NodeId.make("node:delegated-task:command:followup-f2");
+        yield* sink.write({
+          events: [
+            {
+              id: EventId.make("event:advice-run-returns-untagged"),
+              type: "run.updated",
+              threadId: childId,
+              runId: adviceRun.id,
+              occurredAt: now,
+              payload: {
+                ...adviceRun,
+                delegatedTaskId: f2TaskId,
+                status: "completed",
+                startedAt: now,
+                completedAt: now,
+              },
+            },
+            {
+              id: EventId.make("event:f2-subagent"),
+              type: "subagent.updated",
+              threadId: parent.threadId,
+              runId: parent.run.id,
+              nodeId: f2TaskId,
+              driver: original.driver,
+              providerInstanceId: original.providerInstanceId,
+              occurredAt: now,
+              payload: {
+                ...original,
+                id: f2TaskId,
+                status: "completed",
+                result: "Landed.",
+                completionDelivery: { state: "acknowledged", observedByRunId: parent.run.id },
+                startedAt: now,
+                completedAt: now,
+                updatedAt: now,
+              },
+            },
+          ],
+        });
+        yield* finish(parent.run);
+        yield* orchestrator.recoverDelegatedTasks;
+
+        const settledParent = yield* projections.getThreadProjection(parent.threadId);
+        const settledF1 = settledParent.subagents.find((task) => task.id === f1TaskId)!;
+        assert.equal(settledF1.status, "completed");
+        assert.isNotNull(settledF1.result);
+        assert.equal(settledF1.completionDelivery?.state, "disposed");
+        const f1TurnItem = settledParent.turnItems.find(
+          (item) => item.type === "subagent" && item.subagentId === f1TaskId,
+        );
+        assert.equal(f1TurnItem?.status, "completed");
+
+        const parentShell = yield* orchestrator.getThreadShell(parent.threadId);
+        assert.deepEqual(parentShell?.pendingBackgroundTasks, []);
+        assert.equal(parentShell?.standing?.state, "finished");
       }),
   );
 

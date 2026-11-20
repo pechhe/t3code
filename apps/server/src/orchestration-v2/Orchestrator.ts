@@ -2065,7 +2065,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       effects: ReadonlyArray<PendingOrchestrationEffectV2> = [],
       options: {
         readonly updateDelegatedCompletionOnly?: boolean;
-        readonly guardDelegatedCompletion?: { readonly threadId: ThreadId; readonly runId: RunId };
+        readonly guardDelegatedCompletion?: {
+          readonly threadId: ThreadId;
+          readonly runId: RunId;
+          readonly taskId?: NodeId;
+        };
       } = {},
     ) {
       const withIds = yield* Effect.forEach(events, (event) => makeSystemEvent(event));
@@ -11454,15 +11458,19 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         (row) => row.id === message.runId,
       );
     if (run === undefined || run.delegatedTaskId !== undefined) return;
-    // A wake continues the latest follow-up while it is open, as it continues the original task.
-    const latestFollowupId =
-      command.notification === undefined
-        ? undefined
-        : (yield* projectionStore
-            .getThreadRecords(command.threadId, ["runs"])
-            .pipe(mapDispatchError(command))).runs
-            .filter((row) => row.id !== run.id && row.delegatedTaskId !== undefined)
-            .toSorted((a, b) => b.ordinal - a.ordinal)[0]?.delegatedTaskId;
+    // A wake, advice answer, limit recovery or pause resume continues the latest open follow-up.
+    const continuesOpenFollowup =
+      command.notification !== undefined ||
+      command.adviceDelivery?.workerThreadId === command.threadId ||
+      command.usageLimitContinuationOfRunId !== undefined ||
+      command.messageId.startsWith(PAUSED_TASK_RESUME_MESSAGE_PREFIX);
+    const latestFollowupId = !continuesOpenFollowup
+      ? undefined
+      : (yield* projectionStore
+          .getThreadRecords(command.threadId, ["runs"])
+          .pipe(mapDispatchError(command))).runs
+          .filter((row) => row.id !== run.id && row.delegatedTaskId !== undefined)
+          .toSorted((a, b) => b.ordinal - a.ordinal)[0]?.delegatedTaskId;
     const parent = yield* projectionStore
       .getThreadRecords(parentThreadId, ["runs", "subagents", "providerTurns", "attempts"], {
         subagentIds: [
@@ -16649,6 +16657,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const parentTurnItem = parentTask.turnItems.find(
         (candidate) => candidate.type === "subagent" && candidate.subagentId === task.id,
       );
+      const supersededByLaterRun = childControls.runs.some(
+        (run) =>
+          !taskRuns.some((owned) => owned.id === run.id) &&
+          !cancelledBeforeStart(run) &&
+          run.ordinal > childRun.ordinal &&
+          delegatedTaskTerminalStatus(run.status) !== null,
+      );
       const updatedTask: OrchestrationV2Subagent = {
         ...task,
         providerThreadId: childRun.providerThreadId,
@@ -16662,7 +16677,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               cancelledRunId: childRun.id,
               completionDelivery: { state: "disposed" as const, observedByRunId: null },
             }
-          : {}),
+          : supersededByLaterRun &&
+              task.completionDelivery?.state !== "acknowledged" &&
+              task.completionDelivery?.state !== "delivered"
+            ? {
+                completionDelivery: { state: "disposed" as const, observedByRunId: null },
+              }
+            : {}),
       };
       const completionPlan = yield* planDelegatedCompletionDelivery({
         parentProjection,
@@ -16772,7 +16793,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         }),
         {
           updateDelegatedCompletionOnly: true,
-          guardDelegatedCompletion: { threadId: childThreadId, runId: childRun.id },
+          guardDelegatedCompletion: {
+            threadId: childThreadId,
+            runId: childRun.id,
+            taskId: task.id,
+          },
         },
       );
       if (published.length === 0) return;

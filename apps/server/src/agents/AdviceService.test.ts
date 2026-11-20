@@ -657,6 +657,40 @@ it.effect(
 );
 
 it.effect(
+  "recovery keeps a pending consultation across a later worker run, and disposes an undelivered answered consultation once overtaken",
+  () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      yield* Effect.gen(function* () {
+        const service = yield* Advice.AdviceService;
+        yield* service.ask(scope(workerId), "overtaken", question);
+        expect(f.messages.size).toBe(1);
+        // A later run starts on the worker thread while the request is still pending:
+        // recovery must keep the unanswered consultation pending.
+        const followupMsgId = "message:later-followup" as never;
+        f.messages.set(followupMsgId, {
+          type: "message.dispatch",
+          threadId: workerId,
+          messageId: followupMsgId,
+        } as never);
+        f.startedMessages.add(followupMsgId);
+        yield* service.recover();
+        expect(yield* service.read(scope(parentId), workerId, "overtaken")).toMatchObject({
+          status: "pending",
+        });
+        // Once the parent answers, if the wake dispatch fails and the worker is already on
+        // a later run, recovery disposes the overtaken answered row without waking the worker.
+        yield* Ref.set(f.failDispatch, true);
+        yield* service.answer(scope(parentId), workerId, "overtaken", "Proceed.");
+        expect(f.messages.size).toBe(2);
+        yield* Ref.set(f.failDispatch, false);
+        yield* service.recover();
+        expect(f.messages.size).toBe(2);
+      }).pipe(Effect.provide(f.layer));
+    }),
+);
+
+it.effect(
   "a linked worker refuses an unaccepted consultation while its parent delivery channel is unavailable",
   () =>
     Effect.gen(function* () {

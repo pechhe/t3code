@@ -245,6 +245,25 @@ const make = Effect.gen(function* () {
       ["completed", "cancelled", "interrupted", "failed"].includes(task.status)
     )
       return yield* denied();
+    if (
+      parent.thread.lineage.relationshipToParent === "subagent" &&
+      parent.thread.lineage.parentThreadId !== null
+    ) {
+      const ancestor = yield* records(parent.thread.lineage.parentThreadId).pipe(Effect.option);
+      const parentTask =
+        ancestor._tag === "None"
+          ? undefined
+          : ancestor.value.subagents.findLast(
+              (candidate) =>
+                candidate.origin === "app_owned" && candidate.childThreadId === parentThreadId,
+            );
+      if (
+        parentTask !== undefined &&
+        (parentTask.completionDelivery?.state === "disposed" ||
+          ["completed", "cancelled", "interrupted", "failed"].includes(parentTask.status))
+      )
+        return yield* denied();
+    }
     return { parent, task };
   });
   const authorizePeer = Effect.fn("AdviceService.authorizePeer")(function* (
@@ -788,7 +807,7 @@ const make = Effect.gen(function* () {
     yield* sql
       .withTransaction(
         Effect.gen(function* () {
-          yield* sql`UPDATE advice_consultations SET status = CASE WHEN status = 'pending' THEN 'cancelled' ELSE status END, payload_json = CASE WHEN status = 'pending' THEN json_set(payload_json, '$.status', 'cancelled') ELSE payload_json END WHERE worker_thread_id = ${row.worker_thread_id} AND request_id = ${row.request_id}`;
+          yield* sql`UPDATE advice_consultations SET status = CASE WHEN status = 'pending' THEN 'cancelled' ELSE status END, payload_json = CASE WHEN status = 'pending' THEN json_set(payload_json, '$.status', 'cancelled') ELSE payload_json END, answer_delivered = 1 WHERE worker_thread_id = ${row.worker_thread_id} AND request_id = ${row.request_id}`;
           yield* sql`UPDATE advice_request_keys SET pending = 0 WHERE worker_thread_id = ${row.worker_thread_id} AND request_id = ${row.request_id}`;
         }),
       )
@@ -796,9 +815,6 @@ const make = Effect.gen(function* () {
     yield* PubSub.publish(changes, ThreadId.make(row.worker_thread_id));
     yield* cancelWake(row);
     yield* settle(row);
-    yield* sql`UPDATE advice_consultations SET answer_delivered = 1 WHERE worker_thread_id = ${row.worker_thread_id} AND request_id = ${row.request_id}`.pipe(
-      Effect.mapError(unavailable),
-    );
   });
   const recover: AdviceService["Service"]["recover"] = Effect.fn("AdviceService.recover")(
     function* () {
@@ -819,10 +835,17 @@ const make = Effect.gen(function* () {
         }
         const worker = yield* shell(ThreadId.make(row.worker_thread_id));
         const latest = worker === null ? null : latestExecutedRun((yield* records(worker.id)).runs);
+        const overtaken =
+          row.status === "answered" &&
+          row.worker_run_id !== null &&
+          latest !== null &&
+          latest.id !== row.worker_run_id &&
+          latest.userMessageId !== `message:answer:${wakeId(row)}`;
         const ended =
           worker === null ||
           worker.archivedAt !== null ||
           worker.deletedAt !== null ||
+          overtaken ||
           (latest !== null &&
             (["cancelled", "interrupted", "failed", "rolled_back"].includes(latest.status) ||
               (latest.status === "completed" &&

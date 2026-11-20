@@ -1000,6 +1000,22 @@ describe("subagent live state", () => {
     expect(
       activityOf(shell("lead", parent, "lead", { activityRunStatus: null, status: "completed" })),
     ).toBeUndefined();
+    expect(
+      activityOf(
+        shell("lead", parent, "lead", {
+          activityRunStatus: null,
+          status: "completed",
+          parkedWaits: [
+            {
+              id: "wait:time",
+              title: "quota reset",
+              startedAt: "2026-11-19T01:00:00.000Z",
+              target: { kind: "time", at: "2026-11-19T02:26:00.000Z" },
+            },
+          ],
+        }),
+      ),
+    ).toMatchObject({ status: "waiting", role: "lead", count: 1 });
   });
 });
 
