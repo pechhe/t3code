@@ -1378,7 +1378,7 @@ const make = Effect.gen(function* () {
                     automatic
                       ? afterLimit === undefined
                         ? "The provider was overloaded, so the server retried the check. The retry retains the check definitions and owner."
-                        : "The model reached its usage limit, so the server retried the check once on the backup model. The retry retains the check definitions and owner."
+                        : `The model reached its usage limit, so the server retried the check once on ${retry.executionAttempt?.slot === "backup" ? "the backup model" : "another account of the main model"}. The retry retains the check definitions and owner.`
                       : "The previous run ended without an authenticated report. A manual retry retains the check definitions and owner.",
                     undefined,
                     retry.threadId,
