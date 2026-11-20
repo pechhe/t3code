@@ -1,11 +1,13 @@
 import { DEFAULT_SERVER_SETTINGS, type ServerSettings } from "@t3tools/contracts";
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
+import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 
@@ -41,6 +43,15 @@ export const layer = (
         yield* fileSystem.makeDirectory(directory, { recursive: true }).pipe(Effect.orDie);
       }
       const settings = yield* Ref.make(options.settings ?? DEFAULT_SERVER_SETTINGS);
+      const changesPubSub = yield* Effect.acquireRelease(
+        PubSub.unbounded<ServerSettings>(),
+        PubSub.shutdown,
+      );
+      const publishSettings = (next: ServerSettings) =>
+        Ref.set(settings, next).pipe(
+          Effect.andThen(PubSub.publish(changesPubSub, next)),
+          Effect.as(next),
+        );
       const credentials = new Map<string, Uint8Array>();
       const host = ProviderHost.ProviderHost.of({
         paths: {
@@ -52,9 +63,16 @@ export const layer = (
         },
         settings: {
           get: Ref.get(settings),
+          update: (patch) =>
+            Ref.get(settings).pipe(
+              Effect.map((current) => applyServerSettingsPatch(current, patch)),
+              Effect.flatMap(publishSettings),
+            ),
           withSnapshot: (use) => Ref.get(settings).pipe(Effect.flatMap(use)),
-          changes: Stream.empty,
-          subscribe: Effect.succeed(Stream.empty),
+          changes: Stream.fromPubSub(changesPubSub),
+          subscribe: PubSub.subscribe(changesPubSub).pipe(
+            Effect.map((subscription) => Stream.fromSubscription(subscription)),
+          ),
         },
         shouldRunBackgroundWork: Effect.fn("ProviderHost.shouldRunBackgroundWork")(function () {
           return Effect.succeed(options.runBackgroundWork ?? true);
@@ -74,7 +92,7 @@ export const layer = (
       });
       return Context.make(ProviderHost.ProviderHost, host).pipe(
         Context.add(TestProviderHostSettings, {
-          set: (next) => Ref.set(settings, next),
+          set: (next) => publishSettings(next).pipe(Effect.asVoid),
         }),
       );
     }),

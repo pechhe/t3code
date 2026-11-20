@@ -2,16 +2,20 @@
 import {
   ProviderDriverKind,
   type ServerProvider,
+  type ServerProviderModel,
   type ServerProviderUsageSlot,
+  type ServerSettings,
 } from "@t3tools/contracts";
 import { PiSettings } from "../settings.ts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Equal from "effect/Equal";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Ref from "effect/Ref";
 import * as Digest from "effect/crypto/Digest";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/http/HttpClient";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
@@ -23,6 +27,7 @@ import {
   probePiUsageSlots,
   retainPriorUsageSlots,
 } from "./usageSlots.ts";
+import { reconcilePiScopedModels } from "./enabledModels.ts";
 import { makePiTextGeneration } from "./textGeneration.ts";
 import { PiAdapterV2Driver, type PiAdapterV2DriverEnv } from "./adapter.ts";
 import { ProviderDriverError } from "@t3tools/provider-core/server/errors";
@@ -86,6 +91,16 @@ const withInstanceIdentity =
     ...(input.accentColor ? { accentColor: input.accentColor } : {}),
     continuation: { groupKey: input.continuationGroupKey },
   });
+
+const piInstanceModelPreferenceView = (
+  settings: ServerSettings,
+  instanceId: ProviderInstance["instanceId"],
+) => ({
+  preferences: settings.providerModelPreferences?.[instanceId],
+  favorites: (settings.favorites ?? [])
+    .filter((favorite) => favorite.provider === instanceId)
+    .map((favorite) => favorite.model),
+});
 
 export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
   driverKind: DRIVER_KIND,
@@ -156,6 +171,28 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
     );
     const textGeneration = yield* makePiTextGeneration(effectiveConfig, processEnv);
 
+    const lastDiscoveredModelsRef = yield* Ref.make<ReadonlyArray<ServerProviderModel>>([]);
+    const syncScopedModelsFromPi = Effect.fn("PiDriver.syncScopedModelsFromPi")(function* (
+      snapshot: ServerProvider,
+    ) {
+      if (!effectiveConfig.enabled || snapshot.auth.status !== "authenticated") {
+        return snapshot;
+      }
+      yield* Ref.set(lastDiscoveredModelsRef, snapshot.models);
+      yield* reconcilePiScopedModels({
+        instanceId,
+        environment: processEnv,
+        discoveredModels: snapshot.models,
+        getSettings: host.settings.get,
+        updateSettings: host.settings.update,
+        direction: "from-pi",
+      }).pipe(
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.ignoreCause({ log: true }),
+      );
+      return snapshot;
+    });
+
     const checkProvider = fileSystem
       .makeDirectory(probeCwd, { recursive: true })
       .pipe(
@@ -203,7 +240,10 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
       haveSettingsChanged: haveProviderSnapshotSettingsChanged,
       initialSnapshot: (settings) =>
         buildInitialPiProviderSnapshot(settings.provider).pipe(Effect.map(stampIdentity)),
-      checkProvider: checkProvider.pipe(Effect.flatMap(attachUsageSlots)),
+      checkProvider: checkProvider.pipe(
+        Effect.flatMap(syncScopedModelsFromPi),
+        Effect.flatMap(attachUsageSlots),
+      ),
       enrichSnapshot: ({ settings, snapshot: currentSnapshot, publishSnapshot }) =>
         resolveMaintenance().pipe(
           Effect.flatMap((maintenanceCapabilities) =>
@@ -227,6 +267,45 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
             cause,
           }),
       ),
+    );
+
+    const initialPreferenceView = yield* host.settings.get.pipe(
+      Effect.map((current) => piInstanceModelPreferenceView(current, instanceId)),
+      Effect.orElseSucceed(() => undefined),
+    );
+    const settingsChanges = yield* host.settings.subscribe;
+    yield* (
+      initialPreferenceView === undefined
+        ? settingsChanges.pipe(
+            Stream.map((current) => piInstanceModelPreferenceView(current, instanceId)),
+            Stream.changesWith(Equal.equals),
+          )
+        : Stream.concat(
+            Stream.make(initialPreferenceView),
+            settingsChanges.pipe(
+              Stream.map((current) => piInstanceModelPreferenceView(current, instanceId)),
+            ),
+          ).pipe(Stream.changesWith(Equal.equals), Stream.drop(1))
+    ).pipe(
+      Stream.runForEach(() =>
+        Ref.get(lastDiscoveredModelsRef).pipe(
+          Effect.flatMap((discoveredModels) =>
+            discoveredModels.length === 0
+              ? Effect.void
+              : reconcilePiScopedModels({
+                  instanceId,
+                  environment: processEnv,
+                  discoveredModels,
+                  getSettings: host.settings.get,
+                  direction: "to-pi",
+                }).pipe(
+                  Effect.provideService(FileSystem.FileSystem, fileSystem),
+                  Effect.ignoreCause({ log: true }),
+                ),
+          ),
+        ),
+      ),
+      Effect.forkScoped,
     );
 
     // Re-reads every account's allowance alone; a probe that cannot read credentials changes nothing.
@@ -271,6 +350,7 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
               Effect.map(([machineSnapshot, commands]) => ({
                 ...machineSnapshot,
                 ...commands,
+
                 slashCommandsPending: false,
               })),
             ),

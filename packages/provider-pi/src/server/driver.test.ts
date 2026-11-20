@@ -2,7 +2,9 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it } from "@effect/vitest";
 import { DEFAULT_SERVER_SETTINGS, ProviderInstanceId } from "@t3tools/contracts";
+import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import * as Deferred from "effect/Deferred";
+import * as FileSystem from "effect/FileSystem";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Queue from "effect/Queue";
@@ -239,6 +241,82 @@ it.layer(layerTest)("PiDriver workspace discovery", (it) => {
             ["test/other", []],
           ],
         );
+      }),
+  );
+
+  it.effect(
+    "links Pi enabledModels in settings.json with T3 providerModelPreferences in both directions",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const agentDir = yield* fs.makeTempDirectoryScoped({ prefix: "pi-driver-scoped-" });
+        const settingsPath = `${agentDir}/settings.json`;
+        yield* fs.writeFileString(
+          settingsPath,
+          JSON.stringify({
+            enabledModels: ["test/model:high"],
+          }),
+        );
+        const { spawner } = yield* makePiSpawner({
+          models: [
+            { provider: "test", id: "model" },
+            { provider: "openrouter", id: "google/gemini-4-neon" },
+            { provider: "openrouter", id: "google/gemini-4-neon:batch" },
+          ],
+        });
+        const host = yield* ProviderHost.ProviderHost;
+        const instanceId = ProviderInstanceId.make("pi-workspace-test");
+        const settingsWritten = yield* Deferred.make<void>();
+        const realWriteFileString = fs.writeFileString;
+        const watchedFs = FileSystem.FileSystem.of({
+          ...fs,
+          writeFileString: (path, data, options) =>
+            realWriteFileString(path, data, options).pipe(
+              Effect.tap(() =>
+                path === settingsPath
+                  ? Deferred.succeed(settingsWritten, undefined).pipe(Effect.asVoid)
+                  : Effect.void,
+              ),
+            ),
+        });
+        const instance = yield* PiDriver.create({
+          instanceId,
+          displayName: "My Pi",
+          accentColor: "#abcdef",
+          environment: [{ name: "PI_CODING_AGENT_DIR", value: agentDir, sensitive: false }],
+          enabled: true,
+          config: { ...PiDriver.defaultConfig(), binaryPath: "custom-pi" },
+        }).pipe(
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+          Effect.provideService(FileSystem.FileSystem, watchedFs),
+        );
+
+        yield* instance.snapshot.refresh;
+        const afterProbe = yield* host.settings.get;
+        assert.deepEqual(afterProbe.providerModelPreferences?.[instanceId], {
+          hiddenModels: [
+            "openrouter/google/gemini-4-neon",
+            "openrouter/google/gemini-4-neon:batch",
+          ],
+          modelOrder: ["test/model"],
+        });
+
+        // Toggling a model on in T3 writes back to Pi's settings.json.
+        yield* host.settings.update!({
+          setModelsHidden: [
+            {
+              provider: instanceId,
+              model: "openrouter/google/gemini-4-neon",
+              hidden: false,
+            },
+          ],
+        });
+        yield* Deferred.await(settingsWritten);
+        const written = JSON.parse(yield* fs.readFileString(settingsPath));
+        assert.deepEqual(written.enabledModels, [
+          "test/model:high",
+          "openrouter/google/gemini-4-neon",
+        ]);
       }),
   );
 

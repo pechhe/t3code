@@ -1122,6 +1122,19 @@ describe("synchronized model preferences", () => {
     ).toEqual([]);
   });
 
+  it("unhides a hidden model when it is starred as a favorite", () => {
+    const hidden = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      setModelsHidden: [
+        { provider, model: "sol", hidden: true },
+        { provider, model: "astra", hidden: true },
+      ],
+    });
+    const starred = applyServerSettingsPatch(hidden, {
+      setModelFavorites: [{ provider, model: "sol", favorite: true }],
+    });
+    expect(starred.providerModelPreferences?.[provider]?.hiddenModels).toEqual(["astra"]);
+  });
+
   it("keeps the same model on different provider instances as separate favorites", () => {
     const otherProvider = ProviderInstanceId.make("codex_personal");
     const first = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {

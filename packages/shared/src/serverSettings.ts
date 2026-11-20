@@ -521,6 +521,21 @@ export function applyServerSettingsPatch(
     }
     nextModelPreferences = updated;
   }
+  if (setModelFavorites?.length && nextModelPreferences !== null) {
+    const updated = { ...nextModelPreferences };
+    let changed = false;
+    for (const change of setModelFavorites) {
+      if (!change.favorite || !Object.hasOwn(updated, change.provider)) continue;
+      const preferences = updated[change.provider];
+      if (!preferences?.hiddenModels.includes(change.model)) continue;
+      changed = true;
+      updated[change.provider] = {
+        ...preferences,
+        hiddenModels: preferences.hiddenModels.filter((model) => model !== change.model),
+      };
+    }
+    if (changed) nextModelPreferences = updated;
+  }
   if (setProviderModelOrder) {
     const preferences = nextModelPreferences?.[setProviderModelOrder.provider] ?? {
       hiddenModels: [],

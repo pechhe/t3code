@@ -3,6 +3,7 @@ import type {
   ChatAttachment,
   ServerSettings,
   ServerSettingsError,
+  ServerSettingsPatch,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
@@ -35,6 +36,9 @@ export class ProviderHost extends Context.Service<
     readonly paths: ProviderHostPaths;
     readonly settings: {
       readonly get: Effect.Effect<ServerSettings, ServerSettingsError>;
+      readonly update?: (
+        patch: ServerSettingsPatch,
+      ) => Effect.Effect<ServerSettings, ServerSettingsError>;
       /** Runs `use` on a settings snapshot that no settings write can change until it finishes. */
       readonly withSnapshot: <A, E, R>(
         use: (settings: ServerSettings) => Effect.Effect<A, E, R>,
