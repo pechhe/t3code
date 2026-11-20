@@ -72,7 +72,7 @@ export function ReleaseButton({ environmentId }: { environmentId: EnvironmentId 
   // A minute is the finest an age at rest shows; a running deploy counts seconds.
   const now = useNow(overview != null, deploying ? 1000 : 30_000);
   const [clock, setClock] = useState<ReleasePhaseClock>({});
-  // Notes when each phase was first seen, which the runner does not report once it is over.
+  // Keeps when each phase began, which the runner does not report once it is over.
   const seenClock =
     overview == null
       ? clock
@@ -84,7 +84,6 @@ export function ReleaseButton({ environmentId }: { environmentId: EnvironmentId 
                   next,
                   releaseClockKey(repository.repo, repository.release.candidate?.commitId ?? null),
                   resolveReleaseProgress(repository.repo, repository.release, overview),
-                  now,
                 ),
           clock,
         );

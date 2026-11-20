@@ -595,11 +595,11 @@ describe("release progress", () => {
 
   it("times a finished phase to where the next began and the current one to now", () => {
     const progress = resolveReleaseProgress("o/r", verifying, overview());
+    const at = (ms: number) => new Date(ms).toISOString();
     const clock = advanceReleaseClock(
-      advanceReleaseClock({}, "o/r@x", { ...progress, phase: "audit" }, 1_000),
+      advanceReleaseClock({}, "o/r@x", { ...progress, phase: "audit", startedAt: at(1_000) }),
       "o/r@x",
-      { ...progress, startedAt: new Date(61_000).toISOString() },
-      70_000,
+      { ...progress, startedAt: at(61_000) },
     );
     expect(resolveReleaseStepTimes(progress.steps, clock["o/r@x"], 100_000)).toEqual([
       null,
@@ -607,5 +607,18 @@ describe("release progress", () => {
       39_000,
       null,
     ]);
+  });
+
+  it("times no phase while nothing runs in it, such as a candidate waiting to be verified", () => {
+    const waiting = resolveReleaseProgress("o/r", verifying, overview());
+    const earlier = landing({ kind: "verification", startedAt: "2026-10-30T12:00:00Z" });
+    const checked = resolveReleaseProgress("o/r", verifying, overview({ serial: [earlier] }));
+    // Seen waiting, and waiting again after an earlier verification of it finished.
+    for (const clock of [{}, advanceReleaseClock({}, "o/r@x", checked)]) {
+      const starts = advanceReleaseClock(clock, "o/r@x", waiting)["o/r@x"];
+      expect(
+        resolveReleaseStepTimes(waiting.steps, starts, Date.parse("2026-10-30T12:10:00Z"))[2],
+      ).toBeNull();
+    }
   });
 });

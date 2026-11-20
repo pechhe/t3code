@@ -324,7 +324,7 @@ export function resolveReleaseProgress(
   };
 }
 
-/** When each phase of a release was first seen, in ms, by `repo@candidate`. */
+/** When each phase of a release began, in ms, by `repo@candidate`. */
 export type ReleasePhaseClock = Readonly<
   Record<string, Readonly<Partial<Record<ReleasePhase, number>>>>
 >;
@@ -332,19 +332,26 @@ export type ReleasePhaseClock = Readonly<
 export const releaseClockKey = (repo: string, candidate: string | null) =>
   `${repo}@${candidate ?? ""}`;
 
-/** The clock with this phase's start noted; the same object when nothing changed. */
+/**
+ * The clock with the current phase's start noted; the same object when nothing changed. A phase
+ * nothing runs in, such as a candidate waiting to be verified, has no start: waiting is not work.
+ */
 export function advanceReleaseClock(
   clock: ReleasePhaseClock,
   key: string,
   progress: ReleaseProgress,
-  now: number,
 ): ReleasePhaseClock {
   if (progress.phase === null) return clock;
-  const known = progress.startedAt === null ? Number.NaN : Date.parse(progress.startedAt);
-  const seen = clock[key]?.[progress.phase];
-  const start = Number.isNaN(known) ? (seen ?? now) : known;
-  if (seen === start) return clock;
-  return { ...clock, [key]: { ...clock[key], [progress.phase]: start } };
+  const start = progress.startedAt === null ? Number.NaN : Date.parse(progress.startedAt);
+  const starts = clock[key] ?? {};
+  if (Number.isNaN(start)) {
+    if (starts[progress.phase] === undefined) return clock;
+    const next = { ...starts };
+    delete next[progress.phase];
+    return { ...clock, [key]: next };
+  }
+  if (starts[progress.phase] === start) return clock;
+  return { ...clock, [key]: { ...starts, [progress.phase]: start } };
 }
 
 /**
