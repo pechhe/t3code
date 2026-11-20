@@ -5,7 +5,6 @@ import {
   type PendingSubagentRequest,
   presentThreadShell,
 } from "@t3tools/client-runtime/state/models";
-import { hiddenSideChatIds } from "@t3tools/contracts";
 import { isShownUnderParent } from "@t3tools/client-runtime/state/threads";
 import type { AnyRouter } from "@tanstack/react-router";
 import { parseThreadKey, threadKey } from "@t3tools/client-runtime/state/entities";
@@ -251,7 +250,6 @@ export function startThreadNotifications(
   ) => {
     const previous = entry.previous;
     const next = new Map<ThreadId, NotificationState>();
-    const hiddenSideChats = hiddenSideChatIds(threads);
     // A parent here also hears of what its tasks on linked environments ask.
     const subagentRequests = registry.get(
       environmentThreadShells.pendingSubagentRequestsAtom(environmentId),
@@ -260,7 +258,6 @@ export function startThreadNotifications(
     const changed: Array<[NotificationState | undefined, NotificationState]> = [];
     for (const rawThread of threads) {
       if (
-        hiddenSideChats.has(rawThread.id) ||
         isShownUnderParent(
           { environmentId, threadId: rawThread.id },
           rawThread.lineage,

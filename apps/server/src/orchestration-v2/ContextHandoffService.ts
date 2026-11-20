@@ -1,4 +1,3 @@
-import { isSideChatThread } from "@t3tools/contracts";
 import {
   type OrchestrationV2AppThread,
   OrchestrationV2ContextHandoff,
@@ -188,7 +187,7 @@ export const readInheritedHandoffItems = Effect.fn(
   let current = thread;
   while (
     current.forkedFrom?.type === "run" &&
-    !isSideChatThread(current) &&
+    current.lineage.sideChat !== true &&
     !seen.has(current.forkedFrom.threadId)
   ) {
     const { threadId, runId } = current.forkedFrom;

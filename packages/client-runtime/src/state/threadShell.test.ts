@@ -124,51 +124,38 @@ describe("v2 thread shell lists", () => {
     registry.dispose();
   });
 
-  it("keeps side chats out of every list and finds a thread's newest side chat", () => {
+  it("never lists a side chat, whether or not its parent is listed", () => {
     const { registry, threads, snapshotAtom } = makeHarness();
     const root = v2ThreadShell;
-    const sideChat = (id: string, createdAt: string) => ({
+    const sideChat = {
       ...root,
-      id: ThreadId.make(id),
-      sideChat: true,
-      createdAt: DateTime.makeUnsafe(createdAt),
-      lineage: { ...root.lineage, parentThreadId: root.id, relationshipToParent: "fork" as const },
-    });
-    const older = sideChat("side-older", "2026-01-01T00:00:00.000Z");
-    const newer = sideChat("side-newer", "2026-01-02T00:00:00.000Z");
-    registry.set(snapshotAtom(environmentId), {
-      ...v2ShellSnapshot,
-      threads: [root, newer, older],
-    });
-    const sideChatId = threads.sideChatThreadIdAtom({ environmentId, threadId: root.id });
+      id: ThreadId.make("side-chat"),
+      lineage: {
+        ...root.lineage,
+        parentThreadId: root.id,
+        relationshipToParent: "fork" as const,
+        sideChat: true,
+      },
+    };
+    registry.set(snapshotAtom(environmentId), { ...v2ShellSnapshot, threads: [root, sideChat] });
     const dispose = registry.mount(threads.navigationThreadShellsAtom);
-    const disposeSideChat = registry.mount(sideChatId);
     expect(registry.get(threads.navigationThreadShellsAtom).map((thread) => thread.id)).toEqual([
       root.id,
     ]);
-    expect(registry.get(sideChatId)).toBe(newer.id);
-    // Every list leaves side chats out; they stay reachable by id.
-    expect(registry.get(threads.threadShellsAtom).map((thread) => thread.id)).toEqual([root.id]);
-    expect(registry.get(threads.threadRefsAtom).map((ref) => ref.threadId)).toEqual([root.id]);
-    expect(registry.get(threads.threadShellAtom({ environmentId, threadId: newer.id }))?.id).toBe(
-      newer.id,
-    );
+    expect(
+      registry.get(threads.threadShellAtom({ environmentId, threadId: sideChat.id }))?.id,
+    ).toBe(sideChat.id);
 
-    // Keeping the side chat turns it into an ordinary, listed fork.
-    registry.set(snapshotAtom(environmentId), {
-      ...v2ShellSnapshot,
-      threads: [root, { ...newer, sideChat: false }, older],
-    });
+    registry.set(snapshotAtom(environmentId), { ...v2ShellSnapshot, threads: [sideChat] });
+    expect(registry.get(threads.navigationThreadShellsAtom)).toEqual([]);
+
+    // The fork's retired flag on a stored thread means nothing: only the lineage flag hides.
+    const oldFlag = { ...root, id: ThreadId.make("old-flag"), sideChat: true };
+    registry.set(snapshotAtom(environmentId), { ...v2ShellSnapshot, threads: [root, oldFlag] });
     expect(registry.get(threads.navigationThreadShellsAtom).map((thread) => thread.id)).toEqual([
       root.id,
-      newer.id,
+      oldFlag.id,
     ]);
-    expect(registry.get(sideChatId)).toBe(older.id);
-
-    // Once its parent is gone, a side chat is listed so it can be found and deleted.
-    registry.set(snapshotAtom(environmentId), { ...v2ShellSnapshot, threads: [older] });
-    expect(registry.get(threads.threadShellsAtom).map((thread) => thread.id)).toEqual([older.id]);
-    disposeSideChat();
     dispose();
     registry.dispose();
   });
@@ -892,11 +879,19 @@ describe("subagent live state", () => {
     });
   });
 
-  it("orders the panel by role and leaves provider-native subagents out", () => {
+  it("orders the panel by role and leaves provider-native subagents and side chats out", () => {
     const threads = [
       shell("advisor", parent, "advisor"),
       shell("implementer", parent, "implementer"),
       shell("native", parent, null, { creationSource: "provider" }),
+      shell("side-chat", parent, null, {
+        lineage: {
+          ...v2ThreadShell.lineage,
+          parentThreadId: parent,
+          relationshipToParent: "fork",
+          sideChat: true,
+        },
+      }),
       shell("lead", parent, "lead"),
       shell("unroled", parent, null),
       shell("below", ThreadId.make("lead"), "implementer"),

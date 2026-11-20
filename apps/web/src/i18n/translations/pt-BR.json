@@ -3135,10 +3135,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "no computador que abriu esta página"
-      ]
+      "c": [" ", "no computador que abriu esta página"]
     }
   ],
   "b2d53b4d1d48fbef": [
@@ -3150,10 +3147,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "· quem executar recebe este acesso"
-      ]
+      "c": [" ", "· quem executar recebe este acesso"]
     }
   ],
   "c54cc9c75db9dc58": "Aprove apenas um login que você acabou de iniciar.",
@@ -3998,8 +3992,6 @@
   "e42d6bd2de470521": "Excluir chat paralelo",
   "6a116665c8d9ad75": "Fechar chat paralelo",
   "a5e57fdfde50aade": "Adicionar ao chat",
-  "c73d715fec362f33": "Use in main",
-  "0cf9bd8a980ef83a": "Puts this answer in the main thread's draft",
   "492a438bf9dbd45d": "Este chat paralelo foi excluído.",
   "7350aa3df15b9802": "Skill {label}",
   "9ff9f24d1568fbaf": "Não há descrição disponível para esta skill.",

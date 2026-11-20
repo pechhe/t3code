@@ -509,7 +509,7 @@ it.layer(layerTest)("workspace attachments", (it) => {
         commandId: CommandId.make("command:fork:fork-plain"),
         sourceThreadId: source,
         targetThreadId: fork,
-        sourcePoint: { type: "latest_finished" },
+        sourcePoint: { type: "run", runId: RunId.make(`${source}:run:1`) },
         createdBy: "user",
         creationSource: "web",
       });

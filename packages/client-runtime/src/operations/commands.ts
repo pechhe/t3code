@@ -274,8 +274,6 @@ export interface ForkSideChatInput extends CommandMetadata {
   readonly title?: string;
 }
 
-export type KeepSideChatInput = ThreadCommandInput;
-
 export interface MoveThreadToProjectInput extends ThreadCommandInput {
   readonly projectId: ProjectId;
 }
@@ -1231,18 +1229,6 @@ export const forkSideChat = Effect.fn("EnvironmentCommands.forkSideChat")(functi
     sourcePoint: { type: "latest_stable" },
     sideChat: true,
     ...(input.title === undefined ? {} : { title: input.title }),
-  });
-});
-
-/** Turns a side chat into an ordinary fork that thread lists show. */
-export const keepSideChat = Effect.fn("EnvironmentCommands.keepSideChat")(function* (
-  input: KeepSideChatInput,
-) {
-  return yield* dispatch({
-    type: "thread.metadata.update",
-    commandId: yield* allocateCommandId(input),
-    threadId: input.threadId,
-    keepSideChat: true,
   });
 });
 

@@ -37,7 +37,6 @@ import {
   agentTaskTopic,
   isOrchestrationV2WorkActive,
   isProviderNativeSubagentThread,
-  isSideChatThread,
   NodeId,
   type EnvironmentId,
   type OrchestrationV2DelegatedFrom,
@@ -767,8 +766,8 @@ export function ThreadRelationshipsPanel(props: {
     visibleRelationships.filter(({ threadId }) => !inSubagentPanel.has(threadId)),
     ({ threadId, edge }) => {
       const isParent = isParentThreadRelationship(edge, props.threadId);
-      const sideChat = graph.nodes.get(threadId)?.thread;
-      if (!isParent && sideChat && isSideChatThread(sideChat)) return "sideChats";
+      if (!isParent && graph.nodes.get(threadId)?.thread?.lineage.sideChat === true)
+        return "sideChats";
       if (edge.kind !== "subagent" || isParent) return "related";
       const child = graph.nodes.get(threadId)?.thread;
       if (child?.advisorClosedAt !== undefined) return "previous";
@@ -959,7 +958,7 @@ export function ThreadRelationshipsPanel(props: {
       (isParent && threadId === parentRef?.threadId
         ? (node?.thread?.activityRunStatus ?? parentNativeStatus)
         : undefined) ?? threadRelationshipRowStatus(graph, { threadId, edge });
-    const isSideChat = !isParent && node?.thread != null && isSideChatThread(node.thread);
+    const isSideChat = node?.thread?.lineage.sideChat === true;
     const RelationshipIcon = isParent
       ? CornerLeftUpIcon
       : isSubagent
@@ -1014,7 +1013,7 @@ export function ThreadRelationshipsPanel(props: {
     const project = projects.find((project) => project.id === node?.thread?.projectId);
     const hint = unavailable
       ? gt("This related thread is unavailable")
-      : relationshipHint(edge, props.threadId, isSideChat, m);
+      : relationshipHint(edge, props.threadId, isSideChat && !isParent, m);
     const RelationshipPopup = agent ? ThreadHoverCardPopup : TooltipPopup;
     const relationshipTooltip = agent ? (
       <SubagentTooltipContent

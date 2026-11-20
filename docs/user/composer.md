@@ -109,22 +109,6 @@ other action for a single message. From a hardware keyboard, `Cmd+Return`
 (`Ctrl+Shift+Return`) when Return inserts a new line. The button only offers
 Steer when the running agent supports it.
 
-## Side chat
-
-On web and desktop, type in the **Side chat** card in the right-hand column,
-above Usage left, to ask a question the main agent won't see. Your first message
-starts the side chat as a copy of the thread up to its last finished reply, using
-the same model; pick another model at the top of the card. Side chats are extra
-concise unless you ask for more detail. The card shows when the
-window is wide enough for that column. The main agent keeps working while you
-ask. **Use in main** adds an answer to your draft, and **Open as fork** keeps the
-side chat as an ordinary thread in the sidebar. Closing the side chat deletes it.
-
-The side chat is a full agent in the same workspace, so it can read and change
-files like any other thread. It can only open once the thread has a reply, and it
-does not see a reply that is still being written. When it needs an approval or an
-answer, open it as a fork to respond.
-
 ## Queue messages offline on mobile
 
 Mobile keeps local copies of draft attachments, so you can preview them and queue

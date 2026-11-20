@@ -27,7 +27,6 @@ import {
   type OrchestrationV2ThreadProjection,
   type OrchestrationV2TurnItem,
   type ProjectId,
-  isSideChatThread,
   isCompactionCommandMessage,
   parseGoalCommand,
   RunId,
@@ -110,10 +109,6 @@ import {
   SCHEDULED_TASK_PROMPT_LABEL,
   withSenderNoteUnlessScheduled,
 } from "./ScheduledTaskPrompt.ts";
-
-/** Sent with each side chat turn; the side chat card is narrow and meant for quick answers. */
-export const SIDE_CHAT_NOTE =
-  "This is a side chat: the user is asking a quick question beside the main conversation. Be extra concise unless the user asks for more detail.";
 
 /**
  * Sent with each turn of a No project chat until its agent suggests a project,
@@ -1168,12 +1163,7 @@ export const layer: Layer.Layer<
 
       const resolvedPolicy = yield* runtimePolicy
         .resolve({
-          thread:
-            isSideChatThread(projection.thread) &&
-            (sideChatHandoff !== undefined ||
-              !projection.runs.some((previous) => previous.ordinal < run.ordinal))
-              ? { ...projection.thread, runtimeMode: "approval-required" }
-              : projection.thread,
+          thread: projection.thread,
           modelSelection: run.modelSelection,
         })
         .pipe(Effect.result);
@@ -2390,7 +2380,7 @@ export const layer: Layer.Layer<
         // The notes this turn adds to the user's message. A turn with any of them goes through
         // context delivery, which writes them.
         const offersProjectSuggestion =
-          !isSideChatThread(projection.thread) &&
+          projection.thread.lineage.sideChat !== true &&
           projection.thread.projectSuggestion == null &&
           (yield* projects.getById(projection.thread.projectId).pipe(
             Effect.map(
@@ -2481,7 +2471,6 @@ export const layer: Layer.Layer<
               sideChatContext,
               restartNote,
               compact ? "" : arcRunNote,
-              isSideChatThread(projection.thread) ? SIDE_CHAT_NOTE : "",
               offersProjectSuggestion ? NO_PROJECT_NOTE : "",
               workspaceNotes.projectFolder,
               workspaceNotes.workspaces,
@@ -2606,7 +2595,6 @@ export const layer: Layer.Layer<
           restartNote === "" &&
           arcRunNote === "" &&
           !noteContinuation &&
-          !isSideChatThread(projection.thread) &&
           !scheduled &&
           !offersProjectSuggestion &&
           workspaceNotes.projectFolder === "" &&

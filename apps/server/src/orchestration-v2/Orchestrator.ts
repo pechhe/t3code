@@ -21,7 +21,7 @@ import {
 } from "./DelegatedTaskControl.ts";
 import * as CustodyPeer from "../workspace/custodyPeerProtocol.ts";
 import * as RunCustody from "./RunWorkspaceCustody.ts";
-import { isDelegatedTaskThread, isSideChatThread } from "@t3tools/contracts";
+import { isDelegatedTaskThread } from "@t3tools/contracts";
 import type {
   EnvironmentId,
   OrchestrationV2RemoteThreadWatchOutcome,
@@ -1446,12 +1446,6 @@ function runForSourcePoint(
   switch (sourcePoint.type) {
     case "latest_stable":
       return latestStableRun(projection);
-    case "latest_finished":
-      return (
-        projection.runs
-          .filter((run) => isForkableSourceRunStatus(run.status))
-          .toSorted((left, right) => right.ordinal - left.ordinal)[0] ?? null
-      );
     case "run":
       return projection.runs.find((run) => run.id === sourcePoint.runId) ?? null;
     case "checkpoint": {
@@ -2091,7 +2085,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       for (const transfer of contextTransfers) {
         if (transfer.type !== "fork" || transfer.sourceThreadId !== threadId) continue;
         const child = yield* projectionStore.findThread(transfer.targetThreadId);
-        if (child !== null && isSideChatThread(child) && child.deletedAt === null) {
+        if (child?.lineage.sideChat === true && child.deletedAt === null) {
           sideChatIds.push(child.id);
         }
       }
@@ -6562,9 +6556,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                         ? (thread.workspaceIssue ?? null)
                         : null),
                   }),
-              ...(command.keepSideChat === true
-                ? { sideChat: false, lineage: { ...thread.lineage, sideChat: false } }
-                : {}),
               ...(command.workItem === undefined ? {} : { workItem: command.workItem }),
               ...(command.workspaceReplaced === undefined
                 ? {}
@@ -7571,7 +7562,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         transferId,
         targetThreadId: command.targetThreadId,
         ...(command.title === undefined ? {} : { title: command.title }),
-        ...(command.sideChat === true ? { sideChat: true } : {}),
+        ...(command.sideChat ? { sideChat: true } : {}),
         createdBy: command.createdBy,
         creationSource: command.creationSource,
         createdAt: now,
@@ -10458,7 +10449,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           sourceProjection.attempts.find((candidate) => candidate.id === sourceRun.activeAttemptId)
             ?.providerTurnId ??
           undefined);
-    const sideChatFork = pendingForkTransfer !== undefined && isSideChatThread(projection.thread);
+    const sideChatFork =
+      pendingForkTransfer !== undefined && projection.thread.lineage.sideChat === true;
     // Opened during the parent's first turn: the digest is the whole context.
     const sideChatWithoutSource =
       sideChatFork && pendingForkTransfer.sourcePoint.runId === undefined;
@@ -18794,7 +18786,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const skipsSourceLock =
         source === null ||
         target !== null ||
-        (command.sideChat === true && isSideChatThread(source));
+        (command.sideChat === true && source.lineage.sideChat === true);
       return yield* skipsSourceLock
         ? dispatch
         : threadDispatch.withLock(command.sourceThreadId, dispatch);

@@ -97,12 +97,7 @@ export function SlipJayRunnerControl({
   const threadsByWorkspace = new Map<string, { id: ThreadId; title: string }>();
   for (const thread of threadShells) {
     // Delegated threads share their parent's workspace; the submitter is the root thread.
-    if (
-      thread.environmentId !== environmentId ||
-      thread.sideChat ||
-      thread.lineage.parentThreadId !== null
-    )
-      continue;
+    if (thread.environmentId !== environmentId || thread.lineage.parentThreadId !== null) continue;
     const name = slipJayWorkspaceName(thread.worktreePath);
     if (name !== null) threadsByWorkspace.set(name, { id: thread.id, title: thread.title });
   }

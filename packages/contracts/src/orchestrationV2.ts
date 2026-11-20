@@ -260,8 +260,6 @@ export type OrchestrationV2ContextSourcePoint = typeof OrchestrationV2ContextSou
 
 export const OrchestrationV2ThreadForkSourcePoint = Schema.Union([
   Schema.Struct({ type: Schema.Literal("latest_stable") }),
-  /** The newest run the provider finished, checkpointed or not; a side chat opens here. */
-  Schema.Struct({ type: Schema.Literal("latest_finished") }),
   Schema.Struct({ type: Schema.Literal("run"), runId: RunId }),
   Schema.Struct({ type: Schema.Literal("checkpoint"), checkpointId: CheckpointId }),
 ]);
@@ -894,9 +892,6 @@ export const OrchestrationV2AppThread = Schema.Struct({
   delegatedFrom: Schema.optional(OrchestrationV2DelegatedFrom),
   handoff: Schema.optional(OrchestrationV2ThreadHandoff),
   lineage: OrchestrationV2AppThreadLineage,
-  /** A fork the user opened as a side chat beside the parent thread. Thread
-      lists hide it; it becomes an ordinary fork when the user keeps it. */
-  sideChat: Schema.optional(Schema.Boolean),
   forkedFrom: Schema.NullOr(
     Schema.Union([
       Schema.Struct({ type: Schema.Literal("run"), threadId: ThreadId, runId: RunId }),
@@ -974,34 +969,6 @@ export const OrchestrationV2AppThread = Schema.Struct({
   deletedAt: Schema.NullOr(Schema.DateTimeUtc),
 });
 export type OrchestrationV2AppThread = typeof OrchestrationV2AppThread.Type;
-
-/** Side chats live inside their parent's view, never in thread lists. */
-export function isSideChatThread(
-  thread: Pick<OrchestrationV2AppThread, "sideChat"> &
-    Partial<Pick<OrchestrationV2AppThread, "lineage">>,
-): boolean {
-  return thread.sideChat === true || thread.lineage?.sideChat === true;
-}
-
-/**
- * Side chats a thread list leaves out. One whose parent is gone is listed like
- * any fork, so it can still be found and deleted.
- */
-export function hiddenSideChatIds<
-  T extends Pick<OrchestrationV2AppThread, "id" | "sideChat" | "lineage">,
->(threads: ReadonlyArray<T>): ReadonlySet<T["id"]> {
-  const sideChats = threads.filter(isSideChatThread);
-  if (sideChats.length === 0) return new Set();
-  const ids = new Set(threads.map((thread) => thread.id));
-  return new Set(
-    sideChats
-      .filter(
-        (thread) =>
-          thread.lineage.parentThreadId !== null && ids.has(thread.lineage.parentThreadId),
-      )
-      .map((thread) => thread.id),
-  );
-}
 
 /** A visit changes read state only, so its event leaves the rest of the thread out. */
 export const OrchestrationV2ThreadVisit = Schema.Struct({
@@ -2896,7 +2863,6 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   /** Issues linked to this thread; optional so pre-linking servers still decode. */
   issues: Schema.optional(Schema.Array(ThreadIssueLink)),
   lineage: OrchestrationV2AppThreadLineage,
-  sideChat: Schema.optional(Schema.Boolean),
   forkedFrom: Schema.NullOr(OrchestrationV2AppThread.fields.forkedFrom),
   activeProviderThreadId: Schema.NullOr(ProviderThreadId),
   historyOrigin: Schema.optional(OrchestrationV2ThreadHistoryOrigin),
@@ -4006,8 +3972,6 @@ export const OrchestrationV2Command = Schema.Union([
     limitRecovery: Schema.optional(Schema.NullOr(OrchestrationV2LimitRecoveryUpdate)),
     /** Link (object) or unlink (null) a pull request; absent leaves it unchanged. */
     linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
-    /** Keep a side chat as an ordinary fork. A thread cannot become a side chat. */
-    keepSideChat: Schema.optional(Schema.Literal(true)),
     /** Link (object) or unlink (null) the thread's Forge item; absent leaves it unchanged. */
     workItem: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkItem)),
     /** Records that the new worktreePath replaces a SlipJay workspace SlipJay removed. */
@@ -4342,7 +4306,6 @@ export const OrchestrationV2Command = Schema.Union([
     targetThreadId: ThreadId,
     sourcePoint: OrchestrationV2ThreadForkSourcePoint,
     title: Schema.optional(TrimmedNonEmptyString),
-    /** Open the fork as a side chat of the source thread. */
     sideChat: Schema.optional(Schema.Boolean),
     createdAt: Schema.optional(Schema.DateTimeUtc),
   }),

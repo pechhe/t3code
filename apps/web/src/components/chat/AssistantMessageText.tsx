@@ -108,8 +108,8 @@ type AssistantMessageTextProps = Omit<
 
 /**
  * An assistant message's text, rendered the same way wherever one appears: the
- * main timeline and the side chat card. Changes to how assistant text streams
- * in or is formatted belong here or in `ChatMarkdown`, not in either caller.
+ * main timeline. Changes to how assistant text streams in or is formatted
+ * belong here or in `ChatMarkdown`, not in a caller.
  * Agent prose takes the Response font, not the interface font.
  */
 export function AssistantMessageText({ calm, ...props }: AssistantMessageTextProps) {

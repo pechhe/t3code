@@ -12,7 +12,6 @@ import {
 } from "./index.ts";
 import {
   compactAtBounds,
-  isSideChatThread,
   latestProviderTurnForAttempt,
   OrchestrationV2CheckpointFileSummary,
   OrchestrationV2ProviderCapabilities,
@@ -736,18 +735,6 @@ describe("compactAtBounds", () => {
   it("gives Pi a read-only line, since its point comes from its own settings per model", () => {
     expect(compactAtBounds("pi", 200_000)).toBeNull();
   });
-});
-
-it("recognizes stored fork side chats and upstream lineage side chats", () => {
-  const lineage = {
-    parentThreadId: ThreadId.make("parent"),
-    rootThreadId: ThreadId.make("parent"),
-    relationshipToParent: "fork" as const,
-  };
-  expect(isSideChatThread({ sideChat: true })).toBe(true);
-  expect(isSideChatThread({ lineage: { ...lineage, sideChat: true } })).toBe(true);
-  expect(isSideChatThread({ lineage })).toBe(false);
-  expect(isSideChatThread({ sideChat: false, lineage })).toBe(false);
 });
 
 describe("isProviderOverloadedFailureCode", () => {

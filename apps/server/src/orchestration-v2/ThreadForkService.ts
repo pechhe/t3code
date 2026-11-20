@@ -1,4 +1,3 @@
-import { isSideChatThread } from "@t3tools/contracts";
 import {
   ContextTransferId,
   OrchestrationV2Actor,
@@ -81,14 +80,14 @@ export const layer: Layer.Layer<ThreadForkServiceV2> = Layer.succeed(
       // A task a linked environment delegated here is a subagent of a remote thread.
       if (
         input.sideChat &&
-        (isSideChatThread(input.sourceProjection.thread) ||
+        (sourceLineage.sideChat ||
           sourceLineage.relationshipToParent === "subagent" ||
           input.sourceProjection.thread.delegatedFrom !== undefined)
       ) {
         return yield* new ThreadForkPlanError({
           sourceThreadId: input.sourceProjection.thread.id,
           targetThreadId: input.targetThreadId,
-          cause: isSideChatThread(input.sourceProjection.thread)
+          cause: sourceLineage.sideChat
             ? "A side chat cannot start another side chat."
             : "A subagent cannot start a side chat.",
         });
@@ -100,11 +99,9 @@ export const layer: Layer.Layer<ThreadForkServiceV2> = Layer.succeed(
           cause: forkableSourceRunStatusError(sourceRun),
         });
       }
-      // A fork of a side chat is an ordinary fork unless asked otherwise.
       const {
         agentTask,
         delegatedFrom: _sourceDelegatedFrom,
-        sideChat: _sourceSideChat,
         projectSuggestion: _sourceProjectSuggestion,
         // Attachments stay held by the thread that attached them, and a move's Undo belongs
         // to the moved thread.
@@ -160,19 +157,6 @@ export const layer: Layer.Layer<ThreadForkServiceV2> = Layer.succeed(
         // A fork is a new thread; it does not inherit how often the source was opened.
         opens: null,
         deletedAt: null,
-        // A side chat is a scratch conversation: it carries none of the
-        // parent's list placement, pull requests or delegated task.
-        ...(input.sideChat === true
-          ? {
-              sideChat: true,
-              pinnedAt: null,
-              pinOrderKey: null,
-              activeOrderKey: null,
-              linkedPullRequest: null,
-              pullRequests: [],
-              branchPullRequest: null,
-            }
-          : {}),
       };
       const transfer: OrchestrationV2ContextTransfer = {
         id: input.transferId,

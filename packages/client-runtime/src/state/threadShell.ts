@@ -14,9 +14,7 @@ import type {
 import {
   AGENT_ROLE_TITLE_LABEL,
   isListedThreadLineage,
-  hiddenSideChatIds,
   isProviderNativeSubagentThread,
-  isSideChatThread,
   OrchestrationV2ThreadShell,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -150,7 +148,7 @@ const rolledUpRequest = (
 /** A side chat asks its user directly, so questions roll up to the parent as well as approvals. */
 function sideChatRequest(thread: OrchestrationV2ThreadShell): PendingSubagentRequest | null {
   const kind = thread.pendingRuntimeRequest?.kind;
-  if (kind === undefined || kind === "auth_refresh" || !isSideChatThread(thread)) {
+  if (kind === undefined || kind === "auth_refresh" || thread.lineage.sideChat !== true) {
     return null;
   }
   return kind === "user_input" ? "user_input" : "approval";
@@ -554,21 +552,6 @@ export function createEnvironmentThreadShellAtoms(input: {
     ).pipe(Atom.withLabel(`environment-threads:${environmentId}`)),
   );
 
-  // Every list reads this: side chats show only in their parent's side chat card,
-  // so they are reachable by id but never listed.
-  const environmentListedThreadsAtom = Atom.family((environmentId: EnvironmentId) => {
-    let previous: ReadonlyArray<OrchestrationV2ThreadShell> = EMPTY_THREADS;
-    return Atom.make((get): ReadonlyArray<OrchestrationV2ThreadShell> => {
-      const threads = get(environmentThreadsAtom(environmentId));
-      const hidden = hiddenSideChatIds(threads);
-      if (hidden.size === 0) return threads;
-      const next = threads.filter((thread) => !hidden.has(thread.id));
-      if (arrayElementsEqual(previous, next)) return previous;
-      previous = next;
-      return next;
-    }).pipe(Atom.withLabel(`environment-listed-threads:${environmentId}`));
-  });
-
   const environmentThreadIndexAtom = Atom.family((environmentId: EnvironmentId) =>
     Atom.make((get): ReadonlyMap<ThreadId, OrchestrationV2ThreadShell> => {
       const threads = get(environmentThreadsAtom(environmentId));
@@ -586,7 +569,7 @@ export function createEnvironmentThreadShellAtoms(input: {
       let byParent: Map<ThreadId, OrchestrationV2ThreadShell[]> | undefined;
       for (const thread of get(environmentThreadsAtom(environmentId))) {
         const parentId = thread.lineage.parentThreadId;
-        if (!isSideChatThread(thread) || parentId === null) continue;
+        if (thread.lineage.sideChat !== true || parentId === null) continue;
         byParent ??= new Map();
         const siblings = byParent.get(parentId);
         if (siblings) siblings.push(thread);
@@ -683,7 +666,7 @@ export function createEnvironmentThreadShellAtoms(input: {
   const environmentThreadRefsAtom = Atom.family((environmentId: EnvironmentId) => {
     let previous: ReadonlyArray<ScopedThreadRef> = [];
     return Atom.make((get) => {
-      const next = get(environmentListedThreadsAtom(environmentId)).map((thread) => ({
+      const next = get(environmentThreadsAtom(environmentId)).map((thread) => ({
         environmentId,
         threadId: thread.id,
       }));
@@ -702,7 +685,7 @@ export function createEnvironmentThreadShellAtoms(input: {
     > = EMPTY_THREAD_REFS_BY_PROJECT;
     return Atom.make((get) => {
       const grouped = new Map<ProjectId, ScopedThreadRef[]>();
-      for (const thread of get(environmentListedThreadsAtom(environmentId))) {
+      for (const thread of get(environmentThreadsAtom(environmentId))) {
         const refs = grouped.get(thread.projectId);
         const ref = { environmentId, threadId: thread.id };
         if (refs === undefined) {
@@ -902,27 +885,8 @@ export function createEnvironmentThreadShellAtoms(input: {
     }).pipe(Atom.withLabel(`environment-thread-watchers:${key}`));
   });
 
-  // The newest open side chat of a thread. An id, so other shell updates do
-  // not re-render the composer that hosts it.
-  const sideChatThreadIdAtomFamily = Atom.family((key: string) => {
-    const ref = parseThreadKey(key);
-    return Atom.make((get) => {
-      let latest: OrchestrationV2ThreadShell | null = null;
-      for (const thread of get(environmentThreadsAtom(ref.environmentId))) {
-        if (
-          isSideChatThread(thread) &&
-          thread.lineage.parentThreadId === ref.threadId &&
-          thread.archivedAt === null &&
-          (latest === null ||
-            DateTime.toEpochMillis(thread.createdAt) > DateTime.toEpochMillis(latest.createdAt))
-        ) {
-          latest = thread;
-        }
-      }
-      return latest?.id ?? null;
-    }).pipe(Atom.withLabel(`environment-side-chat-thread-id:${key}`));
-  });
-
+  // A parent's side chats. Rows read only ids, titles and whether one needs the user, so
+  // streaming updates keep the old array.
   const sideChatsAtomFamily = Atom.family((key: string) => {
     const ref = parseThreadKey(key);
     let previous = EMPTY_THREAD_SHELLS;
@@ -1007,7 +971,7 @@ export function createEnvironmentThreadShellAtoms(input: {
     const next: EnvironmentThreadShell[] = [];
     for (const environmentId of enabledEnvironmentIds(get(input.catalogValueAtom))) {
       const subagentRequests = get(pendingSubagentRequestsAtom(environmentId));
-      for (const thread of get(environmentListedThreadsAtom(environmentId))) {
+      for (const thread of get(environmentThreadsAtom(environmentId))) {
         const scoped = scopedThread(environmentId, thread, subagentRequests);
         if (championNeedsInbox(scoped)) next.push(scoped);
       }
@@ -1123,7 +1087,7 @@ export function createEnvironmentThreadShellAtoms(input: {
     const hidden = get(hiddenThreadKeysAtom);
     for (const environmentId of enabledEnvironmentIds(get(input.catalogValueAtom))) {
       const subagentRequests = get(pendingSubagentRequestsAtom(environmentId));
-      for (const thread of get(environmentListedThreadsAtom(environmentId))) {
+      for (const thread of get(environmentThreadsAtom(environmentId))) {
         if (
           thread.archivedAt !== null ||
           isShownUnderParent({ environmentId, threadId: thread.id }, thread.lineage, underParent) ||
@@ -1165,7 +1129,6 @@ export function createEnvironmentThreadShellAtoms(input: {
       subagentPanelChildIdsAtomFamily(threadKey(ref)),
     subagentPanelLiveChildIdsAtom: (ref: ScopedThreadRef) =>
       subagentPanelLiveChildIdsAtomFamily(threadKey(ref)),
-    sideChatThreadIdAtom: (ref: ScopedThreadRef) => sideChatThreadIdAtomFamily(threadKey(ref)),
     threadWatchersAtom: (ref: ScopedThreadRef) => threadWatchersAtomFamily(threadKey(ref)),
     sideChatsAtom: (ref: ScopedThreadRef) => sideChatsAtomFamily(threadKey(ref)),
   };

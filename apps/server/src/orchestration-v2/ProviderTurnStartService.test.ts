@@ -2726,10 +2726,7 @@ effectIt.effect("sends new steering text when restarting a manual continuation",
     });
     yield* harness.start;
     expect(harness.startTurn.mock.calls[0]?.[0].message.text).toBe(
-      withInlineContext(
-        [delegationStanceNote("flexible"), ProviderTurnStart.SIDE_CHAT_NOTE].join("\n\n"),
-        "New steering instruction",
-      ),
+      withInlineContext(delegationStanceNote("flexible"), "New steering instruction"),
     );
     expect(harness.startRootRun.mock.calls[0]?.[0].resume).toBe(false);
   }),
@@ -2762,13 +2759,13 @@ effectIt.effect("refuses unsupported resume instead of manufacturing a user prom
 );
 
 effectIt.effect.each([
-  { contextRun: "current", runtimeMode: "approval-required", context: "SIDE_CHAT_CONTEXT" },
-  { contextRun: "failed", runtimeMode: "approval-required", context: "SIDE_CHAT_CONTEXT" },
-  { contextRun: "cancelled", runtimeMode: "approval-required", context: "SIDE_CHAT_CONTEXT" },
+  { contextRun: "current", runtimeMode: "full-access", context: "SIDE_CHAT_CONTEXT" },
+  { contextRun: "failed", runtimeMode: "full-access", context: "SIDE_CHAT_CONTEXT" },
+  { contextRun: "cancelled", runtimeMode: "full-access", context: "SIDE_CHAT_CONTEXT" },
   {
     contextRun: "failed",
     switchedProvider: true,
-    runtimeMode: "approval-required",
+    runtimeMode: "full-access",
     context: "SIDE_CHAT_CONTEXT",
   },
   { contextRun: "delivered", runtimeMode: "full-access", context: "" },
@@ -2823,9 +2820,7 @@ effectIt.effect.each([
       expect(texts).toHaveLength(1);
       // A native resume sends no prompt, so it carries none of the per-turn notes.
       const resumes = context === "" && !resendsOriginal;
-      const notes = [delegationStanceNote("flexible"), context, ProviderTurnStart.SIDE_CHAT_NOTE]
-        .filter(Boolean)
-        .join("\n\n");
+      const notes = [delegationStanceNote("flexible"), context].filter(Boolean).join("\n\n");
       if (resumes) {
         expect(texts[0]).toBe("");
       } else if (resendsOriginal) {

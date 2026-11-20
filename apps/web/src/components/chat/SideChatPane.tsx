@@ -15,13 +15,13 @@ import { Trash2Icon, XIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { useComposerDraftStore } from "../../composerDraftStore";
-import { ComposerHandleContext, useComposerHandleContext } from "../../composerHandleContext";
+import { ComposerHandleContext } from "../../composerHandleContext";
 import { useClientSettings } from "../../hooks/useSettings";
 import { releaseComposerDraftUploads } from "../../lib/composerDraftUploads";
 import type { SideChatParentPanel } from "../../lib/sideChatPane";
 import { readLocalApi } from "../../localApi";
 import { hostRightPanel, useRightPanelStore } from "../../rightPanelStore";
-import { useQuietThreadShell, useTimelineVisibleTurnItems } from "../../state/entities";
+import { useQuietThreadShell } from "../../state/entities";
 import { useEnvironmentScope } from "../../state/session";
 import { useEnvironmentShellHasSnapshot } from "../../state/shell";
 import { threadEnvironment } from "../../state/threads";
@@ -48,17 +48,6 @@ export default function SideChatPane(props: {
     [parentRef, threadId],
   );
   const shell = useQuietThreadShell(threadRef);
-  const parentComposerRef = useComposerHandleContext();
-  const turnItems = useTimelineVisibleTurnItems(shell === null ? null : threadRef);
-  const latestAssistantItem = turnItems.findLast(
-    (projected) => projected.visibility === "local" && projected.item.type === "assistant_message",
-  )?.item;
-  const latestAnswer =
-    latestAssistantItem?.type === "assistant_message" &&
-    !latestAssistantItem.streaming &&
-    latestAssistantItem.text.trim().length > 0
-      ? latestAssistantItem.text
-      : null;
   const snapshotLoaded = useEnvironmentShellHasSnapshot(parentRef.environmentId);
   const canOperate = useEnvironmentScope(parentRef.environmentId, AuthOrchestrationOperateScope);
   const deleteThread = useAtomCommand(threadEnvironment.delete, { reportFailure: false });
@@ -134,29 +123,6 @@ export default function SideChatPane(props: {
             {canAddToChat
               ? gt("Adds this side chat to the main thread's next message.")
               : gt("Available after the first message.")}
-          </TooltipPopup>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="xs"
-                disabled={latestAnswer === null || parentComposerRef === null}
-                onClick={() => {
-                  if (latestAnswer !== null) {
-                    parentComposerRef?.current?.insertTextAtEnd(latestAnswer, {
-                      ensureLeadingBoundary: true,
-                    });
-                  }
-                }}
-              >
-                <T>Use in main</T>
-              </Button>
-            }
-          />
-          <TooltipPopup side="bottom">
-            <T>Puts this answer in the main thread's draft</T>
           </TooltipPopup>
         </Tooltip>
         <Button

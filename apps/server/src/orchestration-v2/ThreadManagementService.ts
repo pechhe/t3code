@@ -15,6 +15,7 @@ import {
   type ChatAttachment,
   CommandId,
   isDelegatedAppThread,
+  isListedThreadLineage,
   MessageId,
   OrchestrationV2StopWorkflowError,
   type OrchestrationV2StopWorkflowInput,
@@ -37,7 +38,6 @@ import {
   ProjectId,
   PROVIDER_SEND_TURN_MAX_FILE_BYTES,
   ProviderInstanceId,
-  hiddenSideChatIds,
   type ProviderSessionId,
   resolveProjectProviderInstanceEnabled,
   RunId,
@@ -932,22 +932,19 @@ const make = Effect.gen(function* () {
             cause,
           }),
       ),
-      Effect.map((threads) => {
-        const hiddenSideChats = hiddenSideChatIds(
-          threads.map((thread) => ({ ...thread, sideChat: thread.lineage.sideChat === true })),
-        );
-        return threads
-          .filter(
-            (thread) =>
-              !hiddenSideChats.has(thread.id) &&
-              (input.includeSubagents || !isDelegatedAppThread(thread)),
+      Effect.map((threads) =>
+        threads
+          .filter((thread) =>
+            input.includeSubagents
+              ? thread.lineage.sideChat !== true
+              : isListedThreadLineage(thread.lineage) && !isDelegatedAppThread(thread),
           )
           .toSorted(
             (left, right) =>
               DateTime.toEpochMillis(right.updatedAt) - DateTime.toEpochMillis(left.updatedAt) ||
               right.id.localeCompare(left.id),
-          );
-      }),
+          ),
+      ),
     );
 
   const sendToThread: ThreadManagementServiceShape["sendToThread"] = Effect.fn(

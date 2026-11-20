@@ -1,4 +1,4 @@
-import { isDelegatedTaskThread, isSideChatThread } from "@t3tools/contracts";
+import { isDelegatedTaskThread } from "@t3tools/contracts";
 import { threadRuntimeIsActive } from "@t3tools/client-runtime/state/models";
 import { m } from "../i18n/messages";
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
@@ -978,13 +978,9 @@ export default function ChatView(props: ChatViewProps) {
       : scopeThreadRef(delegatedFrom.environmentId, delegatedFrom.threadId);
   // The title it had at delegation, until this client sees the parent itself.
   const delegatedFromThread = useQuietThreadShell(delegatedFromRef);
-  const currentThreadIsSideChat = activeThread !== undefined && isSideChatThread(activeThread);
-  const sideChatParentId =
-    activeThread?.lineage.parentThreadId ??
-    (activeThread?.forkedFrom?.type === "run" ? activeThread.forkedFrom.threadId : null);
   const sideChatParentRef =
-    currentThreadIsSideChat && activeThread && sideChatParentId !== null
-      ? scopeThreadRef(activeThread.environmentId, sideChatParentId)
+    activeThread?.lineage.sideChat === true && activeThread.lineage.parentThreadId !== null
+      ? scopeThreadRef(activeThread.environmentId, activeThread.lineage.parentThreadId)
       : null;
   const sideChatParent = useQuietThreadShell(sideChatParentRef);
   const parentThreadLink = (() => {
@@ -3056,7 +3052,7 @@ export default function ChatView(props: ChatViewProps) {
   const sideChatsOffered =
     !embedded &&
     canOperateThread &&
-    !currentThreadIsSideChat &&
+    activeThread?.lineage.sideChat !== true &&
     !isSubagentThread &&
     serverConfig?.environment.capabilities.sideChats === true;
   const sideChat = useSideChat({
@@ -3075,23 +3071,24 @@ export default function ChatView(props: ChatViewProps) {
     runShellCommandStable(command);
   });
   // Main-thread surfaces show this reason; `/side` sent anyway gets it as a toast.
-  const sideChatDisabledReason = currentThreadIsSideChat
-    ? gt("Side chats cannot start side chats.")
-    : isSubagentThread
-      ? gt("Subagent threads cannot start side chats.")
-      : serverConfig === null
-        ? gt("Side chats are not ready yet. Try again in a moment.")
-        : serverConfig.environment.capabilities.sideChats !== true
-          ? gt("Update this environment's T3 Code server to use side chats.")
-          : sideChatsOffered && !isServerThread
-            ? gt("Side chats start after the first message.")
-            : sideChat.available &&
-                orchestrationV2WorktreePending(
-                  activeThread?.worktreePath ?? null,
-                  serverProjection?.runs ?? [],
-                )
-              ? gt("Available once the thread's worktree is set up.")
-              : null;
+  const sideChatDisabledReason =
+    activeThread?.lineage.sideChat === true
+      ? gt("Side chats cannot start side chats.")
+      : isSubagentThread
+        ? gt("Subagent threads cannot start side chats.")
+        : serverConfig === null
+          ? gt("Side chats are not ready yet. Try again in a moment.")
+          : serverConfig.environment.capabilities.sideChats !== true
+            ? gt("Update this environment's T3 Code server to use side chats.")
+            : sideChatsOffered && !isServerThread
+              ? gt("Side chats start after the first message.")
+              : sideChat.available &&
+                  orchestrationV2WorktreePending(
+                    activeThread?.worktreePath ?? null,
+                    serverProjection?.runs ?? [],
+                  )
+                ? gt("Available once the thread's worktree is set up.")
+                : null;
   const openSideChatStable = useStableCallback(() => void sideChat.open());
   const sendSideChatStable = useStableCallback(sideChat.open);
   const { onConfirmRevertStable, onForkFromRunStable, onRevertTimelineTurnStable } =

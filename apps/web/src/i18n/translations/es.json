@@ -3135,10 +3135,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "en el ordenador que abrió esta página"
-      ]
+      "c": [" ", "en el ordenador que abrió esta página"]
     }
   ],
   "b2d53b4d1d48fbef": [
@@ -3150,10 +3147,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "· quien lo ejecute obtiene este acceso"
-      ]
+      "c": [" ", "· quien lo ejecute obtiene este acceso"]
     }
   ],
   "c54cc9c75db9dc58": "Aprueba solo un inicio de sesión que acabes de iniciar.",
@@ -3997,8 +3991,6 @@
   "e42d6bd2de470521": "Eliminar chat lateral",
   "6a116665c8d9ad75": "Cerrar chat lateral",
   "a5e57fdfde50aade": "Añadir al chat",
-  "c73d715fec362f33": "Use in main",
-  "0cf9bd8a980ef83a": "Puts this answer in the main thread's draft",
   "492a438bf9dbd45d": "Este chat lateral se eliminó.",
   "7350aa3df15b9802": "Skill {label}",
   "9ff9f24d1568fbaf": "No hay descripción disponible para esta skill.",

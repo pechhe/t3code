@@ -3136,10 +3136,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "auf dem Computer, der diese Seite geöffnet hat"
-      ]
+      "c": [" ", "auf dem Computer, der diese Seite geöffnet hat"]
     }
   ],
   "b2d53b4d1d48fbef": [
@@ -3151,10 +3148,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "· wer es ausführt, erhält diesen Zugriff"
-      ]
+      "c": [" ", "· wer es ausführt, erhält diesen Zugriff"]
     }
   ],
   "c54cc9c75db9dc58": "Genehmige nur eine Anmeldung, die du gerade selbst gestartet hast.",
@@ -4001,8 +3995,6 @@
   "e42d6bd2de470521": "Nebenchat löschen",
   "6a116665c8d9ad75": "Nebenchat schließen",
   "a5e57fdfde50aade": "Zum Chat hinzufügen",
-  "c73d715fec362f33": "Use in main",
-  "0cf9bd8a980ef83a": "Puts this answer in the main thread's draft",
   "492a438bf9dbd45d": "Dieser Nebenchat wurde gelöscht.",
   "7350aa3df15b9802": "Skill {label}",
   "9ff9f24d1568fbaf": "Für diesen Skill ist keine Beschreibung verfügbar.",

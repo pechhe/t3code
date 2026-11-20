@@ -3135,10 +3135,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "på datorn som öppnade den här sidan"
-      ]
+      "c": [" ", "på datorn som öppnade den här sidan"]
     }
   ],
   "b2d53b4d1d48fbef": [
@@ -3150,10 +3147,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "· den som kör den får den här åtkomsten"
-      ]
+      "c": [" ", "· den som kör den får den här åtkomsten"]
     }
   ],
   "c54cc9c75db9dc58": "Godkänn bara en inloggning som du själv precis har startat.",
@@ -3998,8 +3992,6 @@
   "e42d6bd2de470521": "Ta bort sidochatt",
   "6a116665c8d9ad75": "Stäng sidochatt",
   "a5e57fdfde50aade": "Lägg till i chatten",
-  "c73d715fec362f33": "Use in main",
-  "0cf9bd8a980ef83a": "Puts this answer in the main thread's draft",
   "492a438bf9dbd45d": "Den här sidochatten togs bort.",
   "7350aa3df15b9802": "Färdighet {label}",
   "9ff9f24d1568fbaf": "Ingen beskrivning finns för den här färdigheten.",

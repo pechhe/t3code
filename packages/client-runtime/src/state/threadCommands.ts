@@ -25,7 +25,6 @@ import { waitForTitleRegenerationOutcome } from "./threadTitleRegeneration.ts";
 import {
   type InterruptThreadTurnInput,
   type MarkThreadReadInput,
-  type KeepSideChatInput,
   type MoveThreadToProjectInput,
   type UndoMoveThreadToProjectInput,
   type DismissProjectSuggestionInput,
@@ -42,7 +41,6 @@ import {
   launchEmptyThread,
   forkSideChat,
   forkThreadFromRun,
-  keepSideChat,
   moveThreadToProject,
   undoMoveThreadToProject,
   dismissProjectSuggestion,
@@ -474,12 +472,6 @@ export function createThreadEnvironmentAtoms<R, E>(
         mode: "serial",
         key: ({ environmentId, input }) => JSON.stringify([environmentId, input.sourceThreadId]),
       },
-    }),
-    keepSideChat: createEnvironmentCommand(runtime, {
-      label: "environment-data:commands:thread:keep-side-chat",
-      execute: (input: KeepSideChatInput) => keepSideChat(input),
-      scheduler,
-      concurrency,
     }),
     moveToProject: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:move-to-project",
