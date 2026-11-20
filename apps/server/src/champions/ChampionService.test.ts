@@ -228,6 +228,7 @@ const fixture = Effect.fn("test.championFixture")(() =>
     let foreignProviderThread = false;
     let overloadedRun = false;
     let limitedUntil: string | undefined;
+    let limitFailure = { errorClass: "usage_limit", message: "usage limit reached" };
     const shell = () =>
       ({
         id: owner,
@@ -248,7 +249,11 @@ const fixture = Effect.fn("test.championFixture")(() =>
         lastErrorCode: overloadedRun ? "overloaded" : null,
         ...(limitedUntil === undefined
           ? {}
-          : { lastErrorClass: "usage_limit", usageLimitResetAt: limitedUntil }),
+          : {
+              lastErrorClass: limitFailure.errorClass,
+              lastError: limitFailure.message,
+              usageLimitResetAt: limitedUntil,
+            }),
         activeProviderThreadId: providerThreadId,
         archivedAt: null,
         deletedAt: null,
@@ -684,7 +689,14 @@ const fixture = Effect.fn("test.championFixture")(() =>
         overloadedRun = true;
       },
       /** The owner's run ends on its model's usage limit, which the provider says lifts at `resetAt`. */
-      limitRun: (resetAt: string) => {
+      limitRun: (
+        resetAt: string,
+        failure: { errorClass: string; message: string } = {
+          errorClass: "usage_limit",
+          message: "usage limit reached",
+        },
+      ) => {
+        limitFailure = failure;
         activeRun = false;
         queuedRun = false;
         limitedUntil = resetAt;
@@ -2117,14 +2129,19 @@ it.effect(
     ),
 );
 
-it.effect("ends a setup that hits a usage limit with no backup as skipped", () =>
+const rateLimited = { errorClass: "provider_error", message: "rate limit exceeded" };
+
+it.effect.each([
+  { name: "classed usage limit", failure: undefined },
+  { name: "provider error worded as a rate limit", failure: rateLimited },
+])("ends a setup that hits a usage limit with no backup as skipped: $name", ({ failure }) =>
   withFixture((f, service) =>
     Effect.gen(function* () {
       yield* service.upsert(config);
       yield* service.setup({ id: config.id });
       const claim = (yield* service.get({ id: config.id })).champion.outstandingSetupId;
       assert.isNotNull(claim);
-      f.limitRun("1970-01-02T00:00:00.000Z");
+      f.limitRun("1970-01-02T00:00:00.000Z", failure);
       yield* service.runDue;
       const skipped = (yield* service.get({ id: config.id })).champion;
       assert.isNull(skipped.outstandingSetupId);
@@ -2133,6 +2150,35 @@ it.effect("ends a setup that hits a usage limit with no backup as skipped", () =
       assert.include(f.dispatches, "thread.settle");
     }),
   ),
+);
+
+it.effect(
+  "treats a provider error worded as a rate limit as a usage limit and retries on the backup",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        yield* definitions(service);
+        yield* service.setModels({
+          checks: { model: routineSelection, backup: setupSelection },
+          advice: { model: setupSelection },
+        });
+        yield* service.runCheck({ id: config.id });
+        // The prompt tells the agent how its own models work, not the old delegation-role wording.
+        const prompt = f.launchRequests[0]!.text;
+        assert.include(prompt, "Champion models checks model");
+        assert.include(prompt, "backup");
+        assert.include(prompt, "skipped");
+        assert.notInclude(prompt, "never run it on another model");
+        f.limitRun("1970-01-01T00:30:00.000Z", rateLimited);
+        yield* service.runDue;
+        const attempts = (yield* service.runtimeState({ id: config.id })).attempts;
+        assert.deepEqual(attempts.map((a) => a.slot).toSorted(), ["backup", "main"]);
+        assert.deepEqual(
+          f.sent.map((entry) => entry.model),
+          ["strong"],
+        );
+      }),
+    ),
 );
 
 describe("a pooled main model", () => {
@@ -2207,6 +2253,53 @@ describe("a pooled main model", () => {
           yield* TestClock.adjust("11 minutes");
           yield* service.upsert({ ...config, models: {} });
           assert.deepEqual(yield* check(), { slot: "main", on: "A" });
+        }),
+      ),
+  );
+
+  it.effect(
+    "waits two minutes for the server's account failover, then retries on a free account itself",
+    () =>
+      withFixture((f, service) =>
+        Effect.gen(function* () {
+          f.setProviders([accountOf("A"), accountOf("B"), modelProvider("backup", "backup-model")]);
+          yield* f.settings.updateSettings({ pooledModelKeys: [MODEL] }).pipe(Effect.orDie);
+          const backup = { instanceId: ProviderInstanceId.make("backup"), model: "backup-model" };
+          yield* definitions(service);
+          yield* service.setModels({
+            checks: { model: pooled("A"), backup },
+            advice: { model: pooled("A") },
+          });
+          yield* service.runCheck({ id: config.id });
+          const attempts = Effect.map(service.runtimeState({ id: config.id }), (state) =>
+            state.attempts.map((a) => ({
+              slot: a.slot,
+              on: String(a.resolvedSelection.instanceId),
+            })),
+          );
+          assert.deepEqual(yield* attempts, [{ slot: "main", on: "A" }]);
+          f.limitRun("1970-01-01T00:30:00.000Z");
+          // Within the grace the sweep leaves it to account failover: nothing is sent, nothing is skipped.
+          yield* TestClock.adjust("1 minute");
+          yield* service.runDue;
+          assert.equal(f.sent.length, 0);
+          assert.equal((yield* attempts).length, 1);
+          assert.isTrue(
+            (yield* service.get({ id: config.id })).champion.attention.every(
+              (line) => !line.startsWith("Skipped this "),
+            ),
+          );
+          // Past it, the check is retried on the free account, as a new main-slot attempt.
+          yield* TestClock.adjust("2 minutes");
+          yield* service.runDue;
+          assert.equal(f.sent.length, 1);
+          assert.deepEqual(
+            (yield* attempts).filter((a) => a.on === "B"),
+            [{ slot: "main", on: "B" }],
+          );
+          const after = (yield* service.get({ id: config.id })).champion;
+          assert.isNotNull(after.outstandingCheckId);
+          assert.isTrue(after.attention.every((line) => !line.startsWith("Skipped this ")));
         }),
       ),
   );

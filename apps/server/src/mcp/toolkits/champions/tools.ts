@@ -315,7 +315,7 @@ const history = Tool.make("t3_champions_history", {
 const upsert = Tool.make("t3_champions_upsert", {
   ...shared,
   description:
-    "Create a paused champion draft or edit its name, purpose, schedule, charter and own models (models.checks for its checks, models.advice for its metric setup and finding diagnosis; each is a main model that replaces the machine default, which keeps its backup). On a journey champion, repairsVia names an active champion in the same project that repairs what it confirms; null clears it.",
+    "Create a paused champion draft or edit its name, purpose, schedule, charter and own models (models.checks for its checks, models.advice for its metric setup and finding diagnosis; each is a main model that replaces the machine default, which keeps its backup; omit models to keep what it has, pass models {} to clear both and follow the defaults). On a journey champion, repairsVia names an active champion in the same project that repairs what it confirms; null clears it.",
   parameters: Schema.Struct({
     ...ChampionUpsertInput.fields,
     environmentId: OrchestratorMcpEnvironmentTarget,

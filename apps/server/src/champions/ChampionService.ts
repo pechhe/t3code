@@ -25,6 +25,7 @@ import * as SlipJayLandings from "../project/SlipJayLandings.ts";
 import { invalidOptionSelections } from "../provider/modelSelectionValidation.ts";
 import { isProviderUsageExhausted } from "@t3tools/shared/accountPools";
 import * as ChampionModels from "./ChampionModels.ts";
+import { isUsageLimitFailure } from "../orchestration-v2/AccountFailover.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import {
   isProviderOverloadedFailureCode,
@@ -138,6 +139,10 @@ type Check = typeof Check.Type;
 const MAX_AUTOMATIC_CHECK_RETRIES = 3;
 /** Opens the attention line and activity entry a skipped run leaves. */
 const SKIPPED = "Skipped this ";
+/** How long a check waits for the server's account failover to continue it before retrying it itself. */
+const FAILOVER_GRACE_MS = 2 * 60 * 1000;
+const CHAMPION_MODELS_GUIDANCE =
+  "Models: your checks run on the Champion models checks model, or this champion's own, with the backup taking over when that model is at its usage limit on every account; advice and metric setup use the advice model the same way. When neither can run the server skips the check, records it as skipped (never as passing) and runs the next one on time, so do not ask for a different model or a role for your own runs; helpers you start still use delegation roles.";
 // A claim crosses messages only through persisted server restart ancestry, or through the server's own account
 // failover (its message id names the failed run), which moves the run to another account's provider session.
 function checkRunMessages(run: OrchestrationV2Run, runs: ReadonlyMap<RunId, OrchestrationV2Run>) {
@@ -1003,6 +1008,7 @@ const make = Effect.gen(function* () {
   const journeyPrompt = (doc: Document, check: Check) =>
     [
       `You own champion ${doc.champion.name} in this project. Your goal: ${doc.champion.purpose}`,
+      CHAMPION_MODELS_GUIDANCE,
       `Check claim: ${check.id}. YOU FIND AND REPORT BUGS. YOU DO NOT REPAIR. This overrides any other instruction: no repairs, no worktrees, no source edits and no reading the target's source, even if a bug looks easy to fix.${doc.champion.repairsVia == null ? "" : " The champion this one names in repairsVia sees each confirmed finding in its own check and repairs it; your re-test still settles it."}`,
       "1. Call t3_champions_check_context, then t3_champions_learning_search with this champion's id for what past checks covered. Then call t3_champions_journeys_start: it starts the target and returns its shards, the most journeys this check may run, the paths earlier checks already walked, the source files changed since, and bugs to re-test, which you replay first, by findingId, under step 5. If it says the check is deferred or refused, report that no journey ran; do not work around it.",
       "2. Survey before you choose: open your tabs, one per area in the sidebar first, and call t3_browser_snapshot on each. Read the links and buttons inside each page's main content, not the sidebar, then open and snapshot the pages those links lead to as well, so you have seen two levels. Name in each goal the links it should follow, as the snapshot shows them, and spend no journey on a feature that needs a real model, voice or outbound service, since this contained copy has none. Then choose journeys a real person might take and break. At least half must start on, or pass through, a page or control you found only this way, and a page reached only from inside another page gets at least two journeys, since nobody else will go there. No two journeys may share a start and a goal, on any shard: a shard is capacity, not a reason to repeat a path. A shard may carry a locale and workPaths: give each journey that changes data its own workPath, and never run two journeys on the same workPath at once; give a journey on a shard with a locale, such as pt-BR, the goal of reading its screens for English left behind, judged from what the screen shows. Include journeys a real person takes that goal-driven clicking misses: dragging an element between lanes, a phone-width journey opened with a narrow viewport, and a keyboard-only journey of key presses with no clicks, checking which element holds focus. Prefer areas no earlier check covered and areas that recently changed; past coverage is a list to avoid, so never reuse a goal from a learning unless it is a re-test. Every goal is an attack of at least three steps, never a visit, and across the check cover each kind of break: searches and filters given unusual input such as ( [ % or a very long value; a draft started, then a link followed away and back, checking the draft survived; a multi-step flow taken to its very last button, checking that button can be used; empty submits and double submits. Never ask a goal to report: the task's model reads each page for you. Never name or assume a bug you have not seen.",
@@ -1016,6 +1022,7 @@ const make = Effect.gen(function* () {
   const routinePrompt = (doc: Document, check: Check) =>
     [
       `You own champion ${doc.champion.name} in this project. Your goal: ${doc.champion.purpose}`,
+      CHAMPION_MODELS_GUIDANCE,
       `Work towards the goal, not the metrics. Metrics are your instruments for seeing progress; when they cannot show it (blank, insufficient, or measuring the wrong thing), say so and change it with t3_champions_metrics action submit. ${METRIC_RULE}`,
       check.kind === "setup"
         ? 'SETUP: inspect the actual product and set measurable metrics that show progress towards the goal with t3_champions_metrics action submit, or call t3_champions_report with only a summary for a no-change summary. Name each metric in plain words someone outside engineering understands ("How long common screens take to become usable", not "Sentinel usable readiness"), and start its description with one plain sentence on what it tells the user about the goal; method detail follows. Renaming or rewording a metric keeps its series, so fix unclear names on any setup. Do not edit the shared root or delegate repairs during setup.'
@@ -1031,7 +1038,7 @@ const make = Effect.gen(function* () {
       "Read and measure at the project root; every writer must use an isolated workspace. Never edit the shared root. Keep this owner thread and its namespace across checks. Do not archive or replace it while children are live.",
       "For metric breaches the server creates deterministic findings. Reconcile qualitative observations with known open findings: supply existingFindingId instead of paraphrasing a duplicate. Read history on demand, never fabricate a measurement.",
       "After reporting, call t3_champions_check_context to read finding workId/attemptId. Use these exact identities in delegate_task, and existing role policy and SlipJay. If Forge/SlipJay is unavailable, report it explicitly as attention; never claim a repair was delivered without a revision.",
-      "DIAGNOSE BEFORE YOU ACT on a metric breach. A new or reopened breach first gets one read-only advisor (delegate_task role advisor, readOnly true, the finding's workId and attemptId): ask it for the cause, the evidence, and which route fits: repair (a bounded fix one implementer can make and a later reading can verify), spec (larger or open work), or decision (a product trade-off, look and feel, or a change to checks, permissions or spend, which only the user settles). Record its conclusion with t3_champions_finding_action action diagnosis: diagnosis is what it found, route what it recommends, evidence one line of why. A repair, a Spec and a decision request are each refused until then, and each must match the recorded route; to take another, record why first with action reroute. If the advisor is refused because no model is eligible, the finding records that and you may proceed without it; never run it on another model. A qualitative finding needs no diagnosis.",
+      "DIAGNOSE BEFORE YOU ACT on a metric breach. A new or reopened breach first gets one read-only advisor (delegate_task role advisor, readOnly true, the finding's workId and attemptId): ask it for the cause, the evidence, and which route fits: repair (a bounded fix one implementer can make and a later reading can verify), spec (larger or open work), or decision (a product trade-off, look and feel, or a change to checks, permissions or spend, which only the user settles). Record its conclusion with t3_champions_finding_action action diagnosis: diagnosis is what it found, route what it recommends, evidence one line of why. A repair, a Spec and a decision request are each refused until then, and each must match the recorded route; to take another, record why first with action reroute. The advisor runs on this champion's advice model, else its backup (set under Champion models, or this champion's own advice model); if neither can run, the finding records that it is undiagnosed and you may proceed without it; never run the advisor on another model. A qualitative finding needs no diagnosis.",
       "Route repair: delegate an implementer. Route spec: file an ordinary Forge Spec through your own Weave connection, with the diagnosis as its body and the finding named as its source, record it with t3_champions_finding_action action spec and specUrl, then delegate an implementer with forgeItem set to that Spec, which becomes its Spec lead. You lead one Spec at a time and never review or accept it. If you have no Weave connection, say so as attention; do not fall back to a repair. Route decision: request it with action decision.",
       "t3_champions_check_context may list handedOff findings: bugs a journey champion in this project confirmed and handed to you. Delegate and record repairs for them exactly as for your own, within your own limits. They stay with that champion, whose re-test settles them: never dismiss, reopen, verify or ask a decision on one.",
       "Before a bounded investigation, call t3_champions_learning_search action query for its exact topic and retain the current retrieval receipt, including a legitimate empty result. Call t3_champions_investigation action start with distinct read-only hypotheses, then delegate only its returned branch workId/attemptId through normal managed roles in this project. At most three alternatives, two active branches, six admitted attempts per investigation and six per champion per rolling 24 hours; follow-ups count. Unknown launches hold capacity; replay the same identity instead of duplicating work.",
@@ -4289,8 +4296,21 @@ const make = Effect.gen(function* () {
         }
         // A limit ends the run: retry once on the backup, else skip it so the next check starts on time.
         // A pooled main model moves between accounts first, by AccountFailover, as for any thread.
-        if (endedWithoutReport && shell?.lastErrorClass === "usage_limit") {
-          const handled = yield* endedOnUsageLimit(doc, check, shell.usageLimitResetAt ?? null);
+        // One definition of a usage limit for threads and Champions: the failure's class or its words.
+        if (
+          endedWithoutReport &&
+          shell !== null &&
+          isUsageLimitFailure({
+            class: shell.lastErrorClass ?? "provider_error",
+            message: shell.lastError ?? "",
+          })
+        ) {
+          const handled = yield* endedOnUsageLimit(
+            doc,
+            check,
+            shell.usageLimitResetAt ?? null,
+            shell.updatedAt,
+          );
           if (handled) continue;
         }
         const ownershipLost =
@@ -4354,11 +4374,12 @@ const make = Effect.gen(function* () {
     // Together, so one champion's slow command holds up no other champion's check.
     yield* Effect.forEach(resumed, (effect) => effect, { concurrency: "unbounded", discard: true });
   });
-  /** Whether the limit was dealt with: retried on the backup, or the check ended as skipped. */
+  /** Whether the limit is dealt with for now: retried, ended as skipped, or waiting for account failover. */
   const endedOnUsageLimit = Effect.fn("ChampionService.endedOnUsageLimit")(function* (
     doc: Pick<Document, "champion">,
     check: Check,
     until: string | null,
+    endedAt: DateTime.Utc,
   ) {
     const kind = check.kind === "setup" ? "advice" : "checks";
     const slot = yield* slotOf(doc, kind);
@@ -4371,8 +4392,11 @@ const make = Effect.gen(function* () {
       const picked = ChampionModels.pickSlot(slot.slot, source, {
         failed: { selection: failedOn, until },
       });
-      if (picked.use?.slot === "main") return false;
-      if (picked.use?.slot === "backup") {
+      // Account failover moves a pooled model first; when it has not acted within its grace, retry here.
+      const waitedMs =
+        DateTime.toEpochMillis(yield* DateTime.now) - DateTime.toEpochMillis(endedAt);
+      if (picked.use?.slot === "main" && !(waitedMs > FAILOVER_GRACE_MS)) return true;
+      if (picked.use !== null) {
         const started = yield* start(doc.champion.id, check.kind, false, true, { until }).pipe(
           Effect.result,
         );

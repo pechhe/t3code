@@ -954,8 +954,7 @@ function RecentRuns(props: {
   return (
     <Disclosure label="Recent runs and models">
       <p className="text-muted-foreground text-xs">
-        Each run keeps the role and model it started with. Changing a role or your role policy only
-        affects later runs.
+        Each run keeps the model it started with. Changing Champion models only affects later runs.
       </p>
       <ul className="flex flex-col divide-y overflow-hidden rounded-lg border bg-card text-xs">
         {(all ? runs : runs.slice(0, RUNS_SHOWN)).map((run) => (
