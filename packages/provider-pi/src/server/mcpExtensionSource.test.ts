@@ -707,7 +707,7 @@ describe("Pi composed context", () => {
     "implementer",
     "lead",
     undefined,
-  ])("cuts only helper rules and filters only reader skills for %s", async (role) => {
+  ])("cuts helper rules and agent-config skills for %s", async (role) => {
     const bridge = await loadMcpBridge({
       modern: true,
       agentConfigRoot: "/config",
@@ -736,7 +736,7 @@ describe("Pi composed context", () => {
     );
     assert.deepEqual(
       options.skills.map((skill) => skill.name),
-      role && !["lead", "implementer"].includes(role) ? ["local"] : ["global", "local"],
+      role && role !== "lead" ? ["local"] : ["global", "local"],
     );
   });
 
@@ -745,7 +745,10 @@ describe("Pi composed context", () => {
     { query: " mcp__t3-code__preview_snapshot ", limit: 8, expected: 1 },
     { query: "mcp__t3_code__preview_snapshot", limit: undefined, expected: 1 },
     { query: "inspect the browser", limit: undefined, expected: 3 },
-    { query: "inspect the browser", limit: 5, expected: 5 },
+    { query: "inspect the browser", limit: 15, expected: 3 },
+    { query: "inspect the browser", limit: 2, expected: 2 },
+    { query: "ask_advice, +task_status mcp__t3-code__agent_roles", limit: 1, expected: 3 },
+    { query: "ask_advice browser", limit: undefined, expected: 3 },
   ])("narrows builtin search $query", async ({ query, limit, expected }) => {
     const bridge = await loadMcpBridge({
       modern: true,

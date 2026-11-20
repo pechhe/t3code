@@ -736,11 +736,12 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
   pi.on("tool_call", async (event, ctx) => {
     if (event.toolName === "tool_search" && hasBuiltinToolSearch()) {
       const input = event.input as { query?: unknown; limit?: number };
-      const query = typeof input.query === "string" ? input.query.trim() : "";
-      const exact = query.length > 0 && pi.getAllTools().some((tool) =>
-        tool.name === query || tool.name.replace(/^mcp__.+?__/, "") === query);
-      if (exact) input.limit = 1;
-      else if (input.limit === undefined) input.limit = 3;
+      // A loaded declaration rides on every later request: load the tools a query names, else at most three.
+      const words = (typeof input.query === "string" ? input.query : "")
+        .split(/[\\s,]+/).map((word) => word.replace(/^\\+/, "")).filter((word) => word.length > 0);
+      const names = new Set(pi.getAllTools().flatMap((tool) => [tool.name, tool.name.replace(/^mcp__.+?__/, "")]));
+      const exact = words.length > 0 && words.every((word) => names.has(word));
+      input.limit = exact ? words.length : Math.min(input.limit ?? 3, 3);
     }
     const refusal = await guardRefusal(event, ctx);
     if (refusal !== undefined) return refusal;
@@ -1048,7 +1049,7 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
       options.contextFiles.splice(0, options.contextFiles.length, ...kept);
     }
     const root = env(CONFIG_ROOT_ENV);
-    if (helper && ["scout", "researcher", "browser", "reviewer", "advisor"].includes(env(ROLE_ENV) ?? "") && root && options?.skills) {
+    if (helper && root && options?.skills) {
       const resolvedRoot = await realPath(root);
       const kept = [];
       for (const skill of options.skills) {

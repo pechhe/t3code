@@ -201,34 +201,13 @@ Architecture and its constraints: `docs/internals/overview.md`. Glossary: `docs/
 
 ## T3peach fork
 
-T3peach (`pechhe/t3code`, branch `t3peach`) is T3 Code with upstream's nightlies (`pingdotgg/t3code`) merged in, plus the fork's own features and fixes. These rules keep it gaining features and speed while staying cheap to update. They apply on top of the repository's `AGENTS.md`.
+T3peach (`pechhe/t3code`, branch `t3peach`) is T3 Code with upstream's nightlies (`pingdotgg/t3code`) merged in, plus the fork's own features and fixes. Prefer upstream's implementation of shared behaviour and add the smallest fork extension; fork work lands as linear commits, since upstream merges are the only merges on `t3peach`'s first-parent history.
 
-- [`differences.md`](fork/differences.md) records each deliberate difference from upstream: why it exists, what must survive an update, where it meets upstream code, its proof and when it can go.
-- [`upstream-receipt.json`](fork/upstream-receipt.json) is the reconciliation receipt for the newest upstream merge. The landing gate refuses a candidate whose receipt is missing or stale (`scripts/fork-upstream-receipt.ts`), and from receipt version 2 it also refuses one that leaves a recorded entry out of its coverage or retires one without a decision.
+Before a substantial feature, behaviour change, performance fix or wire-contract change, read [`fork/README.md`](fork/README.md): upstream policy, keeping fork code removable and out of upstream's busiest files, staying readable by the shipped mobile apps, the `fork/differences.md` entry each change updates, and performance evidence.
 
 ### Mobile is upstream's
 
-The fork does no mobile development: Henry uses the official T3 Code app. Build no fork feature in `apps/mobile` and verify none there; for fork work, the Clients entry of Hit every surface means web and desktop. Two duties remain: the official app keeps working against a fork server (see Stays readable by shipped clients), and `apps/mobile` keeps type-checking when a shared contract or `client-runtime` change reaches it, by the smallest edit that does.
-
-### Upstream policy
-
-1. Prefer upstream's implementation of shared behaviour when evidence shows it meets the fork's requirements. Keep required behaviour, not code because it was written here.
-2. When upstream covers part of a capability, use its implementation plus the smallest fork extension. Two complete implementations of one thing need a recorded reason and exit condition.
-3. Adopting equivalent upstream behaviour needs no confirmation. An unresolved loss of functionality, incompatible migration or product choice goes to Henry with its specific trade-off.
-4. Keep `t3peach`'s history: everything lands through `slipjay land`. Upstream arrives as merge commits so later updates can tell incorporated work from fork changes. Those are the only merges on `t3peach`'s first-parent history: the receipt check and the updater treat the newest one as the current upstream integration, so fork work lands as linear commits.
-5. Build on existing services, contracts and shared client code; no plugin framework or second architecture for fork code.
-
-### Making a fork change
-
-A substantial feature, behaviour change or performance fix reads [`fork/README.md`](fork/README.md) first, which governs upstream reuse, shipped-native-client compatibility and performance evidence, and:
-
-- **Checks upstream first.** Look for upstream work on the same problem (recent commits, open PRs, issues) before adding another mechanism, and reuse it or its direction when it fits.
-- **Stays removable.** Keep it behind existing service boundaries, in identifiable changes, so it can be retired without rewriting shared history.
-- **Proves behaviour.** Tests assert the observable requirement, not the internal implementation, so an upstream replacement can pass them.
-- **Stays readable by shipped clients.** The TestFlight and App Store apps are upstream builds. They ignore an extra optional key on a struct, so an additive optional field (like `endedThreadWatches` on the thread shell) needs no gate. A new enum value, union member, required field, changed type or message is rejected whole, and the app only says the connection failed. Gate those behind a per-connection opt-in that fork clients send (see `LIVE_RESPONSE_STREAMING_QUERY_PARAM`), and send older clients the nearest value they know. `apps/server/src/shippedClientCompatibility.test.ts` decodes the settings a shipped client receives against the frozen schema in `fork/shipped-client/`; extend it when the fork changes another payload, and refresh the schema when a newer upstream release ships.
-- **Updates its record entry** in `fork/differences.md` in the same change: requirements, integration points (the contracts and seams an upstream change could break), proof, known upstream work, and the condition that retires it. A temporary workaround says so.
-- **Measures performance claims.** Name the bottleneck, the realistic workload, the before and after source revisions and the correctness checks. Keep execution time apart from waiting, less work apart from deferred work, and measured gains apart from hypotheses. #135 owns profiling, metrics and the daily performance routine; use its results.
-- **Considers upstream.** Note when a focused, general fix could be proposed upstream. Never open an upstream PR without Henry asking.
+Henry uses the official T3 Code app, so the fork builds and verifies no feature in `apps/mobile`; for fork work, the Clients entry of Hit every surface means web and desktop. The official app must keep working against a fork server ([shipped clients](fork/README.md#making-a-fork-change)), and `apps/mobile` keeps type-checking when a shared contract or `client-runtime` change reaches it, by the smallest edit that does.
 
 ### Load when needed
 

@@ -8,20 +8,13 @@ import { describe, expect, it } from "vite-plus/test";
 
 const SERVER_ROOT = NodePath.resolve(import.meta.dirname, "..");
 const REPO_ROOT = NodePath.resolve(SERVER_ROOT, "../..");
-const WATCH_PATH_PREFIX = "--watch-path=";
-const CHANGE_REPORT_PATTERN = /Change detected in '([^']+)'/g;
+const CHANGE_REPORT_PATTERN = /Restarting '[^']+': (.+) changed/g;
 
 function devServerArgs(): Array<string> {
   const packageJson = JSON.parse(
     NodeFS.readFileSync(NodePath.join(SERVER_ROOT, "package.json"), "utf8"),
   ) as { scripts: Record<string, string> };
   return packageJson.scripts.dev!.split(" ");
-}
-
-function watchPaths(args: ReadonlyArray<string>): Array<string> {
-  return args
-    .filter((arg) => arg.startsWith(WATCH_PATH_PREFIX))
-    .map((arg) => arg.slice(WATCH_PATH_PREFIX.length));
 }
 
 function workspacePackageNames(): Array<string> {
@@ -33,22 +26,6 @@ function workspacePackageNames(): Array<string> {
     )
     .map((entry) => entry.name)
     .sort();
-}
-
-// Node restarts on anything beneath a watched directory, so no watch path may
-// reach a dependency folder, however an ancestor or explicit path is spelled.
-function containsPath(directory: string, target: string): boolean {
-  const relative = NodePath.relative(directory, target);
-  return relative === "" || (!relative.startsWith("..") && !NodePath.isAbsolute(relative));
-}
-
-function workspaceDependencyFolders(): Array<string> {
-  return [
-    NodePath.join(REPO_ROOT, "node_modules"),
-    ...workspacePackageNames().map((name) =>
-      NodePath.join(REPO_ROOT, "packages", name, "node_modules"),
-    ),
-  ].filter((folder) => NodeFS.existsSync(folder));
 }
 
 type BootWaiter = { readonly after: number; readonly settle: (error?: Error) => void };
@@ -69,6 +46,11 @@ function startDevWatcher(): DevWatcher {
   const serverDir = NodePath.join(root, "apps", "server");
   NodeFS.mkdirSync(NodePath.join(serverDir, "src"), { recursive: true });
   NodeFS.writeFileSync(NodePath.join(serverDir, "package.json"), "{}\n");
+  NodeFS.mkdirSync(NodePath.join(serverDir, "scripts"));
+  NodeFS.copyFileSync(
+    NodePath.join(SERVER_ROOT, "scripts", "dev.ts"),
+    NodePath.join(serverDir, "scripts", "dev.ts"),
+  );
   NodeFS.writeFileSync(
     NodePath.join(serverDir, "src", "bin.ts"),
     'console.log("boot");\nsetInterval(() => {}, 1000);\n',
@@ -78,19 +60,14 @@ function startDevWatcher(): DevWatcher {
   if (packageName === undefined) throw new Error("the repository has no workspace package");
   const packageDir = NodePath.join(root, "packages", packageName);
   NodeFS.mkdirSync(NodePath.join(packageDir, "src"), { recursive: true });
+  NodeFS.writeFileSync(NodePath.join(packageDir, "package.json"), "{}\n");
   NodeFS.writeFileSync(NodePath.join(packageDir, "src", "index.ts"), "export const value = 1;\n");
   // A real package keeps pnpm's dependency links beside its sources, which an
   // install rewrites; watching the package directory would restart on them too.
   NodeFS.mkdirSync(NodePath.join(packageDir, "node_modules", ".bin"), { recursive: true });
   NodeFS.writeFileSync(NodePath.join(packageDir, "node_modules", ".bin", "vpx"), "#!/bin/sh\n");
 
-  const args = devServerArgs();
-  for (const watchPath of watchPaths(args)) {
-    const target = NodePath.resolve(serverDir, watchPath);
-    if (!NodeFS.existsSync(target)) NodeFS.mkdirSync(target, { recursive: true });
-  }
-
-  const [, ...nodeArgs] = args;
+  const [, ...nodeArgs] = devServerArgs();
   const child = NodeChildProcess.spawn(process.execPath, nodeArgs, {
     cwd: serverDir,
     stdio: ["ignore", "pipe", "pipe"],
@@ -203,27 +180,6 @@ describe("dev server watcher", () => {
       );
     } finally {
       await watcher.stop();
-    }
-  });
-
-  it("watches every workspace package's sources and no dependency folders", () => {
-    const paths = watchPaths(devServerArgs());
-    expect(paths).toContain("src");
-    expect(paths).toContain("package.json");
-    expect(paths).toEqual(
-      expect.arrayContaining(workspacePackageNames().map((name) => `../../packages/${name}/src`)),
-    );
-
-    const dependencyFolders = workspaceDependencyFolders();
-    expect(dependencyFolders.length).toBeGreaterThan(0);
-    for (const watchPath of paths) {
-      const watched = NodePath.resolve(SERVER_ROOT, watchPath);
-      for (const dependencyFolder of dependencyFolders) {
-        expect(
-          containsPath(watched, dependencyFolder),
-          `${watchPath} also watches ${NodePath.relative(watched, dependencyFolder)}`,
-        ).toBe(false);
-      }
     }
   });
 });
