@@ -9,17 +9,19 @@ import {
 import {
   accountIdOf,
   firstAccount,
-  listAccounts,
   listedPooledModels,
   multiAccountModels,
   nextAccount,
   nextLocalMidnightMs,
+  editedModelAccounts,
+  pooledFavoriteModel,
+  pooledKeyOfFavorite,
   pooledModelKeyOf,
   pooledModels,
   seedPooledModelKeys,
   selectionOnAccount,
   skipAfterLimit,
-  withSkip,
+  skipPatch,
   type PooledModel,
 } from "./accountPools.ts";
 import * as DateTime from "effect/DateTime";
@@ -67,12 +69,10 @@ const henrysProviders: ReadonlyArray<ServerProvider> = fixture.map((entry) =>
 );
 
 const routing = (pooledModelKeys: ReadonlyArray<string> = []) => ({
-  accountOrder: [],
   pooledModelKeys,
-  modelAccountsRemoved: {},
 });
 
-const everyModelOnSeveralAccounts = multiAccountModels(henrysProviders, routing()).map(
+const everyModelOnSeveralAccounts = multiAccountModels(henrysProviders, {}).map(
   (model) => model.key,
 );
 
@@ -112,10 +112,6 @@ describe("pooledModels on Henry's providers", () => {
       "pi:openrouter openrouter/moonshotai/kimi-k3",
       "pi:commandcode commandcode/moonshotai/Kimi-K3",
     ]);
-    // Pi's Antigravity logins are one account; its one model list is not split by login.
-    expect(
-      listAccounts(henrysProviders, []).filter((account) => account.label === "antigravity"),
-    ).toHaveLength(1);
   });
 
   it("merges only the same model", () => {
@@ -208,21 +204,35 @@ describe("pooledModels on Henry's providers", () => {
   });
 });
 
-describe("the account order", () => {
-  const a = provider("a", "claudeAgent", [["opus", "Opus"]]);
-  const b = provider("b", "claudeAgent", [["opus", "Opus"]]);
-  const c = provider("c", "codex", [["opus", "Opus"]]);
-  const pool = (order: ReadonlyArray<string>, removed: ReadonlyArray<string> = []) =>
+describe("a model's account order", () => {
+  const models = [
+    ["opus", "Opus"],
+    ["sonnet", "Sonnet"],
+  ] as const;
+  const a = provider("a", "claudeAgent", models);
+  const b = provider("b", "claudeAgent", models);
+  const c = provider("c", "codex", models);
+  const pool = (order?: ReadonlyArray<string>) =>
     pooledModels([c, b, a], {
-      accountOrder: order,
       pooledModelKeys: ["opus"],
-      modelAccountsRemoved: { opus: removed },
+      ...(order === undefined ? {} : { modelAccounts: { opus: order } }),
     })[0]!;
+  const order = (model: PooledModel) =>
+    model.accounts.map((entry) => `${entry.account.id}${entry.removed ? " off" : ""}`);
 
-  it("tries accounts top to bottom, new accounts at the bottom, passing over removed ones", () => {
+  it("tries the model's own list top to bottom, leaving every other account off", () => {
+    // Never arranged: every subscription, in the order the providers list them.
+    expect(order(pool())).toEqual(["c", "b", "a"]);
+    expect(order(pool(["a", "b"]))).toEqual(["a", "b", "c off"]);
     expect(firstAccount(pool(["a", "b"]), {}, NOW)?.account.id).toBe("a");
-    expect(pool(["a"]).accounts.map((entry) => entry.account.id)).toEqual(["a", "c", "b"]);
-    expect(firstAccount(pool(["a", "b", "c"], ["a"]), {}, NOW)?.account.id).toBe("b");
+    expect(firstAccount(pool(["b", "c"]), {}, NOW)?.account.id).toBe("b");
+    expect(firstAccount(pool([]), {}, NOW)).toBeUndefined();
+    // Another model keeps its own order.
+    const sonnet = pooledModels([c, b, a], {
+      pooledModelKeys: ["opus", "sonnet"],
+      modelAccounts: { opus: ["a"] },
+    }).find((model) => model.key === "sonnet")!;
+    expect(order(sonnet)).toEqual(["c", "b", "a"]);
   });
 
   it("skips an account until its skip ends, then tries it first again", () => {
@@ -296,11 +306,8 @@ describe("the account order", () => {
         haiku: { until: iso(NOW - HOUR), reportedReset: true },
       },
     };
-    expect(
-      Object.keys(
-        withSkip(skips, "a", "opus", { until: iso(NOW + 2 * HOUR), reportedReset: false }, NOW),
-      ),
-    ).toEqual(["sonnet", "opus"]);
+    const skip = { until: iso(NOW + 2 * HOUR), reportedReset: false };
+    expect(skipPatch(skips, "a", "opus", skip, NOW)).toEqual({ haiku: null, opus: skip });
   });
 });
 
@@ -325,15 +332,11 @@ describe("the models the user adds", () => {
     ];
     expect(pooledModels([a, b], routing(["opus"])).map((model) => model.key)).toEqual(["opus"]);
     expect(pooledModels([a, b], routing())).toEqual([]);
-    expect(multiAccountModels([a, b], routing()).map((model) => model.key)).toEqual([
-      "opus",
-      "sonnet",
-    ]);
+    expect(multiAccountModels([a, b], {}).map((model) => model.key)).toEqual(["opus", "sonnet"]);
 
     const listed = listedPooledModels(withSingle, {
-      accountOrder: [],
       pooledModelKeys: ["opus", "haiku", "retired"],
-      modelAccountsRemoved: { haiku: ["b"] },
+      modelAccounts: { haiku: [] },
     });
     expect(listed.map((model) => [model.key, model.displayName, model.accounts.length])).toEqual([
       ["opus", "Opus", 2],
@@ -360,7 +363,7 @@ describe("the models the user adds", () => {
     expect(pooledModels([a, b], hiddenOnA)).toEqual([]);
   });
 
-  it("leaves a pay-as-you-go account off a model until the user adds it", () => {
+  it("leaves a pay-as-you-go account off a model until the user lists it there", () => {
     const pi = provider(
       "pi",
       "pi",
@@ -385,12 +388,19 @@ describe("the models the user adds", () => {
       );
     expect(accountsOf(routing(["sonnet"]))).toEqual([
       ["a", false],
-      ["pi:openrouter", true],
       ["pi:claude-subscription-hfpetch", false],
+      ["pi:openrouter", true],
     ]);
     expect(
-      accountsOf({ ...routing(["sonnet"]), modelAccountsAdded: { sonnet: ["pi:openrouter"] } }),
-    ).toContainEqual(["pi:openrouter", false]);
+      accountsOf({
+        ...routing(["sonnet"]),
+        modelAccounts: { sonnet: ["pi:openrouter", "a"] },
+      }),
+    ).toEqual([
+      ["pi:openrouter", false],
+      ["a", false],
+      ["pi:claude-subscription-hfpetch", true],
+    ]);
   });
 
   it("seeds the models Henry uses: his favorites and the models his roles name", () => {
@@ -483,5 +493,26 @@ describe("selectionOnAccount", () => {
       pinned: true,
       options: [{ id: "thinking", value: "high" }],
     });
+  });
+});
+
+describe("a pooled model among the favorites", () => {
+  it("is told apart from every model an account serves", () => {
+    const saved = { provider: "pi", model: pooledFavoriteModel("claude-opus-5-5") };
+    expect(pooledKeyOfFavorite(saved)).toBe("claude-opus-5-5");
+    for (const slug of fixture.flatMap((entry) => entry.models.map(([slug]) => slug!))) {
+      expect(pooledKeyOfFavorite({ model: slug })).toBeUndefined();
+    }
+  });
+});
+
+describe("editing a model's accounts", () => {
+  it("keeps saved accounts the list does not show now", () => {
+    expect(editedModelAccounts(["a", "x", "b"], ["a", "b", "c"], ["b", "a"])).toEqual([
+      "b",
+      "a",
+      "x",
+    ]);
+    expect(editedModelAccounts(undefined, ["a", "b"], ["b"])).toEqual(["b"]);
   });
 });

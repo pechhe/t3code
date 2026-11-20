@@ -51,7 +51,7 @@ T3 Code uses the Claude configuration on the connected server.
 ## Several Claude accounts
 
 Add each login as its own Claude instance. A model they both serve appears once in the model picker,
-and T3 Code runs it on the first account in your order, moving on when one hits its limit. See
+and T3 Code runs it on the first account in that model's order, moving on when one hits its limit. See
 [One model on several accounts](usage.md#one-model-on-several-accounts).
 
 ## Compact long conversations

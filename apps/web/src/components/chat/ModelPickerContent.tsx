@@ -9,6 +9,7 @@ import {
   MODEL_PICKER_JUMP_KEYBINDING_COMMANDS,
 } from "@t3tools/contracts";
 import { resolveSelectableModel } from "@t3tools/shared/model";
+import { pooledKeyOfFavorite } from "@t3tools/shared/accountPools";
 import { useAtomValue } from "@effect/atom-react";
 import { formatProviderUpdateRequiredNotice } from "@t3tools/client-runtime/providerUpdateRequiredModels";
 import { useNavigate } from "@tanstack/react-router";
@@ -49,7 +50,7 @@ import {
   parseModelPickerModelKey,
 } from "./modelPickerKeys";
 import type { ModelPickerPooling } from "./modelPickerPooling";
-import { usePooledPickerEntries } from "./PooledModelEntries";
+import { pooledKeyOfModelRow, usePooledPickerEntries } from "./PooledModelEntries";
 import { rankModelPickerSearch } from "@t3tools/client-runtime/model-search";
 import {
   Combobox,
@@ -198,6 +199,26 @@ function SortableModelListRow(
   props: Omit<React.ComponentProps<typeof ModelListRow>, "dragHandle"> & { sortableId: string },
 ) {
   const { sortableId, ...rowProps } = props;
+  return (
+    <SortableFavorite sortableId={sortableId}>
+      <ModelListRow
+        {...rowProps}
+        dragHandle={
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 left-0 hidden w-8 items-center justify-center group-hover:flex pointer-coarse:flex"
+          >
+            <GripVerticalIcon className="size-3.5 text-muted-foreground" />
+          </span>
+        }
+      />
+    </SortableFavorite>
+  );
+}
+
+/** Drags a favourite's row in the Favorites tab, the order the composer slider takes. */
+function SortableFavorite(props: { sortableId: string; children: ReactNode }) {
+  const { sortableId } = props;
   // No sortable attributes: focus stays in the search box, and Alt+Up/Down moves the highlighted row.
   const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: sortableId,
@@ -224,17 +245,7 @@ function SortableModelListRow(
         event.stopPropagation();
       }}
     >
-      <ModelListRow
-        {...rowProps}
-        dragHandle={
-          <span
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-y-0 left-0 hidden w-8 items-center justify-center group-hover:flex pointer-coarse:flex"
-          >
-            <GripVerticalIcon className="size-3.5 text-muted-foreground" />
-          </span>
-        }
-      />
+      {props.children}
     </div>
   );
 }
@@ -880,6 +891,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     query: searchQuery,
     showWithoutQuery: selectedInstanceId === "favorites",
     favorites,
+    onToggleFavorite: toggleFavorite,
     onRenameEnd: (restoreFocus) => {
       if (restoreFocus) focusSearchInput();
     },
@@ -925,10 +937,32 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
         .map((model) => modelPickerLegacySectionKey(model.instanceId)),
     ),
   ])();
+  const modelKeys = visibleModels.map((model) => modelPickerModelKey(model.instanceId, model.slug));
+  // Arranging favourites, a pooled favourite sits at its saved place; each entry is the row keys
+  // of one favourite, in the order the composer slider takes them.
+  const favoriteSlotRows = ((): string[][] | null => {
+    if (!isArrangingFavorites) return null;
+    const pooledRows = new Map(pooled.groups.map((group) => [group.key, group.rowKeys]));
+    const shown = new Set(modelKeys);
+    const slots: string[][] = [];
+    for (const favorite of favorites) {
+      const pooledKey = pooledKeyOfFavorite(favorite);
+      const rowKeys =
+        pooledKey === undefined
+          ? [modelPickerModelKey(favorite.provider, favorite.model)].filter((key) => shown.has(key))
+          : pooledRows.get(pooledKey);
+      if (rowKeys !== undefined && rowKeys.length > 0) slots.push(rowKeys);
+    }
+    return slots;
+  })();
   const filteredItemKeys = ((): string[] => {
-    const modelKeys = visibleModels.map((model) =>
-      modelPickerModelKey(model.instanceId, model.slug),
-    );
+    if (favoriteSlotRows !== null) {
+      const placed = new Set(favoriteSlotRows.flat());
+      // A pooled model listed for its active or favourited account, but not saved itself, leads.
+      const leading = pooled.keys.filter((key) => !placed.has(key));
+      const rest = modelKeys.filter((key) => !placed.has(key));
+      return [...leading, ...favoriteSlotRows.flat(), ...rest];
+    }
     // The toggle trails the list, so expanding it reveals older models above it.
     return legacySection
       ? [...pooled.keys, ...modelKeys, legacySection.key]
@@ -941,20 +975,23 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       ),
     ))();
 
-  const moveFavoriteRow = (rowKey: string, targetRowKey: string) => {
+  const favoriteKeyOfRow = (rowKey: string): string | undefined => {
+    const pooledKey = pooledKeyOfModelRow(rowKey);
+    if (pooledKey !== undefined) {
+      const saved = favorites.find((favorite) => pooledKeyOfFavorite(favorite) === pooledKey);
+      return saved === undefined ? undefined : providerModelKey(saved.provider, saved.model);
+    }
     const model = filteredModelByKey.get(rowKey);
-    const target = filteredModelByKey.get(targetRowKey);
-    if (!model || !target) return;
-    void handleMoveFavorite(
-      providerModelKey(model.instanceId, model.slug),
-      providerModelKey(target.instanceId, target.slug),
-    );
+    return model === undefined ? undefined : providerModelKey(model.instanceId, model.slug);
   };
-  const composerBoundaryModel =
-    isArrangingFavorites && !isLocked ? visibleModels[FAVORITE_SLOTS - 1] : undefined;
+  const moveFavoriteRow = (rowKey: string, targetRowKey: string) => {
+    const from = favoriteKeyOfRow(rowKey);
+    const to = favoriteKeyOfRow(targetRowKey);
+    if (from !== undefined && to !== undefined) void handleMoveFavorite(from, to);
+  };
   const composerBoundaryKey =
-    composerBoundaryModel && visibleModels.length > FAVORITE_SLOTS
-      ? modelPickerModelKey(composerBoundaryModel.instanceId, composerBoundaryModel.slug)
+    !isLocked && favoriteSlotRows !== null && favoriteSlotRows.length > FAVORITE_SLOTS
+      ? (favoriteSlotRows[FAVORITE_SLOTS - 1]!.at(-1) ?? null)
       : null;
 
   const modelJumpLabelByKey = modelJumpLabelsByKey(
@@ -1301,7 +1338,18 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                     );
                   }
                   const pooledRow = pooled.render(modelKey, index);
-                  if (pooledRow) return pooledRow;
+                  if (pooledRow) {
+                    const pooledKey = pooledKeyOfModelRow(modelKey);
+                    return isArrangingFavorites &&
+                      pooledKey !== undefined &&
+                      pooled.isFavorite(pooledKey) ? (
+                      <SortableFavorite key={modelKey} sortableId={modelKey}>
+                        {pooledRow}
+                      </SortableFavorite>
+                    ) : (
+                      pooledRow
+                    );
+                  }
                   const model = filteredModelByKey.get(modelKey);
                   if (!model) {
                     return null;

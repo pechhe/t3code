@@ -459,21 +459,20 @@ describe("delegation settings", () => {
         },
       ],
     });
-    const accountOrder = [AccountId.make("pi:antigravity"), AccountId.make("claude")];
-    const pooledModelKeys = multiAccountModels([claude, pi], {
-      accountOrder,
-      modelAccountsRemoved: {},
-    }).map((model) => model.key);
-    const routing = { accountOrder, pooledModelKeys, modelAccountsRemoved: {} };
+    const order = [AccountId.make("pi:antigravity"), AccountId.make("claude")];
+    const pooledModelKeys = multiAccountModels([claude, pi], {}).map((model) => model.key);
+    const routing = {
+      pooledModelKeys,
+      modelAccounts: Object.fromEntries(pooledModelKeys.map((key) => [key, order])),
+    };
     const pools = pooledModels([claude, pi], routing);
     const pool = pools[0]!;
 
-    // When the first account in user order is removed from the model, the catalog binding
-    // uses the first non-removed account's driver and slug with anyAccount: true.
+    // When the model's first account is taken off it, the catalog binding uses the first
+    // account still on it, with anyAccount: true.
     const removedRouting = {
-      accountOrder,
       pooledModelKeys,
-      modelAccountsRemoved: { [pool.key]: [AccountId.make("pi:antigravity")] },
+      modelAccounts: { [pool.key]: [AccountId.make("claude")] },
     };
     const catalog = catalogModels([claude, pi], removedRouting);
     const pooledEntry = catalog.find((candidate) => candidate.pooledKey === pool.key)!;
@@ -655,16 +654,15 @@ describe("delegation settings", () => {
     expect(
       unavailableReason({ ...opus!, anyAccount: true }, [limited, piReady], {
         now: Date.parse("2026-10-15T01:00:00Z"),
-        routing: { accountOrder: [], pooledModelKeys: ["claude-opus"], modelAccountsRemoved: {} },
+        routing: { pooledModelKeys: ["claude-opus"] },
       }),
     ).toBeNull();
     expect(
       unavailableReason({ ...opus!, anyAccount: true }, [limited, piReady], {
         now: Date.parse("2026-10-15T01:00:00Z"),
         routing: {
-          accountOrder: [],
           pooledModelKeys: ["claude-opus"],
-          modelAccountsRemoved: { "claude-opus": [AccountId.make("pi:antigravity")] },
+          modelAccounts: { "claude-opus": [AccountId.make("claude")] },
         },
       }),
     ).toBe("rate limited");

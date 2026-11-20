@@ -122,35 +122,36 @@ describe("serverSettings helpers", () => {
       threadDetailAfterDays: 14,
     });
   });
-  it("replaces the account order and pooled models, and merges removals and skips per entry", () => {
+  it("replaces the pooled models, and merges each model's accounts and skips per entry", () => {
     const skip = { until: "2026-11-19T00:00:00.000Z", reportedReset: false };
     expect(DEFAULT_SERVER_SETTINGS.pooledModelKeys).toBeUndefined();
     const set = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
-      accountOrder: ["claudeAgent", "pi:antigravity", "codex"],
       pooledModelKeys: ["claude-opus-5-5", "gpt-6-2-sol", "kimi-k3"],
-      modelAccountsRemoved: { "claude-opus-5-5": ["pi:openrouter"] },
-      accountSkips: { claudeAgent: { "claude-opus-5-5": skip }, codex: { "gpt-6-2-sol": skip } },
+      modelAccounts: { "claude-opus-5-5": ["claudeAgent", "pi:antigravity"] },
+      accountSkips: {
+        claudeAgent: { "claude-opus-5-5": skip },
+        codex: { "gpt-6-2-sol": skip, "kimi-k3": skip },
+      },
     });
     const next = applyServerSettingsPatch(set, {
-      accountOrder: ["codex", "claudeAgent"],
       pooledModelKeys: ["gpt-6-2-sol"],
-      modelAccountsRemoved: { "gpt-6-2-sol": ["pi:openrouter"] },
-      modelAccountsAdded: { "kimi-k3": ["pi:openrouter"] },
-      accountSkips: { claudeAgent: null },
+      modelAccounts: { "gpt-6-2-sol": ["codex"], "kimi-k3": [] },
+      // Use again now on one model keeps the account's other skips.
+      accountSkips: { claudeAgent: null, codex: { "kimi-k3": null } },
     });
-    expect(next.accountOrder).toEqual(["codex", "claudeAgent"]);
     expect(next.pooledModelKeys).toEqual(["gpt-6-2-sol"]);
     // A list the user emptied stays empty rather than seeding again.
     expect(applyServerSettingsPatch(next, { pooledModelKeys: [] }).pooledModelKeys).toEqual([]);
-    expect(next.modelAccountsRemoved).toEqual({
-      "claude-opus-5-5": ["pi:openrouter"],
-      "gpt-6-2-sol": ["pi:openrouter"],
+    expect(next.modelAccounts).toEqual({
+      "claude-opus-5-5": ["claudeAgent", "pi:antigravity"],
+      "gpt-6-2-sol": ["codex"],
+      "kimi-k3": [],
     });
     expect(next.accountSkips).toEqual({ codex: { "gpt-6-2-sol": skip } });
+    // null returns a model to its default accounts.
     expect(
-      applyServerSettingsPatch(next, { modelAccountsAdded: { "kimi-k3": null } })
-        .modelAccountsAdded,
-    ).toEqual({});
+      applyServerSettingsPatch(next, { modelAccounts: { "kimi-k3": null } }).modelAccounts,
+    ).not.toHaveProperty("kimi-k3");
   });
 
   it("replaces the model compact points so a cleared model does not survive", () => {

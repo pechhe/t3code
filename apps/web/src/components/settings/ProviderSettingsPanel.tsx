@@ -1,4 +1,5 @@
 import { SubagentConservationSettings } from "./SubagentConservationSettings";
+import { pooledKeyOfFavorite } from "@t3tools/shared/accountPools";
 import { SettingsGroup } from "./SettingsGroup";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import {
@@ -1423,7 +1424,9 @@ function ProviderInstanceRow({
   const hiddenModels = modelPreferences?.hiddenModels ?? NO_MODELS;
   const modelOrder = modelPreferences?.modelOrder ?? NO_MODELS;
   const favoriteModels = Arr.filterMap(favorites, (favorite) =>
-    favorite.provider === instanceId ? Result.succeed(favorite.model) : Result.failVoid,
+    favorite.provider === instanceId && pooledKeyOfFavorite(favorite) === undefined
+      ? Result.succeed(favorite.model)
+      : Result.failVoid,
   );
   const resetLabel = driverOption?.label ?? String(driver);
   const projectOverride = showProjectOverride

@@ -17,6 +17,12 @@ import {
   readCustomModelEntries,
   resolveSelectableModel,
 } from "@t3tools/shared/model";
+import {
+  firstAccount,
+  pooledKeyOfFavorite,
+  pooledModels,
+  selectionOnAccount,
+} from "@t3tools/shared/accountPools";
 import { getComposerProviderState } from "./components/chat/composerProviderState";
 import { type ClientSettings, UnifiedSettings } from "@t3tools/contracts/settings";
 import { resolveModelPreferences } from "@t3tools/shared/serverSettings";
@@ -343,7 +349,27 @@ export function resolveFirstFavoriteModelSelection(
   projectId: ProjectId | null,
 ): ModelSelection | null {
   const entries = providerInstanceEntriesFor(providers, settings, projectId);
+  const runnable = (instanceId: string) =>
+    entries.some((entry) => entry.instanceId === instanceId && entry.enabled && entry.isAvailable);
   for (const favorite of settings.favorites) {
+    const pooledKey = pooledKeyOfFavorite(favorite);
+    if (pooledKey !== undefined) {
+      // A pooled favourite starts where the model's account order would, among accounts here.
+      const pool = pooledModels(providers, settings).find((model) => model.key === pooledKey);
+      const first =
+        pool === undefined
+          ? undefined
+          : firstAccount(
+              {
+                ...pool,
+                accounts: pool.accounts.filter((entry) => runnable(entry.provider.instanceId)),
+              },
+              settings.accountSkips,
+              Date.now(),
+            );
+      if (first !== undefined) return selectionOnAccount(first, undefined);
+      continue;
+    }
     const entry = entries.find((candidate) => candidate.instanceId === favorite.provider);
     if (!entry?.enabled || !entry.isAvailable) continue;
     const option = resolveModelPickerSelectedModel({

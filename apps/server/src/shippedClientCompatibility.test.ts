@@ -20,6 +20,7 @@ import {
   ThreadId,
   TurnItemId,
 } from "@t3tools/contracts";
+import { pooledFavoriteModel } from "@t3tools/shared/accountPools";
 import { assert, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as DateTime from "effect/DateTime";
@@ -114,10 +115,11 @@ const forkSettings = {
     },
   },
   responseStreamingMode: "live" as const,
-  accountOrder: ["claudeAgent", "pi:antigravity"],
   pooledModelKeys: ["claude-opus-5-5"],
-  modelAccountsRemoved: { "claude-opus-5-5": ["pi:openrouter"] },
-  modelAccountsAdded: { "claude-opus-5-5": ["pi:anthropic"] },
+  favorites: [
+    { provider: ProviderInstanceId.make("pi"), model: pooledFavoriteModel("claude-opus-5-5") },
+  ],
+  modelAccounts: { "claude-opus-5-5": ["claudeAgent", "pi:antigravity"] },
   accountSkips: {
     claudeAgent: { "claude-opus-5-5": { until: "2026-11-19T13:40:00.000Z", reportedReset: true } },
   },

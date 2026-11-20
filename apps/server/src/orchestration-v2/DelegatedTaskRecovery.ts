@@ -70,12 +70,7 @@ export const planDelegatedRecovery = Effect.fn("DelegatedTaskRecovery.plan")(fun
   readonly providers: ReadonlyArray<ServerProvider>;
   readonly settings: Pick<
     ServerSettingsValue,
-    | "accountOrder"
-    | "pooledModelKeys"
-    | "modelAccountsRemoved"
-    | "accountSkips"
-    | "providerModelPreferences"
-    | "modelAccountsAdded"
+    "pooledModelKeys" | "modelAccounts" | "accountSkips" | "providerModelPreferences"
   >;
   readonly readOnly?: boolean | undefined;
   readonly nowMs: number;

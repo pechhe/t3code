@@ -269,20 +269,12 @@ function PolicyEditor({
   onDiscard: () => void;
 }) {
   const saved = data.snapshot.manifest;
-  const accountOrder = useScopedSettings((settings) => settings.accountOrder);
-  const modelAccountsRemoved = useScopedSettings((settings) => settings.modelAccountsRemoved);
+  const modelAccounts = useScopedSettings((settings) => settings.modelAccounts);
   const pooledModelKeys = useScopedSettings((settings) => settings.pooledModelKeys ?? []);
   const providerModelPreferences = useScopedSettings(
     (settings) => settings.providerModelPreferences,
   );
-  const modelAccountsAdded = useScopedSettings((settings) => settings.modelAccountsAdded);
-  const routing = {
-    accountOrder,
-    pooledModelKeys,
-    modelAccountsRemoved,
-    providerModelPreferences,
-    modelAccountsAdded,
-  };
+  const routing = { pooledModelKeys, modelAccounts, providerModelPreferences };
   const slotLabels = useClientSettings(selectModelSlotLabels);
   const pools = withPooledModelLabels(pooledModels(data.providers, routing), slotLabels);
   const catalog = catalogModels(data.providers, routing);

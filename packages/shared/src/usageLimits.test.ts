@@ -2027,7 +2027,7 @@ describe("collectLimitPools slot accounts", () => {
         "petch777@gmail.com",
       ]);
       expect(pool.windows.map((pooled) => pooled.columns.length)).toEqual([2]);
-      // Both logins are the one account routing skips and Try again now clears (this fixture
+      // Both logins are the one account routing skips and Use again now clears (this fixture
       // keeps its default instance id).
       expect(
         new Set(pool.accounts.flatMap((account) => account.routes.map((route) => route.accountId))),

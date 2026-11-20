@@ -196,13 +196,17 @@ using a proxy through `ANTHROPIC_AUTH_TOKEN`.
 
 When more than one account serves the same model (two Claude logins, Claude through Pi's
 sub-providers, Kimi on OpenCode Go and OpenRouter), you can have T3 Code pick the account. Add the
-model under **Settings → Accounts** and the picker shows it once; the same page sets the order it
-tries your accounts in, and takes an account off one model. A model you hide on an account under
-**Settings → Providers** is not tried there, so a model left on one account is not pooled. A
-pay-as-you-go account (an API key, such as OpenRouter's) starts off every model, marked "pay as you
-go"; choose its **+** on a model to let T3 Code spend on it there. Pi's
-Antigravity logins count as one account, because Pi already moves between them. To give a pooled model your own name, hover it in the picker and
-choose the pencil, or press F2; the name stays on that device, like other model names.
+model under **Settings → Accounts** and the picker shows it once. Each model there lists its own
+accounts in the order T3 Code tries them: move one up or down, take one off with **×**, or put one
+back with **+**. A model you never arranged uses every subscription account serving it. A
+pay-as-you-go account (an API key, such as OpenRouter's) is marked "pay as you go" and stays off a
+model until you add it there, as does an account that appears after you arranged the model. A
+model you hide on an account under **Settings → Providers** is not tried there. Pi's Antigravity
+logins count as one account, because Pi already moves between them.
+
+To give a pooled model your own name, hover it in the picker and choose the pencil, or press F2;
+the name stays on that device, like other model names. Its star adds it to your favorites, where
+you drag it into one of the first three places to put it on the composer slider.
 
 Only models you add there are pooled. Every other model stays under each account exactly as it
 would without pooling: pick the account in the model picker and the thread runs there, and reaching
@@ -211,19 +215,20 @@ models you have favorited and the ones your delegation roles name; **Add model**
 the models two or more accounts serve, and a model you remove goes back to running on the account
 you pick.
 
-A new thread starts on the first account in your order that is not skipped, and keeps that account
-for as long as it works. When a run stops at a usage limit, that account is skipped for that model
-until the reset the provider reported, or until midnight on the server's clock when it reported
-none, and the turn continues on the next account. T3 Code also reads that account's usage again at once, so its card shows the new reset. A skipped account shows until when, with **Try
-again now** to clear it, in **Settings → Accounts** and on its card here. Usage readings fill the
-bars but never decide which account runs.
+A new thread starts on the model's first account that is not skipped, and keeps that account for as
+long as it works. An account is skipped only when a turn on it fails because it is out of
+allowance: it is then skipped for that model until the reset the provider reported, or until
+midnight on the server's clock when it reported none, and the turn continues on the next account.
+T3 Code also reads that account's usage again at once, so its card shows the new reset. A skipped
+account shows until when, with **Use again now** to stop skipping it, in **Settings → Accounts**
+and on its card here. Usage readings fill the bars but never decide which account runs.
 
 To use one account on purpose, pick the model on that account: from the model's **Accounts** list,
 your favorites or the slider. That thread stays there, even while the account is skipped, and waits
-for its reset instead of moving. Only the pooled model's own row follows your order, and the
+for its reset instead of moving. Only the pooled model's own row follows its order, and the
 composer then shows the model's name rather than an account.
 Delegation and scheduled tasks behave the same way: naming a provider instance pins it, naming the
-model alone follows your order.
+model alone follows the model's order.
 
 An overloaded response or a connection error is a passing error, not a limit. A subagent that hits
 one, or a rate limit with no other account to move to, moves to its job's next model when there is

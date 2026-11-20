@@ -1,4 +1,10 @@
-import type { EnvironmentId, ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  PooledModelKey,
+  ProviderDriverKind,
+  ProviderInstanceId,
+} from "@t3tools/contracts";
+import { pooledKeyOfFavorite, type PooledModel } from "@t3tools/shared/accountPools";
 import {
   type CSSProperties,
   type ReactElement,
@@ -14,7 +20,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
 import { providerModelKey } from "../../../modelOrdering";
 import type { ProviderInstanceEntry } from "../../../providerInstances";
 import { resolveModelPickerSelectedModel } from "../../../modelSelection";
-import { saveModelLabel, selectModelSlotLabels } from "../modelLabels";
+import { saveModelLabel, savePooledModelLabel, selectModelSlotLabels } from "../modelLabels";
 import { getTriggerDisplayModelName, type ModelEsque } from "../providerIconUtils";
 import { FAVORITE_SLOTS, resolveFavoriteSlots } from "./favoriteSlots.logic";
 
@@ -52,6 +58,8 @@ interface Slot {
   readonly label: string;
   readonly modelName: string;
   readonly disabledReason: string | null;
+  /** A pooled favourite: picking it follows the model's account order. */
+  readonly pooled?: PooledModel;
 }
 
 /**
@@ -75,8 +83,12 @@ export function DeviceModelSlider(props: {
   renderOverflow: (trigger: ReactElement) => ReactNode;
   /** Fast mode is on for the chosen model; it is set from the full picker. */
   fast?: boolean;
-  /** The pooled model's name while the selection follows the account order. */
-  pooledName?: string | undefined;
+  /** Pooled models, and the one the selection follows in its account order, if any. */
+  pooling?: {
+    readonly models: ReadonlyArray<PooledModel>;
+    readonly following: PooledModelKey | null;
+    readonly onSelect: (model: PooledModel) => void;
+  };
   ref?: Ref<DeviceModelSliderHandle>;
 }) {
   const { favorites } = useEnvironmentModelPreferences(props.environmentId);
@@ -131,26 +143,61 @@ export function DeviceModelSlider(props: {
     };
   };
 
+  const resolvePooledSlot = (
+    key: PooledModelKey,
+    instanceId: ProviderInstanceId,
+    model: string,
+  ) => {
+    const pooled = props.pooling?.models.find((candidate) => candidate.key === key);
+    if (pooled === undefined) return null;
+    return {
+      key: model,
+      instanceId,
+      model,
+      label: pooled.displayName,
+      modelName: pooled.displayName,
+      disabledReason: null,
+      pooled,
+    } satisfies Slot;
+  };
   const slots = resolveFavoriteSlots(
     favorites,
-    (favorite) => resolveSlot(favorite.provider, favorite.model, { requireSuppliedModel: true }),
+    (favorite) => {
+      const pooledKey = pooledKeyOfFavorite(favorite);
+      return pooledKey === undefined
+        ? resolveSlot(favorite.provider, favorite.model, { requireSuppliedModel: true })
+        : resolvePooledSlot(pooledKey, favorite.provider, favorite.model);
+    },
     FAVORITE_SLOTS,
   );
   const active = resolveSlot(activeInstanceId, props.model);
-  // A favorite names one account, so a pooled model following the order sits on the overflow.
+  const following = props.pooling?.following ?? null;
+  const followingName =
+    following === null
+      ? undefined
+      : props.pooling?.models.find((model) => model.key === following)?.displayName;
+  // An account favourite names one account, so a pooled model following the order sits on its own
+  // favourite, or else the overflow.
   const activeIndex =
-    props.pooledName === undefined ? slots.findIndex((slot) => slot.key === active?.key) : -1;
+    following === null
+      ? slots.findIndex((slot) => slot.pooled === undefined && slot.key === active?.key)
+      : slots.findIndex((slot) => slot.pooled?.key === following);
 
   const selectSlot = (index: number) => {
     const slot = slots[index];
     if (!slot || disabled || slot.disabledReason !== null || index === activeIndex) return;
     playRotary();
-    props.onSelect(slot.instanceId, slot.model);
+    if (slot.pooled !== undefined) props.pooling?.onSelect(slot.pooled);
+    else props.onSelect(slot.instanceId, slot.model);
   };
   useImperativeHandle(ref, () => ({ selectSlot }));
 
   const rename = (slot: Slot, name: string) => {
     setRenamingKey(null);
+    if (slot.pooled !== undefined) {
+      savePooledModelLabel({ slotLabels, key: slot.pooled.key, nextName: name });
+      return;
+    }
     saveModelLabel({
       slotLabels,
       instanceId: slot.instanceId,
@@ -160,7 +207,7 @@ export function DeviceModelSlider(props: {
     });
   };
   const position = activeIndex >= 0 ? activeIndex : FAVORITE_SLOTS;
-  const overflowLabel = activeIndex < 0 && active ? (props.pooledName ?? active.label) : null;
+  const overflowLabel = activeIndex < 0 && active ? (followingName ?? active.label) : null;
   const activeEntry = instanceEntries.find((entry) => entry.instanceId === activeInstanceId);
   const providerLight = activeEntry
     ? (activeEntry.accentColor ?? PROVIDER_LIGHTS[activeEntry.driverKind])

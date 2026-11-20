@@ -49,11 +49,7 @@ export function useComposerPooling(input: {
   readonly selection: ModelSelection;
   readonly onSelect: ModelPickerPooling["onSelect"];
 }): ModelPickerPooling {
-  const accountOrder = useEnvironmentSettings(input.environmentId, (s) => s.accountOrder);
-  const modelAccountsRemoved = useEnvironmentSettings(
-    input.environmentId,
-    (s) => s.modelAccountsRemoved,
-  );
+  const modelAccounts = useEnvironmentSettings(input.environmentId, (s) => s.modelAccounts);
   const skips = useEnvironmentSettings(input.environmentId, (s) => s.accountSkips);
   const pooledModelKeys = useEnvironmentSettings(
     input.environmentId,
@@ -63,19 +59,9 @@ export function useComposerPooling(input: {
     input.environmentId,
     (s) => s.providerModelPreferences,
   );
-  const modelAccountsAdded = useEnvironmentSettings(
-    input.environmentId,
-    (s) => s.modelAccountsAdded,
-  );
   const slotLabels = useClientSettings(selectModelSlotLabels);
   const models = withPooledModelLabels(
-    pooledModels(input.providers, {
-      accountOrder,
-      pooledModelKeys,
-      modelAccountsRemoved,
-      providerModelPreferences,
-      modelAccountsAdded,
-    }),
+    pooledModels(input.providers, { pooledModelKeys, modelAccounts, providerModelPreferences }),
     slotLabels,
   );
   return modelPickerPooling({ ...input, models, skips });

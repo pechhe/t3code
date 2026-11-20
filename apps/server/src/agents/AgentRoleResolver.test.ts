@@ -1198,9 +1198,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
         review: changeReview,
       });
       const skipped = (untilMs: number) => ({
-        accountOrder: [],
         pooledModelKeys: [claudeModel],
-        modelAccountsRemoved: {},
         accountSkips: {
           [claude.instanceId]: {
             [claudeModel]: {
@@ -1275,9 +1273,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
             providers: [pi],
             request: request({ role: "implementer" }),
             routing: {
-              accountOrder: [],
               pooledModelKeys: ["claude-opus-5-5"],
-              modelAccountsRemoved: {},
               accountSkips: {
                 "pi-test:acct-a": {
                   "claude-opus-5-5": {

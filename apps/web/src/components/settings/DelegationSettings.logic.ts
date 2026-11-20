@@ -26,17 +26,9 @@ import {
 type Manifest = AgentPolicyManifest;
 type RoutingSettings = Pick<
   AccountRoutingSettings,
-  | "accountOrder"
-  | "pooledModelKeys"
-  | "modelAccountsRemoved"
-  | "providerModelPreferences"
-  | "modelAccountsAdded"
+  "pooledModelKeys" | "modelAccounts" | "providerModelPreferences"
 >;
-const EMPTY_ROUTING: RoutingSettings = {
-  accountOrder: [],
-  pooledModelKeys: [],
-  modelAccountsRemoved: {},
-};
+const EMPTY_ROUTING: RoutingSettings = { pooledModelKeys: [] };
 
 export const isAnyAccountBinding = (binding: Pick<Binding, "anyAccount" | "poolId">): boolean =>
   binding.anyAccount === true || binding.poolId !== undefined;

@@ -28,8 +28,8 @@ interface RouteOptions {
 /**
  * Picks the account a selection runs on before the orchestrator sees it. A pinned selection stays;
  * a thread keeps its account for the same model, so its prompt cache keeps paying off (one that
- * has not run yet gives it up once skipped); new work takes the first account in the user's order
- * that is not skipped.
+ * has not run yet gives it up once skipped); new work takes the model's first account that is not
+ * skipped.
  */
 export const make = (input: {
   readonly providerRegistry: Option.Option<ProviderRegistry.ProviderRegistry["Service"]>;

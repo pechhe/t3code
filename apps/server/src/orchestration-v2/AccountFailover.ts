@@ -18,7 +18,7 @@ import {
   selectionAccountId,
   selectionOnAccount,
   skipAfterLimit,
-  withSkip,
+  skipPatch,
   type PickOptions,
 } from "@t3tools/shared/accountPools";
 import { latestRootProviderFailure } from "@t3tools/shared/orchestrationV2ThreadError";
@@ -47,20 +47,15 @@ export const isUsageLimitFailure = (
   );
 
 /**
- * Where a run that failed with a usage limit continues: the next account in the user's order
- * serving its model that is not skipped. A pinned account, or none left, leaves it waiting.
+ * Where a run that failed with a usage limit continues: the next account in its model's order
+ * that is not skipped. A pinned account, or none left, leaves it waiting.
  */
 export const failoverSelection = (input: {
   readonly selection: ModelSelection;
   readonly providers: ReadonlyArray<ServerProvider>;
   readonly settings: Pick<
     ServerSettingsValue,
-    | "accountOrder"
-    | "pooledModelKeys"
-    | "modelAccountsRemoved"
-    | "accountSkips"
-    | "providerModelPreferences"
-    | "modelAccountsAdded"
+    "pooledModelKeys" | "modelAccounts" | "accountSkips" | "providerModelPreferences"
   >;
   readonly nowMs: number;
   readonly options?: PickOptions | undefined;
@@ -147,7 +142,7 @@ export const layer = Layer.effectDiscard(
           const current = yield* settings.getSettings;
           return yield* settings.updateSettings({
             accountSkips: {
-              [account]: withSkip(current.accountSkips, account, key, skip, nowMs),
+              [account]: skipPatch(current.accountSkips, account, key, skip, nowMs),
             },
           });
         }),

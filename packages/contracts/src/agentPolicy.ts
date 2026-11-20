@@ -198,7 +198,7 @@ const ModelBinding = Schema.Struct({
   driverKind: ProviderDriverKind,
   model: TrimmedNonEmptyString,
   /**
-   * The model alone: any account serving it, tried in the user's account order. Without it the
+   * The model alone: any account serving it, tried in the model's account order. Without it the
    * entry names `driverKind`'s account for `model`.
    */
   anyAccount: Schema.optional(Schema.Boolean),

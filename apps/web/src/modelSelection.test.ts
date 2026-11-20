@@ -14,6 +14,7 @@ import {
 } from "@t3tools/contracts/settings";
 import { describe, expect, it } from "vite-plus/test";
 import { createModelSelection } from "@t3tools/shared/model";
+import { pooledFavoriteModel } from "@t3tools/shared/accountPools";
 import { deriveEffectiveComposerModelState } from "./composerDraftStore";
 import { getComposerProviderState } from "./components/chat/composerProviderState";
 import { resolveComposerProviderSelection } from "./components/ChatView.logic";
@@ -286,6 +287,41 @@ describe("a new thread's automatic default", () => {
     expect(resolveAutomaticDefaultModelSelection(providers, hidden, null)).toEqual(
       createModelSelection(claudeId, "claude-fable-5-2"),
     );
+  });
+
+  it("starts a pooled favourite in slot 1 on its model's first account here", () => {
+    const ysId = ProviderInstanceId.make("claudeAgent_ys");
+    const claudeYs = provider({
+      instanceId: "claudeAgent_ys",
+      provider: ProviderDriverKind.make("claudeAgent"),
+      models: ["claude-opus-5-5"],
+    });
+    const settings = withFavorites(
+      [
+        { provider: claudeId, model: pooledFavoriteModel("claude-opus-5-5") },
+        { provider: codexId, model: "gpt-6-astra" },
+      ],
+      {
+        providerInstances: {
+          [ysId]: { driver: ProviderDriverKind.make("claudeAgent"), config: { customModels: [] } },
+        },
+        pooledModelKeys: ["claude-opus-5-5"],
+        modelAccounts: { "claude-opus-5-5": ["claudeAgent_ys", "claudeAgent"] },
+      },
+    );
+    const pooledProviders = [codex, claude, claudeYs];
+
+    expect(resolveAutomaticDefaultModelSelection(pooledProviders, settings, null)).toEqual(
+      createModelSelection(ysId, "claude-opus-5-5"),
+    );
+    // Unpooled, the favourite names no model a provider supplies, so the next slot starts.
+    expect(
+      resolveAutomaticDefaultModelSelection(
+        pooledProviders,
+        { ...settings, pooledModelKeys: [] },
+        null,
+      ),
+    ).toEqual(createModelSelection(codexId, "gpt-6-astra"));
   });
 
   it("falls back to the first provider's own default with no favourite to take slot 1", () => {

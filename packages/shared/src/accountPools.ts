@@ -1,6 +1,6 @@
 /**
  * A pool is one model the user added to their pooled models, served by several accounts and tried
- * in the user's one account order. Usage readings fill the Usage bars and supply reset times; they
+ * in that model's own account order. Usage readings fill the Usage bars and supply reset times; they
  * never decide routing.
  */
 import type {
@@ -21,14 +21,11 @@ import type {
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
-export type AccountRoutingSettings = Pick<
-  ServerSettings,
-  "accountOrder" | "pooledModelKeys" | "modelAccountsRemoved" | "accountSkips"
-> & {
+export type AccountRoutingSettings = Pick<ServerSettings, "pooledModelKeys" | "accountSkips"> & {
+  /** Absent, or absent for a model, means it runs on every subscription account serving it. */
+  readonly modelAccounts?: ServerSettings["modelAccounts"] | undefined;
   /** A model hidden on an account is one that account does not offer. */
   readonly providerModelPreferences?: ServerSettings["providerModelPreferences"] | undefined;
-  /** Absent means no pay-as-you-go account was added, so none pools. */
-  readonly modelAccountsAdded?: ServerSettings["modelAccountsAdded"] | undefined;
 };
 
 // ── Usage readings ──────────────────────────────────────────────────────────────────────────
@@ -186,40 +183,6 @@ const accountInfo = (provider: ServerProvider, modelSlug: string): AccountInfo =
   };
 };
 
-/** Every account the enabled providers offer, in the user's order (new accounts at the bottom). */
-export const listAccounts = (
-  providers: ReadonlyArray<ServerProvider>,
-  accountOrder: ReadonlyArray<AccountId>,
-): ReadonlyArray<AccountInfo> => {
-  const seen = new Map<AccountId, AccountInfo>();
-  for (const provider of providers) {
-    if (!provider.enabled) continue;
-    if (provider.driver !== "pi") {
-      if (provider.models.length > 0) seen.set(provider.instanceId, accountInfo(provider, ""));
-      continue;
-    }
-    for (const model of provider.models) {
-      if (piAccountKeyOf(model.slug) === undefined) continue;
-      const info = accountInfo(provider, model.slug);
-      if (!seen.has(info.id)) seen.set(info.id, info);
-    }
-  }
-  return orderAccounts([...seen.values()], accountOrder, (account) => account.id);
-};
-
-/** Sorts by the user's order; accounts it does not name keep their order below those it does. */
-export const orderAccounts = <T>(
-  items: ReadonlyArray<T>,
-  accountOrder: ReadonlyArray<AccountId>,
-  idOf: (item: T) => AccountId,
-): ReadonlyArray<T> => {
-  const rank = new Map(accountOrder.map((id, index) => [id, index]));
-  return items
-    .map((item, index) => ({ item, index, rank: rank.get(idOf(item)) ?? Number.POSITIVE_INFINITY }))
-    .sort((a, b) => a.rank - b.rank || a.index - b.index)
-    .map(({ item }) => item);
-};
-
 // ── Matching models across accounts ─────────────────────────────────────────────────────────
 
 /** Catalog entries that stand for whatever the provider picks, never one model. */
@@ -274,23 +237,20 @@ export interface PooledAccount {
   readonly provider: ServerProvider;
   /** The slug this account runs the model under. */
   readonly model: string;
-  /** Off this model: taken off by the user, or billed per use and not added by them. */
+  /** Off this model: left out of the user's list for it, or billed per use and never added. */
   readonly removed: boolean;
-  /** Billed per use, so it serves the model only when the user adds it. */
+  /** Billed per use, so it serves a model only once the user adds it there. */
   readonly metered: boolean;
 }
 
 export interface PooledModel {
   readonly key: PooledModelKey;
   readonly displayName: string;
-  /** Every account offering the model, in the user's order, removed ones included. */
+  /** Every account offering the model, in the model's order, the ones off it last. */
   readonly accounts: ReadonlyArray<PooledAccount>;
 }
 
-type ServingSettings = Pick<
-  AccountRoutingSettings,
-  "modelAccountsRemoved" | "providerModelPreferences" | "modelAccountsAdded"
->;
+type ServingSettings = Pick<AccountRoutingSettings, "modelAccounts" | "providerModelPreferences">;
 
 /** A Pi sub-provider billed per use, as its usage slot reports. */
 const isMeteredAccount = (provider: ServerProvider, modelSlug: string): boolean => {
@@ -316,21 +276,37 @@ const servingEntries = (providers: ReadonlyArray<ServerProvider>, settings: Serv
       const entry = byKey.get(key) ?? { names: [], accounts: [] };
       // One account offering a model twice (an alias and its target) serves it once.
       if (entry.accounts.some((existing) => existing.account.id === account.id)) continue;
-      const metered = isMeteredAccount(provider, model.slug);
       entry.names.push(model.name);
       entry.accounts.push({
         account,
         provider,
         model: model.slug,
-        removed: metered
-          ? settings.modelAccountsAdded?.[key]?.includes(account.id) !== true
-          : settings.modelAccountsRemoved[key]?.includes(account.id) === true,
-        metered,
+        removed: false,
+        metered: isMeteredAccount(provider, model.slug),
       });
       byKey.set(key, entry);
     }
   }
+  for (const [key, entry] of byKey) {
+    entry.accounts = arrangeAccounts(entry.accounts, settings.modelAccounts?.[key]);
+  }
   return byKey;
+};
+
+/**
+ * A model's accounts in its order: the ones the user listed for it, or else every subscription in
+ * the order the providers list them. The rest follow, off the model.
+ */
+const arrangeAccounts = (
+  accounts: ReadonlyArray<PooledAccount>,
+  listed: ReadonlyArray<AccountId> | undefined,
+): PooledAccount[] => {
+  const inUse = listed ?? accounts.flatMap((entry) => (entry.metered ? [] : [entry.account.id]));
+  const rank = new Map(inUse.map((id, index) => [id, index]));
+  const rankOf = (entry: PooledAccount) => rank.get(entry.account.id) ?? inUse.length;
+  return accounts
+    .map((entry) => ({ ...entry, removed: !rank.has(entry.account.id) }))
+    .sort((a, b) => rankOf(a) - rankOf(b));
 };
 
 const shortestPlainName = (names: ReadonlyArray<string>): string =>
@@ -351,10 +327,10 @@ const disambiguateDisplayNames = (
   );
 };
 
-/** Every model more than one account serves, each with its accounts in the user's order. */
+/** Every model more than one account serves, each with its accounts in the model's order. */
 export const multiAccountModels = (
   providers: ReadonlyArray<ServerProvider>,
-  settings: ServingSettings & Pick<AccountRoutingSettings, "accountOrder">,
+  settings: ServingSettings,
 ): ReadonlyArray<PooledModel> =>
   disambiguateDisplayNames(
     [...servingEntries(providers, settings)].flatMap(([key, entry]) =>
@@ -364,11 +340,7 @@ export const multiAccountModels = (
             {
               key,
               displayName: shortestPlainName(entry.names),
-              accounts: orderAccounts(
-                entry.accounts,
-                settings.accountOrder,
-                (item) => item.account.id,
-              ),
+              accounts: entry.accounts,
             },
           ],
     ),
@@ -380,7 +352,7 @@ export const multiAccountModels = (
  */
 export const listedPooledModels = (
   providers: ReadonlyArray<ServerProvider>,
-  settings: ServingSettings & Pick<AccountRoutingSettings, "accountOrder" | "pooledModelKeys">,
+  settings: ServingSettings & Pick<AccountRoutingSettings, "pooledModelKeys">,
 ): ReadonlyArray<PooledModel> => {
   const entries = servingEntries(providers, settings);
   return disambiguateDisplayNames(
@@ -390,7 +362,7 @@ export const listedPooledModels = (
       return {
         key,
         displayName: shortestPlainName(entry.names),
-        accounts: orderAccounts(entry.accounts, settings.accountOrder, (item) => item.account.id),
+        accounts: entry.accounts,
       };
     }),
   );
@@ -402,11 +374,38 @@ export const listedPooledModels = (
  */
 export const pooledModels = (
   providers: ReadonlyArray<ServerProvider>,
-  settings: ServingSettings & Pick<AccountRoutingSettings, "accountOrder" | "pooledModelKeys">,
+  settings: ServingSettings & Pick<AccountRoutingSettings, "pooledModelKeys">,
 ): ReadonlyArray<PooledModel> => {
   const listed = new Set(settings.pooledModelKeys ?? []);
   return multiAccountModels(providers, settings).filter((pool) => listed.has(pool.key));
 };
+
+/**
+ * A model's account list after an edit of the accounts it shows: the ones in use, in order, then
+ * the saved ones not shown now (a disabled provider, a hidden model), so an edit keeps them.
+ */
+export const editedModelAccounts = (
+  saved: ReadonlyArray<AccountId> | undefined,
+  shown: ReadonlyArray<AccountId>,
+  inUse: ReadonlyArray<AccountId>,
+): AccountId[] => {
+  const visible = new Set(shown);
+  return [...inUse, ...(saved ?? []).filter((id) => !visible.has(id))];
+};
+
+const POOLED_FAVORITE_PREFIX = "pooled:";
+
+/**
+ * A pooled model saved among the favorites: its key behind a prefix no provider's model slug
+ * starts with, beside the instance of an account serving it, so other clients pass it over.
+ */
+export const pooledFavoriteModel = (key: PooledModelKey): string => POOLED_FAVORITE_PREFIX + key;
+
+/** The pooled model a saved favorite names, if it names one. */
+export const pooledKeyOfFavorite = (favorite: { readonly model: string }) =>
+  favorite.model.startsWith(POOLED_FAVORITE_PREFIX)
+    ? favorite.model.slice(POOLED_FAVORITE_PREFIX.length)
+    : undefined;
 
 /** The pooled model a selection runs, when its model is offered by more than one account. */
 export const pooledModelOf = (
@@ -466,11 +465,7 @@ export const seedPooledModelKeys = (input: {
       ),
     ),
   ];
-  const offered = new Set(
-    multiAccountModels(input.providers, { accountOrder: [], modelAccountsRemoved: {} }).map(
-      (model) => model.key,
-    ),
-  );
+  const offered = new Set(multiAccountModels(input.providers, {}).map((model) => model.key));
   return [...new Set(keys)].filter(
     (key): key is PooledModelKey => key !== undefined && offered.has(key),
   );
@@ -530,17 +525,24 @@ export const skipAfterLimit = (input: {
   return { until: isoOf(input.midnightMs), reportedReset: false };
 };
 
-/** The account's skips with `key` added, dropping those that have lapsed. */
-export const withSkip = (
+/** The patch recording a skip on an account, dropping the account's skips that have lapsed. */
+export const skipPatch = (
   skips: AccountSkips,
   account: AccountId,
   key: PooledModelKey,
   skip: AccountSkip,
   nowMs: number,
-): Readonly<Record<PooledModelKey, AccountSkip>> => ({
-  ...Object.fromEntries(activeSkipsOf(skips, account, nowMs)),
-  [key]: skip,
-});
+): Readonly<Record<PooledModelKey, AccountSkip | null>> => {
+  const active = new Set(activeSkipsOf(skips, account, nowMs).map(([model]) => model));
+  return {
+    ...Object.fromEntries(
+      Object.keys(skips[account] ?? {}).flatMap((model) =>
+        active.has(model) ? [] : [[model, null]],
+      ),
+    ),
+    [key]: skip,
+  };
+};
 
 // ── Routing ─────────────────────────────────────────────────────────────────────────────────
 
@@ -579,7 +581,7 @@ const toTarget = (entry: PooledAccount): AccountTarget => ({
 });
 
 /**
- * The account a new thread on `pool`'s model runs on: the first in the user's order that is
+ * The account a new thread on `pool`'s model runs on: the first in the model's order that is
  * usable and not skipped. With every usable account skipped, the one whose skip ends soonest,
  * so the turn is tried rather than refused.
  */

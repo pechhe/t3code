@@ -1,29 +1,18 @@
 import {
-  DndContext,
-  type DragEndEvent,
-  PointerSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-} from "@dnd-kit/core";
-import { restrictToParentElement, restrictToVerticalAxis } from "@dnd-kit/modifiers";
-import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import {
   AuthProvidersManageScope,
   type AccountId,
   type EnvironmentId,
   type PooledModelKey,
 } from "@t3tools/contracts";
 import {
-  listAccounts,
   listedPooledModels,
   multiAccountModels,
   type AccountInfo,
   type PooledModel,
   type PooledAccount,
+  editedModelAccounts,
 } from "@t3tools/shared/accountPools";
-import { ArrowDownIcon, ArrowUpIcon, GripVerticalIcon, PlusIcon, XIcon } from "lucide-react";
+import { ArrowDownIcon, ArrowUpIcon, PlusIcon, XIcon } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 
@@ -34,7 +23,7 @@ import { useEnvironmentScope } from "../../state/session";
 import {
   AccountSkipBadge,
   accountSource,
-  TryAgainNowButton,
+  UseAgainNowButton,
   useAccountSkip,
 } from "../accounts/AccountSkip";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
@@ -52,7 +41,7 @@ import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsL
 import { useSettingsScope } from "./SettingsScopeContext";
 import { useInstanceEntries } from "./useInstanceEntries";
 
-/** Settings → Accounts: the order T3 tries accounts in, and the models it picks an account for. */
+/** Settings → Accounts: the models T3 picks the account for, each with its accounts in order. */
 export function AccountsSettings() {
   const { environments, environment } = useSettingsScope();
   const environmentId = environment?.environmentId ?? environments[0]?.environmentId;
@@ -86,7 +75,6 @@ function EnvironmentAccounts({ environmentId }: { environmentId: EnvironmentId }
   const { settings, providers } = useInstanceEntries(environmentId);
   const update = useUpdateEnvironmentSettings(environmentId);
   const canManage = useEnvironmentScope(environmentId, AuthProvidersManageScope);
-  const accounts = listAccounts(providers, settings.accountOrder);
   const listed = settings.pooledModelKeys ?? [];
   const slotLabels = useClientSettings(selectModelSlotLabels);
   const models = withPooledModelLabels(
@@ -96,131 +84,129 @@ function EnvironmentAccounts({ environmentId }: { environmentId: EnvironmentId }
   const candidates = withPooledModelLabels(multiAccountModels(providers, settings), slotLabels)
     .filter((model) => !listed.includes(model.key))
     .toSorted((a, b) => a.displayName.localeCompare(b.displayName));
-  const ids = accounts.map((account) => account.id);
-  const move = (id: AccountId, steps: number) => {
-    const from = ids.indexOf(id);
-    const to = Math.max(0, Math.min(ids.length - 1, from + steps));
-    if (from === -1 || from === to) return;
-    const next = ids.filter((candidate) => candidate !== id);
-    next.splice(to, 0, id);
-    update({ accountOrder: next });
-  };
-  // A pay-as-you-go account is off a model until added, so its toggle edits the added list.
-  const setRemoved = (key: PooledModelKey, entry: PooledAccount, removed: boolean) => {
-    const listOf = (lists: Readonly<Record<string, ReadonlyArray<AccountId>>> | undefined) => {
-      const listed = entry.metered ? !removed : removed;
-      const current = (lists?.[key] ?? []).filter((id) => id !== entry.account.id);
-      const next = listed ? [...current, entry.account.id] : current;
-      return { [key]: next.length > 0 ? next : null };
-    };
-    update(
-      entry.metered
-        ? { modelAccountsAdded: listOf(settings.modelAccountsAdded) }
-        : { modelAccountsRemoved: listOf(settings.modelAccountsRemoved) },
-    );
-  };
+  const setAccounts = (model: PooledModel, inUse: ReadonlyArray<AccountId>) =>
+    update({
+      modelAccounts: {
+        [model.key]: editedModelAccounts(
+          settings.modelAccounts?.[model.key],
+          model.accounts.map((entry) => entry.account.id),
+          inUse,
+        ),
+      },
+    });
   const addModel = (key: PooledModelKey) => update({ pooledModelKeys: [...listed, key] });
   const removeModel = (key: PooledModelKey) =>
     update({ pooledModelKeys: listed.filter((listedKey) => listedKey !== key) });
   return (
-    <>
-      <SettingsSection title="Account order" id="accounts">
-        <SettingsRow
-          title="Tried top to bottom"
-          description="A new thread runs on the first account serving its model that isn't skipped, and stays there until it runs out. A skip lasts until the reported reset, or midnight."
-        >
-          <AccountOrderList
-            accounts={accounts}
-            environmentId={environmentId}
-            disabled={!canManage}
-            onMove={move}
-          />
-        </SettingsRow>
-      </SettingsSection>
-      <SettingsSection title="Models" id="accounts-models">
-        <PooledModelsList
-          models={models}
-          candidates={candidates}
+    <SettingsSection title="Models" id="accounts">
+      <SettingsRow
+        title="Models T3 Code picks the account for"
+        description="Each model you add is one picker choice. New threads run on its first account that isn't skipped, moving down the list when one runs out. Models you haven't added run on the account you pick."
+        control={<AddModelPicker candidates={candidates} disabled={!canManage} onAdd={addModel} />}
+      />
+      {models.length === 0 ? (
+        <p className="px-3 text-sm text-muted-foreground sm:px-4">
+          No models are added yet. Add one to let T3 Code choose between the accounts that serve it.
+        </p>
+      ) : null}
+      {models.map((model) => (
+        <PooledModelRow
+          key={model.key}
+          model={model}
+          environmentId={environmentId}
           disabled={!canManage}
-          onAdd={addModel}
-          onRemove={removeModel}
-          onSetRemoved={setRemoved}
+          onRemove={() => removeModel(model.key)}
+          onSetAccounts={(accounts) => setAccounts(model, accounts)}
         />
-      </SettingsSection>
-    </>
+      ))}
+    </SettingsSection>
   );
 }
 
-function AccountOrderList(props: {
-  accounts: ReadonlyArray<AccountInfo>;
+function PooledModelRow(props: {
+  model: PooledModel;
   environmentId: EnvironmentId;
   disabled: boolean;
-  onMove: (id: AccountId, steps: number) => void;
+  onRemove: () => void;
+  onSetAccounts: (accounts: ReadonlyArray<AccountId>) => void;
 }) {
-  const ids = props.accounts.map((account) => account.id);
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
-  const handleDragEnd = (event: DragEndEvent) => {
-    if (event.over === null || event.active.id === event.over.id) return;
-    const from = ids.indexOf(String(event.active.id));
-    const to = ids.indexOf(String(event.over.id));
-    if (from !== -1 && to !== -1) props.onMove(String(event.active.id), to - from);
+  const { model } = props;
+  const inUse = model.accounts.flatMap((entry) => (entry.removed ? [] : [entry.account.id]));
+  const status =
+    model.accounts.length === 0
+      ? "No enabled accounts currently serve this model"
+      : model.accounts.length === 1
+        ? `${inUse.length} of 1 in use · needs 2 accounts to pool`
+        : `${inUse.length} of ${model.accounts.length} in use`;
+  const move = (id: AccountId, steps: number) => {
+    const from = inUse.indexOf(id);
+    const to = Math.max(0, Math.min(inUse.length - 1, from + steps));
+    if (from === -1 || from === to) return;
+    const next = inUse.filter((candidate) => candidate !== id);
+    next.splice(to, 0, id);
+    props.onSetAccounts(next);
   };
-  if (props.accounts.length === 0) {
-    return <p className="text-sm text-muted-foreground">No accounts are set up yet.</p>;
-  }
+  const setInUse = (id: AccountId, use: boolean) =>
+    props.onSetAccounts(use ? [...inUse, id] : inUse.filter((candidate) => candidate !== id));
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCenter}
-      modifiers={[restrictToVerticalAxis, restrictToParentElement]}
-      onDragEnd={handleDragEnd}
+    <SettingsRow
+      title={model.displayName}
+      status={status}
+      control={
+        <RemoveModelButton
+          label={model.displayName}
+          disabled={props.disabled}
+          onRemove={props.onRemove}
+        />
+      }
     >
-      <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+      {model.accounts.length > 0 ? (
         <ol
-          aria-label="Accounts, tried first at the top"
+          aria-label={`Accounts for ${model.displayName}, tried first at the top`}
           className="mt-2 divide-y divide-border/60 rounded-lg border border-border/60"
         >
-          {props.accounts.map((account, index) => (
-            <AccountOrderRow
-              key={account.id}
-              account={account}
+          {model.accounts.map((entry) => (
+            <ModelAccountRow
+              key={entry.account.id}
+              entry={entry}
+              modelKey={model.key}
+              modelName={model.displayName}
               environmentId={props.environmentId}
-              position={index + 1}
-              count={props.accounts.length}
+              position={entry.removed ? undefined : inUse.indexOf(entry.account.id) + 1}
+              count={inUse.length}
               disabled={props.disabled}
-              onMove={(steps) => props.onMove(account.id, steps)}
+              onMove={(steps) => move(entry.account.id, steps)}
+              onSetInUse={(use) => setInUse(entry.account.id, use)}
             />
           ))}
         </ol>
-      </SortableContext>
-    </DndContext>
+      ) : null}
+    </SettingsRow>
   );
 }
 
-function AccountOrderRow(props: {
-  account: AccountInfo;
+function ModelAccountRow(props: {
+  entry: PooledAccount;
+  modelKey: PooledModelKey;
+  modelName: string;
   environmentId: EnvironmentId;
-  position: number;
+  /** Its place in the model's order; undefined while it is off the model. */
+  position: number | undefined;
   count: number;
   disabled: boolean;
   onMove: (steps: number) => void;
+  onSetInUse: (use: boolean) => void;
 }) {
-  const { account } = props;
-  const skip = useAccountSkip(props.environmentId, account.id);
-  const { listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
-    useSortable({ id: account.id, disabled: props.disabled });
+  const { account } = props.entry;
+  const skip = useAccountSkip(props.environmentId, account.id, props.modelKey);
+  const off = props.position === undefined;
   return (
-    <li
-      ref={setNodeRef}
-      style={{ transform: CSS.Translate.toString(transform), transition }}
-      className={cn(
-        "flex flex-wrap items-center gap-x-2 gap-y-1 py-1.5 ps-3 pe-1.5",
-        isDragging && "relative z-10 rounded-lg bg-background shadow-md",
-      )}
-    >
+    <li className="flex flex-wrap items-center gap-x-2 gap-y-1 py-1.5 ps-3 pe-1.5">
       <span className="w-4 text-xs tabular-nums text-muted-foreground">{props.position}</span>
       <AccountIcon account={account} />
-      <span className="min-w-0 truncate text-sm">{account.label}</span>
+      <span className={cn("min-w-0 truncate text-sm", off && "text-muted-foreground line-through")}>
+        {account.label}
+      </span>
       <Link
         to="/settings/providers"
         search={{ environmentId: props.environmentId, instanceId: account.instanceId }}
@@ -228,126 +214,56 @@ function AccountOrderRow(props: {
       >
         {accountSource(account)}
       </Link>
-      {skip !== undefined ? (
+      {props.entry.metered ? (
+        <span className="text-xs text-muted-foreground">pay as you go</span>
+      ) : null}
+      {skip !== undefined && !off ? (
         <>
           <AccountSkipBadge skip={skip} />
-          <TryAgainNowButton environmentId={props.environmentId} account={account.id} />
+          <UseAgainNowButton
+            environmentId={props.environmentId}
+            account={account.id}
+            model={props.modelKey}
+          />
         </>
       ) : null}
       <span className="ms-auto flex items-center gap-0.5">
-        <span
-          ref={setActivatorNodeRef}
-          {...listeners}
-          aria-hidden
-          className="hidden size-6 shrink-0 cursor-grab touch-none items-center justify-center rounded text-muted-foreground/70 hover:text-foreground active:cursor-grabbing sm:flex"
-        >
-          <GripVerticalIcon className="size-3.5" />
-        </span>
+        {off ? null : (
+          <>
+            <Button
+              type="button"
+              size="icon-xs"
+              variant="ghost-muted"
+              disabled={props.disabled || props.position === 1}
+              aria-label={`Move ${account.label} up for ${props.modelName}`}
+              onClick={() => props.onMove(-1)}
+            >
+              <ArrowUpIcon />
+            </Button>
+            <Button
+              type="button"
+              size="icon-xs"
+              variant="ghost-muted"
+              disabled={props.disabled || props.position === props.count}
+              aria-label={`Move ${account.label} down for ${props.modelName}`}
+              onClick={() => props.onMove(1)}
+            >
+              <ArrowDownIcon />
+            </Button>
+          </>
+        )}
         <Button
           type="button"
           size="icon-xs"
           variant="ghost-muted"
-          disabled={props.disabled || props.position === 1}
-          aria-label={`Move ${account.label} up`}
-          onClick={() => props.onMove(-1)}
+          disabled={props.disabled}
+          aria-label={`${off ? "Use" : "Don't use"} ${account.label} for ${props.modelName}`}
+          onClick={() => props.onSetInUse(off)}
         >
-          <ArrowUpIcon />
-        </Button>
-        <Button
-          type="button"
-          size="icon-xs"
-          variant="ghost-muted"
-          disabled={props.disabled || props.position === props.count}
-          aria-label={`Move ${account.label} down`}
-          onClick={() => props.onMove(1)}
-        >
-          <ArrowDownIcon />
+          {off ? <PlusIcon /> : <XIcon />}
         </Button>
       </span>
     </li>
-  );
-}
-
-function PooledModelsList(props: {
-  models: ReadonlyArray<PooledModel>;
-  candidates: ReadonlyArray<PooledModel>;
-  disabled: boolean;
-  onAdd: (key: PooledModelKey) => void;
-  onRemove: (key: PooledModelKey) => void;
-  onSetRemoved: (key: PooledModelKey, entry: PooledAccount, removed: boolean) => void;
-}) {
-  return (
-    <>
-      <SettingsRow
-        title="Models T3 Code picks the account for"
-        description="Each model you add is one choice in the model picker, run on its accounts in the order above. Take an account off a model with ×. Models you haven't added run on the account you pick."
-        control={
-          <AddModelPicker
-            candidates={props.candidates}
-            disabled={props.disabled}
-            onAdd={props.onAdd}
-          />
-        }
-      />
-      {props.models.length === 0 ? (
-        <p className="px-3 text-sm text-muted-foreground sm:px-4">
-          No models are added yet. Add one to let T3 Code choose between the accounts that serve it.
-        </p>
-      ) : null}
-      {props.models.map((model) => {
-        const inUse = model.accounts.filter((entry) => !entry.removed).length;
-        const status =
-          model.accounts.length === 0
-            ? "No enabled accounts currently serve this model"
-            : model.accounts.length === 1
-              ? `${inUse} of 1 in use · needs 2 accounts to pool`
-              : `${inUse} of ${model.accounts.length} in use`;
-        return (
-          <SettingsRow
-            key={model.key}
-            title={model.displayName}
-            status={status}
-            control={
-              <RemoveModelButton
-                label={model.displayName}
-                disabled={props.disabled}
-                onRemove={() => props.onRemove(model.key)}
-              />
-            }
-          >
-            {model.accounts.length > 0 ? (
-              <div className="mt-1.5 flex flex-wrap gap-1.5">
-                {model.accounts.map((entry) => (
-                  <span
-                    key={entry.account.id}
-                    className={cn(
-                      "inline-flex items-center gap-1.5 rounded-md border border-border/60 py-0.5 ps-1.5 pe-0.5 text-xs",
-                      entry.removed && "text-muted-foreground line-through",
-                    )}
-                  >
-                    <AccountIcon account={entry.account} />
-                    {entry.account.label}
-                    {entry.metered ? (
-                      <span className="text-muted-foreground no-underline">pay as you go</span>
-                    ) : null}
-                    <Button
-                      type="button"
-                      size="icon-tiny"
-                      variant="ghost-muted"
-                      disabled={props.disabled}
-                      aria-label={`${entry.removed ? "Use" : "Don't use"} ${entry.account.label} for ${model.displayName}`}
-                      onClick={() => props.onSetRemoved(model.key, entry, !entry.removed)}
-                    >
-                      {entry.removed ? <PlusIcon /> : <XIcon />}
-                    </Button>
-                  </span>
-                ))}
-              </div>
-            ) : null}
-          </SettingsRow>
-        );
-      })}
-    </>
   );
 }
 

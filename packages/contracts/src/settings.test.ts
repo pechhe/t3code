@@ -634,10 +634,12 @@ describe("server model preferences", () => {
 });
 
 describe("retired pooling settings", () => {
-  it("decodes settings that still hold account pools, model pools or assumed usage, ignoring them", () => {
+  it("decodes settings that still hold retired pools, assumed usage or one account order, ignoring them", () => {
     const settings = decodeServerSettings({
       switchPooledAccountOnLimit: false,
       modelPools: { opus: { displayName: "Opus", slots: [] } },
+      accountOrder: ["claudeAgent"],
+      modelAccountsRemoved: { opus: ["claudeAgent"] },
       assumeUsageLeft: { claudeAgent: true },
       providerInstances: {
         claude_pool: {
@@ -656,14 +658,14 @@ describe("retired pooling settings", () => {
     });
     // The official mobile app still reads and writes the retired switch.
     expect(settings.switchPooledAccountOnLimit).toBe(false);
-    expect(settings.accountOrder).toEqual([]);
+    expect(settings).not.toHaveProperty("accountOrder");
+    expect(settings).not.toHaveProperty("modelAccountsRemoved");
     expect(settings.accountSkips).toEqual({});
   });
 
-  it("asks for provider management to change the account order, removals or skips", () => {
+  it("asks for provider management to change a model's accounts or skips", () => {
     for (const patch of [
-      { accountOrder: ["claudeAgent"] },
-      { modelAccountsRemoved: { "claude-opus-5-5": ["pi:openrouter"] } },
+      { modelAccounts: { "claude-opus-5-5": ["pi:openrouter"] } },
       { accountSkips: { claudeAgent: null } },
     ]) {
       expect(requiredScopesForServerSettingsPatch(decodeServerSettingsPatch(patch))).toEqual([

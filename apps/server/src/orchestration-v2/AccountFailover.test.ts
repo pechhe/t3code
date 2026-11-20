@@ -311,7 +311,7 @@ describe("accounts A, B and C serving one model, in that order", () => {
       assert.strictEqual(yield* nextTurnAccount(threadA, { [threadA]: on("C") }, [threadA]), "A");
       yield* settings.updateSettings({
         accountSkips: { C: null },
-        modelAccountsRemoved: { [MODEL]: ["B"] } as never,
+        modelAccounts: { [MODEL]: ["A", "C"] } as never,
       });
       assert.strictEqual(yield* nextTurnAccount(threadA, { [threadA]: on("B") }, [threadA]), "A");
     }).pipe(Effect.provide(settingsLayer)),
@@ -323,7 +323,7 @@ describe("accounts A, B and C serving one model, in that order", () => {
       Effect.gen(function* () {
         yield* TestClock.setTime(NOW);
         const settings = yield* ServerSettings.ServerSettingsService;
-        yield* settings.updateSettings({ accountOrder: ["B", "A", "C"] as never });
+        yield* settings.updateSettings({ modelAccounts: { [MODEL]: ["B", "A", "C"] } as never });
         const router = yield* makeRouter({});
         const delegate = (extra: object) =>
           router

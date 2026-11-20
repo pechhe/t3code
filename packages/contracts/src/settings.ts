@@ -1740,21 +1740,18 @@ export const ServerSettings = Schema.Struct({
   providerInstances: Schema.Record(ProviderInstanceId, ProviderInstanceConfig).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
-  /** The user's one account order: a model's accounts are tried top to bottom. */
-  accountOrder: Schema.Array(AccountId).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   /**
    * The models pooled, by pooled model key: only these are one picker entry tried in the account
    * order. Absent until the server seeds it once from the favorites and role models in use, so an
    * empty list means the user pooled nothing.
    */
   pooledModelKeys: Schema.optionalKey(Schema.Array(PooledModelKey)),
-  /** Accounts the user took off a model, by pooled model key. */
-  modelAccountsRemoved: Schema.Record(PooledModelKey, Schema.Array(AccountId)).pipe(
-    Schema.withDecodingDefault(Effect.succeed({})),
-  ),
-  /** Pay-as-you-go accounts the user put on a model, by pooled model key; others never pool. */
-  modelAccountsAdded: Schema.optionalKey(Schema.Record(PooledModelKey, Schema.Array(AccountId))),
-  /** Accounts passed over after a usage limit. The server writes them; Try again now clears one. */
+  /**
+   * The accounts each pooled model runs on, tried in this order, by pooled model key. A model the
+   * user never arranged uses every subscription account serving it; pay-as-you-go ones stay off.
+   */
+  modelAccounts: Schema.optionalKey(Schema.Record(PooledModelKey, Schema.Array(AccountId))),
+  /** Accounts passed over after a usage limit. The server writes them; Use again now clears one. */
   accountSkips: AccountSkips.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   // Only the server writes these. Absent on a server that can't share its provider setup.
   sharedProviderSetup: Schema.optionalKey(SharedProviderSetupState),
@@ -2199,18 +2196,17 @@ export const ServerSettingsPatch = Schema.Struct({
   offeredSourceControlProviders: Schema.optionalKey(Schema.Record(Schema.String, Schema.Boolean)),
   // Replace whole maps to avoid half-merged driver configs.
   providerInstances: Schema.optionalKey(Schema.Record(ProviderInstanceId, ProviderInstanceConfig)),
-  accountOrder: Schema.optionalKey(Schema.Array(AccountId)),
   pooledModelKeys: Schema.optionalKey(Schema.Array(PooledModelKey)),
   // Merge per model; null removes an entry.
-  modelAccountsRemoved: Schema.optionalKey(
+  modelAccounts: Schema.optionalKey(
     Schema.Record(PooledModelKey, Schema.NullOr(Schema.Array(AccountId))),
   ),
-  modelAccountsAdded: Schema.optionalKey(
-    Schema.Record(PooledModelKey, Schema.NullOr(Schema.Array(AccountId))),
-  ),
-  // Merge per account, replacing its skips whole; null (Try again now) removes them.
+  // Merge per account and model; null on an account removes all its skips, on a model just that one.
   accountSkips: Schema.optionalKey(
-    Schema.Record(AccountId, Schema.NullOr(Schema.Record(PooledModelKey, AccountSkip))),
+    Schema.Record(
+      AccountId,
+      Schema.NullOr(Schema.Record(PooledModelKey, Schema.NullOr(AccountSkip))),
+    ),
   ),
   // Merge per source to avoid racing other edits; null removes an entry.
   usageLimitSources: Schema.optionalKey(
@@ -2258,10 +2254,8 @@ export function requiredScopesForServerSettingsPatch(
     } else if (
       key === "providers" ||
       key === "providerInstances" ||
-      key === "accountOrder" ||
       key === "pooledModelKeys" ||
-      key === "modelAccountsRemoved" ||
-      key === "modelAccountsAdded" ||
+      key === "modelAccounts" ||
       key === "accountSkips" ||
       key === "usageLimitSources" ||
       key === "usageSlotBudgets" ||

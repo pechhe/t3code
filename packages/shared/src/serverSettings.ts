@@ -252,6 +252,19 @@ function mergeSettingsEntries<Value>(
   return Object.fromEntries(next);
 }
 
+function mergeAccountSkips(
+  current: ServerSettings["accountSkips"],
+  patch: NonNullable<ServerSettingsPatch["accountSkips"]>,
+): ServerSettings["accountSkips"] {
+  const next = { ...current };
+  for (const [account, skips] of Object.entries(patch)) {
+    const merged = skips === null ? {} : mergeSettingsEntries(current[account] ?? {}, skips);
+    if (Object.keys(merged).length === 0) delete next[account];
+    else next[account] = merged;
+  }
+  return next;
+}
+
 function mergeUsageSlotBudgets(
   current: ServerSettings["usageSlotBudgets"],
   patch: NonNullable<ServerSettingsPatch["usageSlotBudgets"]>,
@@ -428,8 +441,7 @@ export function applyServerSettingsPatch(
     backgroundActivity,
     worktreeCleanup: worktreeCleanupPatch,
     // Merged per entry below; its `null` removals must not reach deepMerge.
-    modelAccountsRemoved: modelAccountsRemovedPatch,
-    modelAccountsAdded: modelAccountsAddedPatch,
+    modelAccounts: modelAccountsPatch,
     usageLimitSources: usageLimitSourcesPatch,
     usageSlotBudgets: usageSlotBudgetsPatch,
     accountSkips: accountSkipsPatch,
@@ -675,21 +687,8 @@ export function applyServerSettingsPatch(
     ...(patch.defaultProjectScripts !== undefined
       ? { defaultProjectScripts: patch.defaultProjectScripts }
       : {}),
-    ...(modelAccountsRemovedPatch !== undefined
-      ? {
-          modelAccountsRemoved: mergeSettingsEntries(
-            current.modelAccountsRemoved,
-            modelAccountsRemovedPatch,
-          ),
-        }
-      : {}),
-    ...(modelAccountsAddedPatch !== undefined
-      ? {
-          modelAccountsAdded: mergeSettingsEntries(
-            current.modelAccountsAdded ?? {},
-            modelAccountsAddedPatch,
-          ),
-        }
+    ...(modelAccountsPatch !== undefined
+      ? { modelAccounts: mergeSettingsEntries(current.modelAccounts ?? {}, modelAccountsPatch) }
       : {}),
     ...(usageLimitSourcesPatch !== undefined
       ? {
@@ -703,7 +702,7 @@ export function applyServerSettingsPatch(
       ? { usageSlotBudgets: mergeUsageSlotBudgets(current.usageSlotBudgets, usageSlotBudgetsPatch) }
       : {}),
     ...(accountSkipsPatch !== undefined
-      ? { accountSkips: mergeSettingsEntries(current.accountSkips, accountSkipsPatch) }
+      ? { accountSkips: mergeAccountSkips(current.accountSkips, accountSkipsPatch) }
       : {}),
     ...(textGeneratorsPatch !== undefined
       ? { textGenerators: mergeSettingsEntries(current.textGenerators, textGeneratorsPatch) }

@@ -65,7 +65,7 @@ import {
 } from "./ProviderSettingsForm";
 import { ProviderModelsSection } from "./ProviderModelsSection";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
-import { ProviderAccountOrderRow } from "../accounts/ProviderAccountOrder";
+import { ProviderAccountsRow } from "../accounts/ProviderAccounts";
 import { ProviderAccentColorPicker } from "./ProviderAccentColorPicker";
 import { RedactedSensitiveText } from "./RedactedSensitiveText";
 import { SettingResetButton, SettingsRow, SettingsSection } from "./settingsLayout";
@@ -1381,7 +1381,7 @@ export function ProviderInstanceCard({
     <>
       <SettingsSection title={displayName} icon={titleIconNode} headerAction={editorHeaderAction}>
         <SettingsRow title={gt("Status")} status={statusContent} />
-        <ProviderAccountOrderRow environmentId={environmentId} instanceId={instanceId} />
+        <ProviderAccountsRow environmentId={environmentId} instanceId={instanceId} />
         <SettingsRow
           title={gt("Display name")}
           control={

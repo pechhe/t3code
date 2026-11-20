@@ -1090,7 +1090,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: msg("Accounts"),
     to: "/settings/accounts",
     searchTerms: [
-      "account order pool pooled model several accounts add remove opt in subscriptions skip skipped usage limit try again failover next pi sub-provider",
+      "account order pool pooled model several accounts add remove opt in subscriptions pay as you go skip skipped usage limit use again failover next pi sub-provider",
     ],
     providerSettingsOnly: true,
   },

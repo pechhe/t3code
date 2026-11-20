@@ -65,17 +65,19 @@ export function AccountSkipBadge({ skip }: { skip: AccountSkip }) {
   );
 }
 
-/** Clears an account's skips, so new threads may start on it at once. */
-export function TryAgainNowButton({
+/** Clears an account's skip for one model, or for every model, so threads may start on it at once. */
+export function UseAgainNowButton({
   environmentId,
   account,
+  model,
 }: {
   environmentId: EnvironmentId;
   account: AccountId;
+  model?: PooledModelKey;
 }) {
   const canManage = useEnvironmentScope(environmentId, AuthProvidersManageScope);
   const updateSettings = useAtomCommand(serverEnvironment.updateSettings, {
-    label: "try account again",
+    label: "use account again",
   });
   const [saving, setSaving] = useState(false);
   if (!canManage) return null;
@@ -88,11 +90,13 @@ export function TryAgainNowButton({
         setSaving(true);
         void updateSettings({
           environmentId,
-          input: { patch: { accountSkips: { [account]: null } } },
+          input: {
+            patch: { accountSkips: { [account]: model === undefined ? null : { [model]: null } } },
+          },
         }).finally(() => setSaving(false));
       }}
     >
-      Try again now
+      Use again now
     </Button>
   );
 }
@@ -111,12 +115,12 @@ function SkippedAccountLine({ route }: { route: SkippableAccountRoute }) {
     <div className="flex flex-wrap items-center gap-2 text-xs">
       <span className="font-medium text-foreground">{route.label}</span>
       <AccountSkipBadge skip={skip} />
-      <TryAgainNowButton environmentId={route.environmentId} account={route.accountId} />
+      <UseAgainNowButton environmentId={route.environmentId} account={route.accountId} />
     </div>
   );
 }
 
-/** The skipped accounts among a card's, each with until when and Try again now. */
+/** The skipped accounts among a card's, each with until when and Use again now. */
 export function SkippedAccounts({ routes }: { routes: ReadonlyArray<SkippableAccountRoute> }) {
   const unique = routes.filter(
     (route, index) =>

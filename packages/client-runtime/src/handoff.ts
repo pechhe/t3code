@@ -63,11 +63,7 @@ function keepsAccount(
   pooledModelKeys: ReadonlyArray<PooledModelKey>,
 ): ModelSelection {
   if (selection.pinned === true) return selection;
-  const pools = pooledModels(providers, {
-    accountOrder: [],
-    pooledModelKeys,
-    modelAccountsRemoved: {},
-  });
+  const pools = pooledModels(providers, { pooledModelKeys });
   const pool = pooledModelOf(pools, selection);
   if (pool === undefined || pooledModelOf(pools, current) !== pool) return selection;
   const kept = pool.accounts.find(

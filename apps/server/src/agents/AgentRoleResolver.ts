@@ -24,7 +24,6 @@ import * as Schema from "effect/Schema";
 import {
   activeSkip,
   isConserved,
-  orderAccounts,
   pooledModelKeyOf,
   pooledModels,
   selectionAccountId,
@@ -82,7 +81,7 @@ type ResolutionInput = {
   readonly request: AgentTaskRequest;
   /** Already intersected with the project's enabled and caller-authorized accounts. */
   readonly providers: ReadonlyArray<ServerProvider>;
-  /** The user's account order, removals and skips; without them accounts keep catalog order. */
+  /** Each model's account order and the skips; without them accounts keep catalog order. */
   readonly routing?: AccountRoutingSettings | undefined;
   readonly ceiling: RuntimeMode;
   readonly runtimeMode?: RuntimeMode;
@@ -318,7 +317,7 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
         candidate.type === "select" &&
         (candidate.role === "reasoning" || REASONING_OPTION_IDS.has(candidate.id)),
     );
-  const routing = input.routing ?? { accountOrder: [], modelAccountsRemoved: {}, accountSkips: {} };
+  const routing = input.routing ?? { accountSkips: {} };
   const pools = pooledModels(input.providers, routing);
   const pooledKeyOf = (provider: ServerProvider, slug: string) => {
     const model = provider.models.find((candidate) => candidate.slug === slug);
@@ -588,7 +587,7 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
     }),
   );
   const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
-  // Accounts serving one model are tried in the user's account order; one skipped after a usage
+  // Accounts serving one model are tried in that model's account order; one skipped after a usage
   // limit, or held back by subscription conservation, serves only when it is named.
   const overloadEnds = (instanceId: ProviderInstanceId, model: string) => {
     const until = input.overloads?.get(providerOverloadKey(instanceId, model));
@@ -603,11 +602,8 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
     | { readonly reason: "conservation" }
   >();
   for (const alias of new Set(eligible.map((candidate) => candidate.alias))) {
-    const serving = orderAccounts(
-      eligible.filter((candidate) => candidate.alias === alias),
-      routing.accountOrder,
-      accountOf,
-    );
+    // A pooled alias's candidates arrive in its model's account order.
+    const serving = eligible.filter((candidate) => candidate.alias === alias);
     serving.forEach((candidate, index) => {
       if (!input.ignoreConservation && isConserved(candidate.provider, candidate.selection.model)) {
         excluded.set(candidate, { reason: "conservation" });

@@ -342,11 +342,14 @@ export function ComposerControlsBar(props: {
           onProviderModelSelect(instanceId, model, { focusComposer: false });
         }}
         renderOverflow={(trigger) => cloneElement(composerModelPicker, { trigger })}
-        pooledName={
-          pooling.active?.pinned === null
-            ? pooling.models.find((model) => model.key === pooling.active?.key)?.displayName
-            : undefined
-        }
+        pooling={{
+          models: pooling.models,
+          following: pooling.active?.pinned === null ? pooling.active.key : null,
+          onSelect: (model) => {
+            onMultipleModelSelectionsChange(null);
+            pooling.onSelect(model, null);
+          },
+        }}
         fast={fastActive}
       />
       {providerTraitsPickerInput ? (
