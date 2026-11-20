@@ -1237,6 +1237,69 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
     }),
   );
 
+  it.effect(
+    "reports each account of a pooled model with its own skip and dispatches a free one",
+    () =>
+      Effect.gen(function* () {
+        const resolver = yield* Resolver.AgentRoleResolver;
+        const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
+        const original = snapshot();
+        const models = ["acct-a/claude-opus-5-5", "acct-b/claude-opus-5-5"];
+        const pi: ServerProvider = {
+          ...provider("pi", "pi-test", models),
+          models: models.map((slug) => ({
+            slug,
+            name: "Claude Opus 5.5",
+            isCustom: false,
+            capabilities: { optionDescriptors: [] },
+          })),
+        };
+        const policy: AgentPolicySnapshot = {
+          ...original,
+          manifest: {
+            ...original.manifest,
+            models: {
+              ...original.manifest.models,
+              opus: {
+                driverKind: ProviderDriverKind.make("pi"),
+                model: "acct-a/claude-opus-5-5",
+                anyAccount: true,
+              },
+            },
+            lists: { ...original.manifest.lists, workhorse: [{ model: "opus" }] },
+          },
+        };
+        const preview = yield* resolver.preview(
+          input({
+            snapshot: policy,
+            providers: [pi],
+            request: request({ role: "implementer" }),
+            routing: {
+              accountOrder: [],
+              pooledModelKeys: ["claude-opus-5-5"],
+              modelAccountsRemoved: {},
+              accountSkips: {
+                "pi-test:acct-a": {
+                  "claude-opus-5-5": {
+                    until: DateTime.formatIso(DateTime.makeUnsafe(nowMs + 60_000)),
+                    reportedReset: true,
+                  },
+                },
+              },
+            },
+          }),
+        );
+        // The free second account serves, and only the skipped first is reported usage-limited.
+        expect(preview.selection?.model).toBe("acct-b/claude-opus-5-5");
+        expect(
+          Object.fromEntries(preview.candidates.map(({ model, reason }) => [model, reason])),
+        ).toEqual({
+          "acct-a/claude-opus-5-5": "usage-limited",
+          "acct-b/claude-opus-5-5": "selected",
+        });
+      }),
+  );
+
   it.effect("moves past an overloaded model until its cool-down ends", () =>
     Effect.gen(function* () {
       const resolver = yield* Resolver.AgentRoleResolver;

@@ -299,6 +299,12 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
     /** The entry names the model alone, so any account serving it may run it. */
     anyAccount?: boolean;
   }> = [];
+  // Each "eligible" diagnostic names its own entry: accounts of one pooled alias can share an instance.
+  const entryOf = new Map<AgentPolicyCandidate, (typeof eligible)[number]>();
+  const admit = (verdict: AgentPolicyCandidate, entry: (typeof eligible)[number]) => {
+    eligible.push(entry);
+    entryOf.set(verdict, entry);
+  };
   const REASONING_OPTION_IDS = new Set([
     "reasoningEffort",
     "reasoning_effort",
@@ -393,14 +399,14 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
               candidate.options.some((choice) => choice.id === value),
           ),
         );
-        skip("eligible");
+        const verdict = skip("eligible");
         const options = [
           ...(reasoningOption?.type === "select" && effort !== undefined
             ? [{ id: reasoningOption.id, value: effort }]
             : []),
           ...extras.map(([id, value]) => ({ id, value })),
         ];
-        eligible.push({
+        admit(verdict, {
           alias,
           provider,
           anyAccount: true,
@@ -467,14 +473,14 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
             candidate.options.some((choice) => choice.id === value),
         ),
       );
-      skip("eligible");
+      const verdict = skip("eligible");
       const options = [
         ...(binding.effortOption === undefined || effort === undefined
           ? []
           : [{ id: binding.effortOption, value: effort }]),
         ...extras.map(([id, value]) => ({ id, value })),
       ];
-      eligible.push({
+      admit(verdict, {
         alias,
         provider,
         selection: {
@@ -562,8 +568,8 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
         skip("unsupported-options");
         continue;
       }
-      skip("eligible");
-      eligible.push({
+      const verdict = skip("eligible");
+      admit(verdict, {
         alias,
         provider,
         selection: {
@@ -760,11 +766,7 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
   function finalDiagnostics(chosen: (typeof eligible)[number] | undefined) {
     return diagnostics.map((candidate) => {
       if (candidate.reason !== "eligible") return candidate;
-      const entry = eligible.find(
-        (value) =>
-          value.alias === candidate.alias &&
-          value.provider.instanceId === candidate.providerInstanceId,
-      );
+      const entry = entryOf.get(candidate);
       const out = entry === undefined ? undefined : excluded.get(entry);
       if (out !== undefined)
         return {
