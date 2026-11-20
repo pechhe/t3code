@@ -295,6 +295,14 @@ export function resolveWorktreeSetupProgress(input: {
   };
 }
 
+/** A launched draft's setup runs out of sight; its card appears once Send starts the thread. */
+export function shouldShowWorktreeSetupCard(input: {
+  isWarmDraftThread: boolean;
+  isSendBusy: boolean;
+}): boolean {
+  return !input.isWarmDraftThread || input.isSendBusy;
+}
+
 export function resolveDraftHeroState(input: {
   isLocalDraftThread: boolean;
   hasTimelineEntries: boolean;
@@ -302,7 +310,13 @@ export function resolveDraftHeroState(input: {
   draftHeroDockRequested: boolean;
   backgroundSubmissionPending: boolean;
   hasWorktreeSetupCard?: boolean;
+  /** A launched, unsent draft thread: its setup and timeline are out of sight until Send. */
+  isWarmDraftThread?: boolean;
+  isSendBusy?: boolean;
 }): boolean {
+  if (input.isWarmDraftThread) {
+    return input.backgroundSubmissionPending || !(input.draftHeroDockRequested || input.isSendBusy);
+  }
   if (input.hasWorktreeSetupCard) {
     return false;
   }

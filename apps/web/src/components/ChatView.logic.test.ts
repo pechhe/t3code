@@ -17,6 +17,8 @@ import {
   withMessageContext,
   deriveAvailableRevertTurnCounts,
   deriveThreadPendingBackgroundTasks,
+  resolveDraftHeroState,
+  shouldShowWorktreeSetupCard,
 } from "./ChatView.logic";
 import {
   isThreadEnvironmentLocked,
@@ -1675,5 +1677,34 @@ describe("threadErrorIsServerRuntime", () => {
         runtimeError: "E",
       }),
     ).toBe(false);
+  });
+});
+
+describe("launched draft thread", () => {
+  const base = {
+    isLocalDraftThread: false,
+    hasTimelineEntries: false,
+    isWorking: false,
+    draftHeroDockRequested: false,
+    backgroundSubmissionPending: false,
+    isWarmDraftThread: true,
+    isSendBusy: false,
+  };
+
+  it.each([
+    ["resting", {}, true],
+    ["setup card present", { hasWorktreeSetupCard: true }, true],
+    ["setup working and timeline rows", { isWorking: true, hasTimelineEntries: true }, true],
+    ["send in flight", { isSendBusy: true }, false],
+    ["dock requested", { draftHeroDockRequested: true }, false],
+    ["background submission", { backgroundSubmissionPending: true, isSendBusy: true }, true],
+  ])("keeps the hero when %s", (_name, patch, hero) => {
+    expect(resolveDraftHeroState({ ...base, ...patch })).toBe(hero);
+  });
+
+  it("shows setup progress only once Send has started the thread", () => {
+    expect(shouldShowWorktreeSetupCard({ isWarmDraftThread: true, isSendBusy: false })).toBe(false);
+    expect(shouldShowWorktreeSetupCard({ isWarmDraftThread: true, isSendBusy: true })).toBe(true);
+    expect(shouldShowWorktreeSetupCard({ isWarmDraftThread: false, isSendBusy: false })).toBe(true);
   });
 });

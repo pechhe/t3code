@@ -69,6 +69,7 @@ import { UsageCorner } from "./usage/UsageCorner";
 import {
   isThreadEnvironmentLocked,
   resolveDraftHeroState,
+  shouldShowWorktreeSetupCard,
   threadErrorIsServerRuntime,
 } from "./ChatView.logic";
 import { useQueuedRunEdit } from "./chat/useQueuedRunEdit";
@@ -1754,6 +1755,10 @@ export default function ChatView(props: ChatViewProps) {
     // Include optimistic sends to retire the row before the server echo.
     followUpSent: timelineMessages.filter((message) => message.role === "user").length > 1,
   });
+  // A launched draft's setup runs ahead of Send; its card shows once the thread is sent.
+  const shownWorktreeSetup = shouldShowWorktreeSetupCard({ isWarmDraftThread, isSendBusy })
+    ? worktreeSetup
+    : null;
   const onCancelWorktreeSetupStable = useStableCallback(() => void cancelWorktreeSetup());
   const [dockedDraftHeroThreadKey, setDockedDraftHeroThreadKey] = useState<string | null>(null);
   const draftHeroAtBottom = useBottomDraftHeroStore(
@@ -1769,7 +1774,9 @@ export default function ChatView(props: ChatViewProps) {
       isWorking,
       draftHeroDockRequested,
       backgroundSubmissionPending,
-      hasWorktreeSetupCard: worktreeSetup !== null,
+      hasWorktreeSetupCard: shownWorktreeSetup !== null,
+      isWarmDraftThread,
+      isSendBusy,
     });
   // The glide is part of the send motion: the first message lifts out as the composer docks.
   const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
@@ -3892,7 +3899,7 @@ export default function ChatView(props: ChatViewProps) {
                       ? messages(activeActivityRun.providerStartingLabelMsg)
                       : null
                   }
-                  worktreeSetup={worktreeSetup}
+                  worktreeSetup={shownWorktreeSetup}
                   onCancelWorktreeSetup={onCancelWorktreeSetupStable}
                   retryableWorkspacePreparationRunIds={retryableWorkspacePreparationRunIds}
                   onRetryWorkspacePreparation={onRetryWorkspacePreparationStable}
