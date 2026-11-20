@@ -232,6 +232,8 @@ export const ServerProviderUsageSlot = Schema.Struct({
   usageLimits: ServerProviderUsageLimits,
   /** Billed per use (an API key with no allowance to read), so pools leave it out by default. */
   metered: Schema.optionalKey(Schema.Boolean),
+  /** What T3 recorded spending through it this cycle: its budget's, else the calendar month. */
+  spentUsd: Schema.optionalKey(Schema.Number.check(Schema.isGreaterThanOrEqualTo(0))),
 });
 export type ServerProviderUsageSlot = typeof ServerProviderUsageSlot.Type;
 

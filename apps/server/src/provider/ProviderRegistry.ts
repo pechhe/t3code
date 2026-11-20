@@ -45,7 +45,7 @@ import {
   evaluateConservation,
   type ConservationMemory,
 } from "./subagentConservation.ts";
-import { makeUsageSlotBudgetWindow, usageCycleBounds } from "../usage/usageSlotBudget.ts";
+import { usageCycleBounds, withUsageSlotSpend } from "../usage/usageSlotBudget.ts";
 import * as ModelManifest from "./ModelManifest.ts";
 import { applyProviderCompatibility } from "./providerCompatibility.ts";
 import * as ServerConfig from "../config.ts";
@@ -1525,8 +1525,13 @@ export const layer = Layer.effect(
         {
           const budgets = settings.usageSlotBudgets;
           const piProviders = current.filter((provider) => provider.driver === "pi");
-          if (Object.keys(budgets).length > 0 && piProviders.length > 0) {
+          const hasMetered = piProviders.some((provider) =>
+            provider.usageSlots?.some((slot) => slot.metered === true),
+          );
+          if ((Object.keys(budgets).length > 0 || hasMetered) && piProviders.length > 0) {
+            // A metered account with no budget reports spend for the calendar month.
             const earliestCycle = Math.min(
+              ...(hasMetered ? [usageCycleBounds(nowMs, 1).startMs] : []),
               ...Object.values(budgets).map(
                 (budget) => usageCycleBounds(nowMs, budget.resetDayOfMonth).startMs,
               ),
@@ -1621,56 +1626,13 @@ export const layer = Layer.effect(
                   ...provider,
                   usageSlots: provider.usageSlots.map((slot) => {
                     const slotId = `${provider.instanceId}:${slot.accountKey}`;
-                    const budget = budgets[slotId];
-                    if (budget === undefined) return slot;
-                    const { startMs } = usageCycleBounds(nowMs, budget.resetDayOfMonth);
-                    const correctionMs =
-                      budget.correctedAt === undefined ? undefined : Date.parse(budget.correctedAt);
-                    const correctedInCycle =
-                      correctionMs !== undefined &&
-                      correctionMs >= startMs &&
-                      correctionMs <= nowMs;
-                    let cycleUsd = 0;
-                    let sinceCorrectionUsd = 0;
-                    let correctionDayUsd = 0;
-                    const correctionDay =
-                      correctionMs === undefined
-                        ? Number.NaN
-                        : Date.parse(
-                            `${new Date(correctionMs).toISOString().slice(0, 10)}T00:00:00.000Z`,
-                          );
-                    for (const bucket of summary.value.buckets) {
-                      if (bucket.provider !== "pi" || bucket.accountKey !== slot.accountKey)
-                        continue;
-                      const bucketMs = Date.parse(`${bucket.day}T00:00:00.000Z`);
-                      if (bucketMs < startMs) continue;
-                      cycleUsd += bucket.costUsd;
-                      if (correctedInCycle) {
-                        if (bucketMs > correctionDay) sinceCorrectionUsd += bucket.costUsd;
-                        else if (bucketMs === correctionDay) correctionDayUsd += bucket.costUsd;
-                      }
-                    }
-                    if (correctedInCycle) {
-                      sinceCorrectionUsd += exactCorrectionSpend.get(slotId) ?? correctionDayUsd;
-                    }
-                    const window = makeUsageSlotBudgetWindow({
-                      budget,
+                    return withUsageSlotSpend(slot, {
+                      budget: budgets[slotId],
                       nowMs,
-                      spend: { cycleUsd, sinceCorrectionUsd },
+                      buckets: summary.value.buckets,
+                      readAt: summary.value.readAt,
+                      correctionDayUsd: exactCorrectionSpend.get(slotId),
                     });
-                    const { unavailable: _unavailable, ...limitsWithoutUnavailable } =
-                      slot.usageLimits;
-                    return {
-                      ...slot,
-                      usageLimits: {
-                        ...limitsWithoutUnavailable,
-                        checkedAt: summary.value.readAt,
-                        windows: [
-                          ...slot.usageLimits.windows.filter((item) => item.id !== "budget"),
-                          window,
-                        ],
-                      },
-                    };
                   }),
                 };
               });

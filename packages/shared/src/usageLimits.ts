@@ -390,6 +390,10 @@ export interface LimitAccount {
     readonly service: string;
     /** Fingerprint of the credential, the same on every machine that holds it. */
     readonly account?: string;
+    /** Billed per use, so its spend matters rather than an allowance. */
+    readonly metered?: boolean;
+    /** What T3 recorded spending through it this month (or budget cycle). */
+    readonly spentUsd?: number;
   };
   readonly environments: ReadonlyArray<{
     readonly environmentId: EnvironmentId;
@@ -541,6 +545,8 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
             accountKey: slot.accountKey,
             service,
             ...(slot.account ? { account: slot.account } : {}),
+            ...(slot.metered ? { metered: true } : {}),
+            ...(slot.spentUsd === undefined ? {} : { spentUsd: slot.spentUsd }),
           },
           environments: [{ environmentId, label }],
           sourceLabel: null,
@@ -688,6 +694,10 @@ export function groupLimitWindows(pool: LimitPool): readonly LimitWindowGroup[] 
     { family: string | null; windows: LimitWindowGroup["windows"][number][] }
   >();
   for (const window of displayLimitWindows(pool)) {
+    // A pay-as-you-go account's budget is shown in money on its spend card, not as a level.
+    if (window.id === "budget" && window.members.every(({ account }) => account.slot?.metered)) {
+      continue;
+    }
     const parts = window.label.split(LIMIT_LABEL_SEPARATOR);
     const levelAt = parts.findIndex((part) => LIMIT_LEVEL.test(part.trim()));
     const family =

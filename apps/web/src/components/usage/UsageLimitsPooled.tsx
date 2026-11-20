@@ -15,7 +15,9 @@ import {
   type ResetCreditChoice,
   withoutHiddenLimits,
 } from "@t3tools/shared/usageLimits";
-import { T, useGT, useMessages } from "gt-react";
+import { T, useGT, useLocale, useMessages } from "gt-react";
+import type { EnvironmentId } from "@t3tools/contracts";
+import { formatUsd } from "@t3tools/shared/usageFormat";
 import type { Popover as PopoverPrimitive } from "@base-ui/react/popover";
 import { normalizeProviderAccentColor } from "@t3tools/client-runtime/state/provider-instance-display";
 import {
@@ -666,6 +668,73 @@ function PoolWindowRow({
   );
 }
 
+/** A pay-as-you-go account has no allowance to show, only what it has cost this month. */
+function SpendCard({
+  account,
+  spentUsd,
+  named,
+  environmentId,
+  slotId,
+  budgetBar,
+  color,
+  now,
+}: {
+  readonly account: LimitAccount;
+  readonly spentUsd: number;
+  readonly named: boolean;
+  readonly environmentId: EnvironmentId | null;
+  readonly slotId: string;
+  /** The budget's pool window, drawn as a bar like an allowance's when a budget is set. */
+  readonly budgetBar: LimitPoolWindow | undefined;
+  readonly color: string;
+  readonly now: number;
+}) {
+  const gt = useGT();
+  const locale = useLocale();
+  const budget = account.limits.windows.find((window) => window.id === "budget");
+  const limitUsd = budget?.limitUsd;
+  // A budget reset on another day than the 1st spans two calendar months.
+  const monthly = budget?.resetsAt === undefined || new Date(budget.resetsAt).getUTCDate() === 1;
+  return (
+    <div
+      className={cn(
+        "gap-x-6 gap-y-3 rounded-lg border border-border/60 p-4",
+        budgetBar
+          ? "grid items-center md:grid-cols-[11rem_minmax(0,1fr)]"
+          : "flex flex-wrap items-end justify-between",
+      )}
+    >
+      <div className="flex flex-col gap-1">
+        <span className="flex items-center gap-2 text-sm font-medium text-foreground">
+          {named ? <AccountName account={account} /> : null}
+          {monthly
+            ? gt("This month", { $context: "money spent in the current month" })
+            : gt("This cycle", { $context: "money spent in the current budget cycle" })}
+        </span>
+        <span className="flex items-baseline gap-2">
+          <span className="text-3xl font-semibold text-foreground tabular-nums">
+            {formatUsd(spentUsd, locale)}
+          </span>
+          {limitUsd === undefined ? (
+            <span className="text-sm text-muted-foreground">
+              {gt("spent", { $context: "money spent so far" })}
+            </span>
+          ) : null}
+        </span>
+        {limitUsd === undefined ? null : (
+          <span className="text-xs text-muted-foreground tabular-nums">
+            {gt("of {budget} budget", { budget: formatUsd(limitUsd, locale) })}
+          </span>
+        )}
+      </div>
+      {budgetBar ? <PoolBar pool={budgetBar} color={color} now={now} /> : null}
+      <div className={budgetBar ? "flex justify-end md:col-span-2" : undefined}>
+        <UsageSlotBudgetEditor environmentId={environmentId} slotId={slotId} />
+      </div>
+    </div>
+  );
+}
+
 function poolHeading(pool: LimitPool): string {
   const service = pool.machine ? `${pool.service} · ${pool.machine}` : pool.service;
   return service ?? providerClients.get(pool.driver)?.label ?? String(pool.driver);
@@ -723,73 +792,56 @@ function PoolSection({
           single && pool.driver === "cursor"
             ? cursorUsageWindowDetails(single.window.id, pool, m)
             : undefined;
-        const dollars = group.windows.flatMap(({ window }) =>
-          window.members.flatMap((member) =>
-            member.window?.usedUsd === undefined || member.window.limitUsd === undefined
-              ? []
-              : [
-                  {
-                    key: `${window.kind}:${window.id}:${member.account.key}`,
-                    account: member.account,
-                    environmentId: member.account.environments[0]?.environmentId ?? null,
-                    slotId: member.account.slot
-                      ? `${member.account.slot.instanceId}:${member.account.slot.accountKey}`
-                      : undefined,
-                    usedUsd: member.window.usedUsd,
-                    limitUsd: member.window.limitUsd,
-                  },
-                ],
-          ),
-        );
         return (
           <div
             key={group.windows.map(({ window }) => `${window.kind}:${window.id}`).join(",")}
-            className="flex flex-col gap-2"
+            className="flex flex-col gap-4 rounded-lg border border-border/60 p-4"
           >
-            <div className="flex flex-col gap-4 rounded-lg border border-border/60 p-4">
-              {single ? (
-                <PoolWindowRow
-                  pool={single.window}
-                  color={color}
-                  now={now}
-                  label={details ? details.label : single.window.label}
-                  emphasis="title"
-                  description={details?.description}
-                />
-              ) : (
-                <>
-                  {group.family ? (
-                    <span className="text-sm font-medium text-foreground">{group.family}</span>
-                  ) : null}
-                  {group.windows.map(({ window, level }) => (
-                    <PoolWindowRow
-                      key={`${window.kind}:${window.id}`}
-                      pool={window}
-                      color={color}
-                      now={now}
-                      label={level}
-                      emphasis={group.family ? "level" : "title"}
-                    />
-                  ))}
-                </>
-              )}
-            </div>
-            {dollars.map((entry) => (
-              <div key={entry.key} className="flex flex-wrap items-center gap-3">
-                {named ? (
-                  <AccountName account={entry.account} className="text-xs text-muted-foreground" />
+            {single ? (
+              <PoolWindowRow
+                pool={single.window}
+                color={color}
+                now={now}
+                label={details ? details.label : single.window.label}
+                emphasis="title"
+                description={details?.description}
+              />
+            ) : (
+              <>
+                {group.family ? (
+                  <span className="text-sm font-medium text-foreground">{group.family}</span>
                 ) : null}
-                <UsageSlotBudgetEditor
-                  environmentId={entry.environmentId}
-                  slotId={entry.slotId}
-                  usedUsd={entry.usedUsd}
-                  limitUsd={entry.limitUsd}
-                />
-              </div>
-            ))}
+                {group.windows.map(({ window, level }) => (
+                  <PoolWindowRow
+                    key={`${window.kind}:${window.id}`}
+                    pool={window}
+                    color={color}
+                    now={now}
+                    label={level}
+                    emphasis={group.family ? "level" : "title"}
+                  />
+                ))}
+              </>
+            )}
           </div>
         );
       })}
+      {pool.accounts.map((account) =>
+        account.slot?.spentUsd === undefined || !account.slot.metered ? null : (
+          <SpendCard
+            key={account.key}
+            account={account}
+            spentUsd={account.slot.spentUsd}
+            named={named}
+            environmentId={account.environments[0]?.environmentId ?? null}
+            slotId={`${account.slot.instanceId}:${account.slot.accountKey}`}
+            // A pooled bar holds every login's segment, so it fits only a card of one login.
+            budgetBar={named ? undefined : pool.windows.find((window) => window.id === "budget")}
+            color={color}
+            now={now}
+          />
+        ),
+      )}
       <SkippedAccounts
         routes={pool.accounts.flatMap((account) =>
           account.routes.map((route) => ({
@@ -798,24 +850,25 @@ function PoolSection({
           })),
         )}
       />
-      {pool.accounts
-        .filter(
-          (account) =>
-            account.slot !== undefined &&
-            !account.limits.windows.some((window) => window.id === "budget"),
-        )
-        .map((account) => {
-          const slotId = `${account.slot!.instanceId}:${account.slot!.accountKey}`;
-          const environmentId = account.environments[0]?.environmentId ?? null;
-          return (
-            <div key={account.key} className="flex flex-wrap items-center gap-3">
-              {named ? (
-                <AccountName account={account} className="text-xs text-muted-foreground" />
-              ) : null}
-              <UsageSlotBudgetEditor environmentId={environmentId} slotId={slotId} />
-            </div>
-          );
-        })}
+      {pool.accounts.map((account) =>
+        // Budgets are for pay-as-you-go accounts; a subscription keeps the editor only to clear one.
+        account.slot === undefined ||
+        (account.slot.metered
+          ? account.slot.spentUsd !== undefined
+          : !account.limits.windows.some((window) => window.id === "budget")) ? null : (
+          <div key={account.key} className="flex flex-wrap items-center gap-3">
+            {named ? (
+              <AccountName account={account} className="text-xs text-muted-foreground" />
+            ) : null}
+            <UsageSlotBudgetEditor
+              environmentId={account.environments[0]?.environmentId ?? null}
+              slotId={`${account.slot.instanceId}:${account.slot.accountKey}`}
+              usedUsd={account.limits.windows.find((window) => window.id === "budget")?.usedUsd}
+              limitUsd={account.limits.windows.find((window) => window.id === "budget")?.limitUsd}
+            />
+          </div>
+        ),
+      )}
     </section>
   );
 }

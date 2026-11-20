@@ -97,6 +97,8 @@ export function collectLimitNotices(
     for (const provider of presentation.serverConfig?.providers ?? []) {
       if (!provider.enabled) continue;
       for (const slot of provider.usageSlots ?? []) {
+        // A metered account's card shows its spend, so "set a budget to track it" is noise.
+        if (slot.metered && slot.spentUsd !== undefined) continue;
         const notice = limitsNotice(slot.usageLimits, resolve);
         if (notice) notices.add(`${label(environmentLabel, slot.label)}: ${notice}`);
       }

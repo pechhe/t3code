@@ -2153,7 +2153,7 @@ describe("collectLimitPools slot accounts", () => {
     expect(mac?.machine).toBeUndefined();
   });
 
-  it("keeps an empty failed slot listed and shows its probe reason", () => {
+  it("keeps an empty failed slot listed and shows its probe reason, and a metered one its spend", () => {
     const failed = provider({
       driver: pi,
       usageSlots: [
@@ -2162,8 +2162,40 @@ describe("collectLimitPools slot accounts", () => {
           label: "OpenAI Codex",
           usageLimits: {
             checkedAt,
-            windows: [],
+            windows: [
+              {
+                id: "budget",
+                kind: "monthly" as const,
+                label: "Monthly budget",
+                usedPercent: 25,
+                usedUsd: 12.5,
+                limitUsd: 50,
+              },
+            ],
             unavailable: { reason: "probeFailed", message: "OpenAI Codex could not read usage." },
+          },
+        },
+        {
+          accountKey: "openai",
+          label: "openai",
+          metered: true,
+          spentUsd: 12.5,
+          usageLimits: {
+            checkedAt,
+            windows: [
+              {
+                id: "budget",
+                kind: "monthly" as const,
+                label: "Monthly budget",
+                usedPercent: 25,
+                usedUsd: 12.5,
+                limitUsd: 50,
+              },
+            ],
+            unavailable: {
+              reason: "unsupported",
+              message: "Set a monthly budget to track this account's spend.",
+            },
           },
         },
       ],
@@ -2178,9 +2210,22 @@ describe("collectLimitPools slot accounts", () => {
       ],
     ]);
     const accounts = collectLimitAccounts(presentations);
-    expect(accounts.map((account) => account.displayName)).toEqual(["OpenAI Codex"]);
+    expect(accounts.map((account) => [account.displayName, account.slot?.spentUsd])).toEqual([
+      ["OpenAI Codex", undefined],
+      ["openai", 12.5],
+    ]);
     expect(collectLimitNotices(presentations)).toEqual([
       "OpenAI Codex: OpenAI Codex could not read usage.",
+    ]);
+    // A pay-as-you-go budget shows in money on the spend card; a subscription's keeps its bar.
+    expect(
+      collectLimitPools(accounts, now).map((pool) => [
+        pool.service,
+        groupLimitWindows(pool).flatMap((group) => group.windows.map(({ window }) => window.id)),
+      ]),
+    ).toEqual([
+      ["openai-codex", ["budget"]],
+      ["openai", []],
     ]);
   });
 });

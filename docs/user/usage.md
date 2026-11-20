@@ -153,6 +153,12 @@ To hide a provider or service on **Usage → Limits**, click the eye button besi
 cards and their notices move to **N hidden** at the bottom of the page; open it and click **Show** to
 bring one back. The choice is kept on this device.
 
+A pay-as-you-go account in Pi (an API key, such as OpenAI's or Anthropic's) has no allowance to show, so
+its card shows what T3 has recorded it costing this month instead. Click **Set monthly budget** to
+compare that with a budget, starting the month on the day you choose, or to correct the figure to
+what the provider's console says. Subscription accounts have no budget: their limits come from the
+provider.
+
 When a Claude or Codex account has no overall weekly quota left, its pooled session contribution
 shows 0% left. The next refill depends on both reset times: an exhausted session must also reset,
 and a partly spent session may only regain its unused portion when the week resets. Missing or
