@@ -527,7 +527,9 @@ export function resolveAppModelSelectionState(
       includePlanAgent: selectsPlanAgent(selection.options),
     });
 
-    return createModelSelection(entry.instanceId, model, modelOptionsForDispatch);
+    const resolved = createModelSelection(entry.instanceId, model, modelOptionsForDispatch);
+    // A pick pinned to one account stays pinned; the rebuild would otherwise fall back to the pool.
+    return selectedEntry && selection.pinned === true ? { ...resolved, pinned: true } : resolved;
   }
 
   return NO_PROVIDER_MODEL_SELECTION;

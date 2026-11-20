@@ -1118,6 +1118,19 @@ describe("instance-scoped model selection", () => {
     );
   });
 
+  it("keeps a selection pinned to one account", () => {
+    const providers = [provider({ instanceId: "codex", models: ["gpt-6-luna"] })];
+    const settings: UnifiedSettings = {
+      ...settingsWithProviderInstances(),
+      textGenerationModelSelection: {
+        ...createModelSelection(ProviderInstanceId.make("codex"), "gpt-6-luna"),
+        pinned: true,
+      },
+    };
+
+    expect(resolveAppModelSelectionState(settings, providers).pinned).toBe(true);
+  });
+
   it("does not select a provider that cannot generate system text", () => {
     const instanceId = ProviderInstanceId.make("antigravity");
     const unsupported = {
