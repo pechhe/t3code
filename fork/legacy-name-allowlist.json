@@ -30,7 +30,7 @@
     "reason": "Proves a legacy-registered native thread keeps the retained MCP server name."
   },
   {
-    "path": "apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.test.ts",
+    "path": "apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.fork.test.ts",
     "category": "compatibility-aliases",
     "reason": "Proves a legacy-registered native thread keeps the retained MCP server name."
   },
@@ -245,9 +245,9 @@
     "reason": "Documents or proves the retained MCP server name for legacy-registered native threads."
   },
   {
-    "path": "packages/provider-pi/src/server/adapter.test.ts",
+    "path": "packages/provider-pi/src/server/adapter.fork.test.ts",
     "category": "compatibility-aliases",
-    "reason": "Documents or proves the retained MCP server name for legacy-registered native threads."
+    "reason": "Proves a legacy-registered native thread keeps the retained MCP server name."
   },
   {
     "path": "packages/provider-pi/src/server/mcpExtensionSource.test.ts",

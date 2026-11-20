@@ -28,6 +28,10 @@ const expoLinking = await vi.hoisted(async () => {
 vi.mock(expoLinking.modulesCore, () => ({
   Platform: { select: (options: { readonly ios?: unknown }) => options.ios },
 }));
+// The ESM import resolves a different file than the CJS path above once the package is patched.
+vi.mock("expo-modules-core", () => ({
+  Platform: { select: (options: { readonly ios?: unknown }) => options.ios },
+}));
 vi.mock("expo-constants", () => ({
   default: { executionEnvironment: "bare", expoConfig: { scheme: "t3code-dev" } },
   ExecutionEnvironment: { Bare: "bare", Standalone: "standalone", StoreClient: "storeClient" },
