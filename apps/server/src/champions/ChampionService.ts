@@ -4365,12 +4365,25 @@ const make = Effect.gen(function* () {
                 : endedWithoutReport
                   ? `${endedAttention} ${check.kind === "setup" ? "Ask AI to try again" : "Check now"} to retry.`
                   : `${check.kind === "setup" ? "Setup" : "Check"} report overdue or ownership lost. Inspect the ${check.kind === "setup" ? "setup" : "owner"} thread.`;
-              if (!current.champion.attention.includes(attention))
+              // A check run that ended with no retry left and whose next check is due is over: release the
+              // claim in the same write, so it cannot hold the schedule forever. Before then, Check now
+              // still retries the claim in place.
+              const release =
+                endedWithoutReport &&
+                check.kind === "check" &&
+                current.champion.lifecycle === "active" &&
+                current.champion.nextCheckAt !== null &&
+                current.champion.nextCheckAt <= timestamp;
+              if (release) yield* saveCheck({ ...latest, cancelled: true });
+              if (!current.champion.attention.includes(attention) || release)
                 yield* write({
                   ...current,
                   champion: {
                     ...current.champion,
-                    attention: [...current.champion.attention, attention],
+                    ...(release ? { outstandingCheckId: null } : {}),
+                    attention: current.champion.attention.includes(attention)
+                      ? current.champion.attention
+                      : [...current.champion.attention, attention],
                   },
                 });
             }),

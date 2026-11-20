@@ -1777,6 +1777,32 @@ it.effect(
     ),
 );
 
+it.effect("releases a check whose run ended without a report, and starts the next on time", () =>
+  withFixture((f, service) =>
+    Effect.gen(function* () {
+      yield* definitions(service);
+      yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
+      const claim = (yield* service.runCheck({ id: config.id })).champion.outstandingCheckId;
+      f.endRun();
+      yield* service.runDue;
+      // Before its next check is due, Check now still retries the claim in place.
+      assert.equal((yield* service.get({ id: config.id })).champion.outstandingCheckId, claim);
+      yield* TestClock.adjust("2 days");
+      yield* service.runDue;
+      const ended = (yield* service.get({ id: config.id })).champion;
+      assert.isNull(ended.outstandingCheckId);
+      assert.isTrue(
+        ended.attention.some((line) => line.startsWith("Check run ended without an authenticated")),
+      );
+      yield* TestClock.adjust("1 minute");
+      yield* service.runDue;
+      const next = (yield* service.get({ id: config.id })).champion.outstandingCheckId;
+      assert.isNotNull(next);
+      assert.notEqual(next, claim);
+    }),
+  ),
+);
+
 it.effect.each([
   "untrusted",
   "missing-source",
