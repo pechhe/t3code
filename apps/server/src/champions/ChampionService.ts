@@ -1220,6 +1220,7 @@ const make = Effect.gen(function* () {
         }
         const ended = (line: string) =>
           line.startsWith(SKIPPED) ||
+          line.startsWith(`${input.kind === "setup" ? "Setup" : "Check"} dispatch unavailable.`) ||
           line.startsWith(`${input.kind === "setup" ? "Setup" : "Check"} run ended without`);
         yield* write({
           ...doc,
@@ -1450,7 +1451,13 @@ const make = Effect.gen(function* () {
               champion: {
                 ...doc.champion,
                 setupThreadId: kind === "setup" ? setupThreadId : doc.champion.setupThreadId,
-                attention: doc.champion.attention.filter((line) => !line.startsWith(SKIPPED)),
+                attention: doc.champion.attention.filter(
+                  (line) =>
+                    !line.startsWith(SKIPPED) &&
+                    !line.startsWith(
+                      `${kind === "setup" ? "Setup" : "Check"} dispatch unavailable.`,
+                    ),
+                ),
                 ...(kind === "setup"
                   ? { outstandingSetupId: checkId }
                   : { outstandingCheckId: checkId }),
