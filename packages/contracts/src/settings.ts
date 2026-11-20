@@ -2011,6 +2011,7 @@ export const DEFAULT_UNIFIED_SETTINGS: UnifiedSettings = {
 const ModelSelectionPatch = Schema.Struct({
   instanceId: Schema.optionalKey(ProviderInstanceId),
   model: Schema.optionalKey(TrimmedNonEmptyString),
+  pinned: Schema.optionalKey(Schema.Boolean),
   options: Schema.optionalKey(ProviderOptionSelections),
 });
 

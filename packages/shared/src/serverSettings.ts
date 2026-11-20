@@ -766,9 +766,16 @@ export function applyServerSettingsPatch(
         patch: selectionPatch.options,
       });
 
+  // A pick names its instance or model and carries its own pin; an options-only patch keeps the current one.
+  const pinned =
+    selectionPatch.instanceId !== undefined || selectionPatch.model !== undefined
+      ? selectionPatch.pinned === true
+      : current.textGenerationModelSelection.pinned === true;
+  const selection = createModelSelection(instanceId, model, options);
+
   return {
     ...nextWithReplacements,
-    textGenerationModelSelection: createModelSelection(instanceId, model, options),
+    textGenerationModelSelection: pinned ? { ...selection, pinned: true } : selection,
   };
 }
 

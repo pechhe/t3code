@@ -374,6 +374,28 @@ describe("serverSettings helpers", () => {
     });
   });
 
+  it("keeps a text generation selection pinned to an account until another pick unpins it", () => {
+    const current = {
+      ...DEFAULT_SERVER_SETTINGS,
+      textGenerationModelSelection: createModelSelection(ProviderInstanceId.make("codex"), "gpt-5"),
+    };
+    const pick = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" };
+
+    const pinned = applyServerSettingsPatch(current, {
+      textGenerationModelSelection: { ...pick, pinned: true },
+    });
+    expect(pinned.textGenerationModelSelection.pinned).toBe(true);
+    expect(
+      applyServerSettingsPatch(pinned, {
+        textGenerationModelSelection: { options: [{ id: "fastMode", value: true }] },
+      }).textGenerationModelSelection.pinned,
+    ).toBe(true);
+    expect(
+      applyServerSettingsPatch(pinned, { textGenerationModelSelection: pick })
+        .textGenerationModelSelection.pinned,
+    ).toBeUndefined();
+  });
+
   it("replaces text generation selection across providers without leaking stale options", () => {
     const current = {
       ...DEFAULT_SERVER_SETTINGS,
