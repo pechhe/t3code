@@ -42,7 +42,7 @@ export const isUsageLimitFailure = (
   failure: Pick<OrchestrationV2ProviderFailure, "class" | "message">,
 ) =>
   failure.class === "usage_limit" ||
-  /\b(?:insufficient\s+credits?|not enough credits?|rate limit|credit limit|usage limit|quota limit)\b/iu.test(
+  /\b(?:insufficient\s+credits?|not enough credits?|rate limit|credit limit|usage limit|quota[- ]limit(?:ed)?)\b/iu.test(
     failure.message,
   );
 

@@ -394,3 +394,15 @@ describe("accounts A, B and C serving one model, in that order", () => {
     }).pipe(Effect.provide(settingsLayer)),
   );
 });
+
+describe("isUsageLimitFailure", () => {
+  it("reads a provider's own words for running out of allowance, quota-limited included", () => {
+    const words = (message: string) =>
+      AccountFailover.isUsageLimitFailure({ class: "provider_error", message });
+    assert.isTrue(
+      words("All 1 Command Code keys are quota-limited (weekly; next reset Nov 24, 08:53)"),
+    );
+    assert.isTrue(words("rate limit exceeded"));
+    assert.isFalse(words("connection reset by peer"));
+  });
+});
