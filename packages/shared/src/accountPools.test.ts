@@ -14,7 +14,10 @@ import {
   nextAccount,
   nextLocalMidnightMs,
   editedModelAccounts,
+  linkModelPatch,
   pooledFavoriteModel,
+  pooledKeyIn,
+  unlinkModelPatch,
   pooledKeyOfFavorite,
   pooledModelKeyOf,
   pooledModels,
@@ -347,6 +350,65 @@ describe("the models the user adds", () => {
     expect(
       pooledModels(withSingle, routing(["opus", "haiku", "retired"])).map((model) => model.key),
     ).toEqual(["opus"]);
+  });
+
+  it("serves a model with the accounts of one the user links to it, until unlinked", () => {
+    const commandCode = provider("cc", "codex", [["deepseek-v4.1-flash", "DeepSeek V4.1 Flash"]]);
+    const go = provider("go", "codex", [["deepseek-v4.1-flash", "DeepSeek V4.1 Flash 1017"]]);
+    const linked = {
+      ...routing(["deepseek-v4-1-flash"]),
+      modelLinks: { "deepseek-v4-1-flash-1017": "deepseek-v4-1-flash" },
+    };
+    expect(pooledModels([commandCode, go], routing(["deepseek-v4-1-flash"]))).toEqual([]);
+    const [pool] = pooledModels([commandCode, go], linked);
+    expect([pool?.displayName, pool?.accounts.map((entry) => entry.account.id)]).toEqual([
+      "DeepSeek V4.1 Flash",
+      ["cc", "go"],
+    ]);
+    // Skips and routing key the linked account's model as the model it counts as.
+    expect(pooledKeyIn(linked, go, go.models[0]!)).toBe("deepseek-v4-1-flash");
+    expect(pooledKeyIn({}, go, go.models[0]!)).toBe("deepseek-v4-1-flash-1017");
+  });
+
+  it("links a model into an arranged one without its pay-as-you-go accounts, and unlinks back", () => {
+    const commandCode = provider("cc", "codex", [["deepseek-v4.1-flash", "DeepSeek V4.1 Flash"]]);
+    const go = provider("go", "codex", [["deepseek-v4.1-flash", "DeepSeek V4.1 Flash 1017"]]);
+    const paid = provider("pi", "pi", [["openrouter/deepseek/deepseek-v4.1-flash-1017", "1017"]], {
+      usageSlots: [
+        {
+          accountKey: "openrouter",
+          label: "openrouter",
+          usageLimits: { checkedAt: iso(NOW), windows: [] },
+          metered: true,
+        },
+      ],
+    });
+    const providers = [commandCode, go, paid];
+    const before = {
+      pooledModelKeys: ["deepseek-v4-1-flash", "deepseek-v4-1-flash-1017"],
+      modelAccounts: { "deepseek-v4-1-flash": ["cc"] },
+    };
+    const [target, source] = ["deepseek-v4-1-flash", "deepseek-v4-1-flash-1017"].map((key) =>
+      listedPooledModels(providers, before).find((model) => model.key === key)!,
+    );
+    const link = linkModelPatch(before, target!, source!);
+    expect(link).toEqual({
+      modelLinks: { "deepseek-v4-1-flash-1017": "deepseek-v4-1-flash" },
+      pooledModelKeys: ["deepseek-v4-1-flash"],
+      modelAccounts: { "deepseek-v4-1-flash": ["cc", "go"] },
+    });
+    const linked = {
+      pooledModelKeys: link.pooledModelKeys!,
+      modelAccounts: { "deepseek-v4-1-flash": ["cc", "go"] },
+      modelLinks: { "deepseek-v4-1-flash-1017": "deepseek-v4-1-flash" },
+    };
+    expect(
+      unlinkModelPatch(providers, linked, "deepseek-v4-1-flash", "deepseek-v4-1-flash-1017"),
+    ).toEqual({
+      modelLinks: { "deepseek-v4-1-flash-1017": null },
+      pooledModelKeys: ["deepseek-v4-1-flash", "deepseek-v4-1-flash-1017"],
+      modelAccounts: { "deepseek-v4-1-flash": ["cc"] },
+    });
   });
 
   it("leaves out an account the model is hidden on", () => {

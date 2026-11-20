@@ -5,8 +5,12 @@ import {
   type PooledModelKey,
 } from "@t3tools/contracts";
 import {
+  linkedModelKey,
+  linkModelPatch,
   listedPooledModels,
+  unlinkModelPatch,
   multiAccountModels,
+  servedModels,
   type AccountInfo,
   type PooledModel,
   type PooledAccount,
@@ -94,6 +98,21 @@ function EnvironmentAccounts({ environmentId }: { environmentId: EnvironmentId }
         ),
       },
     });
+  const links = settings.modelLinks ?? {};
+  // Names of the models linked into another, as their accounts call them on their own.
+  const unlinked = servedModels(providers, { ...settings, modelLinks: undefined });
+  const served = servedModels(providers, settings);
+  const linkedInto = (key: PooledModelKey) =>
+    Object.keys(links)
+      .filter((source) => linkedModelKey(links, source) === key)
+      .map((source) => ({
+        key: source,
+        name: unlinked.find((model) => model.key === source)?.displayName ?? source,
+      }));
+  const linkModel = (target: PooledModel, source: PooledModel) =>
+    update(linkModelPatch(settings, target, source));
+  const unlinkModel = (target: PooledModelKey, source: PooledModelKey) =>
+    update(unlinkModelPatch(providers, settings, target, source));
   const addModel = (key: PooledModelKey) => update({ pooledModelKeys: [...listed, key] });
   const removeModel = (key: PooledModelKey) =>
     update({ pooledModelKeys: listed.filter((listedKey) => listedKey !== key) });
@@ -102,7 +121,15 @@ function EnvironmentAccounts({ environmentId }: { environmentId: EnvironmentId }
       <SettingsRow
         title="Models T3 Code picks the account for"
         description="Each model you add is one picker choice. New threads run on its first account that isn't skipped, moving down the list when one runs out. Models you haven't added run on the account you pick."
-        control={<AddModelPicker candidates={candidates} disabled={!canManage} onAdd={addModel} />}
+        control={
+          <AddModelPicker
+            candidates={candidates}
+            disabled={!canManage}
+            onAdd={addModel}
+            label="Add model"
+            ariaLabel="Add a model T3 Code picks the account for"
+          />
+        }
       />
       {models.length === 0 ? (
         <p className="px-3 text-sm text-muted-foreground sm:px-4">
@@ -117,6 +144,12 @@ function EnvironmentAccounts({ environmentId }: { environmentId: EnvironmentId }
           disabled={!canManage}
           onRemove={() => removeModel(model.key)}
           onSetAccounts={(accounts) => setAccounts(model, accounts)}
+          linked={linkedInto(model.key)}
+          linkCandidates={served.filter(
+            (candidate) => candidate.key !== model.key && candidate.accounts.length > 0,
+          )}
+          onLink={(source) => linkModel(model, source)}
+          onUnlink={(source) => unlinkModel(model.key, source)}
         />
       ))}
     </SettingsSection>
@@ -129,6 +162,11 @@ function PooledModelRow(props: {
   disabled: boolean;
   onRemove: () => void;
   onSetAccounts: (accounts: ReadonlyArray<AccountId>) => void;
+  /** Models counted as this one, as their accounts name them. */
+  linked: ReadonlyArray<{ key: PooledModelKey; name: string }>;
+  linkCandidates: ReadonlyArray<PooledModel>;
+  onLink: (source: PooledModel) => void;
+  onUnlink: (source: PooledModelKey) => void;
 }) {
   const { model } = props;
   const inUse = model.accounts.flatMap((entry) => (entry.removed ? [] : [entry.account.id]));
@@ -153,11 +191,23 @@ function PooledModelRow(props: {
       title={model.displayName}
       status={status}
       control={
-        <RemoveModelButton
-          label={model.displayName}
-          disabled={props.disabled}
-          onRemove={props.onRemove}
-        />
+        <span className="flex items-center gap-1">
+          <AddModelPicker
+            candidates={props.linkCandidates}
+            disabled={props.disabled}
+            onAdd={(key) => {
+              const source = props.linkCandidates.find((candidate) => candidate.key === key);
+              if (source !== undefined) props.onLink(source);
+            }}
+            label="Add account"
+            ariaLabel={`Add another model's accounts to ${model.displayName}`}
+          />
+          <RemoveModelButton
+            label={model.displayName}
+            disabled={props.disabled}
+            onRemove={props.onRemove}
+          />
+        </span>
       }
     >
       {model.accounts.length > 0 ? (
@@ -180,6 +230,29 @@ function PooledModelRow(props: {
             />
           ))}
         </ol>
+      ) : null}
+      {props.linked.length > 0 ? (
+        <p className="mt-2 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+          <span>Also counts as this model:</span>
+          {props.linked.map((source) => (
+            <span
+              key={source.key}
+              className="inline-flex items-center gap-0.5 rounded-md border border-border/60 ps-1.5"
+            >
+              {source.name}
+              <Button
+                type="button"
+                size="icon-xs"
+                variant="ghost-muted"
+                disabled={props.disabled}
+                aria-label={`Stop counting ${source.name} as ${model.displayName}`}
+                onClick={() => props.onUnlink(source.key)}
+              >
+                <XIcon />
+              </Button>
+            </span>
+          ))}
+        </p>
       ) : null}
     </SettingsRow>
   );
@@ -282,11 +355,13 @@ function RemoveModelButton(props: { label: string; disabled: boolean; onRemove: 
   );
 }
 
-/** Adds a model T3 Code may pick the account for, searching the ones several accounts serve. */
+/** Searches models by name or account, for adding one as a pooled model or into another. */
 function AddModelPicker(props: {
   candidates: ReadonlyArray<PooledModel>;
   disabled: boolean;
   onAdd: (key: PooledModelKey) => void;
+  label: string;
+  ariaLabel: string;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -317,12 +392,12 @@ function AddModelPicker(props: {
       }}
     >
       <ComboboxTrigger
-        aria-label="Add a model T3 Code picks the account for"
+        aria-label={props.ariaLabel}
         disabled={props.disabled || props.candidates.length === 0}
         render={<Button size="xs" variant="outline" />}
       >
         <PlusIcon />
-        Add model
+        {props.label}
       </ComboboxTrigger>
       <ComboboxPopup align="end" className="w-80">
         <ComboboxSearchInput

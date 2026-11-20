@@ -211,7 +211,10 @@ accounts in the order T3 Code tries them: move one up or down, take one off with
 back with **+**. A model you never arranged uses every subscription account serving it. A
 pay-as-you-go account (an API key, such as OpenRouter's) is marked "pay as you go" and stays off a
 model until you add it there, as does an account that appears after you arranged the model. A
-model you hide on an account under **Settings → Providers** is not tried there. Pi's Antigravity
+model you hide on an account under **Settings → Providers** is not tried there. Models only match
+when their names do, so a dated release (DeepSeek V4.1 Flash 1017 beside DeepSeek V4.1 Flash) stays
+separate: choose **Add account** on a model to count another model's accounts as this one, and
+the **×** beside its name to separate them again. Pi's Antigravity
 logins count as one account, because Pi already moves between them.
 
 To give a pooled model your own name, hover it in the picker and choose the pencil, or press F2;

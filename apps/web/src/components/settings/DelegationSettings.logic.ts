@@ -26,7 +26,7 @@ import {
 type Manifest = AgentPolicyManifest;
 type RoutingSettings = Pick<
   AccountRoutingSettings,
-  "pooledModelKeys" | "modelAccounts" | "providerModelPreferences"
+  "pooledModelKeys" | "modelAccounts" | "modelLinks" | "providerModelPreferences"
 >;
 const EMPTY_ROUTING: RoutingSettings = { pooledModelKeys: [] };
 
@@ -47,7 +47,9 @@ export function pooledModelForBinding(
     { driver: binding.driverKind },
     { slug: binding.model, name: binding.model },
   );
-  return key === undefined ? undefined : pools.find((pool) => pool.key === key);
+  return key === undefined
+    ? undefined
+    : pools.find((pool) => pool.key === key || pool.linked?.includes(key) === true);
 }
 
 export function matchesCatalogModel(

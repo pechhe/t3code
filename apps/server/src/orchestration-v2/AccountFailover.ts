@@ -12,7 +12,7 @@ import {
 import {
   nextAccount,
   nextLocalMidnightMs,
-  pooledModelKeyOf,
+  pooledKeyIn,
   pooledModelOf,
   pooledModels,
   selectionAccountId,
@@ -55,7 +55,7 @@ export const failoverSelection = (input: {
   readonly providers: ReadonlyArray<ServerProvider>;
   readonly settings: Pick<
     ServerSettingsValue,
-    "pooledModelKeys" | "modelAccounts" | "accountSkips" | "providerModelPreferences"
+    "pooledModelKeys" | "modelAccounts" | "modelLinks" | "accountSkips" | "providerModelPreferences"
   >;
   readonly nowMs: number;
   readonly options?: PickOptions | undefined;
@@ -123,11 +123,11 @@ export const layer = Layer.effectDiscard(
       const model = provider?.models.find(
         (candidate) => candidate.slug === run.modelSelection.model,
       );
+      const initial = yield* settings.getSettings;
       const key =
         provider === undefined || model === undefined
           ? undefined
-          : pooledModelKeyOf(provider, model);
-      const initial = yield* settings.getSettings;
+          : pooledKeyIn(initial, provider, model);
       if (key === undefined || !initial.pooledModelKeys?.includes(key)) return initial;
       const account = selectionAccountId(providers, run.modelSelection);
       const skip = skipAfterLimit({

@@ -128,6 +128,7 @@ describe("serverSettings helpers", () => {
     const set = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
       pooledModelKeys: ["claude-opus-5-5", "gpt-6-2-sol", "kimi-k3"],
       modelAccounts: { "claude-opus-5-5": ["claudeAgent", "pi:antigravity"] },
+      modelLinks: { "kimi-k3-0901": "kimi-k3", "gpt-6-2-sol-1017": "gpt-6-2-sol" },
       accountSkips: {
         claudeAgent: { "claude-opus-5-5": skip },
         codex: { "gpt-6-2-sol": skip, "kimi-k3": skip },
@@ -136,6 +137,7 @@ describe("serverSettings helpers", () => {
     const next = applyServerSettingsPatch(set, {
       pooledModelKeys: ["gpt-6-2-sol"],
       modelAccounts: { "gpt-6-2-sol": ["codex"], "kimi-k3": [] },
+      modelLinks: { "kimi-k3-0901": null },
       // Use again now on one model keeps the account's other skips.
       accountSkips: { claudeAgent: null, codex: { "kimi-k3": null } },
     });
@@ -147,6 +149,7 @@ describe("serverSettings helpers", () => {
       "gpt-6-2-sol": ["codex"],
       "kimi-k3": [],
     });
+    expect(next.modelLinks).toEqual({ "gpt-6-2-sol-1017": "gpt-6-2-sol" });
     expect(next.accountSkips).toEqual({ codex: { "gpt-6-2-sol": skip } });
     // null returns a model to its default accounts.
     expect(

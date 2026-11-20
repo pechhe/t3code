@@ -15,6 +15,7 @@ import type {
   ProviderOptionSelection,
   ServerProvider,
   ServerProviderModel,
+  ServerSettingsPatch,
   ServerProviderUsageLimits,
   ServerProviderUsageWindow,
   ServerSettings,
@@ -26,6 +27,8 @@ export type AccountRoutingSettings = Pick<ServerSettings, "pooledModelKeys" | "a
   readonly modelAccounts?: ServerSettings["modelAccounts"] | undefined;
   /** A model hidden on an account is one that account does not offer. */
   readonly providerModelPreferences?: ServerSettings["providerModelPreferences"] | undefined;
+  /** Models the user counts as another one. */
+  readonly modelLinks?: ServerSettings["modelLinks"] | undefined;
 };
 
 // ── Usage readings ──────────────────────────────────────────────────────────────────────────
@@ -224,6 +227,30 @@ export const pooledModelKeyOf = (
   return `${[base, ...extra].join("-")}${variant}${alias ? "@latest" : ""}`;
 };
 
+/** The model a key runs as once the user's links are followed. */
+export const linkedModelKey = (
+  links: ServerSettings["modelLinks"],
+  key: PooledModelKey,
+): PooledModelKey => {
+  const seen = new Set<PooledModelKey>();
+  let current = key;
+  while (links?.[current] !== undefined && !seen.has(current)) {
+    seen.add(current);
+    current = links[current]!;
+  }
+  return current;
+};
+
+/** An account's model's pooled key, counting the user's links. */
+export const pooledKeyIn = (
+  settings: Pick<AccountRoutingSettings, "modelLinks">,
+  provider: Pick<ServerProvider, "driver">,
+  model: Pick<ServerProviderModel, "slug" | "name">,
+): PooledModelKey | undefined => {
+  const key = pooledModelKeyOf(provider, model);
+  return key === undefined ? undefined : linkedModelKey(settings.modelLinks, key);
+};
+
 /** The name a pooled model shows: provider labels and an account's own suffix removed. */
 const plainModelName = (name: string) =>
   name
@@ -248,9 +275,14 @@ export interface PooledModel {
   readonly displayName: string;
   /** Every account offering the model, in the model's order, the ones off it last. */
   readonly accounts: ReadonlyArray<PooledAccount>;
+  /** Models the user counts as this one that an account serves. */
+  readonly linked?: ReadonlyArray<PooledModelKey>;
 }
 
-type ServingSettings = Pick<AccountRoutingSettings, "modelAccounts" | "providerModelPreferences">;
+type ServingSettings = Pick<
+  AccountRoutingSettings,
+  "modelAccounts" | "providerModelPreferences" | "modelLinks"
+>;
 
 /** A Pi sub-provider billed per use, as its usage slot reports. */
 const isMeteredAccount = (provider: ServerProvider, modelSlug: string): boolean => {
@@ -264,16 +296,21 @@ const isMeteredAccount = (provider: ServerProvider, modelSlug: string): boolean 
 };
 
 const servingEntries = (providers: ReadonlyArray<ServerProvider>, settings: ServingSettings) => {
-  const byKey = new Map<PooledModelKey, { names: string[]; accounts: PooledAccount[] }>();
+  const byKey = new Map<
+    PooledModelKey,
+    { names: string[]; accounts: PooledAccount[]; linked: Set<PooledModelKey> }
+  >();
   for (const provider of providers) {
     if (!provider.enabled) continue;
     const hidden = settings.providerModelPreferences?.[provider.instanceId]?.hiddenModels ?? [];
     for (const model of provider.models) {
       if (hidden.includes(model.slug)) continue;
-      const key = pooledModelKeyOf(provider, model);
-      if (key === undefined) continue;
+      const own = pooledModelKeyOf(provider, model);
+      if (own === undefined) continue;
+      const key = linkedModelKey(settings.modelLinks, own);
       const account = accountInfo(provider, model.slug);
-      const entry = byKey.get(key) ?? { names: [], accounts: [] };
+      const entry = byKey.get(key) ?? { names: [], accounts: [], linked: new Set() };
+      if (own !== key) entry.linked.add(own);
       // One account offering a model twice (an alias and its target) serves it once.
       if (entry.accounts.some((existing) => existing.account.id === account.id)) continue;
       entry.names.push(model.name);
@@ -327,23 +364,30 @@ const disambiguateDisplayNames = (
   );
 };
 
+const modelsServed = (
+  providers: ReadonlyArray<ServerProvider>,
+  settings: ServingSettings,
+): ReadonlyArray<PooledModel> =>
+  [...servingEntries(providers, settings)].map(([key, entry]) => ({
+    key,
+    displayName: shortestPlainName(entry.names),
+    accounts: entry.accounts,
+    ...(entry.linked.size === 0 ? {} : { linked: [...entry.linked] }),
+  }));
+
+/** Every model an account serves, each with its accounts in the model's order. */
+export const servedModels = (
+  providers: ReadonlyArray<ServerProvider>,
+  settings: ServingSettings,
+): ReadonlyArray<PooledModel> => disambiguateDisplayNames(modelsServed(providers, settings));
+
 /** Every model more than one account serves, each with its accounts in the model's order. */
 export const multiAccountModels = (
   providers: ReadonlyArray<ServerProvider>,
   settings: ServingSettings,
 ): ReadonlyArray<PooledModel> =>
   disambiguateDisplayNames(
-    [...servingEntries(providers, settings)].flatMap(([key, entry]) =>
-      entry.accounts.length < 2
-        ? []
-        : [
-            {
-              key,
-              displayName: shortestPlainName(entry.names),
-              accounts: entry.accounts,
-            },
-          ],
-    ),
+    modelsServed(providers, settings).filter((model) => model.accounts.length >= 2),
   );
 
 /**
@@ -363,6 +407,7 @@ export const listedPooledModels = (
         key,
         displayName: shortestPlainName(entry.names),
         accounts: entry.accounts,
+        ...(entry.linked.size === 0 ? {} : { linked: [...entry.linked] }),
       };
     }),
   );
@@ -378,6 +423,67 @@ export const pooledModels = (
 ): ReadonlyArray<PooledModel> => {
   const listed = new Set(settings.pooledModelKeys ?? []);
   return multiAccountModels(providers, settings).filter((pool) => listed.has(pool.key));
+};
+
+type LinkSettings = Pick<
+  AccountRoutingSettings,
+  "pooledModelKeys" | "modelAccounts" | "modelLinks" | "providerModelPreferences"
+>;
+
+/**
+ * Counts `source` as `target`: the source stops being a pooled model of its own, and an
+ * arranged target takes the source's subscriptions at the bottom (pay-as-you-go ones stay off).
+ */
+export const linkModelPatch = (
+  settings: LinkSettings,
+  target: PooledModel,
+  source: PooledModel,
+): ServerSettingsPatch => {
+  const listed = settings.pooledModelKeys ?? [];
+  const saved = settings.modelAccounts?.[target.key];
+  const joining = source.accounts.flatMap((entry) =>
+    entry.metered || saved?.includes(entry.account.id) ? [] : [entry.account.id],
+  );
+  return {
+    modelLinks: { [source.key]: target.key },
+    ...(listed.includes(source.key)
+      ? { pooledModelKeys: listed.filter((key) => key !== source.key) }
+      : {}),
+    ...(saved === undefined ? {} : { modelAccounts: { [target.key]: [...saved, ...joining] } }),
+  };
+};
+
+/**
+ * Separates `source` from `target` again: the source becomes a pooled model of its own if
+ * the target is one, and the target's list drops the accounts that served it only through the link.
+ */
+export const unlinkModelPatch = (
+  providers: ReadonlyArray<ServerProvider>,
+  settings: LinkSettings,
+  target: PooledModelKey,
+  source: PooledModelKey,
+): ServerSettingsPatch => {
+  const listed = settings.pooledModelKeys ?? [];
+  const links = Object.fromEntries(
+    Object.entries(settings.modelLinks ?? {}).filter(([key]) => key !== source),
+  );
+  const apart = servedModels(providers, { ...settings, modelLinks: links });
+  const accountsOf = (key: PooledModelKey) =>
+    new Set(
+      apart.find((model) => model.key === key)?.accounts.map((entry) => entry.account.id) ?? [],
+    );
+  const stillServing = accountsOf(target);
+  const leaving = [...accountsOf(source)].filter((id) => !stillServing.has(id));
+  const saved = settings.modelAccounts?.[target];
+  return {
+    modelLinks: { [source]: null },
+    ...(listed.includes(target) && !listed.includes(source)
+      ? { pooledModelKeys: [...listed, source] }
+      : {}),
+    ...(saved === undefined
+      ? {}
+      : { modelAccounts: { [target]: saved.filter((id) => !leaving.includes(id)) } }),
+  };
 };
 
 /**

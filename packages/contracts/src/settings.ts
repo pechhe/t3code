@@ -1751,6 +1751,11 @@ export const ServerSettings = Schema.Struct({
    * user never arranged uses every subscription account serving it; pay-as-you-go ones stay off.
    */
   modelAccounts: Schema.optionalKey(Schema.Record(PooledModelKey, Schema.Array(AccountId))),
+  /**
+   * Models the user counts as another one, by pooled model key: their accounts serve that model,
+   * for a name automatic matching keeps apart (a dated release beside its plain name).
+   */
+  modelLinks: Schema.optionalKey(Schema.Record(PooledModelKey, PooledModelKey)),
   /** Accounts passed over after a usage limit. The server writes them; Use again now clears one. */
   accountSkips: AccountSkips.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   // Only the server writes these. Absent on a server that can't share its provider setup.
@@ -2201,6 +2206,8 @@ export const ServerSettingsPatch = Schema.Struct({
   modelAccounts: Schema.optionalKey(
     Schema.Record(PooledModelKey, Schema.NullOr(Schema.Array(AccountId))),
   ),
+  // Merge per model; null makes it its own model again.
+  modelLinks: Schema.optionalKey(Schema.Record(PooledModelKey, Schema.NullOr(PooledModelKey))),
   // Merge per account and model; null on an account removes all its skips, on a model just that one.
   accountSkips: Schema.optionalKey(
     Schema.Record(
@@ -2256,6 +2263,7 @@ export function requiredScopesForServerSettingsPatch(
       key === "providerInstances" ||
       key === "pooledModelKeys" ||
       key === "modelAccounts" ||
+      key === "modelLinks" ||
       key === "accountSkips" ||
       key === "usageLimitSources" ||
       key === "usageSlotBudgets" ||

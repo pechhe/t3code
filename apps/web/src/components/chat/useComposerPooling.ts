@@ -50,6 +50,7 @@ export function useComposerPooling(input: {
   readonly onSelect: ModelPickerPooling["onSelect"];
 }): ModelPickerPooling {
   const modelAccounts = useEnvironmentSettings(input.environmentId, (s) => s.modelAccounts);
+  const modelLinks = useEnvironmentSettings(input.environmentId, (s) => s.modelLinks);
   const skips = useEnvironmentSettings(input.environmentId, (s) => s.accountSkips);
   const pooledModelKeys = useEnvironmentSettings(
     input.environmentId,
@@ -61,7 +62,12 @@ export function useComposerPooling(input: {
   );
   const slotLabels = useClientSettings(selectModelSlotLabels);
   const models = withPooledModelLabels(
-    pooledModels(input.providers, { pooledModelKeys, modelAccounts, providerModelPreferences }),
+    pooledModels(input.providers, {
+      pooledModelKeys,
+      modelAccounts,
+      modelLinks,
+      providerModelPreferences,
+    }),
     slotLabels,
   );
   return modelPickerPooling({ ...input, models, skips });

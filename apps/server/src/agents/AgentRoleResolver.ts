@@ -24,7 +24,7 @@ import * as Schema from "effect/Schema";
 import {
   activeSkip,
   isConserved,
-  pooledModelKeyOf,
+  pooledKeyIn,
   pooledModels,
   selectionAccountId,
   type AccountRoutingSettings,
@@ -321,7 +321,7 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
   const pools = pooledModels(input.providers, routing);
   const pooledKeyOf = (provider: ServerProvider, slug: string) => {
     const model = provider.models.find((candidate) => candidate.slug === slug);
-    return model === undefined ? undefined : pooledModelKeyOf(provider, model);
+    return model === undefined ? undefined : pooledKeyIn(routing, provider, model);
   };
   const pooledAccountsFor = (driver: string, slug: string) => {
     const provider = input.providers.find(
@@ -612,7 +612,7 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
       const model = candidate.provider.models.find(
         (entry) => entry.slug === candidate.selection.model,
       );
-      const key = model === undefined ? undefined : pooledModelKeyOf(candidate.provider, model);
+      const key = model === undefined ? undefined : pooledKeyIn(routing, candidate.provider, model);
       const skipped =
         key === undefined
           ? undefined

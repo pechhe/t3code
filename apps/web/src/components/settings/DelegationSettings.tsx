@@ -270,11 +270,12 @@ function PolicyEditor({
 }) {
   const saved = data.snapshot.manifest;
   const modelAccounts = useScopedSettings((settings) => settings.modelAccounts);
+  const modelLinks = useScopedSettings((settings) => settings.modelLinks);
   const pooledModelKeys = useScopedSettings((settings) => settings.pooledModelKeys ?? []);
   const providerModelPreferences = useScopedSettings(
     (settings) => settings.providerModelPreferences,
   );
-  const routing = { pooledModelKeys, modelAccounts, providerModelPreferences };
+  const routing = { pooledModelKeys, modelAccounts, modelLinks, providerModelPreferences };
   const slotLabels = useClientSettings(selectModelSlotLabels);
   const pools = withPooledModelLabels(pooledModels(data.providers, routing), slotLabels);
   const catalog = catalogModels(data.providers, routing);

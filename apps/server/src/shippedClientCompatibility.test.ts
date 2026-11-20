@@ -120,6 +120,7 @@ const forkSettings = {
     { provider: ProviderInstanceId.make("pi"), model: pooledFavoriteModel("claude-opus-5-5") },
   ],
   modelAccounts: { "claude-opus-5-5": ["claudeAgent", "pi:antigravity"] },
+  modelLinks: { "claude-opus-5-5-1017": "claude-opus-5-5" },
   accountSkips: {
     claudeAgent: { "claude-opus-5-5": { until: "2026-11-19T13:40:00.000Z", reportedReset: true } },
   },
