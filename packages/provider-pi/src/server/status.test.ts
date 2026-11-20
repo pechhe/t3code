@@ -2,7 +2,6 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
-import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
 import * as TestClock from "effect/testing/TestClock";
 import * as Queue from "effect/Queue";
@@ -113,14 +112,8 @@ const piRpcProcess = (
     });
   });
 
-/** Makes the extension-free launch exit before answering, like launch args naming an extension provider. */
-const exitsWithoutExtensions = Symbol("exitsWithoutExtensions");
-
-// Text generation lists models with --no-extensions, so its inventory can differ.
 const piDiscoverySpawner = (
   inventory: unknown,
-  extensionFreeInventory: unknown = inventory,
-  onExtensionFreeModelRequest: Effect.Effect<void> = Effect.void,
   options: {
     readonly version?: string;
     readonly state?: unknown;
@@ -143,25 +136,14 @@ const piDiscoverySpawner = (
           ? Effect.die(`Unexpected pi ${args.join(" ")}`)
           : Effect.succeed(processHandle({ stdout: options.authCheck, exitCode: 1 }));
       }
-      if (
-        options.startupDialog === true &&
-        !args.includes("--no-extensions") &&
-        !args.includes("--no-approve")
-      ) {
+      if (options.startupDialog === true && !args.includes("--no-approve")) {
         return Effect.succeed(processHandle({ stdout: STARTUP_DIALOG }));
       }
-      if (args.includes("--no-extensions") && extensionFreeInventory === exitsWithoutExtensions) {
-        return Effect.succeed(
-          processHandle({ stderr: 'Error: Unknown provider "demo".', exitCode: 1 }),
-        );
-      }
       return piRpcProcess(
-        args.includes("--no-extensions")
-          ? extensionFreeInventory
-          : args.includes("--no-approve") && options.declinedProjectInventory !== undefined
-            ? options.declinedProjectInventory
-            : inventory,
-        args.includes("--no-extensions") ? onExtensionFreeModelRequest : Effect.void,
+        args.includes("--no-approve") && options.declinedProjectInventory !== undefined
+          ? options.declinedProjectInventory
+          : inventory,
+        Effect.void,
         options.state,
       );
     }),
@@ -308,8 +290,6 @@ describe("PiProvider", () => {
             { provider: "router", id: "auto" },
           ],
         },
-        undefined,
-        Effect.void,
         { version: row.version, state: { model: row.activeModel }, authCheck: row.authCheck },
       );
       const snapshot = yield* checkPiProviderStatus({
@@ -320,89 +300,6 @@ describe("PiProvider", () => {
       assert.equal(snapshot.auth.status, "authenticated");
       if (row.message === undefined) assert.isUndefined(snapshot.message);
       else assert.include(snapshot.message ?? "", row.message);
-    }).pipe(Effect.provide(NodeServices.layer)),
-  );
-
-  it.effect("marks models that only load with Pi extensions as unusable for text generation", () =>
-    Effect.gen(function* () {
-      const spawner = yield* piDiscoverySpawner(
-        {
-          models: [
-            { provider: "anthropic", id: "claude-sonnet-4" },
-            { provider: "demo", id: "demo-model" },
-          ],
-        },
-        { models: [{ provider: "anthropic", id: "claude-sonnet-4" }] },
-      );
-      const snapshot = yield* checkPiProviderStatus(settings).pipe(
-        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-      );
-      assert.deepEqual(
-        snapshot.models.map((model) => [model.slug, model.supportsTextGeneration]),
-        [
-          ["default", undefined],
-          ["anthropic/claude-sonnet-4", undefined],
-          ["demo/demo-model", false],
-        ],
-      );
-      assert.equal(snapshot.supportsTextGeneration, undefined);
-    }).pipe(Effect.provide(NodeServices.layer)),
-  );
-
-  it.effect.each([
-    { label: "exits before answering", extensionFreeInventory: exitsWithoutExtensions },
-    { label: "lists no models", extensionFreeInventory: { models: [] } },
-  ])("makes Pi unusable for text generation when Pi without extensions $label", (row) =>
-    Effect.gen(function* () {
-      const spawner = yield* piDiscoverySpawner(
-        { models: [{ provider: "demo", id: "extension-model" }] },
-        row.extensionFreeInventory,
-      );
-      const snapshot = yield* checkPiProviderStatus({
-        ...settings,
-        launchArgs: "--provider demo --model extension-model",
-        customModels: ["local/custom-alias"],
-      }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
-      assert.equal(snapshot.status, "ready");
-      assert.equal(snapshot.auth.status, "authenticated");
-      // Pi default and custom models still run in chat, so the picker keeps them.
-      assert.deepEqual(
-        snapshot.models.map((model) => model.slug),
-        ["default", "demo/extension-model", "local/custom-alias"],
-      );
-      assert.equal(snapshot.supportsTextGeneration, false);
-    }).pipe(Effect.provide(NodeServices.layer)),
-  );
-
-  it.effect("preserves normal discovery when the extension-free model listing times out", () =>
-    Effect.gen(function* () {
-      const modelRequested = yield* Deferred.make<void>();
-      const spawner = yield* piDiscoverySpawner(
-        { models: [{ provider: "demo", id: "demo-model" }] },
-        null,
-        Deferred.succeed(modelRequested, undefined).pipe(Effect.asVoid),
-      );
-      const fiber = yield* checkPiProviderStatus(settings).pipe(
-        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-        Effect.forkChild,
-      );
-      yield* Deferred.await(modelRequested);
-      yield* TestClock.adjust("5 seconds");
-      const snapshot = yield* Fiber.join(fiber);
-      assert.equal(snapshot.status, "ready");
-      assert.equal(snapshot.auth.status, "authenticated");
-      assert.deepEqual(
-        snapshot.models.map((model) => [model.slug, model.supportsTextGeneration]),
-        [
-          ["default", undefined],
-          ["demo/demo-model", undefined],
-        ],
-      );
-      assert.equal(snapshot.supportsTextGeneration, undefined);
-      assert.include(
-        snapshot.slashCommands.map((command) => command.name),
-        "compact",
-      );
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
@@ -468,8 +365,6 @@ describe("PiProvider", () => {
               { provider: "project", id: "local-model" },
             ],
           },
-          undefined,
-          undefined,
           {
             startupDialog: row.startupDialog,
             declinedProjectInventory: { models: [{ provider: "anthropic", id: "claude-opus" }] },

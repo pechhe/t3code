@@ -244,7 +244,7 @@ import { ComposerFooterPrimaryActions } from "./ComposerFooterControls";
 import { playDeviceSendCue } from "~/lib/interfaceSounds";
 import { recordSendOrigin } from "~/lib/sendMotion";
 import { compactOnSendTokens } from "./compactOnSend.logic";
-import { type ThreadCompactionSavings } from "./device/blackholeStatus.logic";
+import { providerHasBlackhole, type ThreadCompactionSavings } from "./device/blackholeStatus.logic";
 import { DeviceContextBar } from "./device/DeviceContextBar";
 import { type DeviceModelSliderHandle } from "./device/DeviceModelSlider";
 import type { ModelPickerPooling } from "./modelPickerPooling";
@@ -4142,6 +4142,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   threadKey={`${routeThreadRef.environmentId}:${routeThreadRef.threadId}`}
                   usage={activeContextWindow}
                   extensionStatuses={props.extensionStatuses}
+                  blackholeInstalled={providerHasBlackhole(
+                    selectedProviderStatus?.driver,
+                    selectedProviderSlashCommands,
+                  )}
                   compactionSavings={props.blackholeCompactionSavings}
                   onRunBlackholeCommand={props.onRunBlackholeCommand}
                   threadCompactAt={props.activeThreadShell?.compactAt ?? null}

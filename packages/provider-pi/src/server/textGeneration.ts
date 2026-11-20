@@ -10,8 +10,18 @@ import { compareSemverVersions } from "@t3tools/shared/semver";
 import { parseGenericCliVersion } from "@t3tools/provider-core/server/snapshotProbe";
 import type { PiSettings } from "../settings.ts";
 
-import { makePiRpcConnection, piRecordField, piRecordString, resolvePiModelSlug } from "./rpc.ts";
-import { buildPiRpcLaunch, resolvePiLaunchArgs } from "./mcpInjection.ts";
+import {
+  findReportedPiModel,
+  makePiRpcConnection,
+  piRecordField,
+  piRecordString,
+  resolvePiModelSlug,
+} from "./rpc.ts";
+import {
+  buildPiRpcLaunch,
+  PI_PROJECT_TRUST_ARGUMENTS,
+  resolvePiLaunchArgs,
+} from "./mcpInjection.ts";
 import * as TextGenerationOperations from "@t3tools/provider-core/server/textGenerationOperations";
 import { isPiThinkingLevel } from "./modelCapabilities.ts";
 import { MINIMUM_PI_VERSION, runPiVersionCommand } from "./status.ts";
@@ -63,54 +73,100 @@ export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* 
           detail: resolvedLaunchArgs.message,
         });
       }
-      const launch = buildPiRpcLaunch({
-        launchArgs: resolvedLaunchArgs.args,
-        environment,
-        mcpSession: undefined,
-        extensionPath: undefined,
-        ephemeral: true,
-        shortLived: true,
-        disableExtensions: true,
-        // Background naming/content helpers must never mutate the workspace.
-        disableTools: true,
-      });
-      const connection = yield* makePiRpcConnection({
-        command: piSettings.binaryPath || "pi",
-        args: launch.args,
-        cwd,
-        env: launch.env,
-      }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
+      // The no-extensions launch is the fast path. A model that an extension or package registers
+      // is missing from its inventory, so that one generation relaunches with extensions loaded.
+      const launchPi = (withExtensions: boolean, extraArgs: ReadonlyArray<string> = []) => {
+        const launch = buildPiRpcLaunch({
+          launchArgs: [...resolvedLaunchArgs.args, ...extraArgs],
+          environment,
+          mcpSession: undefined,
+          extensionPath: undefined,
+          ephemeral: true,
+          shortLived: true,
+          disableExtensions: !withExtensions,
+          // Background naming/content helpers must never mutate the workspace.
+          disableTools: true,
+          disableMcp: true,
+        });
+        return makePiRpcConnection({
+          command: piSettings.binaryPath || "pi",
+          args: launch.args,
+          cwd,
+          env: launch.env,
+        }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
+      };
+      const readModels = (pi: Effect.Success<ReturnType<typeof launchPi>>) =>
+        pi.request({ type: "get_available_models" });
 
-      if (modelSelection.model !== "default") {
+      let connection = yield* launchPi(false);
+
+      // "default" runs Pi's configured model, which an extension may register too.
+      const wanted =
+        modelSelection.model === "default"
+          ? yield* connection.request({ type: "get_state" }).pipe(
+              Effect.map((state) => {
+                const model = piRecordField(state, "model");
+                const provider = piRecordString(model, "provider");
+                const id = piRecordString(model, "id");
+                return provider !== undefined && id !== undefined ? `${provider}/${id}` : undefined;
+              }),
+              Effect.orElseSucceed(() => undefined),
+            )
+          : modelSelection.model;
+
+      if (wanted !== undefined) {
         // Reject unusable custom slugs; silently using Pi's default would misreport the requested model.
-        const inventory = yield* connection
-          .request({ type: "get_available_models" })
-          .pipe(Effect.orElseSucceed(() => undefined));
-        const parsed = resolvePiModelSlug(modelSelection.model, piRecordField(inventory, "models"));
+        const inventory = yield* readModels(connection).pipe(Effect.orElseSucceed(() => undefined));
+        let models = piRecordField(inventory, "models");
+        if (findReportedPiModel(wanted, models) === undefined) {
+          // Stop the extension-free process before starting its replacement.
+          yield* connection.terminate;
+          connection = yield* launchPi(true);
+          // Provider names may contain "/", so the slug resolves against this launch's models.
+          const relaunchInventory = yield* readModels(connection).pipe(
+            Effect.map((data) => ({ data })),
+            // Pi exits before answering when a startup dialog cannot be answered over RPC;
+            // retry declining project trust unless the user chose a trust mode.
+            Effect.catchIf(
+              (error) =>
+                error._tag === "PiRpcError" &&
+                (error.operation === "read" || error.operation === "exit") &&
+                !resolvedLaunchArgs.args.some((arg) => PI_PROJECT_TRUST_ARGUMENTS.has(arg)),
+              () =>
+                connection.terminate.pipe(
+                  Effect.andThen(launchPi(true, ["--no-approve"])),
+                  Effect.flatMap((retry) => {
+                    connection = retry;
+                    return readModels(retry).pipe(Effect.map((data) => ({ data })));
+                  }),
+                ),
+            ),
+            Effect.orElseSucceed(() => ({ data: undefined })),
+          );
+          models = piRecordField(relaunchInventory.data, "models");
+        }
+        const parsed = resolvePiModelSlug(wanted, models);
         if (parsed === null) {
           return yield* new TextGenerationError({
             operation,
             detail: `Pi model '${modelSelection.model}' must use provider/model format.`,
           });
         }
-        yield* connection
-          .request({ type: "set_model", provider: parsed.provider, modelId: parsed.modelId })
-          .pipe(
-            // Model discovery loads extensions that this background helper disables.
-            Effect.mapError((error) =>
-              error._tag === "PiRpcError" && error.operation === "set_model"
-                ? new TextGenerationError({
-                    operation,
-                    detail:
-                      `Pi rejected model '${modelSelection.model}': ${error.detail ?? "unknown error"}. ` +
-                      "If the model comes from a Pi extension or package, text generation cannot use it " +
-                      "because it runs Pi with --no-extensions. Pick a built-in Pi model or one defined " +
-                      "in Pi's models.json.",
-                    cause: error,
-                  })
-                : error,
-            ),
-          );
+        if (modelSelection.model !== "default") {
+          yield* connection
+            .request({ type: "set_model", provider: parsed.provider, modelId: parsed.modelId })
+            .pipe(
+              Effect.mapError((error) =>
+                error._tag === "PiRpcError" && error.operation === "set_model"
+                  ? new TextGenerationError({
+                      operation,
+                      detail: `Pi rejected model '${modelSelection.model}': ${error.detail ?? "unknown error"}.`,
+                      cause: error,
+                    })
+                  : error,
+              ),
+            );
+        }
       }
 
       if (thinking !== undefined && isPiThinkingLevel(thinking)) {

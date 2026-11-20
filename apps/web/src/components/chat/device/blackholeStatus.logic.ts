@@ -69,6 +69,17 @@ export function summarizeThreadCompactionSavings(
   return { compactionCount, freedTokens };
 }
 
+/**
+ * Pi Blackhole is installed where its Pi instance lists the extension's `/blackhole` command,
+ * so the glyph stays while no session is running to report a status.
+ */
+export function providerHasBlackhole(
+  driver: string | null | undefined,
+  slashCommands: ReadonlyArray<{ readonly name: string }>,
+): boolean {
+  return driver === "pi" && slashCommands.some((command) => command.name === "blackhole");
+}
+
 function stripAnsi(text: string): string {
   return text.replace(ANSI_ESCAPE_RE, "");
 }

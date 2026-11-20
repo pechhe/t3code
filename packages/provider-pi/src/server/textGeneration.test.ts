@@ -22,6 +22,7 @@ const makeFakePi = (
   models?: ReadonlyArray<Record<string, unknown>>,
   version = "1.0.4",
   thinkingError?: string,
+  state?: unknown,
 ) =>
   Effect.gen(function* () {
     const stdout = yield* Queue.unbounded<Uint8Array, Cause.Done>();
@@ -44,6 +45,8 @@ const makeFakePi = (
             yield* emit({ type: "agent_settled" });
           } else if (record["type"] === "get_last_assistant_text") {
             yield* emit({ ...response, success: true, data: { text: reply } });
+          } else if (record["type"] === "get_state" && state !== undefined) {
+            yield* emit({ ...response, success: true, data: state });
           } else if (record["type"] === "get_available_models" && models !== undefined) {
             yield* emit({ ...response, success: true, data: { models } });
           } else if (record["type"] === "set_model" && setModelError !== undefined) {
@@ -116,36 +119,162 @@ it.effect("runs Pi offline, since the process is stopped as soon as it answers",
   }),
 );
 
-it.effect("names the model and the disabled extensions when Pi cannot load it", () =>
-  Effect.gen(function* () {
-    const pi = yield* makeFakePi("", "Model not found: demo/demo-model");
-    const textGeneration = yield* makePiTextGeneration(
-      {
-        enabled: true,
-        binaryPath: "pi",
-        launchArgs: "",
-        customModels: [],
-        autoCompactWindow: "",
-        memoryModel: "",
-      },
-      {},
-    ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, pi.spawner));
+const piSettings = {
+  enabled: true,
+  binaryPath: "pi",
+  launchArgs: "",
+  customModels: [],
+  autoCompactWindow: "",
+  memoryModel: "",
+} as const;
 
-    const error = yield* textGeneration
-      .generateCommitMessage({
-        cwd: process.cwd(),
-        branch: "main",
-        stagedSummary: "M README.md",
-        stagedPatch: "diff --git a/README.md b/README.md",
-        modelSelection: createModelSelection(ProviderInstanceId.make("pi"), "demo/demo-model"),
-      })
-      .pipe(Effect.flip);
+// Routes each launch to its own fake process: the no-extensions fast path or the relaunch.
+const makeRoutedPi = (input: {
+  readonly extensionFree: Effect.Success<ReturnType<typeof makeFakePi>>;
+  readonly withExtensions: Effect.Success<ReturnType<typeof makeFakePi>>;
+}) => {
+  const launches: Array<ReadonlyArray<string>> = [];
+  const spawner = ChildProcessSpawner.make((command) => {
+    const args = ChildProcess.isStandardCommand(command) ? command.args.map(String) : [];
+    if (!args.includes("--version")) launches.push(args);
+    return (
+      args.includes("--no-extensions") ? input.extensionFree : input.withExtensions
+    ).spawner.spawn(command);
+  });
+  return { spawner, launches };
+};
+
+const generateWithModel = (
+  model: string,
+  spawner: ChildProcessSpawner.ChildProcessSpawner["Service"],
+) =>
+  Effect.gen(function* () {
+    const textGeneration = yield* makePiTextGeneration(piSettings, {}).pipe(
+      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+    );
+    return yield* textGeneration.generateCommitMessage({
+      cwd: process.cwd(),
+      branch: "main",
+      stagedSummary: "M README.md",
+      stagedPatch: "diff --git a/README.md b/README.md",
+      modelSelection: createModelSelection(ProviderInstanceId.make("pi"), model),
+    });
+  });
+
+it.effect("relaunches with extensions, still tool- and MCP-free, for a model they register", () =>
+  Effect.gen(function* () {
+    const extensionFree = yield* makeFakePi("", undefined, [], [{ provider: "a", id: "b" }]);
+    const withExtensions = yield* makeFakePi(
+      JSON.stringify({ subject: "Update README", body: "" }),
+    );
+    const routed = makeRoutedPi({ extensionFree, withExtensions });
+
+    const result = yield* generateWithModel("demo/demo-model", routed.spawner);
+
+    assert.equal(result.subject, "Update README");
+    assert.equal(routed.launches.length, 2);
+    const [fast = [], relaunch = []] = routed.launches;
+    assert.include(fast, "--no-extensions");
+    assert.notInclude(relaunch, "--no-extensions");
+    for (const args of routed.launches) {
+      assert.includeMembers([...args], ["--no-session", "--offline", "--no-tools", "--no-mcp"]);
+    }
+    assert.isUndefined(extensionFree.received.find((record) => record["type"] === "set_model"));
+    assert.isUndefined(extensionFree.received.find((record) => record["type"] === "prompt"));
+    assert.equal(
+      withExtensions.received.find((record) => record["type"] === "set_model")?.["modelId"],
+      "demo-model",
+    );
+  }),
+);
+
+it.effect("relaunches Pi's configured default model when only extensions register it", () =>
+  Effect.gen(function* () {
+    const extensionFree = yield* makeFakePi(
+      "",
+      undefined,
+      [],
+      [{ provider: "a", id: "b" }],
+      "1.0.4",
+      undefined,
+      { model: { provider: "antigravity", id: "gemini" } },
+    );
+    const withExtensions = yield* makeFakePi(
+      JSON.stringify({ subject: "Update README", body: "" }),
+      undefined,
+      [],
+      [{ provider: "antigravity", id: "gemini" }],
+    );
+    const routed = makeRoutedPi({ extensionFree, withExtensions });
+
+    const result = yield* generateWithModel("default", routed.spawner);
+
+    assert.equal(result.subject, "Update README");
+    assert.equal(routed.launches.length, 2);
+    assert.notInclude(routed.launches[1] ?? [], "--no-extensions");
+    assert.isUndefined(withExtensions.received.find((record) => record["type"] === "set_model"));
+    assert.isDefined(withExtensions.received.find((record) => record["type"] === "prompt"));
+  }),
+);
+
+it.effect("retries the extensions relaunch with --no-approve when it exits before answering", () =>
+  Effect.gen(function* () {
+    const extensionFree = yield* makeFakePi("", undefined, [], [{ provider: "a", id: "b" }]);
+    const withExtensions = yield* makeFakePi(
+      JSON.stringify({ subject: "Update README", body: "" }),
+    );
+    const launches: Array<ReadonlyArray<string>> = [];
+    const spawner = ChildProcessSpawner.make((command) => {
+      const args = ChildProcess.isStandardCommand(command) ? command.args.map(String) : [];
+      if (!args.includes("--version")) launches.push(args);
+      if (args.includes("--no-extensions")) return extensionFree.spawner.spawn(command);
+      if (!args.includes("--no-approve")) {
+        // A project-trust dialog Pi cannot show over RPC: it exits without answering.
+        return Effect.succeed(
+          ChildProcessSpawner.makeHandle({
+            pid: ChildProcessSpawner.ProcessId(999_999_999),
+            exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(0)),
+            isRunning: Effect.succeed(false),
+            kill: () => Effect.void,
+            unref: Effect.succeed(Effect.void),
+            stdin: Sink.drain,
+            stdout: Stream.empty,
+            stderr: Stream.empty,
+            all: Stream.empty,
+            getInputFd: () => Sink.drain,
+            getOutputFd: () => Stream.empty,
+          }),
+        );
+      }
+      return withExtensions.spawner.spawn(command);
+    });
+
+    const result = yield* generateWithModel("demo/demo-model", spawner);
+
+    assert.equal(result.subject, "Update README");
+    assert.equal(launches.length, 3);
+    assert.include(launches[2] ?? [], "--no-approve");
+    assert.notInclude(launches[2] ?? [], "--no-extensions");
+    assert.equal(
+      withExtensions.received.find((record) => record["type"] === "set_model")?.["modelId"],
+      "demo-model",
+    );
+  }),
+);
+
+it.effect("fails with Pi's reason, without falling back, for a model no launch can load", () =>
+  Effect.gen(function* () {
+    const extensionFree = yield* makeFakePi("");
+    const withExtensions = yield* makeFakePi("", "Model not found: demo/demo-model");
+    const routed = makeRoutedPi({ extensionFree, withExtensions });
+
+    const error = yield* generateWithModel("demo/demo-model", routed.spawner).pipe(Effect.flip);
 
     assert.equal(error._tag, "TextGenerationError");
     assert.include(error.detail, "Pi rejected model 'demo/demo-model'");
     assert.include(error.detail, "Model not found: demo/demo-model");
-    assert.include(error.detail, "--no-extensions");
-    assert.isUndefined(pi.received.find((record) => record["type"] === "prompt"));
+    assert.notInclude(error.detail, "--no-extensions");
+    assert.isUndefined(withExtensions.received.find((record) => record["type"] === "prompt"));
   }),
 );
 
@@ -275,7 +404,7 @@ it.effect.each([
         JSON.stringify({ subject: "Update README", body: "" }),
         undefined,
         [],
-        undefined,
+        [{ provider: "demo", id: "demo-model" }],
         version,
       );
       const textGeneration = yield* makePiTextGeneration(
@@ -313,7 +442,7 @@ it.effect.each([
       assert.deepEqual(
         pi.received.map((record) => record["type"]),
         [
-          ...(model === "default" ? [] : ["get_available_models", "set_model"]),
+          ...(model === "default" ? ["get_state"] : ["get_available_models", "set_model"]),
           ...(expected === undefined ? [] : ["set_thinking_level"]),
           "prompt",
           "get_last_assistant_text",
@@ -332,7 +461,7 @@ it.effect("generates at Pi's default level when Pi rejects the saved thinking le
       JSON.stringify({ subject: "Update README", body: "" }),
       undefined,
       [],
-      undefined,
+      [{ provider: "demo", id: "demo-model" }],
       "1.4.0",
       'Thinking level "max" is not supported by demo/demo-model',
     );

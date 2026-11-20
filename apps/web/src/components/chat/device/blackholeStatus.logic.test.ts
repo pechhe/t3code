@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
   parseBlackholeExtensionStatus,
+  providerHasBlackhole,
   resolveThreadCompactionSavings,
   summarizeThreadCompactionSavings,
 } from "./blackholeStatus.logic";
@@ -55,6 +56,16 @@ describe("parseBlackholeExtensionStatus", () => {
 
   it("returns null when blackhole status is absent", () => {
     expect(parseBlackholeExtensionStatus([{ key: "other", text: "hello" }])).toBeNull();
+  });
+});
+
+describe("providerHasBlackhole", () => {
+  it("is installed on a Pi instance that lists the /blackhole command, whatever its session", () => {
+    const commands = [{ name: "compact" }, { name: "blackhole" }];
+    expect(providerHasBlackhole("pi", commands)).toBe(true);
+    expect(providerHasBlackhole("pi", [{ name: "compact" }])).toBe(false);
+    expect(providerHasBlackhole("claudeAgent", commands)).toBe(false);
+    expect(providerHasBlackhole(null, commands)).toBe(false);
   });
 });
 

@@ -228,6 +228,8 @@ const PI_MUTATING_BUILTIN_TOOLS = [
 /** Plain names form an explicit --tools allowlist so user extensions cannot add tools. */
 const PI_READ_ONLY_TOOLS = ["read", "grep", "find", "ls", "tool_search", "codemode"] as const;
 
+export const PI_PROJECT_TRUST_ARGUMENTS = new Set(["--approve", "-a", "--no-approve", "-na"]);
+
 function mcpToolPatternsForServer(name: string): ReadonlyArray<string> {
   const canonical = name.replaceAll("-", "_");
   return canonical === name ? [`mcp__${name}__*`] : [`mcp__${name}__*`, `mcp__${canonical}__*`];
@@ -304,6 +306,8 @@ export function buildPiRpcLaunch(input: {
   readonly shortLived?: boolean;
   readonly disableExtensions?: boolean;
   readonly disableTools?: boolean;
+  /** Keeps an extension-loaded MCP adapter from starting servers when extensions stay on. */
+  readonly disableMcp?: boolean;
   /** A read-only managed session: keeps extensions for providers, but enforces a closed tool allowlist. */
   readonly readOnlyTools?: boolean;
   readonly readOnlyShell?: boolean;
@@ -354,7 +358,10 @@ export function buildPiRpcLaunch(input: {
     // Restrictions must follow launch args so user flags cannot re-enable unattended tools/extensions.
     ...(input.disableExtensions === true ? ["--no-extensions"] : []),
     ...(input.disableTools === true
-      ? ["--no-tools"]
+      ? [
+          "--no-tools",
+          ...(input.disableMcp === true && !launchArgs.includes("--no-mcp") ? ["--no-mcp"] : []),
+        ]
       : input.readOnlyTools === true
         ? [
             ...(!launchArgs.includes("--no-mcp") ? ["--no-mcp"] : []),

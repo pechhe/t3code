@@ -12,6 +12,7 @@ import {
   IDLE_COMPACTION_MODES,
   type IdleCompactionMode,
   globalIdleCompaction,
+  type ModelSelection,
   ProviderDriverKind,
   type ProviderInstanceId,
   type SidebarProjectGroupingMode,
@@ -48,8 +49,13 @@ import {
   isDesktopUpdateButtonDisabled,
   resolveDesktopUpdateButtonAction,
 } from "../../components/desktopUpdate.logic";
+import { pooledModels } from "@t3tools/shared/accountPools";
+import { selectModelSlotLabels, withPooledModelLabels } from "../chat/modelLabels";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { TraitsPicker } from "../chat/TraitsPicker";
+import type { ModelPickerPooling } from "../chat/modelPickerPooling";
+import { modelPickerPooling, pooledModelSelection } from "../chat/useComposerPooling";
+import { useClientSettings } from "../../hooks/useSettings";
 import { isElectron } from "../../env";
 import { buildHostedChannelSelectionUrl, type HostedAppChannel } from "../../hostedPairing";
 import {
@@ -1918,6 +1924,42 @@ export function ThreadsSettingsPanel() {
     textGenerationModelInstanceEntries,
     true,
   );
+  const saveTextGenerationModel = (selection: ModelSelection) => {
+    const reason = textGenerationModelDisabledReason(selection.instanceId, selection.model);
+    if (reason) {
+      toastManager.add({
+        type: "error",
+        title: gt("Utility model not saved"),
+        description: reason,
+      });
+      return;
+    }
+    updateSettings({
+      textGenerationModelSelection: resolveAppModelSelectionState(
+        { ...settings, textGenerationModelSelection: selection },
+        textGenerationProviders,
+      ),
+    });
+  };
+  const slotLabels = useClientSettings(selectModelSlotLabels);
+  const selectPooledTextGenerationModel: ModelPickerPooling["onSelect"] = (model, account) => {
+    const selection = pooledModelSelection({
+      model,
+      account,
+      current: textGenerationModelSelection,
+      settings,
+      // oxlint-disable-next-line react/purity -- runs in an event handler (oxc#27309)
+      nowMs: Date.now(),
+    });
+    if (selection) saveTextGenerationModel(selection);
+  };
+  const textGenerationPooling = modelPickerPooling({
+    models: withPooledModelLabels(pooledModels(textGenerationProviders, settings), slotLabels),
+    skips: settings.accountSkips,
+    providers: textGenerationProviders,
+    selection: textGenerationModelSelection,
+    onSelect: selectPooledTextGenerationModel,
+  });
   const mixedAddProjectBaseDirectory = useScopedSettingsMixed(["addProjectBaseDirectory"]);
   const mixedTextGenerationModel = useScopedSettingsMixed(["textGenerationModelSelection"]);
 
@@ -2172,6 +2214,7 @@ export function ThreadsSettingsPanel() {
                   lockedProvider={null}
                   instanceEntries={textGenerationModelInstanceEntries}
                   modelOptionsByInstance={textGenerationModelOptionsByInstance}
+                  pooling={textGenerationPooling}
                   triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
                   {...(mixedTextGenerationModel ? { triggerLabel: gt("Mixed") } : {})}
                   getModelDisabledReason={textGenerationModelDisabledReason}
@@ -2185,30 +2228,11 @@ export function ThreadsSettingsPanel() {
                         },
                       }
                     : {})}
-                  onInstanceModelChange={(instanceId, model) => {
-                    const reason = textGenerationModelDisabledReason(instanceId, model);
-                    if (reason) {
-                      toastManager.add({
-                        type: "error",
-                        title: gt("Utility model not saved"),
-                        description: reason,
-                      });
-                      return;
-                    }
-                    updateSettings({
-                      textGenerationModelSelection: resolveAppModelSelectionState(
-                        {
-                          ...settings,
-                          textGenerationModelSelection: pickModelSelection(
-                            textGenerationModelSelection,
-                            instanceId,
-                            model,
-                          ),
-                        },
-                        textGenerationProviders,
-                      ),
-                    });
-                  }}
+                  onInstanceModelChange={(instanceId, model) =>
+                    saveTextGenerationModel(
+                      pickModelSelection(textGenerationModelSelection, instanceId, model),
+                    )
+                  }
                 />
                 {textGenInstanceEntry ? (
                   <TraitsPicker

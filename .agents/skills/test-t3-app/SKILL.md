@@ -19,7 +19,7 @@ Never run against `~/.t3/userdata` or set `VITE_HTTP_URL` or `VITE_WS_URL`.
 Where `vp` is not on the path, as on `peach-box`, run
 `PATH="$PWD/node_modules/.bin:$PATH" vp run dev`; `pnpm exec` rewrites `pnpm-lock.yaml`.
 
-Test with meaningful project and thread data. A new worktree seeds from
+Test with meaningful project and thread data. Seeding copies threads, not `settings.json`, so the server offers only its default providers (no Pi, no account pools); a flow that needs the developer's providers copies `~/.t3/userdata/settings.json` into `.t3/userdata/` (the server reloads it) and restores the worktree's own copy afterwards. A new worktree seeds from
 `~/.t3/dev-seed` when it exists; the dev-runner warning names the command that
 builds it. Read [references/sqlite-fixtures.md](references/sqlite-fixtures.md)
 only when inspecting or seeding SQLite, or for data seeding drops, such as

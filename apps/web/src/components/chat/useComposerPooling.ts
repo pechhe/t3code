@@ -78,11 +78,22 @@ export function useComposerPooling(input: {
     }),
     slotLabels,
   );
-  const pooled = pooledModelOf(models, input.selection);
+  return modelPickerPooling({ ...input, models, skips });
+}
+
+/** The model picker's pooling for a selection, given the environment's labelled pooled models. */
+export function modelPickerPooling(input: {
+  readonly models: ReadonlyArray<PooledModel>;
+  readonly skips: ModelPickerPooling["skips"];
+  readonly providers: ReadonlyArray<ServerProvider>;
+  readonly selection: ModelSelection;
+  readonly onSelect: ModelPickerPooling["onSelect"];
+}): ModelPickerPooling {
+  const pooled = pooledModelOf(input.models, input.selection);
   const account = selectionAccountId(input.providers, input.selection);
   return {
-    models,
-    skips,
+    models: input.models,
+    skips: input.skips,
     active:
       pooled === undefined
         ? null

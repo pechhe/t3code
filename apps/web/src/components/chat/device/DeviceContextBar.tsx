@@ -64,6 +64,8 @@ export function DeviceContextBar(props: {
   threadKey: string;
   usage: ContextWindowSnapshot | null;
   extensionStatuses?: ReadonlyArray<{ readonly key: string; readonly text: string }> | undefined;
+  /** The thread's Pi instance has Pi Blackhole, so the glyph shows before its session reports. */
+  blackholeInstalled: boolean;
   compactionSavings?: ThreadCompactionSavings | undefined;
   onRunBlackholeCommand?: ((command: string) => void) | undefined;
   /** This thread's own compact-at point; null follows the provider's setting. */
@@ -101,7 +103,7 @@ export function DeviceContextBar(props: {
   const windowTokens = usage?.maxTokens ?? null;
   const compactionCount = props.compactionSavings?.compactionCount ?? 0;
   const blackhole = parseBlackholeExtensionStatus(props.extensionStatuses);
-  const hasBlackhole = blackhole !== null;
+  const hasBlackhole = blackhole !== null || props.blackholeInstalled;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a completed compaction plays a one-off animation on the bar's own DOM nodes
   useEffect(() => {
     // Only what the user watched counts as seen, so a compaction they missed plays on return.
@@ -172,13 +174,13 @@ export function DeviceContextBar(props: {
       </div>
       <span className="device-context__label">
         {readout}
-        {blackhole ? (
+        {hasBlackhole ? (
           <BlackholeStatusControl
             status={blackhole}
             compactionShare={
               usage && compactLine.position !== null && !compactLine.unreported
                 ? usage.usedTokens / compactLine.position
-                : blackhole.compactionFraction
+                : (blackhole?.compactionFraction ?? null)
             }
             compactionSavings={props.compactionSavings}
             canOperateThread={props.canOperateThread}
@@ -553,7 +555,8 @@ function BlackholeGlyph(props: { compacting: boolean }) {
 }
 
 function BlackholeStatusControl(props: {
-  status: BlackholeStatusSnapshot;
+  /** Null while no session is running to report memory. */
+  status: BlackholeStatusSnapshot | null;
   /** Context in use as a share of the point where the thread compacts. */
   compactionShare: number | null;
   compactionSavings: ThreadCompactionSavings | undefined;
@@ -566,20 +569,22 @@ function BlackholeStatusControl(props: {
   const [open, setOpen] = useState(false);
   const [pillEl, setPillEl] = useState<HTMLButtonElement | null>(null);
   const { status, compactionSavings } = props;
-  const work = status.worker?.kind === "running" ? BLACKHOLE_WORK[status.worker.phase] : null;
+  const worker = status?.worker ?? null;
+  const work = worker?.kind === "running" ? BLACKHOLE_WORK[worker.phase] : null;
+  const memoryOff = status !== null && !status.memoryEnabled;
   // The bar's own "compacting…" already names a compaction.
-  const pillLabel = props.compacting ? null : !status.memoryEnabled ? "off" : (work?.pill ?? null);
-  const wrote =
-    status.worker?.kind === "done" && status.worker.phase === "observer"
-      ? status.worker.delta
-      : null;
-  const statusLine = work
-    ? work.status
-    : !status.memoryEnabled
-      ? "Paused"
-      : wrote
-        ? `Wrote ${wrote} ${wrote === 1 ? "note" : "notes"}`
-        : "Up to date";
+  const pillLabel = props.compacting ? null : memoryOff ? "off" : (work?.pill ?? null);
+  const wrote = worker?.kind === "done" && worker.phase === "observer" ? worker.delta : null;
+  const statusLine =
+    status === null
+      ? "Starts with the next turn"
+      : work
+        ? work.status
+        : memoryOff
+          ? "Paused"
+          : wrote
+            ? `Wrote ${wrote} ${wrote === 1 ? "note" : "notes"}`
+            : "Up to date";
 
   const runAndClose = (command: string) => {
     setOpen(false);
@@ -592,7 +597,7 @@ function BlackholeStatusControl(props: {
         ref={setPillEl}
         type="button"
         className="device-context__bh-pill"
-        data-state={props.compacting || work ? "working" : !status.memoryEnabled ? "off" : "idle"}
+        data-state={props.compacting || work ? "working" : memoryOff ? "off" : "idle"}
         aria-expanded={open}
         aria-haspopup="dialog"
         aria-label="Memory"
@@ -621,15 +626,15 @@ function BlackholeStatusControl(props: {
             <BlackholeMeter
               label="Next notes"
               hint="New context since notes were last written. At 100% a background model writes more."
-              fraction={status.observerFraction}
-              off={!status.memoryEnabled}
-              live={status.worker?.kind === "running" && status.worker.phase === "observer"}
+              fraction={status?.observerFraction ?? null}
+              off={memoryOff}
+              live={worker?.kind === "running" && worker.phase === "observer"}
             />
             <BlackholeMeter
               label="Notes stored"
               hint="How full the note store is. As it fills, older notes are condensed and stale ones dropped."
-              fraction={status.poolFraction}
-              off={!status.memoryEnabled}
+              fraction={status?.poolFraction ?? null}
+              off={memoryOff}
               live={false}
             />
             <BlackholeMeter
@@ -648,7 +653,7 @@ function BlackholeStatusControl(props: {
                 : null}
             </span>
             <div className="flex items-center gap-1.5">
-              {props.onRunCommand ? (
+              {props.onRunCommand && status !== null ? (
                 <Button
                   type="button"
                   size="xs"
