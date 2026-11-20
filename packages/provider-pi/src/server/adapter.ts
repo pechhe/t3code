@@ -1639,13 +1639,21 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
       const scheduleStreamFlush =
         /* Provider events include streaming deltas; avoid a span for each update. */
         Effect.fnUntraced(function* (turn: ActivePiTurn, item: PiStreamItemState) {
-          if (item.flushScheduled || item.completed) return;
+          if (
+            item.flushScheduled ||
+            item.completed ||
+            (item.text.length === 0 && !item.published)
+          ) {
+            return;
+          }
           item.flushScheduled = true;
           yield* Effect.sleep(Duration.millis(STREAM_FLUSH_MS)).pipe(
             Effect.andThen(
               Effect.suspend(() => {
                 item.flushScheduled = false;
-                return item.completed ? Effect.void : emitStreamItem(turn, item, true);
+                return item.completed || (item.text.length === 0 && !item.published)
+                  ? Effect.void
+                  : emitStreamItem(turn, item, true);
               }),
             ),
             Effect.forkIn(scope),
