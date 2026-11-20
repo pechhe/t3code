@@ -187,6 +187,52 @@ it.effect(
     }),
 );
 
+it.effect("a baseline taken before the thread's first run is the one that run finds", () =>
+  Effect.gen(function* () {
+    const refs = yield* Ref.make<ReadonlySet<string>>(new Set());
+    const captures = yield* Ref.make(0);
+    const layerTest = CheckpointService.layer.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          IdAllocator.layer,
+          Layer.mock(CheckpointStore.CheckpointStore)({
+            supportsCheckpoints: () => Effect.succeed(true),
+            hasCheckpointRef: ({ checkpointRef }) =>
+              Ref.get(refs).pipe(Effect.map((current) => current.has(checkpointRef))),
+            captureCheckpoint: ({ checkpointRef }) =>
+              Ref.update(captures, (count) => count + 1).pipe(
+                Effect.andThen(Ref.update(refs, (current) => new Set([...current, checkpointRef]))),
+              ),
+          }),
+        ),
+      ),
+      Layer.provideMerge(NodeCrypto.layer),
+    );
+    yield* Effect.gen(function* () {
+      const checkpoints = yield* CheckpointService.CheckpointServiceV2;
+      const threadId = ThreadId.make("thread:first-baseline");
+      yield* checkpoints.captureFirstRunBaseline({ threadId, cwd: "/repo/first" });
+      const scope = yield* checkpoints.prepareRootRunScope({
+        threadId,
+        runId: RunId.make("run:first-baseline:1"),
+        rootNodeId: NodeId.make("node:first-baseline:1"),
+        providerThreadId: ProviderThreadId.make("provider-thread:first-baseline"),
+        cwd: "/repo/first",
+        createdAt: DateTime.makeUnsafe("2026-11-20T00:00:00.000Z"),
+      });
+      yield* checkpoints.captureBaseline({ scope, ordinalWithinScope: 0 });
+      assert.strictEqual(yield* Ref.get(captures), 1);
+      const baseline = yield* checkpoints.materializeBaselineCheckpoint({
+        scope,
+        ordinalWithinScope: 0,
+        nodeId: scope.nodeId!,
+        capturedAt: scope.createdAt,
+      });
+      assert.strictEqual(baseline.status, "ready");
+    }).pipe(Effect.provide(layerTest));
+  }),
+);
+
 it.effect("records a repository probe failure as an error checkpoint, not a missing one", () =>
   Effect.gen(function* () {
     const scope: OrchestrationV2CheckpointScope = {

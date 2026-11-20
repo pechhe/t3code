@@ -13,6 +13,7 @@ import {
   type MessageId,
   type ModelSelection,
   type OrchestrationV2Actor,
+  type OrchestrationV2AppThread,
   type OrchestrationV2CreationSource,
   type OrchestrationV2DelegatedFrom,
   type OrchestrationV2LinkOrigin,
@@ -1544,10 +1545,8 @@ const make = Effect.gen(function* () {
     const preparation = Effect.gen(function* () {
       // A thread launched before its first message starts its provider once its workspace is ready.
       const prepare =
-        runId === null && Option.isSome(providerWarmup)
-          ? prepareInBackground(input, threadId, runId).pipe(
-              Effect.andThen(providerWarmup.value.warm(threadId)),
-            )
+        runId === null
+          ? prepareInBackground(input, threadId, runId).pipe(Effect.andThen(warmFirstRun(threadId)))
           : prepareInBackground(input, threadId, runId);
       if (
         runId === null ||
@@ -2099,6 +2098,76 @@ const make = Effect.gen(function* () {
     return { thread, worktreePath: thread.worktreePath, project };
   });
 
+  const firstRunId = (threadId: ThreadId) => IdAllocator.derive.run({ threadId, ordinal: 1 });
+
+  // A SlipJay workspace the thread was given for itself: no branch to recreate it from, not a
+  // managed task's assigned workspace, and still a checkout of the project.
+  const ownWorkspaceProject = Effect.fn("ThreadLaunchService.ownWorkspaceProject")(function* (
+    thread: Pick<OrchestrationV2AppThread, "worktreePath" | "branch" | "agentTask" | "projectId">,
+  ) {
+    if (
+      thread.worktreePath === null ||
+      thread.branch !== null ||
+      isLeafAgentTask(thread.agentTask)
+    ) {
+      return null;
+    }
+    const project = Option.getOrUndefined(yield* projects.getById(thread.projectId));
+    if (
+      project === undefined ||
+      (yield* workspaces.resolve(project.workspaceRoot)) !== "slipjay" ||
+      !(yield* workspaces.contains(project.workspaceRoot, thread.worktreePath))
+    ) {
+      return null;
+    }
+    return project;
+  });
+
+  // A thread launched before its first message gets ahead what that message's run would wait
+  // on: its custody admission (the run id is the thread's first), and the provider process.
+  // The first run admitted ahead never started: SlipJay keeps the checkout claimed until it ends.
+  const endFirstRunAdmission = (threadId: ThreadId) =>
+    custody.endAdmission(firstRunId(threadId), "never-ran").pipe(
+      Effect.andThen(custody.settle(firstRunId(threadId))),
+      Effect.catchCause((cause) =>
+        Effect.logWarning("ending the first run's admission failed", { cause }),
+      ),
+    );
+
+  const warmFirstRun = Effect.fn("ThreadLaunchService.warmFirstRun")(function* (
+    threadId: ThreadId,
+  ) {
+    if (Option.isNone(providerWarmup)) return;
+    const own = yield* threads.getThreadRecords(threadId, []).pipe(
+      Effect.flatMap(({ thread }) =>
+        ownWorkspaceProject(thread).pipe(
+          Effect.map((project) =>
+            project === null || thread.worktreePath === null
+              ? null
+              : { projectRoot: project.workspaceRoot, workspacePath: thread.worktreePath },
+          ),
+        ),
+      ),
+      Effect.orElseSucceed(() => null),
+    );
+    if (own !== null) {
+      yield* custody
+        .admit({ runId: firstRunId(threadId), ...own })
+        .pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning("custody admission ahead of the first message failed", { cause }),
+          ),
+        );
+      // A delete during the admission released the checkout before this claim on it existed.
+      const deleted = yield* threads.getThreadRecords(threadId, []).pipe(
+        Effect.map(({ thread }) => thread.deletedAt !== null),
+        Effect.orElseSucceed(() => true),
+      );
+      if (deleted) return yield* endFirstRunAdmission(threadId);
+    }
+    yield* providerWarmup.value.warm(threadId, { captureBaseline: own !== null });
+  });
+
   const releaseUnusedWorkspace: ThreadLaunchService["Service"]["releaseUnusedWorkspace"] =
     Effect.fn("ThreadLaunchService.releaseUnusedWorkspace")(function* (threadId) {
       // A preparation still running removes what it made as it stops; one that finished bound
@@ -2106,21 +2175,9 @@ const make = Effect.gen(function* () {
       yield* setupTracker.cancel(threadId);
       if (Option.isSome(providerWarmup)) yield* providerWarmup.value.release(threadId);
       const { thread } = yield* threads.getThreadRecords(threadId, []);
-      if (
-        thread.worktreePath === null ||
-        thread.branch !== null ||
-        isLeafAgentTask(thread.agentTask)
-      ) {
-        return false;
-      }
-      const project = Option.getOrUndefined(yield* projects.getById(thread.projectId));
-      if (
-        project === undefined ||
-        (yield* workspaces.resolve(project.workspaceRoot)) !== "slipjay" ||
-        !(yield* workspaces.contains(project.workspaceRoot, thread.worktreePath))
-      ) {
-        return false;
-      }
+      const project = yield* ownWorkspaceProject(thread);
+      if (project === null || thread.worktreePath === null) return false;
+      yield* endFirstRunAdmission(threadId);
       yield* workspaces.release({
         projectRoot: project.workspaceRoot,
         path: thread.worktreePath,

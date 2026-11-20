@@ -34,6 +34,13 @@ const Controller = Schema.Struct({
     }),
   ),
 });
+/** Field 22 of `/proc/<pid>/stat`, counted after the command name, which may hold spaces. */
+const startTimeFromStat = (stat: string): string | null =>
+  stat
+    .slice(stat.lastIndexOf(")") + 2)
+    .split(" ")
+    .at(19) ?? null;
+
 const Acquisition = Schema.Struct({
   ok: Schema.Boolean,
   version: Schema.Literals([1]),
@@ -140,6 +147,11 @@ export class WorkspaceCustody extends Context.Service<
       obligationId: string,
       evidenceRef: string,
     ) => Effect.Effect<void, WorkspaceCustodyError>;
+    /** Learns these processes' identities now, so registering them later asks SlipJay nothing. */
+    readonly primeControllers: (
+      projectRoot: string,
+      pids: ReadonlyArray<number>,
+    ) => Effect.Effect<void, WorkspaceCustodyError>;
     readonly close: (id: string) => Effect.Effect<void, WorkspaceCustodyError>;
     readonly releaseSettled: (id: string) => Effect.Effect<void, WorkspaceCustodyError>;
     readonly reconcile: Effect.Effect<void, WorkspaceCustodyError>;
@@ -168,6 +180,12 @@ const make = Effect.gen(function* () {
     }
   >();
   const ownControllers = new Map<string, NonNullable<typeof Controller.Type.controller>>();
+  // Another process's identity holds while its start time is unchanged. Without /proc (not
+  // Linux) nothing here can tell, so SlipJay is asked each time.
+  const processControllers = new Map<
+    string,
+    { readonly start: string; readonly controller: NonNullable<typeof Controller.Type.controller> }
+  >();
 
   const failure = Effect.fn("WorkspaceCustody.failure")(function* (
     output: ProcessRunner.ProcessRunOutput,
@@ -182,6 +200,7 @@ const make = Effect.gen(function* () {
     if (Option.isSome(refusal) && refusal.value.code === "CLAIM_CAPABILITY_REQUIRED") {
       producers.clear();
       ownControllers.clear();
+      processControllers.clear();
     }
     if (Option.isSome(refusal))
       return `SlipJay refused workspace custody (${refusal.value.code})${refusal.value.reason ? `: ${refusal.value.reason}` : "."}`;
@@ -445,6 +464,39 @@ const make = Effect.gen(function* () {
     ownControllers.set(producer.entry, producer.controller);
     return producer;
   });
+  const processStart = (processPid: number) =>
+    fs.readFileString(`/proc/${processPid}/stat`).pipe(
+      Effect.map(startTimeFromStat),
+      Effect.orElseSucceed(() => null),
+    );
+
+  const processController = Effect.fn("WorkspaceCustody.processController")(function* (
+    projectRoot: string,
+    entry: string,
+    processPid: number,
+  ) {
+    const key = `${entry}:${processPid}`;
+    const start = yield* processStart(processPid);
+    const known = processControllers.get(key);
+    if (start !== null && known?.start === start) return known.controller;
+    const controller = yield* call({
+      projectRoot,
+      entry,
+      args: ["claims", "controller", String(processPid)],
+    }).pipe(
+      Effect.flatMap(Schema.decodeUnknownEffect(Controller)),
+      Effect.map((reply) =>
+        reply.ok && reply.controller !== null && reply.controller.pid === processPid
+          ? reply.controller
+          : null,
+      ),
+      Effect.orElseSucceed(() => null),
+    );
+    if (controller !== null && start !== null) processControllers.set(key, { start, controller });
+    else processControllers.delete(key);
+    return controller;
+  });
+
   return WorkspaceCustody.of({
     prepare: Effect.fn("WorkspaceCustody.prepare")((input) =>
       Effect.gen(function* () {
@@ -542,18 +594,10 @@ const make = Effect.gen(function* () {
       const identities = yield* Effect.forEach(obligation.processIds ?? [], (process) => {
         const own = process.pid === pid ? ownControllers.get(epoch.producer.entry) : undefined;
         if (own !== undefined) return Effect.succeed({ ...own, shared: process.shared });
-        return call({
-          projectRoot: epoch.projectRoot,
-          entry: epoch.producer.entry,
-          args: ["claims", "controller", String(process.pid)],
-        }).pipe(
-          Effect.flatMap(Schema.decodeUnknownEffect(Controller)),
-          Effect.map((reply) =>
-            reply.ok && reply.controller !== null && reply.controller.pid === process.pid
-              ? { ...reply.controller, shared: process.shared }
-              : null,
+        return processController(epoch.projectRoot, epoch.producer.entry, process.pid).pipe(
+          Effect.map((controller) =>
+            controller === null ? null : { ...controller, shared: process.shared },
           ),
-          Effect.orElseSucceed(() => null),
         );
       });
       yield* journal
@@ -570,6 +614,14 @@ const make = Effect.gen(function* () {
               (identities.length === 0 || identities.some((identity) => identity === null))),
         })
         .pipe(Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "journal", cause })));
+    }),
+    primeControllers: Effect.fn("WorkspaceCustody.primeControllers")(function* (projectRoot, pids) {
+      const producer = producers.get(projectRoot) ?? (yield* establishProducer(projectRoot));
+      yield* Effect.forEach(
+        pids.filter((processPid) => processPid !== pid),
+        (processPid) => processController(projectRoot, producer.entry, processPid),
+        { discard: true },
+      );
     }),
     acknowledge: Effect.fn("WorkspaceCustody.acknowledge")((id, obligationId, evidenceRef) =>
       journal

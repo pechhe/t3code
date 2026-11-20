@@ -27,6 +27,8 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as EffectWorker from "./EffectWorker.ts";
+import * as WorkspaceCustody from "../workspace/WorkspaceCustody.ts";
+import * as CheckpointService from "./CheckpointService.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
@@ -52,6 +54,9 @@ const exclusive: OrchestrationV2ProviderCapabilities = {
 interface Counts {
   readonly opened: ReadonlyArray<string>;
   readonly closed: number;
+  /** Ahead of the first message: baselines taken, and process identities learned, by directory. */
+  readonly baselines: ReadonlyArray<string>;
+  readonly primed: ReadonlyArray<string>;
 }
 
 const makeAdapter = (
@@ -90,6 +95,7 @@ const makeAdapter = (
         driver,
         providerSessionId: input.providerSessionId,
         providerSession,
+        getOwnedProcessIds: () => Effect.succeed([{ pid: 4242 }]),
         events: Stream.fromQueue(events),
         ensureThread: (threadInput) =>
           Effect.gen(function* () {
@@ -171,7 +177,7 @@ const withHarness = <A, E>(
   body: (counts: Ref.Ref<Counts>) => Effect.Effect<A, E, Services>,
 ) =>
   Effect.gen(function* () {
-    const counts = yield* Ref.make<Counts>({ opened: [], closed: 0 });
+    const counts = yield* Ref.make<Counts>({ opened: [], closed: 0, baselines: [], primed: [] });
     const database = SqlitePersistence.layerMemory;
     const runtime = ProviderReplayHarness.layerWithRegistry(
       { name },
@@ -192,6 +198,20 @@ const withHarness = <A, E>(
           ProjectionStore.layer.pipe(Layer.provide(database)),
           RuntimePolicy.layer.pipe(Layer.provide(ServerSettings.layerTest())),
           IdAllocator.layer,
+          Layer.mock(CheckpointService.CheckpointServiceV2)({
+            captureFirstRunBaseline: ({ threadId, cwd }) =>
+              Ref.update(counts, (current) => ({
+                ...current,
+                baselines: [...current.baselines, `${threadId}@${cwd}`],
+              })),
+          }),
+          Layer.mock(WorkspaceCustody.WorkspaceCustody)({
+            primeControllers: (projectRoot, pids) =>
+              Ref.update(counts, (current) => ({
+                ...current,
+                primed: [...current.primed, `${projectRoot}:${pids.join(",")}`],
+              })),
+          }),
         ),
       ),
     );
@@ -244,9 +264,14 @@ it.live("starts the first turn in the session opened ahead, not a second one", (
     yield* withHarness("warmup-reuse", (counts) =>
       Effect.gen(function* () {
         yield* createThread(threadId, cwd);
-        yield* (yield* ProviderSessionWarmup.ProviderSessionWarmup).warm(threadId);
+        yield* (yield* ProviderSessionWarmup.ProviderSessionWarmup).warm(threadId, {
+          captureBaseline: true,
+        });
         const warmId = firstSession(warmInstance, threadId);
-        assert.deepEqual((yield* Ref.get(counts)).opened, [warmId]);
+        const ahead = yield* Ref.get(counts);
+        assert.deepEqual(ahead.opened, [warmId]);
+        assert.deepEqual(ahead.baselines, [`${threadId}@${cwd}`]);
+        assert.deepEqual(ahead.primed, [`${cwd}:4242`]);
 
         const projection = yield* sendFirst(threadId, warmInstance);
         assert.deepEqual((yield* Ref.get(counts)).opened, [warmId]);
@@ -263,7 +288,11 @@ it.live("opens a fresh session when the first message uses another provider inst
     yield* withHarness("warmup-other-instance", (counts) =>
       Effect.gen(function* () {
         yield* createThread(threadId, cwd);
-        yield* (yield* ProviderSessionWarmup.ProviderSessionWarmup).warm(threadId);
+        // A checkout that is not the thread's own keeps its baseline for Send.
+        yield* (yield* ProviderSessionWarmup.ProviderSessionWarmup).warm(threadId, {
+          captureBaseline: false,
+        });
+        assert.isEmpty((yield* Ref.get(counts)).baselines);
         const projection = yield* sendFirst(threadId, otherInstance);
         const warmId = firstSession(warmInstance, threadId);
         const freshId = firstSession(otherInstance, threadId);
@@ -283,7 +312,7 @@ it.live("closes the session opened ahead when the never-run thread is deleted", 
         const warmup = yield* ProviderSessionWarmup.ProviderSessionWarmup;
         const sessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
         yield* createThread(threadId, cwd);
-        yield* warmup.warm(threadId);
+        yield* warmup.warm(threadId, { captureBaseline: false });
         const warmId = firstSession(warmInstance, threadId);
         assert.isTrue(yield* sessions.isLive(warmId));
 

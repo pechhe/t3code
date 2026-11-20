@@ -88,6 +88,46 @@ it.effect(
     }),
 );
 
+it.effect(
+  "asks SlipJay for another process once while its start time holds, and again once it changes",
+  () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      const controllerCalls = Effect.map(
+        Ref.get(f.argumentsUsed),
+        (args) => args.filter((arg) => arg === "controller").length,
+      );
+      yield* Ref.set(f.procStarts, new Map([[4242, "900"]]));
+      yield* Effect.gen(function* () {
+        const custody = yield* WorkspaceCustody.WorkspaceCustody;
+        // This server (123) is learned with the producer; the provider process once more.
+        yield* custody.primeControllers("/source", [4242, 123]);
+        assert.equal(yield* controllerCalls, 2);
+
+        const epoch = yield* custody.prepare({ ownerRef: "warm-run", projectRoot: "/source" });
+        const registerProvider = (id: string, pid: number) =>
+          custody.register(epoch.id, { id, kind: "provider-turn", processIds: [{ pid }] });
+        yield* registerProvider("provider-first", 4242);
+        assert.equal(yield* controllerCalls, 2);
+
+        yield* Ref.set(f.procStarts, new Map([[4242, "901"]]));
+        yield* registerProvider("provider-replaced", 4242);
+        assert.equal(yield* controllerCalls, 3);
+
+        // No start time to read: SlipJay is asked every time.
+        yield* registerProvider("unreadable-one", 5151);
+        yield* registerProvider("unreadable-two", 5151);
+        assert.equal(yield* controllerCalls, 5);
+        assert.deepEqual(
+          (yield* (yield* Journal.WorkspaceCustody).get(epoch.id)).obligations.map(
+            (obligation) => obligation.stopIdentityUnknown,
+          ),
+          [false, false, false, false],
+        );
+      }).pipe(Effect.provide(f.layer));
+    }),
+);
+
 it.effect("does not resume previous-controller custody from logical run identity alone", () =>
   Effect.gen(function* () {
     const f = yield* fixture;

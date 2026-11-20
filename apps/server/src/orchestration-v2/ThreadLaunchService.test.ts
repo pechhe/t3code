@@ -1,4 +1,5 @@
 import { layerNonSlipJay } from "./testkit/runWorkspaceCustody.ts";
+import * as RunCustody from "./RunWorkspaceCustody.ts";
 import * as DocumentText from "../provider/DocumentText.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
@@ -162,6 +163,15 @@ interface HarnessOptions {
   ) => ReturnType<ThreadManagement.ThreadManagementService["Service"]["dispatch"]>;
   /** Records the provider warm-up a launch asks for, in order. */
   readonly warmupCalls?: Array<string>;
+  /** Records custody admissions and endings, in order. */
+  readonly custodyCalls?: Array<string>;
+  /** Signals each custody admission as it starts, and holds it until `gate` opens. */
+  readonly admitHold?: {
+    readonly started: Deferred.Deferred<void>;
+    readonly gate: Deferred.Deferred<void>;
+  };
+  /** Runs after each recorded custody settle. */
+  readonly onSettle?: Effect.Effect<void>;
   readonly isGitRepository?: CheckpointStore.CheckpointStore["Service"]["isGitRepository"];
 }
 
@@ -304,7 +314,13 @@ function makeHarness(options: HarnessOptions = {}) {
     options.warmupCalls === undefined
       ? Layer.empty
       : Layer.succeed(ProviderSessionWarmup.ProviderSessionWarmup, {
-          warm: (threadId) => Effect.sync(() => void options.warmupCalls!.push(`warm:${threadId}`)),
+          warm: (threadId, { captureBaseline }) =>
+            Effect.sync(
+              () =>
+                void options.warmupCalls!.push(
+                  `warm:${threadId}${captureBaseline ? ":with-baseline" : ""}`,
+                ),
+            ),
           release: (threadId) =>
             Effect.sync(() => void options.warmupCalls!.push(`release:${threadId}`)),
         }),
@@ -342,7 +358,32 @@ function makeHarness(options: HarnessOptions = {}) {
           }),
         ).pipe(Layer.provide(layerThreadManagement));
   const layerLaunch = ThreadLaunch.layer.pipe(
-    Layer.provide(layerNonSlipJay),
+    Layer.provide(
+      options.custodyCalls === undefined
+        ? layerNonSlipJay
+        : Layer.succeed(RunCustody.RunWorkspaceCustody, {
+            admit: ({ runId }) =>
+              Effect.sync(() => void options.custodyCalls!.push(`admit:${runId}`)).pipe(
+                Effect.andThen(
+                  options.admitHold === undefined
+                    ? Effect.void
+                    : Deferred.succeed(options.admitHold.started, undefined).pipe(
+                        Effect.andThen(Deferred.await(options.admitHold.gate)),
+                      ),
+                ),
+              ),
+            register: () => Effect.void,
+            acknowledge: () => Effect.void,
+            settle: (runId) =>
+              Effect.sync(() => void options.custodyCalls!.push(`settle:${runId}`)).pipe(
+                Effect.andThen(options.onSettle ?? Effect.void),
+              ),
+            endAdmission: (runId) =>
+              Effect.sync(() => void options.custodyCalls!.push(`end:${runId}`)),
+            recover: () => Effect.void,
+            reconcileDeliveries: Effect.void,
+          }),
+    ),
     Layer.provide(
       Layer.mergeAll(
         layerExternalServices,
@@ -5742,7 +5783,8 @@ it.effect(
   "warms the provider once a message-less launch's workspace is ready, and frees it on delete",
   () => {
     const warmupCalls: Array<string> = [];
-    const harness = makeHarness({ slipjay: true, warmupCalls });
+    const custodyCalls: Array<string> = [];
+    const harness = makeHarness({ slipjay: true, warmupCalls, custodyCalls });
     return Effect.gen(function* () {
       const launches = yield* ThreadLaunch.ThreadLaunchService;
       const threads = yield* ThreadManagement.ThreadManagementService;
@@ -5752,16 +5794,65 @@ it.effect(
       yield* waitForThreadProjection(threads, threadId, () =>
         Effect.succeed(warmupCalls.length > 0),
       );
-      assert.deepEqual(warmupCalls, [`warm:${threadId}`]);
+      // The workspace is the thread's own, so the warm-up also takes its first baseline.
+      assert.deepEqual(warmupCalls, [`warm:${threadId}:with-baseline`]);
       assert.equal(
         (yield* threads.getThreadProjection(threadId)).thread.worktreePath,
         unusedWorkspace,
       );
       yield* deleteThread(threadId, "command:warmed:delete");
       yield* launches.releaseUnusedWorkspace(threadId);
-      assert.deepEqual(warmupCalls, [`warm:${threadId}`, `release:${threadId}`]);
+      assert.deepEqual(warmupCalls, [`warm:${threadId}:with-baseline`, `release:${threadId}`]);
+      // The first run was admitted ahead, and ended before its checkout went back.
+      const firstRun = IdAllocator.derive.run({ threadId, ordinal: 1 });
+      assert.deepEqual(custodyCalls, [
+        `admit:${firstRun}`,
+        `end:${firstRun}`,
+        `settle:${firstRun}`,
+      ]);
     }).pipe(Effect.provide(harness.layer));
   },
+);
+
+it.effect("a delete during the warm-up's admission ends it again once it is held", () =>
+  Effect.gen(function* () {
+    const warmupCalls: Array<string> = [];
+    const custodyCalls: Array<string> = [];
+    const admitHold = { started: yield* Deferred.make<void>(), gate: yield* Deferred.make<void>() };
+    const secondSettle = yield* Deferred.make<void>();
+    const harness = makeHarness({
+      slipjay: true,
+      warmupCalls,
+      custodyCalls,
+      admitHold,
+      onSettle: Effect.suspend(() =>
+        custodyCalls.filter((call) => call.startsWith("settle:")).length === 2
+          ? Deferred.succeed(secondSettle, undefined)
+          : Effect.void,
+      ),
+    });
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const { threadId } = yield* launches.launch(
+        launchInput({ command: "command:warm-deleted", thread: "thread:warm-deleted" }),
+      );
+      const firstRun = IdAllocator.derive.run({ threadId, ordinal: 1 });
+      yield* Deferred.await(admitHold.started);
+      yield* deleteThread(threadId, "command:warm-deleted:delete");
+      yield* launches.releaseUnusedWorkspace(threadId);
+      yield* Deferred.succeed(admitHold.gate, undefined);
+      yield* Deferred.await(secondSettle);
+      assert.deepEqual(custodyCalls, [
+        `admit:${firstRun}`,
+        `end:${firstRun}`,
+        `settle:${firstRun}`,
+        `end:${firstRun}`,
+        `settle:${firstRun}`,
+      ]);
+      // Nothing is started for a thread already gone.
+      assert.deepEqual(warmupCalls, [`release:${threadId}`]);
+    }).pipe(Effect.provide(harness.layer));
+  }),
 );
 
 it.effect("does not warm the provider for a launch that carries its first message", () => {

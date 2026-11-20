@@ -120,6 +120,14 @@ export interface CheckpointServiceV2Shape {
     readonly scope: OrchestrationV2CheckpointScope;
     readonly ordinalWithinScope: number;
   }) => Effect.Effect<void, CheckpointServiceV2Error>;
+  /**
+   * Captures a thread's first run baseline before that run exists: root runs share one scope per
+   * thread, and the first is ordinal 0, so the run's own capture then finds it and skips.
+   */
+  readonly captureFirstRunBaseline: (input: {
+    readonly threadId: ThreadId;
+    readonly cwd: string;
+  }) => Effect.Effect<void, CheckpointServiceV2Error | IdAllocator.IdAllocatorV2Error>;
   readonly materializeBaselineCheckpoint: (input: {
     readonly scope: OrchestrationV2CheckpointScope;
     readonly ordinalWithinScope: number;
@@ -288,7 +296,10 @@ export const layer: Layer.Layer<
         ),
       );
 
-    const captureBaseline: CheckpointServiceV2Shape["captureBaseline"] = (input) =>
+    const captureBaselineAt = (input: {
+      readonly scope: Pick<OrchestrationV2CheckpointScope, "id" | "cwd">;
+      readonly ordinalWithinScope: number;
+    }) =>
       withWorkspaceLock(
         input.scope.cwd,
         Effect.gen(function* () {
@@ -332,6 +343,17 @@ export const layer: Layer.Layer<
             }),
         ),
       );
+
+    const captureBaseline: CheckpointServiceV2Shape["captureBaseline"] = captureBaselineAt;
+
+    const captureFirstRunBaseline: CheckpointServiceV2Shape["captureFirstRunBaseline"] = (input) =>
+      idAllocator.allocate
+        .checkpointScope({ threadId: input.threadId, name: ROOT_CHECKPOINT_SCOPE_NAME })
+        .pipe(
+          Effect.flatMap((id) =>
+            captureBaselineAt({ scope: { id, cwd: input.cwd }, ordinalWithinScope: 0 }),
+          ),
+        );
 
     const materializeBaselineCheckpoint: CheckpointServiceV2Shape["materializeBaselineCheckpoint"] =
       (input) =>
@@ -616,6 +638,7 @@ export const layer: Layer.Layer<
           ),
         ),
       captureBaseline,
+      captureFirstRunBaseline,
       materializeBaselineCheckpoint,
       capture,
       restore,

@@ -5,6 +5,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as PlatformError from "effect/PlatformError";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
@@ -31,6 +32,30 @@ export const fixture = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem.pipe(Effect.provide(NodeServices.layer));
   const controllerStart = yield* Ref.make("first-start");
   const processStarts = yield* Ref.make<ReadonlyMap<number, string | null>>(new Map());
+  // `/proc/<pid>/stat` start times; any other process has none to read.
+  const procStarts = yield* Ref.make<ReadonlyMap<number, string>>(new Map());
+  const fileSystem = Layer.succeed(FileSystem.FileSystem, {
+    ...fs,
+    readFileString: (path, encoding) => {
+      const proc = /^\/proc\/(\d+)\/stat$/.exec(path);
+      if (proc === null) return fs.readFileString(path, encoding);
+      return Ref.get(procStarts).pipe(
+        Effect.flatMap((starts) => {
+          const start = starts.get(Number(proc[1]));
+          return start === undefined
+            ? Effect.fail(
+                PlatformError.systemError({
+                  _tag: "NotFound",
+                  module: "FileSystem",
+                  method: "readFileString",
+                  description: path,
+                }),
+              )
+            : Effect.succeed(`${proc[1]} (pi bolt) S ${Array(18).fill("0").join(" ")} ${start} 0`);
+        }),
+      );
+    },
+  });
   const producerProtocol = yield* Ref.make(1);
   const producerEntry = yield* Ref.make(NodeURL.fileURLToPath(import.meta.url));
   const workspaceRoot = yield* Ref.make<string | null>(null);
@@ -212,7 +237,9 @@ export const fixture = Effect.gen(function* () {
     NodeCrypto.layer,
     Layer.succeed(WorkspaceCustody.ControllerPid, 123),
   );
-  const layer = WorkspaceCustody.layer.pipe(Layer.provideMerge(dependencies));
+  const layer = WorkspaceCustody.layer.pipe(
+    Layer.provideMerge(Layer.merge(dependencies, fileSystem)),
+  );
   return {
     layer,
     dependencies,
@@ -227,6 +254,7 @@ export const fixture = Effect.gen(function* () {
     releaseRequests,
     controllerStart,
     processStarts,
+    procStarts,
     producerProtocol,
     producerEntry,
     workspaceRoot,

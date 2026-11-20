@@ -182,6 +182,8 @@ const layerProviderSessionWarmupProvided = ProviderSessionWarmup.layer.pipe(
       ProviderAdapterRegistry.layerFromProviderInstanceRegistry,
       ProjectionStore.layer,
       IdAllocator.layer,
+      layerCheckpointServiceProvided,
+      Custody.layer.pipe(Layer.provide(CustodyJournal.layer)),
     ),
   ),
 );

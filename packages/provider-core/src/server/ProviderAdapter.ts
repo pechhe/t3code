@@ -795,10 +795,8 @@ export interface ProviderAdapterV2SessionRuntime {
   readonly providerSession: OrchestrationV2ProviderSession;
   /** False keeps conversations alive when the provider cannot restore them after a restart. */
   readonly canResumeAfterRestart?: boolean;
-  /** Absence of every returned process proves this thread's provider work stopped; never signal them. */
-  readonly getOwnedProcessIds?: (
-    thread: OrchestrationV2ProviderThread,
-  ) => Effect.Effect<ReadonlyArray<ProviderStopProcess>>;
+  /** Absence of every returned process proves this session's provider work stopped; never signal them. */
+  readonly getOwnedProcessIds?: () => Effect.Effect<ReadonlyArray<ProviderStopProcess>>;
   /** Await observers before a replacement process receives work; returns an unsubscribe effect. */
   readonly observeOwnedProcesses?: (
     observer: ProviderStopObserver,

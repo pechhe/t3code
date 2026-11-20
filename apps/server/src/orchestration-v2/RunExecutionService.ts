@@ -1163,9 +1163,7 @@ export const layer: Layer.Layer<
           yield* custody.register(input.run.id, {
             id: `execution:${input.attemptId}`,
             kind: "provider-turn",
-            processIds: yield* (
-              input.session.getOwnedProcessIds?.(input.providerThread) ?? Effect.succeed([])
-            ),
+            processIds: yield* input.session.getOwnedProcessIds?.() ?? Effect.succeed([]),
           });
           yield* custody.register(input.run.id, {
             id: `checkpoint:${input.checkpointScope.id}`,
