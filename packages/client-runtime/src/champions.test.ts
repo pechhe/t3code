@@ -1,7 +1,6 @@
 import {
   ChampionError,
   ProjectId,
-  ProviderInstanceId,
   ThreadId,
   type ChampionFinding,
   type ChampionInvestigation,
@@ -38,7 +37,6 @@ import {
 const NOW = Date.parse("2026-11-01T12:00:00.000Z");
 const FUTURE = "2026-11-02T12:00:00.000Z";
 const PAST = "2026-11-01T11:00:00.000Z";
-const selection = { instanceId: ProviderInstanceId.make("claude"), model: "m" };
 
 const sample = (patch: Partial<ChampionLatestSample> = {}): ChampionLatestSample => ({
   metricId: "open",
@@ -63,8 +61,6 @@ const summary = (patch: Partial<ChampionSummary> = {}): ChampionSummary => ({
   name: "Performance",
   purpose: "Stay fast",
   schedule: { type: "fixed_time", timeOfDay: "06:00" },
-  setupModelSelection: selection,
-  routineModelSelection: selection,
   charter: { maxConcurrentRepairs: 1, maxRepairsPerDay: 3, instructions: "" },
   lifecycle: "active",
   ownerThreadId: ThreadId.make("t1"),

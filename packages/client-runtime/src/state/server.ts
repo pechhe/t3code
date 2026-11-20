@@ -1630,10 +1630,6 @@ export function createServerEnvironmentAtoms<R, E>(
       tag: WS_METHODS.scheduledTasksGetWebhookDelivery,
     }),
     championsLive,
-    championClassChoices: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:champions:class-choices",
-      tag: WS_METHODS.championsClassChoices,
-    }),
     championRecommendation: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:champions:recommendation",
       tag: WS_METHODS.championsRecommendation,
@@ -2000,6 +1996,10 @@ export function createServerEnvironmentAtoms<R, E>(
     upsertChampion: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:champions:Upsert",
       tag: WS_METHODS.championsUpsert,
+    }),
+    setChampionModels: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:champions:SetModels",
+      tag: WS_METHODS.championsSetModels,
     }),
     setChampionLifecycle: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:champions:SetLifecycle",

@@ -37,6 +37,7 @@ import { ChampionDetailPage } from "./ChampionDetailPage";
 import { ChampionForm } from "./ChampionForm";
 import { HowChampionsWorkDialog } from "./ChampionHowItWorks";
 import { ChampionMetricsEditor } from "./ChampionMetricsEditor";
+import { ChampionModelDefaultsControl } from "./ChampionModels";
 import {
   type ChampionEntry,
   type ChampionsView,
@@ -467,6 +468,11 @@ export function ChampionsPage(props: {
     content = null;
   }
 
+  // The defaults belong to one machine: the open Champion's, else the first that is connected.
+  const modelsSource =
+    selected === null
+      ? connectedSources[0]
+      : sources.find((source) => source.environmentId === selected.environmentId);
   const crumb =
     props.view === "new"
       ? "New champion"
@@ -500,6 +506,15 @@ export function ChampionsPage(props: {
             </WorkspaceBreadcrumbItem>
           )}
         </WorkspaceBreadcrumb>
+        {modelsSource === undefined ? null : (
+          <div className="ms-auto shrink-0 py-2">
+            <ChampionModelDefaultsControl
+              environmentId={modelsSource.environmentId}
+              machineLabel={multipleMachines ? machineLabel(modelsSource.environmentId) : null}
+              defaults={modelsSource.modelDefaults}
+            />
+          </div>
+        )}
       </WorkspacePageHeader>
       <div className="flex min-h-0 flex-1">
         <aside

@@ -10,8 +10,6 @@ import {
   ChampionLearningSearchResult,
 } from "./championLearnings.ts";
 import {
-  ChampionClassChoicesInput,
-  ChampionClassChoicesResult,
   ChampionDetail,
   ChampionError,
   ChampionFindingActionInput,
@@ -30,12 +28,14 @@ import {
   ChampionMetricsLeadResult,
   ChampionRecommendation,
   ChampionRecommendationInput,
+  ChampionModelDefaults,
   ChampionRuntimeState,
+  ChampionSetModelsInput,
   ChampionUpsertInput,
 } from "./champions.ts";
 
 export const CHAMPIONS_WS_METHODS = {
-  championsClassChoices: "champions.classChoices",
+  championsSetModels: "champions.setModels",
   championsRuntimeState: "champions.runtimeState",
   championsRecommendation: "champions.recommendation",
   championsLearningQuery: "champions.learningQuery",
@@ -57,9 +57,9 @@ export const CHAMPIONS_WS_METHODS = {
   championsFindingAction: "champions.findingAction",
 } as const;
 
-const WsChampionsClassChoicesRpc = Rpc.make(CHAMPIONS_WS_METHODS.championsClassChoices, {
-  payload: ChampionClassChoicesInput,
-  success: ChampionClassChoicesResult,
+const WsChampionsSetModelsRpc = Rpc.make(CHAMPIONS_WS_METHODS.championsSetModels, {
+  payload: ChampionSetModelsInput,
+  success: ChampionModelDefaults,
   error: Schema.Union([ChampionError, EnvironmentAuthorizationError]),
 });
 const WsChampionsRecommendationRpc = Rpc.make(CHAMPIONS_WS_METHODS.championsRecommendation, {
@@ -166,7 +166,7 @@ const WsChampionsFindingActionRpc = Rpc.make(CHAMPIONS_WS_METHODS.championsFindi
 });
 
 export const WsChampionsRpcs = RpcGroup.make(
-  WsChampionsClassChoicesRpc,
+  WsChampionsSetModelsRpc,
   WsChampionsRuntimeStateRpc,
   WsChampionsRecommendationRpc,
   WsChampionsLearningQueryRpc,

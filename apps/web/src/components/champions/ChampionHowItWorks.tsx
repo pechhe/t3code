@@ -1,15 +1,8 @@
-import type {
-  AgentRole,
-  ChampionRuntimeState,
-  ChampionSummary,
-  EnvironmentId,
-  ModelSelection,
-} from "@t3tools/contracts";
+import type { ChampionRuntimeState, ChampionSummary, EnvironmentId } from "@t3tools/contracts";
 import { InfoIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { AgentRoleChip } from "../AgentRoleChip";
-import { ModelLabel } from "../ModelLabel";
 import { ScheduledRelativeLabel, scheduleLabel } from "../scheduled/scheduledTaskParts";
 import { Button } from "../ui/button";
 import {
@@ -21,45 +14,18 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "../ui/dialog";
-import { championRecentRuns } from "./champions.logic";
+import { ChampionModelStrip } from "./ChampionModels";
 
-function RoleWithModel(props: {
-  readonly environmentId: EnvironmentId;
-  readonly label: string;
-  readonly role: AgentRole | null;
-  readonly selection: ModelSelection | null;
-}) {
-  return (
-    <span className="inline-flex items-center gap-1.5">
-      <span className="text-muted-foreground">{props.label}</span>
-      {props.role ? <AgentRoleChip role={props.role} /> : null}
-      {props.selection ? (
-        <ModelLabel
-          environmentId={props.environmentId}
-          instanceId={props.selection.instanceId}
-          model={props.selection.model}
-          className="inline-flex"
-        />
-      ) : null}
-    </span>
-  );
-}
-
-/** One line showing when this champion runs and which roles and models do its work. */
+/** One line showing when this champion runs and which models its next check and advice use. */
 export function ChampionRunStrip(props: {
   readonly environmentId: EnvironmentId;
   readonly champion: ChampionSummary;
   readonly runtimeState: ChampionRuntimeState | null;
-  readonly roleControls?: ReactNode;
+  readonly modelControls?: ReactNode;
   readonly projectTitle: string | null;
   readonly machineLabel: string | null;
 }) {
   const { champion, environmentId } = props;
-  const runs = props.runtimeState === null ? [] : championRecentRuns(props.runtimeState);
-  const lastOf = (check: boolean) => {
-    const run = runs.find((candidate) => (candidate.kind === "Check") === check);
-    return run === undefined ? null : (run.actual ?? run.resolved);
-  };
   const active = champion.lifecycle === "active";
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs">
@@ -75,19 +41,11 @@ export function ChampionRunStrip(props: {
           </span>
         ) : null}
       </span>
-      <RoleWithModel
+      <ChampionModelStrip
         environmentId={environmentId}
-        label="Checks"
-        role={champion.classes?.routine.role ?? null}
-        selection={lastOf(true) ?? (champion.classes ? null : champion.routineModelSelection)}
+        champion={champion}
+        changeControl={props.modelControls}
       />
-      <RoleWithModel
-        environmentId={environmentId}
-        label="Harder work"
-        role={champion.classes?.setup.role ?? null}
-        selection={lastOf(false) ?? (champion.classes ? null : champion.setupModelSelection)}
-      />
-      {props.roleControls}
       <span className="text-muted-foreground">
         {props.projectTitle ?? "Project not loaded"}
         {props.machineLabel === null ? "" : ` on ${props.machineLabel}`}
@@ -120,14 +78,15 @@ export function HowChampionsWorkDialog() {
             <dt className="text-muted-foreground">Checks</dt>
             <dd>
               On its schedule, or when you press Check now, it measures each metric and asks what
-              most holds back its goal. Checks run on a cheap role, usually{" "}
-              <AgentRoleChip role="implementer" />.
+              most holds back its goal. Checks run on the checks model you choose under Champion
+              models, with an optional backup.
             </dd>
-            <dt className="text-muted-foreground">Harder work</dt>
+            <dt className="text-muted-foreground">Advice and setup</dt>
             <dd>
-              Choosing metrics, researching a problem and planning larger fixes use a stronger role,
-              usually <AgentRoleChip role="advisor" />. Your role policy picks each role's model, so
-              changing it there changes later runs.
+              Choosing metrics and diagnosing a problem use the advice model. One Champion can have
+              its own model for checks, advice or both. When a model reaches its usage limit the
+              backup takes over; when neither can run, the check is skipped, the page says why and
+              when each model returns, and the next check runs on time.
             </dd>
             <dt className="text-muted-foreground">Problems</dt>
             <dd>

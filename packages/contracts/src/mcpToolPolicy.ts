@@ -166,7 +166,6 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "t3_browser_task",
   "t3_browser_task_cancel",
   "t3_champions_check_context",
-  "t3_champions_class_choices",
   "t3_champions_get",
   "t3_champions_history",
   "t3_champions_learning_read",

@@ -24,11 +24,14 @@ import { collectReading, type CollectedReading } from "./metricCollection.ts";
 import * as SlipJayLandings from "../project/SlipJayLandings.ts";
 import { invalidOptionSelections } from "../provider/modelSelectionValidation.ts";
 import { isProviderUsageExhausted } from "@t3tools/shared/accountPools";
+import * as ChampionModels from "./ChampionModels.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import {
   isProviderOverloadedFailureCode,
   ChampionExecutionAttempt,
-  type ChampionClassChoicesInput,
-  type ChampionClassChoicesResult,
+  type ChampionModelDefaults,
+  ChampionModelDefaults as ChampionModelDefaultsSchema,
+  type ChampionSetModelsInput,
   ChampionSummary,
   type ChampionLatestSample,
   ChampionDetail,
@@ -125,25 +128,40 @@ const Check = Schema.Struct({
   dispatchKind: Schema.Literals(["launch", "send"]),
   samples: Schema.optional(Schema.Array(ChampionSample)),
   cancelled: Schema.optional(Schema.Boolean),
+  /** Why the run was skipped, when it ended on a usage limit with no model left to run. */
+  skipped: Schema.optional(Schema.String),
   /** Retries the server started on its own for this claim; manual retries are not counted. */
   automaticRetries: Schema.optional(Schema.Number),
 });
 type Check = typeof Check.Type;
 /** A claim's own retries stop here, so a lasting outage cannot keep spending on it. */
 const MAX_AUTOMATIC_CHECK_RETRIES = 3;
-// Only persisted server restart ancestry carries a claim across messages.
+/** Opens the attention line and activity entry a skipped run leaves. */
+const SKIPPED = "Skipped this ";
+// A claim crosses messages only through persisted server restart ancestry, or through the server's own account
+// failover (its message id names the failed run), which moves the run to another account's provider session.
 function checkRunMessages(run: OrchestrationV2Run, runs: ReadonlyMap<RunId, OrchestrationV2Run>) {
   const messages = [run.userMessageId];
   let current = run;
   const visited = new Set([run.id]);
-  while (current.restartContinuationOfRunId !== undefined) {
-    const source = runs.get(current.restartContinuationOfRunId);
+  for (;;) {
+    const failoverOf =
+      current.manualContinuationOfRunId !== undefined &&
+      current.userMessageId ===
+        `limit-pool-switch:${current.threadId}:${current.manualContinuationOfRunId}`
+        ? current.manualContinuationOfRunId
+        : undefined;
+    const sourceId = failoverOf ?? current.restartContinuationOfRunId;
+    if (sourceId === undefined) break;
+    const source = runs.get(sourceId);
     if (
       source === undefined ||
       visited.has(source.id) ||
       source.ordinal >= current.ordinal ||
-      source.providerInstanceId !== current.providerInstanceId ||
-      source.providerThreadId !== current.providerThreadId
+      source.threadId !== current.threadId ||
+      (failoverOf === undefined &&
+        (source.providerInstanceId !== current.providerInstanceId ||
+          source.providerThreadId !== current.providerThreadId))
     )
       break;
     visited.add(source.id);
@@ -262,9 +280,10 @@ export class ChampionService extends Context.Service<
     readonly verifyApproval: (
       relay: ChampionRelay,
     ) => Effect.Effect<ForwardedChampionApproval, ChampionError>;
-    readonly classChoices: (
-      input: ChampionClassChoicesInput,
-    ) => Effect.Effect<ChampionClassChoicesResult, ChampionError>;
+    readonly setModels: (
+      input: ChampionSetModelsInput,
+    ) => Effect.Effect<ChampionModelDefaults, ChampionError>;
+    readonly modelDefaults: Effect.Effect<ChampionModelDefaults, ChampionError>;
     readonly startInvestigationFromOwner: (
       caller: Caller,
       input: Parameters<Evidence["startInvestigation"]>[0],
@@ -310,7 +329,10 @@ export class ChampionService extends Context.Service<
     ) => ReturnType<Evidence["synthesis"]>;
     readonly list: (input: {
       readonly projectId?: ChampionConfig["projectId"] | undefined;
-    }) => Effect.Effect<{ champions: ReadonlyArray<ChampionSummary> }, ChampionError>;
+    }) => Effect.Effect<
+      { champions: ReadonlyArray<ChampionSummary>; modelDefaults?: ChampionModelDefaults },
+      ChampionError
+    >;
     readonly subscribe: (input: {
       readonly projectId?: ChampionConfig["projectId"] | undefined;
     }) => Stream.Stream<{ champions: ReadonlyArray<ChampionSummary> }, ChampionError>;
@@ -695,12 +717,15 @@ const make = Effect.gen(function* () {
               Effect.mapError(failure),
             );
       const at = yield* now;
+      const modelDefaults = yield* readDefaults;
       return {
+        modelDefaults,
         champions: yield* Effect.forEach(rows, (row) =>
           decodeSummary(row.summary_json).pipe(
             Effect.mapError(failure),
             Effect.map((summary) => ({
               ...summary,
+              nextModels: ChampionModels.nextModels(modelDefaults, summary.models),
               latestSamples: summary.latestSamples?.map((sample) =>
                 sample.staleAt !== null &&
                 at >= sample.staleAt &&
@@ -737,6 +762,65 @@ const make = Effect.gen(function* () {
     if (invalidOptionSelections(selection.options ?? [], descriptors).length > 0)
       return yield* new ChampionError({ reason: "invalid" });
   });
+  const serverSettings = yield* Effect.serviceOption(ServerSettings.ServerSettingsService);
+  const decodeDefaults = Schema.decodeEffect(Schema.fromJsonString(ChampionModelDefaultsSchema));
+  const readDefaults: Effect.Effect<ChampionModelDefaults, ChampionError> = Effect.gen(
+    function* () {
+      const rows = yield* sql<{
+        document_json: string;
+      }>`SELECT document_json FROM champion_model_defaults WHERE id = 1`;
+      return rows[0] === undefined ? {} : yield* decodeDefaults(rows[0].document_json);
+    },
+  ).pipe(Effect.mapError(failure));
+  const modelSource = Effect.gen(function* () {
+    const settings = Option.isSome(serverSettings)
+      ? yield* serverSettings.value.getSettings.pipe(
+          Effect.orElseSucceed(
+            () => ({ accountSkips: {} }) as unknown as ChampionModels.ModelSource["settings"],
+          ),
+        )
+      : ({ accountSkips: {} } as unknown as ChampionModels.ModelSource["settings"]);
+    return {
+      providers: yield* providers.getProviders,
+      settings,
+      nowMs: DateTime.toEpochMillis(yield* DateTime.now),
+    } satisfies ChampionModels.ModelSource;
+  });
+  const setModels: ChampionService["Service"]["setModels"] = Effect.fn("ChampionService.setModels")(
+    function* (input) {
+      const source = yield* modelSource;
+      for (const slot of [input.checks, input.advice])
+        for (const model of [slot?.model, slot?.backup])
+          if (model !== undefined && ChampionModels.assess(model, source).status === "missing")
+            return yield* new ChampionError({
+              reason: "invalid",
+              detail: "That model is not available on this machine.",
+            });
+      const defaults: ChampionModelDefaults = {
+        ...(input.checks === undefined ? {} : { checks: input.checks }),
+        ...(input.advice === undefined ? {} : { advice: input.advice }),
+      };
+      yield* mutate(
+        sql`INSERT INTO champion_model_defaults (id, document_json) VALUES (1, ${json(defaults)}) ON CONFLICT(id) DO UPDATE SET document_json = excluded.document_json`.pipe(
+          Effect.mapError(failure),
+          Effect.tap(() =>
+            Effect.gen(function* () {
+              const batch = yield* ChangeBatch;
+              if (batch !== undefined) batch.changed = true;
+            }),
+          ),
+        ),
+      );
+      return defaults;
+    },
+  );
+  /** The slot a run of this kind uses, or why there is none. */
+  const slotOf = Effect.fn("ChampionService.slotOf")(function* (
+    doc: Pick<Document, "champion">,
+    kind: ChampionModels.ChampionModelKind,
+  ) {
+    return ChampionModels.slotFor(kind, yield* readDefaults, doc.champion.models);
+  });
   const nextDue = Effect.fn("ChampionService.nextDue")(function* (config: ChampionConfig) {
     const next = nextScheduledRunAt(config.schedule, yield* DateTime.now);
     return next === null ? null : DateTime.formatIso(next);
@@ -746,47 +830,12 @@ const make = Effect.gen(function* () {
   }) {
     const doc = yield* read(id);
     const latestSamples = presentLatest(doc, yield* now);
-    return { ...doc, champion: { ...doc.champion, latestSamples }, latestSamples };
-  });
-  const resolveClasses = Effect.fn("ChampionService.resolveClasses")(function* (
-    projectId: ChampionConfig["projectId"],
-    taskClass: NonNullable<ChampionClassChoicesInput["taskClass"]>,
-    threadId?: ThreadId | null,
-  ) {
-    if (Option.isNone(managedAgents)) return yield* new ChampionError({ reason: "unavailable" });
-    const enabled = yield* Effect.filter(yield* providers.getProviders, (provider) =>
-      threads.isProviderInstanceEnabledForProject({ projectId, instanceId: provider.instanceId }),
-    );
-    const owner =
-      threadId == null
-        ? null
-        : yield* threads.getThreadShell(threadId).pipe(Effect.mapError(failure));
-    const ceiling = owner?.runtimeMode ?? "full-access";
-    const result = yield* managedAgents.value
-      .roles({
-        projectId,
-        providers: enabled,
-        ceiling,
-        request: { taskClass, runtimeMode: ceiling },
-      })
-      .pipe(Effect.mapError(failure));
-    const roles = yield* Effect.forEach(result.roles, (role) =>
-      role.selection === null || role.refusal !== null
-        ? Effect.succeed(role)
-        : validateModel(role.selection).pipe(
-            Effect.as(role),
-            Effect.orElseSucceed(() => ({
-              ...role,
-              selection: null,
-              refusal: "The selected account or model is unavailable for execution.",
-            })),
-          ),
-    );
-    return { ...result, roles };
+    const nextModels = ChampionModels.nextModels(yield* readDefaults, doc.champion.models);
+    return { ...doc, champion: { ...doc.champion, latestSamples, nextModels }, latestSamples };
   });
   const resolveRankedClass = Effect.fn("ChampionService.resolveRankedClass")(function* (
     projectId: ChampionConfig["projectId"],
-    taskClass: NonNullable<ChampionClassChoicesInput["taskClass"]>,
+    taskClass: AgentTaskRequest["taskClass"],
     role: AgentTaskRequest["role"],
     threadId?: ThreadId | null,
   ) {
@@ -819,83 +868,18 @@ const make = Effect.gen(function* () {
       policyRevision: result.policyRevision,
     };
   });
-  const classChoices: ChampionService["Service"]["classChoices"] = Effect.fn(
-    "ChampionService.classChoices",
-  )(function* (input) {
-    if (Option.isNone(yield* projects.getById(input.projectId).pipe(Effect.mapError(failure))))
-      return yield* new ChampionError({ reason: "not-found" });
-    const doc = input.championId === undefined ? undefined : yield* read(input.championId);
-    if (doc !== undefined && doc.champion.projectId !== input.projectId)
-      return yield* new ChampionError({ reason: "unauthorized" });
-    const threadId =
-      doc === undefined
-        ? undefined
-        : input.phase === "setup"
-          ? doc.champion.setupThreadId
-          : doc.champion.ownerThreadId;
-    return yield* resolveClasses(input.projectId, input.taskClass ?? "non-ui", threadId).pipe(
-      Effect.map((result) => ({
-        policyHash: result.policyHash,
-        policyRevision: result.policyRevision,
-        refusal: null,
-        roles: result.roles.slice(0, 12).map((role) => ({
-          role: role.role,
-          selection: role.selection,
-          refusal: role.refusal?.slice(0, 500) ?? null,
-          ...(role.overloaded === undefined ? {} : { overloaded: role.overloaded.slice(0, 12) }),
-        })),
-      })),
-      Effect.orElseSucceed(() => ({
-        policyHash: null,
-        policyRevision: null,
-        refusal: "Agent class policy is unavailable on this machine.",
-        roles: [],
-      })),
-    );
-  });
   const upsert: ChampionService["Service"]["upsert"] = Effect.fn("ChampionService.upsert")(
     function* (input) {
       if (Option.isNone(yield* projects.getById(input.projectId).pipe(Effect.mapError(failure))))
         return yield* new ChampionError({ reason: "not-found" });
-      // Migrated class configuration may retain historical selections that no longer exist.
       const priorConfig = yield* read(input.id).pipe(Effect.option);
-      if (Option.isNone(priorConfig) && input.classes !== undefined) {
-        const setup = yield* resolveRankedClass(
-          input.projectId,
-          input.classes.setup.taskClass,
-          input.classes.setup.role,
-        );
-        const routine =
-          input.classes.routine.taskClass === input.classes.setup.taskClass &&
-          input.classes.routine.role === input.classes.setup.role
-            ? setup
-            : yield* resolveRankedClass(
-                input.projectId,
-                input.classes.routine.taskClass,
-                input.classes.routine.role,
-              );
-        const setupSelection = setup;
-        const routineSelection = routine;
-        if (
-          setupSelection.selection == null ||
-          setupSelection.refusal !== null ||
-          routineSelection.selection == null ||
-          routineSelection.refusal !== null
-        )
-          return yield* new ChampionError({ reason: "unavailable" });
-        input = {
-          ...input,
-          setupModelSelection: setupSelection.selection,
-          routineModelSelection: routineSelection.selection,
-        };
-      }
-      if (
-        input.classes === undefined &&
-        (Option.isNone(priorConfig) || priorConfig.value.champion.classes === undefined)
-      ) {
-        yield* validateModel(input.setupModelSelection);
-        yield* validateModel(input.routineModelSelection);
-      }
+      const source = yield* modelSource;
+      for (const model of [input.models?.checks, input.models?.advice])
+        if (model !== undefined && ChampionModels.assess(model, source).status === "missing")
+          return yield* new ChampionError({
+            reason: "invalid",
+            detail: "That model is not available on this machine.",
+          });
       if (
         input.repairsVia != null &&
         input.repairsVia !==
@@ -953,7 +937,13 @@ const make = Effect.gen(function* () {
                   champion: {
                     ...prior.champion,
                     ...input,
-                    classes: input.classes ?? prior.champion.classes,
+                    // Omitting `models` keeps the override; an empty object clears it.
+                    models:
+                      input.models === undefined
+                        ? prior.champion.models
+                        : input.models.checks === undefined && input.models.advice === undefined
+                          ? undefined
+                          : input.models,
                     nextCheckAt:
                       prior.champion.lifecycle === "active"
                         ? isSameSchedule(prior.champion.schedule, input.schedule)
@@ -1057,40 +1047,46 @@ const make = Effect.gen(function* () {
     doc.champion.journeys !== undefined && check.kind === "check"
       ? journeyPrompt(doc, check)
       : routinePrompt(doc, check);
+  /**
+   * The model an attempt runs on, resolved now: the main model, else the backup. With neither able to run it fails
+   * with the skip message, which the caller records.
+   */
   const resolveAttempt = Effect.fn("ChampionService.resolveAttempt")(function* (
     doc: Document,
     check: Pick<Check, "id" | "kind" | "threadId" | "messageId" | "commandId">,
+    failed?: { readonly selection: ModelSelection; readonly until: string | null },
   ) {
-    const selectionClass =
-      doc.champion.classes?.[check.kind === "setup" ? "setup" : "routine"] ?? null;
-    let resolvedSelection =
-      check.kind === "setup"
-        ? doc.champion.setupModelSelection
-        : doc.champion.routineModelSelection;
-    let policyHash: string | null = null;
-    let policyRevision: string | null = null;
-    if (selectionClass !== null) {
-      const selected = yield* resolveRankedClass(
-        doc.champion.projectId,
-        selectionClass.taskClass,
-        selectionClass.role,
-        check.threadId,
-      );
-      if (selected.selection == null || selected.refusal !== null)
-        return yield* new ChampionError({ reason: "unavailable" });
-      resolvedSelection = selected.selection;
-      policyHash = selected.policyHash ?? null;
-      policyRevision = selected.policyRevision ?? null;
-    }
-    if (selectionClass !== null) yield* validateModel(resolvedSelection);
+    const slot = yield* slotOf(doc, check.kind === "setup" ? "advice" : "checks");
+    if (slot === null)
+      return yield* new ChampionError({
+        reason: "unavailable",
+        detail: `${SKIPPED}${check.kind === "setup" ? "setup" : "check"}: no Champion models are set. Choose them at the top of the Champions screen.`,
+      });
+    const source = yield* modelSource;
+    const picked = ChampionModels.pickSlot(slot.slot, source, { failed });
+    if (picked.use === null)
+      return yield* new ChampionError({
+        reason: "unavailable",
+        detail: ChampionModels.skipMessage({
+          what: check.kind === "setup" ? "setup" : "check",
+          slot: slot.slot,
+          assessed: picked,
+          providers: source.providers,
+          nextCheckAt:
+            check.kind !== "check" || doc.champion.lifecycle !== "active"
+              ? null
+              : // A manual check leaves the scheduled time alone; a due one moves on from now.
+                doc.champion.nextCheckAt !== null && doc.champion.nextCheckAt > (yield* now)
+                ? doc.champion.nextCheckAt
+                : yield* nextDue(doc.champion),
+        }),
+      });
     const attempt: ChampionExecutionAttempt = {
       id: yield* uuid,
       checkId: check.id,
       kind: check.kind,
-      selectionClass,
-      policyHash,
-      policyRevision,
-      resolvedSelection,
+      slot: picked.use.slot,
+      resolvedSelection: picked.use.selection,
       actualSelection: null,
       commandId: check.commandId,
       messageId: check.messageId,
@@ -1105,11 +1101,9 @@ const make = Effect.gen(function* () {
   const dispatchCheck = Effect.fn("ChampionService.dispatchCheck")(function* (check: Check) {
     const doc = yield* read(check.championId);
     if ((yield* readCheck(check.id)).cancelled) return;
-    const modelSelection =
-      check.executionAttempt?.resolvedSelection ??
-      (check.kind === "setup"
-        ? doc.champion.setupModelSelection
-        : doc.champion.routineModelSelection);
+    if (check.executionAttempt === undefined)
+      return yield* new ChampionError({ reason: "unavailable" });
+    const modelSelection = check.executionAttempt.resolvedSelection;
     yield* validateModel(modelSelection);
     const existing = yield* threads.getThreadShell(check.threadId).pipe(Effect.mapError(failure));
     const commandId = check.commandId;
@@ -1146,17 +1140,6 @@ const make = Effect.gen(function* () {
         existing.projectId !== doc.champion.projectId
       )
         return yield* new ChampionError({ reason: "conflict" });
-      const provider = (yield* providers.getProviders).find(
-        (p) => p.instanceId === modelSelection.instanceId,
-      );
-      if (
-        provider !== undefined &&
-        "requiresNewThreadForModelChange" in provider &&
-        provider.requiresNewThreadForModelChange === true &&
-        (existing.modelSelection.instanceId !== modelSelection.instanceId ||
-          existing.modelSelection.model !== modelSelection.model)
-      )
-        return yield* new ChampionError({ reason: "conflict" });
       yield* threads
         .sendToThread({
           commandId,
@@ -1189,11 +1172,52 @@ const make = Effect.gen(function* () {
       }),
     );
   });
+  /** A run no model could take is a skipped check: said plainly, never a passing one, and the next one starts on time. */
+  const recordSkip = Effect.fn("ChampionService.recordSkip")(function* (input: {
+    readonly id: string;
+    readonly kind: Check["kind"];
+    readonly message: string;
+    readonly advance: boolean;
+    readonly ended?: Check | undefined;
+  }) {
+    yield* mutate(
+      Effect.gen(function* () {
+        const doc = yield* read(input.id);
+        if (input.ended !== undefined) {
+          const latest = yield* readCheck(input.ended.id);
+          if (latest.reported || latest.cancelled || latest.messageId !== input.ended.messageId)
+            return;
+          yield* saveCheck({ ...latest, cancelled: true, skipped: input.message });
+        }
+        const ended = (line: string) =>
+          line.startsWith(SKIPPED) ||
+          line.startsWith(`${input.kind === "setup" ? "Setup" : "Check"} run ended without`);
+        yield* write({
+          ...doc,
+          champion: {
+            ...doc.champion,
+            ...(input.ended === undefined
+              ? {}
+              : input.kind === "setup"
+                ? { outstandingSetupId: null }
+                : { outstandingCheckId: null }),
+            nextCheckAt:
+              input.advance && doc.champion.lifecycle === "active"
+                ? yield* nextDue(doc.champion)
+                : doc.champion.nextCheckAt,
+            attention: [...doc.champion.attention.filter((line) => !ended(line)), input.message],
+          },
+        });
+        yield* activity(input.id, "check-skipped", input.message, undefined, input.ended?.threadId);
+      }),
+    ).pipe(Effect.ignore);
+  });
   const start = Effect.fn("ChampionService.start")(function* (
     id: string,
     kind: Check["kind"],
     scheduled = false,
     automatic = false,
+    afterLimit: { readonly until: string | null } | undefined = undefined,
   ) {
     if (kind === "check") {
       const champion = (yield* read(id)).champion;
@@ -1312,7 +1336,19 @@ const make = Effect.gen(function* () {
                     messageId: MessageId.make(`champion:${outstanding.id}:retry:${retryId}`),
                     measureOnly: outstanding.measureOnly || doc.champion.lifecycle !== "active",
                   };
-                  retry = { ...retry, executionAttempt: yield* resolveAttempt(doc, retry) };
+                  retry = {
+                    ...retry,
+                    executionAttempt: yield* resolveAttempt(
+                      doc,
+                      retry,
+                      afterLimit === undefined || outstanding.executionAttempt === undefined
+                        ? undefined
+                        : {
+                            selection: outstanding.executionAttempt.resolvedSelection,
+                            until: afterLimit.until,
+                          },
+                    ),
+                  };
                   yield* saveCheck(retry);
                   yield* write({
                     ...doc,
@@ -1333,7 +1369,9 @@ const make = Effect.gen(function* () {
                     id,
                     "check-retry",
                     automatic
-                      ? "The provider was overloaded, so the server retried the check on its role's next eligible model. The retry retains the check definitions and owner."
+                      ? afterLimit === undefined
+                        ? "The provider was overloaded, so the server retried the check. The retry retains the check definitions and owner."
+                        : "The model reached its usage limit, so the server retried the check once on the backup model. The retry retains the check definitions and owner."
                       : "The previous run ended without an authenticated report. A manual retry retains the check definitions and owner.",
                     undefined,
                     retry.threadId,
@@ -1383,6 +1421,7 @@ const make = Effect.gen(function* () {
               champion: {
                 ...doc.champion,
                 setupThreadId: kind === "setup" ? setupThreadId : doc.champion.setupThreadId,
+                attention: doc.champion.attention.filter((line) => !line.startsWith(SKIPPED)),
                 ...(kind === "setup"
                   ? { outstandingSetupId: checkId }
                   : { outstandingCheckId: checkId }),
@@ -1407,26 +1446,9 @@ const make = Effect.gen(function* () {
         .pipe(Effect.mapError((cause) => (isChampionError(cause) ? cause : failure(cause)))),
     ).pipe(
       Effect.tapError((error) =>
-        error.reason !== "unavailable"
+        error.reason !== "unavailable" || !error.detail?.startsWith(SKIPPED)
           ? Effect.void
-          : mutate(
-              Effect.gen(function* () {
-                const current = yield* read(id);
-                if (current.champion.classes === undefined) return;
-                const note = `${kind === "setup" ? "Setup" : "Check"} class unavailable. Resolve its current policy or retry; no saved-model fallback was selected.`;
-                yield* write({
-                  ...current,
-                  champion: {
-                    ...current.champion,
-                    nextCheckAt:
-                      scheduled && current.champion.lifecycle === "active"
-                        ? yield* nextDue(current.champion)
-                        : current.champion.nextCheckAt,
-                    attention: [...new Set([...current.champion.attention, note])],
-                  },
-                });
-              }),
-            ),
+          : recordSkip({ id, kind, message: error.detail, advance: scheduled }),
       ),
     );
     yield* advance(claim);
@@ -1448,7 +1470,7 @@ const make = Effect.gen(function* () {
                 attention: [
                   ...new Set([
                     ...doc.champion.attention,
-                    `${check.kind === "setup" ? "Setup" : "Check"} dispatch unavailable. Retry uses the same durable claim and resolves its class again.`,
+                    `${check.kind === "setup" ? "Setup" : "Check"} dispatch unavailable. Retry uses the same durable claim and resolves its model again.`,
                   ]),
                 ],
               },
@@ -2969,7 +2991,9 @@ const make = Effect.gen(function* () {
         )
       : [];
     return new Set([
-      doc.champion.routineModelSelection.model,
+      ...[yield* slotOf(doc, "checks"), yield* slotOf(doc, "advice")].flatMap((slot) =>
+        slot === null ? [] : [slot.slot.main.model, slot.slot.backup?.model ?? ""],
+      ),
       decisionEngines.jev.model,
       decisionEngines.luna.model,
       ...configured,
@@ -3605,35 +3629,25 @@ const make = Effect.gen(function* () {
           const routed = routeRefusal(finding, "repair");
           if (routed !== null) return yield* refuse(routed);
         }
-        // The diagnosis is the setup class's: the advisor runs on that selection or not at all.
+        // The diagnosis runs on the Champion's advice model, else its backup, or not at all.
         let adviceSelection: ModelSelection | undefined;
         if (phase === "advice") {
-          const classes = doc.champion.classes;
+          const slot = yield* slotOf(doc, "advice");
+          const source = yield* modelSource;
+          const picked = slot === null ? undefined : ChampionModels.pickSlot(slot.slot, source);
           const resolved =
-            classes === undefined
-              ? yield* validateModel(doc.champion.setupModelSelection).pipe(
-                  Effect.as({ selection: doc.champion.setupModelSelection }),
-                  Effect.orElseSucceed(() => ({
-                    unavailable: "the champion's setup model is not available on this machine",
-                  })),
-                )
-              : yield* resolveRankedClass(
-                  doc.champion.projectId,
-                  classes.setup.taskClass,
-                  classes.setup.role,
-                  ownerThreadId,
-                ).pipe(
-                  Effect.map((result) => {
-                    return result.selection == null || result.refusal !== null
-                      ? {
-                          unavailable:
-                            result.refusal ??
-                            `no model is eligible for the ${classes.setup.role} role`,
-                        }
-                      : { selection: result.selection };
-                  }),
-                  Effect.orElseSucceed(() => ({ unavailable: "the role policy is unavailable" })),
-                );
+            slot === null || picked === undefined
+              ? { unavailable: "no Champion advice model is set" }
+              : picked.use !== null
+                ? { selection: picked.use.selection }
+                : {
+                    unavailable: ChampionModels.skipMessage({
+                      what: "advice",
+                      slot: slot.slot,
+                      assessed: picked,
+                      providers: source.providers,
+                    }),
+                  };
           if ("selection" in resolved) adviceSelection = resolved.selection;
           else if (finding.seriesId === null || followup)
             return yield* new ChampionError({
@@ -4273,6 +4287,12 @@ const make = Effect.gen(function* () {
           );
           continue;
         }
+        // A limit ends the run: retry once on the backup, else skip it so the next check starts on time.
+        // A pooled main model moves between accounts first, by AccountFailover, as for any thread.
+        if (endedWithoutReport && shell?.lastErrorClass === "usage_limit") {
+          const handled = yield* endedOnUsageLimit(doc, check, shell.usageLimitResetAt ?? null);
+          if (handled) continue;
+        }
         const ownershipLost =
           check.dispatched &&
           (shell === null ||
@@ -4333,6 +4353,74 @@ const make = Effect.gen(function* () {
     }
     // Together, so one champion's slow command holds up no other champion's check.
     yield* Effect.forEach(resumed, (effect) => effect, { concurrency: "unbounded", discard: true });
+  });
+  /** Whether the limit was dealt with: retried on the backup, or the check ended as skipped. */
+  const endedOnUsageLimit = Effect.fn("ChampionService.endedOnUsageLimit")(function* (
+    doc: Pick<Document, "champion">,
+    check: Check,
+    until: string | null,
+  ) {
+    const kind = check.kind === "setup" ? "advice" : "checks";
+    const slot = yield* slotOf(doc, kind);
+    const failedOn = check.executionAttempt?.resolvedSelection;
+    // A run already on the backup, or with no model recorded, has nothing left to try.
+    const retriable =
+      slot !== null && failedOn !== undefined && check.executionAttempt?.slot !== "backup";
+    if (retriable) {
+      const source = yield* modelSource;
+      const picked = ChampionModels.pickSlot(slot.slot, source, {
+        failed: { selection: failedOn, until },
+      });
+      if (picked.use?.slot === "main") return false;
+      if (picked.use?.slot === "backup") {
+        const started = yield* start(doc.champion.id, check.kind, false, true, { until }).pipe(
+          Effect.result,
+        );
+        // start() hands back the old claim when its retry guards refuse, so only a new message is a retry.
+        const retried =
+          started._tag === "Success" &&
+          (yield* readCheck(check.id).pipe(
+            Effect.map((latest) => latest.messageId !== check.messageId),
+            Effect.orElseSucceed(() => false),
+          ));
+        if (retried) return true;
+      }
+    }
+    const source = yield* modelSource;
+    const message =
+      slot === null
+        ? `${SKIPPED}${check.kind === "setup" ? "setup" : "check"}: no Champion models are set.`
+        : ChampionModels.skipMessage({
+            what: check.kind === "setup" ? "setup" : "check",
+            slot: slot.slot,
+            assessed: ChampionModels.pickSlot(slot.slot, source, {
+              failed: failedOn === undefined ? undefined : { selection: failedOn, until },
+            }),
+            providers: source.providers,
+            nextCheckAt:
+              check.kind === "check" && doc.champion.lifecycle === "active"
+                ? doc.champion.nextCheckAt
+                : null,
+          });
+    yield* recordSkip({
+      id: doc.champion.id,
+      kind: check.kind,
+      message,
+      advance: false,
+      ended: check,
+    });
+    // Settled, the usage-limit auto-resume leaves the thread alone; the next check's message unsettles it.
+    const shell = yield* threads.getThreadShell(check.threadId).pipe(Effect.option);
+    if (Option.isSome(shell) && shell.value !== null && shell.value.latestRunId != null)
+      yield* threads
+        .dispatch({
+          type: "thread.settle",
+          commandId: CommandId.make(`champion:${check.id}:limit-settle`),
+          threadId: check.threadId,
+          expectedLatestRunId: shell.value.latestRunId,
+        })
+        .pipe(Effect.ignore);
+    return true;
   });
   const shellSubscription = yield* PubSub.subscribe(shellChanges);
   yield* Stream.fromSubscription(shellSubscription).pipe(
@@ -4551,7 +4639,8 @@ const make = Effect.gen(function* () {
     });
   return ChampionService.of({
     verifyApproval,
-    classChoices,
+    setModels,
+    modelDefaults: readDefaults,
     startInvestigationFromOwner,
     startMeasurementFromOwner,
     cancelInvestigationFromOwner,

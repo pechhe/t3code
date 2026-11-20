@@ -99,14 +99,32 @@ champion starts checking once they are in. The goal says what good looks like; e
 check starts from it, treats the metrics as evidence of progress and changes the
 metrics itself when they can't show it. The champion page
 is a one-screen dashboard: the goal, the latest check's progress, when it runs and
-which roles do its checks and harder work, then decisions for you beside its metrics
+which models do its checks and harder work, then decisions for you beside its metrics
 and recent activity. **How it works** in the Champions list explains what every
 champion does.
-Setup and recurring checks follow separate agent classes from your role policy.
-Changing that policy updates future attempts; work already accepted keeps its original selection. To set
-metrics yourself, choose **Add metrics myself**. Advanced settings
-control the cadence, agent classes and the limits on automatic repairs. Older
-fixed-model champions keep their choices until you select **Follow role policy instead**.
+
+### Champion models
+
+**Champion models** at the top of the Champions screen sets the models every
+champion runs on. Choose one for **checks**, and one for **advice**, which sets up
+metrics and diagnoses findings. Each can have a backup. The picker is the one in
+the composer, and pooled models are included. Changing it updates future checks;
+work already started keeps its model.
+
+To give one champion its own main model, open its settings and choose **This
+Champion only**. The default's backup still applies to it.
+
+At a usage limit, a pooled model moves to another of its accounts first. If none
+is free, the backup runs. When neither can run, the check is skipped instead of
+failing: the page says why and when each model returns, and the next scheduled
+check runs on time. **Check now** still works once a model is back.
+
+Helpers a champion starts for repairs or Specs still follow your role policy, not
+Champion models.
+
+To set metrics yourself, choose **Add metrics myself**. Advanced settings control
+the cadence and the limits on automatic repairs. Agents can read and change
+Champion models too.
 
 Metric changes apply at once, whoever makes them: you on the page, the champion's
 own checks, or an agent you ask in any thread ("add a metric for cold start time to

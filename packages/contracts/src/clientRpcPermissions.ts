@@ -114,6 +114,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.championsStartInvestigation]: AuthOrchestrationOperateScope,
   [WS_METHODS.championsCancelInvestigation]: AuthOrchestrationOperateScope,
   [WS_METHODS.championsUpsert]: AuthOrchestrationOperateScope,
+  [WS_METHODS.championsSetModels]: AuthOrchestrationOperateScope,
   [WS_METHODS.championsSetLifecycle]: AuthOrchestrationOperateScope,
   [WS_METHODS.championsSetup]: AuthOrchestrationOperateScope,
   [WS_METHODS.championsRunCheck]: AuthOrchestrationOperateScope,

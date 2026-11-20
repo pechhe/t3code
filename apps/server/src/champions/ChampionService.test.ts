@@ -4,7 +4,6 @@ import * as FileSystem from "effect/FileSystem";
 import * as ProcessRunner from "../processRunner.ts";
 import * as Managed from "../agents/ManagedAgentService.ts";
 import { engines as decisionEngines } from "../decisions/adapters.ts";
-import * as ProviderOverloads from "../provider/ProviderOverloads.ts";
 import { snapshot as policySnapshot, codex, codexModel } from "../agents/agentPolicy.testkit.ts";
 import * as ChampionHandlers from "../mcp/toolkits/champions/handlers.ts";
 import { ChampionsToolkit } from "../mcp/toolkits/champions/tools.ts";
@@ -26,8 +25,6 @@ import { assert, describe, it } from "@effect/vitest";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import {
   AgentTaskBinding,
-  ChampionClasses,
-  ChampionConfig as ChampionConfigSchema,
   MessageId,
   NodeId,
   type RuntimeMode,
@@ -37,6 +34,7 @@ import {
   type ChampionLearningRecordInput,
   type ChampionLearningContributor,
   ChampionError,
+  ProviderDriverKind,
   EnvironmentId,
   CommandId,
   ProjectId,
@@ -80,10 +78,10 @@ import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as Projects from "../project/ProjectService.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
+import * as ServerSettings from "../serverSettings.ts";
+import * as ChampionModels from "./ChampionModels.ts";
 
 const decodeBinding = Schema.decodeSync(AgentTaskBinding);
-const decodeClasses = Schema.decodeEffect(ChampionClasses);
-const decodeConfig = Schema.decodeEffect(ChampionConfigSchema);
 const json = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const instanceId = ProviderInstanceId.make("test-provider");
 const projectId = ProjectId.make("project:champions");
@@ -93,10 +91,12 @@ const config: ChampionConfig = {
   name: "Quality",
   purpose: "Keep errors low",
   schedule: { type: "interval", everyMs: 60_000 },
-  setupModelSelection: { instanceId, model: "strong" },
-  routineModelSelection: { instanceId, model: "cheap" },
   charter: { maxConcurrentRepairs: 1, maxRepairsPerDay: 2, instructions: "Repair bounded issues." },
 };
+/** The machine defaults the harness sets: checks run on `cheap`, setup and advice on `strong`. */
+const routineSelection: ModelSelection = { instanceId, model: "cheap" };
+const setupSelection: ModelSelection = { instanceId, model: "strong" };
+const defaultModels = { checks: { model: routineSelection }, advice: { model: setupSelection } };
 const metric: ChampionMetricInput = {
   id: "errors",
   name: "Errors",
@@ -144,10 +144,13 @@ const fixture = Effect.fn("test.championFixture")(() =>
     );
     let credential: Effect.Success<ReturnType<typeof registry.issue>> | undefined;
     const bindCredential = Effect.fn("test.bindChampionCredential")(function* (threadId: ThreadId) {
-      credential = yield* registry.issue({ threadId, providerInstanceId: instanceId });
+      credential = yield* registry.issue({ threadId, providerInstanceId: runInstance });
       yield* sessions.set(credential.config);
       return credential;
     });
+    const settings = yield* ServerSettings.ServerSettingsService.pipe(
+      Effect.provide(ServerSettings.layerTest({})),
+    );
     let owner: ThreadId | undefined;
     let messageId = "";
     let launches = 0;
@@ -201,17 +204,21 @@ const fixture = Effect.fn("test.championFixture")(() =>
       finishedAt?: string;
       checks: [];
     } = { status: "running", stage: "gate", terminal: false, checks: [] };
-    const sent: Array<{ commandId: string; messageId: string; text: string }> = [];
+    const sent: Array<{ commandId: string; messageId: string; text: string; model?: string }> = [];
     let failSend = false;
     let landingLookup = Effect.void;
     let runId = RunId.make("run:check");
     const runHistory: OrchestrationV2Run[] = [];
     let restartSource: RunId | undefined;
-    let selection = config.routineModelSelection;
-    const providerThreadId = ProviderThreadId.make("provider-thread:check");
+    let selection = routineSelection;
+    let providerThreadId = ProviderThreadId.make("provider-thread:check");
+    /** The account the live run is on: a failover moves it, and the owner's credential with it. */
+    let runInstance: ProviderInstanceId = instanceId;
+    let runThread: ThreadId | undefined;
+    let continuationOf: RunId | undefined;
     const caller = () => ({
       threadId: owner!,
-      providerInstanceId: instanceId,
+      providerInstanceId: runInstance,
       providerSessionId: credential!.config.providerSessionId,
     });
     // These are external thread/provider boundaries; the champion ledger and SQL remain real.
@@ -220,6 +227,7 @@ const fixture = Effect.fn("test.championFixture")(() =>
     let foreignProject = false;
     let foreignProviderThread = false;
     let overloadedRun = false;
+    let limitedUntil: string | undefined;
     const shell = () =>
       ({
         id: owner,
@@ -228,11 +236,19 @@ const fixture = Effect.fn("test.championFixture")(() =>
         projectId: foreignProject ? ProjectId.make("foreign-project") : projectId,
         providerInstanceId: instanceId,
         runtimeMode: ownerMode,
-        modelSelection: config.routineModelSelection,
+        modelSelection: routineSelection,
         interactionMode: "default",
-        status: activeRun ? "running" : overloadedRun ? "failed" : "idle",
+        status: activeRun
+          ? "running"
+          : overloadedRun || limitedUntil !== undefined
+            ? "failed"
+            : "idle",
         activeRunId: activeRun ? runId : null,
+        latestRunId: runId,
         lastErrorCode: overloadedRun ? "overloaded" : null,
+        ...(limitedUntil === undefined
+          ? {}
+          : { lastErrorClass: "usage_limit", usageLimitResetAt: limitedUntil }),
         activeProviderThreadId: providerThreadId,
         archivedAt: null,
         deletedAt: null,
@@ -245,16 +261,18 @@ const fixture = Effect.fn("test.championFixture")(() =>
         restartContinuationOfRunId: restartSource,
         status: queuedRun
           ? "queued"
-          : overloadedRun
+          : overloadedRun || limitedUntil !== undefined
             ? "failed"
             : completedRun || !activeRun
               ? "completed"
               : "running",
+        threadId: runThread ?? owner,
+        ...(continuationOf === undefined ? {} : { manualContinuationOfRunId: continuationOf }),
         providerThreadId: foreignProviderThread
           ? ProviderThreadId.make("foreign-provider-thread")
           : providerThreadId,
         userMessageId: messageId,
-        providerInstanceId: instanceId,
+        providerInstanceId: runInstance,
         modelSelection: selection,
       }) as OrchestrationV2Run;
     const dependencies = Layer.mergeAll(
@@ -264,6 +282,7 @@ const fixture = Effect.fn("test.championFixture")(() =>
             launches += 1;
             owner = input.threadId;
             activeRun = true;
+            limitedUntil = undefined;
             messageId = input.initialMessage!.messageId!;
             yield* bindCredential(owner!);
             launchRequests.push({
@@ -354,9 +373,13 @@ const fixture = Effect.fn("test.championFixture")(() =>
                     commandId: input.commandId,
                     messageId: input.messageId,
                     text: input.text,
+                    ...(input.modelSelection === undefined
+                      ? {}
+                      : { model: input.modelSelection.model }),
                   });
                   activeRun = true;
                   overloadedRun = false;
+                  limitedUntil = undefined;
                   messageId = input.messageId;
                   return {} as never;
                 }),
@@ -369,7 +392,11 @@ const fixture = Effect.fn("test.championFixture")(() =>
               ? (providerOverride ?? [
                   {
                     instanceId,
-                    models: [{ slug: "cheap" }, { slug: "strong" }],
+                    driver: ProviderDriverKind.make("claudeAgent"),
+                    models: [
+                      { slug: "cheap", name: "cheap" },
+                      { slug: "strong", name: "strong" },
+                    ],
                   } as unknown as ServerProvider,
                 ])
               : [],
@@ -387,8 +414,11 @@ const fixture = Effect.fn("test.championFixture")(() =>
       NodeCrypto.layer,
       NodeServices.layer,
       Layer.succeed(McpProviderSessions.McpProviderSessions, sessions),
+      Layer.succeed(ServerSettings.ServerSettingsService, settings),
     );
     return {
+      /** The machine's settings: pooled model keys and account skips, as the usage-limit routing reads them. */
+      settings,
       layer: Champions.layer.pipe(Layer.provide(dependencies)),
       dependencies,
       dispatches,
@@ -510,6 +540,27 @@ const fixture = Effect.fn("test.championFixture")(() =>
         completedRun = false;
         return runId;
       },
+      /**
+       * The server's account failover: the failed run's work continues on another account's provider thread, in
+       * a run whose message names the failed run. `message` and `thread` break the shape on purpose.
+       */
+      failoverRun: Effect.fn("test.failoverRun")(function* (
+        options: { message?: string; thread?: ThreadId } = {},
+      ) {
+        const failed = currentRun();
+        runHistory.push({ ...failed, status: "failed" });
+        runId = RunId.make(`run:failover:${runHistory.length}`);
+        restartSource = undefined;
+        continuationOf = failed.id;
+        runThread = options.thread ?? owner;
+        messageId = options.message ?? `limit-pool-switch:${runThread}:${failed.id}`;
+        runInstance = ProviderInstanceId.make("account-b");
+        providerThreadId = ProviderThreadId.make("provider-thread:account-b");
+        activeRun = true;
+        completedRun = false;
+        limitedUntil = undefined;
+        yield* bindCredential(owner!);
+      }),
       restoreRun: (id: RunId) => {
         const previous = runHistory.find((run) => run.id === id)!;
         runId = previous.id;
@@ -632,6 +683,12 @@ const fixture = Effect.fn("test.championFixture")(() =>
         queuedRun = false;
         overloadedRun = true;
       },
+      /** The owner's run ends on its model's usage limit, which the provider says lifts at `resetAt`. */
+      limitRun: (resetAt: string) => {
+        activeRun = false;
+        queuedRun = false;
+        limitedUntil = resetAt;
+      },
       queueRun: () => {
         activeRun = false;
         queuedRun = true;
@@ -728,7 +785,9 @@ const withFixture = (
   Effect.gen(function* () {
     const f = yield* fixture();
     yield* Effect.gen(function* () {
-      yield* body(f, yield* Champions.ChampionService);
+      const service = yield* Champions.ChampionService;
+      yield* service.setModels(defaultModels);
+      yield* body(f, service);
     }).pipe(Effect.provide(f.layer));
   }).pipe(Effect.provide(Sqlite.layerMemory));
 const definitions = Effect.fn("test.championDefinitions")(function* (
@@ -1600,7 +1659,7 @@ it.effect("reports a restarted check once with the authenticated current run pro
       const first = yield* service.checkContext(f.caller());
       const originalAttempt = (yield* service.runtimeState({ id: config.id })).attempts[0]!;
       f.restartRun();
-      const selection = { ...config.routineModelSelection, model: "strong" };
+      const selection = { ...routineSelection, model: "strong" };
       const runId = f.restartRun({ selection });
       yield* service.runDue;
       const input = { samples: [sample], findings: [], summary: "Resumed report" };
@@ -1613,13 +1672,96 @@ it.effect("reports a restarted check once with the authenticated current run pro
       assert.deepEqual(history.samples[0]!.modelSelection, selection);
       const attempts = (yield* service.runtimeState({ id: config.id })).attempts;
       assert.deepEqual(attempts, [{ ...originalAttempt, actualSelection: selection }]);
-      f.restartRun({ selection: config.routineModelSelection });
+      f.restartRun({ selection: routineSelection });
       yield* service.report(f.caller(), input);
       assert.deepEqual((yield* service.runtimeState({ id: config.id })).attempts, attempts);
       assert.equal((yield* service.history({ id: config.id })).samples.length, 1);
       assert.deepEqual(f.counts(), { launches: 1, sends: 0 });
     }),
   ),
+);
+
+it.effect("keeps one claim across the server's account failover and reports it once", () =>
+  withFixture((f, service) =>
+    Effect.gen(function* () {
+      yield* definitions(service);
+      yield* service.runCheck({ id: config.id });
+      const first = yield* service.checkContext(f.caller());
+      yield* f.failoverRun();
+      yield* service.runDue;
+      const live = yield* service.get({ id: config.id });
+      assert.equal(live.champion.outstandingCheckId, first.checkId);
+      assert.isFalse(live.champion.attention.some((a) => a.includes("ended without")));
+      assert.equal((yield* service.checkContext(f.caller())).checkId, first.checkId);
+      yield* service.report(f.caller(), {
+        samples: [sample],
+        findings: [],
+        summary: "On account B",
+      });
+      const done = yield* service.get({ id: config.id });
+      assert.isNull(done.champion.outstandingCheckId);
+      assert.equal((yield* service.history({ id: config.id })).samples.length, 1);
+      assert.deepEqual(f.counts(), { launches: 1, sends: 0 });
+    }),
+  ),
+);
+
+it.effect.each(["another message", "another thread"] as const)(
+  "refuses a failover-shaped run with %s",
+  (breach) =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        yield* definitions(service);
+        yield* service.runCheck({ id: config.id });
+        yield* f.failoverRun(
+          breach === "another message"
+            ? { message: "limit-pool-switch:other-thread:run:elsewhere" }
+            : { thread: ThreadId.make("other-thread") },
+        );
+        yield* refused(service.checkContext(f.caller()));
+        yield* service.runDue;
+        assert.isTrue(
+          (yield* service.get({ id: config.id })).champion.attention.some((a) =>
+            a.includes("ended without"),
+          ),
+        );
+      }),
+    ),
+);
+
+it.effect(
+  "skips a check that hit a usage limit when its retries are spent, and starts the next on time",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        yield* definitions(service);
+        yield* service.setModels({
+          checks: { model: routineSelection, backup: setupSelection },
+          advice: { model: setupSelection },
+        });
+        yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
+        const claim = (yield* service.runCheck({ id: config.id })).champion.outstandingCheckId;
+        for (let retry = 1; retry <= 3; retry++) {
+          f.overloadRun();
+          yield* service.runDue;
+          assert.equal(f.sent.length, retry);
+        }
+        // start() refuses a fourth retry and hands back the same claim: that is not a retry on the backup.
+        f.limitRun("1970-01-01T00:30:00.000Z");
+        yield* service.runDue;
+        assert.equal(f.sent.length, 3);
+        const skipped = yield* service.get({ id: config.id });
+        assert.isNull(skipped.champion.outstandingCheckId);
+        assert.isTrue(
+          skipped.champion.attention.some((line) => line.startsWith("Skipped this check")),
+        );
+        yield* TestClock.adjust("1 minute");
+        yield* service.runDue;
+        const next = (yield* service.get({ id: config.id })).champion.outstandingCheckId;
+        assert.isNotNull(next);
+        assert.notEqual(next, claim);
+      }),
+    ),
 );
 
 it.effect.each([
@@ -1800,25 +1942,322 @@ it.effect(
     ),
 );
 
-it.effect("retries the durable check claim after model refusal without selecting a fallback", () =>
+// Skipped runs: a check whose models cannot run is said plainly, never passed, and the next one starts on time.
+const UNTIL = "1970-01-01T00:30:00.000Z";
+const modelProvider = (id: string, model: string, window?: { resetsAt?: string }) =>
+  ({
+    instanceId: ProviderInstanceId.make(id),
+    driver: ProviderDriverKind.make("claudeAgent"),
+    enabled: true,
+    installed: true,
+    status: "ready",
+    auth: { status: "authenticated" },
+    models: [{ slug: model, name: model }],
+    ...(window === undefined
+      ? {}
+      : { usageLimits: { windows: [{ id: "w", label: "w", usedPercent: 100, ...window }] } }),
+  }) as unknown as ServerProvider;
+const limitedProvider = (id: string, model: string, resetsAt?: string) =>
+  modelProvider(id, model, resetsAt === undefined ? {} : { resetsAt });
+
+it.effect.each([
+  {
+    reset: UNTIL as string | undefined,
+    said: `limited-main is at its limit until ${ChampionModels.formatLondon(UNTIL)}, and the backup limited-backup is at its limit until ${ChampionModels.formatLondon(UNTIL)}`,
+  },
+  {
+    reset: undefined as string | undefined,
+    said: `limited-main is at its limit until a time the provider did not give, and the backup limited-backup is at its limit until a time the provider did not give`,
+  },
+])(
+  "skips a scheduled check whose models are both at their limit ($reset), then starts the next on time",
+  ({ reset, said }) =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        yield* definitions(service);
+        const main = { instanceId: ProviderInstanceId.make("main"), model: "limited-main" };
+        const backup = { instanceId: ProviderInstanceId.make("backup"), model: "limited-backup" };
+        f.setProviders([
+          modelProvider("main", "limited-main"),
+          modelProvider("backup", "limited-backup"),
+        ]);
+        yield* service.setModels({ checks: { model: main, backup }, advice: { model: main } });
+        yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
+        f.setProviders([
+          limitedProvider("main", "limited-main", reset),
+          limitedProvider("backup", "limited-backup", reset),
+        ]);
+        yield* TestClock.adjust("1 minute");
+        yield* service.runDue;
+        const skipped = yield* service.get({ id: config.id });
+        const sql = yield* SqlClient.SqlClient;
+        assert.deepEqual(f.counts(), { launches: 0, sends: 0 });
+        assert.equal((yield* sql`SELECT id FROM champion_checks`.pipe(Effect.orDie)).length, 0);
+        assert.isNull(skipped.champion.outstandingCheckId);
+        assert.isNotNull(skipped.champion.nextCheckAt);
+        assert.deepEqual(skipped.champion.attention, [
+          `Skipped this check: ${said}. Next check ${ChampionModels.formatLondon(skipped.champion.nextCheckAt!)}.`,
+        ]);
+        assert.isTrue(
+          (yield* service.history({ id: config.id })).activity.some(
+            (entry) => entry.kind === "check-skipped",
+          ),
+        );
+        // The next scheduled check starts at its time once a model can run.
+        f.setProviders([
+          modelProvider("main", "limited-main"),
+          modelProvider("backup", "limited-backup"),
+        ]);
+        yield* TestClock.adjust("1 minute");
+        yield* service.runDue;
+        const next = yield* service.get({ id: config.id });
+        assert.isNotNull(next.champion.outstandingCheckId);
+        assert.isTrue(next.champion.attention.every((line) => !line.startsWith("Skipped this ")));
+      }),
+    ),
+);
+
+it.effect("skips a claimed check whose models are not on this machine, and a setup likewise", () =>
   withFixture((f, service) =>
     Effect.gen(function* () {
       yield* definitions(service);
+      yield* service.setModels({
+        checks: { model: routineSelection, backup: setupSelection },
+        advice: { model: setupSelection },
+      });
+      yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
       f.available(false);
-      yield* service.runCheck({ id: config.id });
+      yield* refused(service.runCheck({ id: config.id }));
+      const skipped = yield* service.get({ id: config.id });
       assert.equal(f.counts().launches, 0);
-      const first = yield* service.get({ id: config.id });
-      assert.isNotNull(first.champion.outstandingCheckId);
-      f.available(true);
-      yield* service.runDue;
-      assert.equal(f.counts().launches, 1);
-      assert.equal(f.counts().sends, 0);
-      assert.equal(
-        (yield* service.get({ id: config.id })).champion.outstandingCheckId,
-        first.champion.outstandingCheckId,
+      assert.isNull(skipped.champion.outstandingCheckId);
+      assert.isTrue(
+        skipped.champion.attention[0]!.startsWith(
+          "Skipped this check: cheap is not available on this machine, and the backup strong is not available on this machine.",
+        ),
       );
+      yield* refused(service.setup({ id: config.id }));
+      assert.isNull((yield* service.get({ id: config.id })).champion.outstandingSetupId);
+      // Once a model is back the same check starts as an ordinary claim and clears the note.
+      f.available(true);
+      yield* service.runCheck({ id: config.id });
+      const started = yield* service.get({ id: config.id });
+      assert.isNotNull(started.champion.outstandingCheckId);
+      assert.isTrue(started.champion.attention.every((line) => !line.startsWith("Skipped this ")));
+      assert.equal(f.counts().launches, 1);
     }),
   ),
+);
+
+it.effect(
+  "retries a check once on the backup when its main model hits a usage limit, then skips it",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        yield* definitions(service);
+        yield* service.setModels({
+          checks: { model: routineSelection, backup: setupSelection },
+          advice: { model: setupSelection },
+        });
+        yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
+        const claim = (yield* service.runCheck({ id: config.id })).champion.outstandingCheckId;
+        const attempts = Effect.map(service.runtimeState({ id: config.id }), (state) =>
+          state.attempts.map((a) => ({ slot: a.slot, model: a.resolvedSelection.model })),
+        );
+        assert.deepEqual(yield* attempts, [{ slot: "main", model: "cheap" }]);
+
+        const resetAt = "1970-01-01T00:30:00.000Z";
+        f.limitRun(resetAt);
+        yield* service.runDue;
+        // The same claim, once, on the backup: a send with a different model goes through.
+        assert.deepEqual(
+          (yield* attempts).toSorted((a, b) => String(a.slot).localeCompare(String(b.slot))),
+          [
+            { slot: "backup", model: "strong" },
+            { slot: "main", model: "cheap" },
+          ],
+        );
+        assert.equal((yield* service.get({ id: config.id })).champion.outstandingCheckId, claim);
+        assert.deepEqual(
+          f.sent.map((entry) => entry.model),
+          ["strong"],
+        );
+
+        // A run already on the backup is not retried again: the check ends as skipped.
+        f.limitRun(resetAt);
+        yield* service.runDue;
+        assert.equal(f.sent.length, 1);
+        assert.equal((yield* attempts).length, 2);
+        const skipped = yield* service.get({ id: config.id });
+        assert.isNull(skipped.champion.outstandingCheckId);
+        assert.isTrue(
+          skipped.champion.attention.some((line) => line.startsWith("Skipped this check")),
+        );
+        const history = yield* service.history({ id: config.id });
+        assert.equal(history.activity.filter((entry) => entry.kind === "check-skipped").length, 1);
+        assert.equal(history.samples.length, 0);
+        const sql = yield* SqlClient.SqlClient;
+        const [row] = yield* sql<{
+          document_json: string;
+        }>`SELECT document_json FROM champion_checks WHERE id = ${claim}`.pipe(Effect.orDie);
+        const stored = JSON.parse(row!.document_json);
+        assert.isTrue(stored.cancelled);
+        assert.include(stored.skipped, "Skipped this check");
+        // The thread is settled so a usage-limit auto-resume leaves it alone.
+        assert.include(f.dispatches, "thread.settle");
+
+        // The next scheduled check still starts at its time.
+        yield* TestClock.adjust("1 minute");
+        yield* service.runDue;
+        const next = yield* service.get({ id: config.id });
+        assert.isNotNull(next.champion.outstandingCheckId);
+        assert.notEqual(next.champion.outstandingCheckId, claim);
+        assert.isTrue(next.champion.attention.every((line) => !line.startsWith("Skipped this ")));
+      }),
+    ),
+);
+
+it.effect("ends a setup that hits a usage limit with no backup as skipped", () =>
+  withFixture((f, service) =>
+    Effect.gen(function* () {
+      yield* service.upsert(config);
+      yield* service.setup({ id: config.id });
+      const claim = (yield* service.get({ id: config.id })).champion.outstandingSetupId;
+      assert.isNotNull(claim);
+      f.limitRun("1970-01-02T00:00:00.000Z");
+      yield* service.runDue;
+      const skipped = (yield* service.get({ id: config.id })).champion;
+      assert.isNull(skipped.outstandingSetupId);
+      assert.isTrue(skipped.attention.some((line) => line.startsWith("Skipped this setup")));
+      assert.equal(f.sent.length, 0);
+      assert.include(f.dispatches, "thread.settle");
+    }),
+  ),
+);
+
+describe("a pooled main model", () => {
+  const MODEL = "claude-opus-5-5";
+  const accountOf = (id: string, window?: { resetsAt?: string }) =>
+    modelProvider(id, MODEL, window);
+  const pooled = (id: string) => ({ instanceId: ProviderInstanceId.make(id), model: MODEL });
+  const skipUntil = (until: string) => ({ [MODEL]: { until, reportedReset: true } });
+
+  it.effect(
+    "resolves to the first account not skipped for its limit and falls to the backup only when all are",
+    () =>
+      withFixture((f, service) =>
+        Effect.gen(function* () {
+          f.setProviders([
+            accountOf("A"),
+            accountOf("B"),
+            accountOf("C"),
+            modelProvider("backup", "backup-model"),
+            modelProvider("own", "own-model"),
+          ]);
+          yield* f.settings.updateSettings({ pooledModelKeys: [MODEL] }).pipe(Effect.orDie);
+          const backup = { instanceId: ProviderInstanceId.make("backup"), model: "backup-model" };
+          yield* definitions(service);
+          yield* service.setModels({
+            checks: { model: pooled("A"), backup },
+            advice: { model: pooled("A") },
+          });
+          yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
+          const seen = new Set<string>();
+          const check = Effect.fn("test.pooledCheck")(function* () {
+            yield* TestClock.adjust("1 second");
+            yield* service.runCheck({ id: config.id });
+            const attempt = (yield* service.runtimeState({ id: config.id })).attempts.find(
+              (a) => !seen.has(a.id),
+            )!;
+            seen.add(attempt.id);
+            yield* service.report(f.caller(), {
+              samples: [sample],
+              findings: [],
+              summary: "Measured",
+            });
+            return { slot: attempt.slot, on: attempt.resolvedSelection.instanceId as string };
+          });
+          const later = "1970-01-01T00:10:00.000Z";
+          assert.deepEqual(yield* check(), { slot: "main", on: "A" });
+          yield* f.settings
+            .updateSettings({ accountSkips: { A: skipUntil(later) } })
+            .pipe(Effect.orDie);
+          assert.deepEqual(yield* check(), { slot: "main", on: "B" });
+          yield* f.settings
+            .updateSettings({
+              accountSkips: { A: skipUntil(later), B: skipUntil(later), C: skipUntil(later) },
+            })
+            .pipe(Effect.orDie);
+          assert.deepEqual(yield* check(), { slot: "backup", on: "backup" });
+          // A Champion's own main model replaces the default's; the default's backup still catches it.
+          yield* service.upsert({
+            ...config,
+            models: { checks: { instanceId: ProviderInstanceId.make("own"), model: "own-model" } },
+          });
+          assert.deepEqual(yield* check(), { slot: "main", on: "own" });
+          f.setProviders([
+            accountOf("A"),
+            accountOf("B"),
+            accountOf("C"),
+            modelProvider("backup", "backup-model"),
+            modelProvider("own", "own-model", { resetsAt: "1970-01-01T00:20:00.000Z" }),
+          ]);
+          assert.deepEqual(yield* check(), { slot: "backup", on: "backup" });
+          // Skips lift at their reset: the main model returns.
+          yield* TestClock.adjust("11 minutes");
+          yield* service.upsert({ ...config, models: {} });
+          assert.deepEqual(yield* check(), { slot: "main", on: "A" });
+        }),
+      ),
+  );
+});
+
+it.effect(
+  "diagnoses a breach on the advice model, then its backup, and records it undiagnosed when neither can run",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        const model = (id: string) => ({
+          instanceId: ProviderInstanceId.make(id),
+          model: `${id}-model`,
+        });
+        const world = (limited: ReadonlyArray<string>) =>
+          f.setProviders(
+            ["advice", "fallback", "cheap"].map((id) =>
+              modelProvider(id, `${id}-model`, limited.includes(id) ? {} : undefined),
+            ),
+          );
+        world([]);
+        yield* service.setModels({
+          checks: { model: model("cheap") },
+          advice: { model: model("advice"), backup: model("fallback") },
+        });
+        yield* definitions(service);
+        yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
+        yield* service.runCheck({ id: config.id });
+        const finding = (yield* service.report(f.caller(), {
+          samples: [sample],
+          findings: [],
+          summary: "Breached",
+        })).findings[0]!;
+        const advise = service.guardDelegation({
+          ownerThreadId: f.caller().threadId,
+          clientRequestId: "advice",
+          request: { ...repair(finding), role: "advisor" as const, readOnly: true },
+        });
+        assert.deepEqual(yield* advise, model("advice"));
+        world(["advice"]);
+        assert.deepEqual(yield* advise, model("fallback"));
+        world(["advice", "fallback"]);
+        yield* refusedWith(advise, "No eligible model could diagnose this breach");
+        const undiagnosed = (yield* service.get({ id: config.id })).findings[0]!.undiagnosed;
+        assert.include(
+          undiagnosed?.reason,
+          "advice-model is at its limit until a time the provider did not give",
+        );
+        assert.include(undiagnosed?.reason, "the backup fallback-model is at its limit");
+      }),
+    ),
 );
 
 it.effect(
@@ -2546,7 +2985,7 @@ it.effect(
         f.available(true);
         assert.include(
           (yield* service.get({ id: config.id })).findings[0]!.undiagnosed?.reason,
-          "setup model is not available",
+          "is not available on this machine",
         );
         yield* implement(reopened, "again");
       }),
@@ -2974,7 +3413,6 @@ it.effect(
         const stale = (yield* service.list({})).champions[0]!;
         assert.equal(stale.latestSamples![0]!.health, "stale");
         assert.deepEqual(stale.attention, []);
-        f.available(false);
         const draft = yield* service.setup({ id: config.id });
         assert.isNotNull(draft.champion.outstandingSetupId);
         const cancelled = yield* service.cancelSetup({ id: config.id });
@@ -3227,9 +3665,9 @@ const investigationFixture = Effect.fn("test.championInvestigation")(function* (
       policyHash: "a".repeat(64),
       policyRevision: "policy-one",
       briefHash: "b".repeat(64),
-      requested: config.setupModelSelection,
+      requested: setupSelection,
       assigned: null,
-      effective: config.setupModelSelection,
+      effective: setupSelection,
     });
     return {
       ownerThreadId: detail.champion.ownerThreadId,
@@ -3249,27 +3687,97 @@ const investigationFixture = Effect.fn("test.championInvestigation")(function* (
   return { investigation, detail, admission };
 });
 
-it.effect("keeps class defaults additive and preserves migrated classes on old-client edits", () =>
+it.effect("loads a Champion saved with delegation classes and drops them on its next save", () =>
   withFixture((_f, service) =>
     Effect.gen(function* () {
-      const classes = yield* decodeClasses({}).pipe(Effect.orDie);
-      assert.deepEqual(classes, {
-        setup: { role: "advisor", taskClass: "non-ui" },
-        routine: { role: "implementer", taskClass: "non-ui" },
-      });
-      assert.isUndefined((yield* decodeConfig(config).pipe(Effect.orDie)).classes);
-      const unavailable = yield* service.classChoices({ projectId });
-      assert.isNotNull(unavailable.refusal);
-      assert.deepEqual(unavailable.roles, []);
-      yield* refused(service.upsert({ ...config, classes }));
+      const sql = yield* SqlClient.SqlClient;
       yield* service.upsert(config);
-      yield* service.upsert({ ...config, classes });
-      const updated = yield* service.upsert({ ...config, name: "Old-client edit" });
-      assert.deepEqual(updated.champion.classes, classes);
-      yield* refused(service.setup({ id: config.id }));
-      assert.deepEqual((yield* service.runtimeState({ id: config.id })).attempts, []);
+      const [stored] = yield* sql<{
+        document_json: string;
+      }>`SELECT document_json FROM champions WHERE id = ${config.id}`.pipe(Effect.orDie);
+      const document = JSON.parse(stored!.document_json);
+      document.champion = {
+        ...document.champion,
+        classes: {
+          setup: { role: "advisor", taskClass: "non-ui" },
+          routine: { role: "implementer", taskClass: "non-ui" },
+        },
+        setupModelSelection: { instanceId, model: "historical-model" },
+        routineModelSelection: { instanceId, model: "historical-model" },
+      };
+      yield* sql`UPDATE champions SET document_json = ${json(document)} WHERE id = ${config.id}`.pipe(
+        Effect.orDie,
+      );
+      const loaded = (yield* service.get({ id: config.id })).champion;
+      assert.deepEqual(
+        Object.keys(loaded).filter((key) => /classes|ModelSelection/.test(key)),
+        [],
+      );
+      assert.deepEqual(loaded.nextModels, {
+        checks: { model: routineSelection, source: "default" },
+        advice: { model: setupSelection, source: "default" },
+      });
+      yield* service.upsert({ ...config, name: "Saved again" });
+      const [after] = yield* sql<{
+        document_json: string;
+      }>`SELECT document_json FROM champions WHERE id = ${config.id}`.pipe(Effect.orDie);
+      assert.notMatch(after!.document_json, /classes|setupModelSelection|routineModelSelection/);
     }),
   ),
+);
+
+it.effect(
+  "keeps the machine's models and a Champion's own overrides apart, and refuses unavailable ones",
+  () =>
+    withFixture((_f, service) =>
+      Effect.gen(function* () {
+        const backup = { instanceId, model: "backup" };
+        yield* refused(service.setModels({ checks: { model: routineSelection, backup } }));
+        yield* refused(service.setModels({ checks: { model: { instanceId, model: "missing" } } }));
+        assert.deepEqual(yield* service.modelDefaults, {
+          checks: { model: routineSelection },
+          advice: { model: setupSelection },
+        });
+        const saved = yield* service.setModels({
+          checks: { model: routineSelection, backup: setupSelection },
+          advice: { model: setupSelection },
+        });
+        assert.deepEqual(yield* service.modelDefaults, saved);
+        assert.deepEqual(
+          ((yield* service.list({})) as { modelDefaults?: unknown }).modelDefaults,
+          saved,
+        );
+
+        yield* refused(
+          service.upsert({ ...config, models: { checks: { instanceId, model: "missing" } } }),
+        );
+        const own = yield* service.upsert({ ...config, models: { checks: setupSelection } });
+        assert.deepEqual(own.champion.models, { checks: setupSelection });
+        // The override replaces the main model only: the default's backup still applies.
+        const nextOwn = (yield* service.get({ id: config.id })).champion.nextModels;
+        assert.deepEqual(nextOwn, {
+          checks: { model: setupSelection, backup: setupSelection, source: "champion" },
+          advice: { model: setupSelection, source: "default" },
+        });
+        assert.deepEqual(
+          (yield* service.list({})).champions[0]!.nextModels?.checks?.source,
+          "champion",
+        );
+        // Leaving the field out keeps the override; an empty object (or one with neither key) clears it.
+        const kept = yield* service.upsert(config);
+        assert.deepEqual(kept.champion.models, { checks: setupSelection });
+        assert.equal(
+          (yield* service.get({ id: config.id })).champion.nextModels?.checks?.source,
+          "champion",
+        );
+        const cleared = yield* service.upsert({ ...config, models: {} });
+        assert.isUndefined(cleared.champion.models);
+        assert.equal(
+          (yield* service.get({ id: config.id })).champion.nextModels?.checks?.source,
+          "default",
+        );
+      }),
+    ),
 );
 
 it.effect(
@@ -3915,130 +4423,6 @@ it.effect("reads an evicted pending decision recommendation by exact bounded sco
   ),
 );
 
-it.effect(
-  "resolves real managed policy per new owner attempt while uncertain replay and queued acceptance retain frozen selections",
-  () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const root = yield* fs.makeTempDirectoryScoped({ prefix: "champion-policy-" });
-      yield* fs.makeDirectory(`${root}/roles`);
-      const manifest = policySnapshot().manifest;
-      const write = (value: typeof manifest) =>
-        fs.writeFileString(`${root}/roles/policy.json`, json(value));
-      yield* write(manifest);
-      for (const role of Object.values(manifest.roles))
-        yield* fs.writeFileString(`${root}/${role.brief}`, "Fixture role brief");
-      const managed = yield* Managed.ManagedAgentService.pipe(Effect.provide(Managed.layer));
-      const f = yield* fixture();
-      f.setProviders([codex]);
-      yield* Effect.gen(function* () {
-        const service = yield* Champions.ChampionService;
-        const classes = yield* decodeClasses({}).pipe(Effect.orDie);
-        const preview = yield* service.classChoices({ projectId });
-        assert.isNull(preview.refusal);
-        assert.isNull(preview.roles.find((role) => role.role === "advisor")!.selection);
-        const draft = yield* service.upsert({
-          ...config,
-          classes,
-          setupModelSelection: { instanceId: codex.instanceId, model: "historical-model" },
-        });
-        assert.equal(draft.champion.setupModelSelection.model, "gpt-astra-test");
-        assert.equal(draft.champion.routineModelSelection.model, codexModel);
-        f.failNextLaunch();
-        yield* service.setup({ id: config.id });
-        const first = (yield* service.runtimeState({ id: config.id })).attempts[0]!;
-        assert.equal(first.resolvedSelection.model, "gpt-astra-test");
-        assert.deepEqual(first.resolvedSelection, draft.champion.setupModelSelection);
-        assert.equal(first.policyHash, preview.policyHash);
-        yield* refused(
-          service.classChoices({
-            projectId: ProjectId.make("wrong-project"),
-            championId: config.id,
-          }),
-        );
-        // The implementer takes UI work like any other.
-        const ui = yield* service.classChoices({ projectId, taskClass: "ui" });
-        assert.include(
-          ui.roles.find((role) => role.role === "implementer")!.refusal,
-          "selection-denied",
-        );
-        f.ownerMode("approval-required");
-        const narrowed = yield* service.classChoices({
-          projectId,
-          championId: config.id,
-          phase: "setup",
-        });
-        assert.isNull(narrowed.roles.find((role) => role.role === "implementer")!.selection);
-        f.ownerMode("full-access");
-        f.providerAllowed(codex.instanceId, false);
-        assert.isTrue(
-          (yield* service.classChoices({ projectId })).roles.every(
-            (role) => role.selection === null,
-          ),
-        );
-        f.providerAllowed(codex.instanceId, true);
-        assert.isNull(first.actualSelection);
-        assert.equal(first.selectionClass!.role, "advisor");
-        yield* write({
-          ...manifest,
-          lists: { ...manifest.lists, advisor: [{ model: "sol", effort: "medium" }] },
-          roles: { ...manifest.roles, advisor: { ...manifest.roles.advisor!, callers: {} } },
-        });
-        yield* service.runDue;
-        assert.equal(f.launchRequests[0]!.model, f.launchRequests[1]!.model);
-        assert.equal(f.launchRequests[0]!.commandId, f.launchRequests[1]!.commandId);
-        f.queueRun();
-        yield* service.setup({ id: config.id });
-        assert.equal((yield* service.runtimeState({ id: config.id })).attempts.length, 1);
-        f.endRun();
-        yield* service.setup({ id: config.id });
-        const attempts = (yield* service.runtimeState({ id: config.id })).attempts;
-        assert.equal(attempts.length, 2);
-        const second = attempts.find((a) => a.id !== first.id)!;
-        assert.equal(second.resolvedSelection.model, codexModel);
-        assert.notEqual(second.policyHash, first.policyHash);
-        assert.notEqual(second.commandId, first.commandId);
-        assert.equal(second.threadId, first.threadId);
-        assert.deepEqual(second.resolvedSelection.options, [{ id: "reasoning", value: "medium" }]);
-        yield* write({
-          ...manifest,
-          lists: { ...manifest.lists, advisor: [{ model: "sol", effort: "medium" }] },
-          roles: { ...manifest.roles, advisor: { ...manifest.roles.advisor!, callers: {} } },
-          models: {
-            ...manifest.models,
-            sol: { ...manifest.models.sol!, model: "unavailable-model" },
-          },
-        });
-        f.endRun();
-        const unavailable = yield* service.classChoices({ projectId });
-        assert.isNull(unavailable.roles.find((role) => role.role === "advisor")!.selection);
-        assert.isNotNull(unavailable.roles.find((role) => role.role === "advisor")!.refusal);
-        yield* refused(service.upsert({ ...config, id: "new-unavailable-draft", classes }));
-        yield* refused(service.setup({ id: config.id }));
-        assert.equal((yield* service.runtimeState({ id: config.id })).attempts.length, 2);
-        assert.equal(
-          (yield* service.get({ id: config.id })).champion.setupThreadId,
-          first.threadId,
-        );
-      }).pipe(
-        Effect.provide(f.layer),
-        Effect.provideService(Managed.ManagedAgentService, managed),
-        Effect.provideService(HostProcess.Environment, { T3CODE_AGENT_POLICY_ROOT: root }),
-      );
-    }).pipe(
-      Effect.provide(
-        Layer.mergeAll(
-          Sqlite.layerMemory,
-          NodeServices.layer,
-          NodeCrypto.layer,
-          Layer.mock(ProcessRunner.ProcessRunner)({
-            run: () => Effect.die("Unexpected process launch"),
-          }),
-        ),
-      ),
-    ),
-);
-
 it.effect("starts a metrics lead thread on the lead role's current model and records it", () =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -4055,7 +4439,12 @@ it.effect("starts a metrics lead thread on the lead role's current model and rec
     f.setProviders([codex]);
     yield* Effect.gen(function* () {
       const service = yield* Champions.ChampionService;
-      yield* service.upsert({ ...config, classes: yield* decodeClasses({}).pipe(Effect.orDie) });
+      const advice = { instanceId: codex.instanceId, model: "gpt-astra-test" };
+      yield* service.setModels({
+        checks: { model: { instanceId: codex.instanceId, model: codexModel } },
+        advice: { model: advice },
+      });
+      yield* service.upsert(config);
       const [lead] = yield* managed.ranked({
         role: "lead",
         projectId,
@@ -4089,7 +4478,7 @@ it.effect("starts a metrics lead thread on the lead role's current model and rec
         2,
       );
 
-      // A breach's advisor runs on the setup class's selection, whatever the caller's role policy picks.
+      // A breach's advisor runs on the advice model, whatever the caller's role policy picks.
       yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
       yield* service.runCheck({ id: config.id });
       const breach = (yield* service.report(f.caller(), {
@@ -4097,15 +4486,12 @@ it.effect("starts a metrics lead thread on the lead role's current model and rec
         findings: [],
         summary: "Breached",
       })).findings[0]!;
-      const advice = {
+      const adviceRequest = {
         ownerThreadId: f.caller().threadId,
         clientRequestId: "advice",
         request: { ...repair(breach), role: "advisor" as const, readOnly: true },
       };
-      assert.deepEqual(
-        yield* service.guardDelegation(advice),
-        (yield* service.get({ id: config.id })).champion.setupModelSelection,
-      );
+      assert.deepEqual(yield* service.guardDelegation(adviceRequest), advice);
       const launched = f.counts().launches;
 
       yield* write({
@@ -4136,95 +4522,6 @@ it.effect("starts a metrics lead thread on the lead role's current model and rec
       ),
     ),
   ),
-);
-
-it.effect(
-  "retries an overloaded check on its class's next model and returns once the cool-down ends",
-  () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const root = yield* fs.makeTempDirectoryScoped({ prefix: "champion-overload-" });
-      yield* fs.makeDirectory(`${root}/roles`);
-      const base = policySnapshot().manifest;
-      const manifest = {
-        ...base,
-        lists: {
-          ...base.lists,
-          // The routine class's role, the implementer, runs from this list.
-          workhorse: [
-            { model: "astra", effort: "medium" },
-            { model: "luna", effort: "medium" },
-          ],
-        },
-      };
-      yield* fs.writeFileString(`${root}/roles/policy.json`, json(manifest));
-      for (const role of Object.values(manifest.roles))
-        yield* fs.writeFileString(`${root}/${role.brief}`, "Fixture role brief");
-      const overloads = yield* ProviderOverloads.ProviderOverloads.pipe(
-        Effect.provide(ProviderOverloads.layer),
-      );
-      const managed = yield* Managed.ManagedAgentService.pipe(
-        Effect.provide(
-          Managed.layer.pipe(
-            Layer.provide(Layer.succeed(ProviderOverloads.ProviderOverloads, overloads)),
-          ),
-        ),
-      );
-      const f = yield* fixture();
-      f.setProviders([codex]);
-      yield* Effect.gen(function* () {
-        const service = yield* Champions.ChampionService;
-        yield* service.upsert({ ...config, classes: yield* decodeClasses({}).pipe(Effect.orDie) });
-        yield* service.changeMetrics({
-          id: config.id,
-          metrics: [metric],
-          reason: "Measure errors",
-        });
-        const resolved = Effect.gen(function* () {
-          const attempts = (yield* service.runtimeState({ id: config.id })).attempts;
-          return attempts.filter((a) => a.kind === "check").map((a) => a.resolvedSelection.model);
-        });
-        yield* service.runCheck({ id: config.id });
-        assert.deepEqual(yield* resolved, ["gpt-astra-test"]);
-
-        yield* overloads.mark({ instanceId: codex.instanceId, model: "gpt-astra-test" });
-        f.overloadRun();
-        yield* service.runDue;
-        assert.deepEqual((yield* resolved).toSorted(), ["gpt-astra-test", "gpt-luna-test"]);
-
-        yield* TestClock.adjust(ProviderOverloads.PROVIDER_OVERLOAD_COOLDOWN_MS + 1_000);
-        f.overloadRun();
-        yield* service.runDue;
-        const models = yield* resolved;
-        assert.equal(models.length, 3);
-        assert.equal(models.filter((model) => model === "gpt-astra-test").length, 2);
-
-        // A retry that cannot start says so instead of failing quietly.
-        f.providerAllowed(codex.instanceId, false);
-        f.overloadRun();
-        yield* service.runDue;
-        assert.isTrue(
-          (yield* service.get({ id: config.id })).champion.attention.some((a) =>
-            a.includes("automatic retry after a provider overload could not start"),
-          ),
-        );
-      }).pipe(
-        Effect.provide(f.layer),
-        Effect.provideService(Managed.ManagedAgentService, managed),
-        Effect.provideService(HostProcess.Environment, { T3CODE_AGENT_POLICY_ROOT: root }),
-      );
-    }).pipe(
-      Effect.provide(
-        Layer.mergeAll(
-          Sqlite.layerMemory,
-          NodeServices.layer,
-          NodeCrypto.layer,
-          Layer.mock(ProcessRunner.ProcessRunner)({
-            run: () => Effect.die("Unexpected process launch"),
-          }),
-        ),
-      ),
-    ),
 );
 
 it.effect(
@@ -4309,21 +4606,14 @@ it.effect(
         };
         f.installChild(finding, "Reviewed", "reviewer");
         yield* refused(service.admitInvestigation({ ...proof, binding }));
-        f.installChild(
-          finding,
-          "Reviewed",
-          "reviewer",
-          "completed",
-          undefined,
-          config.setupModelSelection,
-        );
+        f.installChild(finding, "Reviewed", "reviewer", "completed", undefined, setupSelection);
         yield* refused(
-          service.admitInvestigation({ ...proof, binding, selection: config.setupModelSelection }),
+          service.admitInvestigation({ ...proof, binding, selection: setupSelection }),
         );
         yield* service.admitInvestigation({
           ...proof,
           binding,
-          selection: config.routineModelSelection,
+          selection: routineSelection,
         });
         f.installChild(
           finding,
@@ -4331,13 +4621,13 @@ it.effect(
           "ui-verifier",
           "completed",
           undefined,
-          config.routineModelSelection,
+          routineSelection,
         );
         yield* refused(
           service.admitInvestigation({
             ...proof,
             binding: { ...binding, role: "reviewer" },
-            selection: config.routineModelSelection,
+            selection: routineSelection,
           }),
         );
       }),
@@ -4515,6 +4805,7 @@ const reviewedFinding = (
     const f = yield* fixture();
     yield* Effect.gen(function* () {
       const service = yield* Champions.ChampionService;
+      yield* service.setModels(defaultModels);
       const finding = yield* activeFinding(f, service);
       const ownerThreadId = f.caller().threadId;
       const implement = { ownerThreadId, request: repair(finding), clientRequestId: "implement" };
@@ -4903,6 +5194,7 @@ const screenAndToolOutcome = (viaTool: boolean) =>
     const f = yield* fixture();
     return yield* Effect.gen(function* () {
       const service = yield* Champions.ChampionService;
+      yield* service.setModels(defaultModels);
       yield* activeFinding(f, service);
       const steps = [
         ["t3_champions_control", { id: config.id, action: "pause" }],
@@ -5553,13 +5845,13 @@ describe("a journey check", () => {
               // In delegation order: the check's own model, then Jev and Luna. With nothing else
               // able to run, the replay runs on the first of them and settles as not independent.
               ranked.push(
-                { instanceId, model: config.routineModelSelection.model },
+                { instanceId, model: routineSelection.model },
                 { instanceId, model: decisionEngines.jev.model },
                 { instanceId, model: decisionEngines.luna.model },
               );
               assert.deepEqual(yield* guard, {
                 instanceId,
-                model: config.routineModelSelection.model,
+                model: routineSelection.model,
               });
               ranked.push({ instanceId, model: "confirmer" }, { instanceId, model: "later" });
               assert.deepEqual(yield* guard, { instanceId, model: "confirmer" });
@@ -5681,7 +5973,7 @@ describe("a journey check", () => {
               replay.workId,
               replay.attemptId,
               verdict("reproduced", "Seen."),
-              config.routineModelSelection.model,
+              routineSelection.model,
             );
             const settled = yield* service.candidateSettle(f.caller(), { candidateId });
             assert.equal(settled.status, "confirmed");
@@ -6070,6 +6362,7 @@ describe("owner measurement on a live check", () => {
       const f = yield* fixture();
       yield* Effect.gen(function* () {
         const service = yield* Champions.ChampionService;
+        yield* service.setModels(defaultModels);
         yield* body(yield* makeWorld(f, service));
       }).pipe(Effect.provide(f.layer), Effect.provideService(Managed.ManagedAgentService, managed));
     }).pipe(Effect.provide(Sqlite.layerMemory));

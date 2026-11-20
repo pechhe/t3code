@@ -7,6 +7,7 @@ import { ChampionsToolkit } from "./tools.ts";
 /** Each Champion write the screen sends, and the agent tool that does the same. */
 const SCREEN_WRITES_TO_TOOLS: Record<string, string> = {
   [WS_METHODS.championsUpsert]: "t3_champions_upsert",
+  [WS_METHODS.championsSetModels]: "t3_champions_models",
   [WS_METHODS.championsSetLifecycle]: "t3_champions_control",
   [WS_METHODS.championsSetup]: "t3_champions_control",
   [WS_METHODS.championsRunCheck]: "t3_champions_control",
@@ -28,7 +29,6 @@ const NO_AGENT_TOOL: Record<string, string> = {
 };
 
 const SCREEN_READS = new Set<string>([
-  WS_METHODS.championsClassChoices,
   WS_METHODS.championsRuntimeState,
   WS_METHODS.championsRecommendation,
   WS_METHODS.championsLearningQuery,
@@ -103,7 +103,6 @@ it("targets an environment for every orchestrator tool and keeps owner-only tool
     "t3_champions_list",
     "t3_champions_get",
     "t3_champions_history",
-    "t3_champions_class_choices",
     "t3_champions_learning_search",
     "t3_champions_learning_read",
     "t3_champions_record_learning",

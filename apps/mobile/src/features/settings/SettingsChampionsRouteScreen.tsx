@@ -34,7 +34,7 @@ import type {
   EnvironmentId,
   ThreadId,
 } from "@t3tools/contracts";
-import { AGENT_ROLE_TITLE_LABEL, resolveEnvironmentMachineKind } from "@t3tools/contracts";
+import { resolveEnvironmentMachineKind } from "@t3tools/contracts";
 import { useFocusEffect, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { AsyncResult, type Atom } from "effect/reactivity";
 import { useState } from "react";
@@ -863,12 +863,6 @@ function ChampionDetailContent(props: {
                 {CHAMPION_STATUS_LABELS[championStatus(data.champion, nowMs)]}
               </Text>
               <Text className="text-base text-foreground">Goal: {data.champion.purpose}</Text>
-              {data.champion.classes ? (
-                <Text className="text-sm text-foreground-muted">
-                  Checks: {AGENT_ROLE_TITLE_LABEL[data.champion.classes.routine.role]} · Harder
-                  work: {AGENT_ROLE_TITLE_LABEL[data.champion.classes.setup.role]}
-                </Text>
-              ) : null}
               {data.champion.attention.map((line) => (
                 <Text key={line} className="text-sm text-foreground-muted">
                   {line}

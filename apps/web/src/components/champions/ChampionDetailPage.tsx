@@ -23,7 +23,6 @@ import { useEnvironments } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { AGENT_ROLE_PRESENTATION } from "../AgentRoleChip";
 import { ModelLabel } from "../ModelLabel";
 import { ScheduledRelativeLabel } from "../scheduled/scheduledTaskParts";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "../ui/alert";
@@ -37,7 +36,7 @@ import { ChampionActivityList, ChampionDecisionList } from "./ChampionActivityLi
 import { ChampionLearnings, useChampionLearningCount } from "./ChampionLearnings";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { ChampionRunStrip } from "./ChampionHowItWorks";
-import { ChampionRoleControls } from "./ChampionRoles";
+import { ChampionModelControls } from "./ChampionModels";
 import { ClampedText } from "./ClampedText";
 import { ChampionMetricRow } from "./ChampionMetrics";
 import {
@@ -106,15 +105,13 @@ function SetupStatus(props: {
     <div role="status" className="flex flex-col gap-2 rounded-lg border p-3 text-sm">
       <div className="flex flex-wrap items-center gap-1.5">
         {notStarted || stopped ? null : <Spinner aria-hidden className="size-3.5" />}
-        {champion.classes ? (
-          <span>{AGENT_ROLE_PRESENTATION[champion.classes.setup.role].label}</span>
-        ) : (
+        {champion.nextModels?.advice ? (
           <ModelLabel
             environmentId={props.environmentId}
-            instanceId={champion.setupModelSelection.instanceId}
-            model={champion.setupModelSelection.model}
+            instanceId={champion.nextModels.advice.model.instanceId}
+            model={champion.nextModels.advice.model.model}
           />
-        )}
+        ) : null}
         <span>
           {notStarted
             ? "couldn't start. Nothing was switched to another model."
@@ -685,9 +682,9 @@ export function ChampionDetailPage(props: {
           runtimeState={runtimeQuery.data}
           projectTitle={project?.title ?? null}
           machineLabel={machines.size > 1 && machine ? machine.label : null}
-          roleControls={
+          modelControls={
             retired ? null : (
-              <ChampionRoleControls environmentId={environmentId} champion={champion} />
+              <ChampionModelControls environmentId={environmentId} champion={champion} />
             )
           }
         />
@@ -696,7 +693,8 @@ export function ChampionDetailPage(props: {
             Retired. Checks and repairs don't run; history stays here. Restoring leaves it paused.
           </p>
         ) : null}
-        {error ? (
+        {/* A skipped check is already in the attention lines and Activity; saying it again here would be a second voice. */}
+        {error && !error.startsWith("Skipped this ") ? (
           <p role="alert" className="text-destructive-foreground text-sm">
             {error}
           </p>

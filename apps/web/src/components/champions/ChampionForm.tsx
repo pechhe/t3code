@@ -1,36 +1,24 @@
-import { useAtomValue } from "@effect/atom-react";
 import {
   DEFAULT_CHAMPION_INSTRUCTIONS,
   type ChampionConfig,
-  type ChampionSelectionClass,
   type ChampionSummary,
   type EnvironmentId,
-  type ModelSelection,
   type ProjectId,
 } from "@t3tools/contracts";
-import { createModelSelection } from "@t3tools/shared/model";
-import { useNavigate } from "@tanstack/react-router";
 import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 import { useState } from "react";
 
-import { useNowMinute } from "../../hooks/useNowMinute";
 import { randomUUID } from "../../lib/utils";
-import { getCustomModelOptionsByInstance } from "../../modelSelection";
 import { useProjects } from "../../state/entities";
 import { useEnvironments } from "../../state/environments";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { ProviderModelPicker } from "../chat/ProviderModelPicker";
-import { TraitsPicker } from "../chat/TraitsPicker";
-import { ModelLabel } from "../ModelLabel";
 import {
   type ScheduleDraft,
   scheduleDraftOf,
   timedScheduleOf,
 } from "../scheduled/scheduledTasks.logic";
-import { useInstanceEntries } from "../settings/useInstanceEntries";
 import { readMainAppProjectRef } from "../sidebar/mainAppLocation";
-import { Alert, AlertAction, AlertDescription, AlertTitle } from "../ui/alert";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
 import { Input } from "../ui/input";
@@ -38,18 +26,9 @@ import { Label } from "../ui/label";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Textarea } from "../ui/textarea";
 import { Toggle } from "../ui/toggle";
-import {
-  DEFAULT_CHAMPION_CLASSES,
-  deriveChampionName,
-  modelSelectionProblem,
-} from "./champions.logic";
-import { ChampionClassField, useChampionClassChoices } from "./ChampionClassField";
+import { deriveChampionName } from "./champions.logic";
 import { ChampionMachineNotice } from "./ChampionMachineNotice";
-import {
-  useChampionAction,
-  useChampionCommandAllowed,
-  useChampionMachineConnected,
-} from "./useChampionAction";
+import { useChampionAction, useChampionCommandAllowed } from "./useChampionAction";
 
 const DEFAULT_SCHEDULE: ChampionConfig["schedule"] = { type: "fixed_time", timeOfDay: "06:00" };
 const DEFAULT_CHARTER: ChampionConfig["charter"] = {
@@ -68,69 +47,6 @@ const CADENCE_LABELS = {
   days: "On chosen days",
 } as const;
 type CadenceKind = keyof typeof CADENCE_LABELS;
-
-function ChampionModelField(props: {
-  readonly label: string;
-  readonly environmentId: EnvironmentId;
-  readonly selection: ModelSelection | null;
-  readonly problem: string | null;
-  readonly disabled: boolean;
-  readonly onChange: (selection: ModelSelection) => void;
-}) {
-  const { selection } = props;
-  const { settings, providers, entries } = useInstanceEntries(props.environmentId);
-  const active = entries.find((entry) => entry.instanceId === selection?.instanceId) ?? null;
-  const pickerEntry = active ?? entries[0] ?? null;
-  const model = active && selection ? selection.model : "";
-  return (
-    <div className="flex flex-col gap-1.5">
-      <Label>{props.label}</Label>
-      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-        {pickerEntry ? (
-          <ProviderModelPicker
-            environmentId={props.environmentId}
-            activeInstanceId={pickerEntry.instanceId}
-            model={model}
-            lockedProvider={null}
-            instanceEntries={entries}
-            modelOptionsByInstance={getCustomModelOptionsByInstance(
-              settings,
-              providers,
-              pickerEntry.instanceId,
-              model,
-            )}
-            isComposerOwned={false}
-            disabled={props.disabled}
-            {...(model ? {} : { triggerLabel: "Choose model" })}
-            onInstanceModelChange={(instanceId, picked) =>
-              props.onChange(createModelSelection(instanceId, picked))
-            }
-          />
-        ) : (
-          <span className="text-muted-foreground text-sm">No model available</span>
-        )}
-        {selection && active ? (
-          <TraitsPicker
-            provider={active.driverKind}
-            models={active.models}
-            model={selection.model}
-            modelOptions={selection.options ?? []}
-            allowPromptInjectedEffort={false}
-            disabled={props.disabled}
-            onModelOptionsChange={(options) =>
-              props.onChange(createModelSelection(selection.instanceId, selection.model, options))
-            }
-          />
-        ) : null}
-      </div>
-      {props.problem ? (
-        <p role="alert" className="text-destructive-foreground text-xs">
-          {props.problem}
-        </p>
-      ) : null}
-    </div>
-  );
-}
 
 function CadenceField(props: {
   readonly draft: ScheduleDraft;
@@ -306,7 +222,6 @@ function ChampionFormFields(props: {
 }) {
   const champion = props.existing?.champion ?? null;
   const { environmentId } = props;
-  const navigate = useNavigate();
   const [firstId] = useState(() => champion?.id ?? randomUUID());
   const [attempted, setAttempted] = useState<{
     readonly key: string;
@@ -317,12 +232,6 @@ function ChampionFormFields(props: {
   const [schedule, setSchedule] = useState<ScheduleDraft>(() =>
     scheduleDraftOf(champion?.schedule ?? DEFAULT_SCHEDULE),
   );
-  const [classes, setClasses] = useState<{
-    readonly setup: ChampionSelectionClass;
-    readonly routine: ChampionSelectionClass;
-  } | null>(() => (champion ? (champion.classes ?? null) : DEFAULT_CHAMPION_CLASSES));
-  const [legacySetup, setLegacySetup] = useState(champion?.setupModelSelection ?? null);
-  const [legacyRoutine, setLegacyRoutine] = useState(champion?.routineModelSelection ?? null);
   const charter = champion?.charter ?? DEFAULT_CHARTER;
   const [maxConcurrent, setMaxConcurrent] = useState(charter.maxConcurrentRepairs);
   const [maxPerDay, setMaxPerDay] = useState(String(charter.maxRepairsPerDay));
@@ -330,9 +239,6 @@ function ChampionFormFields(props: {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const { busy, error, run } = useChampionAction();
-  const { entries, providers } = useInstanceEntries(environmentId);
-  const providersLoaded =
-    useAtomValue(serverEnvironment.providersValueAtom(environmentId)) !== null;
   const upsert = useAtomCommand(serverEnvironment.upsertChampion, {
     label: "champion save",
     reportFailure: false,
@@ -340,41 +246,9 @@ function ChampionFormFields(props: {
   const setup = useAtomCommand(serverEnvironment.setupChampion, {
     label: "champion setup",
   });
-  const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
-    label: "providers refresh",
-    reportFailure: false,
-  });
   const canSave = useChampionCommandAllowed(serverEnvironment.upsertChampion, environmentId);
   const canSetup = useChampionCommandAllowed(serverEnvironment.setupChampion, environmentId);
-  const machineConnected = useChampionMachineConnected(environmentId);
-  const nowMs = Date.parse(`${useNowMinute()}:00.000Z`);
   const projectId = champion?.projectId ?? props.project?.projectId ?? null;
-  const classTarget = (phase: "setup" | "routine") =>
-    projectId === null ? null : { environmentId, projectId, championId: champion?.id, phase };
-  const setupChoices = useChampionClassChoices(classTarget("setup"), classes?.setup ?? null);
-  const routineChoices = useChampionClassChoices(classTarget("routine"), classes?.routine ?? null);
-  const modelProblem = (selection: ModelSelection | null) =>
-    providersLoaded ? modelSelectionProblem(selection, entries, nowMs) : null;
-  const setupProblem = classes === null ? modelProblem(legacySetup) : null;
-  const routineProblem = classes === null ? modelProblem(legacyRoutine) : null;
-  const converted = champion !== null && champion.classes === undefined && classes !== null;
-  const classesRefused =
-    (setupChoices.current !== null && setupChoices.current.selection === null) ||
-    (routineChoices.current !== null && routineChoices.current.selection === null);
-  const classesError = setupChoices.error ?? routineChoices.error;
-  // A new draft takes its required model fields from the server, so it can't save without them.
-  const newDraftBlocked = champion === null && (classesRefused || classesError !== null);
-  const newDraftPending =
-    champion === null &&
-    projectId !== null &&
-    !newDraftBlocked &&
-    (setupChoices.current === null || routineChoices.current === null);
-  const showAdvanced = advancedOpen || newDraftBlocked;
-  const newDraftRefusal = setupChoices.current?.refusal ?? routineChoices.current?.refusal ?? null;
-  const machine = useEnvironments().environments.find(
-    (environment) => environment.environmentId === environmentId,
-  );
-
   const configOf = (): ChampionConfig | null => {
     if (!purpose.trim() || projectId === null) {
       setProblem("Say what should stay true and choose a project.");
@@ -398,18 +272,6 @@ function ChampionFormFields(props: {
       setProblem(`Repairs per day must be a whole number from 0 to ${MAX_REPAIRS_PER_DAY}.`);
       return null;
     }
-    const setupModel = champion === null ? (setupChoices.current?.selection ?? null) : legacySetup;
-    const routineModel =
-      champion === null ? (routineChoices.current?.selection ?? null) : legacyRoutine;
-    if (setupModel === null || routineModel === null || setupProblem || routineProblem) {
-      setAdvancedOpen(true);
-      setProblem(
-        classes === null
-          ? "Choose models this machine can run."
-          : "These roles can't run on this machine yet.",
-      );
-      return null;
-    }
     setProblem(null);
     return {
       id: firstId,
@@ -417,9 +279,7 @@ function ChampionFormFields(props: {
       name: finalName,
       purpose: purpose.trim(),
       schedule: timed,
-      ...(classes === null ? {} : { classes }),
-      setupModelSelection: setupModel,
-      routineModelSelection: routineModel,
+      ...(champion?.models === undefined ? {} : { models: champion.models }),
       charter: {
         maxConcurrentRepairs: maxConcurrent,
         maxRepairsPerDay: perDay,
@@ -463,7 +323,7 @@ function ChampionFormFields(props: {
     if (saved) props.onDone({ environmentId: existing.environmentId, id: config.id });
   };
 
-  const AdvancedChevron = showAdvanced ? ChevronDownIcon : ChevronRightIcon;
+  const AdvancedChevron = advancedOpen ? ChevronDownIcon : ChevronRightIcon;
   const disabled = busy !== null;
   return (
     <form
@@ -523,72 +383,26 @@ function ChampionFormFields(props: {
         )}
       </div>
 
-      {newDraftBlocked ? (
-        <Alert variant="warning">
-          <AlertTitle>No model is ready on {machine?.label ?? "this machine"}</AlertTitle>
-          <AlertDescription>
-            {classesError
-              ? `Couldn't check your role policy there. ${classesError}`
-              : newDraftRefusal}{" "}
-            Nothing was switched to another model.
-          </AlertDescription>
-          <AlertAction>
-            <Button
-              size="xs"
-              variant="outline"
-              disabled={!machineConnected}
-              onClick={() => {
-                void refreshProviders({ environmentId, input: {} }).then(() => {
-                  setupChoices.refresh();
-                  routineChoices.refresh();
-                });
-              }}
-            >
-              Check again
-            </Button>
-            <Button
-              size="xs"
-              variant="ghost"
-              onClick={() =>
-                void navigate({ to: "/settings/providers", search: { environmentId } })
-              }
-            >
-              Set up a provider
-            </Button>
-          </AlertAction>
-        </Alert>
-      ) : null}
-
       {champion === null ? (
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap gap-2">
             <Button
-              disabled={disabled || !canSave || !canSetup || newDraftBlocked || newDraftPending}
+              disabled={disabled || !canSave || !canSetup}
               onClick={() => void submitNew("propose")}
             >
               {busy === "propose" ? "Starting…" : "Set up metrics with AI"}
             </Button>
             <Button
               variant="ghost"
-              disabled={disabled || !canSave || newDraftBlocked || newDraftPending}
+              disabled={disabled || !canSave}
               onClick={() => void submitNew("manual")}
             >
               Add metrics myself
             </Button>
           </div>
           <p className="text-muted-foreground text-xs">
-            {setupChoices.current?.selection ? (
-              <ModelLabel
-                environmentId={environmentId}
-                instanceId={setupChoices.current.selection.instanceId}
-                model={setupChoices.current.selection.model}
-                className="inline-flex"
-              />
-            ) : (
-              "The setup role"
-            )}{" "}
-            reads your remit and the evidence available in this project, then sets what to track and
-            starts the champion. It runs at setup and for later reviews, not on routine checks.
+            Setup reads your remit and the evidence available in this project, then sets what to
+            track and starts the champion.
           </p>
         </div>
       ) : null}
@@ -598,13 +412,13 @@ function ChampionFormFields(props: {
           size="xs"
           variant="ghost-muted"
           className="self-start"
-          aria-expanded={showAdvanced}
+          aria-expanded={advancedOpen}
           onClick={() => setAdvancedOpen((value) => !value)}
         >
           <AdvancedChevron aria-hidden />
           Advanced settings
         </Button>
-        {showAdvanced ? (
+        {advancedOpen ? (
           <div className="flex flex-col gap-4 rounded-lg border p-3">
             {champion === null ? (
               <div className="flex flex-col gap-1.5">
@@ -621,77 +435,6 @@ function ChampionFormFields(props: {
               draft={schedule}
               onChange={(patch) => setSchedule((current) => ({ ...current, ...patch }))}
             />
-            {classes === null ? (
-              <>
-                <div className="flex flex-col items-start gap-1.5 rounded-lg border p-3 text-sm">
-                  <p className="font-medium">This champion uses fixed models</p>
-                  <p className="text-muted-foreground text-xs">
-                    It keeps using exactly these until you change it, and nothing switches for you.
-                    Following role policy changes both fields together, and a champion doesn't go
-                    back to fixed models afterwards. Past runs keep the model they used.
-                  </p>
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    disabled={disabled}
-                    onClick={() => setClasses(DEFAULT_CHAMPION_CLASSES)}
-                  >
-                    Follow role policy instead
-                  </Button>
-                </div>
-                <ChampionModelField
-                  label="Routine checks use"
-                  environmentId={environmentId}
-                  selection={legacyRoutine}
-                  problem={routineProblem}
-                  disabled={disabled}
-                  onChange={setLegacyRoutine}
-                />
-                <ChampionModelField
-                  label="Metric setup and larger challenges use"
-                  environmentId={environmentId}
-                  selection={legacySetup}
-                  problem={setupProblem}
-                  disabled={disabled}
-                  onChange={setLegacySetup}
-                />
-              </>
-            ) : (
-              <>
-                {converted ? (
-                  <p className="text-muted-foreground text-xs">
-                    Both fields now follow role policy, from the suggested roles. This takes effect
-                    when you save.{" "}
-                    <Button
-                      size="xs"
-                      variant="ghost-muted"
-                      disabled={disabled}
-                      onClick={() => setClasses(null)}
-                    >
-                      Keep fixed models
-                    </Button>
-                  </p>
-                ) : null}
-                <ChampionClassField
-                  label="Routine checks use"
-                  environmentId={environmentId}
-                  selected={classes.routine}
-                  saved={champion?.classes?.routine ?? null}
-                  query={routineChoices}
-                  disabled={disabled}
-                  onChange={(routine) => setClasses({ ...classes, routine })}
-                />
-                <ChampionClassField
-                  label="Metric setup and larger challenges use"
-                  environmentId={environmentId}
-                  selected={classes.setup}
-                  saved={champion?.classes?.setup ?? null}
-                  query={setupChoices}
-                  disabled={disabled}
-                  onChange={(setup) => setClasses({ ...classes, setup })}
-                />
-              </>
-            )}
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="champion-charter">Repair charter</Label>
               <Textarea
@@ -746,15 +489,6 @@ function ChampionFormFields(props: {
       {problem || error ? (
         <p role="alert" className="text-destructive-foreground text-sm">
           {problem ?? error}
-        </p>
-      ) : null}
-      {newDraftPending ? (
-        <p role="status" className="text-muted-foreground text-xs">
-          Checking your role policy…
-        </p>
-      ) : classes === null && providers.length === 0 && !providersLoaded ? (
-        <p role="status" className="text-muted-foreground text-xs">
-          Loading models…
         </p>
       ) : null}
       <div className="flex justify-end gap-2">

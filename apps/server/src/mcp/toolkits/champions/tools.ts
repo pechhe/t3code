@@ -1,6 +1,6 @@
 import {
-  ChampionClassChoicesInput,
-  ChampionClassChoicesResult,
+  ChampionModelDefaults,
+  ChampionSetModelsInput,
   ChampionRuntimeState,
   ChampionLearningQueryInput,
   ChampionLearningQueryResult,
@@ -64,17 +64,17 @@ const shared = {
     McpInvocationContext.McpInvocationContext,
   ],
 };
-const class_choices = Tool.make("t3_champions_class_choices", {
+const models = Tool.make("t3_champions_models", {
   ...shared,
   description:
-    "Read server-resolved eligible agent classes for a destination project and classification, with policy provenance and honest refusals. New draft historical selection fields come from these choices; never guess a model.",
+    "Read or set this machine's Champion models, the ones every Champion runs on unless it has its own. checks is the model for checks; advice is the model for metric setup and finding diagnosis. Each is a model with an optional backup that takes over when the model hits a usage limit and cannot move to another pooled account. Omit checks and advice to read; pass either to replace that slot as a whole, model and backup (a slot you leave out stays as it is). A Champion's own main model is set with models on t3_champions_upsert; the default's backup still applies. Returns the models now in force.",
   parameters: Schema.Struct({
-    ...ChampionClassChoicesInput.fields,
+    ...ChampionSetModelsInput.fields,
     environmentId: OrchestratorMcpEnvironmentTarget,
   }),
-  success: ChampionClassChoicesResult,
+  success: ChampionModelDefaults,
 })
-  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false);
 const get = Tool.make("t3_champions_get", {
   ...shared,
@@ -315,7 +315,7 @@ const history = Tool.make("t3_champions_history", {
 const upsert = Tool.make("t3_champions_upsert", {
   ...shared,
   description:
-    "Create a paused champion draft or edit its explicit setup/routine selections and charter. On a journey champion, repairsVia names an active champion in the same project that repairs what it confirms; null clears it.",
+    "Create a paused champion draft or edit its name, purpose, schedule, charter and own models (models.checks for its checks, models.advice for its metric setup and finding diagnosis; each is a main model that replaces the machine default, which keeps its backup). On a journey champion, repairsVia names an active champion in the same project that repairs what it confirms; null clears it.",
   parameters: Schema.Struct({
     ...ChampionUpsertInput.fields,
     environmentId: OrchestratorMcpEnvironmentTarget,
@@ -387,7 +387,7 @@ const journey_record = Tool.make("t3_champions_journey_record", {
   .annotate(Tool.Readonly, true)
   .annotate(Tool.Destructive, false);
 export const ChampionsToolkit = Toolkit.make(
-  class_choices,
+  models,
   get,
   control,
   metrics,

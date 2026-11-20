@@ -1,11 +1,5 @@
 import { expect, it } from "@effect/vitest";
-import {
-  EnvironmentId,
-  ProjectId,
-  ProviderInstanceId,
-  ThreadId,
-  type ChampionSummary,
-} from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, ThreadId, type ChampionSummary } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -28,8 +22,6 @@ const summary: ChampionSummary = {
   name: "Performance",
   purpose: "Stay fast",
   schedule: { type: "interval", everyMs: 3600000 },
-  setupModelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "m" },
-  routineModelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "m" },
   charter: { maxConcurrentRepairs: 1, maxRepairsPerDay: 3, instructions: "" },
   lifecycle: "active",
   ownerThreadId: ThreadId.make("owner"),

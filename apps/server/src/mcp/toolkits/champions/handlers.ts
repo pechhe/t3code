@@ -96,10 +96,27 @@ const prepareApproval = Effect.fn("champions.prepareApproval")(function* <
   return { ...input, forwardedApproval: proof };
 });
 export const handlers = {
-  t3_champions_class_choices: McpToolAccess.reads((input) =>
-    Effect.flatMap(Champions.ChampionService, (service) => service.classChoices(input)).pipe(
-      Effect.mapError(failure),
-    ),
+  t3_champions_models: McpToolAccess.writesEnvironment(
+    (input, check) =>
+      check.pipe(
+        Effect.andThen(
+          Effect.gen(function* () {
+            const service = yield* Champions.ChampionService;
+            const current = yield* service.modelDefaults;
+            if (input.checks === undefined && input.advice === undefined) return current;
+            return yield* service.setModels({
+              ...(input.checks === undefined && current.checks === undefined
+                ? {}
+                : { checks: input.checks ?? current.checks }),
+              ...(input.advice === undefined && current.advice === undefined
+                ? {}
+                : { advice: input.advice ?? current.advice }),
+            });
+          }),
+        ),
+        Effect.mapError(failure),
+      ),
+    { linkedCallers: "allowed" },
   ),
   t3_champions_get: McpToolAccess.reads((input) =>
     Effect.gen(function* () {

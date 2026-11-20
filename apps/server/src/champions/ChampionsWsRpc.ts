@@ -16,7 +16,7 @@ export const layerWsChampionsRpc = ServerWsChampionsRpcGroup.toLayer(
   Effect.gen(function* () {
     const champions = yield* Champions.ChampionService;
     return ServerWsChampionsRpcGroup.of({
-      [WS_METHODS.championsClassChoices]: (input) => champions.classChoices(input),
+      [WS_METHODS.championsSetModels]: (input) => champions.setModels(input),
       [WS_METHODS.championsRuntimeState]: (input) => champions.runtimeState(input),
       [WS_METHODS.championsRecommendation]: (input) => champions.recommendation(input),
       [WS_METHODS.championsLearningQuery]: (input) => champions.learningQuery(input),

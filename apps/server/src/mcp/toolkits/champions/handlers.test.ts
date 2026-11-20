@@ -6,6 +6,7 @@ import {
   ProjectId,
   MessageId,
   type ChampionDetail,
+  type ChampionModelDefaults,
   ProviderInstanceId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -119,8 +120,7 @@ const detail: ChampionDetail = {
     name: "Gate",
     purpose: "Stay fast",
     schedule: { type: "interval", everyMs: 3600000 },
-    setupModelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "m" },
-    routineModelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "m" },
+    models: { checks: { instanceId: ProviderInstanceId.make("codex"), model: "m" } },
     charter: {
       maxConcurrentRepairs: 1,
       maxRepairsPerDay: 3,
@@ -185,6 +185,8 @@ const harness = Effect.sync(() => {
   const cancelled: Array<unknown> = [];
   const proposed: Array<unknown> = [];
   const measured: Array<{ caller: unknown; input: unknown }> = [];
+  const upserted: Array<{ readonly models?: unknown }> = [];
+  let defaults: ChampionModelDefaults = {};
   const revision = (input: { readonly id: string }) =>
     ({
       ...input,
@@ -261,6 +263,17 @@ const harness = Effect.sync(() => {
           admission: null,
         } as const;
       }),
+    modelDefaults: Effect.sync(() => defaults),
+    setModels: (input) =>
+      Effect.sync(() => {
+        defaults = input;
+        return defaults;
+      }),
+    upsert: (input) =>
+      Effect.sync(() => {
+        upserted.push(input);
+        return { ...detail, champion: { ...detail.champion, models: input.models } };
+      }),
     verifyApproval: () => Effect.succeed(proof),
     runtimeState: () => Effect.succeed({ attempts: [], investigations: [], recommendations: [] }),
   });
@@ -295,6 +308,7 @@ const harness = Effect.sync(() => {
     cancelled,
     proposed,
     measured,
+    upserted,
     layer,
   };
 });
@@ -323,6 +337,48 @@ it.effect("gets full Champion configuration and latest samples by id", () =>
     expect(result.isError).toBe(false);
     expect(JSON.parse(result.text)).toEqual(detail);
   }),
+);
+
+it.effect(
+  "reads and sets the machine's Champion models, and a Champion's own override round-trips",
+  () =>
+    Effect.gen(function* () {
+      const h = yield* harness;
+      yield* Effect.gen(function* () {
+        const codex = { instanceId: ProviderInstanceId.make("codex"), model: "m" };
+        const claude = { instanceId: ProviderInstanceId.make("claudeAgent"), model: "n" };
+        const none = yield* call("t3_champions_models", threadScope(leadThread), {});
+        expect(JSON.parse(none.text)).toEqual({});
+
+        const set = yield* call("t3_champions_models", threadScope(leadThread), {
+          checks: { model: codex, backup: claude },
+        });
+        expect(JSON.parse(set.text)).toEqual({ checks: { model: codex, backup: claude } });
+        // A slot left out stays as it was.
+        const advice = yield* call("t3_champions_models", threadScope(leadThread), {
+          advice: { model: claude },
+        });
+        expect(JSON.parse(advice.text)).toEqual({
+          checks: { model: codex, backup: claude },
+          advice: { model: claude },
+        });
+        const read = yield* call("t3_champions_models", threadScope(leadThread), {});
+        expect(JSON.parse(read.text)).toEqual(JSON.parse(advice.text));
+
+        const upsert = yield* call("t3_champions_upsert", threadScope(leadThread), {
+          id: detail.champion.id,
+          projectId: detail.champion.projectId,
+          name: "Gate",
+          purpose: "Stay fast",
+          schedule: { type: "interval", everyMs: 3600000 },
+          charter: detail.champion.charter,
+          models: { advice: claude },
+        });
+        expect(upsert.isError).toBe(false);
+        expect(JSON.parse(upsert.text).champion.models).toEqual({ advice: claude });
+        expect(h.upserted).toHaveLength(1);
+      }).pipe(Effect.provide(h.layer));
+    }),
 );
 
 it.effect(

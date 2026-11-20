@@ -662,14 +662,16 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
             ),
           ),
         );
+        yield* service.setModels({
+          advice: { model: { instanceId: claude.instanceId, model: "claude-fable-test" } },
+          checks: { model: parent.thread.modelSelection },
+        });
         const doc = yield* service.upsert({
           id: options.championId ?? "managed-champion",
           projectId,
           name: "Managed health",
           purpose: "Own improvements",
           schedule: { type: "interval", everyMs: 60000 },
-          setupModelSelection: { instanceId: claude.instanceId, model: "claude-fable-test" },
-          routineModelSelection: parent.thread.modelSelection,
           charter: {
             maxConcurrentRepairs: 1,
             maxRepairsPerDay: 3,

@@ -6,7 +6,6 @@ import {
   RunId,
   ThreadId,
   type ChampionActivity,
-  type ChampionClassChoicesResult,
   type ChampionFinding,
   type ChampionMetric,
   type ChampionRecommendation,
@@ -21,11 +20,9 @@ import type { ProviderInstanceEntry } from "../../providerInstances";
 import {
   latestGoalProgress,
   championActivityView,
-  championClassOptions,
   championDecisionBindingChanged,
   championMachineGap,
   championRecentRuns,
-  championRoleTaskClass,
   championsNeedingAttention,
   metricChange,
   metricIsOffTarget,
@@ -42,7 +39,6 @@ import {
   readingFreshness,
   recentMetricChange,
   recommendationSupport,
-  resolveChampionClass,
   resolveChampionSelection,
   retiredMetrics,
   safeExternalUrl,
@@ -62,8 +58,6 @@ const summary = (patch: Partial<ChampionSummary> = {}): ChampionSummary => ({
   name: "Performance",
   purpose: "Stay fast",
   schedule: { type: "fixed_time", timeOfDay: "06:00" },
-  setupModelSelection: { instanceId: ProviderInstanceId.make("claude"), model: "m" },
-  routineModelSelection: { instanceId: ProviderInstanceId.make("claude"), model: "m" },
   charter: { maxConcurrentRepairs: 1, maxRepairsPerDay: 3, instructions: "" },
   lifecycle: "active",
   ownerThreadId: THREAD,
@@ -616,74 +610,6 @@ describe("championMachineGap", () => {
       championMachineGap([machine("Studio", "connected"), machine("Spare", "available")]),
     ).toBeNull();
     expect(championMachineGap([])).toBeNull();
-  });
-});
-
-describe("champion class choices", () => {
-  const model = (name: string) => ({
-    instanceId: ProviderInstanceId.make("claude"),
-    model: name,
-  });
-  const result = (
-    roles: ChampionClassChoicesResult["roles"],
-    refusal: string | null = null,
-  ): ChampionClassChoicesResult => ({
-    policyHash: refusal === null ? "h" : null,
-    policyRevision: refusal === null ? "r" : null,
-    refusal,
-    roles,
-  });
-  const nonUi = result([
-    { role: "implementer", selection: model("light"), refusal: null },
-    { role: "advisor", selection: null, refusal: "No eligible model." },
-    { role: "reviewer", selection: model("review"), refusal: null },
-    { role: "researcher", selection: model("search"), refusal: null },
-    { role: "scout", selection: null, refusal: "Not a non-UI role." },
-  ]);
-
-  it("offers only the roles the server can run, and the implementer first", () => {
-    const options = championClassOptions(
-      { role: "implementer", taskClass: "non-ui" },
-      { "non-ui": nonUi, ui: null, mixed: null },
-    );
-    expect(options.map((option) => option.role)).toEqual(["implementer", "researcher"]);
-    expect(options[0]?.selection?.model).toBe("light");
-  });
-
-  it("runs a champion's checks as non-UI work whichever role it names", () => {
-    expect(championRoleTaskClass("implementer")).toBe("non-ui");
-    expect(championRoleTaskClass("advisor")).toBe("non-ui");
-  });
-
-  it("keeps a saved refused role visible with its reason instead of swapping it", () => {
-    const saved = { role: "advisor", taskClass: "non-ui" } as const;
-    expect(resolveChampionClass(saved, nonUi)).toEqual({
-      role: "advisor",
-      selection: null,
-      refusal: "No eligible model.",
-    });
-    expect(
-      championClassOptions(saved, { "non-ui": nonUi, ui: null, mixed: null }).map(
-        ({ role }) => role,
-      ),
-    ).toContain("advisor");
-  });
-
-  it("carries a policy-wide refusal without inventing a selection", () => {
-    expect(
-      resolveChampionClass(
-        { role: "implementer", taskClass: "non-ui" },
-        result([], "Agent class policy is unavailable on this machine."),
-      ),
-    ).toEqual({
-      role: "implementer",
-      selection: null,
-      refusal: "Agent class policy is unavailable on this machine.",
-    });
-  });
-
-  it("says nothing until the server has answered", () => {
-    expect(resolveChampionClass({ role: "advisor", taskClass: "non-ui" }, null)).toBeNull();
   });
 });
 

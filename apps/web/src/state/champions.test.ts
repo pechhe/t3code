@@ -4,7 +4,6 @@ import {
   EnvironmentAuthorizationError,
   EnvironmentId,
   ProjectId,
-  ProviderInstanceId,
   ThreadId,
   type ChampionSummary,
 } from "@t3tools/contracts";
@@ -42,8 +41,6 @@ const champion = (id: string): ChampionSummary => ({
   name: id,
   purpose: "Stay fast",
   schedule: { type: "fixed_time", timeOfDay: "06:00" },
-  setupModelSelection: { instanceId: ProviderInstanceId.make("claude"), model: "m" },
-  routineModelSelection: { instanceId: ProviderInstanceId.make("claude"), model: "m" },
   charter: { maxConcurrentRepairs: 1, maxRepairsPerDay: 3, instructions: "" },
   lifecycle: "active",
   ownerThreadId: ThreadId.make("owner"),

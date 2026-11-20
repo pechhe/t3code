@@ -9,13 +9,7 @@ import {
   TrimmedNonEmptyString,
   EnvironmentId,
 } from "./baseSchemas.ts";
-import {
-  AgentPolicyCandidate,
-  AgentRole,
-  StoredAgentRole,
-  AgentTaskClass,
-  AgentTaskBinding,
-} from "./agentPolicy.ts";
+import { StoredAgentRole, AgentTaskClass, AgentTaskBinding } from "./agentPolicy.ts";
 import { CommandId, NodeId } from "./baseSchemas.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import { ScheduledTaskUpsertSchedule } from "./scheduledTask.ts";
@@ -70,40 +64,36 @@ export const ChampionSelectionClass = Schema.Struct({
   taskClass: AgentTaskClass,
 });
 export type ChampionSelectionClass = typeof ChampionSelectionClass.Type;
-export const ChampionClasses = Schema.Struct({
-  setup: ChampionSelectionClass.pipe(
-    Schema.withDecodingDefault(
-      Effect.succeed({ role: "advisor" as const, taskClass: "non-ui" as const }),
-    ),
-  ),
-  routine: ChampionSelectionClass.pipe(
-    Schema.withDecodingDefault(
-      Effect.succeed({ role: "implementer" as const, taskClass: "non-ui" as const }),
-    ),
-  ),
+/** A model for one kind of Champion run, with an optional backup for when it is at its usage limit. */
+export const ChampionModelSlot = Schema.Struct({
+  model: ModelSelection,
+  backup: Schema.optional(ModelSelection),
 });
-export const ChampionClassChoicesInput = Schema.Struct({
-  projectId: ProjectId,
-  championId: Schema.optional(ChampionId),
-  taskClass: Schema.optional(AgentTaskClass),
-  phase: Schema.optional(Schema.Literals(["setup", "routine"])),
+export type ChampionModelSlot = typeof ChampionModelSlot.Type;
+/** The models a machine's Champions run on: `checks` for checks, `advice` for metric setup and finding diagnosis. A slot not chosen yet is absent. */
+export const ChampionModelDefaults = Schema.Struct({
+  checks: Schema.optional(ChampionModelSlot),
+  advice: Schema.optional(ChampionModelSlot),
 });
-export type ChampionClassChoicesInput = typeof ChampionClassChoicesInput.Type;
-export const ChampionClassChoicesResult = Schema.Struct({
-  policyHash: Schema.NullOr(ChampionText),
-  policyRevision: Schema.NullOr(ChampionText),
-  refusal: Schema.NullOr(ChampionLabel),
-  roles: Schema.Array(
-    Schema.Struct({
-      role: AgentRole,
-      selection: Schema.NullOr(ModelSelection),
-      refusal: Schema.NullOr(ChampionLabel),
-      /** Models passed over for an overload cool-down; absent when none is. */
-      overloaded: Schema.optional(Schema.Array(AgentPolicyCandidate).check(Schema.isMaxLength(12))),
-    }),
-  ).check(Schema.isMaxLength(12)),
+export type ChampionModelDefaults = typeof ChampionModelDefaults.Type;
+/** One Champion's own main models; the default's backup still applies. */
+export const ChampionModelOverrides = Schema.Struct({
+  checks: Schema.optional(ModelSelection),
+  advice: Schema.optional(ModelSelection),
 });
-export type ChampionClassChoicesResult = typeof ChampionClassChoicesResult.Type;
+export type ChampionModelOverrides = typeof ChampionModelOverrides.Type;
+/** What a Champion's next run of one kind will use, and whether that is its own choice or the machine default. */
+export const ChampionNextModel = Schema.Struct({
+  model: ModelSelection,
+  backup: Schema.optional(ModelSelection),
+  source: Schema.Literals(["default", "champion"]),
+});
+export type ChampionNextModel = typeof ChampionNextModel.Type;
+export const ChampionNextModels = Schema.Struct({
+  checks: Schema.optional(ChampionNextModel),
+  advice: Schema.optional(ChampionNextModel),
+});
+export type ChampionNextModels = typeof ChampionNextModels.Type;
 /**
  * A Champion that hunts bugs through browser journeys (T3-465). The target is configuration: commands that start and
  * end it print its manifest, and the server decides whether it is eligible before any browser starts.
@@ -134,9 +124,7 @@ export const ChampionConfig = Schema.Struct({
     ScheduledTaskUpsertSchedule.members[0],
     ScheduledTaskUpsertSchedule.members[1],
   ]),
-  classes: Schema.optional(ChampionClasses),
-  setupModelSelection: ModelSelection,
-  routineModelSelection: ModelSelection,
+  models: Schema.optional(ChampionModelOverrides),
   charter: ChampionCharter,
   journeys: Schema.optional(ChampionJourneyConfig),
   /** The champion in this project that repairs what this journey champion confirms; null clears it. */
@@ -172,6 +160,8 @@ export const ChampionLatestSample = Schema.Struct({
 export type ChampionLatestSample = typeof ChampionLatestSample.Type;
 export const ChampionSummary = Schema.Struct({
   ...ChampionConfig.fields,
+  /** Filled in when read: the models the next check and advice will use. */
+  nextModels: Schema.optional(ChampionNextModels),
   latestSamples: Schema.optional(Schema.Array(ChampionLatestSample).check(Schema.isMaxLength(32))),
   lifecycle: ChampionLifecycle,
   ownerThreadId: ThreadId,
@@ -361,7 +351,13 @@ export const ChampionDetail = Schema.Struct({
 });
 export type ChampionDetail = typeof ChampionDetail.Type;
 export const ChampionListInput = Schema.Struct({ projectId: Schema.optional(ProjectId) });
-export const ChampionListResult = Schema.Struct({ champions: Schema.Array(ChampionSummary) });
+export const ChampionListResult = Schema.Struct({
+  champions: Schema.Array(ChampionSummary),
+  /** The machine's Champion models; absent from a build that has none. */
+  modelDefaults: Schema.optional(ChampionModelDefaults),
+});
+export const ChampionSetModelsInput = ChampionModelDefaults;
+export type ChampionSetModelsInput = typeof ChampionSetModelsInput.Type;
 export const ChampionGetInput = Schema.Struct({ id: ChampionId });
 export const ChampionUpsertInput = ChampionConfig;
 export type ChampionUpsertInput = typeof ChampionUpsertInput.Type;
@@ -756,9 +752,12 @@ export const ChampionExecutionAttempt = Schema.Struct({
   id: ChampionLabel,
   checkId: ChampionText,
   kind: Schema.Literals(["setup", "check"]),
-  selectionClass: Schema.NullOr(ChampionSelectionClass),
-  policyHash: Schema.NullOr(ChampionText),
-  policyRevision: Schema.NullOr(ChampionText),
+  /** Written by builds that resolved a role class; no longer set. */
+  selectionClass: Schema.optional(Schema.NullOr(ChampionSelectionClass)),
+  policyHash: Schema.optional(Schema.NullOr(ChampionText)),
+  policyRevision: Schema.optional(Schema.NullOr(ChampionText)),
+  /** `backup` when the main model could not run. */
+  slot: Schema.optional(Schema.Literals(["main", "backup"])),
   resolvedSelection: ModelSelection,
   actualSelection: Schema.NullOr(ModelSelection),
   commandId: CommandId,

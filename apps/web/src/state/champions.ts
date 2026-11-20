@@ -5,6 +5,7 @@ import {
 } from "@t3tools/client-runtime/champions";
 import type { EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
 import {
+  type ChampionModelDefaults,
   type ChampionSummary,
   EnvironmentAuthorizationError,
   type EnvironmentId,
@@ -26,6 +27,8 @@ import { serverEnvironment } from "./server";
 export interface EnvironmentChampions {
   readonly environmentId: EnvironmentId;
   readonly champions: ReadonlyArray<ChampionSummary> | null;
+  /** The machine's Champion models; absent when the server's build has none. */
+  readonly modelDefaults: ChampionModelDefaults | undefined;
   readonly error: string | null;
   readonly unsupported: boolean;
   /** Anything but "connected" means `champions` is the last-known list and commands can't reach it. */
@@ -58,6 +61,7 @@ export const allChampionsAtom = Atom.make((get): ReadonlyArray<EnvironmentChampi
       return {
         environmentId,
         champions: value?.champions ?? null,
+        modelDefaults: value?.modelDefaults,
         error: reportFailure ? championLoadFailureMessage(failure) : null,
         unsupported: reportFailure && championsUnsupportedByServer(failure),
         connection: connectionState,

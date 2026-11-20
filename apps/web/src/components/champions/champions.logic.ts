@@ -11,9 +11,7 @@ import type { EnvironmentConnectionPhase } from "@t3tools/client-runtime/connect
 import {
   EnvironmentId,
   type AgentRole,
-  type AgentTaskClass,
   type ChampionActivity,
-  type ChampionClassChoicesResult,
   type ChampionFinding,
   type ChampionId,
   type ChampionMetric,
@@ -21,7 +19,6 @@ import {
   type ChampionRecommendation,
   type ChampionRuntimeState,
   type ChampionSample,
-  type ChampionSelectionClass,
   type ChampionSummary,
   type ModelSelection,
   type ThreadId,
@@ -699,74 +696,6 @@ export function championMachineGap(
     title: `Can't reach ${named(unreachable)}`,
     notice: `Can't reach ${named(unreachable)}, so champions there aren't shown.`,
   };
-}
-
-export const DEFAULT_CHAMPION_CLASSES = {
-  setup: { role: "advisor", taskClass: "non-ui" },
-  routine: { role: "implementer", taskClass: "non-ui" },
-} as const satisfies {
-  readonly setup: ChampionSelectionClass;
-  readonly routine: ChampionSelectionClass;
-};
-
-/** The roles worth offering a champion. The server still decides which of them can run. */
-const OFFERED_CHAMPION_ROLES: ReadonlyArray<AgentRole> = [
-  "implementer",
-  "advisor",
-  "researcher",
-  "scout",
-];
-
-/** Champions run non-UI checks, whichever role they run as: the class no longer picks a role. */
-export const championRoleTaskClass = (_role: AgentRole): AgentTaskClass => "non-ui";
-
-interface ChampionClassOption {
-  readonly role: AgentRole;
-  readonly selection: ModelSelection | null;
-  readonly refusal: string | null;
-}
-
-interface ChampionClassChoicesByTask {
-  readonly "non-ui": ChampionClassChoicesResult | null;
-  readonly ui: ChampionClassChoicesResult | null;
-  readonly mixed: ChampionClassChoicesResult | null;
-}
-
-const NOT_OFFERED = "Your role policy doesn't offer this role here.";
-
-/** What the server says about a class: a model it would use now, or why it would use none. */
-export function resolveChampionClass(
-  selected: ChampionSelectionClass,
-  choices: ChampionClassChoicesResult | null,
-): ChampionClassOption | null {
-  if (choices === null) return null;
-  const { role } = selected;
-  if (choices.refusal !== null) return { role, selection: null, refusal: choices.refusal };
-  const found = choices.roles.find((candidate) => candidate.role === role);
-  if (found === undefined) return { role, selection: null, refusal: NOT_OFFERED };
-  if (found.selection === null) {
-    return { role, selection: null, refusal: found.refusal ?? NOT_OFFERED };
-  }
-  return found.refusal === null
-    ? { role, selection: found.selection, refusal: null }
-    : { role, selection: null, refusal: found.refusal };
-}
-
-/** Eligible roles only, except that a saved choice stays listed instead of being swapped away. */
-export function championClassOptions(
-  selected: ChampionSelectionClass,
-  choices: ChampionClassChoicesByTask,
-): ReadonlyArray<ChampionClassOption> {
-  const eligible = OFFERED_CHAMPION_ROLES.flatMap((role) => {
-    const option = resolveChampionClass(
-      { role, taskClass: championRoleTaskClass(role) },
-      choices[championRoleTaskClass(role)],
-    );
-    return option?.selection ? [option] : [];
-  });
-  if (eligible.some((option) => option.role === selected.role)) return eligible;
-  const current = resolveChampionClass(selected, choices[selected.taskClass]);
-  return [...eligible, current ?? { role: selected.role, selection: null, refusal: null }];
 }
 
 /** Immutable supporting text, kept out of the recommendation. Owners may repeat themselves. */

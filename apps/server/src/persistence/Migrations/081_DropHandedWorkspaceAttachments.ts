@@ -3,10 +3,11 @@ import * as SqlClient from "effect/sql/SqlClient";
 
 // A move used to fork the chat and mark the source's attachments `movedTo` the fork. Moves now
 // happen in place, so those entries would read as workspaces the archived source still holds.
-const withoutHanded = `json_set(payload_json, '$.workspaceAttachments', (
+// A subquery drops the JSON subtype in newer SQLite, so `json()` makes the array an array, not a string.
+const withoutHanded = `json_set(payload_json, '$.workspaceAttachments', json((
   SELECT json_group_array(json(value)) FROM json_each(payload_json, '$.workspaceAttachments')
   WHERE json_type(value, '$.movedTo') IS NULL
-))`;
+)))`;
 const hasHanded = `EXISTS (
   SELECT 1 FROM json_each(payload_json, '$.workspaceAttachments')
   WHERE json_type(value, '$.movedTo') IS NOT NULL
