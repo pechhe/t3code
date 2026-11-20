@@ -21,6 +21,7 @@ import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { restartContinuationRun, continueRestartedRun } from "./RestartContinuation.ts";
 import { continuationStartRetryDelayMs } from "./RestartBackgroundNote.ts";
@@ -1619,4 +1620,49 @@ it.effect("records roster work with the prepared continuation before shutdown dr
     if (command.type !== "message.dispatch") return;
     assert.include(command.text, "- shell: b6zhso7dl");
   }),
+);
+
+it.effect.each([["later-commit"], [undefined]] as const)(
+  "continues a restart-cut pinned task at the revision its workspace shows now (%s)",
+  ([moved]) =>
+    Effect.gen(function* () {
+      const base = makeProjection();
+      const projection = {
+        ...base,
+        thread: {
+          ...base.thread,
+          agentTask: { role: "implementer", workspacePath: "/workspace", sourceRevision: "pin" },
+        },
+        runs: [{ ...base.runs[0]!, status: "cancelled" }],
+      } as unknown as OrchestrationV2ThreadProjection;
+      const commands: Parameters<
+        ThreadManagementService.ThreadManagementService["Service"]["dispatch"]
+      >[0][] = [];
+      yield* continueRestartedRun({ threadId, sourceRunId: runId }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            Layer.mock(ThreadManagementService.ThreadManagementService)({
+              getThreadRecords: () => Effect.succeed(projection),
+              recoverDelegatedTask: () => Effect.void,
+              dispatch: (command) => {
+                commands.push(command);
+                return Effect.succeed({} as never);
+              },
+            }),
+            Layer.mock(ManagedAgent.ManagedAgentService)({
+              movedRevision: (binding) => {
+                assert.equal(binding.sourceRevision, "pin");
+                return Effect.succeed(moved);
+              },
+            }),
+            ServerSettings.layerTest({ continueThreadsAfterServerUpdate: true }),
+          ),
+        ),
+      );
+      assert.lengthOf(commands, 1);
+      const command = commands[0]!;
+      if (command.type !== "message.dispatch") return assert.fail("expected a dispatch");
+      assert.equal(command.restartContinuationOfRunId, runId);
+      assert.equal(command.followupSourceRevision, moved);
+    }),
 );

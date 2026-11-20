@@ -18,6 +18,9 @@ import type {
   ProjectionRuntimeRecoveryState,
 } from "./ProjectionStore.ts";
 
+import * as ManagedAgent from "../agents/ManagedAgentService.ts";
+import { pinnedBinding } from "../agents/followup.ts";
+import * as Option from "effect/Option";
 import * as ServerSettings from "../serverSettings.ts";
 import { isNativeMaintenanceCommand } from "./CommandPolicy.ts";
 import { isArcRunHeld } from "./arcRun.ts";
@@ -306,6 +309,23 @@ export const continueRestartedRun = Effect.fn("RestartContinuation.continueResta
     );
     const noteText =
       note.work.length === 0 ? undefined : restartCancelledBackgroundWorkNote(note.work);
+    // A pinned task's workspace moves as it works, and its run was admitted at the pin it had
+    // then, so the restart re-pins it where the workspace now stands rather than being refused.
+    const pinnedTask = projection.thread.agentTask;
+    const managed = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
+    const pinned =
+      pinnedTask === undefined
+        ? undefined
+        : pinnedBinding(pinnedTask, projection.thread.followupSourceRevision).sourceRevision;
+    const movedRevision =
+      pinnedTask === undefined || pinned === undefined || Option.isNone(managed)
+        ? undefined
+        : yield* managed.value
+            .movedRevision({
+              ...pinnedBinding(pinnedTask, projection.thread.followupSourceRevision),
+              sourceRevision: pinned,
+            })
+            .pipe(Effect.orElseSucceed(() => undefined));
     const text =
       noteText === undefined
         ? CONTINUE_PROMPT
@@ -333,6 +353,7 @@ export const continueRestartedRun = Effect.fn("RestartContinuation.continueResta
         createdBy: "agent",
         creationSource: "server",
         restartContinuationOfRunId: input.sourceRunId,
+        ...(movedRevision === undefined ? {} : { followupSourceRevision: movedRevision }),
       })
       .pipe(
         // Disabled instances, and threads above a policy ceiling, cannot resume; still run success
