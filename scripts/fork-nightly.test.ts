@@ -122,7 +122,7 @@ case "$*" in
     [ "$T3_TEST_KILL_AT" != vps-build-entry ] || kill_group
     [ "$T3_TEST_KILL_AT" != vps-build-done ] || { echo done > "$T3_TEST_ROOT/remote-built"; kill_group; }
     ;;
-  *"fork-vps-runtime.sh install "*)
+  *"fork-vps-runtime.sh install "*|*'bash -l "$f" install '*)
     [ "$T3_TEST_KILL_AT" != vps-install-entry ] || kill_owner
     [ "$T3_TEST_KILL_AT" != vps-install-done ] || { echo done > "$T3_TEST_ROOT/remote-installed"; kill_owner; }
     ;;
@@ -404,7 +404,10 @@ async function buildTemplate() {
   // The fork keeps the upstream example, and `.env` is ignored like the real one.
   await NodeFSP.writeFile(NodePath.join(work, ".gitignore"), ".env\n");
   await NodeFSP.writeFile(NodePath.join(work, ".env.example"), CONNECT_ENV);
-  await git(work, ["add", ".gitignore", ".env.example"]);
+  // The updater sends the install script to a mirror from its own clone.
+  await NodeFSP.mkdir(NodePath.join(work, "scripts"));
+  await NodeFSP.writeFile(NodePath.join(work, "scripts", "fork-vps-runtime.sh"), "true\n");
+  await git(work, ["add", ".gitignore", ".env.example", "scripts"]);
   await commit("fork-change", "2026-01-02T00:00:00Z");
   await git(work, ["checkout", "-q", "-b", "side", "main"]);
   await commit("side", "2026-01-03T00:00:00Z");
@@ -3971,7 +3974,7 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
     );
 
     it(
-      "installs the VPS runtime on a mirror from the clone path that host keeps it at",
+      "installs the VPS runtime on a mirror from the script piped over ssh, not that host's checkout",
       async () => {
         await withFixture(async (f) => {
           const head = await seedRepos(f);
@@ -3984,16 +3987,15 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
             T3_TEST_VP: "build",
             TMPDIR: f.root,
           });
-          const installs = (await calls(f, "ssh")).filter((line) =>
-            line.includes("fork-vps-runtime.sh install"),
-          );
-          // The primary VPS still keeps the earlier clone name; peach-box renamed its own.
+          const installs = (await calls(f, "ssh")).filter((line) => / install /.test(line));
+          // The primary VPS runs its own clone's script; peach-box gets the script on stdin.
           expect(installs.find((line) => line.includes(" vps "))).toContain(
             "~/projects/t3code-fork/scripts/fork-vps-runtime.sh install",
           );
           expect(installs.find((line) => line.includes(" peach-box "))).toContain(
-            "~/projects/t3peach/scripts/fork-vps-runtime.sh install",
+            'bash -l "$f" install',
           );
+          expect(installs.find((line) => line.includes(" peach-box "))).not.toContain("projects");
         });
       },
       TIMEOUT,

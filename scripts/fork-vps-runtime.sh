@@ -37,7 +37,6 @@ set -euo pipefail
 
 MODE="$1"
 VERSION="$2"
-CLONE="$(cd "$(dirname "$0")/.." && pwd)"
 VERSIONS="$HOME/.t3/runtime/versions"
 TARGET="$VERSIONS/$VERSION"
 PENDING="$VERSIONS/.fork-pending-$VERSION.tar.gz"
@@ -45,7 +44,8 @@ SOURCE="${3:-}"
 RELEASES="${T3FORK_RELEASES_URL:-https://github.com/pingdotgg/t3code/releases/download}"
 ARCHIVE="t3-$VERSION-linux-x64.tar.gz"
 
-cd "$CLONE"
+# Only a build works in the clone; install and state also run from stdin on a mirror.
+if [ "$MODE" = build ]; then CLONE="$(cd "$(dirname "$0")/.." && pwd)"; cd "$CLONE"; fi
 
 if [ "$MODE" = state ]; then
   # An unfinished install outranks the success marker: a retry of the same
