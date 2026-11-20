@@ -4,8 +4,8 @@ This record lists the material, deliberate differences between the T3peach fork 
 
 ## Baseline
 
-- Upstream: v0.1.11-nightly.20261118.4903 (`6927cfe2adb0867eb098009a5eb35e42da2b13a1`)
-- Fork before merge: `738134fd72df7733c241b1938b01f7482921d069`
+- Upstream: v0.1.11-nightly.20261120.4979 (`59651c1761f6c63e9b6056839067066968e6a406`)
+- Fork before merge: `3cab0e406f47c147e4985e343f63ce295353a385`
 
 ## Coverage
 
@@ -122,6 +122,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### agent-policy-roles
 
+- **Decision:** `adapt` (v0.1.11-nightly.20261120.4979, 2026-11-20): Pi's minimum version (the fork's 1.0.4, needed for read-only sessions) now lives in the provider compatibility manifest with upstream's `broken` status (#39434, #39427), and Pi's T3 tools are also callable by Pi's own `mcp__t3_code__` names (`model-only` aliases, #26845), generalised to the fork's multi-server bridge; Pi gets upstream's pull-request linking rules on every instruction variant. Evidence: mcpExtensionSource.test.ts; status.test.ts; textGeneration.test.ts.
+
 - **Concurrent Settings saves:** local content hashes and filesystem locks reject stale edits; publication fetches before writing and refuses unseen remote policy changes (including deletion) instead of rebasing them under a reused revision. A raced remote policy change drops only the proven unpublished Settings tip and fast-forwards without touching unrelated working files; failed recovery asks an agent to inspect the checkout, naming the unpublished Settings commit only if it survives. Successful saves return the post-publication disk snapshot. The editor binds queued drafts to their actual base hashes, stops when publication returns different policy content, and retains refused edits until explicit discard. Saving to several environments that share one policy (one agent-config remote, mirrored between machines), the first write makes the rest stale, so an environment refused only as stale that already holds the edit counts as saved; any other refusal, including one asking an agent to inspect the checkout, still stops the editor. Proof: `AgentConfigCheckout.test.ts`, `AgentPolicyService.test.ts`, `DelegationSettings.logic.test.ts` (shared-policy saves); the web settings UI has no automated proof since T3-760 removed web browser tests. Fork-only policy seam; retire with equivalent upstream policy editing.
 
 - **Reasoning controls:** Delegation settings use the shared reasoning-descriptor classification, including ACP options marked `role: "reasoning"` such as Antigravity `thought_level`. Editing an existing binding discovers its missing effort option and supplies an allowed effort in each job using it; saving persists the option for managed dispatch. Integration points: `DelegationSettings.logic.ts` catalog discovery and editable policy normalization, `DelegationSettings.tsx` draft initialization/reset, the shared `isReasoningSelect` helper, and `AgentPolicyManifest` effort bindings. Proof: `DelegationSettings.logic.test.ts`. Known upstream work: ACP reasoning descriptors are already supported by the shared picker; upstream has no equivalent managed role settings, and the upstream Antigravity reasoning search found no role-settings fix. Retire with equivalent upstream role settings.
@@ -170,6 +172,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Owner:** T3-401.
 
 ### managed-delegation
+
+- **Decision:** `adapt` (v0.1.11-nightly.20261120.4979, 2026-11-20): upstream lets a background subagent delegate after its parent's turn ends, scans the folder's own provider config for models when resolving a target, and keeps a launch whose caller goes away from stopping half-way (#38869, #39247, #36499). Ported into `ManagedDelegation.delegateTask` (latest active run or the background subagent run, `cwd` on target resolution, the launch under `uninterruptibleMask`) because the fork's delegation lives there, not in `OrchestratorMcpService`. Antigravity's own `start_subagent`/`invoke_subagent` stay disabled, so upstream's native Antigravity subagent handling goes unused. Evidence: ManagedDelegation.test.ts; OrchestratorMcpService.test.ts.
 
 - **Decision:** `adapt` (v0.1.11-nightly.20261118.4903, 2026-11-19): Adopt upstream's narrower parent/run reads for delegated tasks, `status: "starting"` until the child's provider starts (including linked environments via `remoteDelegation.runStatus`), surrogate-safe titles, `executedModel` on remote completion and user-facing dispatch error messages. Keep managed-role admission, pending blocking advice in task progress, custody receipts, result notes (abandoned, restart loop) and follow-up identity. A `t3_thread_send` follow-up now waits only on background work its own run started (upstream's rule in `delegatedTaskAwaitsWork`, b79d277cdda), applied to the fork's `delegatedTaskRunHold` too. Upstream moved a launched thread's first message into its create claim (#36682), which skipped the dispatch-mode limit check that ran on the separate message; `ThreadLaunchService` now checks the caller's `DispatchModeLimit` before the claim, so a caller still cannot start a thread above its own modes. Outside OAuth clients keep `delegate_task`, `task_status` and `task_cancel` for external owned work, which upstream hid; they are exempt from upstream's thread-bound guard through `servesOutsideClients`. Evidence: OrchestratorMcpService.test.ts; Orchestrator.control-reads.test.ts; RemoteDelegation tests.
 
@@ -563,6 +567,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### thread-watches
 
+- **Decision:** `adopt` (v0.1.11-nightly.20261120.4979, 2026-11-20): upstream's watch `until` (a watch that holds the thread until the PR merges), one read of a merged PR so the wake can name the merge commit, and the settle-on-merge rules; the fork still lets a delegated subagent hold a watch (no `subagent` end reason). The sidebar keeps the fork's Watching label for watch-only waits beside upstream's reordered Waiting checks. Evidence: runtimeLayer.test.ts; PullRequestWatchReactor tests; Sidebar.logic.test.ts.
+
 - **Decision:** `retain` (v0.1.11-nightly.20261118.4903, 2026-11-19): Upstream's snooze suppression of notifications is adopted inside the fork's quiet-completion gate. Evidence: ThreadNotificationCoordinator.logic.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261113.4630, 2026-11-13): Adopt upstream PR-check reopen races and stop PR monitors holding completion after checks finish; preserve awaited thread/Forge watches, closed-PR link suppression, ended-watch history and awaitingBaseline on rewatches. Auto-settlement still refuses any live task, including a dev server and a PR monitor whose checks have finished; ThreadSettlementService.test.ts explicitly asserts false for both. Evidence: orchestrationV2PendingBackgroundWork.test.ts; ThreadSettlementService.test.ts; runtimeLayer.test.ts.
@@ -592,6 +598,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Decision:** `adopt` (v0.1.9-nightly.20261110.4478, 2026-11-10): one finished turn looks up its branch's pull request once (#33752). PR watches stay upstream's and separate from the fork's thread and Forge watches: `ThreadWatchReactor`, `orchestrationV2PendingBackgroundWork`, `endedThreadWatches` and the composer strip are unchanged. Source: orchestration-v2/ThreadPullRequestService.ts and its test.
 
 ### scheduled-tasks-extensions
+
+- **Decision:** `adapt` (v0.1.11-nightly.20261120.4979, 2026-11-20): upstream labels a scheduled prompt with a sender note (`withMessageSenderNote`) and fixes Settings-created tasks to start from the project's default branch (#32841). The fork keeps `frameScheduledTaskPrompt`, whose note also tells the agent not to treat the prompt as a new instruction, and skips upstream's note for scheduled messages (`withSenderNoteUnlessScheduled`) so a prompt carries one note; agent, linked and MCP senders get upstream's note. The default-branch fix targets the deleted Settings panel, which stays deleted; the fork's scheduled page has no `main` fallback. Retire the framing when upstream's note carries the same instruction. Evidence: SteeringCompletion.integration.test.ts; ProviderTurnStartService.test.ts.
 
 - **Decision:** `retain` (v0.1.10-nightly.20261113.4643, 2026-11-13): Adopt upstream isolation of fresh-session scheduled runs from the thread conversation. It preserves the fork role/project/machine scheduling and prompt identity: a human message resumes the ordinary conversation, while wakes use the active session. Evidence: ProviderSwitch.integration.test.ts; Orchestrator.control-reads.test.ts; ThreadStop.test.ts.
 
@@ -635,6 +643,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Owner:** T3-351; T3-375; T3-448; T3-444; T3-592; T3-593; T3-622.
 
 ### linked-environments
+
+- **Decision:** `adopt` (v0.1.11-nightly.20261120.4979, 2026-11-20): upstream renews a linked environment's pairing session while it is used (#39399) and links several environments at once (#39426); the renewal is applied to `peerLink` MCP client sessions in `authenticateMcpClient`, and the fork's own peer-subject sessions, `PEER_THREAD_TOOLS` and cross-environment reads are unchanged. Evidence: EnvironmentAuth.test.ts; PeerLinks.test.ts.
 
 - **Decision:** `adapt` (v0.1.11-nightly.20261118.4903, 2026-11-19): Adopt upstream's self-renewing pairing sessions and its `/mcp` refusal of requests carrying a browser `Origin` (peer and CLI calls send none; MCP Apps traffic uses the WebSocket). Peer-link renewal, `PEER_THREAD_TOOLS` and cross-environment thread reads are unchanged. Evidence: EnvironmentAuth.test.ts; McpHttpServer.test.ts; PeerLinks.test.ts.
 
@@ -873,6 +883,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Owner:** none.
 
 ### side-chat
+
+- **Decision:** `adapt` (v0.1.11-nightly.20261120.4979, 2026-11-20): upstream replaced Bring back with Add to chat (a reference to the side chat in the main thread's next message, #38323); adopted, and the fork's merge-back gating text goes with it. Use in main stays beside it because it puts the answer text into the draft, which a reference does not. Evidence: SideChatPane.tsx (no automated test).
 
 - **Decision:** `retain` (v0.1.11-nightly.20261118.4903, 2026-11-19): Upstream excludes delegated app threads from thread lists; the fork's hidden side-chat filter is combined with it.
 
@@ -1172,6 +1184,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### perf-persistence-reads
 
+- **Decision:** `adapt` (v0.1.11-nightly.20261120.4979, 2026-11-20): upstream narrows what a turn start and a delegated-task finalize read (`commandTurnItems`, `getDelegatedChildControls`, shell item counts, bound-thread recovery arms). Adopted over the fork's decode-outside-the-transaction reads: prompt narrowing runs inside the transaction and its items replace the decoded set, and `getDelegatedChildControls` also reads the active turn items and pending-advice flag the fork's `delegatedTaskProgress` needs. Upstream's usage-limit partial index (migration 148) replaces the fork's `INDEXED BY` hint; migration 148 also drops the fork's unguarded migration-092 index for the same lookup, whose json_extract failed on a malformed payload. Migration 152 indexes the paused-subagent lookup (`pausedSubagents`) that upstream's bounded-read test now exercises. Upstream migrations 099-102 are fork migrations 148-151, after the Champion model defaults migration 147. Evidence: ProjectionStore.test.ts; Migrations/151_ThreadItemCounts.test.ts; reconcileV2PreviewMigration.test.ts.
+
 - **Decision:** `adapt` (v0.1.11-nightly.20261118.4903, 2026-11-19): Adopt upstream's message-order index (#upstream migration 094, fork 142), which recreates the fork's migration-91 `message_ordinal_idx` with a `json_valid` filter under the same name, so the fork's own index is retired by that migration; migration 91's source gains the same filter so fresh databases match. Adopt upstream's narrow delegated-task and run reads (`readDelegatedCompletionPlanRecords`, run counts, `remoteDelegation.runStatus`) in the Orchestrator and `OrchestratorMcpService`, and the active-shell archived filter (migration 146). Reader routing, pooled shell batches and settled-thread compaction are unchanged; upstream ships none of them. `isNodeStored` keeps its in-SQLite scalar comparison and now fills upstream's per-batch node cache (#38544), so a provider batch reads each node once. A reader's startup wait uses the caller's restore, as upstream's reader admission (#27979) does. Evidence: 142_TurnItemMessageOrdinalIndex.test.ts; Orchestrator.control-reads.test.ts; OrchestratorMcpService.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261114.4669, 2026-11-14): Keep canceled reader requests registered until the worker's final reply, acknowledge and discard remaining chunks, then release the worker. This preserves interruptible callers without leaving a worker blocked on an unacknowledged batch. Evidence: `packages/shared/src/nodeSqliteClient.test.ts` (33 tests pass, including cancellation after the first batch and a subsequent read on the same worker).
@@ -1294,6 +1308,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### agent-process-ledger
 
+- **Decision:** `retain` (v0.1.11-nightly.20261120.4979, 2026-11-20): upstream tracks Pi agents for port discovery (`host.trackAgent`, #39007); added beside the fork's process observers, which record process groups for cleanup, not port ownership. Evidence: provider-pi adapter.test.ts.
+
 - **Decision:** `retain` (v0.1.11-nightly.20261118.4903, 2026-11-19): Pi's owned-process reporting is kept beside upstream's `backgroundTasksEndWithProcess`; Claude and Codex unchanged. Upstream's shutdown now finishes a closed terminal's kill escalation (#37113: it waits out the grace and sends SIGKILL) instead of interrupting it; adopted, and the ledger still watches the terminal's group until it exits. Evidence: terminal/Manager.test.ts. Evidence: provider-pi adapter.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261114.4669, 2026-11-14): Adopt upstream orphan cleanup for relay and wrapped OpenCode servers (#36465, #34959). Keep the fork's process-group ledger for remaining provider and terminal processes and desktop-quit recovery. Evidence: OpenCodeServerLedger, relay and process-ledger tests.
@@ -1321,6 +1337,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Owner:** Forge #3416 and #3443 under Spec #3172.
 
 ### dev-state-tooling
+
+- **Decision:** `adopt` (v0.1.11-nightly.20261120.4979, 2026-11-20): upstream's `apps/server/scripts/dev.ts` watcher replaces the fork's narrowed `--watch-path` list, and the dev runner refuses to point a dev server at the live `~/.t3` home; the fork's header-size option and workspace-home defaults stay, with the docs saying both. Evidence: dev-runner tests.
 
 - **Decision:** `retain` (v0.1.11-nightly.20261118.4903, 2026-11-19): Upstream's first-start Cargo build of the native resource monitor is adopted beside the fork's SlipJay workspace home defaults.
 
@@ -1788,6 +1806,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Decision:** `adopt` (v0.1.9-nightly.20261111.4501, 2026-11-11): upstream's #33446 and #33758 edit `Orchestrator.ts` around the completion delivery this entry's pause marks ride on; the marks, the resume effect and the cohort disposal are unchanged. Source: apps/server/src/orchestration-v2/Orchestrator.ts, ThreadStop.test.ts.
 
 ### saved-and-temporary-secrets
+
+- **Decision:** `adapt` (v0.1.11-nightly.20261120.4979, 2026-11-20): upstream refuses secret names with a path separator (SecretStoreNameError) and fixes `request_secret` reuse of a client request id and steering restarts; adopted, with the fork's cached reads and directory watcher in `ServerSecretStore` resolving every name through the same check. Evidence: ServerSecretStore tests; OrchestratorMcpService tests.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261113.4630, 2026-11-13): Adopt upstream generic mount revalidation and cache-retaining weak ownership from merged PR #29409; remove the superseded fork source-family split, opt-in flag and artificial WeakRef-collection case. Upstream real-GC/remount tests plus guarded metadata-cache tests preserve warm reads, failure retention, grants, session isolation and mutation refresh. Durable BWS lifecycle and disclosure boundaries remain fork-only. Evidence: runtime.test.ts; commandPermissions.test.ts; shippedClientCompatibility.test.ts.
 

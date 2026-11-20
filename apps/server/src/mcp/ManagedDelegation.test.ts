@@ -33,6 +33,9 @@ import {
   type ServerProvider,
 } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
+import * as Fiber from "effect/Fiber";
+import * as TestClock from "effect/testing/TestClock";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -2266,6 +2269,47 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
     ),
   );
+  it.effect("stops a caller that goes away while it waits for the isolated launch lock", () =>
+    Effect.gen(function* () {
+      const h = yield* harness();
+      const managed = yield* Managed.ManagedAgentService;
+      const release = yield* Deferred.make<void>();
+      const held = yield* Deferred.make<void>();
+      const holder = yield* Effect.forkChild(
+        managed.exclusive(
+          Deferred.succeed(held, undefined).pipe(Effect.andThen(Deferred.await(release))),
+        ),
+      );
+      yield* Deferred.await(held);
+      const caller = yield* Effect.forkChild(
+        h.delegate({
+          task: "Implement the importer",
+          clientRequestId: "interrupted-while-queued",
+          agentTask: request({
+            workspacePath: h.helper,
+            workspaceAssignment: "isolated",
+            workId: "importer",
+          }),
+          target: { model: codexModel },
+        }),
+      );
+      yield* Effect.yieldNow;
+      yield* Effect.yieldNow;
+      // The lock is still held, so the caller is queued behind it and must still be stoppable.
+      const stopped = yield* Fiber.interrupt(caller).pipe(
+        Effect.timeoutOption(Duration.seconds(1)),
+        Effect.forkChild,
+      );
+      yield* TestClock.adjust(Duration.seconds(2));
+      expect(Option.isSome(yield* Fiber.join(stopped))).toBe(true);
+      yield* Deferred.succeed(release, undefined);
+      yield* Fiber.join(holder);
+      expect(h.dispatched).toHaveLength(0);
+    }).pipe(
+      Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+    ),
+  );
+
   it.effect("keeps a retry that names no workspace on its task after the checkout moved", () =>
     Effect.gen(function* () {
       const h = yield* harness();

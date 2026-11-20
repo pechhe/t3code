@@ -11,6 +11,7 @@ import * as NodeOS from "node:os";
 import * as NodeModule from "node:module";
 import * as NodeVM from "node:vm";
 import { assert, describe, it } from "@effect/vitest";
+import { PULL_REQUEST_LINKING_INSTRUCTIONS } from "@t3tools/provider-core/server/runtimeInstructions";
 
 import { PI_T3_MCP_EXTENSION_SOURCE, PI_T3_SERVICE_TIER_COMMAND } from "./mcpExtensionSource.ts";
 import { loadMcpBridge } from "./mcpBridge.testkit.ts";
@@ -70,7 +71,7 @@ describe("Pi orchestration prompt section", () => {
       );
       assert.equal(result?.systemPrompt.includes("create_threads"), createThreadsAvailable);
       assert.include(result?.systemPrompt ?? "", "t3_thread_launch");
-      assert.notInclude(result?.systemPrompt ?? "", "link_pull_request");
+      assert.include(result?.systemPrompt ?? "", PULL_REQUEST_LINKING_INSTRUCTIONS);
     },
   );
   it.each([
@@ -99,7 +100,20 @@ describe("Pi orchestration prompt section", () => {
       assert.isDefined(result);
       assert.isTrue(result!.systemPrompt.startsWith(`${event.systemPrompt}\n\n`));
       assert.include(result!.systemPrompt, "orchestrator_capabilities");
+      assert.include(result!.systemPrompt, PULL_REQUEST_LINKING_INSTRUCTIONS);
     }
+  });
+
+  it("sets the guidance section on Pi builds with prompt sections", async () => {
+    const bridge = await loadMcpBridge();
+    const sections: Record<string, string> = {};
+    const result = await bridge.handlers.get("before_agent_start")!(
+      { systemPrompt: "base", systemPromptOptions: { sections } },
+      { ui: { notify: assert.fail } },
+    );
+    assert.isUndefined(result);
+    assert.include(sections.t3_code_orchestration, "orchestrator_capabilities");
+    assert.include(sections.t3_code_orchestration, PULL_REQUEST_LINKING_INSTRUCTIONS);
   });
 });
 
@@ -328,6 +342,7 @@ describe("Pi MCP tool exposure", () => {
       const bridge = await loadMcpBridge({
         modern: true,
         toolSearchAvailable: true,
+        activatesOnRegistration: true,
         ...(role ? { role, delegatedInstructions: "child" } : {}),
       });
       await bridge.handlers.get("session_start")!({ systemPrompt: "" }, discoveryContext);
@@ -337,10 +352,25 @@ describe("Pi MCP tool exposure", () => {
       assert.include(prompt?.systemPrompt ?? "", role ? "child" : "orchestrator_capabilities");
       assert.equal(bridge.servers.length, 0);
       assert.equal(bridge.tools.length, 12);
-      assert.deepEqual(bridge.getActiveTools(), ["read", "tool_search"]);
+      const aliases = [
+        "mcp__t3_code__orchestrator_capabilities",
+        "mcp__t3_code__delegate_task",
+        "mcp__t3_code__agent_roles",
+        "mcp__t3_code__ask_advice",
+        "mcp__t3_code__task_status",
+        "mcp__t3_code__preview_snapshot",
+      ];
+      assert.sameMembers(bridge.getActiveTools(), [
+        "read",
+        "tool_search",
+        "mcp__t3-code__delegate_task",
+        "mcp__t3-code__agent_roles",
+        "mcp__t3-code__task_status",
+        ...aliases,
+      ]);
       assert.deepEqual(
         bridge.tools
-          .filter((tool) => tool.exposure !== "hidden")
+          .filter((tool) => tool.name.startsWith("mcp__t3-code__"))
           .map((tool) => [tool.name, tool.exposure]),
         [
           ["mcp__t3-code__orchestrator_capabilities", "deferred"],
@@ -352,15 +382,10 @@ describe("Pi MCP tool exposure", () => {
         ],
       );
       assert.deepEqual(
-        bridge.tools.filter((tool) => tool.exposure === "hidden").map((tool) => tool.name),
-        [
-          "mcp__t3_code__orchestrator_capabilities",
-          "mcp__t3_code__delegate_task",
-          "mcp__t3_code__agent_roles",
-          "mcp__t3_code__ask_advice",
-          "mcp__t3_code__task_status",
-          "mcp__t3_code__preview_snapshot",
-        ],
+        bridge.tools
+          .filter((tool) => tool.name.startsWith("mcp__t3_code__"))
+          .map((tool) => [tool.name, tool.exposure]),
+        aliases.map((name) => [name, "model-only"]),
       );
       const result = await bridge.tools
         .find((tool) => tool.name === "mcp__t3-code__preview_snapshot")!
@@ -383,7 +408,7 @@ describe("Pi MCP tool exposure", () => {
     );
     assert.deepEqual(
       bridge.tools
-        .filter((tool) => tool.exposure !== "hidden")
+        .filter((tool) => tool.name.startsWith("mcp__t3-code__"))
         .map((tool) => [tool.name, tool.exposure]),
       [
         ["mcp__t3-code__orchestrator_capabilities", "deferred"],
@@ -401,14 +426,24 @@ describe("Pi MCP tool exposure", () => {
       modern: true,
       toolSearchAvailable: true,
       allowsTool: (name) => name !== "mcp__t3-code__delegate_task",
+      activatesOnRegistration: true,
     });
     const event = { systemPrompt: "" };
     await bridge.handlers.get("session_start")!(event, discoveryContext);
+    assert.notInclude(bridge.getActiveTools(), "mcp__t3_code__delegate_task");
     const gatewayContext = { model: { api: "openai-completions" }, ui: { notify: assert.fail } };
     await bridge.handlers.get("model_select")!(event, gatewayContext);
     bridge.restoreActiveTools(["read", "mcp__t3-code__task_status"]);
     await bridge.handlers.get("session_tree")!(event, gatewayContext);
-    assert.deepEqual(bridge.getActiveTools(), ["read", "mcp__t3-code__task_status", "tool_search"]);
+    assert.sameMembers(bridge.getActiveTools(), [
+      "read",
+      "mcp__t3-code__task_status",
+      "tool_search",
+      "mcp__t3_code__orchestrator_capabilities",
+      "mcp__t3_code__ask_advice",
+      "mcp__t3_code__task_status",
+      "mcp__t3_code__preview_snapshot",
+    ]);
     assert.equal(
       bridge.tools.find((tool) => tool.name === "mcp__t3-code__preview_snapshot")?.exposure,
       "deferred",
@@ -431,7 +466,13 @@ describe("Pi MCP tool exposure", () => {
       ],
     });
     await bridge.handlers.get("session_start")!({ systemPrompt: "" }, discoveryContext);
-    assert.deepEqual(bridge.getActiveTools(), ["read", "codemode"]);
+    assert.sameMembers(bridge.getActiveTools(), [
+      "read",
+      "codemode",
+      "mcp__t3_code__orchestrator_capabilities",
+      "mcp__t3_code__ask_advice",
+      "mcp__t3_code__preview_snapshot",
+    ]);
     const snapshot = bridge.tools.find((tool) => tool.name === "mcp__t3-code__preview_snapshot");
     assert.equal(snapshot?.exposure, "deferred");
     assert.deepEqual(snapshot?.namespace, {
@@ -459,7 +500,81 @@ describe("Pi MCP tool exposure", () => {
       defaultTools: ["-codemode"],
     });
     await optedOut.handlers.get("session_start")!({ systemPrompt: "" }, discoveryContext);
-    assert.deepEqual(optedOut.getActiveTools(), ["read", "tool_search"]);
+    assert.sameMembers(optedOut.getActiveTools(), [
+      "read",
+      "tool_search",
+      "mcp__t3_code__orchestrator_capabilities",
+      "mcp__t3_code__ask_advice",
+      "mcp__t3_code__preview_snapshot",
+    ]);
+  });
+
+  it("keeps Pi's canonical MCP tool names callable by the model without declaring them twice", async () => {
+    const bridge = await loadMcpBridge({
+      modern: true,
+      toolSearchAvailable: true,
+      activatesOnRegistration: true,
+    });
+    const canonicalNames = [
+      "mcp__t3_code__orchestrator_capabilities",
+      "mcp__t3_code__delegate_task",
+      "mcp__t3_code__task_status",
+      "mcp__t3_code__preview_snapshot",
+    ];
+    const unreachableCanonicalNames = async () => {
+      const unreachable: string[] = [];
+      for (const name of canonicalNames) {
+        const result = await bridge.callModelTool(name, {});
+        if (result.isError === true) unreachable.push(name);
+      }
+      return unreachable;
+    };
+    const declaredCanonicalNames = () =>
+      bridge.declaredTools().filter((name) => name.startsWith("mcp__t3_code__"));
+    const event = { systemPrompt: "" };
+
+    await bridge.handlers.get("session_start")!(event, discoveryContext);
+    assert.deepEqual(
+      await unreachableCanonicalNames(),
+      [],
+      "model calls to these names fail with Tool not found after session start",
+    );
+    assert.deepEqual(declaredCanonicalNames(), [], "declared twice after session start");
+    assert.equal(bridge.requests.at(-1)?.method, "tools/call");
+
+    bridge.restoreActiveTools([
+      "read",
+      "mcp__t3-code__orchestrator_capabilities",
+      "mcp__t3-code__delegate_task",
+      "mcp__t3-code__task_status",
+    ]);
+    await bridge.handlers.get("session_tree")!(event, discoveryContext);
+    assert.deepEqual(
+      await unreachableCanonicalNames(),
+      [],
+      "model calls to these names fail with Tool not found after an older tree loadout",
+    );
+    assert.deepEqual(declaredCanonicalNames(), [], "declared twice after an older tree loadout");
+    assert.isFalse(
+      bridge.callableTools().some((name) => name.startsWith("mcp__t3_code__")),
+      "aliases duplicate the codemode catalog",
+    );
+
+    const requestCount = bridge.requests.length;
+    bridge.restoreActiveTools(
+      bridge.getActiveTools().filter((name) => name !== "mcp__t3-code__delegate_task"),
+    );
+    const late = await bridge.callModelTool("mcp__t3_code__delegate_task", {});
+    assert.isTrue(late.isError, "an alias runs after its public tool was switched off");
+    assert.equal(bridge.requests.length, requestCount);
+
+    bridge.restoreActiveTools(["read", "mcp__t3-code__task_status"]);
+    await bridge.handlers.get("session_tree")!(event, discoveryContext);
+    assert.deepEqual(
+      await unreachableCanonicalNames(),
+      ["mcp__t3_code__delegate_task"],
+      "an alias stays callable while its direct public tool is off",
+    );
   });
 
   it.each(["legacy Pi", "disabled tool search"])(
@@ -474,11 +589,16 @@ describe("Pi MCP tool exposure", () => {
         const start = bridge.handlers.get("session_start");
         await start!({ systemPrompt: "Pi system prompt" }, discoveryContext);
       }
-      assert.equal(bridge.tools.filter((tool) => tool.exposure !== "hidden").length, 6);
+      const publicTools = bridge.tools.filter((tool) => tool.name.startsWith("mcp__t3-code__"));
+      assert.equal(publicTools.length, 6);
       assert.isTrue(
+        publicTools.every((tool) => tool.exposure === undefined || tool.exposure === "direct"),
+      );
+      assert.deepEqual(
         bridge.tools
-          .filter((tool) => tool.exposure !== "hidden")
-          .every((tool) => tool.exposure === undefined || tool.exposure === "direct"),
+          .filter((tool) => tool.name.startsWith("mcp__t3_code__"))
+          .map((tool) => tool.exposure),
+        mode === "legacy Pi" ? [] : Array.from({ length: 6 }, () => "model-only"),
       );
       const tool = bridge.tools.find((tool) => tool.name === "mcp__t3-code__preview_snapshot");
       assert.isDefined(tool);
@@ -1367,7 +1487,7 @@ describe("Pi agent MCP servers", () => {
     assert.equal(read!.exposure, "deferred");
     assert.equal(
       bridge.tools.find((tool) => tool.name === "mcp__yardsmith_hq__weave_forge_read")?.exposure,
-      "hidden",
+      "model-only",
     );
     assert.isDefined(bridge.tools.find((tool) => tool.name === "mcp__t3-code__delegate_task"));
     assert.isUndefined(bridge.tools.find((tool) => tool.name === "mcp__t3-code__weave_forge_read"));
@@ -1446,6 +1566,7 @@ describe("canonical and legacy Weave discovery", () => {
           modern: mode !== "older",
           toolSearchAvailable: mode !== "older",
           toolSearchDisabled: mode === "no search",
+          activatesOnRegistration: true,
           withoutT3: true,
           agentServers: [canonical, ...(legacy ? [{ ...canonical, name: "yardsmith-hq" }] : [])],
           result: { isError: true, content: [{ type: "text", text: "forbidden" }] },

@@ -1,4 +1,8 @@
 import { DEFAULT_SERVER_SETTINGS, type ServerSettings } from "@t3tools/contracts";
+import {
+  noCompatibilityPolicy,
+  type ProviderCompatibilityLookup,
+} from "@t3tools/provider-core/server/compatibility";
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
 import * as Context from "effect/Context";
@@ -15,6 +19,7 @@ export interface TestProviderHostOptions {
   readonly cwd?: string;
   readonly settings?: ServerSettings;
   readonly runBackgroundWork?: boolean;
+  readonly compatibility?: ProviderCompatibilityLookup;
 }
 
 export class TestProviderHostSettings extends Context.Service<
@@ -54,6 +59,7 @@ export const layer = (
         );
       const credentials = new Map<string, Uint8Array>();
       const host = ProviderHost.ProviderHost.of({
+        compatibility: options.compatibility ?? noCompatibilityPolicy,
         paths: {
           cwd: options.cwd ?? process.cwd(),
           baseDir,

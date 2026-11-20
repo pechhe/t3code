@@ -31,6 +31,7 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ProjectEnrichmentService from "../project/ProjectEnrichmentService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
+import * as ModelManifest from "../provider/ModelManifest.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
@@ -141,7 +142,7 @@ const layerRuntime = Layer.mergeAll(RuntimeLayer.layer, RuntimeLayer.layerEventS
   Layer.provide(layerServerConfig),
   Layer.provideMerge(Layer.mock(ManagedAgent.ManagedAgentService)({})),
   Layer.provideMerge(ServerSettings.layerTest()),
-  Layer.provide(layerTestProviderInstanceRegistry),
+  Layer.provide(Layer.merge(ModelManifest.layerTest, layerTestProviderInstanceRegistry)),
   Layer.provideMerge(layerPlatformTest),
 );
 

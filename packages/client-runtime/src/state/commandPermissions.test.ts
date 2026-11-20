@@ -34,7 +34,11 @@ import * as Latch from "effect/Latch";
 import { Atom, AtomRegistry, AsyncResult } from "effect/reactivity";
 import { EnvironmentRegistry } from "../connection/registry.ts";
 import { createCommandPermissions } from "./commandPermissions.ts";
-import { createEnvironmentRpcCommand, selectEnvironmentQueryData } from "./runtime.ts";
+import {
+  createEnvironmentRpcCommand,
+  runAtomCommand,
+  selectEnvironmentQueryData,
+} from "./runtime.ts";
 import { createServerEnvironmentAtoms } from "./server.ts";
 import * as Persistence from "../platform/persistence.ts";
 import { AVAILABLE_CONNECTION_STATE, BearerConnectionTarget } from "../connection/model.ts";
@@ -363,9 +367,10 @@ describe("command permissions", () => {
     });
     const target = { environmentId: env, input: { id: ScheduledTaskId.make("task") } };
     try {
-      const first = command.run(registry, target);
+      const quiet = { reportFailure: false, reportDefect: false };
+      const first = runAtomCommand(registry, command, target, quiet);
       await entered;
-      const second = command.run(registry, target);
+      const second = runAtomCommand(registry, command, target, quiet);
       registry.set(sessions(env), AsyncResult.success(grant(false)));
       release();
       expect((await first)._tag).toBe("Success");
@@ -541,10 +546,10 @@ it.effect(
       setAccess(false);
       expect(yield* readLinks).toEqual({ links: [] });
       const linkInput = { url: peer.urls[0]!, pairingCode: "test-code", access: peer.access };
-      const link = Effect.promise(() =>
+      const link = Effect.exit(
         peerLinks.link.run(registry, { environmentId: env, input: linkInput }),
       );
-      const unlink = Effect.promise(() =>
+      const unlink = Effect.exit(
         peerLinks.unlink.run(registry, {
           environmentId: env,
           input: { environmentId: peer.environmentId },
@@ -944,7 +949,7 @@ it.effect("refreshes cached secret inventory after successful save and delete co
       h.registry.mount(h.atom);
       expect((yield* h.read).entries).toEqual([secretMetadata("EXISTING")]);
       const saved = yield* Effect.promise(() =>
-        h.atoms.secretsSave.run(h.registry, {
+        runAtomCommand(h.registry, h.atoms.secretsSave, {
           environmentId: env,
           input: {
             key: "ADDED",
@@ -960,7 +965,10 @@ it.effect("refreshes cached secret inventory after successful save and delete co
         secretMetadata("ADDED"),
       ]);
       const removed = yield* Effect.promise(() =>
-        h.atoms.secretsDelete.run(h.registry, { environmentId: env, input: { id: "ADDED" } }),
+        runAtomCommand(h.registry, h.atoms.secretsDelete, {
+          environmentId: env,
+          input: { id: "ADDED" },
+        }),
       );
       expect(removed._tag).toBe("Success");
       expect((yield* h.read).entries).toEqual([]);

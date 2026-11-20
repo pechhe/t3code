@@ -392,6 +392,10 @@ const wrapUps = Effect.fn("wrapUp.read")(function* (childId: ThreadId) {
   };
 });
 
+/** Upstream labels a message another agent sent; the reviewer's own prompt keeps its text. */
+const withoutSenderNote = (texts: ReadonlyArray<string>) =>
+  texts.map((text) => text.replace(/^\[T3 Code: [^\]]*\]\n\n/, ""));
+
 it.effect.each([
   { label: "mid-turn steering (Pi-like)", steer: true, restart: false },
   { label: "interrupt-restart (ACP-like)", steer: false, restart: true },
@@ -447,10 +451,10 @@ it.effect.each([
           assert.deepEqual(steered, []);
           assert.lengthOf(interrupted, 1);
           assert.lengthOf(afterReport.runs, 1);
-          assert.deepEqual(
-            childTurns().map((turn) => turn.message.text),
-            ["Review", afterReport.sent[0]!.text],
-          );
+          assert.deepEqual(withoutSenderNote(childTurns().map((turn) => turn.message.text)), [
+            "Review",
+            afterReport.sent[0]!.text,
+          ]);
         }
 
         // A fresh reactor (server restart) rebuilds the count and already-sent steps from DB.
@@ -488,18 +492,19 @@ it.effect.each([
             afterRestart.runs.map((run) => run.status),
             ["interrupted", "running"],
           );
-          assert.deepEqual(
-            childTurns().map((turn) => turn.message.text),
-            ["Review", afterRestart.sent[1]!.text],
-          );
+          assert.deepEqual(withoutSenderNote(childTurns().map((turn) => turn.message.text)), [
+            "Review",
+            afterRestart.sent[1]!.text,
+          ]);
         } else {
           assert.deepEqual(steered, []);
           assert.lengthOf(interrupted, 2);
           assert.lengthOf(afterRestart.runs, 1);
-          assert.deepEqual(
-            childTurns().map((turn) => turn.message.text),
-            ["Review", afterRestart.sent[0]!.text, afterRestart.sent[1]!.text],
-          );
+          assert.deepEqual(withoutSenderNote(childTurns().map((turn) => turn.message.text)), [
+            "Review",
+            afterRestart.sent[0]!.text,
+            afterRestart.sent[1]!.text,
+          ]);
         }
 
         // Extra tool calls—and another server restart—never trigger a third message.

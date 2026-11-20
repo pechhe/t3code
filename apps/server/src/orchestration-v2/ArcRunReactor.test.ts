@@ -711,18 +711,24 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
       Effect.gen(function* () {
         const reactor = yield* ArcRunReactor.ArcRunReactor;
 
+        // The Orchestrator settles a task soon after its child's run ends, in the background, so
+        // the task is read as the reactor meets it: straight after the child finishes.
+        const taskStatus = (threadId: ThreadId, taskId: OrchestrationV2Subagent["id"]) =>
+          Effect.map(
+            Effect.flatMap(ProjectionStore.ProjectionStoreV2, (projections) =>
+              projections.getThreadRecords(threadId, ["subagents"]),
+            ),
+            ({ subagents }) => subagents.find((task) => task.id === taskId)?.status,
+          );
+
         const paused = yield* setup("paused-running-child");
         const pausedTask = yield* delegateSpec(paused.threadId, paused.run, "paused-running-child");
         yield* writeArcRunState(paused.threadId, "paused");
-        yield* reactor.handle(yield* finish(yield* latestRun(pausedTask.childThreadId!)));
+        const pausedChildFinished = yield* finish(yield* latestRun(pausedTask.childThreadId!));
+        assert.equal(yield* taskStatus(paused.threadId, pausedTask.id), "running");
+        yield* reactor.handle(pausedChildFinished);
         assert.equal((yield* wakes(paused.threadId)).length, 0);
         assert.equal((yield* arcRunOf(paused.threadId))?.state, "paused");
-        assert.equal(
-          (yield* (yield* ProjectionStore.ProjectionStoreV2).getThreadRecords(paused.threadId, [
-            "subagents",
-          ])).subagents.find((task) => task.id === pausedTask.id)?.status,
-          "running",
-        );
 
         const inactive = yield* setup("inactive-running-child", { arc: false });
         const inactiveTask = yield* delegateSpec(
@@ -730,15 +736,11 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
           inactive.run,
           "inactive-running-child",
         );
-        yield* reactor.handle(yield* finish(yield* latestRun(inactiveTask.childThreadId!)));
+        const inactiveChildFinished = yield* finish(yield* latestRun(inactiveTask.childThreadId!));
+        assert.equal(yield* taskStatus(inactive.threadId, inactiveTask.id), "running");
+        yield* reactor.handle(inactiveChildFinished);
         assert.equal((yield* wakes(inactive.threadId)).length, 0);
         assert.isUndefined(yield* arcRunOf(inactive.threadId));
-        assert.equal(
-          (yield* (yield* ProjectionStore.ProjectionStoreV2).getThreadRecords(inactive.threadId, [
-            "subagents",
-          ])).subagents.find((task) => task.id === inactiveTask.id)?.status,
-          "running",
-        );
       }),
   );
 

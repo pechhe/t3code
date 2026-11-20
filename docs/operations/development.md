@@ -66,7 +66,7 @@ Running `vp run dev` through an agent's own shell tool does not attach it to thi
 ### State and ports
 
 Linked git worktrees and SlipJay (jj) workspaces default to their own `.t3/userdata`, from the workspace root or any nested directory, even when `T3CODE_HOME` is set.
-The main checkout defaults to `~/.t3/dev/userdata`. An explicit `--home-dir` wins in both cases.
+The main checkout defaults to `~/.t3/dev/userdata`. An explicit `--home-dir` wins in both cases. A home of `~/.t3`, from either source, still selects `~/.t3/dev`, because `~/.t3/userdata` is the live install.
 Inside a SlipJay workspace directory where no workspace root is recognised, the runner refuses to start instead of using the shared home; pass `--home-dir`.
 `vp run migrate-dev-db` follows the same default; `--base-dir` overrides it.
 The first start seeds an empty database from a read-only snapshot of `~/.t3/userdata/statev2.sqlite` only when the source is at most 500 MiB; use `--no-seed` or `T3CODE_DEV_SEED=0` to skip it. Larger sources require an explicit `vp run migrate-dev-db`.

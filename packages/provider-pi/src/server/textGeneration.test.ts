@@ -417,6 +417,17 @@ it.effect.each([
           memoryModel: "",
         },
         {},
+        (_driver, detected) =>
+          Effect.succeed(
+            detected === "1.0.3"
+              ? {
+                  status: "broken" as const,
+                  message: null,
+                  recommendedVersion: null,
+                  recommendedRange: ">=1.0.0",
+                }
+              : undefined,
+          ),
       ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, pi.spawner));
 
       const generation = textGeneration.generateCommitMessage({
@@ -432,7 +443,7 @@ it.effect.each([
       });
       if (version === "1.0.3") {
         const error = yield* generation.pipe(Effect.flip);
-        assert.include(error.detail, "Pi 1.0.4 or newer");
+        assert.include(error.detail, "Pi 1.0.3 does not work");
         assert.deepEqual(pi.received, []);
         return;
       }

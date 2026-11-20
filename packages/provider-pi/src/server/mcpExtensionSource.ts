@@ -1,4 +1,5 @@
 // No T3 imports inside the string; resolve Pi and typebox from the user's Pi install.
+import { PULL_REQUEST_LINKING_INSTRUCTIONS } from "@t3tools/provider-core/server/runtimeInstructions";
 import {
   T3_CODE_ORCHESTRATION_INSTRUCTIONS,
   t3ChildInstructions,
@@ -92,6 +93,7 @@ const READ_ONLY_SHELL_FILENAME = ${JSON.stringify(PI_READ_ONLY_SHELL_FILENAME)};
 ${PI_READ_ONLY_SHELL_EXTENSION_SOURCE}
 const ORCHESTRATION_INSTRUCTIONS = ${JSON.stringify(T3_CODE_ORCHESTRATION_INSTRUCTIONS.trim())};
 const ORCHESTRATION_WITHOUT_CREATE_THREADS = ${JSON.stringify(t3OrchestrationText(false, { createThreads: false }).trim())};
+const PULL_REQUEST_LINKING_INSTRUCTIONS = ${JSON.stringify(PULL_REQUEST_LINKING_INSTRUCTIONS)};
 const SERVICE_TIER_COMMAND = ${JSON.stringify(PI_T3_SERVICE_TIER_COMMAND)};
 const PROTOCOL = "2025-06-18";
 // Node's fetch (undici) cuts any response whose headers take over 300 s, which killed
@@ -847,6 +849,18 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
     helper ? ["ask_advice", "task_status"] : ["agent_roles", "delegate_task", "task_status"],
   );
   let deferOptionalTools = supportsExposure;
+  const isDeferred = (server: { readonly agent?: boolean }, name: string) =>
+    deferOptionalTools && (server.agent === true || !directTools.has(name));
+  // An alias follows its public tool: gone when --exclude-tools removed it,
+  // off while a direct one is off.
+  const followsPublicTool = (
+    server: { readonly name: string; readonly agent?: boolean },
+    name: string,
+    registered: ReadonlySet<string>,
+    active: ReadonlyArray<string>,
+  ) =>
+    registered.has(\`mcp__\${server.name}__\${name}\`) &&
+    (isDeferred(server, name) || active.includes(\`mcp__\${server.name}__\${name}\`));
 
   const registerTools = () => {
     approvedMcpTools.clear();
@@ -873,17 +887,28 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
         const name = tool.name;
         for (const prefix of prefixes) {
           if (server.agent || delegatedTask || tool.annotations?.readOnlyHint === true) approvedMcpTools.add(\`\${prefix}\${name}\`);
-          const exposure = prefix !== publicPrefix ? "hidden" :
-            deferOptionalTools && (server.agent || !directTools.has(name)) ? "deferred" : "direct";
+          const isAlias = prefix !== publicPrefix;
+          const toolName = \`\${prefix}\${name}\`;
+          // model-only keeps the alias out of codemode; it hides its own declaration.
+          const exposure = isAlias ? "model-only" : isDeferred(server, name) ? "deferred" : "direct";
           pi.registerTool({
-            name: \`\${prefix}\${name}\`,
+            name: toolName,
             label: name,
             description: tool.description ?? name,
             parameters: jsonSchemaToTypebox(tool.inputSchema),
             ...(supportsExposure ? { outputSchema: mcpOutputSchema(tool) } : {}),
             ...(supportsExposure ? { exposure } : {}),
-            ...(namespace !== undefined && exposure !== "hidden" ? { namespace } : {}),
+            ...(isAlias && supportsExposure ? { prepareLoadout: () => ({ hiddenDeclarations: [toolName] }) } : {}),
+            ...(namespace !== undefined && !isAlias ? { namespace } : {}),
             async execute(_toolCallId, params, signal) {
+              // Another extension may switch the public tool off after reconciliation.
+              if (
+                isAlias &&
+                supportsExposure &&
+                !followsPublicTool(server, name, new Set(pi.getAllTools().map((tool) => tool.name)), pi.getActiveTools())
+              ) {
+                return { content: [{ type: "text", text: \`Tool \${toolName} not found\` }], details: {}, isError: true };
+              }
               const result = await server.client.callTool(
                 name,
                 (params ?? {}) as Record<string, unknown>,
@@ -943,8 +968,27 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
       ...(hasToolSearch ? ["tool_search"] : []),
       ...(hasCodemode ? ["codemode"] : []),
     ];
-    const missing = required.filter((name) => !active.includes(name));
-    if (missing.length > 0) pi.setActiveTools([...active, ...missing]);
+    const current = pi.getActiveTools();
+    const missing = required.filter((name) => !current.includes(name));
+    if (missing.length > 0) pi.setActiveTools([...current, ...missing]);
+    // An alias is callable only while active.
+    const registered = new Set(pi.getAllTools().map((tool) => tool.name));
+    const loaded = pi.getActiveTools();
+    const aliasPrefixes: string[] = [];
+    const aliases: string[] = [];
+    for (const server of servers) {
+      const aliasPrefix = \`mcp__\${server.name.replaceAll("-", "_")}__\`;
+      if (aliasPrefix === \`mcp__\${server.name}__\`) continue;
+      aliasPrefixes.push(aliasPrefix);
+      for (const tool of server.catalog) {
+        if (registered.has(aliasPrefix + tool.name) && followsPublicTool(server, tool.name, registered, loaded)) {
+          aliases.push(aliasPrefix + tool.name);
+        }
+      }
+    }
+    const kept = loaded.filter((name) => !aliasPrefixes.some((prefix) => name.startsWith(prefix)) || aliases.includes(name));
+    const added = aliases.filter((name) => !loaded.includes(name));
+    if (added.length > 0 || kept.length !== loaded.length) pi.setActiveTools([...kept, ...added]);
   };
 
   // Tree navigation restores its saved loadout after session_start.
@@ -1019,9 +1063,9 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
       ? options?.contextFiles?.map((file) => ({ path: file.path, characters: file.content.length })) ?? [] : [];
     promptSkills = options?.forceSystemPrompt === undefined
       ? options?.skills?.map((skill) => ({ name: skill.name, path: skill.filePath })) ?? [] : [];
-    const instructions = process.env[INSTRUCTIONS_ENV] ??
+    const instructions = (process.env[INSTRUCTIONS_ENV] ??
       (servers.find((server) => server.name === "t3-code")?.catalog.some((tool) => tool.name === "create_threads")
-        ? ORCHESTRATION_INSTRUCTIONS : ORCHESTRATION_WITHOUT_CREATE_THREADS);
+        ? ORCHESTRATION_INSTRUCTIONS : ORCHESTRATION_WITHOUT_CREATE_THREADS)) + "\\n\\n" + PULL_REQUEST_LINKING_INSTRUCTIONS;
     const sections = event.systemPromptOptions?.sections;
     if (sections && typeof sections === "object" && event.systemPromptOptions?.forceSystemPrompt === undefined) {
       // A full prompt override bypasses Pi's later section rendering.

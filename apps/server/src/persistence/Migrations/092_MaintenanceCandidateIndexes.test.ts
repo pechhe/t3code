@@ -19,7 +19,7 @@ it.layer(NodeSqliteClient.layer({ filename: ":memory:" }))(
           ('limit', 'thread-limit', 1, 'error', 'failed', 'now', '{"failure":{"class":"usage_limit"}}'),
           ('other', 'thread-other', 1, 'error', 'failed', 'now', '{"failure":{"class":"unknown"}}')
       `;
-        yield* runMigrations();
+        yield* runMigrations({ toMigrationInclusive: 92 });
         const candidates = () =>
           sql<{ thread_id: string }>`
         SELECT thread_id FROM orchestration_v2_projection_turn_items

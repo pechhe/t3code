@@ -26,6 +26,7 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ProjectEnrichmentService from "../project/ProjectEnrichmentService.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as McpSessionRegistryTestkit from "../mcp/McpSessionRegistry.testkit.ts";
+import * as ModelManifest from "../provider/ModelManifest.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
@@ -200,9 +201,12 @@ it.effect.each([
         }),
       ),
       Layer.provide(
-        Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
-          getInstance: (id) => Effect.succeed(id === instance.instanceId ? instance : undefined),
-        }),
+        Layer.merge(
+          ModelManifest.layerTest,
+          Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
+            getInstance: (id) => Effect.succeed(id === instance.instanceId ? instance : undefined),
+          }),
+        ),
       ),
       Layer.provide(layerGitWorkflowTest),
       Layer.provide(layerPlatformTest),

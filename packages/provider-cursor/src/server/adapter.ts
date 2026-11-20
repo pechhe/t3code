@@ -4,6 +4,7 @@ import type {
   InteractionUpdate,
   McpServerConfig,
   RunResult,
+  SDKModel,
   SDKUserMessage,
   SettingSource,
   ToolCall,
@@ -105,6 +106,7 @@ export const CursorProviderCapabilitiesV2 = {
     emitsTurnStarted: true,
     emitsTurnCompleted: true,
     supportsInterrupt: true,
+    supportsNativeResume: true,
     supportsActiveSteering: true,
     // A steer can move a foreground subagent to the background. Mailbox wakes
     // stay queued so a notification does not cut into the live turn.
@@ -327,6 +329,7 @@ export function makeCursorAgentOptions(input: {
   readonly apiKey?: string;
   readonly modelSelection: ModelSelection;
   readonly models?: ReadonlyArray<ServerProviderModel>;
+  readonly sdkModels?: ReadonlyArray<SDKModel>;
   readonly runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
   readonly threadId: ThreadId;
   readonly mcpSession: McpProviderSession.McpProviderSessionConfig | undefined;
@@ -336,7 +339,7 @@ export function makeCursorAgentOptions(input: {
   const policy = cursorRuntimeAgentPolicy(input.runtimePolicy, input.platform);
   const mcpServers = cursorMcpServers(input.mcpSession, input.agentServers);
   return {
-    model: cursorSdkModelSelection(input.modelSelection, input.models),
+    model: cursorSdkModelSelection(input.modelSelection, input.models, input.sdkModels),
     name: `T3 Code ${input.threadId}`,
     mode: input.runtimePolicy.interactionMode === "plan" ? "plan" : "agent",
     ...(input.apiKey === undefined ? {} : { apiKey: input.apiKey }),
@@ -1036,6 +1039,7 @@ export interface CursorAdapterV2Options {
   readonly instanceId: ProviderInstanceId;
   readonly environment: NodeJS.ProcessEnv;
   readonly getModels?: () => ReadonlyArray<ServerProviderModel>;
+  readonly getSdkModels?: () => ReadonlyArray<SDKModel>;
 }
 
 // Cursor reports no per-request token counts, so its turns record no usage for Weave's Build
@@ -2570,6 +2574,7 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
             ...(apiKey === undefined ? {} : { apiKey }),
             modelSelection: openInput.modelSelection,
             models: adapterOptions.getModels?.() ?? [],
+            sdkModels: adapterOptions.getSdkModels?.() ?? [],
             runtimePolicy: openInput.runtimePolicy,
             platform,
             threadId: openInput.threadId,
@@ -2812,6 +2817,7 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
                   model: cursorSdkModelSelection(
                     turnInput.modelSelection,
                     adapterOptions.getModels?.() ?? [],
+                    adapterOptions.getSdkModels?.() ?? [],
                   ),
                   mode: turnInput.runtimePolicy.interactionMode === "plan" ? "plan" : "agent",
                   ...(Object.keys(turnMcpServers).length === 0

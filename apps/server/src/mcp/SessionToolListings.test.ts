@@ -1,3 +1,4 @@
+import * as GitManager from "../git/GitManager.ts";
 import * as FixtureRemoteDelegation from "../peer/RemoteDelegation.ts";
 import * as AdviceMcpService from "./AdviceMcpService.ts";
 import * as AssetSigner from "../assets/AssetSigner.ts";
@@ -98,6 +99,7 @@ const serviceMocks = Layer.mergeAll(
   Layer.mock(ServerSecretStore.ServerSecretStore)({}),
   Layer.mock(ServerEnvironment.ServerEnvironment)({}),
   Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
+  Layer.mock(GitManager.GitManager)({}),
   Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
   Layer.mock(SecretRequests.SecretRequests)({}),
   Layer.mock(SourceControlRepositoryService.SourceControlRepositoryService)({}),

@@ -632,6 +632,7 @@ export const layerMcpClientAuthenticator = Layer.effect(
                     access: client.access,
                     scopes: client.scopes,
                     linked: client.peerLink,
+                    linkExpiresAt: client.linkExpiresAt,
                     ...(client.peerLink ? {} : { hostedAppUrl }),
                   },
                   capabilities: new Set<McpInvocationContext.McpCapability>(

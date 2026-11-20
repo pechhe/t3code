@@ -30,6 +30,7 @@ import * as ProjectService from "../../../project/ProjectService.ts";
 import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
 import * as ThreadProjectMove from "../../../orchestration-v2/ThreadProjectMoveService.ts";
 import type * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
+import * as ThreadMessageIntake from "../../../orchestration-v2/ThreadMessageIntake.ts";
 import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
 import * as ThreadDirectory from "../../../peers/ThreadDirectory.ts";
 import * as ScheduledTasks from "../../../scheduledTasks/ScheduledTaskService.ts";
@@ -458,12 +459,26 @@ export const handlers = {
         switch (input.action) {
           case "edit": {
             const text = yield* required(input.text, "text");
-            return yield* dispatch(input.threadId, (common) => ({
-              ...common,
+            const { threads, projection } = yield* readThread(input.threadId);
+            // An agent must not turn a person's queued message into a provider sign-out.
+            const command = yield* ThreadMessageIntake.withQueuedAttachmentsOnSignOutText({
               type: "queued-run.edit",
+              commandId: yield* newCommandId(),
+              threadId: projection.thread.id,
               runId,
               text,
-            }));
+            }).pipe(
+              Effect.mapError((error) =>
+                error._tag === "EnvironmentAuthorizationError"
+                  ? new OrchestratorMcpFailure({
+                      code: "invalid_request",
+                      message: "A queued message cannot be edited into a provider sign-out.",
+                    })
+                  : dispatchFailure(error),
+              ),
+            );
+            const result = yield* threads.dispatch(command).pipe(Effect.mapError(dispatchFailure));
+            return { sequence: result.sequence };
           }
           case "reorder": {
             const beforeRunId = yield* required(input.beforeRunId, "beforeRunId");

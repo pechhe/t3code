@@ -252,7 +252,16 @@ export interface ManagedDelegationDeps {
     taskId: NodeId,
     wakePolicyRequestKey: string,
     requestedTimeoutMs: number | undefined,
+    restore?: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>,
   ) => Effect.Effect<OrchestratorMcpDelegateTaskResult, Failure>;
+  /** A background subagent's delegations join the latest run its thread had once the turn settled. */
+  readonly backgroundSubagentRun: (
+    scope: McpInvocationScope,
+    threadId: ThreadId,
+  ) => Effect.Effect<OrchestrationV2Run | undefined, Failure>;
+  readonly parentWorkspaceCwd: (
+    parent: Pick<OrchestrationV2ThreadProjection, "thread">,
+  ) => Effect.Effect<string | undefined>;
   readonly external: Effect.Effect<ExternalWork.ExternalAgentWorkService["Service"], Failure>;
   readonly externalFailure: (error: ExternalWork.ExternalAgentWorkError) => Failure;
   readonly internalWorkOwner: (
@@ -341,6 +350,8 @@ export interface ManagedDelegationDeps {
     readonly parent: Pick<OrchestrationV2ThreadProjection, "thread">;
     readonly target: OrchestratorMcpTarget | undefined;
     readonly providers: ReadonlyArray<ServerProvider>;
+    /** The folder whose own provider config can add models. */
+    readonly cwd: string | undefined;
     readonly skipProjectEnablementFilter?: boolean;
     readonly roleSelection?: boolean;
     readonly pinned?: boolean;
@@ -375,6 +386,8 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
     maxWaitTimeoutMs: MAX_WAIT_TIMEOUT_MS,
     assertLiveCaller,
     awaitTask,
+    backgroundSubagentRun,
+    parentWorkspaceCwd,
     external,
     externalFailure,
     internalWorkOwner,
@@ -928,9 +941,9 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
           "A local task runs in this thread's project. Omit target.projectId, or pass target.environmentId to run it in that environment's project.",
         );
       }
-      const parentRun = parent.runs
-        .filter(ThreadManagementService.isActiveRun)
-        .toSorted((left, right) => right.ordinal - left.ordinal)[0];
+      const parentRun =
+        ThreadManagementService.latestActiveRun(parent) ??
+        (yield* backgroundSubagentRun(scope, parent.thread.id));
       if (
         parentRun === undefined ||
         parentRun.rootNodeId === null ||
@@ -1444,6 +1457,7 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
             });
       let target = yield* resolveTargetRechecking({
         parent,
+        cwd: yield* parentWorkspaceCwd(parent),
         target:
           prepared === undefined
             ? input.target
@@ -1537,6 +1551,7 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
         // Resolve again through the ordinary provider capability and permission checks.
         target = yield* resolveTargetRechecking({
           parent,
+          cwd: yield* parentWorkspaceCwd(parent),
           providers,
           target: {
             providerInstanceId: experimentSelection.instanceId,
@@ -1625,36 +1640,41 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
           })
           .pipe(Effect.mapError(workError));
       const parentNodeId = parentRun.rootNodeId;
-      const launch = Effect.gen(function* () {
+      const launch = Effect.fn("ManagedDelegation.launch")(function* (
+        restore: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>,
+      ) {
         if (prepared !== undefined && managedService !== undefined) {
-          yield* managedService
-            .validate({
-              binding: prepared.binding,
-              runtimeMode,
-              selection: target.modelSelection,
-              ...(experimentSelection === undefined ? {} : { treatment: experimentSelection }),
-              projectId: taskProjectId,
-              providers: eligibleProviders,
-              ceiling: parent.thread.runtimeMode,
-              workspacePath: leadCheckout ?? null,
-              ...(yield* readWorkspaceAuthority),
-              ...(specLead ? { allocatesWorkspace: true } : {}),
-            })
-            .pipe(
-              Effect.tapError((error) =>
-                Effect.gen(function* () {
-                  if (workUnit !== undefined)
-                    yield* experiments
-                      .recordWorkTaskLaunch({
-                        taskId: deriveIds.delegatedTaskNode({ commandId }),
-                        state: "refused",
-                      })
-                      .pipe(Effect.mapError(workError));
-                  yield* recordExperimentFailure(error.message);
-                }),
+          // Nothing is committed yet, so a caller that goes away can still stop here.
+          yield* restore(
+            managedService
+              .validate({
+                binding: prepared.binding,
+                runtimeMode,
+                selection: target.modelSelection,
+                ...(experimentSelection === undefined ? {} : { treatment: experimentSelection }),
+                projectId: taskProjectId,
+                providers: eligibleProviders,
+                ceiling: parent.thread.runtimeMode,
+                workspacePath: leadCheckout ?? null,
+                ...(yield* readWorkspaceAuthority),
+                ...(specLead ? { allocatesWorkspace: true } : {}),
+              })
+              .pipe(
+                Effect.tapError((error) =>
+                  Effect.gen(function* () {
+                    if (workUnit !== undefined)
+                      yield* experiments
+                        .recordWorkTaskLaunch({
+                          taskId: deriveIds.delegatedTaskNode({ commandId }),
+                          state: "refused",
+                        })
+                        .pipe(Effect.mapError(workError));
+                    yield* recordExperimentFailure(error.message);
+                  }),
+                ),
+                Effect.mapError((error) => failure("capability_denied", error.message)),
               ),
-              Effect.mapError((error) => failure("capability_denied", error.message)),
-            );
+          );
         }
         if (prepared !== undefined && Option.isSome(champions))
           yield* champions.value
@@ -1766,87 +1786,119 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
             ),
           );
       });
-      // Isolated writers and pinned readers elsewhere share one lock, so neither can launch
-      // into a workspace the other has just claimed.
-      const result = yield* (elsewhere || championManagedLaunch) && managedService !== undefined
-        ? managedService.exclusive(launch)
-        : launch;
-      if (workUnit !== undefined)
-        yield* experiments
-          .recordWorkTaskLaunch({
-            taskId: deriveIds.delegatedTaskNode({ commandId }),
-            state: "accepted",
-          })
-          .pipe(Effect.mapError(workError));
-      if (
-        Option.isSome(modelShadow) &&
-        managedService !== undefined &&
-        prepared !== undefined &&
-        !isRetryOfAcceptedDelegation &&
-        input.followup === undefined &&
-        input.agentTask?.review?.councilSeat === undefined
-      ) {
-        const { binding } = prepared;
-        // Off the request path: nothing waits on it. The eligible list is read in the fork a moment
-        // after the launch, so it can differ from the agent's only if a model's availability flips between.
-        yield* modelShadow.value.observe({
-          threadId: deriveIds.delegatedTaskThread({ commandId }),
-          projectId: taskProjectId,
-          role: binding.role,
-          taskClass: binding.taskClass,
-          eligible: DelegationModelShadow.eligibleModels(
-            managedService,
-            {
+      // The command commits the child's preparing run, which only this call prepares, so a caller
+      // that goes away must not stop it between the dispatch and prepareRun. Waiting for the lock
+      // below and the validation before the dispatch stay interruptible.
+      let committedTaskId: NodeId | undefined;
+      const commit = Effect.uninterruptibleMask((restore) =>
+        Effect.gen(function* () {
+          const result = yield* launch(restore);
+          if (workUnit !== undefined)
+            yield* experiments
+              .recordWorkTaskLaunch({
+                taskId: deriveIds.delegatedTaskNode({ commandId }),
+                state: "accepted",
+              })
+              .pipe(Effect.mapError(workError));
+          if (
+            Option.isSome(modelShadow) &&
+            managedService !== undefined &&
+            prepared !== undefined &&
+            !isRetryOfAcceptedDelegation &&
+            input.followup === undefined &&
+            input.agentTask?.review?.councilSeat === undefined
+          ) {
+            const { binding } = prepared;
+            // Off the request path: nothing waits on it. The eligible list is read in the fork a moment
+            // after the launch, so it can differ from the agent's only if a model's availability flips between.
+            yield* modelShadow.value.observe({
+              threadId: deriveIds.delegatedTaskThread({ commandId }),
               projectId: taskProjectId,
-              providers: eligibleProviders,
-              ceiling: parent.thread.runtimeMode,
-            },
-            {
               role: binding.role,
               taskClass: binding.taskClass,
-              ...(binding.browser === undefined ? {} : { browser: binding.browser }),
-              ...(binding.executionRequirement === undefined
-                ? {}
-                : { executionRequirement: binding.executionRequirement }),
-              ...(binding.readOnly === undefined ? {} : { readOnly: binding.readOnly }),
-              ...(binding.authorModel === undefined ? {} : { authorModel: binding.authorModel }),
-            },
-          ),
-          chosenModel: target.modelSelection.model,
-          reassigned: experimentSelection !== undefined,
-          taskText: taskPrompt(input),
-        });
-      }
-      const taskEvent = result.storedEvents.find(
-        (stored) =>
-          stored.event.type === "subagent.updated" && stored.event.payload.origin === "app_owned",
-      );
-      if (taskEvent?.event.type !== "subagent.updated") {
-        return yield* failure(
-          "orchestration_error",
-          "Delegated task command did not produce a task projection.",
-        );
-      }
-      const taskId = taskEvent.event.payload.id;
-      const childThreadId = taskEvent.event.payload.childThreadId;
-      const childRunEvent = result.storedEvents.find(
-        (stored) => stored.event.type === "run.created" && stored.event.threadId === childThreadId,
-      );
-      if (
-        childThreadId !== null &&
-        childRunEvent?.event.type === "run.created" &&
-        childRunEvent.event.payload.workspacePreparation !== undefined
-      ) {
-        yield* threadLaunch.prepareRun({
-          commandId,
-          threadId: childThreadId,
-          runId: childRunEvent.event.payload.id,
-        });
-      }
+              eligible: DelegationModelShadow.eligibleModels(
+                managedService,
+                {
+                  projectId: taskProjectId,
+                  providers: eligibleProviders,
+                  ceiling: parent.thread.runtimeMode,
+                },
+                {
+                  role: binding.role,
+                  taskClass: binding.taskClass,
+                  ...(binding.browser === undefined ? {} : { browser: binding.browser }),
+                  ...(binding.executionRequirement === undefined
+                    ? {}
+                    : { executionRequirement: binding.executionRequirement }),
+                  ...(binding.readOnly === undefined ? {} : { readOnly: binding.readOnly }),
+                  ...(binding.authorModel === undefined
+                    ? {}
+                    : { authorModel: binding.authorModel }),
+                },
+              ),
+              chosenModel: target.modelSelection.model,
+              reassigned: experimentSelection !== undefined,
+              taskText: taskPrompt(input),
+            });
+          }
+          const taskEvent = result.storedEvents.find(
+            (stored) =>
+              stored.event.type === "subagent.updated" &&
+              stored.event.payload.origin === "app_owned",
+          );
+          if (taskEvent?.event.type !== "subagent.updated") {
+            return yield* failure(
+              "orchestration_error",
+              "Delegated task command did not produce a task projection.",
+            );
+          }
+          const taskId = taskEvent.event.payload.id;
+          const childThreadId = taskEvent.event.payload.childThreadId;
+          const childRunEvent = result.storedEvents.find(
+            (stored) =>
+              stored.event.type === "run.created" && stored.event.threadId === childThreadId,
+          );
+          if (
+            childThreadId !== null &&
+            childRunEvent?.event.type === "run.created" &&
+            childRunEvent.event.payload.workspacePreparation !== undefined
+          ) {
+            yield* threadLaunch.prepareRun({
+              commandId,
+              threadId: childThreadId,
+              runId: childRunEvent.event.payload.id,
+            });
+          }
 
-      return yield* input.mode === "wait"
-        ? awaitTask(scope, taskId, key, input.timeoutMs)
-        : readTask(scope, taskId, false, true);
+          committedTaskId = taskId;
+          return taskId;
+        }),
+      );
+      // Isolated writers and pinned readers elsewhere share one lock, so neither can launch
+      // into a workspace the other has just claimed; the lock is held through prepareRun.
+      // One mask from the lock wait to the await, so a caller that goes away once the run is
+      // committed still reaches the wake upgrade: only the lock wait and the await itself are
+      // restored to interruptible.
+      return yield* Effect.uninterruptibleMask((restore) =>
+        Effect.gen(function* () {
+          const launched = yield* Effect.exit(
+            restore(
+              (elsewhere || championManagedLaunch) && managedService !== undefined
+                ? managedService.exclusive(commit)
+                : commit,
+            ),
+          );
+          // An interrupt that lands as the lock is released must not drop a committed run.
+          if (committedTaskId === undefined) {
+            yield* launched;
+            return yield* failure("orchestration_error", "The delegated task was not committed.");
+          }
+          const taskId = committedTaskId;
+          return yield* input.mode === "wait"
+            ? awaitTask(scope, taskId, key, input.timeoutMs, restore)
+            : restore(readTask(scope, taskId, false, true));
+        }),
+      );
     },
     (effect, callerScope, input) =>
       effect.pipe(

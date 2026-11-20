@@ -22,7 +22,7 @@ import * as McpAppModelContext from "../mcpApps/McpAppModelContext.ts";
 import * as EventSink from "./EventSink.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
-import { frameScheduledTaskPrompt } from "./ScheduledTaskPrompt.ts";
+import { frameScheduledTaskPrompt, withSenderNoteUnlessScheduled } from "./ScheduledTaskPrompt.ts";
 import * as VideoFrames from "../videoFrames/VideoFrames.ts";
 
 const yieldToRuntime = Effect.yieldNow.pipe(
@@ -474,7 +474,10 @@ export const layer: Layer.Layer<
               ...(appContext.length === 0 ? {} : { appContext }),
               message: {
                 messageId: message.id,
-                text: message.scheduledTaskId === undefined ? text : frameScheduledTaskPrompt(text),
+                text:
+                  message.scheduledTaskId === undefined
+                    ? withSenderNoteUnlessScheduled(message, text)
+                    : frameScheduledTaskPrompt(text),
                 attachments: message.attachments,
                 ...(videoFrames.length === 0 ? {} : { videoFrames }),
                 createdBy: message.createdBy,

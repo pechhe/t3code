@@ -169,7 +169,11 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
           }),
       ),
     );
-    const textGeneration = yield* makePiTextGeneration(effectiveConfig, processEnv);
+    const textGeneration = yield* makePiTextGeneration(
+      effectiveConfig,
+      processEnv,
+      host.compatibility,
+    );
 
     const lastDiscoveredModelsRef = yield* Ref.make<ReadonlyArray<ServerProviderModel>>([]);
     const syncScopedModelsFromPi = Effect.fn("PiDriver.syncScopedModelsFromPi")(function* (
@@ -197,7 +201,9 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
       .makeDirectory(probeCwd, { recursive: true })
       .pipe(
         Effect.ignore,
-        Effect.andThen(checkPiProviderStatus(effectiveConfig, processEnv, probeCwd)),
+        Effect.andThen(
+          checkPiProviderStatus(effectiveConfig, processEnv, probeCwd, host.compatibility),
+        ),
         Effect.map(stampIdentity),
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
       );
