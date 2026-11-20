@@ -88,6 +88,9 @@ function gitOk(repo: string, args: ReadonlyArray<string>): boolean {
 
 const short = (sha: string) => sha.slice(0, 12);
 
+// The record's "Fork before merge" line names the fork commit the merge was made onto.
+const FORK_BASELINE_LINE = /^(- Fork before merge: `)([0-9a-f]{40})(`)/m;
+
 function newestMerge(repo: string, rev: string): MergeInfo | null {
   const sha = git(repo, ["rev-list", "--first-parent", "--merges", "-n1", rev]);
   return sha === "" ? null : mergeInfo(repo, sha);
@@ -362,6 +365,18 @@ export function verify(options: {
     } catch {
       reasons.push(`${RECORD_PATH} missing at ${short(changedIn)}`);
     }
+    try {
+      const named = FORK_BASELINE_LINE.exec(
+        git(repo, ["show", `${changedIn}:${RECORD_PATH}`]),
+      )?.[2];
+      if (named !== undefined && named !== r.fork.base) {
+        reasons.push(
+          `record baseline names fork commit ${named}, receipt fork.base is ${r.fork.base}`,
+        );
+      }
+    } catch {
+      // A missing record is already reported above.
+    }
     // A receipt a candidate introduces is judged as the candidate stands, whatever version it
     // claims; only a landed update reading an older receipt keeps that receipt's own meaning.
     if (r.version === RECEIPT_VERSION || introduced) {
@@ -464,6 +479,28 @@ export function skeleton(options: {
   };
 }
 
+// After rebasing the merge onto a newer fork base, bring the receipt and the record's
+// baseline line to it and re-pin the record blob, in the working tree.
+export function rebaseReceipt(options: { readonly repo: string; readonly fork: string }): string {
+  const { repo } = options;
+  const fork = git(repo, ["rev-parse", "--verify", `${options.fork}^{commit}`]);
+  const receiptFile = NodePath.join(repo, RECEIPT_PATH);
+  const recordFile = NodePath.join(repo, RECORD_PATH);
+  const record = NodeFS.readFileSync(recordFile, "utf8");
+  if (!FORK_BASELINE_LINE.test(record))
+    throw new Error(`${RECORD_PATH} has no "Fork before merge" line`);
+  NodeFS.writeFileSync(recordFile, record.replace(FORK_BASELINE_LINE, `$1${fork}$3`));
+  const blob = git(repo, ["hash-object", RECORD_PATH]);
+  const receipt = NodeFS.readFileSync(receiptFile, "utf8");
+  const next = receipt
+    .replace(/("fork":\s*\{\s*"base":\s*")[0-9a-f]{40}(")/, `$1${fork}$2`)
+    .replace(/("blob":\s*")[0-9a-f]{40}(")/, `$1${blob}$2`);
+  if (!next.includes(fork) || !next.includes(blob))
+    throw new Error(`cannot update ${RECEIPT_PATH}`);
+  NodeFS.writeFileSync(receiptFile, next);
+  return fork;
+}
+
 // In a colocated jj checkout (SlipJay's runner and workspaces) git's HEAD is the parent
 // of the working-copy commit, so the candidate is jj's `@`, or its parent when `@` is
 // an empty, undescribed commit started on top of it.
@@ -497,6 +534,7 @@ function main(argv: ReadonlyArray<string>): number {
         repo: { type: "string", default: process.cwd() },
         json: { type: "boolean", default: false },
         tag: { type: "string" },
+        fork: { type: "string" },
         "baseline-tag": { type: "string" },
       },
       strict: true,
@@ -548,7 +586,13 @@ function main(argv: ReadonlyArray<string>): number {
       );
       return 0;
     }
-    throw new Error("usage: fork-upstream-receipt.ts verify|skeleton [options]");
+    if (command === "rebase") {
+      if (values.fork === undefined) throw new Error("rebase requires --fork <fork base commit>");
+      const fork = rebaseReceipt({ repo: values.repo, fork: values.fork });
+      writeLine(`receipt and record now name fork base ${short(fork)}; run verify`);
+      return 0;
+    }
+    throw new Error("usage: fork-upstream-receipt.ts verify|skeleton|rebase [options]");
   } catch (error) {
     writeError((error as Error).message);
     return 1;

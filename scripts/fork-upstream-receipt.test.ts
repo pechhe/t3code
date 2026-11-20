@@ -7,7 +7,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
-import { recordHeadings, skeleton, verify } from "./fork-upstream-receipt.ts";
+import { recordHeadings, rebaseReceipt, skeleton, verify } from "./fork-upstream-receipt.ts";
 
 const roots: Array<string> = [];
 afterEach(() => {
@@ -118,6 +118,39 @@ function fixture() {
 }
 
 describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork upstream receipt", () => {
+  const withBaseline = (sha: string) =>
+    `# Fork differences\n\n- Fork before merge: \`${sha}\`\n\n## Entries\n\n### alpha\n`;
+
+  it("refuses a record baseline line that names another fork commit", () => {
+    const { repo, merge2 } = fixture();
+    const base = repo.git("rev-parse", `${merge2}^1`);
+    repo.commit("stale baseline", {
+      "fork/differences.md": withBaseline(repo.git("rev-parse", "up1")),
+    });
+    repo.commitReceipt(repo.receiptFor(merge2));
+    expect(repo.check().reasons.join("\n")).toMatch(/record baseline names fork commit/);
+    repo.commit("fixed baseline", { "fork/differences.md": withBaseline(base) });
+    repo.commitReceipt(repo.receiptFor(merge2));
+    expect(repo.check().reasons).toEqual([]);
+  });
+
+  it("rebase moves fork.base, the baseline line and the record blob together", () => {
+    const { repo, merge2 } = fixture();
+    const base = repo.git("rev-parse", `${merge2}^1`);
+    repo.commit("baseline", { "fork/differences.md": withBaseline(base) });
+    repo.commitReceipt(repo.receiptFor(merge2));
+    const newBase = repo.git("rev-parse", "up1");
+    rebaseReceipt({ repo: repo.dir, fork: newBase });
+    const receipt = JSON.parse(
+      NodeFS.readFileSync(NodePath.join(repo.dir, "fork/upstream-receipt.json"), "utf8"),
+    );
+    expect(receipt.fork.base).toBe(newBase);
+    expect(NodeFS.readFileSync(NodePath.join(repo.dir, "fork/differences.md"), "utf8")).toContain(
+      `- Fork before merge: \`${newBase}\``,
+    );
+    expect(receipt.record.blob).toBe(repo.git("hash-object", "fork/differences.md"));
+  });
+
   it("requires a newly introduced merge's receipt in the candidate's last commit", () => {
     const { repo, merge2 } = fixture();
     repo.commitReceipt(repo.receiptFor(merge2));
