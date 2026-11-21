@@ -62,7 +62,7 @@ describe("matchesPiEnabledModelPattern", () => {
 });
 
 describe("resolvePiModelPreferencesFromEnabledModels", () => {
-  it("hides every discovered model outside Pi's enabledModels, including new provider models, and orders enabled models first", () => {
+  it("hides every discovered model outside Pi's enabledModels, including new provider models, and appends newly enabled models to the order", () => {
     const resolved = resolvePiModelPreferencesFromEnabledModels({
       enabledModels: ["antigravity/gemini-4-hydrogen:high", "opencode-go/deepseek-v4.1-flash"],
       discoveredModels: catalog,
@@ -83,10 +83,52 @@ describe("resolvePiModelPreferencesFromEnabledModels", () => {
       "openrouter/google/gemini-4-neon:batch",
     ]);
     assert.deepEqual(resolved?.modelOrder, [
+      "claude-subscription-hfpetch/claude-opus-5-5",
       "antigravity/gemini-4-hydrogen",
+      "opencode-go/deepseek-v4.1-flash",
+    ]);
+  });
+
+  it("keeps preferences for models another machine's Pi lists, so shared settings settle instead of reverting", () => {
+    const currentPreferences = {
+      hiddenModels: [
+        "anthropic/claude-opus-5-5",
+        "openrouter/google/gemini-4-neon",
+        "openai/gpt-4",
+        "openrouter/google/gemini-4-neon:batch",
+      ],
+      modelOrder: [
+        "openai/gpt-6-luna",
+        "opencode-go/deepseek-v4.1-flash",
+        "anthropic/claude-sonnet-5-5",
+        "antigravity/gemini-4-hydrogen",
+      ],
+    };
+    const resolved = resolvePiModelPreferencesFromEnabledModels({
+      enabledModels: [
+        "antigravity/gemini-4-hydrogen",
+        "opencode-go/deepseek-v4.1-flash",
+        "claude-subscription-hfpetch/claude-opus-5-5",
+      ],
+      discoveredModels: catalog,
+      currentPreferences,
+    });
+    assert.deepEqual(resolved?.hiddenModels, currentPreferences.hiddenModels);
+    assert.deepEqual(resolved?.modelOrder, [
+      "openai/gpt-6-luna",
+      "antigravity/gemini-4-hydrogen",
+      "anthropic/claude-sonnet-5-5",
       "opencode-go/deepseek-v4.1-flash",
       "claude-subscription-hfpetch/claude-opus-5-5",
     ]);
+    assert.deepEqual(
+      resolvePiModelPreferencesFromEnabledModels({
+        enabledModels: resolved!.enabledSlugs,
+        discoveredModels: catalog,
+        currentPreferences: resolved!,
+      }),
+      resolved,
+    );
   });
 
   it("leaves T3 preferences alone when Pi has no enabledModels scope or an empty array", () => {

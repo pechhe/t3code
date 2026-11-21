@@ -163,32 +163,28 @@ export function resolvePiModelPreferencesFromEnabledModels(input: {
     }
   }
 
-  const currentHiddenSet = new Set(currentPreferences?.hiddenModels ?? []);
-  const hiddenModels: Array<string> = [];
-  if (currentHiddenSet.has(PI_DEFAULT_MODEL_SLUG)) {
-    hiddenModels.push(PI_DEFAULT_MODEL_SLUG);
-  }
+  // Shared setup syncs these preferences between machines whose Pi catalogs differ, so Pi's file
+  // only decides models discovered here; every other entry keeps its place.
+  const discoveredSet = new Set(builtInModels.map((model) => model.slug));
+  const hiddenModels = (currentPreferences?.hiddenModels ?? []).filter(
+    (slug) => !discoveredSet.has(slug) || !enabledSet.has(slug),
+  );
+  const hiddenSet = new Set(hiddenModels);
   for (const model of builtInModels) {
-    if (!enabledSet.has(model.slug)) {
+    if (!enabledSet.has(model.slug) && !hiddenSet.has(model.slug)) {
       hiddenModels.push(model.slug);
     }
   }
 
-  const existingOrder = currentPreferences?.modelOrder ?? [];
-  const seenOrder = new Set<string>();
-  const modelOrder: Array<string> = [];
-  for (const slug of enabledSlugs) {
-    if (!seenOrder.has(slug)) {
-      seenOrder.add(slug);
-      modelOrder.push(slug);
-    }
-  }
-  for (const slug of existingOrder) {
-    if (!seenOrder.has(slug)) {
-      seenOrder.add(slug);
-      modelOrder.push(slug);
-    }
-  }
+  // Enabled models take Pi's order within the slots they already hold; new ones go at the end.
+  const existingOrder = [...new Set(currentPreferences?.modelOrder ?? [])];
+  const existingSet = new Set(existingOrder);
+  const reordered = enabledSlugs.filter((slug) => existingSet.has(slug));
+  let next = 0;
+  const modelOrder = existingOrder.map((slug) =>
+    enabledSet.has(slug) ? reordered[next++]! : slug,
+  );
+  modelOrder.push(...enabledSlugs.filter((slug) => !existingSet.has(slug)));
 
   return { enabledSlugs, hiddenModels, modelOrder };
 }
