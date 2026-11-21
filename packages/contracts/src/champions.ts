@@ -142,6 +142,8 @@ export const ChampionFolderState = Schema.Struct({
     label: Schema.String.check(Schema.isMaxLength(200)),
   }),
   savedAt: Schema.NullOr(IsoDateTime),
+  /** Where `repository` holds the definition and learnings, for a repository-hosted Champion; `path` then holds only its readings and findings. */
+  definedIn: Schema.optional(Schema.String.check(Schema.isMaxLength(500))),
 });
 export type ChampionFolderState = typeof ChampionFolderState.Type;
 const ChampionSampleStatus = Schema.Literals(["measured", "unknown", "insufficient", "error"]);

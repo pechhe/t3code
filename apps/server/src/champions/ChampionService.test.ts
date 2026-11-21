@@ -83,6 +83,7 @@ import * as Projects from "../project/ProjectService.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as ServerConfig from "../config.ts";
 import * as ChampionModels from "./ChampionModels.ts";
 
 const decodeBinding = Schema.decodeSync(AgentTaskBinding);
@@ -7330,6 +7331,53 @@ const agentConfig = () => {
       git(base, "--git-dir", origin, "diff", "--name-only", "main~1", "main").split("\n"),
   };
 };
+/** A project repository whose integration branch is develop, and the user's checkout of it. */
+const projectRepository = () => {
+  const base = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "champion-project-"));
+  const origin = NodePath.join(base, "project.git");
+  git(base, "init", "-q", "--bare", "-b", "main", origin);
+  git(base, "--git-dir", origin, "config", "uploadpack.allowFilter", "true");
+  git(base, "--git-dir", origin, "config", "uploadpack.allowAnySHA1InWant", "true");
+  const work = NodePath.join(base, "work");
+  git(base, "clone", "-q", origin, work);
+  git(work, "config", "user.name", "Test");
+  git(work, "config", "user.email", "test@example.com");
+  git(work, "checkout", "-q", "-b", "main");
+  NodeFS.writeFileSync(NodePath.join(work, "slipjay.json"), '{"integrationBranch":"develop"}\n');
+  git(work, "add", "-A");
+  git(work, "commit", "-qm", "seed");
+  git(work, "push", "-q", "origin", "HEAD:main");
+  git(work, "checkout", "-q", "-b", "develop");
+  git(work, "push", "-q", "origin", "HEAD:develop");
+  const checkout = NodePath.join(base, "checkout");
+  git(base, "clone", "-q", "-b", "develop", origin, checkout);
+  return {
+    checkout,
+    /** Lands files (null deletes) on develop. */
+    land: (files: Record<string, string | null>) => {
+      for (const [path, content] of Object.entries(files)) {
+        const target = NodePath.join(work, path);
+        if (content === null) NodeFS.rmSync(target, { force: true });
+        else {
+          NodeFS.mkdirSync(NodePath.dirname(target), { recursive: true });
+          NodeFS.writeFileSync(target, content);
+        }
+      }
+      git(work, "add", "-A");
+      git(work, "commit", "-qm", "land");
+      git(work, "push", "-q", "origin", "HEAD:develop");
+    },
+    refs: () => git(checkout, "for-each-ref"),
+  };
+};
+const HOSTED = `.agents/champions/${config.id}`;
+/** The folder's definition and learnings at its repository path; readings and findings stay in agent-config. */
+const hostedFiles = (files: Record<string, string>) =>
+  Object.fromEntries(
+    Object.entries(files)
+      .filter(([path]) => !/\/(readings|findings)\//.test(path))
+      .map(([path, content]) => [path.replace(FOLDER, HOSTED), content]),
+  );
 const withFolders = (
   body: (
     f: Effect.Success<ReturnType<typeof fixture>>,
@@ -7357,6 +7405,9 @@ const withFolders = (
               resolve: () => Effect.succeed({ canonicalKey: REPOSITORY } as RepositoryIdentity),
             }),
           ),
+          Layer.succeed(ServerConfig.ServerConfig, {
+            baseDir: NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "champion-home-")),
+          } as ServerConfig.ServerConfig["Service"]),
         ),
       ),
     );
@@ -7701,3 +7752,110 @@ it.effect(
       }),
     ),
 );
+
+describe("Repository-hosted Champions", () => {
+  it.effect(
+    "reads the definition from the project's integration branch, keeps records in agent-config, and refuses writes",
+    () =>
+      withFolders((_f, service, world) =>
+        Effect.gen(function* () {
+          const project = projectRepository();
+          const sql = yield* SqlClient.SqlClient;
+          yield* sql`UPDATE projection_projects SET workspace_root = ${project.checkout}`.pipe(
+            Effect.orDie,
+          );
+          const files = folderFiles({
+            learnings: [folderLearning],
+            readings: [reading(3, "2026-11-01T00:00:00.000Z")],
+          });
+          project.land(hostedFiles(files));
+          world.push({
+            ...Object.fromEntries(
+              Object.entries(files).filter(([path]) => path.includes("/readings/")),
+            ),
+            [`${FOLDER}/metrics.json`]: files[`${FOLDER}/metrics.json`]!,
+          });
+          NodeFS.mkdirSync(NodePath.join(project.checkout, HOSTED), { recursive: true });
+          NodeFS.writeFileSync(
+            NodePath.join(project.checkout, HOSTED, "champion.md"),
+            "---\nnot: committed\n---\n",
+          );
+          const refs = project.refs();
+          yield* service.syncFolders;
+          const detail = yield* service.get({ id: config.id });
+          assert.equal(detail.champion.folder?.definedIn, HOSTED);
+          assert.equal(detail.champion.folder?.path, FOLDER);
+          assert.equal(detail.champion.purpose, config.purpose);
+          assert.equal(project.refs(), refs);
+          assert.deepEqual(
+            (yield* service.history({ id: config.id })).samples.map((sample) => sample.value),
+            [3],
+          );
+          assert.deepEqual(
+            (yield* service.learningSearch({ championId: config.id })).learnings.map(
+              (learning) => learning.revision.learningId,
+            ),
+            [folderLearning.learningId],
+          );
+          const settled = world.commits();
+          yield* service.syncFolders;
+          assert.equal(world.commits(), settled);
+          assert.isNull(world.onMain(`${FOLDER}/champion.md`));
+          assert.isNotNull(world.onMain(`${FOLDER}/metrics.json`));
+          assert.isNotNull(
+            world.onMain(Object.keys(files).find((path) => path.includes("/readings/"))!),
+          );
+
+          yield* refusedWith(service.upsert(config), HOSTED);
+          yield* refusedWith(
+            service.changeMetrics({ id: config.id, metrics: [metric], reason: "Change it" }),
+            HOSTED,
+          );
+          yield* refusedWith(
+            service.contributeLearning(peachLive("thread:lead"), learning("learning:elsewhere")),
+            HOSTED,
+          );
+
+          project.land({
+            [`${HOSTED}/champion.md`]: files[`${FOLDER}/champion.md`]!.replace(
+              `purpose: ${config.purpose}`,
+              "purpose: Edited in the repository",
+            ),
+          });
+          yield* service.syncFolders;
+          assert.equal(
+            (yield* service.get({ id: config.id })).champion.purpose,
+            "Edited in the repository",
+          );
+          assert.isNull(world.onMain(`${FOLDER}/champion.md`));
+        }),
+      ),
+  );
+
+  it.effect("runs a Champion defined both in a repository and in agent-config nowhere", () =>
+    withFolders((_f, service, world) =>
+      Effect.gen(function* () {
+        const project = projectRepository();
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`UPDATE projection_projects SET workspace_root = ${project.checkout}`.pipe(
+          Effect.orDie,
+        );
+        const files = folderFiles({});
+        project.land(hostedFiles(files));
+        yield* service.syncFolders;
+        world.push(files);
+        yield* service.syncFolders;
+        const held = yield* service.get({ id: config.id });
+        assert.isTrue(held.champion.attention.some((line) => line.startsWith("Defined twice: ")));
+        yield* refusedWith(service.runCheck({ id: config.id }), "runs on no machine");
+        world.push({ [`${FOLDER}/champion.md`]: null, [`${FOLDER}/metrics.json`]: null });
+        yield* service.syncFolders;
+        assert.isFalse(
+          (yield* service.get({ id: config.id })).champion.attention.some((line) =>
+            line.startsWith("Defined twice: "),
+          ),
+        );
+      }),
+    ),
+  );
+});

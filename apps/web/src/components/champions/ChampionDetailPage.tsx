@@ -1,3 +1,4 @@
+/* oxlint-disable t3code/no-untranslated-copy -- The fork-only Champions page predates the rule and has no translations yet. */
 import { useAtomValue } from "@effect/atom-react";
 import { championStatus, pendingChampionDecision } from "@t3tools/client-runtime/champions";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -298,6 +299,13 @@ export function ChampionDetailPage(props: {
   const goalProgress = latestGoalProgress(history.activity);
   const badge = statusBadge(championStatus(champion, nowMs));
   const paused = champion.lifecycle === "paused";
+  // A repository-hosted Champion changes only by a landing in its repository.
+  const hostedIn =
+    champion.folder?.definedIn === undefined
+      ? null
+      : `${champion.folder.repository} at ${champion.folder.definedIn}/`;
+  const hostedReason =
+    hostedIn === null ? null : `Defined in ${hostedIn}. Edit it there and land it.`;
 
   const switchLifecycle = (lifecycle: "active" | "paused" | "retired") =>
     run(`lifecycle:${lifecycle}`, "lifecycle", [
@@ -380,9 +388,16 @@ export function ChampionDetailPage(props: {
       <SectionHeading title="Metrics">
         {hasMetrics && !retired ? (
           <div className="flex flex-wrap items-center justify-end gap-1">
-            <Button size="xs" variant="ghost-muted" onClick={openMetricsEditor}>
-              Edit metrics
-            </Button>
+            <ReasonedTooltip reason={hostedReason}>
+              <Button
+                size="xs"
+                variant="ghost-muted"
+                disabled={hostedReason !== null}
+                onClick={openMetricsEditor}
+              >
+                Edit metrics
+              </Button>
+            </ReasonedTooltip>
             <ReasonedTooltip reason={askReviewReason}>
               <Button
                 size="xs"
@@ -414,6 +429,11 @@ export function ChampionDetailPage(props: {
           </div>
         ) : null}
       </SectionHeading>
+      {hostedIn !== null ? (
+        <p className="text-muted-foreground text-xs">
+          Defined in {hostedIn}. Edit it there and land it.
+        </p>
+      ) : null}
       {attention.length > 0 ? (
         <ul className="flex flex-col gap-0.5 text-warning-foreground text-xs">
           {attention.map((line) => (
@@ -480,9 +500,16 @@ export function ChampionDetailPage(props: {
                 {busy === "setup" ? "Starting…" : "Ask AI to set up metrics"}
               </Button>
             </ReasonedTooltip>
-            <Button size="sm" variant="ghost" onClick={openMetricsEditor}>
-              Add metrics myself
-            </Button>
+            <ReasonedTooltip reason={hostedReason}>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={hostedReason !== null}
+                onClick={openMetricsEditor}
+              >
+                Add metrics myself
+              </Button>
+            </ReasonedTooltip>
           </div>
         </div>
       ) : null}
@@ -626,17 +653,22 @@ export function ChampionDetailPage(props: {
                     {checkRunning ? "Checking…" : "Check now"}
                   </Button>
                 </ReasonedTooltip>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={!canEdit}
-                  onClick={() =>
-                    void navigate({ to: "/champions", search: { environmentId, id, view: "edit" } })
-                  }
-                >
-                  <PencilIcon />
-                  Edit
-                </Button>
+                <ReasonedTooltip reason={hostedReason}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={!canEdit || hostedReason !== null}
+                    onClick={() =>
+                      void navigate({
+                        to: "/champions",
+                        search: { environmentId, id, view: "edit" },
+                      })
+                    }
+                  >
+                    <PencilIcon />
+                    Edit
+                  </Button>
+                </ReasonedTooltip>
                 <Tooltip>
                   <TooltipTrigger
                     render={

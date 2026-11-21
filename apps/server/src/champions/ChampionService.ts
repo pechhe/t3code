@@ -24,6 +24,8 @@ import { agentPolicyRoot } from "../agents/agentPolicyRoot.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import * as AgentConfigGit from "./folders/AgentConfigGit.ts";
+import * as ProjectChampionGit from "./folders/ProjectChampionGit.ts";
+import * as ServerConfig from "../config.ts";
 import {
   parseChampionFolder,
   renderChampionFolder,
@@ -33,10 +35,13 @@ import {
 } from "./folders/championFolderCodec.ts";
 import {
   CHAMPIONS_PREFIX,
+  filesByFolder,
   folderChanges,
   folderGroup,
   foldersOnMain,
+  hostedFolders,
   isManagedFile,
+  isRecordFile,
   type FolderOnMain,
 } from "./folders/championFolderFiles.ts";
 import { collectReading, type CollectedReading } from "./metricCollection.ts";
@@ -550,14 +555,30 @@ const make = Effect.gen(function* () {
   const here = Option.isSome(serverEnvironment)
     ? yield* serverEnvironment.value.getEnvironmentId
     : null;
-  /** True unless the Champion's agent-config folder names another machine as its runner. */
-  const runsHere = (champion: Pick<ChampionSummary, "folder">) =>
-    champion.folder === undefined || champion.folder.runner.environmentId === here;
-  const runsElsewhere = (champion: Pick<ChampionSummary, "folder" | "name">) =>
+  const DEFINED_TWICE = "Defined twice: ";
+  /** True unless the Champion's folder names another machine as its runner, or it is defined in two places. */
+  const runsHere = (champion: Pick<ChampionSummary, "folder" | "attention">) =>
+    (champion.folder === undefined || champion.folder.runner.environmentId === here) &&
+    !champion.attention.some((line) => line.startsWith(DEFINED_TWICE));
+  const runsElsewhere = (champion: Pick<ChampionSummary, "folder" | "name" | "attention">) =>
     new ChampionError({
       reason: "conflict",
-      detail: `${champion.name} runs on ${champion.folder?.runner.label ?? "another machine"}, as its agent-config folder ${champion.folder?.path ?? ""} says; this machine starts no work for it.`,
+      detail:
+        champion.attention.find((line) => line.startsWith(DEFINED_TWICE)) ??
+        `${champion.name} runs on ${champion.folder?.runner.label ?? "another machine"}, as its folder ${champion.folder?.definedIn ?? champion.folder?.path ?? ""} says; this machine starts no work for it.`,
     });
+  /** A repository-hosted Champion's definition, metrics and learnings change only by a landing there. */
+  const hostedRefusal = (champion: Pick<ChampionSummary, "folder" | "name">, what: string) =>
+    champion.folder?.definedIn === undefined
+      ? null
+      : new ChampionError({
+          reason: "conflict",
+          detail: `${champion.name}'s ${what} live in ${champion.folder.repository} at ${champion.folder.definedIn}/. Edit the file there and land it; T3 does not write project repositories.`,
+        });
+  const hostedGuidance = (champion: Pick<ChampionSummary, "folder">) =>
+    champion.folder?.definedIn === undefined
+      ? null
+      : `This champion's definition, metrics and learnings live in ${champion.folder.repository} at ${champion.folder.definedIn}/, which T3 only reads: t3_champions_metrics submit and t3_champions_record_learning are refused for it. Write learnings and metric changes as files there (format: ~/.agents/champions/README.md), or in the area's knowledge home its AGENTS.md names, and land them through SlipJay with the repair that found them or as one landing per check.`;
   const mutate = <A, R>(effect: Effect.Effect<A, ChampionError, R>) =>
     Effect.suspend(() => {
       const batch = { changed: false, owners: new Set<ThreadId>() };
@@ -926,6 +947,10 @@ const make = Effect.gen(function* () {
       if (Option.isNone(yield* projects.getById(input.projectId).pipe(Effect.mapError(failure))))
         return yield* new ChampionError({ reason: "not-found" });
       const priorConfig = yield* read(input.id).pipe(Effect.option);
+      const hosted = Option.isSome(priorConfig)
+        ? hostedRefusal(priorConfig.value.champion, "definition")
+        : null;
+      if (hosted !== null) return yield* hosted;
       const source = yield* modelSource;
       for (const model of [input.models?.checks, input.models?.advice])
         if (model !== undefined && ChampionModels.assess(model, source).status === "missing")
@@ -1057,6 +1082,7 @@ const make = Effect.gen(function* () {
     [
       `You own champion ${doc.champion.name} in this project. Your goal: ${doc.champion.purpose}`,
       CHAMPION_MODELS_GUIDANCE,
+      ...(hostedGuidance(doc.champion) === null ? [] : [hostedGuidance(doc.champion)]),
       `Check claim: ${check.id}. YOU FIND AND REPORT BUGS. YOU DO NOT REPAIR. This overrides any other instruction: no repairs, no worktrees, no source edits and no reading the target's source, even if a bug looks easy to fix.${doc.champion.repairsVia == null ? "" : " The champion this one names in repairsVia sees each confirmed finding in its own check and repairs it; your re-test still settles it."}`,
       "1. Call t3_champions_check_context, then t3_champions_learning_search with this champion's id for what past checks covered. Then call t3_champions_journeys_start: it starts the target and returns its shards, the most journeys this check may run, the paths earlier checks already walked, the source files changed since, and bugs to re-test, which you replay first, by findingId, under step 5. If it says the check is deferred or refused, report that no journey ran; do not work around it.",
       "2. Survey before you choose: open your tabs, one per area in the sidebar first, and call t3_browser_snapshot on each. Read the links and buttons inside each page's main content, not the sidebar, then open and snapshot the pages those links lead to as well, so you have seen two levels. Name in each goal the links it should follow, as the snapshot shows them, and spend no journey on a feature that needs a real model, voice or outbound service, since this contained copy has none. Then choose journeys a real person might take and break. At least half must start on, or pass through, a page or control you found only this way, and a page reached only from inside another page gets at least two journeys, since nobody else will go there. No two journeys may share a start and a goal, on any shard: a shard is capacity, not a reason to repeat a path. A shard may carry a locale and workPaths: give each journey that changes data its own workPath, and never run two journeys on the same workPath at once; give a journey on a shard with a locale, such as pt-BR, the goal of reading its screens for English left behind, judged from what the screen shows. Include journeys a real person takes that goal-driven clicking misses: dragging an element between lanes, a phone-width journey opened with a narrow viewport, and a keyboard-only journey of key presses with no clicks, checking which element holds focus. Prefer areas no earlier check covered and areas that recently changed; past coverage is a list to avoid, so never reuse a goal from a learning unless it is a re-test. Every goal is an attack of at least three steps, never a visit, and across the check cover each kind of break: searches and filters given unusual input such as ( [ % or a very long value; a draft started, then a link followed away and back, checking the draft survived; a multi-step flow taken to its very last button, checking that button can be used; empty submits and double submits. Never ask a goal to report: the task's model reads each page for you. Never name or assume a bug you have not seen.",
@@ -1071,6 +1097,7 @@ const make = Effect.gen(function* () {
     [
       `You own champion ${doc.champion.name} in this project. Your goal: ${doc.champion.purpose}`,
       CHAMPION_MODELS_GUIDANCE,
+      hostedGuidance(doc.champion),
       `Work towards the goal, not the metrics. Metrics are your instruments for seeing progress; when they cannot show it (blank, insufficient, or measuring the wrong thing), say so and change it with t3_champions_metrics action submit. ${METRIC_RULE}`,
       check.kind === "setup"
         ? 'SETUP: inspect the actual product and set measurable metrics that show progress towards the goal with t3_champions_metrics action submit, or call t3_champions_report with only a summary for a no-change summary. Name each metric in plain words someone outside engineering understands ("How long common screens take to become usable", not "Sentinel usable readiness"), and start its description with one plain sentence on what it tells the user about the goal; method detail follows. Renaming or rewording a metric keeps its series, so fix unclear names on any setup. Do not edit the shared root or delegate repairs during setup.'
@@ -1645,6 +1672,13 @@ const make = Effect.gen(function* () {
   });
   const changeMetrics: ChampionService["Service"]["changeMetrics"] = Effect.fn(
     "ChampionService.changeMetrics",
+  )(function* (input, by, options) {
+    const refused = hostedRefusal((yield* read(input.id)).champion, "metrics");
+    if (refused !== null) return yield* refused;
+    return yield* applyMetricChange(input, by, options);
+  });
+  const applyMetricChange: ChampionService["Service"]["changeMetrics"] = Effect.fn(
+    "ChampionService.applyMetricChange",
   )(function* (input, by, options) {
     const before = yield* read(input.id);
     yield* metricChangeResult(before, input);
@@ -4633,6 +4667,8 @@ const make = Effect.gen(function* () {
     "ChampionService.recordLearning",
   )(function* (caller, input) {
     yield* authenticateOwner(caller, input.id);
+    const refused = hostedRefusal((yield* read(input.id)).champion, "learnings");
+    if (refused !== null) return yield* refused;
     const value = yield* evidence.recordLearning(input);
     yield* PubSub.publish(changes, undefined);
     return value;
@@ -4641,6 +4677,8 @@ const make = Effect.gen(function* () {
     "ChampionService.contributeLearning",
   )(function* (contributor, input) {
     const doc = yield* read(input.id);
+    const refused = hostedRefusal(doc.champion, "learnings");
+    if (refused !== null) return yield* refused;
     if (contributor.linkSessionId === null && contributor.threadId === doc.champion.ownerThreadId)
       return yield* new ChampionError({
         reason: "unauthorized",
@@ -4934,11 +4972,22 @@ const make = Effect.gen(function* () {
       contribution,
     );
   });
-  const folderState = (path: string, repository: string, environmentId: string, label: string) => ({
+  const folderState = (
+    path: string,
+    repository: string,
+    environmentId: string,
+    label: string,
+    definedIn: string | undefined,
+  ) => ({
     path,
     repository,
     runner: { environmentId: EnvironmentId.make(environmentId), label },
+    ...(definedIn === undefined ? {} : { definedIn }),
   });
+  const folderName = (folder: FolderOnMain) =>
+    folder.definedIn === undefined
+      ? `agent-config ${folder.path}`
+      : `its repository's ${folder.definedIn}`;
   /** A folder naming this machine and no local Champion synced from it: the local copy becomes the folder's. */
   const adoptFolder = Effect.fn("ChampionService.adoptFolder")(function* (
     folder: FolderOnMain,
@@ -5071,6 +5120,7 @@ const make = Effect.gen(function* () {
                 definition.repository,
                 definition.runner.environmentId,
                 definition.runner.label,
+                folder.definedIn,
               ),
               savedAt: null,
             },
@@ -5110,7 +5160,7 @@ const make = Effect.gen(function* () {
         yield* activity(
           definition.id,
           "configuration",
-          `Adopted from agent-config ${folder.path} at ${short}: ${metrics.length} metrics, ${parsed.learnings.length} learnings, ${findings.length} open findings carried over, ${samples.length} readings.`,
+          `Adopted from ${folderName(folder)} at ${short}: ${metrics.length} metrics, ${parsed.learnings.length} learnings, ${findings.length} open findings carried over, ${samples.length} readings.`,
         );
       }),
     );
@@ -5157,7 +5207,11 @@ const make = Effect.gen(function* () {
     const problems = [...parsed.problems];
     const changed = (path: string) => blobs[path] !== known[path];
     const doc = yield* read(id);
-    if (changed("champion.md") || doc.champion.folder?.path !== folder.path) {
+    if (
+      changed("champion.md") ||
+      doc.champion.folder?.path !== folder.path ||
+      doc.champion.folder?.definedIn !== folder.definedIn
+    ) {
       const projectId =
         definition.repository === doc.champion.folder?.repository
           ? doc.champion.projectId
@@ -5216,6 +5270,7 @@ const make = Effect.gen(function* () {
                   current.champion.folder?.repository ?? definition.repository,
                   definition.runner.environmentId,
                   definition.runner.label,
+                  folder.definedIn,
                 ),
                 savedAt: current.champion.folder?.savedAt ?? null,
               },
@@ -5224,7 +5279,7 @@ const make = Effect.gen(function* () {
           yield* activity(
             id,
             "configuration",
-            `Configuration updated from agent-config ${folder.path} at ${short}.`,
+            `Configuration updated from ${folderName(folder)} at ${short}.`,
           );
         }),
       );
@@ -5242,7 +5297,7 @@ const make = Effect.gen(function* () {
           return stored === undefined || !sameDefinition(stored, input);
         });
       if (differs)
-        yield* changeMetrics({
+        yield* applyMetricChange({
           id,
           metrics: inputs,
           ...(retires.length > 0 ? { retires } : {}),
@@ -5331,10 +5386,12 @@ const make = Effect.gen(function* () {
         definition.repository,
         definition.runner.environmentId,
         definition.runner.label,
+        folder.definedIn,
       );
       const stored = existing.value.champion.folder;
       if (
         stored?.path === state.path &&
+        stored.definedIn === folder.definedIn &&
         stored.runner.environmentId === state.runner.environmentId &&
         stored.runner.label === state.runner.label
       )
@@ -5352,7 +5409,7 @@ const make = Effect.gen(function* () {
           yield* activity(
             definition.id,
             "configuration",
-            `agent-config ${folder.path} says ${definition.runner.label} runs this Champion, so this machine starts no more work for it.`,
+            `${folderName(folder)} says ${definition.runner.label} runs this Champion, so this machine starts no more work for it.`,
           );
         }),
       );
@@ -5368,6 +5425,7 @@ const make = Effect.gen(function* () {
       const known = existing.value.folderFiles ?? {};
       const unchanged =
         existing.value.champion.folder?.path === folder.path &&
+        existing.value.champion.folder.definedIn === folder.definedIn &&
         Object.keys(blobs).length === Object.keys(known).length &&
         Object.entries(blobs).every(([path, blob]) => known[path] === blob);
       if (!unchanged) yield* applyFolderEdits(folder, parsed, blobs, known, base);
@@ -5382,20 +5440,28 @@ const make = Effect.gen(function* () {
     function* (
       root: string,
       base: { commit: string },
-      onMain: ReadonlyMap<string, FolderOnMain>,
+      onMain: ReadonlyMap<string, ReadonlyArray<AgentConfigGit.FolderFile>>,
       doc: Document,
     ) {
       const repository = yield* repositoryOf(doc);
       if (repository === null || here === null) return;
       const path =
         doc.champion.folder?.path ?? championFolderPath(folderGroup(repository), doc.champion.id);
-      const rendered = renderChampionFolder(yield* folderOf(doc, repository));
+      const definedIn = doc.champion.folder?.definedIn;
+      // A repository-hosted Champion's definition and learnings are its repository's; only its records are saved here.
+      const rendered = renderChampionFolder(yield* folderOf(doc, repository)).filter(
+        (file) => definedIn === undefined || isRecordFile(file.path),
+      );
       const message = `champions: save ${doc.champion.name}`;
       const changesOn = (files: ReadonlyArray<AgentConfigGit.FolderFile>) =>
-        folderChanges(path, files, rendered);
+        folderChanges(
+          path,
+          files.filter((file) => definedIn === undefined || isRecordFile(file.path)),
+          rendered,
+        );
       let pushed = false;
       let refused: string | null = null;
-      const changes = changesOn(onMain.get(path)?.files ?? []);
+      const changes = changesOn(onMain.get(path) ?? []);
       if (changes.length > 0) {
         const commit = yield* AgentConfigGit.commitChanges(root, {
           base: base.commit,
@@ -5424,14 +5490,25 @@ const make = Effect.gen(function* () {
           }
         }
       }
-      const files = Object.fromEntries(
+      const renderedFiles = Object.fromEntries(
         rendered.map((file) => [file.path, AgentConfigGit.blobId(file.content)]),
       );
       yield* mutate(
         Effect.gen(function* () {
           const current = yield* read(doc.champion.id);
+          const files =
+            definedIn === undefined
+              ? renderedFiles
+              : Object.fromEntries(
+                  [
+                    ...Object.entries(current.folderFiles ?? {}).filter(
+                      ([file]) => !isRecordFile(file),
+                    ),
+                    ...Object.entries(renderedFiles),
+                  ].toSorted(([a], [b]) => a.localeCompare(b)),
+                );
           const folder = {
-            ...folderState(path, repository, here, hereLabel),
+            ...folderState(path, repository, here, hereLabel, definedIn),
             savedAt:
               pushed || current.champion.folder?.savedAt == null
                 ? refused === null
@@ -5478,6 +5555,82 @@ const make = Effect.gen(function* () {
         }),
       ),
   );
+  const serverConfig = yield* Effect.serviceOption(ServerConfig.ServerConfig);
+  const mirrorsRoot = Option.isSome(serverConfig)
+    ? `${serverConfig.value.baseDir}/caches/champion-mirrors`
+    : null;
+  /** The earliest-created unarchived local project for each canonical repository key. */
+  const localRepositories = Effect.fn("ChampionService.localRepositories")(function* () {
+    const repositories = new Map<string, string>();
+    if (Option.isNone(repositoryIdentities)) return repositories;
+    const rows = yield* sql<{
+      workspace_root: string;
+    }>`SELECT workspace_root FROM projection_projects WHERE deleted_at IS NULL AND archived_at IS NULL ORDER BY created_at, project_id`.pipe(
+      Effect.mapError(failure),
+    );
+    for (const row of rows) {
+      const key = (yield* repositoryIdentities.value.resolve(row.workspace_root))?.canonicalKey;
+      if (key != null && !repositories.has(key)) repositories.set(key, row.workspace_root);
+    }
+    return repositories;
+  });
+  /** Repository-hosted Champions on each local repository's published integration branch. */
+  const hostedOnMain = Effect.fn("ChampionService.hostedOnMain")(function* (
+    agentConfig: ReadonlyMap<string, ReadonlyArray<AgentConfigGit.FolderFile>>,
+  ) {
+    const found: Array<{ folder: FolderOnMain; commit: string; where: string }> = [];
+    if (mirrorsRoot === null) return found;
+    for (const [canonicalKey, checkout] of yield* localRepositories()) {
+      const published = yield* ProjectChampionGit.readPublished({
+        mirrorsRoot,
+        canonicalKey,
+        checkout,
+      }).pipe(
+        Effect.catchTags({
+          AgentConfigGitError: (error) =>
+            Effect.logWarning("champions.repository-read-failed", {
+              repository: canonicalKey,
+              error,
+            }).pipe(Effect.as(null)),
+        }),
+      );
+      if (published === null) continue;
+      for (const folder of hostedFolders(canonicalKey, published.files, agentConfig))
+        found.push({
+          folder,
+          commit: published.commit,
+          where: `${canonicalKey} ${folder.definedIn}`,
+        });
+    }
+    return found;
+  });
+  /** Holds each Champion defined in two places, and lets the rest go. */
+  const noteDefinedTwice = Effect.fn("ChampionService.noteDefinedTwice")(function* (
+    twice: ReadonlyMap<string, string>,
+  ) {
+    const rows = yield* sql<{ id: string }>`SELECT id FROM champions`.pipe(
+      Effect.mapError(failure),
+    );
+    for (const row of rows) {
+      const note = twice.get(row.id);
+      const held = (yield* read(row.id)).champion.attention.some((line) =>
+        line.startsWith(DEFINED_TWICE),
+      );
+      if (note === undefined && !held) continue;
+      yield* mutate(
+        Effect.gen(function* () {
+          const current = yield* read(row.id);
+          const attention = withNotes(
+            current.champion.attention,
+            DEFINED_TWICE,
+            note === undefined ? [] : [note],
+          );
+          if (attention.join("\n") !== current.champion.attention.join("\n"))
+            yield* write({ ...current, champion: { ...current.champion, attention } });
+        }),
+      );
+    }
+  });
   const syncFolders: ChampionService["Service"]["syncFolders"] = Effect.gen(function* () {
     const root = yield* agentPolicyRoot;
     if (Option.isNone(root) || here === null) return;
@@ -5487,17 +5640,36 @@ const make = Effect.gen(function* () {
         const files = yield* AgentConfigGit.readFiles(root.value, commit, CHAMPIONS_PREFIX).pipe(
           Effect.mapError(failure),
         );
-        const folders = foldersOnMain(files);
-        const seen = new Set<string>();
+        const byFolder = filesByFolder(files);
+        const hosted = yield* hostedOnMain(byFolder);
+        const folders = [
+          ...foldersOnMain(files).map((folder) => ({
+            folder,
+            commit,
+            where: `agent-config ${folder.path}`,
+          })),
+          ...hosted,
+        ];
+        const twice = new Map<string, string>();
+        const firstWhere = new Map<string, string>();
+        for (const { folder, where } of folders) {
+          const other = firstWhere.get(folder.id);
+          if (other === undefined) firstWhere.set(folder.id, where);
+          else
+            twice.set(
+              folder.id,
+              `${folder.id} is defined in ${other} and in ${where}; it runs on no machine until one is removed.`,
+            );
+        }
+        for (const [id, note] of twice)
+          yield* Effect.logWarning("champions.folder-defined-twice", { id, note });
+        yield* noteDefinedTwice(twice);
+        const seen = new Set(firstWhere.keys());
         // A folder with a file that does not parse is left as the agent wrote it until they fix it.
-        const unsettled = new Set<string>();
-        for (const folder of folders) {
-          if (seen.has(folder.id)) {
-            yield* Effect.logWarning("champions.folder-duplicate-id", { path: folder.path });
-            continue;
-          }
-          seen.add(folder.id);
-          const settled = yield* importFolder(folder, commit).pipe(
+        const unsettled = new Set<string>(twice.keys());
+        for (const { folder, commit: base } of folders) {
+          if (twice.has(folder.id)) continue;
+          const settled = yield* importFolder(folder, base).pipe(
             Effect.catch((error) =>
               Effect.logWarning("champions.folder-import-failed", {
                 path: folder.path,
@@ -5507,14 +5679,14 @@ const make = Effect.gen(function* () {
           );
           if (!settled) unsettled.add(folder.id);
         }
-        const onMain = new Map(folders.map((folder) => [folder.path, folder]));
+        const onMain = byFolder;
         const base = { commit };
         const rows = yield* sql<{
           document_json: string;
         }>`SELECT document_json FROM champions ORDER BY id`.pipe(Effect.mapError(failure));
         for (const row of rows) {
           const doc = yield* decodeDocument(row.document_json).pipe(Effect.mapError(failure));
-          if (!runsHere(doc.champion)) continue;
+          if (!runsHere(doc.champion) || twice.has(doc.champion.id)) continue;
           if (unsettled.has(doc.champion.id)) {
             yield* mutate(
               Effect.gen(function* () {
