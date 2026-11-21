@@ -10,7 +10,7 @@ import { AtomRegistry } from "effect/reactivity";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentServerConfigsAtom } from "../state/server";
 import { threadHandoffEnvironment } from "../state/threadHandoff";
-import { handoffChoiceId, parseHandoffChoice } from "./chat/threadMoveDialog.logic";
+import { parseHandoffChoice } from "./chat/threadMoveDialog.logic";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 
 /** How long a menu waits for the move targets before opening without them. */
@@ -65,11 +65,15 @@ export async function readThreadHandoffTargets(
   );
 }
 
-/** Starts the move a "Continue on…" choice asked for (`handoffChoiceId`); the thread's banner shows how it goes. */
+/**
+ * Starts the move a "Continue on…" choice asked for (`handoffChoiceId`); the thread's banner shows
+ * how it goes. `stopTurn` stops a running turn first.
+ */
 export async function startThreadHandoff(
   environmentId: EnvironmentId,
   threadId: ThreadId,
   choice: string,
+  options: { readonly stopTurn?: boolean } = {},
 ): Promise<void> {
   const target = parseHandoffChoice(choice);
   const result = await runAtomCommand(appAtomRegistry, threadHandoffEnvironment.start, {
@@ -78,6 +82,7 @@ export async function startThreadHandoff(
       threadId,
       environmentId: target.environmentId as EnvironmentId,
       ...(target.projectId === undefined ? {} : { projectId: target.projectId as ProjectId }),
+      ...(options.stopTurn === true ? { stopTurn: true } : {}),
     },
   });
   if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {

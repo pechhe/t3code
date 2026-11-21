@@ -81,13 +81,14 @@ describe("threadMoveDialogCopy", () => {
     expect(copy.description).toContain("Settings → Connections");
   });
 
-  it("does not move a thread mid-turn", () => {
+  it("offers to stop a thread mid-turn and move it", () => {
     const copy = threadMoveDialogCopy({
       ...base,
       running: true,
       options: [{ environmentId: "environment:mac", label: "Henry's Mac", reason: null }],
     });
-    expect(copy.canMove).toBe(false);
+    expect(copy).toMatchObject({ canMove: true, stopsTurn: true });
+    expect(copy.description).toContain("stops the turn");
   });
 
   it("reports a failed check", () => {

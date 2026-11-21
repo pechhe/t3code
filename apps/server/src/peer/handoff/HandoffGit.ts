@@ -76,8 +76,8 @@ export class HandoffBranchDivergedError extends Schema.TaggedError<HandoffBranch
 }
 
 /**
- * A git step failed, or left something other than what the handoff needs.
- * `step` says which; the git failure, when there is one, is the cause.
+ * A git or jj step failed, or left something other than what the handoff needs.
+ * `step` says which, and `detail` what the command said when it exited non-zero.
  */
 export class HandoffGitStepError extends Schema.TaggedError<HandoffGitStepError>()(
   "HandoffGitStepError",
@@ -88,7 +88,7 @@ export class HandoffGitStepError extends Schema.TaggedError<HandoffGitStepError>
   },
 ) {
   override get message(): string {
-    return this.detail ?? `git ${this.step} failed.`;
+    return this.detail ?? `${this.step} failed.`;
   }
 }
 
@@ -172,36 +172,53 @@ const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
 
-  const git = (
+  /** git's or jj's own last line on a failure (`fatal: …`, `Error: …`), so the mover sees why. */
+  const run = (
+    command: "git" | "jj",
     cwd: string,
     args: ReadonlyArray<string>,
     options: { readonly env?: NodeJS.ProcessEnv; readonly allowNonZeroExit?: boolean } = {},
-  ) =>
-    processes
+  ) => {
+    const step = `${command} ${args[0] ?? ""}`.trim();
+    return processes
       .run({
-        operation: "HandoffGit",
-        command: "git",
+        operation: command === "git" ? "HandoffGit" : "HandoffGit.jj",
+        command,
         cwd,
         args,
         timeoutMs: 120_000,
         env: { ...process.env, ...REPOSITORY_ENV, ...options.env },
-        ...(options.allowNonZeroExit === undefined
-          ? {}
-          : { allowNonZeroExit: options.allowNonZeroExit }),
+        allowNonZeroExit: true,
       })
       .pipe(
-        Effect.mapError(
-          (cause) =>
+        Effect.mapError((cause) => new HandoffGitStepError({ step, cause })),
+        Effect.flatMap((result) => {
+          if (result.exitCode === 0 || options.allowNonZeroExit === true) {
+            return Effect.succeed(result);
+          }
+          const said = result.stderr.trim().split("\n").at(-1)?.trim().slice(0, 300) ?? "";
+          return Effect.fail(
             new HandoffGitStepError({
-              step: args[0] ?? "git",
-              cause,
+              step,
+              detail: said === "" ? `${step} failed.` : `${step} failed: ${said}`,
             }),
-        ),
-        // The caller sees only the step; git's own reason goes to the log.
+          );
+        }),
         Effect.tapError((error) =>
-          Effect.logWarning("handoff-git.step-failed", { step: error.step, cause: error.cause }),
+          Effect.logWarning("handoff-git.step-failed", {
+            step: error.step,
+            detail: error.detail,
+            cause: error.cause,
+          }),
         ),
       );
+  };
+
+  const git = (
+    cwd: string,
+    args: ReadonlyArray<string>,
+    options: { readonly env?: NodeJS.ProcessEnv; readonly allowNonZeroExit?: boolean } = {},
+  ) => run("git", cwd, args, options);
 
   const out = (cwd: string, args: ReadonlyArray<string>) =>
     git(cwd, args).pipe(Effect.map((result) => result.stdout.trim()));
@@ -390,22 +407,7 @@ const make = Effect.gen(function* () {
     }).pipe(Effect.tapError(() => rollback));
   });
 
-  const jj = (cwd: string, args: ReadonlyArray<string>) =>
-    processes
-      .run({
-        operation: "HandoffGit.jj",
-        command: "jj",
-        cwd,
-        args,
-        timeoutMs: 120_000,
-        env: { ...process.env, ...REPOSITORY_ENV },
-      })
-      .pipe(
-        Effect.mapError((cause) => new HandoffGitStepError({ step: `jj ${args[0] ?? ""}`, cause })),
-        Effect.tapError((error) =>
-          Effect.logWarning("handoff-git.step-failed", { step: error.step, cause: error.cause }),
-        ),
-      );
+  const jj = (cwd: string, args: ReadonlyArray<string>) => run("jj", cwd, args);
 
   const applyInWorkspace: HandoffGit["Service"]["applyInWorkspace"] = Effect.fn(
     "HandoffGit.applyInWorkspace",
@@ -415,6 +417,8 @@ const make = Effect.gen(function* () {
     const undo: Array<Effect.Effect<void>> = [];
     yield* Effect.gen(function* () {
       yield* fetchSnapshot(input, `refs/heads/${bookmark}`, undo);
+      // A workspace that is not also a git worktree (older SlipJay spares) never imports by itself.
+      yield* jj(input.workspacePath, ["git", "import"]);
       yield* jj(input.workspacePath, ["new", input.tip]);
       yield* jj(input.workspacePath, ["restore", "--from", input.snapshot]);
     }).pipe(
@@ -422,7 +426,12 @@ const make = Effect.gen(function* () {
         // Deleted through jj too: once jj has imported a branch, it exports it back.
         jj(input.workspacePath, ["bookmark", "delete", bookmark]).pipe(
           Effect.ignore,
-          Effect.andThen(Effect.forEach(undo.toReversed(), (step) => step, { discard: true })),
+          // Read when it runs: the steps are pushed as the apply goes.
+          Effect.andThen(
+            Effect.suspend(() =>
+              Effect.forEach(undo.toReversed(), (step) => step, { discard: true }),
+            ),
+          ),
           Effect.andThen(refreshJj(input.workspacePath)),
         ),
       ),

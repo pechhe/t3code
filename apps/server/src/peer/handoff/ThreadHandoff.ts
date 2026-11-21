@@ -192,7 +192,8 @@ export class ThreadHandoff extends Context.Service<
     /**
      * Moves `threadId` to `environmentId` now. An agent moving the thread it
      * runs in (`callerThreadId`, the default target) is mid-turn, so its
-     * thread moves once that turn ends. Returns the state the move is in.
+     * thread moves once that turn ends; `stopTurn` stops a running turn and
+     * moves the thread once it has stopped. Returns the state the move is in.
      */
     readonly start: (input: {
       readonly threadId?: ThreadId | undefined;
@@ -200,6 +201,7 @@ export class ThreadHandoff extends Context.Service<
       readonly environmentId: EnvironmentId;
       readonly projectId?: ProjectId | undefined;
       readonly continuationPrompt?: string | undefined;
+      readonly stopTurn?: boolean | undefined;
     }) => Effect.Effect<OrchestrationV2ThreadHandoff, ThreadHandoffError>;
     /** Cancels a move that is still waiting for the turn to end. */
     readonly cancel: (threadId: ThreadId) => Effect.Effect<void, ThreadHandoffError>;
@@ -860,14 +862,49 @@ const make = Effect.gen(function* () {
           : { continuationPrompt: input.continuationPrompt }),
       };
       if (busy) {
-        if (input.whenTurnEnds !== true) {
+        const stopTurn = input.stopTurn === true && !input.whenTurnEnds;
+        if (!input.whenTurnEnds && !stopTurn) {
           return yield* new ThreadHandoffError({
             reason: "refused",
             message: "The thread is running a turn. Stop it, or let it move when the turn ends.",
           });
         }
+        // A queued message is newer instructions, which cancel a pending move once the turn ends.
+        if (stopTurn && records.runs.some((run) => run.status === "queued")) {
+          return yield* new ThreadHandoffError({
+            reason: "refused",
+            message:
+              "Messages are queued behind this turn. Remove them or let them run, then move it.",
+          });
+        }
         const pending: OrchestrationV2ThreadHandoff = { state: "pending", ...base };
         yield* setHandoff(input.threadId, current, pending, "pending");
+        if (stopTurn) {
+          // The move departs from `settle` when the stopped run ends, as an agent's own move does.
+          const stopped = yield* threads
+            .interruptThread({
+              projectId: thread.projectId,
+              commandId: CommandId.make(`command:handoff:${input.threadId}:${handoffId}:stop`),
+              threadId: input.threadId,
+              reason: `Stopped to move this thread to ${link.label}.`,
+            })
+            .pipe(
+              Effect.catch((error) =>
+                setHandoff(input.threadId, "pending", null, "stop-failed").pipe(
+                  Effect.ignore,
+                  Effect.andThen(
+                    Effect.fail(
+                      new ThreadHandoffError({
+                        reason: "failed",
+                        message: `The turn could not be stopped: ${error.message}`,
+                      }),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          if (stopped.type !== "interrupt_requested") yield* settle(input.threadId);
+        }
         return pending;
       }
       yield* setHandoff(input.threadId, current, { state: "departing", ...base }, "departing");

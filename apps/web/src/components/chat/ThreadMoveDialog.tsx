@@ -45,12 +45,14 @@ export function ThreadMoveDialog({
         ? "failed"
         : undefined,
   });
+  const verb = copy.stopsTurn ? "Stop and move" : "Move";
   const move = (projectId?: string) => {
     onClose();
     void startThreadHandoff(
       environmentId,
       threadId,
       handoffChoiceId({ environmentId: target.environmentId, projectId }),
+      { stopTurn: copy.stopsTurn },
     );
   };
   return (
@@ -66,10 +68,14 @@ export function ThreadMoveDialog({
           </AlertDialogClose>
           {copy.choices.map((choice) => (
             <Button key={choice.projectId} onClick={() => move(choice.projectId)}>
-              Move to {choice.title}
+              {verb} to {choice.title}
             </Button>
           ))}
-          {copy.canMove ? <Button onClick={() => move()}>Move to {target.label}</Button> : null}
+          {copy.canMove ? (
+            <Button onClick={() => move()}>
+              {verb} to {target.label}
+            </Button>
+          ) : null}
         </AlertDialogFooter>
       </AlertDialogPopup>
     </AlertDialog>

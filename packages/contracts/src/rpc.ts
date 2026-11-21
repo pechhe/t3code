@@ -1074,6 +1074,8 @@ const WsThreadHandoffStartRpc = Rpc.make(WS_METHODS.threadHandoffStart, {
     threadId: ThreadId,
     environmentId: EnvironmentId,
     projectId: Schema.optional(ProjectId),
+    /** Stops a running turn, then moves the thread once it has stopped. */
+    stopTurn: Schema.optional(Schema.Boolean),
   }),
   success: OrchestrationV2ThreadHandoff,
   error: Schema.Union([ThreadHandoffError, EnvironmentAuthorizationError]),

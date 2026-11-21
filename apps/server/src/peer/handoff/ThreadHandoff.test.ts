@@ -1281,6 +1281,60 @@ it.live(
     ).pipe(Effect.provide(layerTestHost)),
 );
 
+it.live("a running thread moves once the user stops its turn to move it", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const { root, laptopRepo, boxRepo } = yield* makeRepos;
+      const turns = yield* Ref.make<ReadonlyArray<CapturedTurn>>([]);
+      const b = yield* serveBox(boxRepo, path.join(root, "box-state"), turns);
+      // The turn is never released: only the stop ends it.
+      const a = yield* makeLaptop(laptopRepo, turns, Effect.never);
+      yield* linkTo(a.links, b, "full-access");
+      yield* a.handoff.start_();
+      yield* createThread(a, laptopRepo);
+      yield* a.orchestrator.dispatch({
+        type: "message.dispatch",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make("command:send:turn-1"),
+        threadId,
+        messageId: MessageId.make("message:turn-1"),
+        text: "Work on this for a while.",
+        attachments: [],
+        dispatchMode: { type: "start_immediately" },
+      });
+      yield* awaitOrchestratorState(
+        a.orchestrator,
+        a.orchestrator.getThreadProjection(threadId),
+        (projection) => projection.providerTurns.some((turn) => turn.status === "running"),
+      );
+
+      const refused = yield* a.handoff
+        .start({ threadId, environmentId: box.environmentId })
+        .pipe(Effect.flip);
+      expect(refused.message).toContain("running a turn");
+
+      const pending = yield* a.handoff.start({
+        threadId,
+        environmentId: box.environmentId,
+        stopTurn: true,
+      });
+      expect(pending.state).toBe("pending");
+      const projection = yield* awaitOrchestratorState(
+        a.orchestrator,
+        a.orchestrator.getThreadProjection(threadId),
+        (current) => current.thread.handoff?.state === "departed",
+      );
+      expect(projection.runs.map((run) => run.status)).toEqual(["interrupted"]);
+      const moved = projection.thread.handoff;
+      if (moved?.state !== "departed") return yield* Effect.die("not departed");
+      yield* idle(b.orchestrator, moved.threadId);
+      expect((yield* Ref.get(turns)).at(-1)?.text).toContain("Continue where it left off.");
+    }),
+  ).pipe(Effect.provide(layerTestHost)),
+);
+
 /**
  * The box's answer to the first import never reaches the laptop, as a dropped
  * connection loses it: that import runs once `landed` opens, if ever. Later

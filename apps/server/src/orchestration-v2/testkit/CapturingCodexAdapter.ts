@@ -11,6 +11,7 @@ import {
   TurnItemId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
@@ -41,7 +42,7 @@ export const makeCapturingCodexAdapter = (
   options: {
     readonly response: string;
     readonly modelSelection: ModelSelection;
-    /** Holds each turn open until this completes, so a test can act mid-turn. */
+    /** Holds each turn open until this completes or the turn is interrupted, so a test can act mid-turn. */
     readonly holdTurn?: Effect.Effect<void>;
   },
 ) =>
@@ -68,7 +69,7 @@ export const makeCapturingCodexAdapter = (
         };
         const providerTurnUpdate = (
           turnInput: ProviderAdapter.ProviderAdapterV2TurnInput,
-          status: "running" | "completed",
+          status: "running" | "completed" | "interrupted",
           startedAt: DateTime.Utc,
           completedAt: DateTime.Utc | null,
         ): ProviderAdapter.ProviderAdapterV2Event => ({
@@ -138,6 +139,26 @@ export const makeCapturingCodexAdapter = (
               },
             ] satisfies ReadonlyArray<ProviderAdapter.ProviderAdapterV2Event>);
           });
+        const interruptHeld = (turnInput: ProviderAdapter.ProviderAdapterV2TurnInput) =>
+          Effect.gen(function* () {
+            const eventTime = yield* DateTime.now;
+            yield* PubSub.publishAll(events, [
+              providerTurnUpdate(turnInput, "interrupted", eventTime, eventTime),
+              {
+                type: "turn.terminal",
+                driver,
+                providerThreadId: turnInput.providerThread.id,
+                providerTurnId: ProviderTurnId.make(
+                  `provider-turn:${turnInput.threadId}:${turnInput.runOrdinal}`,
+                ),
+                runOrdinal: turnInput.runOrdinal,
+                status: "interrupted",
+                failure: null,
+                threadDisposition: "reusable",
+              },
+            ] satisfies ReadonlyArray<ProviderAdapter.ProviderAdapterV2Event>);
+          });
+        const held = new Map<ProviderTurnId, Deferred.Deferred<void>>();
         return {
           instanceId,
           driver,
@@ -188,15 +209,28 @@ export const makeCapturingCodexAdapter = (
                   events,
                   providerTurnUpdate(turnInput, "running", yield* DateTime.now, null),
                 );
+                const providerTurnId = ProviderTurnId.make(
+                  `provider-turn:${turnInput.threadId}:${turnInput.runOrdinal}`,
+                );
+                const interrupted = yield* Deferred.make<void>();
+                held.set(providerTurnId, interrupted);
                 yield* Effect.forkDetach(
-                  options.holdTurn.pipe(Effect.andThen(finishTurn(turnInput))),
+                  Effect.raceFirst(
+                    options.holdTurn.pipe(Effect.andThen(finishTurn(turnInput))),
+                    Deferred.await(interrupted).pipe(Effect.andThen(interruptHeld(turnInput))),
+                  ).pipe(Effect.ensuring(Effect.sync(() => held.delete(providerTurnId)))),
                 );
                 return;
               }
               yield* finishTurn(turnInput);
             }),
           steerTurn: () => Effect.void,
-          interruptTurn: () => Effect.void,
+          interruptTurn: ({ providerTurnId }) => {
+            const interrupted = held.get(providerTurnId);
+            return interrupted === undefined
+              ? Effect.void
+              : Deferred.succeed(interrupted, undefined).pipe(Effect.asVoid);
+          },
           respondToRuntimeRequest: () => Effect.void,
           readThreadSnapshot: () => unimplemented("readThreadSnapshot unused in this test"),
           rollbackThread: () => unimplemented("rollbackThread unused in this test"),

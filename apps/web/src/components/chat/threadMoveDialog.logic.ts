@@ -32,6 +32,8 @@ export interface ThreadMoveDialogCopy {
   readonly title: string;
   readonly description: string;
   readonly canMove: boolean;
+  /** The thread is mid-turn: moving it stops that turn first. */
+  readonly stopsTurn: boolean;
   /** Projects to choose between before the move can start. */
   readonly choices: ReadonlyArray<{ readonly projectId: string; readonly title: string }>;
 }
@@ -50,23 +52,16 @@ export function threadMoveDialogCopy(input: {
   const { sourceLabel, target } = input;
   const ask = `Move this thread to ${target.label}?`;
   const refused = `Can't move this thread to ${target.label}`;
-  if (input.running) {
-    return {
-      title: ask,
-      description: "A thread moves between turns. Wait for this one to finish, or stop it.",
-      canMove: false,
-      choices: [],
-    };
-  }
+  const stopsTurn = input.running;
+  const closed = { canMove: false, stopsTurn, choices: [] };
   if (input.options === undefined) {
-    return { title: ask, description: `Checking ${target.label}…`, canMove: false, choices: [] };
+    return { title: ask, description: `Checking ${target.label}…`, ...closed };
   }
   if (input.options === "failed") {
     return {
       title: refused,
       description: `${sourceLabel} could not check its linked machines. Try again.`,
-      canMove: false,
-      choices: [],
+      ...closed,
     };
   }
   const option = input.options.find((each) => each.environmentId === target.environmentId);
@@ -74,25 +69,26 @@ export function threadMoveDialogCopy(input: {
     return {
       title: refused,
       description: `${target.label} isn't linked to ${sourceLabel}, or didn't answer. Link the two with full access in Settings → Connections, then try again.`,
-      canMove: false,
-      choices: [],
+      ...closed,
     };
   }
   if (option.reason !== null) {
-    return { title: refused, description: option.reason, canMove: false, choices: [] };
+    return { title: refused, description: option.reason, ...closed };
   }
   if (option.candidates !== undefined && option.candidates.length > 0) {
     return {
       title: ask,
-      description: `Several projects on ${target.label} have this repository. Choose which one continues the thread.`,
+      description: `Several projects on ${target.label} have this repository. Choose which one continues the thread${stopsTurn ? "; its running turn stops first" : ""}.`,
       canMove: false,
+      stopsTurn,
       choices: option.candidates,
     };
   }
   return {
     title: ask,
-    description: `The conversation and its work, including uncommitted and unpushed changes, continue in a new thread on ${target.label}. This copy becomes read-only, with a link to the new one.`,
+    description: `${stopsTurn ? "This thread is mid-turn: moving it stops the turn here first. " : ""}The conversation and its work, including uncommitted and unpushed changes, continue in a new thread on ${target.label}. This copy becomes read-only, with a link to the new one.`,
     canMove: true,
+    stopsTurn,
     choices: [],
   };
 }

@@ -407,51 +407,57 @@ it.layer(layer)("handing a thread's git work to another checkout", (it) => {
     ),
   );
 
-  it.effect("in a SlipJay workspace, puts the work in a new change on the tip", () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const fileSystem = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
-        const handoff = yield* HandoffGit.HandoffGit;
-        const { laptop, box, outDir, root } = yield* repos;
-        yield* workOnLaptop(laptop);
-        const packed = yield* handoff.pack({ cwd: laptop, handoffId: "h6", outDir });
-        // A SlipJay workspace: a secondary jj workspace that is also a git worktree.
-        yield* jj(box, ["git", "init", "--colocate"]);
-        const workspace = path.join(root, "box-workspace");
-        yield* jj(box, ["workspace", "add", workspace]);
+  // jj imports git's refs by itself only in a workspace that is also a git worktree.
+  it.effect.each([
+    ["a git worktree", "--colocate"],
+    ["not a git worktree", "--no-colocate"],
+  ] as const)(
+    "in a SlipJay workspace that is %s, puts the work in a new change on the tip",
+    ([, colocation]) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const handoff = yield* HandoffGit.HandoffGit;
+          const { laptop, box, outDir, root } = yield* repos;
+          yield* workOnLaptop(laptop);
+          const packed = yield* handoff.pack({ cwd: laptop, handoffId: "h6", outDir });
+          // A SlipJay workspace: a secondary jj workspace of the box's colocated repository.
+          yield* jj(box, ["git", "init", "--colocate"]);
+          const workspace = path.join(root, "box-workspace");
+          yield* jj(box, ["workspace", "add", colocation, workspace]);
 
-        yield* handoff.applyInWorkspace({
-          repoRoot: box,
-          workspacePath: workspace,
-          handoffId: "h6",
-          bundlePath: packed.bundlePath,
-          tip: packed.tip,
-          snapshot: packed.snapshot,
-        });
-        // The committed work is the parent; the edits are the working-copy change.
-        assert.equal(
-          yield* jj(workspace, ["log", "--no-graph", "-r", "@-", "-T", "commit_id"]),
-          packed.tip,
-        );
-        assert.equal(
-          yield* fileSystem.readFileString(path.join(workspace, "app.ts")),
-          "export const version = 3;\n",
-        );
-        assert.isFalse(yield* fileSystem.exists(path.join(workspace, "old.ts")));
-        assert.isTrue(yield* fileSystem.exists(path.join(workspace, "new.ts")));
-        assert.deepEqual((yield* jj(workspace, ["diff", "--name-only"])).split("\n").sort(), [
-          ".gitignore",
-          "app.ts",
-          "new.ts",
-          "old.ts",
-        ]);
-        // The box's own checkout is untouched.
-        assert.isFalse(yield* fileSystem.exists(path.join(box, "new.ts")));
-        // The temporary branch jj read the snapshot from is gone, from git and jj.
-        assert.equal(yield* sh(box, ["for-each-ref", "refs/heads/t3code-handoff-h6"]), "");
-        assert.notInclude(yield* jj(box, ["bookmark", "list", "--all"]), "t3code-handoff");
-      }),
-    ),
+          yield* handoff.applyInWorkspace({
+            repoRoot: box,
+            workspacePath: workspace,
+            handoffId: "h6",
+            bundlePath: packed.bundlePath,
+            tip: packed.tip,
+            snapshot: packed.snapshot,
+          });
+          // The committed work is the parent; the edits are the working-copy change.
+          assert.equal(
+            yield* jj(workspace, ["log", "--no-graph", "-r", "@-", "-T", "commit_id"]),
+            packed.tip,
+          );
+          assert.equal(
+            yield* fileSystem.readFileString(path.join(workspace, "app.ts")),
+            "export const version = 3;\n",
+          );
+          assert.isFalse(yield* fileSystem.exists(path.join(workspace, "old.ts")));
+          assert.isTrue(yield* fileSystem.exists(path.join(workspace, "new.ts")));
+          assert.deepEqual((yield* jj(workspace, ["diff", "--name-only"])).split("\n").sort(), [
+            ".gitignore",
+            "app.ts",
+            "new.ts",
+            "old.ts",
+          ]);
+          // The box's own checkout is untouched.
+          assert.isFalse(yield* fileSystem.exists(path.join(box, "new.ts")));
+          // The temporary branch jj read the snapshot from is gone, from git and jj.
+          assert.equal(yield* sh(box, ["for-each-ref", "refs/heads/t3code-handoff-h6"]), "");
+          assert.notInclude(yield* jj(box, ["bookmark", "list", "--all"]), "t3code-handoff");
+        }),
+      ),
   );
 });
