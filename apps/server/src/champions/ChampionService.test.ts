@@ -36,6 +36,7 @@ import {
   ChampionError,
   ProviderDriverKind,
   EnvironmentId,
+  type RepositoryIdentity,
   CommandId,
   ProjectId,
   ProviderInstanceId,
@@ -73,6 +74,8 @@ import * as NodePath from "node:path";
 import * as ChampionJourneys from "./ChampionJourneys.ts";
 import * as JourneyBrowserPolicy from "../preview/JourneyBrowserPolicy.ts";
 import * as Champions from "./ChampionService.ts";
+import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
+import { renderChampionFolder, type ChampionFolder } from "./folders/championFolderCodec.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as ThreadLaunch from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
@@ -7264,3 +7267,433 @@ describe("owner measurement on a live check", () => {
     ),
   );
 });
+
+// Champion folders in agent-config (T3-839).
+const HERE = "environment:champions";
+const REPOSITORY = "github.com/pechhe/yardsmith";
+const FOLDER = `champions/yardsmith/${config.id}`;
+const gitEnv = {
+  ...process.env,
+  GIT_AUTHOR_NAME: "Test",
+  GIT_AUTHOR_EMAIL: "test@example.com",
+  GIT_COMMITTER_NAME: "Test",
+  GIT_COMMITTER_EMAIL: "test@example.com",
+};
+const git = (cwd: string, ...args: string[]) =>
+  NodeChildProcess.execFileSync("git", args, { cwd, encoding: "utf8", env: gitEnv }).trim();
+/** A bare agent-config origin, the runner's checkout, and another machine's clone that pushes edits. */
+const agentConfig = () => {
+  const base = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "champion-folders-"));
+  const origin = NodePath.join(base, "origin.git");
+  git(base, "init", "-q", "--bare", "-b", "main", origin);
+  const clone = (name: string) => {
+    const dir = NodePath.join(base, name);
+    git(base, "clone", "-q", origin, dir);
+    git(dir, "config", "user.name", "Test");
+    git(dir, "config", "user.email", "test@example.com");
+    return dir;
+  };
+  const other = clone("other");
+  git(other, "checkout", "-q", "-b", "main");
+  NodeFS.writeFileSync(NodePath.join(other, "README.md"), "agent-config\n");
+  git(other, "add", "-A");
+  git(other, "commit", "-qm", "seed");
+  git(other, "push", "-q", "origin", "HEAD:main");
+  const root = clone("agents");
+  return {
+    origin,
+    root,
+    /** Commits files (null deletes) from the other machine and pushes them to main. */
+    push: (files: Record<string, string | null>) => {
+      git(other, "pull", "-q", "--ff-only", "origin", "main");
+      for (const [path, content] of Object.entries(files)) {
+        const target = NodePath.join(other, path);
+        if (content === null) NodeFS.rmSync(target, { force: true });
+        else {
+          NodeFS.mkdirSync(NodePath.dirname(target), { recursive: true });
+          NodeFS.writeFileSync(target, content);
+        }
+      }
+      git(other, "add", "-A");
+      git(other, "commit", "-qm", "edit");
+      git(other, "push", "-q", "origin", "HEAD:main");
+    },
+    onMain: (path: string) => {
+      try {
+        return git(base, "--git-dir", origin, "show", `main:${path}`);
+      } catch {
+        return null;
+      }
+    },
+    commits: () => Number(git(base, "--git-dir", origin, "rev-list", "--count", "main")),
+    lastCommitPaths: () =>
+      git(base, "--git-dir", origin, "diff", "--name-only", "main~1", "main").split("\n"),
+  };
+};
+const withFolders = (
+  body: (
+    f: Effect.Success<ReturnType<typeof fixture>>,
+    service: Champions.ChampionService["Service"],
+    world: ReturnType<typeof agentConfig>,
+  ) => Effect.Effect<void, ChampionError, SqlClient.SqlClient | Scope.Scope>,
+) =>
+  Effect.gen(function* () {
+    const f = yield* fixture();
+    const world = agentConfig();
+    const layer = Champions.layer.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          f.dependencies,
+          Layer.succeed(
+            ServerEnvironment.ServerEnvironment,
+            ServerEnvironment.ServerEnvironment.of({
+              getEnvironmentId: Effect.succeed(EnvironmentId.make(HERE)),
+              getDescriptor: Effect.die("unused"),
+            }),
+          ),
+          Layer.succeed(
+            RepositoryIdentityResolver.RepositoryIdentityResolver,
+            RepositoryIdentityResolver.RepositoryIdentityResolver.of({
+              resolve: () => Effect.succeed({ canonicalKey: REPOSITORY } as RepositoryIdentity),
+            }),
+          ),
+        ),
+      ),
+    );
+    yield* Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`INSERT INTO projection_projects (project_id, title, workspace_root, scripts_json, created_at, updated_at) VALUES (${projectId}, 'Project', '/project/root', '[]', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`.pipe(
+        Effect.orDie,
+      );
+      const service = yield* Champions.ChampionService;
+      yield* service.setModels(defaultModels);
+      yield* body(f, service, world).pipe(
+        Effect.provideService(HostProcess.Environment, {
+          ...process.env,
+          T3CODE_AGENT_POLICY_ROOT: world.root,
+        }),
+      );
+    }).pipe(Effect.provide(layer));
+  }).pipe(Effect.provide(Sqlite.layerMemory));
+const folderMetric = {
+  ...metric,
+  version: 1,
+  seriesId: "series:errors",
+  reason: "Measure errors",
+  definedAt: "2026-11-01T00:00:00.000Z",
+};
+const folderLearning = {
+  topic: "Why errors rise",
+  plainSummary: "Errors rise after a deploy until caches warm.",
+  question: "Why do errors rise?",
+  conclusion: "Caches are cold after a deploy.",
+  attempts: [],
+  evidence: [
+    {
+      source: "deploy log",
+      evidence: "errors fell after warming",
+      observedAt: "2026-11-01T00:00:00.000Z",
+    },
+  ],
+  components: [],
+  environment: "test",
+  applicability: "Every deploy",
+  tradeoffs: "None",
+  reviewAt: null,
+  reviewConditions: ["The cache changes"],
+  versionConditions: [],
+  learningId: "errors-after-deploy",
+  recordedAt: "2026-11-01T00:00:00.000Z",
+  reason: "Learned from a deploy",
+};
+const reading = (value: number, observedAt: string) => ({
+  metricId: metric.id,
+  version: 1,
+  unit: metric.unit,
+  status: "measured" as const,
+  value,
+  observedAt,
+  collectedAt: observedAt,
+  source: "test",
+  evidence: `read ${value}`,
+  revision: null,
+  provenance: "server-collected" as const,
+});
+const folderFiles = (folder: Partial<ChampionFolder> & { runner?: string }) =>
+  Object.fromEntries(
+    renderChampionFolder({
+      definition: {
+        id: config.id,
+        name: config.name,
+        purpose: config.purpose,
+        repository: REPOSITORY,
+        runner: { environmentId: folder.runner ?? HERE, label: folder.runner ?? "test machine" },
+        lifecycle: "paused",
+        schedule: config.schedule,
+        charter: config.charter,
+      },
+      metrics: [folderMetric],
+      learnings: [],
+      findings: [],
+      readings: [],
+      ...folder,
+    }).map((file) => [`${FOLDER}/${file.path}`, file.content]),
+  );
+
+describe("Champion folders in agent-config", () => {
+  it.effect(
+    "adopts a folder naming this machine with its learnings, carried-over findings and readings, then leaves it alone",
+    () =>
+      withFolders((_f, service, world) =>
+        Effect.gen(function* () {
+          world.push({
+            ...folderFiles({
+              learnings: [folderLearning],
+              findings: [
+                {
+                  id: `${config.id}:metric:series:errors`,
+                  metricId: metric.id,
+                  seriesId: "series:errors",
+                  title: "Errors are high",
+                  evidence: "Read 9 errors.",
+                  status: "working",
+                  workId: "work:errors",
+                  attemptId: "attempt:1",
+                  revision: null,
+                  specUrl: null,
+                  updatedAt: "2026-11-01T00:00:00.000Z",
+                  carriedOver: { from: "peach-box-old", at: "2026-11-21" },
+                },
+              ],
+              readings: [
+                reading(3, "2026-11-01T00:00:00.000Z"),
+                reading(4, "2026-11-02T00:00:00.000Z"),
+              ],
+            }),
+            [`${FOLDER}/notes.md`]: "The Champion's own notes.\n",
+          });
+          yield* service.syncFolders;
+          const detail = yield* service.get({ id: config.id });
+          assert.equal(detail.champion.folder?.runner.environmentId, HERE);
+          assert.equal(detail.champion.folder?.path, FOLDER);
+          assert.deepEqual(
+            detail.metrics.map((m) => [m.id, m.version, m.seriesId]),
+            [[metric.id, 1, "series:errors"]],
+          );
+          assert.equal(detail.findings[0]?.status, "open");
+          assert.isNull(detail.findings[0]?.childThreadId);
+          assert.match(detail.findings[0]?.evidence ?? "", /^Carried over from peach-box-old/);
+          assert.deepEqual(
+            (yield* service.history({ id: config.id })).samples.map((s) => s.value).toSorted(),
+            [3, 4],
+          );
+          const learnings = yield* service.learningSearch({ championId: config.id });
+          assert.deepEqual(
+            learnings.learnings.map((l) => l.revision.conclusion),
+            [folderLearning.conclusion],
+          );
+          const settled = world.commits();
+          yield* service.syncFolders;
+          yield* service.syncFolders;
+          assert.equal(world.commits(), settled);
+          assert.equal(world.onMain(`${FOLDER}/notes.md`), "The Champion's own notes.");
+        }),
+      ),
+  );
+
+  it.effect(
+    "starts no work on a machine the folder does not name, even for a Champion it holds",
+    () =>
+      withFolders((f, service, world) =>
+        Effect.gen(function* () {
+          f.realProjectRoot();
+          yield* definitions(service);
+          world.push(folderFiles({ runner: "environment:elsewhere" }));
+          yield* service.syncFolders;
+          yield* refusedWith(service.runCheck({ id: config.id }), "runs on environment:elsewhere");
+          yield* refusedWith(service.setup({ id: config.id }), "runs on environment:elsewhere");
+          yield* refusedWith(
+            service.startMetricsLead({ id: config.id }),
+            "runs on environment:elsewhere",
+          );
+          assert.deepEqual(f.counts(), { launches: 0, sends: 0 });
+          assert.include(world.onMain(`${FOLDER}/champion.md`) ?? "", "environment:elsewhere");
+        }),
+      ),
+  );
+
+  it.effect(
+    "saves a Champion to its folder on main without touching the checkout, and applies an agent's committed edits",
+    () =>
+      withFolders((f, service, world) =>
+        Effect.gen(function* () {
+          f.realProjectRoot();
+          yield* definitions(service);
+          const head = git(world.root, "rev-parse", "HEAD");
+          NodeFS.writeFileSync(
+            NodePath.join(world.root, "unsaved.txt"),
+            "an agent's half-done edit",
+          );
+          yield* service.syncFolders;
+          assert.include(world.onMain(`${FOLDER}/champion.md`) ?? "", HERE);
+          assert.include(world.onMain(`${FOLDER}/metrics.json`) ?? "", metric.id);
+          assert.equal(git(world.root, "rev-parse", "HEAD"), head);
+          assert.equal(git(world.root, "status", "--porcelain"), "?? unsaved.txt");
+          assert.isNotNull((yield* service.get({ id: config.id })).champion.folder?.savedAt);
+
+          yield* service.upsert({ ...config, purpose: "Keep errors very low" });
+          yield* service.syncFolders;
+          assert.include(world.onMain(`${FOLDER}/champion.md`) ?? "", "Keep errors very low");
+          assert.isTrue(world.lastCommitPaths().every((path) => path.startsWith(`${FOLDER}/`)));
+
+          const edited = world
+            .onMain(`${FOLDER}/champion.md`)!
+            .replace("Keep errors very low", "Edited by an agent");
+          const learningFile = Object.entries(folderFiles({ learnings: [folderLearning] })).find(
+            ([path]) => path.includes("/learnings/"),
+          )!;
+          world.push({
+            [`${FOLDER}/champion.md`]: `${edited}\n`,
+            [learningFile[0]]: learningFile[1],
+          });
+          NodeFS.mkdirSync(NodePath.join(world.root, FOLDER), { recursive: true });
+          NodeFS.writeFileSync(
+            NodePath.join(world.root, FOLDER, "champion.md"),
+            "not yet committed",
+          );
+          yield* service.syncFolders;
+          assert.equal(
+            (yield* service.get({ id: config.id })).champion.purpose,
+            "Edited by an agent",
+          );
+          const [learning] = (yield* service.learningSearch({ championId: config.id })).learnings;
+          assert.equal(learning?.revision.contribution?.threadTitle, "File edit in agent-config");
+          yield* service.syncFolders;
+          const settled = world.commits();
+          yield* service.syncFolders;
+          assert.equal(world.commits(), settled);
+
+          const metrics = JSON.parse(
+            world.onMain(`${FOLDER}/metrics.json`)!,
+          ) as Array<ChampionMetricInput>;
+          world.push({
+            [`${FOLDER}/metrics.json`]: JSON.stringify(
+              [{ ...metrics[0], collect: node("process.exit(4)") }],
+              null,
+              2,
+            ),
+          });
+          yield* service.syncFolders;
+          const after = yield* service.get({ id: config.id });
+          assert.isUndefined(after.metrics[0]?.collect);
+          assert.isTrue(
+            after.champion.attention.some((line) => line.includes("metrics.json not applied")),
+          );
+        }),
+      ),
+  );
+
+  it.effect(
+    "leaves a folder with a file that does not parse as the agent wrote it, and drops only a deleted learning",
+    () =>
+      withFolders((_f, service, world) =>
+        Effect.gen(function* () {
+          const second = {
+            ...folderLearning,
+            learningId: "errors-on-mondays",
+            topic: "Monday errors",
+          };
+          const files = folderFiles({ learnings: [folderLearning, second] });
+          world.push(files);
+          yield* service.syncFolders;
+          const firstPath = Object.keys(files).find((path) =>
+            path.includes("errors-after-deploy"),
+          )!;
+          const secondPath = Object.keys(files).find((path) => path.includes("errors-on-mondays"))!;
+          world.push({ [firstPath]: "---\nnot: [valid\n---\nbroken" });
+          yield* service.syncFolders;
+          assert.equal(world.onMain(firstPath), "---\nnot: [valid\n---\nbroken");
+          assert.isTrue(
+            (yield* service.get({ id: config.id })).champion.attention.some((line) =>
+              line.startsWith("agent-config folder: learnings/"),
+            ),
+          );
+          assert.isTrue(
+            (yield* service.get({ id: config.id })).champion.attention.some((line) =>
+              line.startsWith("Not saved to agent-config: a file in its folder does not parse"),
+            ),
+          );
+          world.push({ [firstPath]: files[firstPath]!, [secondPath]: null });
+          yield* service.syncFolders;
+          assert.deepEqual(
+            (yield* service.learningSearch({ championId: config.id })).learnings.map(
+              (l) => l.revision.learningId,
+            ),
+            [folderLearning.learningId],
+          );
+          assert.isFalse(
+            (yield* service.get({ id: config.id })).champion.attention.some((line) =>
+              line.startsWith("agent-config folder: "),
+            ),
+          );
+          world.push({ [`${FOLDER}/champion.md`]: "no frontmatter at all" });
+          yield* service.syncFolders;
+          assert.equal(world.onMain(`${FOLDER}/champion.md`), "no frontmatter at all");
+          assert.isTrue(
+            (yield* service.get({ id: config.id })).champion.attention.some((line) =>
+              line.startsWith("agent-config folder: champion.md"),
+            ),
+          );
+        }),
+      ),
+  );
+
+  it.effect(
+    "writes no folder for a retired Champion, and says so when a push keeps failing until one succeeds",
+    () =>
+      withFolders((f, service, world) =>
+        Effect.gen(function* () {
+          f.realProjectRoot();
+          const old = { ...config, id: "champion:old", name: "Old" };
+          yield* service.upsert(old);
+          yield* service.changeMetrics({ id: old.id, metrics: [metric], reason: "Measure" });
+          yield* service.setLifecycle({ id: old.id, lifecycle: "retired" });
+          yield* definitions(service);
+          const hook = NodePath.join(world.origin, "hooks", "pre-receive");
+          NodeFS.writeFileSync(hook, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+          yield* service.syncFolders;
+          assert.isTrue(
+            (yield* service.get({ id: config.id })).champion.attention.some((line) =>
+              line.startsWith("Not saved to agent-config: "),
+            ),
+          );
+          NodeFS.rmSync(hook);
+          yield* service.syncFolders;
+          assert.isFalse(
+            (yield* service.get({ id: config.id })).champion.attention.some((line) =>
+              line.startsWith("Not saved to agent-config: "),
+            ),
+          );
+          assert.isNotNull(world.onMain(`${FOLDER}/champion.md`));
+          assert.isNull(world.onMain("champions/yardsmith/champion:old/champion.md"));
+        }),
+      ),
+  );
+});
+
+it.effect(
+  "runs the agent on an all-collected in-target check when the Champion works while in target",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        f.realProjectRoot();
+        yield* accepted(service, [collectedMetric(node("console.log(1)"))], {
+          ...config,
+          whenInTarget: "work",
+        });
+        yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
+        yield* service.runCheck({ id: config.id });
+        assert.equal(f.counts().launches, 1);
+      }),
+    ),
+);

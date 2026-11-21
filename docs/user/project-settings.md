@@ -201,6 +201,8 @@ uncertain, not deleted, and does not start another investigation by itself. A re
 does not prove improvement: the champion needs comparable measurements of the
 running version.
 
+When the server can reach your agent-config checkout (`T3CODE_AGENT_POLICY_ROOT`), every champion also lives as a folder in it, `champions/<repository>/<id>/`: its definition and charter in `champion.md`, its metrics, its learnings, its open findings and its readings. The machine named as `runner` in `champion.md` is the only one that runs the champion, and it saves the champion's changes back to the folder. You and your agents can edit the definition, metrics and learnings in the folder directly; once the edit is pushed, the runner applies it within about a minute. To move a champion to another machine, change its `runner`. A new machine that finds a folder naming it takes the champion over, with its learnings and open findings.
+
 Pausing stops new scheduled checks, research and repair dispatch, while existing work
 continues. **Cancel research** requests a stop; the page waits for confirmation.
 **Check now** while paused measures and reports only. Resuming starts from the

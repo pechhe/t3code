@@ -129,8 +129,21 @@ export const ChampionConfig = Schema.Struct({
   journeys: Schema.optional(ChampionJourneyConfig),
   /** The champion in this project that repairs what this journey champion confirms; null clears it. */
   repairsVia: Schema.optional(Schema.NullOr(ChampionId)),
+  /** `work` runs the agent even when every metric is server-collected and in target; absent means `rest`. */
+  whenInTarget: Schema.optional(Schema.Literals(["rest", "work"])),
 });
 export type ChampionConfig = typeof ChampionConfig.Type;
+/** The agent-config folder a Champion lives in, and the one machine that runs it (T3-839). */
+export const ChampionFolderState = Schema.Struct({
+  path: Schema.String.check(Schema.isMaxLength(500)),
+  repository: Schema.String.check(Schema.isMaxLength(500)),
+  runner: Schema.Struct({
+    environmentId: EnvironmentId,
+    label: Schema.String.check(Schema.isMaxLength(200)),
+  }),
+  savedAt: Schema.NullOr(IsoDateTime),
+});
+export type ChampionFolderState = typeof ChampionFolderState.Type;
 const ChampionSampleStatus = Schema.Literals(["measured", "unknown", "insufficient", "error"]);
 export const ChampionLatestSample = Schema.Struct({
   metricId: ChampionLabel,
@@ -173,6 +186,7 @@ export const ChampionSummary = Schema.Struct({
   attention: Schema.Array(Schema.String),
   openFindingCount: Schema.Int,
   updatedAt: IsoDateTime,
+  folder: Schema.optional(ChampionFolderState),
 });
 export type ChampionSummary = typeof ChampionSummary.Type;
 /** Henry's own words, typed in the agent thread that completed an approval for him. */

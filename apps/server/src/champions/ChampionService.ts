@@ -20,6 +20,25 @@ import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import { forgeItemNumberFromUrl } from "@t3tools/shared/forgeLinks";
 import * as ProcessRunner from "../processRunner.ts";
+import { agentPolicyRoot } from "../agents/agentPolicyRoot.ts";
+import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
+import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
+import * as AgentConfigGit from "./folders/AgentConfigGit.ts";
+import {
+  parseChampionFolder,
+  renderChampionFolder,
+  championFolderPath,
+  type ChampionFolder,
+  type ChampionFolderReading,
+} from "./folders/championFolderCodec.ts";
+import {
+  CHAMPIONS_PREFIX,
+  folderChanges,
+  folderGroup,
+  foldersOnMain,
+  isManagedFile,
+  type FolderOnMain,
+} from "./folders/championFolderFiles.ts";
 import { collectReading, type CollectedReading } from "./metricCollection.ts";
 import * as SlipJayLandings from "../project/SlipJayLandings.ts";
 import { invalidOptionSelections } from "../provider/modelSelectionValidation.ts";
@@ -79,7 +98,12 @@ import {
   type ChampionJourneyPlan,
   type ChampionJourneyRecordResult,
   isRetiredWriterRole,
+  ChampionLearningContent,
+  ChampionLearningRevision,
+  EnvironmentId,
+  ProjectId,
 } from "@t3tools/contracts";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
@@ -108,6 +132,8 @@ const Document = Schema.Struct({
   champion: ChampionSummary,
   metrics: Schema.Array(ChampionMetric),
   findings: Schema.Array(ChampionFinding),
+  /** Blob ids of the folder's files as T3 last wrote or applied them, so its own writes are not re-imported. */
+  folderFiles: Schema.optional(Schema.Record(Schema.String, Schema.String)),
 });
 type Document = typeof Document.Type;
 /** A metric change filed before changes applied at once; retire once no stored champion holds one. */
@@ -419,6 +445,8 @@ export class ChampionService extends Context.Service<
       commandId?: CommandId | undefined;
     }) => Effect.Effect<void, ChampionError>;
     readonly runDue: Effect.Effect<void, ChampionError>;
+    /** Applies agent-config folders naming this machine and saves its Champions back to them (T3-839). */
+    readonly syncFolders: Effect.Effect<void, ChampionError>;
   }
 >()("t3/champions/ChampionService") {}
 
@@ -513,6 +541,23 @@ const make = Effect.gen(function* () {
   const failure = (cause: unknown) => new ChampionError({ reason: "unavailable", cause });
   const now = DateTime.now.pipe(Effect.map(DateTime.formatIso));
   const uuid = random.uuidV4().pipe(Effect.mapError(failure));
+  // Set by any committed change, so the folder sync saves soon after instead of on its minute.
+  let folderDirty = true;
+  const serverEnvironment = yield* Effect.serviceOption(ServerEnvironment.ServerEnvironment);
+  const repositoryIdentities = yield* Effect.serviceOption(
+    RepositoryIdentityResolver.RepositoryIdentityResolver,
+  );
+  const here = Option.isSome(serverEnvironment)
+    ? yield* serverEnvironment.value.getEnvironmentId
+    : null;
+  /** True unless the Champion's agent-config folder names another machine as its runner. */
+  const runsHere = (champion: Pick<ChampionSummary, "folder">) =>
+    champion.folder === undefined || champion.folder.runner.environmentId === here;
+  const runsElsewhere = (champion: Pick<ChampionSummary, "folder" | "name">) =>
+    new ChampionError({
+      reason: "conflict",
+      detail: `${champion.name} runs on ${champion.folder?.runner.label ?? "another machine"}, as its agent-config folder ${champion.folder?.path ?? ""} says; this machine starts no work for it.`,
+    });
   const mutate = <A, R>(effect: Effect.Effect<A, ChampionError, R>) =>
     Effect.suspend(() => {
       const batch = { changed: false, owners: new Set<ThreadId>() };
@@ -521,7 +566,10 @@ const make = Effect.gen(function* () {
           Effect.mapError((cause) => (isChampionError(cause) ? cause : failure(cause))),
           Effect.tap(() =>
             Effect.gen(function* () {
-              if (batch.changed) yield* PubSub.publish(changes, undefined);
+              if (batch.changed) {
+                folderDirty = true;
+                yield* PubSub.publish(changes, undefined);
+              }
               for (const owner of batch.owners) yield* PubSub.publish(shellChanges, owner);
             }),
           ),
@@ -1281,6 +1329,7 @@ const make = Effect.gen(function* () {
         .withTransaction(
           Effect.gen(function* () {
             const doc = yield* read(id);
+            if (!runsHere(doc.champion)) return yield* runsElsewhere(doc.champion);
             if (
               doc.champion.lifecycle === "retired" ||
               (scheduled && doc.champion.lifecycle !== "active")
@@ -2076,6 +2125,7 @@ const make = Effect.gen(function* () {
         }
         const finished =
           collectsEverything(doc, check) &&
+          doc.champion.whenInTarget !== "work" &&
           commands.length === check.metrics.length &&
           samples.every((sample) => sample.status === "measured") &&
           !findingsLimited &&
@@ -2321,6 +2371,7 @@ const make = Effect.gen(function* () {
     const row = rows[0];
     if (row === undefined) return;
     const doc = yield* read(row.champion_id);
+    if (!runsHere(doc.champion)) return;
     const decision = doc.findings.find((finding) => finding.id === row.finding_id)?.decision;
     if (
       decision?.id !== row.id ||
@@ -2374,6 +2425,7 @@ const make = Effect.gen(function* () {
     "ChampionService.startMetricsLead",
   )(function* (input) {
     const doc = yield* read(input.id);
+    if (!runsHere(doc.champion)) return yield* runsElsewhere(doc.champion);
     if (doc.champion.lifecycle === "retired")
       return yield* new ChampionError({
         reason: "conflict",
@@ -2984,6 +3036,7 @@ const make = Effect.gen(function* () {
     "ChampionService.admitDelegation",
   )(function* (proof) {
     const doc = yield* byThread(proof.ownerThreadId);
+    if (doc !== undefined && !runsHere(doc.champion)) return yield* runsElsewhere(doc.champion);
     if (ChampionEvidence.isMeasurementWorkId(proof.binding.workId)) {
       if (doc === undefined) return;
       const run = yield* ownerRun(proof.ownerThreadId);
@@ -3182,6 +3235,7 @@ const make = Effect.gen(function* () {
     "ChampionService.journeysStart",
   )(function* (caller) {
     const { check, doc } = yield* authenticate(caller);
+    if (!runsHere(doc.champion)) return yield* runsElsewhere(doc.champion);
     const config = doc.champion.journeys;
     if (config === undefined || check.kind !== "check")
       return yield* new ChampionError({
@@ -3536,7 +3590,9 @@ const make = Effect.gen(function* () {
     forgeItem,
     remote,
   }) {
-    if ((yield* byThread(ownerThreadId)) === undefined) return;
+    const owner = yield* byThread(ownerThreadId);
+    if (owner === undefined) return;
+    if (!runsHere(owner.champion)) return yield* runsElsewhere(owner.champion);
     if (isCandidateWorkId(request?.workId))
       return yield* guardConfirmation(ownerThreadId, request!, task, followup === true);
     if (yield* journeys.ownerBusy(ownerThreadId).pipe(Effect.mapError(failure)))
@@ -4135,6 +4191,7 @@ const make = Effect.gen(function* () {
     for (const row of pendingDecisions) yield* deliverDecision(row.id).pipe(Effect.ignore);
     const resumed: Array<Effect.Effect<void>> = [];
     for (const champion of (yield* list({})).champions) {
+      if (!runsHere(champion)) continue;
       const doc = { champion };
       const stale = champion.latestSamples?.filter((sample) => sample.health === "stale") ?? [];
       const needsAttention =
@@ -4664,6 +4721,8 @@ const make = Effect.gen(function* () {
   const startInvestigation: Evidence["startInvestigation"] = Effect.fn(
     "ChampionService.startInvestigation",
   )(function* (input) {
+    const owner = yield* read(input.id);
+    if (!runsHere(owner.champion)) return yield* runsElsewhere(owner.champion);
     const result = yield* evidence.startInvestigation(input);
     yield* PubSub.publish(changes, undefined);
     return result;
@@ -4703,6 +4762,796 @@ const make = Effect.gen(function* () {
       yield* authenticateOwner(caller, input.id);
       return yield* cancelInvestigation(input);
     });
+  // Champion folders in agent-config (T3-839). The folder on main is the record and the
+  // database the working copy: the runner applies edits it did not write, then saves its
+  // own state back, reading and writing git objects only, never the checkout's working tree.
+  const FOLDER_EVERY_MS = 60_000;
+  const FOLDER_SOON_MS = 15_000;
+  const FOLDER_PROBLEM = "agent-config folder: ";
+  const NOT_SAVED = "Not saved to agent-config: ";
+  const folderLock = yield* Semaphore.make(1);
+  let folderSyncedAt = Number.NEGATIVE_INFINITY;
+  const hereLabel = Option.isSome(serverEnvironment)
+    ? yield* serverEnvironment.value.getDescriptor.pipe(
+        Effect.map((descriptor): string => descriptor.label),
+        Effect.catchCause(() => Effect.succeed("this machine")),
+      )
+    : "this machine";
+  const decodeRevision = Schema.decodeUnknownEffect(
+    Schema.fromJsonString(ChampionLearningRevision),
+  );
+  const learningContentKeys = Object.keys(ChampionLearningContent.fields) as ReadonlyArray<
+    keyof typeof ChampionLearningContent.Type
+  >;
+  const learningContentOf = (learning: typeof ChampionLearningContent.Type) =>
+    Object.fromEntries(
+      learningContentKeys.flatMap((key) =>
+        learning[key] === undefined ? [] : [[key, learning[key]]],
+      ),
+    ) as typeof ChampionLearningContent.Type;
+  const sameLearning = Schema.toEquivalence(ChampionLearningContent);
+  const withNotes = (
+    attention: ReadonlyArray<string>,
+    prefix: string,
+    notes: ReadonlyArray<string>,
+  ) => [
+    ...attention.filter((line) => !line.startsWith(prefix)),
+    ...notes.map((note) => `${prefix}${note}`.slice(0, 1000)),
+  ];
+  const projectFor = Effect.fn("ChampionService.projectFor")(function* (repository: string) {
+    if (Option.isNone(repositoryIdentities)) return null;
+    const rows = yield* sql<{
+      project_id: string;
+      workspace_root: string;
+    }>`SELECT project_id, workspace_root FROM projection_projects WHERE deleted_at IS NULL AND archived_at IS NULL ORDER BY created_at, project_id`.pipe(
+      Effect.mapError(failure),
+    );
+    for (const row of rows)
+      if (
+        (yield* repositoryIdentities.value.resolve(row.workspace_root))?.canonicalKey === repository
+      )
+        return ProjectId.make(row.project_id);
+    return null;
+  });
+  const repositoryOf = Effect.fn("ChampionService.repositoryOf")(function* (doc: Document) {
+    if (doc.champion.folder !== undefined) return doc.champion.folder.repository;
+    const project = yield* projects.getById(doc.champion.projectId).pipe(Effect.mapError(failure));
+    if (Option.isNone(project) || Option.isNone(repositoryIdentities)) return null;
+    return (
+      (yield* repositoryIdentities.value.resolve(project.value.workspaceRoot))?.canonicalKey ?? null
+    );
+  });
+  const currentLearnings = Effect.fn("ChampionService.currentLearnings")(function* (id: string) {
+    const rows = yield* sql<{
+      document_json: string;
+    }>`SELECT r.document_json FROM champion_learning_heads h JOIN champion_learning_revisions r ON r.id = h.revision_id WHERE h.champion_id = ${id} ORDER BY h.learning_id`.pipe(
+      Effect.mapError(failure),
+    );
+    return yield* Effect.forEach(rows, (row) =>
+      decodeRevision(row.document_json).pipe(Effect.mapError(failure)),
+    );
+  });
+  const readingsOf = Effect.fn("ChampionService.readingsOf")(function* (id: string) {
+    const rows = yield* sql<{
+      document_json: string;
+    }>`SELECT document_json FROM champion_checks WHERE champion_id = ${id}`;
+    const readings: ChampionFolderReading[] = [];
+    for (const row of rows)
+      for (const sample of (yield* decodeCheck(row.document_json)).samples ?? [])
+        readings.push({
+          metricId: sample.metricId,
+          version: sample.version,
+          unit: sample.unit,
+          status: sample.status,
+          value: sample.value,
+          observedAt: sample.observedAt,
+          collectedAt: sample.collectedAt,
+          source: sample.source,
+          evidence: sample.evidence,
+          revision: sample.revision,
+          provenance: sample.provenance,
+        });
+    return readings;
+  }, Effect.mapError(failure));
+  const folderOf = Effect.fn("ChampionService.folderOf")(function* (
+    doc: Document,
+    repository: string,
+  ) {
+    const { champion } = doc;
+    return {
+      definition: {
+        id: champion.id,
+        name: champion.name,
+        purpose: champion.purpose,
+        repository,
+        runner: { environmentId: here ?? "", label: hereLabel },
+        lifecycle: champion.lifecycle,
+        schedule: champion.schedule,
+        charter: champion.charter,
+        ...(champion.models === undefined ? {} : { models: champion.models }),
+        ...(champion.journeys === undefined ? {} : { journeys: champion.journeys }),
+        ...(champion.repairsVia === undefined ? {} : { repairsVia: champion.repairsVia }),
+        ...(champion.whenInTarget === undefined ? {} : { whenInTarget: champion.whenInTarget }),
+      },
+      metrics: doc.metrics,
+      learnings: (yield* currentLearnings(champion.id)).map((revision) => ({
+        ...learningContentOf(revision),
+        learningId: revision.learningId,
+        recordedAt: revision.recordedAt,
+        reason: revision.reason,
+        ...(revision.contribution === undefined ? {} : { contribution: revision.contribution }),
+      })),
+      findings: doc.findings
+        .filter((finding) => !["verified", "dismissed"].includes(finding.status))
+        .map((finding) => ({
+          id: finding.id,
+          metricId: finding.metricId,
+          seriesId: finding.seriesId,
+          title: finding.title,
+          evidence: finding.evidence,
+          status: finding.status,
+          ...(finding.diagnosis === undefined ? {} : { diagnosis: finding.diagnosis }),
+          ...(finding.undiagnosed === undefined ? {} : { undiagnosed: finding.undiagnosed }),
+          ...(finding.baselineValue === undefined ? {} : { baselineValue: finding.baselineValue }),
+          ...(finding.baselineMetric === undefined
+            ? {}
+            : { baselineMetric: finding.baselineMetric }),
+          workId: finding.workId,
+          attemptId: finding.attemptId,
+          revision: finding.revision,
+          specUrl: finding.specUrl,
+          updatedAt: finding.updatedAt,
+        })),
+      readings: yield* readingsOf(champion.id),
+    } as ChampionFolder;
+  });
+  /** Records a learning the folder holds unless its current revision already says the same. */
+  const applyFolderLearning = Effect.fn("ChampionService.applyFolderLearning")(function* (
+    id: string,
+    learning: ChampionFolder["learnings"][number],
+    reason: string,
+    contribution: ChampionLearningContributor | undefined,
+  ) {
+    const [head] = yield* sql<{
+      revision_id: string;
+      document_json: string;
+    }>`SELECT h.revision_id, r.document_json FROM champion_learning_heads h JOIN champion_learning_revisions r ON r.id = h.revision_id WHERE h.champion_id = ${id} AND h.learning_id = ${learning.learningId}`.pipe(
+      Effect.mapError(failure),
+    );
+    const content = learningContentOf(learning);
+    if (head !== undefined) {
+      const current = yield* decodeRevision(head.document_json).pipe(Effect.mapError(failure));
+      if (sameLearning(learningContentOf(current), content)) return;
+    }
+    yield* evidence.recordLearning(
+      {
+        id,
+        learningId: learning.learningId,
+        expectedCurrentId: head?.revision_id ?? null,
+        reason,
+        ...content,
+      },
+      contribution,
+    );
+  });
+  const folderState = (path: string, repository: string, environmentId: string, label: string) => ({
+    path,
+    repository,
+    runner: { environmentId: EnvironmentId.make(environmentId), label },
+  });
+  /** A folder naming this machine and no local Champion synced from it: the local copy becomes the folder's. */
+  const adoptFolder = Effect.fn("ChampionService.adoptFolder")(function* (
+    folder: FolderOnMain,
+    parsed: ReturnType<typeof parseChampionFolder>,
+    blobs: Record<string, string>,
+    base: string,
+  ) {
+    const definition = parsed.definition!;
+    const existing = yield* read(definition.id).pipe(Effect.option);
+    const projectId = yield* projectFor(definition.repository);
+    if (projectId === null) {
+      const note = `no project on this machine has the repository ${definition.repository}, so ${folder.path} does not run here.`;
+      if (Option.isSome(existing))
+        yield* mutate(
+          Effect.gen(function* () {
+            const current = yield* read(definition.id);
+            yield* write({
+              ...current,
+              champion: {
+                ...current.champion,
+                attention: withNotes(current.champion.attention, FOLDER_PROBLEM, [note]),
+              },
+            });
+          }),
+        );
+      else yield* Effect.logWarning("champions.folder-without-project", { path: folder.path });
+      return;
+    }
+    const at = yield* now;
+    const short = base.slice(0, 8);
+    const metrics = parsed.metrics ?? [];
+    const lifecycle =
+      definition.lifecycle === "active" && metrics.length === 0 ? "paused" : definition.lifecycle;
+    const config: ChampionConfig = {
+      id: definition.id,
+      projectId,
+      name: definition.name,
+      purpose: definition.purpose,
+      schedule: definition.schedule,
+      charter: definition.charter,
+      ...(definition.models === undefined ? {} : { models: definition.models }),
+      ...(definition.journeys === undefined ? {} : { journeys: definition.journeys }),
+      ...(definition.repairsVia === undefined ? {} : { repairsVia: definition.repairsVia }),
+      ...(definition.whenInTarget === undefined ? {} : { whenInTarget: definition.whenInTarget }),
+    };
+    const ownerThreadId = ThreadId.make(yield* uuid);
+    const checkId = `folder:${definition.id}:${short}`;
+    const series = new Map(metrics.map((metric) => [`${metric.id}@${metric.version}`, metric]));
+    const samples = parsed.readings.flatMap((reading) => {
+      const metric =
+        series.get(`${reading.metricId}@${reading.version}`) ??
+        metrics.find((m) => m.id === reading.metricId);
+      return metric === undefined
+        ? []
+        : [
+            {
+              ...reading,
+              championId: definition.id,
+              checkId,
+              seriesId: metric.seriesId,
+              threadId: ownerThreadId,
+              runId: null,
+              modelSelection: null,
+            } satisfies ChampionSample,
+          ];
+    });
+    const latestSamples = metrics.flatMap((metric) => {
+      const latest = samples
+        .filter((sample) => sample.metricId === metric.id)
+        .toSorted((a, b) => b.observedAt.localeCompare(a.observedAt))[0];
+      return latest === undefined
+        ? []
+        : [
+            {
+              metricId: metric.id,
+              name: metric.name,
+              version: latest.version,
+              seriesId: latest.seriesId,
+              unit: latest.unit,
+              required: metric.required ?? true,
+              value: latest.value,
+              status: latest.status,
+              health: "unknown" as const,
+              observedAt: latest.observedAt,
+              collectedAt: latest.collectedAt,
+              revision: latest.revision,
+              staleAt: null,
+            },
+          ];
+    });
+    const findings = parsed.findings.map(({ carriedOver, ...finding }): ChampionFinding => ({
+      ...finding,
+      evidence:
+        `Carried over from ${carriedOver?.from ?? folder.path} (${carriedOver?.at ?? short}). ${finding.evidence}`.slice(
+          0,
+          8000,
+        ),
+      status: "open",
+      decision: null,
+      delivery: null,
+      repairAttention: null,
+      deliveredAt: null,
+      childThreadId: null,
+      updatedAt: at,
+    }));
+    const learningIds = parsed.learnings.map((learning) => learning.learningId);
+    yield* mutate(
+      Effect.gen(function* () {
+        if (Option.isSome(existing))
+          yield* sql`UPDATE champions SET project_id = ${projectId} WHERE id = ${definition.id}`.pipe(
+            Effect.mapError(failure),
+          );
+        yield* write({
+          champion: {
+            ...config,
+            lifecycle,
+            ownerThreadId,
+            setupThreadId: null,
+            nextCheckAt: lifecycle === "active" ? yield* nextDue(config) : null,
+            lastCheckAt: null,
+            outstandingCheckId: null,
+            outstandingSetupId: null,
+            attention: withNotes([], FOLDER_PROBLEM, parsed.problems),
+            openFindingCount: 0,
+            updatedAt: at,
+            latestSamples,
+            folder: {
+              ...folderState(
+                folder.path,
+                definition.repository,
+                definition.runner.environmentId,
+                definition.runner.label,
+              ),
+              savedAt: null,
+            },
+          },
+          metrics,
+          findings,
+          folderFiles: blobs,
+        });
+        for (const metric of metrics) {
+          const json = yield* encodeMetric(metric).pipe(Effect.mapError(failure));
+          yield* sql`INSERT INTO champion_metric_definitions (champion_id, metric_id, version, created_at, document_json) VALUES (${definition.id}, ${metric.id}, ${metric.version}, ${metric.definedAt ?? at}, ${json}) ON CONFLICT DO NOTHING`.pipe(
+            Effect.mapError(failure),
+          );
+        }
+        if (samples.length > 0)
+          yield* saveCheck({
+            id: checkId,
+            championId: definition.id,
+            threadId: ownerThreadId,
+            messageId: MessageId.make(checkId),
+            commandId: CommandId.make(checkId),
+            kind: "check",
+            startedAt: at,
+            measureOnly: true,
+            metrics,
+            reported: true,
+            dispatched: true,
+            dispatchKind: "send",
+            samples,
+          });
+        if (Option.isSome(existing))
+          for (const learning of yield* currentLearnings(definition.id))
+            if (!learningIds.includes(learning.learningId))
+              yield* sql`DELETE FROM champion_learning_heads WHERE champion_id = ${definition.id} AND learning_id = ${learning.learningId}`.pipe(
+                Effect.mapError(failure),
+              );
+        yield* activity(
+          definition.id,
+          "configuration",
+          `Adopted from agent-config ${folder.path} at ${short}: ${metrics.length} metrics, ${parsed.learnings.length} learnings, ${findings.length} open findings carried over, ${samples.length} readings.`,
+        );
+      }),
+    );
+    const problems: string[] = [];
+    for (const learning of parsed.learnings)
+      yield* applyFolderLearning(
+        definition.id,
+        learning,
+        learning.reason,
+        learning.contribution,
+      ).pipe(
+        Effect.catch((error) =>
+          Effect.sync(() => problems.push(`learnings/${learning.learningId}: ${error.message}`)),
+        ),
+      );
+    if (problems.length > 0)
+      yield* noteFolderProblems(definition.id, [...parsed.problems, ...problems]);
+  });
+  const noteFolderProblems = Effect.fn("ChampionService.noteFolderProblems")(function* (
+    id: string,
+    notes: ReadonlyArray<string>,
+  ) {
+    yield* mutate(
+      Effect.gen(function* () {
+        const current = yield* read(id);
+        const attention = withNotes(current.champion.attention, FOLDER_PROBLEM, notes);
+        if (attention.join("\n") !== current.champion.attention.join("\n"))
+          yield* write({ ...current, champion: { ...current.champion, attention } });
+      }),
+    );
+  });
+  /** Applies what an agent changed in a folder this machine already runs from; the file wins. */
+  const applyFolderEdits = Effect.fn("ChampionService.applyFolderEdits")(function* (
+    folder: FolderOnMain,
+    parsed: ReturnType<typeof parseChampionFolder>,
+    blobs: Record<string, string>,
+    known: Record<string, string>,
+    base: string,
+  ) {
+    const definition = parsed.definition!;
+    const id = definition.id;
+    const short = base.slice(0, 8);
+    const reason = `Edited in agent-config at ${short}`;
+    const problems = [...parsed.problems];
+    const changed = (path: string) => blobs[path] !== known[path];
+    const doc = yield* read(id);
+    if (changed("champion.md") || doc.champion.folder?.path !== folder.path) {
+      const projectId =
+        definition.repository === doc.champion.folder?.repository
+          ? doc.champion.projectId
+          : yield* projectFor(definition.repository);
+      if (projectId === null || projectId !== doc.champion.projectId)
+        problems.push(
+          `its repository is now ${definition.repository}; a Champion keeps its project, so move it by giving it a new id.`,
+        );
+      yield* mutate(
+        Effect.gen(function* () {
+          const current = yield* read(id);
+          const lifecycle =
+            definition.lifecycle === "active" && current.metrics.length === 0
+              ? "paused"
+              : definition.lifecycle;
+          const config: ChampionConfig = {
+            id,
+            projectId: current.champion.projectId,
+            name: definition.name,
+            purpose: definition.purpose,
+            schedule: definition.schedule,
+            charter: definition.charter,
+            ...(definition.models === undefined ? {} : { models: definition.models }),
+            ...(definition.journeys === undefined ? {} : { journeys: definition.journeys }),
+            ...(definition.repairsVia === undefined ? {} : { repairsVia: definition.repairsVia }),
+            ...(definition.whenInTarget === undefined
+              ? {}
+              : { whenInTarget: definition.whenInTarget }),
+          };
+          const {
+            models: _models,
+            journeys: _journeys,
+            repairsVia: _repairsVia,
+            whenInTarget: _when,
+            ...kept
+          } = current.champion;
+          const scheduleMoved =
+            lifecycle === "active" &&
+            (current.champion.lifecycle !== "active" ||
+              !isSameSchedule(current.champion.schedule, definition.schedule));
+          yield* write({
+            ...current,
+            champion: {
+              ...kept,
+              ...config,
+              lifecycle,
+              nextCheckAt:
+                lifecycle !== "active"
+                  ? null
+                  : scheduleMoved
+                    ? yield* nextDue(config)
+                    : current.champion.nextCheckAt,
+              folder: {
+                ...folderState(
+                  folder.path,
+                  current.champion.folder?.repository ?? definition.repository,
+                  definition.runner.environmentId,
+                  definition.runner.label,
+                ),
+                savedAt: current.champion.folder?.savedAt ?? null,
+              },
+            },
+          });
+          yield* activity(
+            id,
+            "configuration",
+            `Configuration updated from agent-config ${folder.path} at ${short}.`,
+          );
+        }),
+      );
+    }
+    if (changed("metrics.json") && parsed.metrics !== null) {
+      const current = yield* read(id);
+      const inputs = parsed.metrics.map(metricInputOf);
+      const retires = current.metrics
+        .filter((metric) => !inputs.some((input) => input.id === metric.id))
+        .map((metric) => metric.id);
+      const differs =
+        retires.length > 0 ||
+        inputs.some((input) => {
+          const stored = current.metrics.find((metric) => metric.id === input.id);
+          return stored === undefined || !sameDefinition(stored, input);
+        });
+      if (differs)
+        yield* changeMetrics({
+          id,
+          metrics: inputs,
+          ...(retires.length > 0 ? { retires } : {}),
+          reason,
+        }).pipe(
+          Effect.catch((error) =>
+            Effect.sync(() => problems.push(`metrics.json not applied: ${error.message}`)),
+          ),
+        );
+    }
+    const contribution: ChampionLearningContributor = {
+      environmentId: null,
+      environmentLabel: null,
+      linkSessionId: null,
+      threadId: `agent-config@${short}`,
+      threadTitle: "File edit in agent-config",
+      role: null,
+    };
+    for (const learning of parsed.learnings)
+      yield* applyFolderLearning(id, learning, reason, contribution).pipe(
+        Effect.catch((error) =>
+          Effect.sync(() => problems.push(`learnings/${learning.learningId}: ${error.message}`)),
+        ),
+      );
+    const vanished = Object.keys(known)
+      .filter((path) => path.startsWith("learnings/") && path.endsWith(".md") && !(path in blobs))
+      .flatMap((path) => {
+        try {
+          return [decodeURIComponent(path.slice("learnings/".length, -".md".length))];
+        } catch {
+          return [];
+        }
+      });
+    if (vanished.length > 0)
+      yield* mutate(
+        Effect.gen(function* () {
+          for (const learning of yield* currentLearnings(id))
+            if (vanished.includes(learning.learningId)) {
+              yield* sql`DELETE FROM champion_learning_heads WHERE champion_id = ${id} AND learning_id = ${learning.learningId}`.pipe(
+                Effect.mapError(failure),
+              );
+              yield* activity(
+                id,
+                "configuration",
+                `Learning "${learning.topic}" was removed from agent-config at ${short}; its revisions are kept.`,
+              );
+            }
+        }),
+      );
+    yield* mutate(
+      Effect.gen(function* () {
+        const current = yield* read(id);
+        yield* write({
+          ...current,
+          folderFiles: blobs,
+          champion: {
+            ...current.champion,
+            attention: withNotes(current.champion.attention, FOLDER_PROBLEM, problems),
+          },
+        });
+      }),
+    );
+  });
+  /** Applies one folder on main; false when a file in it does not parse, so it is not saved over. */
+  const importFolder = Effect.fn("ChampionService.importFolder")(function* (
+    folder: FolderOnMain,
+    base: string,
+  ) {
+    const parsed = parseChampionFolder(
+      folder.files.map((file) => ({ path: file.path, content: file.content })),
+    );
+    const definition = parsed.definition;
+    if (definition === null || definition.id !== folder.id) {
+      const problems =
+        definition === null ? parsed.problems : ["champion.md's id differs from its folder name"];
+      yield* Effect.logWarning("champions.folder-unreadable", { path: folder.path, problems });
+      if (Option.isSome(yield* read(folder.id).pipe(Effect.option)))
+        yield* noteFolderProblems(folder.id, problems);
+      return false;
+    }
+    const existing = yield* read(definition.id).pipe(Effect.option);
+    if (definition.runner.environmentId !== here) {
+      if (Option.isNone(existing)) return true;
+      const state = folderState(
+        folder.path,
+        definition.repository,
+        definition.runner.environmentId,
+        definition.runner.label,
+      );
+      const stored = existing.value.champion.folder;
+      if (
+        stored?.path === state.path &&
+        stored.runner.environmentId === state.runner.environmentId &&
+        stored.runner.label === state.runner.label
+      )
+        return true;
+      yield* mutate(
+        Effect.gen(function* () {
+          const current = yield* read(definition.id);
+          yield* write({
+            ...current,
+            champion: {
+              ...current.champion,
+              folder: { ...state, savedAt: current.champion.folder?.savedAt ?? null },
+            },
+          });
+          yield* activity(
+            definition.id,
+            "configuration",
+            `agent-config ${folder.path} says ${definition.runner.label} runs this Champion, so this machine starts no more work for it.`,
+          );
+        }),
+      );
+      return true;
+    }
+    const blobs = Object.fromEntries(
+      folder.files.filter((file) => isManagedFile(file.path)).map((file) => [file.path, file.blob]),
+    );
+    const synced =
+      Option.isSome(existing) && existing.value.champion.folder?.runner.environmentId === here;
+    if (!synced) {
+      yield* adoptFolder(folder, parsed, blobs, base);
+      return parsed.problems.length === 0;
+    }
+    const known = existing.value.folderFiles ?? {};
+    const unchanged =
+      existing.value.champion.folder?.path === folder.path &&
+      Object.keys(blobs).length === Object.keys(known).length &&
+      Object.entries(blobs).every(([path, blob]) => known[path] === blob);
+    if (!unchanged) yield* applyFolderEdits(folder, parsed, blobs, known, base);
+    return parsed.problems.length === 0;
+  });
+  const saveFolder = Effect.fn("ChampionService.saveFolder")(
+    function* (
+      root: string,
+      base: { commit: string },
+      onMain: ReadonlyMap<string, FolderOnMain>,
+      doc: Document,
+    ) {
+      const repository = yield* repositoryOf(doc);
+      if (repository === null || here === null) return;
+      const path =
+        doc.champion.folder?.path ?? championFolderPath(folderGroup(repository), doc.champion.id);
+      const rendered = renderChampionFolder(yield* folderOf(doc, repository));
+      const message = `champions: save ${doc.champion.name}`;
+      const changesOn = (files: ReadonlyArray<AgentConfigGit.FolderFile>) =>
+        folderChanges(path, files, rendered);
+      let pushed = false;
+      let refused: string | null = null;
+      const changes = changesOn(onMain.get(path)?.files ?? []);
+      if (changes.length > 0) {
+        const commit = yield* AgentConfigGit.commitChanges(root, {
+          base: base.commit,
+          changes,
+          message,
+        });
+        if (commit !== null && (yield* AgentConfigGit.pushToMain(root, commit)) === "pushed") {
+          base.commit = commit;
+          pushed = true;
+        } else if (commit !== null) {
+          const result = yield* AgentConfigGit.publish(root, {
+            prefix: `${path}/`,
+            message,
+            changes: (files) =>
+              Effect.succeed(
+                changesOn(
+                  files.map((file) => ({ ...file, path: file.path.slice(path.length + 1) })),
+                ),
+              ),
+          });
+          if (result.outcome === "rejected")
+            refused = "main kept moving while saving; it will try again.";
+          else {
+            pushed = result.outcome === "pushed";
+            base.commit = result.outcome === "pushed" ? result.commit : result.base;
+          }
+        }
+      }
+      const files = Object.fromEntries(
+        rendered.map((file) => [file.path, AgentConfigGit.blobId(file.content)]),
+      );
+      yield* mutate(
+        Effect.gen(function* () {
+          const current = yield* read(doc.champion.id);
+          const folder = {
+            ...folderState(path, repository, here, hereLabel),
+            savedAt:
+              pushed || current.champion.folder?.savedAt == null
+                ? refused === null
+                  ? yield* now
+                  : (current.champion.folder?.savedAt ?? null)
+                : current.champion.folder.savedAt,
+          };
+          const attention = withNotes(
+            current.champion.attention,
+            NOT_SAVED,
+            refused === null ? [] : [refused],
+          );
+          if (
+            refused === null &&
+            !pushed &&
+            json(current.champion.folder ?? null) ===
+              json({ ...folder, savedAt: current.champion.folder?.savedAt ?? null }) &&
+            json(current.folderFiles ?? {}) === json(files) &&
+            attention.join("\n") === current.champion.attention.join("\n")
+          )
+            return;
+          yield* write({
+            ...current,
+            folderFiles: refused === null ? files : (current.folderFiles ?? {}),
+            champion: { ...current.champion, folder, attention },
+          });
+        }),
+      );
+    },
+    (effect, _root, _base, _onMain, doc) =>
+      effect.pipe(
+        Effect.catchTags({
+          AgentConfigGitError: (error) =>
+            mutate(
+              Effect.gen(function* () {
+                const current = yield* read(doc.champion.id);
+                const attention = withNotes(current.champion.attention, NOT_SAVED, [
+                  `${error.operation} failed: ${error.detail}`,
+                ]);
+                if (attention.join("\n") !== current.champion.attention.join("\n"))
+                  yield* write({ ...current, champion: { ...current.champion, attention } });
+              }),
+            ),
+        }),
+      ),
+  );
+  const syncFolders: ChampionService["Service"]["syncFolders"] = Effect.gen(function* () {
+    const root = yield* agentPolicyRoot;
+    if (Option.isNone(root) || here === null) return;
+    yield* folderLock.withPermits(1)(
+      Effect.gen(function* () {
+        const commit = yield* AgentConfigGit.fetchMain(root.value).pipe(Effect.mapError(failure));
+        const files = yield* AgentConfigGit.readFiles(root.value, commit, CHAMPIONS_PREFIX).pipe(
+          Effect.mapError(failure),
+        );
+        const folders = foldersOnMain(files);
+        const seen = new Set<string>();
+        // A folder with a file that does not parse is left as the agent wrote it until they fix it.
+        const unsettled = new Set<string>();
+        for (const folder of folders) {
+          if (seen.has(folder.id)) {
+            yield* Effect.logWarning("champions.folder-duplicate-id", { path: folder.path });
+            continue;
+          }
+          seen.add(folder.id);
+          const settled = yield* importFolder(folder, commit).pipe(
+            Effect.catch((error) =>
+              Effect.logWarning("champions.folder-import-failed", {
+                path: folder.path,
+                error,
+              }).pipe(Effect.as(false)),
+            ),
+          );
+          if (!settled) unsettled.add(folder.id);
+        }
+        const onMain = new Map(folders.map((folder) => [folder.path, folder]));
+        const base = { commit };
+        const rows = yield* sql<{
+          document_json: string;
+        }>`SELECT document_json FROM champions ORDER BY id`.pipe(Effect.mapError(failure));
+        for (const row of rows) {
+          const doc = yield* decodeDocument(row.document_json).pipe(Effect.mapError(failure));
+          if (!runsHere(doc.champion)) continue;
+          if (unsettled.has(doc.champion.id)) {
+            yield* mutate(
+              Effect.gen(function* () {
+                const current = yield* read(doc.champion.id);
+                const attention = withNotes(current.champion.attention, NOT_SAVED, [
+                  "a file in its folder does not parse; saving resumes once it is fixed.",
+                ]);
+                if (attention.join("\n") !== current.champion.attention.join("\n"))
+                  yield* write({ ...current, champion: { ...current.champion, attention } });
+              }),
+            );
+            continue;
+          }
+          if (
+            doc.champion.folder === undefined &&
+            (doc.champion.lifecycle === "retired" || seen.has(doc.champion.id))
+          )
+            continue;
+          yield* saveFolder(root.value, base, onMain, doc).pipe(
+            Effect.catch((error) =>
+              Effect.logWarning("champions.folder-save-failed", { id: doc.champion.id, error }),
+            ),
+          );
+        }
+      }),
+    );
+  }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processes));
+  yield* scheduler.register(
+    "champion-folders",
+    Effect.gen(function* () {
+      const at = yield* Clock.currentTimeMillis;
+      if (at - folderSyncedAt < (folderDirty ? FOLDER_SOON_MS : FOLDER_EVERY_MS)) return;
+      folderSyncedAt = at;
+      folderDirty = false;
+      yield* syncFolders.pipe(
+        Effect.catchCause((cause) => Effect.logWarning("champions.folder-sync-failed", { cause })),
+      );
+    }),
+  );
+
   return ChampionService.of({
     verifyApproval,
     setModels,
@@ -4749,6 +5598,7 @@ const make = Effect.gen(function* () {
     delegationOutcome,
     history,
     runDue,
+    syncFolders,
     subscribe: (input) =>
       Stream.unwrap(
         Effect.gen(function* () {
