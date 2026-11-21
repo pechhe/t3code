@@ -3996,6 +3996,10 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
             'bash -l "$f" install',
           );
           expect(installs.find((line) => line.includes(" peach-box "))).not.toContain("projects");
+          // The archive is copied on the VPS to the mirror, never piped through this machine.
+          const copy = (await calls(f, "ssh")).find((line) => line.includes("fork-pending"));
+          expect(copy).toMatch(/^ssh .* vps /);
+          expect(copy).toContain("ssh $o peach-box");
         });
       },
       TIMEOUT,
