@@ -52,7 +52,7 @@ describe("client settings hydration", () => {
     );
     const patch = prepareModelPreferencesPatch(DEFAULT_SERVER_SETTINGS, {
       setModelFavorites: [{ provider, model: "new", favorite: true }],
-      setModelsHidden: [{ provider, model: "new", hidden: true }],
+      setModelsHidden: [{ provider, model: "other", hidden: true }],
     });
     expect(getClientSettings()).toBe(DEFAULT_CLIENT_SETTINGS);
     finishRead({
@@ -64,7 +64,7 @@ describe("client settings hydration", () => {
     const edited = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, await patch);
     expect(edited.favorites).toEqual([...savedSettings.favorites, { provider, model: "new" }]);
     expect(edited.providerModelPreferences?.[provider]).toEqual({
-      hiddenModels: ["saved-hidden", "new"],
+      hiddenModels: ["saved-hidden", "other"],
       modelOrder: ["saved-order"],
     });
   });
