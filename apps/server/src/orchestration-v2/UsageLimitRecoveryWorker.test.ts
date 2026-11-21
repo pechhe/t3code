@@ -70,6 +70,72 @@ it.effect("idle sweeps skip SQL until the next wake time or a relevant event", (
   }),
 );
 
+it.effect("a limit-resume command rejected before is not dispatched again every sweep", () =>
+  Effect.gen(function* () {
+    const startMs = Date.parse("2026-07-01T09:00:00.000Z");
+    yield* TestClock.setTime(startMs);
+    const dispatched = yield* Queue.unbounded<string>();
+    const failedAt = DateTime.makeUnsafe(startMs - 2 * 60 * 60 * 1000);
+    const candidate: ProjectionStore.ProjectionLimitRecoveryCandidate = {
+      id: ThreadId.make("thread:limited"),
+      status: "failed",
+      lastErrorClass: "usage_limit",
+      usageLimitResetAt: DateTime.formatIso(DateTime.makeUnsafe(startMs - 60 * 60 * 1000 + 1)),
+      latestRunId: RunId.make("run:limited"),
+      latestRunCompletedAt: DateTime.makeUnsafe(startMs - 2 * 60 * 60 * 1000 - 1),
+      updatedAt: failedAt,
+      archivedAt: null,
+      settledOverride: null,
+      pendingRuntimeRequest: null,
+      limitRecovery: {
+        runId: RunId.make("run:limited"),
+        resetAt: DateTime.formatIso(DateTime.makeUnsafe(startMs - 60 * 60 * 1000 + 1)),
+        autoResume: true,
+        snooze: false,
+      },
+      snoozedUntil: null,
+    };
+    const layer = UsageLimitRecoveryWorker.layer.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          Scheduler.layer,
+          Layer.mock(ProjectionStore.ProjectionStoreV2)({
+            getLimitRecoveryCandidates: () => Effect.succeed([candidate]),
+            getLimitRecoveryWakeAt: () => Effect.succeed(null),
+          }),
+          Layer.mock(ThreadManagement.ThreadManagementService)({
+            dispatch: (command) =>
+              Queue.offer(dispatched, command.commandId).pipe(
+                Effect.andThen(
+                  Effect.fail(
+                    new Orchestrator.OrchestratorCommandPreviouslyRejectedError({
+                      commandId: command.commandId,
+                      commandType: command.type,
+                      detail: "rejected",
+                    }),
+                  ),
+                ),
+              ) as never,
+          }),
+          Layer.mock(Orchestrator.OrchestratorV2)({ streamDomainEvents: Stream.never }),
+          Layer.mock(ServerSettings.ServerSettingsService)({
+            getSettings: Effect.succeed({
+              autoResumeLimitedThreads: true,
+              snoozeLimitedThreads: false,
+            } as never),
+            streamChanges: Stream.never,
+          }),
+        ),
+      ),
+    );
+    yield* Effect.gen(function* () {
+      yield* Queue.take(dispatched);
+      yield* TestClock.adjust("5 minutes");
+      assert.equal(yield* Queue.size(dispatched), 0);
+    }).pipe(Effect.provide(layer));
+  }),
+);
+
 const HOUR_MS = 60 * 60 * 1000;
 const nowMs = Date.parse("2026-10-19T12:00:00.000Z");
 

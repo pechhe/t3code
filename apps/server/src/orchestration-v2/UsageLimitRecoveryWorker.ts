@@ -119,7 +119,7 @@ const makeSweep = Effect.gen(function* () {
         preferences.snoozeLimitedThreads,
       );
       if (command === null) continue;
-      acted = true;
+      let rejectedBefore = false;
       yield* Effect.gen(function* () {
         if (command.type === "thread.metadata.update" && command.limitRecovery != null) {
           yield* orchestrator.autoArmLimitRecovery({
@@ -131,6 +131,14 @@ const makeSweep = Effect.gen(function* () {
           yield* threads.dispatch(command);
         }
       }).pipe(
+        // The same command id is rebuilt every sweep, so a rejected receipt is final: retrying
+        // only repeats the rejection. A new run or request id yields a fresh command.
+        Effect.catchTags({
+          OrchestratorCommandPreviouslyRejectedError: () =>
+            Effect.sync(() => {
+              rejectedBefore = true;
+            }),
+        }),
         Effect.catchCause((cause) =>
           Effect.logWarning("orchestration-v2.limit-recovery.dispatch-failed", {
             threadId: thread.id,
@@ -138,6 +146,7 @@ const makeSweep = Effect.gen(function* () {
           }),
         ),
       );
+      if (!rejectedBefore) acted = true;
     }
     // A sweep that acted, or failed to, re-checks on the next tick.
     if (acted) return;
