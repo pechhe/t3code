@@ -93,6 +93,9 @@ const makeSweep = Effect.gen(function* () {
   const orchestrator = yield* Orchestrator.OrchestratorV2;
   const settings = yield* ServerSettings.ServerSettingsService;
   const due = DueHint.make();
+  // A command id is rebuilt from the same thread state every sweep, so a rejected receipt is
+  // final until that state changes and yields a new id; thread events alone must not retry it.
+  const rejected = new Set<string>();
   yield* forkParked(
     Stream.runForEach(orchestrator.streamDomainEvents, (event) =>
       affectsLimitRecovery(event) ? due.invalidate : Effect.void,
@@ -118,8 +121,8 @@ const makeSweep = Effect.gen(function* () {
         nowMs,
         preferences.snoozeLimitedThreads,
       );
-      if (command === null) continue;
-      let rejectedBefore = false;
+      if (command === null || rejected.has(command.commandId)) continue;
+      acted = true;
       yield* Effect.gen(function* () {
         if (command.type === "thread.metadata.update" && command.limitRecovery != null) {
           yield* orchestrator.autoArmLimitRecovery({
@@ -131,12 +134,10 @@ const makeSweep = Effect.gen(function* () {
           yield* threads.dispatch(command);
         }
       }).pipe(
-        // The same command id is rebuilt every sweep, so a rejected receipt is final: retrying
-        // only repeats the rejection. A new run or request id yields a fresh command.
         Effect.catchTags({
           OrchestratorCommandPreviouslyRejectedError: () =>
             Effect.sync(() => {
-              rejectedBefore = true;
+              rejected.add(command.commandId);
             }),
         }),
         Effect.catchCause((cause) =>
@@ -146,7 +147,6 @@ const makeSweep = Effect.gen(function* () {
           }),
         ),
       );
-      if (!rejectedBefore) acted = true;
     }
     // A sweep that acted, or failed to, re-checks on the next tick.
     if (acted) return;
