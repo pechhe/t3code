@@ -5306,7 +5306,7 @@ const make = Effect.gen(function* () {
       }),
     );
   });
-  /** Applies one folder on main; false when a file in it does not parse, so it is not saved over. */
+  /** Applies one folder on main; false while a file in it could not be applied, so it is not saved over. */
   const importFolder = Effect.fn("ChampionService.importFolder")(function* (
     folder: FolderOnMain,
     base: string,
@@ -5363,17 +5363,20 @@ const make = Effect.gen(function* () {
     );
     const synced =
       Option.isSome(existing) && existing.value.champion.folder?.runner.environmentId === here;
-    if (!synced) {
-      yield* adoptFolder(folder, parsed, blobs, base);
-      return parsed.problems.length === 0;
+    if (!synced) yield* adoptFolder(folder, parsed, blobs, base);
+    else {
+      const known = existing.value.folderFiles ?? {};
+      const unchanged =
+        existing.value.champion.folder?.path === folder.path &&
+        Object.keys(blobs).length === Object.keys(known).length &&
+        Object.entries(blobs).every(([path, blob]) => known[path] === blob);
+      if (!unchanged) yield* applyFolderEdits(folder, parsed, blobs, known, base);
     }
-    const known = existing.value.folderFiles ?? {};
-    const unchanged =
-      existing.value.champion.folder?.path === folder.path &&
-      Object.keys(blobs).length === Object.keys(known).length &&
-      Object.entries(blobs).every(([path, blob]) => known[path] === blob);
-    if (!unchanged) yield* applyFolderEdits(folder, parsed, blobs, known, base);
-    return parsed.problems.length === 0;
+    const after = yield* read(definition.id).pipe(Effect.option);
+    return (
+      Option.isSome(after) &&
+      !after.value.champion.attention.some((line) => line.startsWith(FOLDER_PROBLEM))
+    );
   });
   const saveFolder = Effect.fn("ChampionService.saveFolder")(
     function* (
@@ -5517,7 +5520,7 @@ const make = Effect.gen(function* () {
               Effect.gen(function* () {
                 const current = yield* read(doc.champion.id);
                 const attention = withNotes(current.champion.attention, NOT_SAVED, [
-                  "a file in its folder does not parse; saving resumes once it is fixed.",
+                  "a file in its folder could not be applied; saving resumes once it is fixed.",
                 ]);
                 if (attention.join("\n") !== current.champion.attention.join("\n"))
                   yield* write({ ...current, champion: { ...current.champion, attention } });

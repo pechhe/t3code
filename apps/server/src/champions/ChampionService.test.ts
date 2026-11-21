@@ -7589,6 +7589,8 @@ describe("Champion folders in agent-config", () => {
           assert.isTrue(
             after.champion.attention.some((line) => line.includes("metrics.json not applied")),
           );
+          yield* service.syncFolders;
+          assert.include(world.onMain(`${FOLDER}/metrics.json`), "process.exit(4)");
         }),
       ),
   );
@@ -7620,7 +7622,9 @@ describe("Champion folders in agent-config", () => {
           );
           assert.isTrue(
             (yield* service.get({ id: config.id })).champion.attention.some((line) =>
-              line.startsWith("Not saved to agent-config: a file in its folder does not parse"),
+              line.startsWith(
+                "Not saved to agent-config: a file in its folder could not be applied",
+              ),
             ),
           );
           world.push({ [firstPath]: files[firstPath]!, [secondPath]: null });
