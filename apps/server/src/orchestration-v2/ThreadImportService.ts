@@ -30,6 +30,11 @@ import * as ThreadManagement from "./ThreadManagementService.ts";
 
 const IMPORT_EVENT_PREFIX = "thread-import:v1";
 
+/** An import whose project here is already resolved, `scratch` included. */
+export type ThreadImportInput = Omit<OrchestratorMcpThreadImportInput, "projectId" | "scratch"> & {
+  readonly projectId: ProjectId;
+};
+
 /** The imported thread's events could not be written. */
 export class ThreadImportWriteError extends Schema.TaggedError<ThreadImportWriteError>()(
   "ThreadImportWriteError",
@@ -91,7 +96,7 @@ export class ThreadImportService extends Context.Service<
   ThreadImportService,
   {
     readonly importThread: <E = never>(
-      input: OrchestratorMcpThreadImportInput & {
+      input: ThreadImportInput & {
         readonly runtimeMode: RuntimeMode;
         readonly interactionMode: ProviderInteractionMode;
         readonly linkOrigin: OrchestrationV2LinkOrigin | undefined;
@@ -130,9 +135,14 @@ const make = Effect.gen(function* () {
 
   const historyEvents = (
     threadId: ThreadId,
-    messages: OrchestratorMcpThreadImportInput["messages"],
+    messages: ReadonlyArray<
+      OrchestratorMcpThreadImportInput["messages"][number] & { readonly byAgent?: boolean }
+    >,
+    /** How many messages the history already holds. */
+    offset = 0,
   ): ReadonlyArray<OrchestrationV2DomainEvent> =>
-    messages.flatMap((message, index) => {
+    messages.flatMap((message, position) => {
+      const index = offset + position;
       const suffix = String(index).padStart(6, "0");
       const messageId = MessageId.make(`${threadId}:${suffix}`);
       const turnItemId = TurnItemId.make(`${IMPORT_EVENT_PREFIX}:turn-item:${threadId}:${suffix}`);
@@ -161,7 +171,7 @@ const make = Effect.gen(function* () {
           threadId,
           occurredAt: at,
           payload: {
-            createdBy: message.role === "user" ? "user" : "agent",
+            createdBy: message.role === "user" && message.byAgent !== true ? "user" : "agent",
             creationSource: "server",
             id: messageId,
             threadId,
@@ -184,7 +194,7 @@ const make = Effect.gen(function* () {
             message.role === "user"
               ? {
                   ...common,
-                  createdBy: "user",
+                  createdBy: message.byAgent === true ? "agent" : "user",
                   creationSource: "server",
                   type: "user_message",
                   messageId,
@@ -286,14 +296,39 @@ const make = Effect.gen(function* () {
       }),
     );
     const skipped = yield* keepWaits(threadId, input);
+    // A wait this environment could not recreate is the agent's to set up again, so it is told.
+    const told = (text: string) =>
+      skipped.length === 0
+        ? text
+        : `${text}\n\nThese waits could not move with the thread and need setting up again: ${skipped.join("; ")}.`;
+    // The notice closes the history once the waits are known; it starts no run. A resend after a
+    // lost answer writes it if the first attempt did not get that far.
+    const noticeId = MessageId.make(
+      `${threadId}:${String(input.messages.length).padStart(6, "0")}`,
+    );
+    const noticeMissing =
+      input.notice !== undefined &&
+      !(yield* threads.getThreadRecords(threadId, ["messages"]).pipe(
+        Effect.map((records) => records.messages.some((message) => message.id === noticeId)),
+        Effect.mapError((cause) => new ThreadImportWriteError({ threadId, cause })),
+      ));
+    if (noticeMissing && input.notice !== undefined) {
+      const at = DateTime.formatIso(yield* DateTime.now);
+      yield* sink
+        .write({
+          events: historyEvents(
+            threadId,
+            [{ role: "user", text: told(input.notice), createdAt: at, byAgent: true }],
+            input.messages.length,
+          ),
+        })
+        .pipe(Effect.mapError((cause) => new ThreadImportWriteError({ threadId, cause })));
+    }
     const runId = yield* startContinuation(threadId, {
       ...input,
-      // A wait this environment could not recreate is the agent's to set up again, so it is told.
-      ...(input.continuationPrompt === undefined || skipped.length === 0
+      ...(input.continuationPrompt === undefined
         ? {}
-        : {
-            continuationPrompt: `${input.continuationPrompt}\n\nThese waits could not move with the thread and need setting up again: ${skipped.join("; ")}.`,
-          }),
+        : { continuationPrompt: told(input.continuationPrompt) }),
     });
     return { threadId, projectId: input.projectId, created, runId };
   });
@@ -305,7 +340,7 @@ const make = Effect.gen(function* () {
    */
   const keepWaits = Effect.fn("ThreadImportService.keepWaits")(function* (
     threadId: ThreadId,
-    input: OrchestratorMcpThreadImportInput,
+    input: ThreadImportInput,
   ) {
     const skipped: Array<string> = [];
     const dispatch = (commandId: string, name: string, command: ThreadWaitCommand) =>
@@ -381,7 +416,7 @@ const make = Effect.gen(function* () {
   /** Sends the continuation prompt once; a retry replays the same command. */
   const startContinuation = (
     threadId: ThreadId,
-    input: OrchestratorMcpThreadImportInput,
+    input: ThreadImportInput,
   ): Effect.Effect<RunId | null, ThreadImportContinuationError> =>
     input.continuationPrompt === undefined
       ? Effect.succeed(null)

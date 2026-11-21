@@ -228,7 +228,11 @@ const unusedServices = (
     Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
     Layer.mock(SecretRequests.SecretRequests)({}),
     Layer.mock(ThreadLaunch.ThreadLaunchService)({}),
-    Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/p" }),
+    // The box's No project is its one project here.
+    Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+      namedProjectsRoot: "/p",
+      ensureScratchProject: Effect.succeed({ projectId: ProjectId.make("project:box") }),
+    }),
     Layer.mock(SourceControlRepositoryService.SourceControlRepositoryService)({}),
     Layer.mock(RemoteDelegation.RemoteDelegation)({}),
     Layer.mock(PeerForwarding.PeerForwarding)({}),
@@ -316,6 +320,8 @@ const makeLaptop = (
   interceptCalls?: (
     call: PeerMcpClient.PeerMcpClient["Service"]["call"],
   ) => PeerMcpClient.PeerMcpClient["Service"]["call"],
+  /** The laptop's project is its No project. */
+  options: { readonly scratch?: boolean } = {},
 ) =>
   Effect.gen(function* () {
     const linking = yield* layerLinkingEnvironment(laptop).pipe(Layer.build);
@@ -346,6 +352,12 @@ const makeLaptop = (
       Layer.provide(Layer.succeed(ThreadHandoff.UnansweredMoveRecheck, Duration.zero)),
       Layer.provide(Layer.succeed(RemoteDelegation.FollowRetrySchedule, Schedule.forever)),
       Layer.provide(HandoffGit.layer),
+      Layer.provide(
+        Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+          namedProjectsRoot: "/p",
+          isScratchProject: () => Effect.succeed(options.scratch === true),
+        }),
+      ),
       Layer.provide(
         layerProjects(projectAt("project:laptop", laptopRepo)).pipe(
           Layer.provideMerge(RepositoryIdentityResolver.layer),
@@ -477,16 +489,37 @@ it.live("a thread moves to the box with its conversation and its git work", () =
       expect(moved.state).toBe("departed");
       if (moved.state !== "departed") return;
 
-      // On the box: the thread, its history, its first run with that context.
-      const there = yield* idle(b.orchestrator, moved.threadId);
+      // On the box: the thread and its history, ending in the note of where it came from. A move
+      // the user asked for starts no turn there.
+      const there = yield* b.orchestrator.getThreadProjection(moved.threadId);
       expect(there.thread.historyOrigin).toBe("v1_import");
       expect(there.messages.some((message) => message.text.includes("LAPTOP_QUESTION"))).toBe(true);
-      const [firstTurn] = yield* Ref.get(boxTurns);
-      expect(firstTurn?.text).toContain("LAPTOP_QUESTION");
-      expect(firstTurn?.text).toContain(
+      expect(there.runs).toEqual([]);
+      expect(yield* Ref.get(boxTurns)).toEqual([]);
+      expect(there.messages.at(-1)).toMatchObject({ role: "user", createdBy: "agent" });
+      expect(there.messages.at(-1)?.text).toContain(
         `moved here from Laptop (environment ${laptop.environmentId}, thread ${threadId})`,
       );
-      expect(firstTurn?.text).toContain("Continue where it left off.");
+      // Its next turn gets that history, the note included.
+      yield* b.orchestrator.dispatch({
+        type: "message.dispatch",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make("command:send:on-box"),
+        threadId: moved.threadId,
+        messageId: MessageId.make("message:on-box"),
+        text: "Carry on.",
+        attachments: [],
+        dispatchMode: { type: "start_immediately" },
+      });
+      yield* awaitOrchestratorState(
+        b.orchestrator,
+        b.orchestrator.getThreadProjection(moved.threadId),
+        (projection) => projection.runs.some((run) => run.status === "completed"),
+      );
+      const [firstTurn] = yield* Ref.get(boxTurns);
+      expect(firstTurn?.text).toContain("LAPTOP_QUESTION");
+      expect(firstTurn?.text).toContain("moved here from Laptop");
       // ...in a new worktree on the branch, with the commit and the edits.
       const worktree = there.thread.worktreePath!;
       expect(there.thread.branch).toBe("fix/login");
@@ -498,9 +531,10 @@ it.live("a thread moves to the box with its conversation and its git work", () =
         "# findings\n",
       );
 
-      // On the laptop: read-only, pointing at the box.
+      // On the laptop: archived and read-only, pointing at the box.
       const here = yield* a.orchestrator.getThreadProjection(threadId);
       expect(here.thread.handoff).toMatchObject({ state: "departed", threadId: moved.threadId });
+      expect(here.thread.archivedAt).not.toBeNull();
       const refused = yield* a.orchestrator
         .dispatch({
           type: "message.dispatch",
@@ -515,6 +549,35 @@ it.live("a thread moves to the box with its conversation and its git work", () =
         })
         .pipe(Effect.flip);
       expect(refused.message).toBe("This thread moved to Box. Continue it there.");
+    }),
+  ).pipe(Effect.provide(layerTestHost)),
+);
+
+it.live("a No project thread moves into the No project there, with its conversation only", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const { root, laptopRepo, boxRepo } = yield* makeRepos;
+      const turns = yield* Ref.make<ReadonlyArray<CapturedTurn>>([]);
+      const b = yield* serveBox(boxRepo, path.join(root, "box-state"), turns);
+      const a = yield* makeLaptop(laptopRepo, turns, undefined, undefined, { scratch: true });
+      yield* linkTo(a.links, b, "full-access");
+      yield* seedThread(a, laptopRepo);
+      // Scratch space other threads share: it stays here.
+      yield* fileSystem.writeFileString(path.join(laptopRepo, "scratch.md"), "# notes\n");
+
+      expect(yield* a.handoff.options(threadId)).toEqual([
+        { environmentId: box.environmentId, label: "Box", projectId: null, reason: null },
+      ]);
+      const moved = yield* a.handoff.start({ threadId, environmentId: box.environmentId });
+      if (moved.state !== "departed") return yield* Effect.die(`not departed: ${moved.state}`);
+      const there = yield* b.orchestrator.getThreadProjection(moved.threadId);
+      // The box's No project (its ensureScratchProject answers project:box here).
+      expect(there.thread.projectId).toBe("project:box");
+      expect(there.thread.worktreePath).toBeNull();
+      expect(there.messages.some((message) => message.text.includes("LAPTOP_QUESTION"))).toBe(true);
+      expect(yield* fileSystem.exists(path.join(boxRepo, "scratch.md"))).toBe(false);
     }),
   ).pipe(Effect.provide(layerTestHost)),
 );
@@ -550,8 +613,10 @@ it.live("a second thread on a branch that already moved gets a worktree of its o
       expect([first.state, second.state]).toEqual(["departed", "departed"]);
       if (first.state !== "departed" || second.state !== "departed") return;
 
-      const firstThere = (yield* idle(b.orchestrator, first.threadId)).thread.worktreePath!;
-      const secondThere = (yield* idle(b.orchestrator, second.threadId)).thread.worktreePath!;
+      const firstThere = (yield* b.orchestrator.getThreadProjection(first.threadId)).thread
+        .worktreePath!;
+      const secondThere = (yield* b.orchestrator.getThreadProjection(second.threadId)).thread
+        .worktreePath!;
       expect(secondThere).not.toBe(firstThere);
       expect((yield* git(secondThere, ["log", "-1", "--format=%s"])).trim()).toBe("unpushed fix");
     }),
@@ -679,7 +744,7 @@ it.live("a move carries the thread's waits, and ends them on the copy left behin
       if (moved.state !== "departed") return;
 
       // There: the same waits, the thread here now a thread in another environment.
-      const there = yield* idle(b.orchestrator, moved.threadId);
+      const there = yield* b.orchestrator.getThreadProjection(moved.threadId);
       expect(there.thread.parkedWaits?.map((wait) => wait.target)).toEqual([
         { kind: "thread", threadId: watched, environmentId: laptop.environmentId },
         { kind: "time", at: "2099-01-01T00:00:00.000Z" },
@@ -688,10 +753,10 @@ it.live("a move carries the thread's waits, and ends them on the copy left behin
       expect(
         there.thread.pullRequests?.map((link) => [link.number, link.watch !== undefined]),
       ).toEqual([[12, true]]);
-      const [firstTurn] = yield* Ref.get(boxTurns);
-      expect(firstTurn?.text).toContain("Its waits moved with it");
-      expect(firstTurn?.text).toContain("waiting on Deploy the fix");
-      expect(firstTurn?.text).toContain("watching pull request #12");
+      const notice = there.messages.at(-1)?.text;
+      expect(notice).toContain("Its waits moved with it");
+      expect(notice).toContain("waiting on Deploy the fix");
+      expect(notice).toContain("watching pull request #12");
 
       // Here: nothing left to wake the read-only copy.
       const here = yield* a.orchestrator.getThreadProjection(threadId);
@@ -758,7 +823,7 @@ it.live("a Build item wait moves with the thread and one the box cannot read end
       const moved = yield* a.handoff.start({ threadId, environmentId: box.environmentId });
       expect(moved.state).toBe("departed");
       if (moved.state !== "departed") return;
-      const there = yield* idle(b.orchestrator, moved.threadId);
+      const there = yield* b.orchestrator.getThreadProjection(moved.threadId);
       expect(there.thread.parkedWaits?.map((watch) => watch.target)).toEqual([
         { kind: "build_item", number: 7, until: "closed" },
       ]);
@@ -869,9 +934,8 @@ it.live("a wait the box could not recreate is named in the thread's first messag
       const moved = yield* a.handoff.start({ threadId, environmentId: box.environmentId });
       expect(moved.state).toBe("departed");
       if (moved.state !== "departed") return;
-      yield* idle(b.orchestrator, moved.threadId);
-      const [firstTurn] = yield* Ref.get(boxTurns);
-      expect(firstTurn?.text).toContain(
+      const there = yield* b.orchestrator.getThreadProjection(moved.threadId);
+      expect(there.messages.at(-1)?.text).toContain(
         "could not move with the thread and need setting up again: waiting on Fix the login on the box",
       );
     }),
@@ -1329,8 +1393,9 @@ it.live("a running thread moves once the user stops its turn to move it", () =>
       expect(projection.runs.map((run) => run.status)).toEqual(["interrupted"]);
       const moved = projection.thread.handoff;
       if (moved?.state !== "departed") return yield* Effect.die("not departed");
-      yield* idle(b.orchestrator, moved.threadId);
-      expect((yield* Ref.get(turns)).at(-1)?.text).toContain("Continue where it left off.");
+      // Only the stopped turn ran: the move itself starts none there.
+      expect((yield* b.orchestrator.getThreadProjection(moved.threadId)).runs).toEqual([]);
+      expect(yield* Ref.get(turns)).toHaveLength(1);
     }),
   ).pipe(Effect.provide(layerTestHost)),
 );

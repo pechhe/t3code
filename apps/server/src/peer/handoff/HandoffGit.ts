@@ -220,6 +220,8 @@ const make = Effect.gen(function* () {
     options: { readonly env?: NodeJS.ProcessEnv; readonly allowNonZeroExit?: boolean } = {},
   ) => run("git", cwd, args, options);
 
+  const jj = (cwd: string, args: ReadonlyArray<string>) => run("jj", cwd, args);
+
   const out = (cwd: string, args: ReadonlyArray<string>) =>
     git(cwd, args).pipe(Effect.map((result) => result.stdout.trim()));
 
@@ -240,11 +242,11 @@ const make = Effect.gen(function* () {
       })
       .pipe(Effect.ignore);
 
-  const pack: HandoffGit["Service"]["pack"] = Effect.fn("HandoffGit.pack")(function* (input) {
-    if (
-      yield* fileSystem.exists(path.join(input.cwd, ".jj")).pipe(Effect.orElseSucceed(() => false))
-    )
-      yield* refreshJj(input.cwd);
+  /** The work in a git checkout: HEAD, and the working tree as a commit on it. */
+  const gitWork = Effect.fn("HandoffGit.gitWork")(function* (input: {
+    readonly cwd: string;
+    readonly handoffId: string;
+  }) {
     if (!(yield* ok(input.cwd, ["rev-parse", "--verify", "HEAD"]))) {
       return yield* new HandoffNotARepositoryError({ cwd: input.cwd });
     }
@@ -275,12 +277,47 @@ const make = Effect.gen(function* () {
         ),
       ),
     );
+    return { tip, branch, snapshot, gitDir };
+  });
+
+  /**
+   * The work in a jj workspace, as jj records it: `@` on its parent, in jj's git store. A
+   * workspace that is not also a git worktree has no git checkout to read at all.
+   */
+  const jjWork = Effect.fn("HandoffGit.jjWork")(function* (cwd: string) {
+    const commit = (revision: string) =>
+      jj(cwd, ["log", "--no-graph", "-r", revision, "-T", 'commit_id ++ "\\n"']).pipe(
+        Effect.map((result) => result.stdout.trim().split("\n")[0] ?? ""),
+      );
+    // Read first: running jj records the working copy as `@`.
+    const snapshot = yield* commit("@");
+    const tip = yield* commit("@-");
+    if (/^0+$/.test(tip)) return yield* new HandoffNotARepositoryError({ cwd });
+    const gitDir = (yield* jj(cwd, ["git", "root"])).stdout.trim();
+    return { tip, branch: null, snapshot, gitDir };
+  });
+
+  const pack: HandoffGit["Service"]["pack"] = Effect.fn("HandoffGit.pack")(function* (input) {
+    const inJj = yield* fileSystem
+      .exists(path.join(input.cwd, ".jj"))
+      .pipe(Effect.orElseSucceed(() => false));
+    const inGit = yield* fileSystem
+      .exists(path.join(input.cwd, ".git"))
+      .pipe(Effect.orElseSucceed(() => false));
+    // A colocated workspace reads through git, which takes new files jj's size limit would leave out.
+    if (inJj && inGit) yield* refreshJj(input.cwd);
+    const { tip, branch, snapshot, gitDir } =
+      inJj && !inGit ? yield* jjWork(input.cwd) : yield* gitWork(input);
+    const inStore = (
+      args: ReadonlyArray<string>,
+      options: { readonly allowNonZeroExit?: boolean } = {},
+    ) => git(input.cwd, args, { ...options, env: { GIT_DIR: gitDir } });
     const snapshotRef = handoffRef(input.handoffId, "snapshot");
-    yield* git(input.cwd, ["update-ref", snapshotRef, snapshot]);
+    yield* inStore(["update-ref", snapshotRef, snapshot]);
     const bundlePath = path.join(input.outDir, `${input.handoffId}.bundle`);
     // Only what no remote has: the peer fetches the rest from the remote.
-    yield* git(input.cwd, ["bundle", "create", bundlePath, snapshotRef, "--not", "--remotes"]).pipe(
-      Effect.ensuring(git(input.cwd, ["update-ref", "-d", snapshotRef]).pipe(Effect.ignore)),
+    yield* inStore(["bundle", "create", bundlePath, snapshotRef, "--not", "--remotes"]).pipe(
+      Effect.ensuring(inStore(["update-ref", "-d", snapshotRef]).pipe(Effect.ignore)),
     );
     const bundleBytes = Number(
       (yield* fileSystem.stat(bundlePath).pipe(
@@ -298,9 +335,7 @@ const make = Effect.gen(function* () {
       yield* fileSystem.remove(bundlePath, { force: true }).pipe(Effect.ignore);
       return yield* new HandoffTooLargeError({ bundleBytes });
     }
-    const remote = yield* git(input.cwd, ["remote", "get-url", "origin"], {
-      allowNonZeroExit: true,
-    });
+    const remote = yield* inStore(["remote", "get-url", "origin"], { allowNonZeroExit: true });
     return {
       bundlePath,
       bundleBytes,
@@ -406,8 +441,6 @@ const make = Effect.gen(function* () {
       return { branch };
     }).pipe(Effect.tapError(() => rollback));
   });
-
-  const jj = (cwd: string, args: ReadonlyArray<string>) => run("jj", cwd, args);
 
   const applyInWorkspace: HandoffGit["Service"]["applyInWorkspace"] = Effect.fn(
     "HandoffGit.applyInWorkspace",

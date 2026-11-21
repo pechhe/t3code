@@ -172,6 +172,55 @@ it.layer(layer)("handing a thread's git work to another checkout", (it) => {
     ),
   );
 
+  it.effect("carries a jj workspace's work when it is not a git worktree", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const handoff = yield* HandoffGit.HandoffGit;
+        const { laptop, box, outDir, root } = yield* repos;
+        // A SlipJay workspace made by an older jj: a jj workspace with no git checkout in it.
+        yield* jj(laptop, ["git", "init", "--colocate"]);
+        const workspace = path.join(root, "laptop-workspace");
+        yield* jj(laptop, ["workspace", "add", "--no-colocate", workspace]);
+        assert.isFalse(yield* fileSystem.exists(path.join(workspace, ".git")));
+        yield* fileSystem.writeFileString(
+          path.join(workspace, "app.ts"),
+          "export const version = 2;\n",
+        );
+        yield* jj(workspace, ["commit", "-m", "unpushed: bump version"]);
+        yield* fileSystem.writeFileString(
+          path.join(workspace, "app.ts"),
+          "export const version = 3;\n",
+        );
+        yield* fileSystem.remove(path.join(workspace, "old.ts"));
+        yield* fileSystem.writeFileString(
+          path.join(workspace, "new.ts"),
+          "export const fresh = true;\n",
+        );
+
+        const packed = yield* handoff.pack({ cwd: workspace, handoffId: "h7", outDir });
+        assert.isNull(packed.branch);
+        const worktree = path.join(root, "box-worktree");
+        yield* handoff.apply({
+          repoRoot: box,
+          worktreePath: worktree,
+          handoffId: "h7",
+          bundlePath: packed.bundlePath,
+          branch: packed.branch,
+          tip: packed.tip,
+          snapshot: packed.snapshot,
+        });
+        assert.equal(yield* sh(worktree, ["log", "-1", "--format=%s"]), "unpushed: bump version");
+        assert.deepEqual(yield* status(worktree), [" D old.ts", " M app.ts", "?? new.ts"]);
+        assert.equal(
+          yield* fileSystem.readFileString(path.join(worktree, "app.ts")),
+          "export const version = 3;\n",
+        );
+      }),
+    ),
+  );
+
   it.effect("refuses a branch that moved on here, and leaves everything as it was", () =>
     Effect.scoped(
       Effect.gen(function* () {

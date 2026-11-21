@@ -890,7 +890,10 @@ export const OrchestratorMcpThreadImportInput = Schema.Struct({
     threadId: ThreadId,
     handoffId: TrimmedNonEmptyString.check(Schema.isMaxLength(128)),
   }),
-  projectId: ProjectId,
+  /** The project here; omit it with `scratch`. */
+  projectId: Schema.optional(ProjectId),
+  /** Continue in this environment's No project, as a thread from the sender's No project does. */
+  scratch: Schema.optional(Schema.Boolean),
   title: TrimmedNonEmptyString.check(Schema.isMaxLength(512)),
   modelSelection: ModelSelection,
   runtimeMode: Schema.optional(RuntimeMode),
@@ -914,6 +917,8 @@ export const OrchestratorMcpThreadImportInput = Schema.Struct({
   messages: Schema.Array(OrchestratorMcpImportedMessage).check(Schema.isMaxLength(2_000)),
   /** Sent as the thread's first message here, so its agent picks up where it left off. */
   continuationPrompt: Schema.optional(OrchestratorMcpPrompt),
+  /** Recorded after `messages` as a note from the agent side, starting no run: how the thread got here. */
+  notice: Schema.optional(OrchestratorMcpPrompt),
   /**
    * The thread's waits, recreated here under the ids they had, so a resent import adds none
    * twice. A thread target names its environment from here: the sender has already pointed one

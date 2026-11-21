@@ -86,7 +86,7 @@ export function threadMoveDialogCopy(input: {
   }
   return {
     title: ask,
-    description: `${stopsTurn ? "This thread is mid-turn: moving it stops the turn here first. " : ""}The conversation and its work, including uncommitted and unpushed changes, continue in a new thread on ${target.label}. This copy becomes read-only, with a link to the new one.`,
+    description: `${stopsTurn ? "This thread is mid-turn: moving it stops the turn here first. " : ""}The conversation and its work, including uncommitted and unpushed changes, continue in a new thread on ${target.label}. This copy is archived here, and the new one opens in its place.`,
     canMove: true,
     stopsTurn,
     choices: [],

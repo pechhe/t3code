@@ -39,6 +39,7 @@ import * as ProjectionStore from "../../orchestration-v2/ProjectionStore.ts";
 import { importedThreadId } from "../../orchestration-v2/ThreadImportService.ts";
 import * as ThreadManagement from "../../orchestration-v2/ThreadManagementService.ts";
 import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
+import * as ManagedProjectFolders from "../../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../../project/ProjectService.ts";
 import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
 import { forkParked } from "../../serverActivation.ts";
@@ -49,9 +50,9 @@ import * as HandoffGit from "./HandoffGit.ts";
 import { chooseRemoteProject } from "./remoteProjectChoice.ts";
 
 /**
- * The first message on the other side: where the thread came from, and that
- * an agent resuming owned work re-establishes it from here. The move's own
- * prompt, when it names one, follows.
+ * The note the thread there starts with: where it came from, and that an agent resuming owned
+ * work re-establishes it from here. With the move's own prompt it is the first message and starts
+ * a turn; without one it is recorded in the history and the thread waits for its next message.
  */
 export const continuationMessage = (input: {
   readonly fromLabel: string;
@@ -62,14 +63,14 @@ export const continuationMessage = (input: {
   readonly waits?: ReadonlyArray<string> | undefined;
 }) =>
   [
-    `This thread was just moved here from ${input.fromLabel} (environment ${input.fromEnvironmentId}, thread ${input.fromThreadId}), with its conversation and its uncommitted work. The copy there is read-only now.`,
+    `This thread was just moved here from ${input.fromLabel} (environment ${input.fromEnvironmentId}, thread ${input.fromThreadId}), with its conversation and its uncommitted work. The copy there is archived and read-only.`,
     ...(input.waits === undefined || input.waits.length === 0
       ? []
       : [
           `Its waits moved with it and now wake this thread here, once each: ${input.waits.join("; ")}. Nothing needs setting up again.`,
         ]),
-    "If your instructions say how to resume after a context rollover, follow them now: reload the workflow you were following, re-read the work item you own, and re-claim it from this thread, since claims made from the old thread still name it.",
-    input.prompt ?? "Continue where it left off.",
+    "If your instructions say how to resume after a context rollover, do that before your next work here: reload the workflow you were following, re-read the work item you own, and re-claim it from this thread, since claims made from the old thread still name it.",
+    ...(input.prompt === undefined ? [] : [input.prompt]),
   ].join("\n\n");
 
 /**
@@ -224,6 +225,7 @@ const make = Effect.gen(function* () {
   const forwarding = yield* PeerForwarding.PeerForwarding;
   const links = yield* PeerLinks.PeerLinks;
   const git = yield* HandoffGit.HandoffGit;
+  const folders = yield* ManagedProjectFolders.ManagedProjectFolders;
   const httpClient = yield* HttpClient.HttpClient;
   const fileSystem = yield* FileSystem.FileSystem;
   const random = yield* SecureRandom.SecureRandom;
@@ -284,6 +286,8 @@ const make = Effect.gen(function* () {
     environmentId: EnvironmentId,
     projectId: ProjectId,
   ) {
+    // A No project thread has no repository; it goes to the No project there.
+    if (yield* folders.isScratchProject(projectId)) return { _tag: "scratch" as const };
     const here = yield* projects.getById(projectId).pipe(
       Effect.map(Option.getOrUndefined),
       Effect.orElseSucceed(() => undefined),
@@ -329,6 +333,7 @@ const make = Effect.gen(function* () {
   ) {
     if (requested !== undefined) return requested;
     const choice = yield* remoteProjectChoice(scope, environmentId, projectId);
+    if (choice._tag === "scratch") return "scratch" as const;
     if (choice._tag === "chosen") return choice.project.id;
     return yield* new ThreadHandoffError({
       reason: "refused",
@@ -511,8 +516,9 @@ const make = Effect.gen(function* () {
             }),
         ),
       );
+      // A No project folder is shared scratch space, not the thread's own work: only the conversation moves.
       const packed =
-        cwd === undefined
+        cwd === undefined || projectId === "scratch"
           ? undefined
           : yield* git.pack({ cwd, handoffId: handoff.handoffId, outDir: tempDir }).pipe(
               Effect.catchTags({
@@ -528,25 +534,29 @@ const make = Effect.gen(function* () {
       const messages = yield* conversation(threadId);
       const descriptor = yield* environment.getDescriptor;
       const waits = carriedWaits(thread, hereId, handoff.environmentId);
+      const note = continuationMessage({
+        fromLabel: descriptor.label,
+        fromEnvironmentId: hereId,
+        fromThreadId: threadId,
+        prompt: handoff.continuationPrompt,
+        waits: waits.names,
+      });
       sent = true;
       importCalled = true;
       unsent.delete(handoff.handoffId);
       return yield* forwarding
         .call(scope, ProjectToolkit.tools.t3_thread_import, handoff.environmentId, {
           source,
-          projectId,
+          ...(projectId === "scratch" ? { scratch: true } : { projectId }),
           title: thread.title,
           modelSelection: thread.modelSelection,
           runtimeMode: thread.runtimeMode,
           interactionMode: thread.interactionMode,
           messages,
-          continuationPrompt: continuationMessage({
-            fromLabel: descriptor.label,
-            fromEnvironmentId: hereId,
-            fromThreadId: threadId,
-            prompt: handoff.continuationPrompt,
-            waits: waits.names,
-          }),
+          // Only a move that says what to do next starts a turn there.
+          ...(handoff.continuationPrompt === undefined
+            ? { notice: note }
+            : { continuationPrompt: note }),
           ...(waits.parkedWaits.length === 0 ? {} : { parkedWaits: waits.parkedWaits }),
           ...(waits.ownerWait === undefined ? {} : { ownerWait: waits.ownerWait }),
           ...(waits.pullRequestWatches.length === 0
@@ -607,6 +617,18 @@ const make = Effect.gen(function* () {
     yield* setHandoff(threadId, "departing", departed, "departed");
     // The waits went with the thread, and this copy takes no wake: its monitors end with the move.
     yield* endWaits(threadId);
+    // The thread lives there now; this copy leaves the lists here, and unarchiving brings it back.
+    yield* threads
+      .dispatch({
+        type: "thread.archive",
+        commandId: CommandId.make(`command:handoff:${threadId}:${handoff.handoffId}:archive`),
+        threadId,
+      })
+      .pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("thread-handoff.archive-failed", { threadId, cause }),
+        ),
+      );
     return departed;
   });
 

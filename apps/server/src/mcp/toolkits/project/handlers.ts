@@ -600,8 +600,31 @@ export const handlers = {
     (input, { runtimeMode, interactionMode, linkOrigin }) =>
       Effect.gen(function* () {
         const projects = yield* access;
+        if ((input.scratch === true) === (input.projectId !== undefined))
+          return yield* new OrchestratorMcpFailure({
+            code: "invalid_request",
+            message: "Pass projectId, or scratch:true for the No project here.",
+          });
+        if (
+          input.scratch === true &&
+          (input.bundle !== undefined || input.worktreePath !== undefined)
+        )
+          return yield* new OrchestratorMcpFailure({
+            code: "invalid_request",
+            message:
+              "A thread moving into the No project carries no checkout; omit bundle and worktreePath.",
+          });
+        const projectId =
+          input.projectId ??
+          (yield* ManagedProjectFolders.ManagedProjectFolders.pipe(
+            Effect.flatMap((folders) => folders.ensureScratchProject),
+            Effect.mapError(
+              (error) =>
+                new OrchestratorMcpFailure({ code: "orchestration_error", message: error.message }),
+            ),
+          )).projectId;
         const project = yield* projects
-          .getById(input.projectId)
+          .getById(projectId)
           .pipe(Effect.mapError(unavailable), Effect.map(Option.getOrUndefined));
         if (project === undefined)
           return yield* new OrchestratorMcpFailure({
@@ -641,12 +664,12 @@ export const handlers = {
           if (wait.target.kind === "production") {
             const projects = yield* access;
             const productionProject = yield* projects
-              .getById(wait.target.projectId ?? input.projectId)
+              .getById(wait.target.projectId ?? projectId)
               .pipe(Effect.mapError(unavailable), Effect.map(Option.getOrUndefined));
             const refusal = yield* SlipJayLandings.productionWaitRefusal(
               yield* Effect.serviceOption(SlipJayLandings.SlipJayLandings),
               {
-                projectId: wait.target.projectId ?? input.projectId,
+                projectId: wait.target.projectId ?? projectId,
                 checkouts: productionProject === undefined ? [] : [productionProject.workspaceRoot],
               },
             );
@@ -679,9 +702,11 @@ export const handlers = {
                 handoffId: input.source.handoffId,
                 bundle,
               });
+        const { scratch: _scratch, ...rest } = input;
         return yield* imports
           .importThread({
-            ...input,
+            ...rest,
+            projectId,
             runtimeMode,
             interactionMode,
             linkOrigin,

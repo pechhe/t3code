@@ -258,6 +258,7 @@ const ThreadImportTool = Tool.make("t3_thread_import", {
     Digest.Digest,
     PeerLinks.PeerLinks,
     ForgeWorkItems.ForgeWorkItems,
+    ManagedProjectFolders.ManagedProjectFolders,
   ],
 })
   .annotate(Tool.Destructive, true)
