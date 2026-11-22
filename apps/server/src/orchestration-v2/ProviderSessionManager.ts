@@ -59,7 +59,6 @@ import { ProviderWorkspaceMissingError } from "../provider/Errors.ts";
 import * as ProviderInstallationGate from "../provider/ProviderInstallationGate.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
-import * as WeaveAgentConnections from "../weave/WeaveAgentConnections.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import {
@@ -651,36 +650,6 @@ export const layerWithOptions = (
       const isMcpCredentialReserved = (threadId: ThreadId, mcpCredentialId: string) =>
         (mcpCredentialReservations.get(mcpReservationKey(threadId, mcpCredentialId)) ?? 0) > 0;
       const mcpPrepareLock = yield* KeyedLock.make<ThreadId>();
-      const weaveConnections = yield* Effect.serviceOption(
-        WeaveAgentConnections.WeaveAgentConnections,
-      );
-      /**
-       * Every adapter attaches this through the shared agent-server list, so it runs on attach and
-       * before every turn: Claude reopens its process for a new MCP server and OpenCode 2
-       * re-registers it, while a session that keeps the servers it opened with (Codex, Pi, ACP,
-       * Cursor, OpenCode 1, Muse) picks it up when it is next started or resumed.
-       */
-      const prepareWeaveConnection = (threadId: ThreadId, model?: string) =>
-        Option.isNone(weaveConnections)
-          ? Effect.void
-          : projectionStore.getThread(threadId).pipe(
-              Effect.flatMap((thread) => {
-                const role = WeaveAgentConnections.weaveAgentRole(thread);
-                return role === undefined
-                  ? Effect.void
-                  : weaveConnections.value.prepare({
-                      threadId,
-                      role,
-                      model: model ?? thread.modelSelection.model,
-                    });
-              }),
-              Effect.catchCause((cause) =>
-                Effect.logWarning("Could not prepare the thread's Weave connection", {
-                  threadId,
-                  cause: Cause.pretty(cause),
-                }),
-              ),
-            );
       /** Serialize prepares per thread so concurrent rotations cannot revoke each other's credentials. */
       const prepareMcpSession = (
         threadId: ThreadId,
@@ -1967,7 +1936,6 @@ export const layerWithOptions = (
               }
             }
             if (attached !== undefined) {
-              yield* prepareWeaveConnection(input.threadId);
               const entry = (yield* Ref.get(sessions)).get(sessionKey(input.providerSessionId));
               if (entry !== undefined) {
                 yield* withActivityError(
@@ -2651,81 +2619,77 @@ export const layerWithOptions = (
               Effect.map(({ loaded }) => loaded),
             ),
           startTurn: (input) =>
-            prepareWeaveConnection(input.threadId, input.modelSelection.model).pipe(
+            observeActivity(
+              providerSessionId,
+              ensureThreadAttached({
+                providerSessionId,
+                threadId: input.threadId,
+                providerInstanceId: runtime.instanceId,
+              }),
+            ).pipe(
+              // Failed or stopped starts may omit turn.terminal; clear their turns so sessions can idle.
               Effect.andThen(
-                observeActivity(
+                holdThreadLoaded({
                   providerSessionId,
-                  ensureThreadAttached({
+                  threadId: input.threadId,
+                  providerThread: input.providerThread,
+                }),
+              ),
+              Effect.andThen(
+                Effect.acquireUseRelease(
+                  markBusy(
                     providerSessionId,
-                    threadId: input.threadId,
-                    providerInstanceId: runtime.instanceId,
-                  }),
-                ).pipe(
-                  // Failed or stopped starts may omit turn.terminal; clear their turns so sessions can idle.
-                  Effect.andThen(
-                    holdThreadLoaded({
-                      providerSessionId,
-                      threadId: input.threadId,
-                      providerThread: input.providerThread,
-                    }),
-                  ),
-                  Effect.andThen(
-                    Effect.acquireUseRelease(
-                      markBusy(
+                    busyTurnKey(input.providerThread.id, input.runOrdinal),
+                    runtime,
+                  ).pipe(
+                    Effect.catchCause((cause) =>
+                      Effect.logWarning("orchestration-v2.driver-session.activity-failed", {
                         providerSessionId,
-                        busyTurnKey(input.providerThread.id, input.runOrdinal),
-                        runtime,
-                      ).pipe(
-                        Effect.catchCause((cause) =>
-                          Effect.logWarning("orchestration-v2.driver-session.activity-failed", {
-                            providerSessionId,
-                            cause,
-                          }).pipe(Effect.as(true)),
-                        ),
-                        // A release between attach and markBusy leaves nothing to mark: fail the
-                        // start instead of running it on a runtime being torn down.
-                        Effect.flatMap((marked) =>
-                          marked
-                            ? Effect.void
-                            : Effect.fail(
-                                new ProviderAdapter.ProviderAdapterTurnStartError({
-                                  driver: runtime.driver,
-                                  threadId: input.threadId,
-                                  providerThreadId: input.providerThread.id,
-                                  runId: input.runId,
-                                  cause:
-                                    "The provider session was released while the turn started.",
-                                }),
-                              ),
-                        ),
-                      ),
-                      () =>
-                        runtime
-                          .startTurn(input)
-                          .pipe(turnMetrics("send", input.modelSelection.model)),
-                      (_, exit) =>
-                        Exit.isFailure(exit)
-                          ? observeActivity(
-                              providerSessionId,
-                              markIdle(
-                                providerSessionId,
-                                input.providerThread.id,
-                                input.runOrdinal,
-                              ),
-                            ).pipe(
-                              // A failed start can leave its native thread gone (Claude rejecting a
-                              // resume), so the next start must ask the adapter to resume it again.
-                              Effect.andThen(
-                                forgetProviderThreadLoaded({
-                                  providerSessionId,
-                                  threadId: input.threadId,
-                                  runtime,
-                                }),
-                              ),
-                            )
-                          : Effect.void,
+                        cause,
+                      }).pipe(Effect.as(true)),
+                    ),
+                    // A release between attach and markBusy leaves nothing to mark: fail the
+                    // start instead of running it on a runtime being torn down.
+                    Effect.flatMap((marked) =>
+                      marked
+                        ? Effect.void
+                        : Effect.fail(
+                            new ProviderAdapter.ProviderAdapterTurnStartError({
+                              driver: runtime.driver,
+                              threadId: input.threadId,
+                              providerThreadId: input.providerThread.id,
+                              runId: input.runId,
+                              cause:
+                                "The provider session was released while the turn started.",
+                            }),
+                          ),
                     ),
                   ),
+                  () =>
+                    runtime
+                      .startTurn(input)
+                      .pipe(turnMetrics("send", input.modelSelection.model)),
+                  (_, exit) =>
+                    Exit.isFailure(exit)
+                      ? observeActivity(
+                          providerSessionId,
+                          markIdle(
+                            providerSessionId,
+                            input.providerThread.id,
+                            input.runOrdinal,
+                          ),
+                        ).pipe(
+                          // A failed start can leave its native thread gone (Claude rejecting a
+                          // resume), so the next start must ask the adapter to resume it again.
+                          Effect.andThen(
+                            forgetProviderThreadLoaded({
+                              providerSessionId,
+                              threadId: input.threadId,
+                              runtime,
+                            }),
+                          ),
+                        )
+                      : Effect.void,
                 ),
               ),
             ),
@@ -3272,7 +3236,6 @@ export const layerWithOptions = (
                 input.threadId,
                 input.modelSelection.instanceId,
               );
-              yield* prepareWeaveConnection(input.threadId);
               const mcpCredentialId = prepared.mcpCredentialId;
               let reservationDropped = mcpCredentialId === undefined;
               const dropReservation = Effect.sync(() => {

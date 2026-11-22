@@ -1601,9 +1601,8 @@ const layerMakeServer = Layer.unwrap(
       Layer.provideMerge(
         Layer.mergeAll(
           McpSessionRegistry.layer.pipe(Layer.provide(PreviewManager.layer)),
-          Layer.mergeAll(WeaveSignIn.layer, WeaveAgentConnections.agentMcpServersLayer).pipe(
-            Layer.provideMerge(WeaveAgentConnections.layer),
-          ),
+          // Decision #8623: agents reach Weave through Executor; keep T3's Weave connection for T3's own screens.
+          WeaveSignIn.layer.pipe(Layer.provideMerge(WeaveAgentConnections.layer)),
         ).pipe(
           Layer.provide(ServerEnvironment.layer.pipe(Layer.provide(ServerSecretStore.layer))),
           Layer.provide(ServerSecretStore.layer),
