@@ -24,6 +24,12 @@ const search = Tool.make("web_search", {
   parameters: Schema.Struct({
     query: Schema.String.check(Schema.isMinLength(1)),
     maxResults: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 20 }))),
+    engine: Schema.optional(
+      Schema.Literals(["tavily", "exa"]).annotate({
+        description:
+          "tavily (default) for keyword search; exa for semantic search, which finds pages by meaning, such as similar companies or papers.",
+      }),
+    ),
   }),
   success: Schema.Array(
     Schema.Struct({ title: Schema.String, url: Schema.String, snippet: Schema.String }),

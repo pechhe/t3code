@@ -15,14 +15,7 @@ import type * as Scope from "effect/Scope";
 const DEFAULT_EXECUTOR_MCP_URL = "https://mcp.executor.sh/mcp";
 
 export class WebResearchError extends Schema.TaggedError<WebResearchError>()("WebResearchError", {
-  stage: Schema.Literals([
-    "credentials",
-    "connection",
-    "search",
-    "fetch",
-    "approval",
-    "response",
-  ]),
+  stage: Schema.Literals(["credentials", "connection", "search", "fetch", "approval", "response"]),
   cause: Schema.Defect(),
 }) {
   override get message() {
@@ -112,9 +105,13 @@ export const layerExecutor = Layer.effect(
   }),
 );
 
+// The only Executor tools T3 calls: agents reach these reads, never Executor itself.
 const SEARCH_PATH = "tools.tavily.search.postSearch";
 const FETCH_PATH = "tools.tavily.extract.postExtract";
+const EXA_SEARCH_PATH = "tools.exa.custom.search";
+type ReadPath = typeof SEARCH_PATH | typeof FETCH_PATH | typeof EXA_SEARCH_PATH;
 const DEFAULT_ACCOUNT_ID = "acc_2c01e923-10d5-4bde-bef4-24e9e20626af";
+const DEFAULT_EXA_ACCOUNT_ID = "acc_1201639c-3dbc-4101-89ce-19f6609f6ffa";
 const record = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Unknown));
 
 const decodeJsonRecord = Schema.decodeUnknownSync(
@@ -141,6 +138,15 @@ const SearchResults = Schema.Struct({
       title: Schema.String,
       url: Schema.String,
       content: Schema.String,
+    }),
+  ),
+});
+const ExaSearchResults = Schema.Struct({
+  results: Schema.Array(
+    Schema.Struct({
+      url: Schema.String,
+      title: Schema.optional(Schema.NullOr(Schema.String)),
+      highlights: Schema.optional(Schema.NullOr(Schema.Array(Schema.String))),
     }),
   ),
 });
@@ -171,6 +177,7 @@ function toolValue(answer: Record<string, unknown>, path: string): Record<string
 }
 
 const decodeSearch = Schema.decodeUnknownSync(SearchResults);
+const decodeExaSearch = Schema.decodeUnknownSync(ExaSearchResults);
 const decodeFetch = Schema.decodeUnknownSync(FetchResults);
 
 export class WebResearch extends Context.Service<
@@ -179,6 +186,7 @@ export class WebResearch extends Context.Service<
     readonly search: (input: {
       readonly query: string;
       readonly maxResults?: number | undefined;
+      readonly engine?: "tavily" | "exa" | undefined;
     }) => Effect.Effect<
       ReadonlyArray<{ title: string; url: string; snippet: string }>,
       WebResearchError
@@ -194,11 +202,12 @@ export const layer = Layer.effect(
   WebResearch,
   Effect.gen(function* () {
     const executor = yield* ExecutorWebClient;
-    const accountId =
-      (yield* HostProcess.Environment).T3CODE_TAVILY_ACCOUNT_ID ?? DEFAULT_ACCOUNT_ID;
+    const hostEnvironment = yield* HostProcess.Environment;
+    const accountId = hostEnvironment.T3CODE_TAVILY_ACCOUNT_ID ?? DEFAULT_ACCOUNT_ID;
+    const exaAccountId = hostEnvironment.T3CODE_EXA_ACCOUNT_ID ?? DEFAULT_EXA_ACCOUNT_ID;
     const call = Effect.fn("WebResearch.call")(function* (
-      path: typeof SEARCH_PATH | typeof FETCH_PATH,
-      body: Record<string, unknown>,
+      path: ReadPath,
+      input: Record<string, unknown>,
     ) {
       const client = yield* executor.connect;
       const request = (
@@ -212,16 +221,15 @@ export const layer = Layer.effect(
         });
       let result = yield* request(
         "call",
-        { calls: { path, input: { accountId, input: { body } } } },
-        path === SEARCH_PATH ? "search" : "fetch",
+        { calls: { path, input } },
+        path === FETCH_PATH ? "fetch" : "search",
       );
       if (result.status === "approval-required") {
         // Executor names the paused tool without its `tools.<app>.` prefix.
         const invocation = result.invocation === undefined ? {} : record(result.invocation);
         if (
-          (path !== SEARCH_PATH && path !== FETCH_PATH) ||
           typeof result.requestId !== "string" ||
-          invocation.tool !== path.replace(/^tools\.tavily\./, "")
+          invocation.tool !== path.replace(/^tools\.[^.]+\./, "")
         ) {
           return yield* new WebResearchError({
             stage: "approval",
@@ -240,8 +248,26 @@ export const layer = Layer.effect(
       });
     }, Effect.scoped);
     return WebResearch.of({
-      search: Effect.fn("WebResearch.search")(function* ({ query, maxResults }) {
-        const result = yield* call(SEARCH_PATH, { query, max_results: maxResults ?? 5 });
+      search: Effect.fn("WebResearch.search")(function* ({ query, maxResults, engine }) {
+        if (engine === "exa") {
+          const exa = yield* call(EXA_SEARCH_PATH, {
+            accountId: exaAccountId,
+            input: { query, numResults: maxResults ?? 5, contents: { highlights: true } },
+          });
+          return yield* Effect.try({
+            try: () =>
+              decodeExaSearch(exa).results.map(({ title, url, highlights }) => ({
+                title: title ?? url,
+                url,
+                snippet: (highlights ?? []).join("\n\n"),
+              })),
+            catch: (cause) => new WebResearchError({ stage: "response", cause }),
+          });
+        }
+        const result = yield* call(SEARCH_PATH, {
+          accountId,
+          input: { body: { query, max_results: maxResults ?? 5 } },
+        });
         return yield* Effect.try({
           try: () =>
             decodeSearch(result).results.map(({ title, url, content }) => ({
@@ -254,9 +280,10 @@ export const layer = Layer.effect(
       }),
       fetch: Effect.fn("WebResearch.fetch")(function* ({ url, query }) {
         const result = yield* call(FETCH_PATH, {
-          urls: [url],
-          ...(query === undefined ? {} : { query }),
-          format: "markdown",
+          accountId,
+          input: {
+            body: { urls: [url], ...(query === undefined ? {} : { query }), format: "markdown" },
+          },
         });
         return yield* Effect.try({
           try: () => {

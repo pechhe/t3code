@@ -49,6 +49,32 @@ it.effect("maps search results and sends only the fixed search path", () => {
     ]);
   }).pipe(Effect.provide(f.layer));
 });
+it.effect("semantic search calls only Exa's fixed search path and accepts its approval", () => {
+  const exa = {
+    results: [
+      { url: "https://example.com", title: "Source", highlights: ["First", "Second"] },
+      { url: "https://example.org", title: null },
+    ],
+  };
+  const f = fixture([approval("custom.search"), completed("tools.exa.custom.search", exa)]);
+  return Effect.gen(function* () {
+    const web = yield* WebResearch.WebResearch;
+    expect(yield* web.search({ query: "question", maxResults: 2, engine: "exa" })).toEqual([
+      { title: "Source", url: "https://example.com", snippet: "First\n\nSecond" },
+      { title: "https://example.org", url: "https://example.org", snippet: "" },
+    ]);
+    expect(f.calls[0]?.args).toEqual({
+      calls: {
+        path: "tools.exa.custom.search",
+        input: {
+          accountId: "acc_1201639c-3dbc-4101-89ce-19f6609f6ffa",
+          input: { query: "question", numResults: 2, contents: { highlights: true } },
+        },
+      },
+    });
+    expect(f.calls[1]?.name).toBe("resume");
+  }).pipe(Effect.provide(f.layer));
+});
 it.effect.each(["search", "fetch"] as const)(
   "accepts an approval for the fixed %s read",
   (operation) => {

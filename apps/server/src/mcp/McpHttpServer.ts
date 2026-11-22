@@ -451,9 +451,6 @@ const makeMcpAuthMiddleware = Effect.fn("McpHttpServer.makeAuthMiddleware")(
         return {
           ...limited,
           ...(champion === undefined ? {} : { champion }),
-          ...(limited.providerDriver === "pi" && request.headers["t3-native-web-tools"] === "1"
-            ? { webResearchTools: false }
-            : {}),
           linkedEnvironments,
           origin,
           ...(forge === undefined ? {} : { forge }),

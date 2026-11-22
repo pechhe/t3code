@@ -466,6 +466,10 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
 
   const isCodemodeContainer = (name: string) => name === "codemode" && hasBuiltinCodemode();
 
+  // The launch lists these for a scout only; they read public pages and change nothing locally.
+  const isScoutWebTool = (name: string) =>
+    env(ROLE_ENV) === "scout" && (name === "google_search" || name === "read_url_content");
+
   const isBuiltinReadOnlyTool = (name: string) => {
     if (!READ_ONLY_TOOLS.has(name)) return false;
     if (typeof pi.getAllTools !== "function") return true;
@@ -562,6 +566,7 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
         isBuiltinReadOnlyTool(event.toolName) ||
         isCodemodeContainer(event.toolName) ||
         (event.toolName === "tool_search" && hasBuiltinToolSearch()) ||
+        isScoutWebTool(event.toolName) ||
         isApprovedMcpTool(event.toolName)
       ) {
         return;
@@ -685,16 +690,12 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
   const register = () => {
     if (!builtinMcpConnects()) return;
     const exposure = exposureNow();
-    // Detect the pair after extensions load; Pi still uses T3 on hosts without it.
-    const available = new Set(pi.getActiveTools?.() ?? pi.getAllTools().map((tool) => tool.name));
-    const nativeWeb = available.has("google_search") && available.has("read_url_content");
-    const registrationKey = exposure + ":" + nativeWeb;
-    if (registrationKey === registeredExposure) return;
-    registeredExposure = registrationKey;
+    if (exposure === registeredExposure) return;
+    registeredExposure = exposure;
     for (const server of servers) {
       pi.registerMcpServer(server.name, {
         url: server.url,
-        headers: { Authorization: server.authorization, ...(!server.agent && nativeWeb ? { "t3-native-web-tools": "1" } : {}) },
+        headers: { Authorization: server.authorization },
         timeout: TOOL_TIMEOUT_SECONDS,
         exposure,
         ...(exposure !== "direct" && !server.agent

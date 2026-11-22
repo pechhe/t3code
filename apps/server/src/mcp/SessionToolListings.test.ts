@@ -364,19 +364,13 @@ it.effect("loads editor tools through its own deferred HTTP catalogue", () =>
         Layer.build,
       );
       const client = yield* HttpClient.HttpClient;
-      const connect = (
-        key: "editor" | "reader",
-        token: string = key,
-        nativeWeb = false,
-        deferred = true,
-      ) =>
+      const connect = (key: "editor" | "reader", token: string = key, deferred = true) =>
         Effect.gen(function* () {
           const path = SESSION_TOOL_ENDPOINTS[key].path;
           const headers = {
             accept: "application/json, text/event-stream",
             authorization: `Bearer ${token}`,
             ...(deferred ? { "t3-tool-exposure": "deferred" } : {}),
-            ...(nativeWeb ? { "t3-native-web-tools": "1" } : {}),
           };
           const initialize = yield* client.post(path, {
             headers,
@@ -425,10 +419,9 @@ it.effect("loads editor tools through its own deferred HTTP catalogue", () =>
             ),
           };
         });
-      const ordinary = yield* (yield* connect("editor", "editor", false, false)).listed;
-      const native = yield* (yield* connect("editor", "editor-native", true, false)).listed;
-      const champion = yield* (yield* connect("editor", "champion", false, false)).listed;
-      const ordinaryReader = yield* (yield* connect("reader", "reader", false, false)).listed;
+      const ordinary = yield* (yield* connect("editor", "editor", false)).listed;
+      const champion = yield* (yield* connect("editor", "champion", false)).listed;
+      const ordinaryReader = yield* (yield* connect("reader", "reader", false)).listed;
       for (const names of [ordinary, ordinaryReader]) {
         expect(names).toContain("t3_champions_learning_search");
         expect(names).toContain("t3_champions_learning_read");
@@ -439,20 +432,18 @@ it.effect("loads editor tools through its own deferred HTTP catalogue", () =>
         ).toEqual([]);
       }
       for (const key of ["editor", "reader"] as const) {
-        const git = yield* (yield* connect(key, key, false, false)).listed;
-        const slipJay = yield* (yield* connect(key, key + "-slipjay", false, false)).listed;
+        const git = yield* (yield* connect(key, key, false)).listed;
+        const slipJay = yield* (yield* connect(key, key + "-slipjay", false)).listed;
         expect(git).toContain("list_thread_pull_requests");
         expect(slipJay.filter(isPullRequestTool)).toEqual([]);
       }
       expect(ordinary).toContain("pull_request_read");
       expect(ordinary).toContain("ci_logs");
-      const claude = yield* (yield* connect("editor", "claude", false, false)).listed;
+      const claude = yield* (yield* connect("editor", "claude", false)).listed;
       expect(claude).toEqual(
         expect.arrayContaining(["t3_background_wait", "device_list", "device_screenshot"]),
       );
       expect(ordinary).toEqual(expect.arrayContaining(["web_search", "web_fetch"]));
-      expect(native).not.toContain("web_search");
-      expect(native).not.toContain("web_fetch");
       expect(champion).toContain("t3_champions_report");
       const editor = yield* connect("editor");
       const reader = yield* connect("reader");

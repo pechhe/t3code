@@ -709,6 +709,20 @@ describe("Pi tool discovery permissions", () => {
     }
   });
 
+  it.each([
+    { role: "scout", blocked: false },
+    { role: "reviewer", blocked: true },
+  ])("lets only a read-only scout use Pi's own web tools ($role)", async ({ role, blocked }) => {
+    const extension = await loadPiT3Extension({
+      environment: { ...T3_ENV, T3_PI_READ_ONLY: "1", T3_PI_AGENT_ROLE: role },
+    });
+    const hook = extension.hook<ToolCallHook>("tool_call");
+    for (const toolName of ["google_search", "read_url_content"]) {
+      const result = await hook({ toolName, input: {} }, { ui: { confirm: async () => true } });
+      assert.equal(result?.block === true, blocked, toolName);
+    }
+  });
+
   it.live("sandboxes codemode-origin bash, probes once and fails closed before execution", () =>
     Effect.promise(async () => {
       type Hook = (event: {
