@@ -18582,7 +18582,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         {
           projectRoot: project.value.workspaceRoot,
           workspacePath: thread.worktreePath ?? project.value.workspaceRoot,
-          replacement: thread.worktreePath !== null,
+          mayBeReleased: thread.worktreePath !== null,
         },
       ];
       for (const attachment of liveWorkspaceAttachments(thread)) {
@@ -18598,14 +18598,22 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         paths.push({
           projectRoot: attachedProject.value.workspaceRoot,
           workspacePath: attachment.workspacePath,
-          replacement: false,
+          mayBeReleased:
+            attachment.origin === "allocated" &&
+            before !== null &&
+            liveWorkspaceAttachments(before).some(
+              (previous) =>
+                previous.projectId === attachment.projectId &&
+                previous.workspacePath === attachment.workspacePath &&
+                previous.origin === "allocated",
+            ),
         });
       }
       for (const run of active)
         for (const source of paths) {
-          // A preparation may be replacing an already removed checkout; allocation acquires its replacement before publication.
+          // Preparation replaces removed primary checkouts and marks released SlipJay attachments.
           if (!(yield* fileSystem.exists(source.workspacePath).pipe(mapDispatchError(command)))) {
-            if (source.replacement) continue;
+            if (source.mayBeReleased) continue;
             return yield* new OrchestratorDispatchError({
               commandId: command.commandId,
               commandType: command.type,

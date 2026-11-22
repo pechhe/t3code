@@ -139,6 +139,23 @@ it.effect.each([false, true])(
                 }
               : {}),
           });
+          const releasedPath = `${root}/attached/landed`;
+          yield* fs.makeDirectory(releasedPath);
+          yield* orchestrator.dispatch({
+            type: "thread.workspace-attachment.update",
+            commandId: CommandId.make("custody-attach-before-land"),
+            threadId,
+            change: {
+              action: "attach",
+              attachment: {
+                projectId: attachedProjectId,
+                workspacePath: releasedPath,
+                branch: null,
+                origin: "allocated",
+              },
+            },
+          });
+          yield* fs.remove(releasedPath, { recursive: true });
           const entered = yield* Deferred.make<void>();
           const acquired = yield* Deferred.make<void>();
           yield* Ref.set(
@@ -165,6 +182,13 @@ it.effect.each([false, true])(
           const run = (yield* orchestrator.getThreadProjection(threadId)).runs.at(-1)!;
           assert.equal(run.status, "preparing");
           assert.equal((yield* journal.list).filter((epoch) => epoch.phase === "open").length, 1);
+          // The effect worker is disabled; record the release that turn preparation would.
+          yield* orchestrator.dispatch({
+            type: "thread.workspace-attachment.update",
+            commandId: CommandId.make("custody-release-after-land"),
+            threadId,
+            change: { action: "release", workspacePath: releasedPath },
+          });
           yield* orchestrator.dispatch({
             type: "thread.workspace-attachment.update",
             commandId: CommandId.make("custody-attach"),
