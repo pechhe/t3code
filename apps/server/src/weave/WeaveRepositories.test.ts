@@ -62,7 +62,7 @@ it.effect("calls Weave's repository tools and decodes their values", () =>
                   return {
                     origin: "https://weave.test",
                     connection: "one",
-                    value: tool.endsWith("_list") ? [repository] : repository,
+                    value: args.action === "repository_list" ? [repository] : repository,
                   };
                 }),
             }),
@@ -78,8 +78,8 @@ it.effect("calls Weave's repository tools and decodes their values", () =>
     };
     assert.deepEqual(yield* weave.setRepository(input), repository);
     assert.deepEqual(calls, [
-      { tool: "weave_forge_repository_list", args: {} },
-      { tool: "weave_forge_repository_set", args: input },
+      { tool: "weave_forge_query", args: { action: "repository_list" } },
+      { tool: "weave_forge_repository", args: { action: "repository_set", ...input } },
     ]);
   }),
 );

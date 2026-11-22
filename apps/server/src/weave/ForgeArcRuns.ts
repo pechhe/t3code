@@ -114,7 +114,7 @@ const make = Effect.gen(function* () {
         if (!fresh && previous !== undefined && now - previous.attemptedAt < previous.intervalMs)
           return previous;
         const read = yield* weave
-          .observe("weave_forge_read", { number: ctx.run.arc.number })
+          .observe("weave_forge_query", { action: "read", number: ctx.run.arc.number })
           .pipe(Effect.option);
         const arc = Option.isSome(read)
           ? decodeArc(read.value.value)

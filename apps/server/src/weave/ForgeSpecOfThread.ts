@@ -89,10 +89,10 @@ const make = Effect.gen(function* () {
     const cached = specByItem.get(cacheKey);
     if (cached !== undefined) return Option.some({ ...cached, origin });
     const read = yield* weave
-      .observe(
-        "weave_forge_read",
-        item.itemId === undefined ? { number: item.number } : { itemId: item.itemId },
-      )
+      .observe("weave_forge_query", {
+        action: "read",
+        ...(item.itemId === undefined ? { number: item.number } : { itemId: item.itemId }),
+      })
       .pipe(Effect.mapError(unavailable));
     const value = decodeForgeItemRead(read.value);
     // An answer T3 cannot read as an item may read fine when it next asks.

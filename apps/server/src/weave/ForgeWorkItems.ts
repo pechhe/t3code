@@ -428,8 +428,8 @@ const make = Effect.gen(function* () {
   const readSummary = (itemId: string) =>
     Effect.all(
       [
-        weave.observe("weave_forge_read", { itemId }),
-        weave.observe("weave_forge_waits", { itemId }),
+        weave.observe("weave_forge_query", { action: "read", itemId }),
+        weave.observe("weave_forge_query", { action: "waits", itemId }),
       ],
       { concurrency: 2 },
     ).pipe(
@@ -474,7 +474,8 @@ const make = Effect.gen(function* () {
     let offset = 0;
     for (let page = 0; page < CHANGE_MAX_PAGES; page++) {
       const answer = yield* weave
-        .observe("weave_forge_list", {
+        .observe("weave_forge_query", {
+          action: "list",
           updatedSince: DateTime.formatIso(DateTime.makeUnsafe(since)),
           limit: CHANGE_PAGE_LIMIT,
           offset,
@@ -671,7 +672,7 @@ const make = Effect.gen(function* () {
           remember(numberCache, key, previous, ITEM_CACHE_LIMIT);
           return Option.some(previous.itemId);
         }
-        const read = yield* weave.observe("weave_forge_read", { number }).pipe(
+        const read = yield* weave.observe("weave_forge_query", { action: "read", number }).pipe(
           Effect.map((result) =>
             Option.match(decodeForgeRead(result.value), {
               onNone: () => Option.none<string | null>(),
@@ -741,10 +742,10 @@ const make = Effect.gen(function* () {
       );
     const named = parsed.kind === "ref" ? parsed.ref : `#${parsed.number}`;
     const read = yield* weave
-      .observe(
-        "weave_forge_read",
-        parsed.kind === "ref" ? { ref: parsed.ref } : { number: parsed.number },
-      )
+      .observe("weave_forge_query", {
+        action: "read",
+        ...(parsed.kind === "ref" ? { ref: parsed.ref } : { number: parsed.number }),
+      })
       .pipe(
         Effect.mapError((cause) =>
           cause.reason === "failed"
@@ -819,7 +820,10 @@ const make = Effect.gen(function* () {
       const observe = (tool: string, args: Record<string, unknown>) =>
         weave.observe(tool, args).pipe(Effect.map((result) => result.value));
       const [readValue, waitsValue] = yield* Effect.all(
-        [observe("weave_forge_read", { itemId }), observe("weave_forge_waits", { itemId })],
+        [
+          observe("weave_forge_query", { action: "read", itemId }),
+          observe("weave_forge_query", { action: "waits", itemId }),
+        ],
         { concurrency: 2 },
       );
       const read = decodeForgeCardRead(readValue);
@@ -846,10 +850,10 @@ const make = Effect.gen(function* () {
       if (item.value.kind === "spec") {
         const [ticketsValue, sessionsValue, acceptanceValue] = yield* Effect.all(
           [
-            observe("weave_forge_list", { kind: "ticket", parentId: itemId }),
-            observe("weave_forge_sessions", { specId: itemId }),
+            observe("weave_forge_query", { action: "list", kind: "ticket", parentId: itemId }),
+            observe("weave_forge_query", { action: "sessions", specId: itemId }),
             item.value.status === "accepted"
-              ? observe("weave_forge_acceptance", { specId: itemId })
+              ? observe("weave_forge_query", { action: "acceptance", specId: itemId })
               : Effect.succeed(null),
           ],
           { concurrency: 3 },
@@ -886,11 +890,11 @@ const make = Effect.gen(function* () {
         [
           parentId === null
             ? Effect.succeed(null)
-            : observe("weave_forge_read", { itemId: parentId }),
-          observe("weave_forge_attempts", { itemId }),
+            : observe("weave_forge_query", { action: "read", itemId: parentId }),
+          observe("weave_forge_query", { action: "attempts", itemId }),
           parentId === null
             ? Effect.succeed([])
-            : observe("weave_forge_sessions", { specId: parentId }),
+            : observe("weave_forge_query", { action: "sessions", specId: parentId }),
         ],
         { concurrency: 3 },
       );

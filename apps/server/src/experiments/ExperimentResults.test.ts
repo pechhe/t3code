@@ -491,8 +491,8 @@ describe("ExperimentResults", () => {
           saved: [],
           adopted: [],
           observe: (tool, args) => {
-            if (tool === "weave_forge_attempts") return [];
-            if (tool === "weave_forge_agent_notes") return { items: [] };
+            if (args.action === "attempts") return [];
+            if (args.action === "agent_notes") return { items: [] };
             if (args.entry === undefined) return pageOf([{ index: 0, bytes: 99999, id: "big" }]);
             return args.cursor === undefined
               ? { content: text.slice(0, 10), nextCursor: "next" }

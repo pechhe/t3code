@@ -94,7 +94,7 @@ const makeHarness = Effect.gen(function* () {
         cursor: index + 1 < state.members.length ? String(index + 1) : null,
       });
     }
-    if (tool === "weave_forge_read" && args.number === 10)
+    if (tool === "weave_forge_query" && args.action === "read" && args.number === 10)
       return state.arcFailed
         ? { status: "failed", code: "unavailable" }
         : success({
@@ -110,8 +110,8 @@ const makeHarness = Effect.gen(function* () {
         : [...items.values()].find((item) => item.id === args.itemId);
     if (found === undefined || state.failed.has(found.number))
       return { status: "failed", code: "unavailable" };
-    if (tool === "weave_forge_read") return success(found);
-    if (tool === "weave_forge_waits") return success([]);
+    if (tool === "weave_forge_query" && args.action === "read") return success(found);
+    if (tool === "weave_forge_query" && args.action === "waits") return success([]);
     return { status: "failed", code: "unexpected_tool" };
   };
   const threads = Layer.mock(ThreadManagementService.ThreadManagementService)({
@@ -158,7 +158,7 @@ it.effect(
       assert.strictEqual(weave.toolCalls.length, before);
       assert.isFalse(
         weave.toolCalls.some((call) =>
-          ["weave_forge_sessions", "weave_forge_list", "weave_forge_attempts"].includes(call.name),
+          ["sessions", "list", "attempts"].includes(String(call.args.action)),
         ),
       );
     }),

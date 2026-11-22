@@ -81,7 +81,7 @@ interface FakeItem {
   title: string;
   status: string;
   holds: Array<{ kind: string; note: string; clearedAt: string | null; openedAt?: string }>;
-  /** The waits Forge derives for it, as `weave_forge_waits` returns them. */
+  /** The waits Forge derives for it, as the `waits` read returns them. */
   waits: Array<{ required: "landed" | "accepted"; blocker: FakeItem }>;
   parentId?: string;
   /** The repository Forge says the item belongs to; an older Weave omits it. */
@@ -127,7 +127,7 @@ const makeHarness = Effect.gen(function* () {
   const attempts = new Map<string, unknown[]>();
   const acceptances = new Map<string, { acceptedAt: string }>();
   const add = (...added: FakeItem[]) => added.forEach((entry) => items.set(entry.number, entry));
-  /** When each item last changed, as `weave_forge_list` with `updatedSince` reports it. */
+  /** When each item last changed, as the `list` read with `updatedSince` reports it. */
   const updatedAt = new Map<number, string>();
   const changeCheck = { failing: false };
   /** An item saved now, as Forge stamps it. */
@@ -151,7 +151,7 @@ const makeHarness = Effect.gen(function* () {
     body: BODY,
   });
   harness.weave.tools.call = (name, args) => {
-    if (name === "weave_forge_list" && args.updatedSince !== undefined) {
+    if (name === "weave_forge_query" && args.action === "list" && args.updatedSince !== undefined) {
       if (changeCheck.failing) return { status: "failed", code: "unavailable" };
       const offset = Number(args.offset ?? 0);
       const limit = Number(args.limit ?? 20);
@@ -179,7 +179,7 @@ const makeHarness = Effect.gen(function* () {
         },
       };
     }
-    if (name === "weave_forge_list")
+    if (name === "weave_forge_query" && args.action === "list")
       return {
         status: "succeeded",
         value: [...items.values()]
@@ -187,12 +187,12 @@ const makeHarness = Effect.gen(function* () {
           .toSorted((a, b) => a.number - b.number)
           .map(viewOf),
       };
-    if (name === "weave_forge_sessions")
+    if (name === "weave_forge_query" && args.action === "sessions")
       return {
         status: "succeeded",
         value: sessions.filter((session) => session.specId === args.specId),
       };
-    if (name === "weave_forge_acceptance")
+    if (name === "weave_forge_query" && args.action === "acceptance")
       return { status: "succeeded", value: acceptances.get(String(args.specId)) ?? null };
     const found =
       args.itemId !== undefined
@@ -201,10 +201,11 @@ const makeHarness = Effect.gen(function* () {
           ? [...items.values()].find((entry) => entry.ref === args.ref)
           : items.get(Number(args.number));
     if (found === undefined) return { status: "failed", code: "build_item_unavailable" };
-    if (name === "weave_forge_read") return { status: "succeeded", value: viewOf(found) };
-    if (name === "weave_forge_attempts")
+    if (name === "weave_forge_query" && args.action === "read")
+      return { status: "succeeded", value: viewOf(found) };
+    if (name === "weave_forge_query" && args.action === "attempts")
       return { status: "succeeded", value: attempts.get(found.id) ?? [] };
-    if (name === "weave_forge_waits")
+    if (name === "weave_forge_query" && args.action === "waits")
       return {
         status: "succeeded",
         value: found.waits.map(({ required, blocker }) => ({
@@ -319,13 +320,13 @@ it.effect("reads the repository an item belongs to, and none when it cannot", ()
     assert.isTrue(Option.isNone(yield* service.projectOf("YS-12.x")));
     // Each answer is the item's own read, by number; an unreadable reference asks nothing.
     assert.deepStrictEqual(
-      weave.toolCalls.slice(before).map((call) => call.name),
-      ["weave_forge_read", "weave_forge_read", "weave_forge_read", "weave_forge_read"],
+      weave.toolCalls.slice(before).map((call) => `${call.name} ${String(call.args.action)}`),
+      Array(4).fill("weave_forge_query read"),
     );
   }),
 );
 
-it.effect("links by a friendly ref in any case with weave_forge_read {ref}", () =>
+it.effect("links by a friendly ref in any case with a Forge read {ref}", () =>
   Effect.gen(function* () {
     const { weave, service, add, thread } = yield* makeHarness;
     add({ ...item(1_000_078, "spec", "Show the Forge item", "in_progress"), ref: "YS-12" });
@@ -336,8 +337,13 @@ it.effect("links by a friendly ref in any case with weave_forge_read {ref}", () 
     yield* service.link({ threadId, reference: "YS-12.1" });
     assert.strictEqual(thread.workItem?.number, 1_000_079);
     assert.deepStrictEqual(
-      weave.toolCalls.filter((call) => call.name === "weave_forge_read").map((call) => call.args),
-      [{ ref: "YS-12" }, { ref: "YS-12.1" }],
+      weave.toolCalls
+        .filter((call) => call.name === "weave_forge_query" && call.args.action === "read")
+        .map((call) => call.args),
+      [
+        { action: "read", ref: "YS-12" },
+        { action: "read", ref: "YS-12.1" },
+      ],
     );
     const unknown = yield* service.link({ threadId, reference: "YS-99" }).pipe(Effect.flip);
     assert.strictEqual(unknown.reason, "not_found");
@@ -471,8 +477,8 @@ it.effect("resolves an Arc and shows it as an Arc, never as a Spec or a Ticket",
     // An Arc has no Tickets, delivery or lead session to read.
     assert.deepStrictEqual(
       weave.toolCalls
-        .map((call) => call.name)
-        .filter((name) => name === "weave_forge_attempts" || name === "weave_forge_list"),
+        .map((call) => call.args.action)
+        .filter((action) => action === "attempts" || action === "list"),
       [],
     );
 
@@ -541,7 +547,8 @@ const makeChangeCheckHarness = Effect.gen(function* () {
     Effect.forEach(shown, (entry) => service.mentions({ threadId, numbers: [entry.number] }), {
       concurrency: 1,
     });
-  const calls = (name: string) => weave.toolCalls.filter((call) => call.name === name).length;
+  const calls = (action: string) =>
+    weave.toolCalls.filter((call) => call.args.action === action).length;
   yield* views();
   return { ...harness, blocker, waiter, others, views, calls };
 });
@@ -555,7 +562,7 @@ it.effect("an idle view makes one change check a minute and reads no item", () =
       yield* TestClock.adjust(60_000);
       yield* views();
       yield* views();
-      assert.strictEqual(calls("weave_forge_list"), minute);
+      assert.strictEqual(calls("list"), minute);
     }
     assert.strictEqual(buildReads(), reads);
   }),
@@ -622,7 +629,7 @@ it.effect("rereads every shown item when more changed than the check pages throu
     yield* TestClock.adjust(60_000);
     const before = buildReads();
     yield* views();
-    assert.strictEqual(calls("weave_forge_list"), 5);
+    assert.strictEqual(calls("list"), 5);
     assert.strictEqual(buildReads() - before, 10);
   }),
 );
@@ -639,7 +646,7 @@ it.effect("rereads an unchanged item once the safety refresh lapses", () =>
     yield* TestClock.adjust(60_000);
     yield* views();
     assert.strictEqual(buildReads() - before, 10);
-    assert.strictEqual(calls("weave_forge_list"), 30);
+    assert.strictEqual(calls("list"), 30);
   }),
 );
 
@@ -776,8 +783,12 @@ it.effect("one observer reads for the environment until it disconnects", () =>
   Effect.gen(function* () {
     const { weave, connections } = yield* makeHarness;
     yield* connections.connect({ origin, delegation });
-    yield* connections.observe("weave_forge_read", { number: 1 }).pipe(Effect.ignore);
-    yield* connections.observe("weave_forge_read", { number: 1 }).pipe(Effect.ignore);
+    yield* connections
+      .observe("weave_forge_query", { action: "read", number: 1 })
+      .pipe(Effect.ignore);
+    yield* connections
+      .observe("weave_forge_query", { action: "read", number: 1 })
+      .pipe(Effect.ignore);
     assert.strictEqual(weave.agents.length, 1);
 
     yield* connections.disconnect;

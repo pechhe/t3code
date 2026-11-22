@@ -366,7 +366,8 @@ const make = Effect.gen(function* () {
     let content = "";
     let cursor: string | null = null;
     do {
-      const read = yield* weave.observe("weave_forge_runs", {
+      const read = yield* weave.observe("weave_forge_query", {
+        action: "runs",
         specId,
         entry: stub.value.index,
         ...(cursor === null ? {} : { cursor }),
@@ -384,16 +385,23 @@ const make = Effect.gen(function* () {
     const runs: ForgeRun[] = [];
     let offset: number | null = 0;
     while (offset !== null) {
-      const read = yield* weave.observe("weave_forge_runs", { specId, limit: 100, offset });
+      const read = yield* weave.observe("weave_forge_query", {
+        action: "runs",
+        specId,
+        limit: 100,
+        offset,
+      });
       const page = decodeRunsPage(read.value);
       if (Option.isNone(page)) return yield* Effect.fail("unreadable");
       for (const item of page.value.items) runs.push(yield* readRun(specId, item));
       offset = page.value.hasMore ? page.value.nextOffset : null;
     }
     const attempts = decodeAttempts(
-      (yield* weave.observe("weave_forge_attempts", { itemId: specId })).value,
+      (yield* weave.observe("weave_forge_query", { action: "attempts", itemId: specId })).value,
     );
-    const notes = decodeNotes((yield* weave.observe("weave_forge_agent_notes", { specId })).value);
+    const notes = decodeNotes(
+      (yield* weave.observe("weave_forge_query", { action: "agent_notes", specId })).value,
+    );
     if (Option.isNone(attempts) || Option.isNone(notes)) return yield* Effect.fail("unreadable");
     return {
       runs,

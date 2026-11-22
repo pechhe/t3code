@@ -53,14 +53,17 @@ const make = Effect.gen(function* () {
   return WeaveRepositories.of({
     listRepositories: Effect.fn("WeaveRepositories.listRepositories")(
       function* () {
-        const result = yield* weave.observe("weave_forge_repository_list", {});
+        const result = yield* weave.observe("weave_forge_query", { action: "repository_list" });
         return yield* decodeRepositories(result.value);
       },
       Effect.mapError((cause) => new WeaveRepositoryError({ operation: "list", cause })),
     ),
     setRepository: Effect.fn("WeaveRepositories.setRepository")(
       function* (input) {
-        const result = yield* weave.observe("weave_forge_repository_set", { ...input });
+        const result = yield* weave.observe("weave_forge_repository", {
+          action: "repository_set",
+          ...input,
+        });
         return yield* decodeRepository(result.value);
       },
       Effect.mapError((cause) => new WeaveRepositoryError({ operation: "set", cause })),

@@ -584,7 +584,7 @@ const makeForgeHarness = Effect.gen(function* () {
   const weave = Layer.mock(WeaveAgentConnections.WeaveAgentConnections)({
     read: Effect.succeed(connection),
     observe: (tool, args) =>
-      tool === "weave_forge_list"
+      args.action === "list"
         ? // The change check: the item counts as saved when the check first sees it differ.
           Clock.currentTimeMillis.pipe(
             Effect.map((now) => {
@@ -609,7 +609,7 @@ const makeForgeHarness = Effect.gen(function* () {
             }),
           )
         : Effect.sync(() => {
-            if (tool === "weave_forge_waits") {
+            if (args.action === "waits") {
               state.waits++;
               return {
                 ...connection,
