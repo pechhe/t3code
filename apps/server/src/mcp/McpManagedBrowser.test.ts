@@ -19,12 +19,8 @@ import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
 import * as McpToolAccessTestkit from "./McpToolAccess.testkit.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
-import { MANAGED_BROWSER_TOOL_NAMES } from "./toolkits/managedBrowser/toolNames.ts";
-import { BOUNDED_BROWSER_TOOL_NAMES } from "./toolkits/boundedBrowser/toolNames.ts";
-import {
-  ManagedBrowserSnapshotToolkit,
-  ManagedBrowserToolkit,
-} from "./toolkits/managedBrowser/tools.ts";
+import { MANAGED_BROWSER_TOOL_NAMES } from "./toolkits/browser/toolNames.ts";
+import { BrowserSnapshotToolkit, BrowserToolkit } from "./toolkits/browser/tools.ts";
 import * as BrowserLogins from "../secrets/BrowserLogins.ts";
 import * as DeviceService from "../device/DeviceService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
@@ -163,20 +159,14 @@ const listTools = (path: string, token: string) =>
 it("lists exactly the managed browser tools the adapters pre-approve", () => {
   const toolkit = [
     ...Object.keys(DecisionToolkit.tools),
-    ...Object.keys(ManagedBrowserToolkit.tools),
-    ...Object.keys(ManagedBrowserSnapshotToolkit.tools),
+    ...Object.keys(BrowserToolkit.tools).filter((name) => name !== "browser_task"),
+    ...Object.keys(BrowserSnapshotToolkit.tools),
     ...Object.keys(DeviceStandardToolkit.tools),
     "device_screenshot",
   ];
   expect([...toolkit].sort()).toEqual([...MANAGED_BROWSER_TOOL_NAMES].sort());
-  // Nothing that runs page code, shells out, or reaches T3 state is among them.
-  for (const forbidden of [
-    "preview_evaluate",
-    "preview_upload",
-
-    "delegate_task",
-    "t3_thread_send",
-  ])
+  // Nothing that shells out or reaches T3 state is among them; page code is refused per step.
+  for (const forbidden of ["preview_evaluate", "preview_upload", "delegate_task", "t3_thread_send"])
     expect(MANAGED_BROWSER_TOOL_NAMES).not.toContain(forbidden);
 });
 
@@ -218,6 +208,7 @@ it.effect("serves a managed browser task only the narrow endpoint, and only its 
       expect([...mine.names].sort()).toEqual([...withoutDevices].sort());
       expect(deviceTools).toHaveLength(4);
 
+      // Outside the session endpoints, `/mcp` keeps upstream's preview tools.
       const general = yield* listTools("/mcp", tokens.general);
       expect(general.status).toBe(200);
       expect(general.names).toContain("preview_evaluate");
@@ -243,19 +234,16 @@ it.effect("serves a managed browser task only the narrow endpoint, and only its 
 
       // A browser task granted bounded tasks lists them beside its own browser, and nothing else.
       const bounded = yield* listTools("/mcp/browser", tokens.bounded);
-      expect([...bounded.names].sort()).toEqual(
-        [...withoutDevices, ...BOUNDED_BROWSER_TOOL_NAMES].sort(),
-      );
-      expect(mine.names.some((name) => name.startsWith("t3_browser_"))).toBe(false);
-      expect(bounded.descriptions.get("t3_browser_open")).toContain(
+      expect([...bounded.names].sort()).toEqual([...withoutDevices, "browser_task"].sort());
+      expect(mine.names).not.toContain("browser_task");
+      expect(bounded.descriptions.get("browser_open")).toContain(
         McpToolAccessTestkit.HEADLESS_OPEN,
       );
-      expect(bounded.descriptions.get("preview_open")).toContain(McpToolAccessTestkit.SETTING_OPEN);
 
       // A tool listed earlier is refused when called without the grant: listing grants nothing.
       const call = yield* openSession("/mcp/browser", tokens.managed);
       const refused = yield* call(
-        `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"t3_browser_open","arguments":{}}}`,
+        `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"browser_task","arguments":{}}}`,
       );
       expect(refused).not.toContain('"tabId"');
       expect(refused).toMatch(/not available to this session|not found|Unknown tool/i);

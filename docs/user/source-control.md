@@ -364,7 +364,7 @@ A thread can hold several pull requests, including reviews from another reposito
 Use **Link pull request** in the command palette or **Linked items** panel, or right-click a
 pull request link in the conversation. Creating a pull request from Git actions links it automatically,
 and so does an agent creating one with `gh pr create` or `glab mr create`. Agents can link other
-pull requests with the `link_pull_request` tool.
+pull requests with the `link_pull_requests` tool.
 
 Agents can also read, open, update, reply on, and merge pull requests in the thread's repository
 through T3 Code's own tools, which use the same sign-in as the Pull requests page. An agent merges

@@ -63,9 +63,9 @@ import { buildCodexAdditionalContext } from "../../apps/server/src/provider/Code
 import { makeSideChatContext } from "../../apps/server/src/orchestration-v2/ContextHandoffService.ts";
 import { withInlineContext } from "../../apps/server/src/orchestration-v2/ContextHandoffDelivery.ts";
 import {
-  BoundedBrowserToolkit,
-  BoundedBrowserSnapshotToolkit,
-} from "../../apps/server/src/mcp/toolkits/boundedBrowser/tools.ts";
+  BrowserSnapshotToolkit,
+  BrowserToolkit,
+} from "../../apps/server/src/mcp/toolkits/browser/tools.ts";
 import { AttachmentToolkit } from "../../apps/server/src/mcp/toolkits/attachment/tools.ts";
 import { CHAMPION_MEASUREMENT_GUIDANCE } from "../../apps/server/src/champions/measurementGuidance.ts";
 import { ChampionsToolkit } from "../../apps/server/src/mcp/toolkits/champions/tools.ts";
@@ -485,8 +485,8 @@ export const normalizeToolInput = (name: string, input: unknown) => {
 // description, and schema through unchanged.
 const t3SourceTools: ReadonlyArray<Tool.Any> = [
   OrchestratorToolkit,
-  BoundedBrowserToolkit,
-  BoundedBrowserSnapshotToolkit,
+  BrowserToolkit,
+  BrowserSnapshotToolkit,
   ThreadToolkit,
   AttachmentToolkit,
   ProjectToolkit,

@@ -686,9 +686,7 @@ describe.skipIf(browserPath === null)("browser tasks", () => {
               updateCurrentTab: false,
             })
             .pipe(Effect.flip);
-          expect(inspectFirst.message).toContain(
-            "Take a snapshot (preview_snapshot or t3_browser_snapshot)",
-          );
+          expect(inspectFirst.message).toContain("Take a snapshot (browser_snapshot)");
           const status = yield* broker.invoke<PreviewAutomationStatus>({
             scope,
             tabId,
@@ -1081,7 +1079,7 @@ describe.skipIf(browserPath === null)("browser tasks", () => {
             }),
           });
           expect(captured.status).toBe("passed");
-          expect(captured.continuation.guidance).toContain("t3_browser_");
+          expect(captured.continuation.guidance).toContain("browser_snapshot");
           const bytes = NodeFS.readFileSync(captured.artifact!.path);
           expect(bytes.subarray(1, 4).toString()).toBe("PNG");
           expect(fixture.decisions).toHaveLength(0);

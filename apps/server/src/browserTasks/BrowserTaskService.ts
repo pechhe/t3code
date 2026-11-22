@@ -324,11 +324,11 @@ const toResult = (record: RunRecord, replayed: boolean): PreviewTaskResult => ({
 
 const CONTINUATION = {
   ready:
-    "The tab is yours: send another bounded t3_browser_task, take t3_browser_snapshot, or t3_browser_close it.",
+    "The tab is yours: send another bounded browser_task, take browser_snapshot, or browser_close it.",
   "inspect-first":
-    "An action may have taken effect. Take t3_browser_snapshot first; send a new bounded request only after reading the page, and do not assume repeating the action is safe.",
+    "An action may have taken effect. Take browser_snapshot first; send a new bounded request only after reading the page, and do not assume repeating the action is safe.",
   unavailable:
-    "The tab is gone. Open a new tab with t3_browser_open and read the page before repeating anything.",
+    "The tab is gone. Open a new tab with browser_open and read the page before repeating anything.",
 } as const;
 
 /** Key order must not make an identical repeat look like a conflict. */
@@ -639,7 +639,7 @@ export const layer = Layer.effect(
             Effect.flatMap((status) =>
               status.tabId === tabId && status.control?.ownedByCaller === true
                 ? Effect.void
-                : Effect.fail(denied("Run a task only on a tab you own, from t3_browser_open.")),
+                : Effect.fail(denied("Run a task only on a tab you own, from browser_open.")),
             ),
           ),
       port: (scope, tabId, lease) => {

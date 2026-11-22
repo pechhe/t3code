@@ -255,7 +255,7 @@ function projectForPullRequest(
   return projects.find(matches);
 }
 
-const make = Effect.gen(function* () {
+export const make = Effect.gen(function* () {
   const engine = yield* Orchestrator.OrchestratorV2;
   const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
   const watches = yield* PullRequestWatchService.PullRequestWatchService;

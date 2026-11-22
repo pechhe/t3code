@@ -16,8 +16,8 @@ export const DELEGATING_CHILD_SECTION = `- Do the work yourself unless delegatin
 /** Only for a child whose listing carries the html tools. */
 export const T3_CODE_CHILD_HTML_SECTION = `- When a chart, table, diagram, image collage or mockup says more than prose, call \`html_preview\` to check it and then \`html_render\` to show it in the thread above your reply. Never restate what the page says.`;
 
-/** Only for a child whose listing carries the preview family. */
-export const T3_CODE_CHILD_PREVIEW_SECTION = `- The \`preview_*\` tools are T3's own browser for this thread: \`preview_status\` first, then \`preview_open\`, \`preview_navigate\`, \`preview_snapshot\` and the interaction tools, preferring snapshot locators over coordinates. Do not reach for Playwright, agent-browser or a shell browser while they work; a job that needs a script (loops, page code, in-page timings) runs it with \`t3 browser run <file>\` (see its \`--help\`).`;
+/** Only for a browser agent's child text. */
+export const T3_CODE_CHILD_PREVIEW_SECTION = `- The \`browser_*\` tools are T3's own browser for this task: \`browser_open\` a tab, \`browser_snapshot\` it, \`browser_act\` with snapshot locators rather than coordinates, \`browser_close\` it. Do not reach for Playwright, agent-browser or a shell browser while they work; a job that needs a script (loops, page code, in-page timings) runs it with \`t3 browser run <file>\` (see its \`--help\`).`;
 
 /**
  * The child text, with the visuals and browser guidance only where the child's

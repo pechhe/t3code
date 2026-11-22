@@ -53,25 +53,55 @@ describe("web research tools", () => {
   });
 });
 
-describe("bounded browser tools", () => {
-  it("keeps them apart from the preview family, with every editor listing them", () => {
-    for (const name of ["t3_browser_open", "t3_browser_task", "t3_browser_snapshot"]) {
-      expect(toolFamily(name)).toBe("bounded-browser");
+describe("browser tools", () => {
+  it("lists one browser family to editors, readers and browser agents, never to web readers", () => {
+    for (const name of ["browser_open", "browser_act", "browser_task", "browser_snapshot"]) {
+      expect(toolFamily(name)).toBe("browser");
       expect(isToolListedForSession(name, undefined)).toBe(true);
       expect(isToolListedForSession(name, worker)).toBe(true);
+      expect(isToolListedForSession(name, reader)).toBe(true);
       expect(isToolListedForSession(name, { toolProfile: "web-research", readOnly: true })).toBe(
         false,
       );
     }
-    expect(SESSION_TOOL_ENDPOINTS.reader.families.has("bounded-browser")).toBe(true);
+    // A reviewer's browser is headless and bounded: nothing it can hand to the user.
+    expect(isToolListedForSession("browser_handoff", reader)).toBe(false);
+  });
+});
+
+describe("consolidated tools", () => {
+  it("lists none of the tools a consolidated tool replaced on any session endpoint", () => {
+    for (const name of [
+      "preview_open",
+      "preview_interact",
+      "t3_preview_list",
+      "t3_browser_open",
+      "t3_browser_task_cancel",
+      "create_threads",
+      "t3_thread_organize",
+      "t3_thread_configure",
+      "t3_thread_transfer",
+      "t3_thread_move_to_project",
+      "t3_thread_suggest_project",
+      "link_pull_request",
+      "unlink_pull_request",
+    ]) {
+      expect(toolFamily(name), name).toBe("superseded");
+      for (const endpoint of Object.values(SESSION_TOOL_ENDPOINTS))
+        expect(endpoint.families.has(toolFamily(name))).toBe(false);
+    }
+    // `t3 browser run`'s own lane keeps its names.
+    expect(toolFamily("t3_browser_run_open")).not.toBe("superseded");
+    for (const name of ["t3_thread_update", "t3_thread_launch", "link_pull_requests"])
+      expect(isToolListedForSession(name, worker)).toBe(true);
   });
 });
 
 describe("browser role tools", () => {
-  it("lists the device tools beside preview for a browser task, and for a task bound as the retired ui-verifier", () => {
+  it("lists the device tools beside the browser for a browser task, and for a task bound as the retired ui-verifier", () => {
     for (const agentRole of ["browser", "ui-verifier"] as const) {
       const session = { toolProfile: "phi" as const, agentRole, readOnly: true };
-      expect(isToolListedForSession("preview_open", session)).toBe(true);
+      expect(isToolListedForSession("browser_open", session)).toBe(true);
       expect(isToolListedForSession("device_list", session)).toBe(true);
       expect(isToolListedForSession("t3_thread_launch", session)).toBe(false);
     }

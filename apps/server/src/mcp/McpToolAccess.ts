@@ -645,6 +645,58 @@ export const either = <P, A, E, R, A2, E2, R2>(
   );
 };
 
+/** Runs another declaration's handler, with that declaration's own checks. */
+export type RunDeclaration = <Q, B, F, S>(
+  declaration: Declaration<(params: Q) => Effect.Effect<B, F, S>>,
+  params: Q,
+) => Effect.Effect<B, F, S>;
+
+const runDeclaration: RunDeclaration = (declaration, params) => checkedHandler(declaration)(params);
+
+/**
+ * A tool made of other tools' declarations, such as a batch of browser steps: each runs with its
+ * own checks, as if called alone. It acts as the calling thread.
+ */
+export const composed = <P, A, E, R>(
+  handle: (params: P, run: RunDeclaration) => Effect.Effect<A, E, R>,
+) => declare((params: P) => handle(params, runDeclaration), undefined);
+
+/** Which declaration a call of a `dispatches` tool goes to, and the input it takes. */
+export interface Dispatch<A, E, R> {
+  readonly declaration: Declaration<(params: never) => Effect.Effect<A, E, R>>;
+  readonly params: unknown;
+}
+
+/**
+ * One tool standing for several: each call goes to the declaration `pick` names, with its checks,
+ * and a call bound for a linked environment is checked as that declaration checks it there.
+ */
+export const dispatches = <P, A, E, R>(
+  pick: (params: P) => Effect.Effect<Dispatch<A, E, R>, OrchestratorMcpFailure>,
+) =>
+  declare(
+    (params: P) =>
+      pick(params).pipe(
+        Effect.flatMap(({ declaration, params: input }) =>
+          checkedHandler(declaration)(input as never),
+        ),
+      ),
+    (params: P) =>
+      pick(params).pipe(
+        Effect.flatMap(
+          ({ declaration, params: input }) =>
+            (remoteCheckOf(declaration) as RemoteCheck<unknown> | undefined)?.(input) ??
+            Effect.fail(
+              new OrchestratorMcpFailure({
+                code: "invalid_request",
+                message:
+                  "This action acts as the calling thread, which is here. Omit environmentId.",
+              }),
+            ),
+        ),
+      ),
+  );
+
 const preparations = new WeakMap<
   object,
   (params: object) => Effect.Effect<object, OrchestratorMcpFailure>

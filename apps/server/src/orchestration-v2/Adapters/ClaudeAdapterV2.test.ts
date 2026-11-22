@@ -91,7 +91,6 @@ import * as ServerConfig from "../../config.ts";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
 import { T3_CODE_DEVICE_TOOL_INSTRUCTIONS_WITH_TOOL_SEARCH } from "@t3tools/provider-core/server/orchestrationInstructions";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
-import { PreviewControlsToolkit } from "../../mcp/toolkits/previewControls/tools.ts";
 import { HtmlToolkit } from "../../mcp/toolkits/html/tools.ts";
 import { PROVIDER_TEXT_FLUSH_INTERVAL_MS } from "./ProviderTextDeltaCoalescer.ts";
 import { MessageToolkit } from "../../mcp/toolkits/message/tools.ts";
@@ -741,7 +740,7 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
   });
 
   it("adds the bounded tools to a managed browser task granted them", () => {
-    // A UI worker keeps its browser's tools and adds the bounded ones.
+    // A UI worker keeps its browser's tools and adds the bounded task.
     const uiWorker = ClaudeAdapterV2.claudeMcpQueryOverrides({
       mcpSession: {
         ...mcpSessionFor(ThreadId.make("thread-claude-mcp-bounded-ui")),
@@ -754,7 +753,7 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
     });
     assert.deepEqual(uiWorker.allowedTools, [
       ...ClaudeAdapterV2.CLAUDE_MANAGED_BROWSER_MCP_ALLOWED_TOOLS,
-      ...ClaudeAdapterV2.CLAUDE_BOUNDED_BROWSER_MCP_ALLOWED_TOOLS,
+      "mcp__t3-code__browser_task",
     ]);
   });
 
@@ -810,7 +809,6 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
       ...Object.values(ProjectToolkit.tools),
       ...Object.values(EnvironmentToolkit.tools),
       ...Object.values(ThemeToolkit.tools),
-      ...Object.values(PreviewControlsToolkit.tools),
       ...Object.values(HtmlToolkit.tools),
       ...Object.values(MessageToolkit.tools),
     ]

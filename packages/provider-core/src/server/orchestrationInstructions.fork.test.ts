@@ -9,7 +9,7 @@ describe("T3 orchestration provider instructions", () => {
     assert.include(T3_CODE_ORCHESTRATION_INSTRUCTIONS, "call `agent_roles`");
     assert.include(T3_CODE_ORCHESTRATION_INSTRUCTIONS, "multi-model roles require a choice");
     assert.include(T3_CODE_ORCHESTRATION_INSTRUCTIONS, "ordinary top-level T3 conversations");
-    assert.include(T3_CODE_ORCHESTRATION_INSTRUCTIONS, "Never use them merely");
+    assert.include(T3_CODE_ORCHESTRATION_INSTRUCTIONS, "Never use it merely");
     assert.include(T3_CODE_ORCHESTRATION_INSTRUCTIONS, "cross-provider");
     assert.include(
       T3_CODE_ORCHESTRATION_INSTRUCTIONS,

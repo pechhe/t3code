@@ -22,7 +22,7 @@ export interface McpProviderSessionConfig {
    */
   readonly managedBrowser?: boolean;
   /**
-   * The session may run bounded `t3_browser_*` tasks: every editor while its project allows them,
+   * The session may run bounded `browser_task` jobs: every editor while its project allows them,
    * and a read-only task whose role policy grants them.
    */
   readonly boundedBrowser?: boolean;

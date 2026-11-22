@@ -20,7 +20,7 @@ import {
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as DecisionRouter from "../decisionRouting/DecisionRouter.ts";
 import * as BrowserTaskService from "../browserTasks/BrowserTaskService.ts";
-import { BOUNDED_BROWSER_TOOL_NAMES } from "./toolkits/boundedBrowser/toolNames.ts";
+import { BOUNDED_BROWSER_TOOL_NAMES } from "./toolkits/browser/toolNames.ts";
 import * as Champions from "../champions/ChampionService.ts";
 import * as WebResearch from "./WebResearch.ts";
 import { expect, it } from "@effect/vitest";
@@ -175,11 +175,11 @@ const listedTools = (
   );
 
 /** The tool groups agent-config's role policy hides from a Pi run. */
-const HIDDEN_TOOLS = ["*pull_request*", "t3_work_*", "create_threads"];
+const HIDDEN_TOOLS = ["*pull_request*", "t3_work_*", "t3_thread_launch"];
 
 /** Whether `name` is one of the tools the three patterns cover. */
 const coveredByHiddenTools = (name: string) =>
-  /pull_request/u.test(name) || name.startsWith("t3_work_") || name === "create_threads";
+  /pull_request/u.test(name) || name.startsWith("t3_work_") || name === "t3_thread_launch";
 
 const contextServices = Layer.mergeAll(
   ContextDocumentText.layer.pipe(Layer.provide(NodeServices.layer)),
@@ -202,17 +202,20 @@ const listedToolNames = (
     Effect.map((tools) => tools.map((tool) => tool.name).toSorted()),
   );
 
-it.effect("says on every endpoint which open tool is headless and which follows the setting", () =>
+it.effect("lists one browser family on every endpoint that browses, and none of the old ones", () =>
   Effect.gen(function* () {
     for (const key of Object.keys(SESSION_TOOL_ENDPOINTS) as Array<SessionEndpointKey>) {
       const tools = yield* listedTools(key);
-      for (const [name, sentence] of [
-        ["t3_browser_open", McpToolAccessTestkit.HEADLESS_OPEN],
-        ["preview_open", McpToolAccessTestkit.SETTING_OPEN],
-      ] as const) {
-        const tool = tools.find((candidate) => candidate.name === name);
-        if (tool !== undefined) expect(tool.description, `${key} ${name}`).toContain(sentence);
-      }
+      const names = tools.map((tool) => tool.name);
+      expect(
+        names.filter((name) => /^(preview_|t3_preview_|t3_browser_)/u.test(name)),
+        key,
+      ).toEqual([]);
+      const open = tools.find((candidate) => candidate.name === "browser_open");
+      expect(open !== undefined, key).toBe(key !== "research");
+      if (open === undefined) continue;
+      expect(open.description).toContain(McpToolAccessTestkit.HEADLESS_OPEN);
+      expect(open.description).toContain(McpToolAccessTestkit.SETTING_OPEN);
     }
   }).pipe(
     Effect.provide(
@@ -237,7 +240,8 @@ it.effect("registers only the tool families each session endpoint declares", () 
         ),
         key,
       ).toEqual([]);
-      expect(names.includes("t3_browser_task"), key).toBe(key === "editor" || key === "reader");
+      // Registered wherever the browser is; only a credential granted bounded tasks lists it.
+      expect(names.includes("browser_task"), key).toBe(key !== "research");
     }
   }).pipe(
     Effect.provide(
@@ -253,16 +257,27 @@ it.effect("gives an editor every toolkit, including what used to be workspace-on
     expect(names).toEqual(
       expect.arrayContaining([
         "t3_worktree_handoff",
-        "create_threads",
-        "t3_thread_move_to_project",
+        "t3_thread_update",
+        "t3_thread_launch",
+        "link_pull_requests",
         "list_thread_pull_requests",
         "t3_terminal_read",
         "t3_attachment_prepare_upload",
-        "preview_open",
+        "browser_handoff",
         "device_open",
         ...BOUNDED_BROWSER_TOOL_NAMES,
       ]),
     );
+    // One tool each for launching, changing a thread and linking pull requests.
+    for (const retired of [
+      "create_threads",
+      "t3_thread_move_to_project",
+      "t3_thread_organize",
+      "link_pull_request",
+      "unlink_pull_request",
+    ])
+      expect(names).not.toContain(retired);
+    expect(names.filter((name) => name === "t3_thread_update")).toHaveLength(1);
   }).pipe(
     Effect.provide(
       Layer.merge(contextServices, Layer.mock(FixtureRemoteDelegation.RemoteDelegation)({})),
@@ -590,14 +605,14 @@ it.effect("refuses a hidden tool to a script that knows its name", () =>
       });
       expect(found(byName.result!.structuredContent as never)).not.toContain("t3_work_enroll");
       // Nor can a script that already knows the name call one.
-      const called = yield* rpc("tools/call", { name: "link_pull_request", arguments: {} });
+      const called = yield* rpc("tools/call", { name: "link_pull_requests", arguments: {} });
       expect(called.error!.message).toContain("not found");
       const scripted = yield* rpc("tools/call", {
         name: "call_mcp_tool",
-        arguments: { name: "link_pull_request", arguments: {} },
+        arguments: { name: "link_pull_requests", arguments: {} },
       });
       expect(scripted.error!.message).toContain("not found");
-      const started = yield* rpc("tools/call", { name: "create_threads", arguments: {} });
+      const started = yield* rpc("tools/call", { name: "t3_thread_launch", arguments: {} });
       expect(started.error!.message).toContain("not found");
       // A tool the policy leaves alone still answers.
       const kept = yield* rpc("tools/call", {

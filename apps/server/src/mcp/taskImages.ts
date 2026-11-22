@@ -5,7 +5,7 @@ import { McpSchema } from "effect/ai";
 
 import { inlineCopyPath } from "../preview/browserArtifacts.ts";
 
-export const TASK_IMAGE_TOOLS: ReadonlySet<string> = new Set(["t3_browser_task"]);
+export const TASK_IMAGE_TOOLS: ReadonlySet<string> = new Set(["browser_task"]);
 /** Adapters that accept image tool results; providers replay images later, and some reject them. */
 const IMAGE_RESULT_DRIVERS: ReadonlySet<string> = new Set(["claudeAgent", "codex"]);
 

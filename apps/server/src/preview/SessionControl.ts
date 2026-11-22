@@ -23,7 +23,7 @@ export class BrowserTaskLeaseHeld extends Schema.TaggedError<BrowserTaskLeaseHel
     message: Schema.String.pipe(
       Schema.withConstructorDefault(
         Effect.succeed(
-          "A bounded browser task holds this tab. Read preview_status, wait for it to finish, or cancel it.",
+          "A bounded browser task holds this tab. Read browser_status, wait for it to finish, or stop it with browser_close.",
         ),
       ),
     ),

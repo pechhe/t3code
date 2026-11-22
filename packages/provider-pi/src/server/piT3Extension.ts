@@ -2,10 +2,7 @@
 // ships it; see fork/differences.md for which of its changes to port here.
 // No T3 imports inside the string; resolve Pi from the user's Pi install.
 import { PULL_REQUEST_LINKING_INSTRUCTIONS } from "@t3tools/provider-core/server/runtimeInstructions";
-import {
-  T3_CODE_ORCHESTRATION_INSTRUCTIONS,
-  t3OrchestrationText,
-} from "@t3tools/provider-core/server/orchestrationInstructions";
+import { T3_CODE_ORCHESTRATION_INSTRUCTIONS } from "@t3tools/provider-core/server/orchestrationInstructions";
 import { t3ChildInstructions } from "@t3tools/provider-core/server/delegatedChildInstructions";
 
 import {
@@ -77,7 +74,6 @@ const EXTENSION_PATH_ENV = ${JSON.stringify(T3_PI_MCP_EXTENSION_PATH_ENV)};
 const READ_ONLY_SHELL_FILENAME = ${JSON.stringify(PI_READ_ONLY_SHELL_FILENAME)};
 ${PI_READ_ONLY_SHELL_EXTENSION_SOURCE}
 const ORCHESTRATION_INSTRUCTIONS = ${JSON.stringify(T3_CODE_ORCHESTRATION_INSTRUCTIONS.trim())};
-const ORCHESTRATION_WITHOUT_CREATE_THREADS = ${JSON.stringify(t3OrchestrationText(false, { createThreads: false }).trim())};
 const PULL_REQUEST_LINKING_INSTRUCTIONS = ${JSON.stringify(PULL_REQUEST_LINKING_INSTRUCTIONS)};
 const SERVICE_TIER_COMMAND = ${JSON.stringify(PI_T3_SERVICE_TIER_COMMAND)};
 const PROTOCOL = "2025-06-18";
@@ -788,9 +784,7 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
       ? options?.contextFiles?.map((file) => ({ path: file.path, characters: file.content.length })) ?? [] : [];
     promptSkills = options?.forceSystemPrompt === undefined
       ? options?.skills?.map((skill) => ({ name: skill.name, path: skill.filePath })) ?? [] : [];
-    const instructions = (process.env[INSTRUCTIONS_ENV] ??
-      (pi.getAllTools().some((tool) => tool.name === "mcp__t3_code__create_threads")
-        ? ORCHESTRATION_INSTRUCTIONS : ORCHESTRATION_WITHOUT_CREATE_THREADS)) + (!helper && !env(NO_PR_LINKING_ENV) ? "\\n\\n" + PULL_REQUEST_LINKING_INSTRUCTIONS : "");
+    const instructions = (process.env[INSTRUCTIONS_ENV] ?? ORCHESTRATION_INSTRUCTIONS) + (!helper && !env(NO_PR_LINKING_ENV) ? "\\n\\n" + PULL_REQUEST_LINKING_INSTRUCTIONS : "");
     const sections = event.systemPromptOptions?.sections;
     if (sections && typeof sections === "object" && event.systemPromptOptions?.forceSystemPrompt === undefined) {
       // A full prompt override bypasses Pi's later section rendering.

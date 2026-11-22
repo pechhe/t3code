@@ -166,7 +166,7 @@ export interface McpInvocationScope {
   readonly taskBrowser?: import("@t3tools/contracts").AgentTaskBrowser;
   /**
    * Minted for a thread that may run bounded browser tasks (`ManagedBrowserAccess.ts`). It lists
-   * the `t3_browser_*` tools; each call still rechecks the live thread, task and project.
+   * the `browser_task` tool; each call still rechecks the live thread, task and project.
    */
   readonly boundedBrowser?: true;
   /**
@@ -281,9 +281,23 @@ export const hiddenFromOutsideClients = (): boolean => {
   return scope === undefined || scope.thread !== undefined;
 };
 
+/**
+ * `McpSchema.EnabledWhen` for the browser tools: every thread, except that a read-only session has
+ * a browser only when its task was granted bounded browser tasks.
+ */
+export const listsBrowserTools = (): boolean => {
+  const fiber = Fiber.getCurrent();
+  const scope = fiber && Context.getOrUndefined(fiber.context, McpInvocationContext);
+  return (
+    hiddenFromOutsideClients() &&
+    (scope === undefined || scope.endpointKey !== "reader" || scope.boundedBrowser === true)
+  );
+};
+
 /** A thread-bound tool's listing: each of these hides it from outside clients. */
 export const isThreadBoundListing = (enabledWhen: unknown): boolean =>
   enabledWhen === hiddenFromOutsideClients ||
+  enabledWhen === listsBrowserTools ||
   enabledWhen === listsDeviceTools ||
   enabledWhen === listsBoundedBrowser;
 

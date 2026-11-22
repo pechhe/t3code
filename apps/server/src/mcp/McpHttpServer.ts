@@ -117,17 +117,17 @@ import * as ThreadDirectory from "../peers/ThreadDirectory.ts";
 import * as OrchestratorHandlers from "./toolkits/orchestrator/handlers.ts";
 import { OrchestratorToolkit } from "./toolkits/orchestrator/tools.ts";
 import * as PreviewHandlers from "./toolkits/preview/handlers.ts";
-import * as ManagedBrowserHandlers from "./toolkits/managedBrowser/handlers.ts";
-import * as BoundedBrowserHandlers from "./toolkits/boundedBrowser/handlers.ts";
+import * as BrowserHandlers from "./toolkits/browser/handlers.ts";
+import * as ThreadUpdateHandlers from "./toolkits/threadUpdate/handlers.ts";
+import { ThreadUpdateToolkit } from "./toolkits/threadUpdate/tools.ts";
 import * as BrowserRunHandlers from "./toolkits/browserRun/handlers.ts";
 import { BrowserRunSnapshotToolkit, BrowserRunToolkit } from "./toolkits/browserRun/tools.ts";
 import * as BrowserRuns from "../browserRuns/BrowserRuns.ts";
 import {
-  BoundedBrowserSnapshotTool,
-  BoundedBrowserSnapshotToolkit,
-  BoundedBrowserToolkit,
-} from "./toolkits/boundedBrowser/tools.ts";
-import { ManagedBrowserToolkit } from "./toolkits/managedBrowser/tools.ts";
+  BrowserSnapshotTool,
+  BrowserSnapshotToolkit,
+  BrowserToolkit,
+} from "./toolkits/browser/tools.ts";
 import {
   PreviewSnapshotTool,
   PreviewSnapshotToolkit,
@@ -1375,7 +1375,7 @@ const withAdvertisedSchemas = Effect.fn("McpHttpServer.withAdvertisedSchemas")(f
 const decodesAsAdvertised = Schema.decodeUnknownExit(Schema.toCodecJson(PreviewTaskRequest));
 
 /**
- * A `t3_browser_task` call whose parameters do not decode is refused before its handler runs, so
+ * A `browser_task` call whose parameters do not decode is refused before its handler runs, so
  * it is recorded here; the handler records every other call.
  */
 const withUndecodedTaskRecord = Effect.fn("McpHttpServer.withUndecodedTaskRecord")(function* <
@@ -1389,7 +1389,7 @@ const withUndecodedTaskRecord = Effect.fn("McpHttpServer.withUndecodedTaskRecord
   const recording = McpServer.McpServer.of({
     ...server,
     addTool: Effect.fn("McpServer.addTool")(function (options) {
-      if (options.tool.name !== "t3_browser_task") return server.addTool(options);
+      if (options.tool.name !== "browser_task") return server.addTool(options);
       return server.addTool({
         ...options,
         handle: (payload) =>
@@ -1561,22 +1561,27 @@ export const toolkitRegistration = <Tools extends Record<string, Tool.Any>, EX, 
  * family the endpoint lists, with only their handlers. The full toolkit stays
  * available to the legacy endpoint and to tests.
  */
-const sessionToolkitRegistration = <Tools extends Record<string, Tool.Any>>(
+const sessionToolkitRegistration = <Tools extends Record<string, Tool.Any>, EX = never, RX = never>(
   toolkit: Toolkit.Toolkit<Tools>,
-  handlers: McpToolAccess.Handlers<Tools>,
+  handlers: McpToolAccess.Handlers<Tools> | Effect.Effect<McpToolAccess.Handlers<Tools>, EX, RX>,
   families: ReadonlySet<ToolFamily>,
+  /** Names another registration on the same endpoint serves instead, such as a consolidated tool. */
+  replaced: ReadonlySet<string> = new Set(),
 ) => {
-  const entries = Object.entries(toolkit.tools).filter(([name]) => families.has(toolFamily(name)));
+  const entries = Object.entries(toolkit.tools).filter(
+    ([name]) => families.has(toolFamily(name)) && !replaced.has(name),
+  );
   if (entries.length === 0) return Layer.empty;
   const filtered = Toolkit.make(
     ...entries.map(([, tool]) => tool),
   ) as unknown as Toolkit.Toolkit<Tools>;
-  const selectedHandlers = Object.fromEntries(
-    entries.map(([name]) => [name, (handlers as Record<string, unknown>)[name]]),
-  ) as McpToolAccess.Handlers<Tools>;
+  const select = (all: McpToolAccess.Handlers<Tools>) =>
+    Object.fromEntries(
+      entries.map(([name]) => [name, (all as Record<string, unknown>)[name]]),
+    ) as McpToolAccess.Handlers<Tools>;
   const layer = McpToolAccess.toLayer(
     filtered,
-    selectedHandlers,
+    Effect.isEffect(handlers) ? Effect.map(handlers, select) : select(handlers),
   ) as unknown as McpToolAccess.HandlersLayer<Tools, never, never>;
   return toolkitRegistration(filtered, layer);
 };
@@ -1706,8 +1711,19 @@ const layerSessionToolkitServices = Layer.mergeAll(
   ),
 );
 
+/** Sessions get the consolidated `t3_thread_update` in place of upstream's (T3-853). */
 const layerSessionOrchestrator = (families: ReadonlySet<ToolFamily>) =>
-  sessionToolkitRegistration(OrchestratorToolkit, OrchestratorHandlers.handlers, families);
+  Layer.mergeAll(
+    sessionToolkitRegistration(
+      OrchestratorToolkit,
+      OrchestratorHandlers.handlers,
+      families,
+      new Set(["t3_thread_update"]),
+    ),
+    families.has(toolFamily("t3_thread_update"))
+      ? toolkitRegistration(ThreadUpdateToolkit, ThreadUpdateHandlers.layer)
+      : Layer.empty,
+  );
 
 const layerSessionThread = (families: ReadonlySet<ToolFamily>) =>
   sessionToolkitRegistration(ThreadToolkit, ThreadHandlers.handlers, families);
@@ -1725,26 +1741,17 @@ const layerSessionHtml = () =>
     imageToolRegistration(registerHtmlPreview(), HtmlHandlers.layerPreview),
   );
 
-const layerSessionPreview = (families: ReadonlySet<ToolFamily>) =>
-  families.has("preview")
-    ? Layer.mergeAll(
-        layerPreviewStandardToolkitRegistration,
-        layerPreviewSnapshotRegistration,
-        layerPreviewControlsRegistration,
-      )
-    : Layer.empty;
-
-/** Each tool is listed only to a credential minted with the capability (`listsBoundedBrowser`). */
-const layerBoundedBrowserRegistration = Layer.mergeAll(
-  toolkitRegistration(BoundedBrowserToolkit, BoundedBrowserHandlers.layer),
+/** The `browser_*` tools: every agent session's one browser surface, on its lane (T3-853). */
+const layerBrowserRegistration = Layer.mergeAll(
+  toolkitRegistration(BrowserToolkit, BrowserHandlers.layer),
   imageToolRegistration(
-    registerPreviewSnapshot(BoundedBrowserSnapshotToolkit, BoundedBrowserSnapshotTool),
-    BoundedBrowserHandlers.layerSnapshot,
+    registerPreviewSnapshot(BrowserSnapshotToolkit, BrowserSnapshotTool),
+    BrowserHandlers.layerSnapshot,
   ),
 );
 
-const layerSessionBoundedBrowser = (families: ReadonlySet<ToolFamily>) =>
-  families.has("bounded-browser") ? layerBoundedBrowserRegistration : Layer.empty;
+const layerSessionBrowser = (families: ReadonlySet<ToolFamily>) =>
+  families.has("browser") ? layerBrowserRegistration : Layer.empty;
 
 const layerSessionDevice = (families: ReadonlySet<ToolFamily>) =>
   families.has("device")
@@ -1762,8 +1769,7 @@ export const layerSessionToolkits = (families: ReadonlySet<ToolFamily>) =>
     layerSessionProject(families),
     layerSessionWorktree(families),
     families.has("leaf") ? layerSessionHtml() : Layer.empty,
-    layerSessionPreview(families),
-    layerSessionBoundedBrowser(families),
+    layerSessionBrowser(families),
     layerSessionDevice(families),
     families.has("web") ? toolkitRegistration(WebToolkit, WebHandlers.layer) : Layer.empty,
     families.has("workspace") ? layerAttachmentToolkit : Layer.empty,
@@ -1774,7 +1780,11 @@ export const layerSessionToolkits = (families: ReadonlySet<ToolFamily>) =>
     families.has("workspace")
       ? toolkitRegistration(TerminalToolkit, TerminalHandlers.layer)
       : Layer.empty,
-    families.has("workspace") ? layerPullRequestsToolkit : Layer.empty,
+    families.has("workspace")
+      ? sessionToolkitRegistration(PullRequestsToolkit, PullRequestsHandlers.make, families).pipe(
+          Layer.provide(PullRequestWatchService.layer),
+        )
+      : Layer.empty,
     sessionToolkitRegistration(ChampionsToolkit, ChampionsHandlers.handlers, families),
     sessionToolkitRegistration(ExperimentsToolkit, ExperimentsHandlers.handlers, families),
   );
@@ -1903,13 +1913,8 @@ const sessionEndpointLayers = Object.entries(SESSION_TOOL_ENDPOINTS).map(([key, 
 export const layerManagedBrowserToolkit = Layer.fresh(
   Layer.mergeAll(
     toolkitRegistration(DecisionToolkit, DecisionHandlers.layer),
-    toolkitRegistration(ManagedBrowserToolkit, ManagedBrowserHandlers.layer),
-    imageToolRegistration(
-      registerPreviewSnapshot(PreviewSnapshotToolkit, PreviewSnapshotTool),
-      ManagedBrowserHandlers.layerSnapshot,
-    ),
-    // A browser task granted bounded tasks lists them beside its own browser, on their own tabs.
-    layerBoundedBrowserRegistration,
+    // A browser task's own browser, and bounded tasks when its task was granted them.
+    layerBrowserRegistration,
     layerDeviceStandardToolkitRegistration,
     layerDeviceScreenshotRegistration,
   ).pipe((registrations) =>

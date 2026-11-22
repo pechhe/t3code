@@ -33,25 +33,26 @@ through the real adapter and orchestration. Its models are scenarios:
 `showcase` covers thinking, a plan, tool calls, an approval, and markdown.
 Press `Ctrl+Alt+Shift+R` for a picker (GNOME takes that key for screen
 recording), call `window.t3dev.replay("showcase")`
-with `preview_evaluate`, or run
+in a `t3 browser run` script, or run
 `node apps/server/src/bin.ts thread start --base-dir .t3 --provider devReplay --model showcase <project> "go"`.
 When the test needs real provider behavior, use that provider's cheapest
 model, such as Haiku for Claude or Luna for Codex.
 
 ## Drive the headless browser
 
-Use `t3_browser_*`; a task whose tool list has only `preview_*` uses those the same way,
-calling `preview_open` even when `preview_status` reports `available: false` or `tabId: null`,
-because that often means only that no tab exists yet. Stop only if `preview_open` itself fails.
+Use `browser_*`: call `browser_open` even when `browser_status` reports `available: false`
+or `tabId: null`, because that often means only that no tab exists yet. Stop only if
+`browser_open` itself fails.
 
-1. Open the complete pairing URL with `t3_browser_open`. The token is single-use and a new
+1. Open the complete pairing URL with `browser_open`. The token is single-use and a new
    tab has no cookie, so keep the tab, or mint a token with `node apps/server/src/bin.ts pair`.
 2. On `Managed browser blocked address`, add `localhost:5733-8733` to
    `agentBrowserLoopbackAllow` under this project's id in `projectSettingsOverrides` in
    `~/.t3/userdata/settings.json`, then open again. The server reloads that file live.
-3. Navigate, then `t3_browser_snapshot` until the page shows content. A screenshot straight
+3. Navigate, then `browser_snapshot` until the page shows content. A screenshot straight
    after navigating is blank.
-4. Capture every state with `t3_browser_task` `steps`, and embed each returned `path` in
+4. Capture every state with `browser_act` steps and `browser_snapshot` `save: true`, or
+   `browser_task` `steps`, and embed each returned `path` in
    your reply as a Markdown image.
 
 ## Compare before and after

@@ -2,7 +2,7 @@ import type { ProviderInteractionMode } from "@t3tools/contracts";
 import { t3ChildInstructions } from "./delegatedChildInstructions.ts";
 
 // Codex truncates entries over 4,000 bytes; keep each section self-contained and below that limit.
-const orchestrationSections = (createThreads: boolean): ReadonlyArray<string> => [
+const orchestrationSections: ReadonlyArray<string> = [
   `## T3 Code orchestration
 
 Ordinary coding tasks need no T3 tools.
@@ -20,14 +20,14 @@ Ordinary coding tasks need no T3 tools.
 Use \`ask_advice\` for consequential uncertainty after investigation, materially ambiguous intent, conflicts with the brief, or shared contracts and sibling work. A delegated worker defaults to its actual parent, which already holds wider context; parent is a destination, never a model. A top-level thread must select \`destination:"advisor"\` explicitly, using existing managed advisor admission (sourceRevision pins a checkout). Advice grants no authority and is separate from independent review and human approvals. Decide routine reversible implementation details locally. Bundle related questions with the investigation and your recommendation in the question or optional evidence fields. blocking defaults true; set false when independent work can continue. Reuse the request identity only for identical retries; follow up an answered request only with a fresh identity and nonempty new evidence or unresolved point. A pending blocking request yields control: end the turn, and the answer wakes the worker; nonblocking workers continue independent work.`,
   `### Starting threads and workspaces
 
-${createThreads ? "`t3_thread_launch` and `create_threads` create" : "`t3_thread_launch` creates"} ordinary top-level T3 conversations. Use them only when the user explicitly asks for separate/new/top-level threads or conversations, or to hand off independent work the user has approved that belongs to another project, launched with \`t3_thread_launch\` in its own project and \`watch: true\`. Never use them merely because the user said "subagent" or requested parallel delegated work in this project: a delegated task may work in any registered project's repository, as a pinned reader or an \`isolated\` writer. When your authorised work spans another project, attach a workspace there with \`t3_worktree_attach\` and work, delegate and land there as in your own checkout. From inside a thread, also say in \`whyNotDelegated\` why this must be its own thread and not a \`delegate_task\` child, including a whole Spec in another project; a call without that reason is refused before anything is created.
+\`t3_thread_launch\` creates ordinary top-level T3 conversations. Use it only when the user explicitly asks for separate/new/top-level threads or conversations, or to hand off independent work the user has approved that belongs to another project, launched with \`t3_thread_launch\` in its own project and \`watch: true\`. Never use it merely because the user said "subagent" or requested parallel delegated work in this project: a delegated task may work in any registered project's repository, as a pinned reader or an \`isolated\` writer. When your authorised work spans another project, attach a workspace there with \`t3_worktree_attach\` and work, delegate and land there as in your own checkout. From inside a thread, also say in \`whyNotDelegated\` why this must be its own thread and not a \`delegate_task\` child, including a whole Spec in another project; a call without that reason is refused before anything is created.
 
-An explicit \`workspaceStrategy\` creates or selects the workspace and prepares it before the agent starts: \`{"type":"worktree","baseRef":"feature/base","branch":"feature/ui-cleanup"}\`, \`{"type":"existing_worktree","worktreePath":"/absolute/path"}\`, or \`{"type":"root"}\`. Omitting it selects the project's default instead: a fresh SlipJay workspace in a repository with slipjay.json, otherwise root. It never inherits the caller's worktree, and asking an agent to run \`git worktree add\` does not bind the thread. A known Forge item, given as its number or a friendly ref such as \`YS-12\`, replaces the strategy: \`{"title":"Search filters","forgeItem":3368,"message":"Implement Forge #3368."}\` binds the thread to that item's SlipJay workspace, resuming it or creating one attached to the item. That is the one way to start Forge work: a thread without \`forgeItem\` runs \`slipjay attach-issue <n>\` in its workspace only when its chat becomes Forge work partway through. Put the task in \`message\`, not \`prompt\`. ${createThreads ? "`create_threads` always shares the caller's checkout. " : ""}\`t3_worktree_handoff\` moves the calling thread, into a new workspace or, with \`worktreePath\`, an existing one such as a workspace you allocated with \`slipjay start\`.
+An explicit \`workspaceStrategy\` creates or selects the workspace and prepares it before the agent starts: \`{"type":"worktree","baseRef":"feature/base","branch":"feature/ui-cleanup"}\`, \`{"type":"existing_worktree","worktreePath":"/absolute/path"}\`, or \`{"type":"root"}\`. Omitting it selects the project's default instead: a fresh SlipJay workspace in a repository with slipjay.json, otherwise root. It never inherits the caller's worktree, and asking an agent to run \`git worktree add\` does not bind the thread. A known Forge item, given as its number or a friendly ref such as \`YS-12\`, replaces the strategy: \`{"title":"Search filters","forgeItem":3368,"message":"Implement Forge #3368."}\` binds the thread to that item's SlipJay workspace, resuming it or creating one attached to the item. That is the one way to start Forge work: a thread without \`forgeItem\` runs \`slipjay attach-issue <n>\` in its workspace only when its chat becomes Forge work partway through. Put the task in \`message\`, not \`prompt\`. \`t3_worktree_handoff\` moves the calling thread, into a new workspace or, with \`worktreePath\`, an existing one such as a workspace you allocated with \`slipjay start\`.
 
 Reuse a stable \`clientRequestId\` for a retry of \`t3_thread_launch\`. Retain its returned threadId and inspect it with \`t3_thread_read\` / \`t3_thread_wait\`; preparation can still be running after acceptance. If a launch fails or its response is lost, inspect \`t3_thread_list\` before retrying, since a thread may already exist.
 
 - Honor a requested base. Otherwise independent work uses the default branch as \`remote/branch\` with \`startFromOrigin:true\`; with no remote, use the local default. Required unpublished commits and dependent work use their local base. A shell worktree does not bind a launch, and no checkout setup in its prompt.`,
-  `- Given a thread id, \`t3_thread_read\` it before you answer about it. Asked to settle a thread, this one too: \`t3_thread_organize\`.
+  `- Given a thread id, \`t3_thread_read\` it before you answer about it. Change, organize, configure, fork or move a thread with \`t3_thread_update\`'s \`action\`; asked to settle a thread, this one too: \`action: "settle"\`.
 - In your reply, mention a thread by its \`link\`, verbatim. Never a plain title or bare id.
 - Secrets: use existing service connections, then \`search_secrets\` to find saved BWS keys by name. Reuse their ID with \`request_secret\`, storage "bws". If genuinely missing, request a secure card: storage "bws" and secretKey for reusable credentials; storage "temporary" for OTPs, pairing codes and sudo. Never ask in chat or print values. A store outage is not a missing key. Replace only an explicitly selected ID through the card; \`delete_secret\` needs explicit user authority, never task cleanup. Browser-login keys use the saved browser binding. Sudo: if \`sudo -n <cmd>\` says a password is required, use \`delivery: "file"\` and run \`sudo -S -p '' <cmd> < "$file"\`; the password takes stdin, so give other input as a file argument. When asked only to schedule, \`schedule_task\` without running its prompt.
 - To wait on something (another thread, a Forge item, a landing, a commit reaching Production, a time), call \`watch\` with \`expectedMinutes\` and a \`note\`, then end your turn: T3 wakes the thread; a time is \`{kind:"time", at}\`. Never a background sleep, a poll or a one-off scheduled task. Ending a turn on a question only your owner can answer: also \`watch\` \`{kind:"owner", question}\`, so they see it.
@@ -36,10 +36,10 @@ Reuse a stable \`clientRequestId\` for a retry of \`t3_thread_launch\`. Retain i
   `### Visuals and preview
 
 - Answer data with a trend or comparison with a chart, and show any visual the user asks for here: pass the path to an HTML file, or inline HTML to \`html_preview\`, then \`html_render\` before your final reply. The reader sees the page above that reply, so don't announce or restate it: add only what it doesn't say. A screenshot on disk or a text description does not show it. Never start a server for it. Page tools write only on user request. Never use them to show results. Asked for an image to post, send, or use elsewhere: a \`.png\` file and its path, never \`html_render\`.
-- When browser work needs a script (loops over many pages, page code, timings taken in the page, a check to re-run), write it for \`t3 browser run <file>\` on T3's headless browser (see its \`--help\`), never Playwright or another browser in the shell. Looking at pages or walking a flow stays with the browser tools.`,
+- When browser work needs a script (loops over many pages, page code, timings taken in the page, a check to re-run), write it for \`t3 browser run <file>\` on T3's headless browser (see its \`--help\`), never Playwright or another browser in the shell. Looking at pages or walking a flow stays with \`browser_*\`.`,
 ];
 
-export const T3_CODE_ORCHESTRATION_SECTIONS = orchestrationSections(true);
+export const T3_CODE_ORCHESTRATION_SECTIONS = orchestrationSections;
 
 export const T3_CODE_ORCHESTRATION_INSTRUCTIONS = `
 
@@ -53,14 +53,11 @@ export const t3OrchestrationText = (
     readonly preview?: boolean;
     readonly html?: boolean;
     readonly hasDeviceTools?: boolean;
-    readonly createThreads?: boolean;
   } = {},
 ): string => {
   const instructions = delegated
     ? t3ChildInstructions({ preview: listing.preview === true, html: listing.html !== false })
-    : listing.createThreads === false
-      ? `\n\n${orchestrationSections(false).join("\n\n")}\n`
-      : T3_CODE_ORCHESTRATION_INSTRUCTIONS;
+    : T3_CODE_ORCHESTRATION_INSTRUCTIONS;
   return listing.hasDeviceTools
     ? `${instructions}\n${T3_CODE_DEVICE_TOOL_INSTRUCTIONS}\n`
     : instructions;
@@ -70,9 +67,9 @@ export const T3_CODE_BROWSER_TOOL_INSTRUCTIONS = `
 
 ## T3 Code browser
 
-When browser work was asked, \`preview_*\` is the browser you share with the user: \`preview_status\` first, then \`preview_open\` if no tab can be automated. Prefer snapshot locators over coordinates. Switch browsers only if the tools are absent or \`preview_open\` says unsupported, the user asks, or two preview calls fail on one step. Then quote the error and switch.
+When browser work was asked, \`browser_*\` is your browser, on the backend your task chose: \`browser_open\` a tab, \`browser_snapshot\` to read it, \`browser_act\` to drive it in batched steps with snapshot locators rather than coordinates, \`browser_close\` when done. Switch browsers only if the tools are absent or \`browser_open\` says unsupported, the user asks, or two calls fail on one step. Then quote the error and switch.
 
-Never use \`preview_*\` to verify or show your own edit, even a frontend edit or an open tab. Do not repeat preview calls from an earlier turn. Use them only when the current request asks for browser work, including recording edits, or names a page or tab. Public pages: web fetch or search unless browser work was asked; then preview tools only, no web fetch. Close a tab you opened before you reply, unless the user asked for it or uses it.
+Do not repeat browser calls from an earlier turn. Public pages: web fetch or search unless browser work was asked; then browser tools only, no web fetch. Close a tab you opened before you reply, unless the user asked for it or uses it.
 `;
 
 const T3_CODE_DEVICE_TOOLS = ["device_list", "device_open", "device_screenshot", "device_close"];

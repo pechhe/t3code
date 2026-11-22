@@ -141,7 +141,7 @@ import { codexAppServerArgs, resolveCodexLaunchArgs } from "../../provider/codex
 import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
 import * as SlipJayGuard from "../../project/SlipJayGuard.ts";
-import { managedBrowserSessionTools } from "../../mcp/toolkits/managedBrowser/toolNames.ts";
+import { managedBrowserSessionTools } from "../../mcp/toolkits/browser/toolNames.ts";
 import { CODEX_HARNESS_EXTRAS_OFF, codexTurnInstructionListing } from "./CodexToolListing.ts";
 import { withManagedMcpServersDisabled, withStableUsageIdentity } from "./CodexManagedSession.ts";
 import { codexSandboxTempConfig, makeCodexSandboxTempDirs } from "./CodexManagedTempDirs.ts";

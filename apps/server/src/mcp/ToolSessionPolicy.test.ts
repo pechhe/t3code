@@ -27,7 +27,8 @@ import {
 } from "../orchestration-v2/ProviderTurnStartService.ts";
 import { buildPiRpcLaunch } from "../../../../packages/provider-pi/src/server/mcpInjection.ts";
 import { OrchestratorToolkit } from "./toolkits/orchestrator/tools.ts";
-import { PreviewToolkit } from "./toolkits/preview/tools.ts";
+import { BrowserSnapshotToolkit, BrowserToolkit } from "./toolkits/browser/tools.ts";
+import { ThreadUpdateToolkit } from "./toolkits/threadUpdate/tools.ts";
 import { DeviceToolkit } from "./toolkits/device/tools.ts";
 import { ExperimentsToolkit } from "./toolkits/experiments/tools.ts";
 import { HtmlPreviewToolkit, HtmlRenderToolkit } from "./toolkits/html/tools.ts";
@@ -35,20 +36,22 @@ import { AttachmentToolkit } from "./toolkits/attachment/tools.ts";
 import { EnvironmentToolkit } from "./toolkits/environment/tools.ts";
 import { FleetToolkit } from "./toolkits/fleet/tools.ts";
 import { TerminalToolkit } from "./toolkits/terminal/tools.ts";
-import { PreviewControlsToolkit } from "./toolkits/previewControls/tools.ts";
 import { ProjectToolkit } from "./toolkits/project/tools.ts";
 import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
 import { ThreadToolkit } from "./toolkits/thread/tools.ts";
 import { WorkspaceToolkit } from "./toolkits/workspace/tools.ts";
 import { WebToolkit } from "./toolkits/web/tools.ts";
 import { WorktreeToolkit } from "./toolkits/worktree/tools.ts";
-import { MANAGED_BROWSER_TOOL_NAMES } from "./toolkits/managedBrowser/toolNames.ts";
+import { MANAGED_BROWSER_TOOL_NAMES } from "./toolkits/browser/toolNames.ts";
 import { ChampionsToolkit } from "./toolkits/champions/tools.ts";
 
 const tools = [
   ...Object.values(DecisionToolkit.tools),
-  ...Object.values(OrchestratorToolkit.tools),
-  ...Object.values(PreviewToolkit.tools),
+  // Sessions list the consolidated t3_thread_update in place of upstream's.
+  ...Object.values(OrchestratorToolkit.tools).filter((tool) => tool.name !== "t3_thread_update"),
+  ...Object.values(ThreadUpdateToolkit.tools),
+  ...Object.values(BrowserToolkit.tools),
+  ...Object.values(BrowserSnapshotToolkit.tools),
   ...Object.values(DeviceToolkit.tools),
   ...Object.values(ExperimentsToolkit.tools),
   ...Object.values(HtmlPreviewToolkit.tools),
@@ -57,7 +60,6 @@ const tools = [
   ...Object.values(EnvironmentToolkit.tools),
   ...Object.values(FleetToolkit.tools),
   ...Object.values(TerminalToolkit.tools),
-  ...Object.values(PreviewControlsToolkit.tools),
   ...Object.values(ProjectToolkit.tools),
   ...Object.values(PullRequestsToolkit.tools),
   ...Object.values(ThreadToolkit.tools),
@@ -99,8 +101,10 @@ const budgets: ReadonlyArray<[string, SessionToolProfile | undefined, number]> =
   // 159_000: upstream v0.1.11-nightly.20261120.4979 grew the editor listing to 158_736.
   ["editor", undefined, 159_000],
   ["editor worker", session("implementation", "implementer"), 159_000],
-  ["reader", session("source-reader", "reviewer"), 45_000],
-  ["browser", session("phi", "browser"), 37_000],
+  // T3-853: the browser family is counted now (browser_task's schema alone is ~29K); the bounded
+  // tools it replaced were listed to readers and browser tasks but missing from this catalogue.
+  ["reader", session("source-reader", "reviewer"), 82_000],
+  ["browser", session("phi", "browser"), 58_500],
   ["scout", session("web-research", "scout"), 19_500],
 ];
 
@@ -111,15 +115,15 @@ it("keeps every session endpoint under its payload budget", () => {
 });
 
 it("lists a browser session only the families it uses", () => {
-  // The preview is what the session is for; leaf gives it its own task status, cancel,
+  // The browser is what the session is for; leaf gives it its own task status, cancel,
   // watch and the html tools to show the user a page. A later
   // family added here fails this test rather than quietly raising the budget.
   expect([...SESSION_TOOL_ENDPOINTS.preview.families].sort()).toEqual([
+    "browser",
     "decision",
     "device",
     "leaf",
     "learnings",
-    "preview",
   ]);
 });
 
@@ -194,14 +198,14 @@ it("tells a managed browser task about preview and devices, and that listing is 
   // else, so its child text must not name html or worktree.
   const narrow = t3OrchestrationText(true, { preview: true, hasDeviceTools: true, html: false });
   const narrowNamed = new Set(toolsNamedIn(narrow));
-  expect(narrowNamed.has("preview_open")).toBe(true);
+  expect(narrowNamed.has("browser_open")).toBe(true);
   expect(narrowNamed.has("device_open")).toBe(true);
   expect(narrowNamed.has("html_render")).toBe(false);
   expect(narrowNamed.has("t3_worktree_handoff")).toBe(false);
 
   for (const name of MANAGED_BROWSER_TOOL_NAMES) {
     expect(toolFamily(name), `${name} has its explicit tool family`).toBe(
-      name === "t3_decide" ? "decision" : name.startsWith("device_") ? "device" : "preview",
+      name === "t3_decide" ? "decision" : name.startsWith("device_") ? "device" : "browser",
     );
   }
 });
@@ -217,8 +221,10 @@ it("lists every editor the same tools, whatever its role", () => {
     "t3_champions_control",
     "t3_champions_record_learning",
     "t3_terminal_read",
-    "link_pull_request",
-    "preview_open",
+    "link_pull_requests",
+    "t3_thread_update",
+    "browser_open",
+    "browser_handoff",
     "device_open",
     "web_search",
   ])
@@ -234,7 +240,7 @@ it("keeps a read-only agent to the closed list, and every name on it real", () =
   const reader = session("source-reader", "reviewer");
   const known = new Set<string>(catalogue);
   for (const name of READ_ONLY_TOOLS) {
-    expect(known.has(name) || name.startsWith("t3_browser_"), `${name} exists`).toBe(true);
+    expect(known.has(name), `${name} exists`).toBe(true);
     expect(
       SESSION_TOOL_ENDPOINTS.reader.families.has(toolFamily(name)),
       `${name}'s family is served`,
@@ -279,7 +285,7 @@ it("keeps browser agents and web-reading scouts off threads and delegation", () 
     expect(narrow.has("t3_champions_learning_search")).toBe(true);
     expect(narrow.has("agent_task_outcome")).toBe(false);
   }
-  expect(names(session("phi", "browser")).has("preview_interact")).toBe(true);
+  expect(names(session("phi", "browser")).has("browser_act")).toBe(true);
   expect(names(session("phi", "browser")).has("device_open")).toBe(true);
   expect(names(session("web-research", "scout")).has("web_search")).toBe(true);
 });
@@ -378,16 +384,16 @@ it("has Codex describe the listing, not the browser permission", () => {
     listsDevice: false,
     listsHtml: true,
   });
-  expect(reader).not.toContain("preview_open");
+  expect(reader).not.toContain("browser_open");
   expect(reader).not.toContain("device_open");
   expect(reader).toContain("html_render");
   const browser = text({ delegated: true, listsPreview: true, listsHtml: true });
-  expect(browser).toContain("preview_open");
+  expect(browser).toContain("browser_open");
   expect(browser).not.toContain("device_open");
 
   // The narrow managed-browser credential: preview only, no html.
   const narrow = text({ delegated: true, listsPreview: true, listsHtml: false });
-  expect(narrow).toContain("preview_open");
+  expect(narrow).toContain("browser_open");
   expect(narrow).not.toContain("html_render");
 
   // A parent thread keeps the full orchestration text whatever its listing.
@@ -418,11 +424,11 @@ it("gives Pi's process the child text its own listing earns", () => {
 
   const reader = launch({ delegated: true, listsPreview: false, listsHtml: true });
   expect(reader.env.T3_PI_INSTRUCTIONS).toContain("html_render");
-  expect(reader.env.T3_PI_INSTRUCTIONS).not.toContain("preview_open");
+  expect(reader.env.T3_PI_INSTRUCTIONS).not.toContain("browser_open");
 
   // The narrow browser credential: preview without html.
   const narrow = launch({ delegated: true, listsPreview: true, listsHtml: false });
-  expect(narrow.env.T3_PI_INSTRUCTIONS).toContain("preview_open");
+  expect(narrow.env.T3_PI_INSTRUCTIONS).toContain("browser_open");
   expect(narrow.env.T3_PI_INSTRUCTIONS).not.toContain("html_render");
 
   // A parent thread keeps the embedded orchestration text.

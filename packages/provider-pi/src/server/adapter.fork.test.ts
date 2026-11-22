@@ -789,7 +789,7 @@ describe("PiAdapterV2", () => {
           systemPromptOptions: { sections },
         });
       });
-      assert.include(sections.t3_code_orchestration ?? "", "preview_open");
+      assert.include(sections.t3_code_orchestration ?? "", "browser_open");
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 

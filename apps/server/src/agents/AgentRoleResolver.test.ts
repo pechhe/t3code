@@ -858,7 +858,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
           request: { ...base.request, browser: { backend } },
         });
         expect(refused.reason).toBe("unsupported-options");
-        expect(refused.detail).toContain("t3_browser_*");
+        expect(refused.detail).toContain("browser_*");
       }
     }),
   );

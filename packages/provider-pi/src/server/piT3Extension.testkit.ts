@@ -46,7 +46,6 @@ export interface FixtureOptions {
   readonly toolSearchAvailable?: boolean;
   readonly codemodeAvailable?: boolean;
   readonly defaultTools?: ReadonlyArray<string>;
-  readonly createThreadsAvailable?: boolean;
   /** Replaces every tool Pi reports, builtin discovery tools included. */
   readonly allTools?: ReadonlyArray<FakePiTool>;
   readonly agentDir?: string;
@@ -86,9 +85,6 @@ export async function loadPiT3Extension(options: FixtureOptions = {}) {
         : []),
       ...(options.codemodeAvailable === true
         ? [{ name: "codemode", sourceInfo: { path: "builtin:codemode" } }]
-        : []),
-      ...(options.createThreadsAvailable === true
-        ? [{ name: "mcp__t3_code__create_threads", sourceInfo: { path: "<mcp>" } }]
         : []),
     ]),
   ];

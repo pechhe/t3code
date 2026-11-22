@@ -235,8 +235,10 @@ import {
   normalizeMcpText,
 } from "@t3tools/provider-core/server/mcpToolPresentation";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
-import { MANAGED_BROWSER_TOOL_NAMES } from "../../mcp/toolkits/managedBrowser/toolNames.ts";
-import { BOUNDED_BROWSER_TOOL_NAMES } from "../../mcp/toolkits/boundedBrowser/toolNames.ts";
+import {
+  BOUNDED_BROWSER_TOOL_NAMES,
+  MANAGED_BROWSER_TOOL_NAMES,
+} from "../../mcp/toolkits/browser/toolNames.ts";
 import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
 import { claudeAgentMcpServers, claudeAgentServerAllowedTools } from "./ClaudeAgentServers.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
@@ -2661,7 +2663,7 @@ export const CLAUDE_MANAGED_BROWSER_MCP_ALLOWED_TOOLS: ReadonlyArray<string> =
   MANAGED_BROWSER_TOOL_NAMES.map((name) => `mcp__t3-code__${name}`);
 
 /** A managed leaf granted bounded browser tasks pre-approves only those tools. */
-export const CLAUDE_BOUNDED_BROWSER_MCP_ALLOWED_TOOLS: ReadonlyArray<string> =
+const CLAUDE_BOUNDED_BROWSER_MCP_ALLOWED_TOOLS: ReadonlyArray<string> =
   BOUNDED_BROWSER_TOOL_NAMES.map((name) => `mcp__t3-code__${name}`);
 
 // Keep in sync with OrchestratorToolkit Tool.Readonly annotations; ClaudeAdapterV2.test.ts checks this.
@@ -2680,7 +2682,6 @@ export const CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS: ReadonlyArray<string> = [
   "mcp__t3-code__t3_project_list",
   "mcp__t3-code__t3_project_read",
   "mcp__t3-code__t3_thread_search",
-  "mcp__t3-code__t3_preview_list",
   "mcp__t3-code__t3_environment_read",
   "mcp__t3-code__t3_environment_links",
   "mcp__t3-code__t3_theme_read",

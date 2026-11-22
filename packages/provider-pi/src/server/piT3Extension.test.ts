@@ -40,18 +40,15 @@ const builtinSearch = { name: "tool_search", sourceInfo: { path: "builtin:tool-s
 const builtinCodemode = { name: "codemode", sourceInfo: { path: "builtin:codemode" } };
 
 describe("Pi orchestration prompt section", () => {
-  it.each([false, true])(
-    "mentions create_threads only when listed: %s",
-    async (createThreadsAvailable) => {
-      const extension = await loadPiT3Extension({ createThreadsAvailable });
-      const result = await extension.hook<AgentStartHook>("before_agent_start")({
-        systemPrompt: "base",
-      });
-      assert.equal(result?.systemPrompt.includes("create_threads"), createThreadsAvailable);
-      assert.include(result?.systemPrompt ?? "", "t3_thread_launch");
-      assert.include(result?.systemPrompt ?? "", PULL_REQUEST_LINKING_INSTRUCTIONS);
-    },
-  );
+  it("starts threads only with t3_thread_launch", async () => {
+    const extension = await loadPiT3Extension();
+    const result = await extension.hook<AgentStartHook>("before_agent_start")({
+      systemPrompt: "base",
+    });
+    assert.notInclude(result?.systemPrompt ?? "", "create_threads");
+    assert.include(result?.systemPrompt ?? "", "t3_thread_launch");
+    assert.include(result?.systemPrompt ?? "", PULL_REQUEST_LINKING_INSTRUCTIONS);
+  });
 
   it("does not include PR guidance on a SlipJay project", async () => {
     const extension = await loadPiT3Extension({

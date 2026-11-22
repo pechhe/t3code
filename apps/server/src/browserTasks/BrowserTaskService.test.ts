@@ -1018,7 +1018,7 @@ describe("BrowserTaskService", () => {
         authorize: allow,
       });
       assert.strictEqual(replay.replayed, true);
-      assert.include(replay.continuation.guidance, "t3_browser_snapshot");
+      assert.include(replay.continuation.guidance, "browser_snapshot");
       assert.notInclude(replay.continuation.guidance, "preview tools");
       // The same session's own preview lane holds a separate journal, so it cannot replay this run.
       const other = yield* task.service

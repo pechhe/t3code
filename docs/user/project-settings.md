@@ -393,16 +393,23 @@ missing, or Phi cannot be reached. Turning access off mid-task stops their brows
 they can still close their own tabs.
 
 Phi's key helper supports ordinary keys and Shift selection, but native Meta shortcuts are
-unavailable. Agents replace text with `preview_type` and `clear=true` instead. Custom click and
+unavailable. Agents replace text by typing with `clear=true` instead. Custom click and
 typing deadlines are also unavailable; navigation accepts a deadline.
 Servers with the skill installed elsewhere can set `phiBrowserSkillDirectory` in server settings;
 the default is `~/.agents/skills/phi-browser`. New sessions use the changed directory.
 
 ### Bounded browser tasks
 
-An agent can hand a defined job on a page to `t3_browser_task` instead of driving each step: reach
-a page, fill a form with values it supplies, or capture one element. It runs on a fresh headless tab
-of the integrated browser that the agent opened with `t3_browser_open`, never on Phi. The agent names
+Agents drive pages with one set of browser tools. By default a tab is a fresh headless tab of
+the integrated browser that only the agent's session can use; Phi, your thread's browser panel and
+saved browser profiles are opened only when the agent asks for them, and a delegated browser
+agent keeps the browser its task chose. An agent drives a tab in short batches of steps; on a
+headless tab, and for delegated browser agents, those steps never run page code, upload files or
+answer dialogs, and implementers and reviewers take at most 10 steps at a time.
+
+An agent can hand a defined job on a page to `browser_task` instead of driving each step: reach
+a page, fill a form with values it supplies, or capture one element. It runs on a headless tab
+the agent opened with `browser_open`, never on Phi. The agent names
 the fields, the only clicks, key presses or URLs allowed, an explicit submit target and the checks
 that define success; text checks ignore letter case, since pages often restyle text in capitals; the supplied fields are filled directly, Jev only picks among the other steps, and the result is `passed` only when every check holds
 on the final page. A run defaults to 12 actions, 16 decisions and 60 seconds, up to 24, 32 and 120
@@ -443,7 +450,7 @@ sent and a pop-up is refused, and the controls to avoid, which are never offered
 avoid list goes by what the page calls a control, so one the page renames can slip through.
 
 Ordinary threads, scheduled runs and every editing agent, delegated workers included, can run
-bounded tasks through the `t3_browser_*` tools, as can a browser agent on the integrated browser
+bounded tasks with `browser_task`, as can a browser agent on the integrated browser
 and a reviewer whose role policy grants `browserTasks`. Each opens fresh tabs on the integrated browser with no cookies from elsewhere,
 and only the session that opened a tab can use it. They follow **Agent browser access** with the integrated
 browser enabled, checked on every call: turning it off stops further work at once, while closing a
@@ -451,7 +458,7 @@ tab or cancelling a task still works. A reviewer using them stays read-only. A t
 snapshot has used for five minutes is closed.
 
 To see how bounded tasks are going on a machine, run `t3 browser report` there. It reads the
-environment's own record of every `t3_browser_task` call, including calls refused before they ran,
+environment's own record of every `browser_task` call, including calls refused before they ran,
 and prints the passed, blocked, failed, refused and cancelled counts and rates by agent harness,
 by mode (ordered steps, goal or page reach) and by fault, for the last 24 hours; `--hours` changes
 the window and `--json` prints the same summary as JSON. The record keeps 90 days and holds no page

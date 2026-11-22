@@ -53,6 +53,15 @@ describe("resolveT3McpToolDefinition", () => {
     expect(
       resolveT3McpToolDefinition("mcp__t3-code__preview_act", { action: "type" })?.labels,
     ).toEqual(resolveT3McpToolDefinition("preview_type")?.labels);
+    for (const [action, tool] of [
+      ["settle", "t3_thread_organize"],
+      ["mark_unread", "t3_thread_organize"],
+      ["move_to_project", "t3_thread_move_to_project"],
+      ["rename", "t3_thread_update"],
+    ])
+      expect(resolveT3McpToolDefinition("t3_thread_update", { action })?.displayName).toBe(
+        resolveT3McpToolDefinition(tool)?.displayName,
+      );
     expect(resolveT3McpToolDefinition("t3_thread_transfer", { action: "fork" })?.displayName).toBe(
       resolveT3McpToolDefinition("t3_thread_fork")?.displayName,
     );

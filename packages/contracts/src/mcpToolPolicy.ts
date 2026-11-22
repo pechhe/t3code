@@ -12,8 +12,7 @@ export type ToolFamily =
   | "workspace"
   | "scheduling"
   | "champions"
-  | "preview"
-  | "bounded-browser"
+  | "browser"
   | "device"
   | "queue"
   | "worktree"
@@ -26,7 +25,8 @@ export type ToolFamily =
   | "leaf"
   | "report"
   | "learnings"
-  | "web";
+  | "web"
+  | "superseded";
 
 export interface SessionToolProfile {
   readonly toolProfile?: AgentToolProfile | undefined;
@@ -53,12 +53,30 @@ const SCHEDULING_TOOLS = new Set([
  * The orchestration instructions tell an ordinary thread to move its workspace and
  * discover projects with these, so every profile that includes `control` lists them.
  */
-const CONTROL_EXTRA_TOOLS = new Set([
+const CONTROL_EXTRA_TOOLS = new Set(["t3_project_list"]);
+
+/**
+ * Tools whose work a consolidated tool does on every session endpoint (T3-853): `browser_*` for
+ * the preview and bounded browser tools, `t3_thread_launch` for `create_threads`,
+ * `t3_thread_update` actions for the thread tools, and the plural pull request tools. No session
+ * endpoint lists them; the outside-client `/mcp` endpoint keeps upstream's catalogue.
+ */
+const SUPERSEDED_TOOLS = new Set([
   "create_threads",
-  "t3_project_list",
+  "t3_thread_configure",
   "t3_thread_move_to_project",
+  "t3_thread_organize",
+  "t3_thread_transfer",
   "t3_thread_suggest_project",
+  "link_pull_request",
+  "unlink_pull_request",
 ]);
+
+const isSupersededTool = (name: string): boolean =>
+  SUPERSEDED_TOOLS.has(name) ||
+  name.startsWith("preview_") ||
+  name.startsWith("t3_preview_") ||
+  (name.startsWith("t3_browser_") && !name.startsWith("t3_browser_run_"));
 
 /** What every agent needs: poll or cancel its own task, watch something, and show the user a page. */
 const LEAF_TOOLS = new Set([
@@ -108,6 +126,7 @@ export const isPullRequestTool = (name: string): boolean =>
  * every tool again when a family gains one.
  */
 export const toolFamily = (name: string): ToolFamily => {
+  if (isSupersededTool(name)) return "superseded";
   if (name === "ask_advice") return "leaf";
   if (name === "t3_advice_peer") return "peer";
   if (name === "t3_decide") return "decision";
@@ -125,8 +144,7 @@ export const toolFamily = (name: string): ToolFamily => {
   if (name.startsWith("workspace_")) return "inspection";
   // A linked environment's server calls these to hand a thread over or watch one; no agent session lists them.
   if (name === "t3_thread_import" || name === "t3_thread_watch_status") return "peer";
-  if (name.startsWith("preview_") || name.startsWith("t3_preview_")) return "preview";
-  if (name.startsWith("t3_browser_")) return "bounded-browser";
+  if (name.startsWith("browser_")) return "browser";
   if (name.startsWith("device_")) return "device";
   if (name.startsWith("t3_queue_")) return "queue";
   if (CONTROL_EXTRA_TOOLS.has(name)) return "control";
@@ -164,12 +182,12 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "orchestrator_capabilities",
   "read_pull_request_guide",
   "t3_background_wait",
-  "t3_browser_close",
-  "t3_browser_open",
-  "t3_browser_snapshot",
-  "t3_browser_status",
-  "t3_browser_task",
-  "t3_browser_task_cancel",
+  "browser_act",
+  "browser_close",
+  "browser_open",
+  "browser_snapshot",
+  "browser_status",
+  "browser_task",
   "t3_champions_check_context",
   "t3_champions_get",
   "t3_champions_history",
@@ -203,8 +221,7 @@ const EDITOR: ReadonlySet<ToolFamily> = new Set([
   "control",
   "workspace",
   "scheduling",
-  "preview",
-  "bounded-browser",
+  "browser",
   "device",
   "queue",
   "worktree",
@@ -219,7 +236,7 @@ const READER: ReadonlySet<ToolFamily> = new Set([
   "control",
   "workspace",
   "scheduling",
-  "bounded-browser",
+  "browser",
   "worktree",
   "project",
   "leaf",
@@ -234,7 +251,7 @@ const PREVIEW: ReadonlySet<ToolFamily> = new Set([
   "learnings",
   "decision",
   "leaf",
-  "preview",
+  "browser",
   "device",
 ]);
 

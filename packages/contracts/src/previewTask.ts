@@ -96,7 +96,7 @@ export const PreviewTaskBinding = Schema.Union([
     target: PreviewTaskTarget,
     login: Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_.-]{1,128}$/)).annotate({
       description:
-        "A saved login's key (BROWSER_LOGIN_…) listed by t3_browser_open. The server types it into the password field; you never see it.",
+        "A saved login's key (BROWSER_LOGIN_…) listed by browser_open. The server types it into the password field; you never see it.",
     }),
   }),
 ]);
@@ -221,7 +221,7 @@ export const PreviewTaskRequest = Schema.Struct({
     description: "Your unique ID in this session. Repeating it returns the run's state.",
   }),
   tabId: PreviewTabId.annotate({
-    description: "A tab you own, from preview_open or t3_browser_open.",
+    description: "A headless tab you own, from browser_open.",
   }),
   goal: Text,
   bindings: Schema.optional(Schema.Array(PreviewTaskBinding)).annotate({

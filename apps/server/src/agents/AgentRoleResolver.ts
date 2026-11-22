@@ -217,7 +217,7 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
     return yield* new AgentRoleError({
       reason: "unsupported-options",
       detail:
-        "implementer takes no browser selection: it checks its work with t3_browser_*. Use browser for a managed browser task.",
+        "implementer takes no browser selection: it checks its work with browser_*. Use browser for a managed browser task.",
     });
   if (usesPhi(role.toolProfile)) {
     if (input.browser === undefined)

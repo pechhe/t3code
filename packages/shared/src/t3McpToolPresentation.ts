@@ -384,6 +384,27 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
     "browser",
     "browser",
   ),
+  // The browser_* tools (T3-853) reuse the preview tools' copy, which is already translated.
+  browser_open: tool(
+    ["Open", "Opening", "Opened", "a page in the preview browser"],
+    "browser",
+    "browser",
+  ),
+  browser_status: tool(["Get", "Getting", "Got", "preview browser status"], "browser", "browser"),
+  browser_snapshot: tool(
+    ["Take a snapshot of", "Taking a snapshot of", "Took a snapshot of", "the preview page"],
+    "browser",
+    "browser",
+    "Snapshot the preview page",
+  ),
+  browser_act: tool(["Use", "Using", "Used", "the preview browser"], "browser", "browser"),
+  browser_task: tool(["Use", "Using", "Used", "the preview browser"], "browser", "browser"),
+  browser_handoff: tool(
+    ["Hand over", "Handing over", "Handed over", "the preview browser"],
+    "browser",
+    "browser",
+  ),
+  browser_close: tool(["Close", "Closing", "Closed", "a preview tab"], "browser", "browser"),
   device_list: tool(["List", "Listing", "Listed", "simulators and emulators"], "device", "device"),
   device_open: tool(
     ["Open", "Opening", "Opened", "a device in the Device panel"],
@@ -588,6 +609,21 @@ const ACTION_TOOLS: Readonly<Record<string, (action: string) => string | undefin
     ({ fork: "t3_thread_fork", merge_back: "t3_thread_merge_back", status: "t3_thread_transfers" })[
       action
     ],
+  // Sessions' t3_thread_update also does the work of the thread tools it replaced (T3-853).
+  t3_thread_update: (action) =>
+    (
+      {
+        configure: "t3_thread_configure",
+        move_to_project: "t3_thread_move_to_project",
+        suggest_project: "t3_thread_suggest_project",
+        fork: "t3_thread_fork",
+        merge_back: "t3_thread_merge_back",
+        transfers: "t3_thread_transfers",
+      } as Record<string, string>
+    )[action] ??
+    (/^(un)?(pin|snooze|settle|archive)$|^mark_(un)?read$/u.test(action)
+      ? "t3_thread_organize"
+      : undefined),
 };
 
 /** Pass the call's input so an action tool resolves to the labels and summary of its action. */

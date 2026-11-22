@@ -172,7 +172,7 @@ const decodeExternalSession = Schema.decodeUnknownEffect(
 );
 /** What a `ui` or `mixed` task class changes: the implementer checks its result as a user sees it. */
 export const UI_TASK_INSTRUCTION =
-  "This task changes what a user sees. Check your work in a browser with t3_browser_* before handing it back, and keep screenshots of the finished result to report with it.";
+  "This task changes what a user sees. Check your work in a browser with browser_* before handing it back, and keep screenshots of the finished result to report with it.";
 
 export class ManagedAgentService extends Context.Service<
   ManagedAgentService,
