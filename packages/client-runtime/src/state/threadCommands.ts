@@ -76,8 +76,9 @@ import {
   visitThread,
   watchThreadPullRequest,
   endThreadWait,
+  setThreadAutonomousRun,
 } from "../operations/commands.ts";
-import type { EndThreadWaitInput } from "../operations/commands.ts";
+import type { EndThreadWaitInput, SetThreadAutonomousRunInput } from "../operations/commands.ts";
 import { connectionProjectionPhase } from "../connection/model.ts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
@@ -360,6 +361,12 @@ export function createThreadEnvironmentAtoms<R, E>(
     endWait: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:end-wait",
       execute: (input: EndThreadWaitInput) => endThreadWait(input),
+      scheduler,
+      concurrency,
+    }),
+    setAutonomousRun: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:set-autonomous-run",
+      execute: (input: SetThreadAutonomousRunInput) => setThreadAutonomousRun(input),
       scheduler,
       concurrency,
     }),

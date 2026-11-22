@@ -4379,6 +4379,7 @@ export const OrchestrationV2Command = Schema.Union([
     threadId: ThreadId,
     modelSelection: ModelSelection,
   }),
+  OrchestrationV2ThreadArcRunCommand,
 ]);
 export type OrchestrationV2Command = typeof OrchestrationV2Command.Type;
 
@@ -4638,7 +4639,6 @@ const OrchestrationV2InternalCommand = Schema.Union([
     turnItemId: TurnItemId,
     ...OrchestrationV2ReleaseApprovalStateFields,
   }),
-  OrchestrationV2ThreadArcRunCommand,
   /**
    * Records that a watch's remaining condition is the owner's to meet, or clears the record. Changes
    * nothing once the watch has ended or already says this.

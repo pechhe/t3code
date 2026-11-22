@@ -35,6 +35,7 @@ import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
 import { ProjectChip } from "../ProjectChip";
 import { ForgeWorkItemSegment } from "../forgeItem/ForgeWorkItemSegment";
 import { ArcRunChip } from "../arcRun/ArcRunChip";
+import { ThreadUnattendedButton } from "./ThreadUnattendedButton";
 import { useThreadShell } from "../../state/entities";
 import { useForgeConnected, useThreadForgeWorkItem } from "../../state/forgeWorkItems";
 import {
@@ -478,6 +479,15 @@ export const ChatHeader = memo(function ChatHeader({
       </WorkspaceBreadcrumb>
       {arcRun ? (
         <ArcRunChip threadRef={activeThreadRef} arcRun={arcRun} onOpenThread={onOpenThread} />
+      ) : null}
+      {isServerThread ? (
+        <ThreadUnattendedButton
+          environmentId={activeThreadEnvironmentId}
+          threadId={activeThreadId}
+          threadRef={activeThreadRef}
+          threadTitle={activeThreadTitle}
+          canOperate={canOperateThread}
+        />
       ) : null}
       {actions}
       {isServerThread ? <GuestShareIndicator threadRef={activeThreadRef} /> : null}

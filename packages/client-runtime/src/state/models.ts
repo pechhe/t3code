@@ -215,6 +215,8 @@ export interface EnvironmentThreadShell {
   /** The Build Spec, Ticket or Arc the thread is linked to. */
   readonly workItem?: import("@t3tools/contracts").OrchestrationV2ThreadWorkItem | null;
   readonly arcRun?: import("@t3tools/contracts").OrchestrationV2ThreadArcRun | null;
+  readonly autonomousRun?: import("@t3tools/contracts").OrchestrationV2ThreadAutonomousRun | null;
+  readonly isDelegatedTask?: boolean;
   /** A project the thread's agent suggested for this No project chat. */
   readonly projectSuggestion?: {
     readonly projectId: import("@t3tools/contracts").ProjectId;
@@ -395,6 +397,9 @@ export function presentThreadShell(
     compactAt: thread.compactAt ?? null,
     workItem: thread.workItem ?? null,
     arcRun: thread.arcRun ?? null,
+    autonomousRun: thread.autonomousRun ?? null,
+    isDelegatedTask:
+      thread.agentTask !== undefined || thread.lineage.relationshipToParent === "subagent",
     projectSuggestion: thread.projectSuggestion
       ? {
           projectId: thread.projectSuggestion.projectId,

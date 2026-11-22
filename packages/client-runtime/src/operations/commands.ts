@@ -1438,3 +1438,18 @@ export const unlinkThreadPullRequest = Effect.fn("EnvironmentCommands.unlinkThre
     });
   },
 );
+
+export type SetThreadAutonomousRunInput = Omit<
+  Extract<OrchestrationV2Command, { type: "thread.arc-run" }>,
+  "type" | "commandId"
+> &
+  CommandMetadata;
+export const setThreadAutonomousRun = Effect.fn("EnvironmentCommands.setThreadAutonomousRun")(
+  function* (input: SetThreadAutonomousRunInput) {
+    return yield* dispatch({
+      ...input,
+      type: "thread.arc-run",
+      commandId: yield* allocateCommandId(input),
+    });
+  },
+);
