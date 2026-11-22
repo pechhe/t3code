@@ -38,6 +38,7 @@ import {
   type OrchestrationV2ProviderTurnTokenUsage,
   EnvironmentId,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
+  type AgentRole,
   type OrchestrationV2ThreadProjection,
   type OrchestrationV2TurnItem,
   OrchestrationV2DomainEvent,
@@ -559,6 +560,8 @@ function makeLocalCommandHarness(input: {
   readonly backgroundTasks?: number;
   /** What the Forge cache holds for the thread's linked item; absent runs without Forge links. */
   readonly forgeSummary?: ForgeWorkItemSummary | null;
+  /** Delegated roles the thread saw unavailable that can start again. */
+  readonly recoveredRoles?: ReadonlyArray<AgentRole>;
   /** Another account that can summarise this thread's compaction. */
   readonly summariser?: {
     readonly instanceId: ProviderInstanceId;
@@ -605,6 +608,7 @@ function makeLocalCommandHarness(input: {
 }) {
   const settledRuns: Array<string> = [];
   const warmedForgeItems: Array<number> = [];
+  const pendingRecovery = new Set(input.recoveredRoles);
   const now = DateTime.makeUnsafe("2026-09-04T12:00:00Z");
   const threadId = ThreadId.make("thread-native-account-command");
   const runId = RunId.make("run-native-account-command");
@@ -1715,6 +1719,11 @@ function makeLocalCommandHarness(input: {
                 ),
             }),
         Layer.mock(ManagedAgent.ManagedAgentService)({
+          recoveredRoles: () => Effect.sync(() => [...pendingRecovery].toSorted()),
+          acknowledgeRecoveredRoles: (_threadId, roles) =>
+            Effect.sync(() => {
+              for (const role of roles) pendingRecovery.delete(role);
+            }),
           resolveStance: ({ thread }) =>
             Effect.succeed({
               stance: thread?.stanceChoice?.stance ?? "implement",
@@ -1740,6 +1749,7 @@ function makeLocalCommandHarness(input: {
     interruptRun,
     settledRuns,
     warmedForgeItems,
+    pendingRecovery,
     getThreadRecords,
     getTurnStartContext,
     generateCompactionSummary,
@@ -1858,6 +1868,52 @@ effectIt.effect("leaves the linked Forge item out of a native slash command", ()
     });
     yield* harness.start;
     expect(harness.startTurn.mock.calls[0]?.[0].message.text).toBe("/review the diff");
+  }),
+);
+
+effectIt.effect("tells a thread once that a role it saw unavailable is back", () =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({
+      text: "Carry on",
+      deliverTurn: true,
+      recoveredRoles: ["scout", "browser"],
+    });
+    harness.tryHandlePromptCommand.mockReturnValue(Effect.succeed(false));
+    yield* harness.start;
+    expect(harness.startTurn.mock.calls[0]?.[0].message.text).toContain(
+      "Roles available again: browser, scout",
+    );
+    expect(harness.pendingRecovery.size).toBe(0);
+  }),
+);
+
+effectIt.effect.each(["/review the diff", "/compact"])(
+  "keeps the role-recovery note for %s",
+  (text) =>
+    Effect.gen(function* () {
+      const harness = makeLocalCommandHarness({
+        text,
+        deliverTurn: true,
+        recoveredRoles: ["scout"],
+      });
+      harness.tryHandlePromptCommand.mockReturnValue(Effect.succeed(false));
+      yield* harness.start;
+      expect(harness.startTurn.mock.calls[0]?.[0].message.text ?? text).toBe(text);
+      expect([...harness.pendingRecovery]).toEqual(["scout"]);
+    }),
+);
+
+effectIt.effect("keeps the role-recovery note when the turn does not start", () =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({
+      text: "Carry on",
+      deliverTurn: true,
+      recoveredRoles: ["scout"],
+    });
+    harness.tryHandlePromptCommand.mockReturnValue(Effect.succeed(false));
+    harness.startTurn.mockImplementationOnce(() => Effect.die("provider refused"));
+    yield* Effect.exit(harness.start);
+    expect([...harness.pendingRecovery]).toEqual(["scout"]);
   }),
 );
 

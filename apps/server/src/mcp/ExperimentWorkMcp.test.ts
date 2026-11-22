@@ -127,6 +127,7 @@ const dependencies = (input: {
     snapshot: () => Effect.succeed(agentPolicySnapshot()),
     targetProject: ({ callerProjectId }) => Effect.succeed(callerProjectId),
     assertDelegationAllowed: () => Effect.void,
+    observeRoleAvailability: () => Effect.void,
     ...input.managed,
   });
   const externalLayer = Layer.mock(ExternalAgentWork.ExternalAgentWorkService)({

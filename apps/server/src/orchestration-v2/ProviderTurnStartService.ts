@@ -61,6 +61,7 @@ import * as ServerConfig from "../config.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import { threadStanceNote } from "../agents/delegationStanceNote.ts";
+import { threadRoleRecoveryNote } from "../agents/roleRecoveryNote.ts";
 import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
@@ -2440,6 +2441,10 @@ export const layer: Layer.Layer<
           getAway: serverSettings.getSettings.pipe(Effect.map((settings) => settings.away)),
           getThread: (id) => projectionStore.getThread(id),
         });
+        const turnRoleRecovery =
+          goalCommand || slashCommand
+            ? { note: "", delivered: Effect.void }
+            : yield* threadRoleRecoveryNote(managedAgents, { threadId: projection.thread.id });
         const startWithHandoffs = Effect.fn("ProviderTurnStartService.startWithHandoffs")(
           function* (turnInput: Parameters<typeof session.startTurn>[0], compact = false) {
             const delivery = yield* deliverContextHandoffs({
@@ -2466,8 +2471,33 @@ export const layer: Layer.Layer<
               sideChatHandoff === undefined || compact || goalCommand
                 ? ""
                 : sideChatHandoff.summaryText;
+            const { restartContinuationOfRunId: _resumedRunId, ...promptedInput } = turnInput;
+            const startInput = noteContinuation ? promptedInput : turnInput;
+            const { resume: _resume, ...contextInput } = startInput;
+            const { message: resumeMessage, resume: _resumeIntent, ...resumeInput } = startInput;
+            const missedAttachments =
+              compact || goalCommand
+                ? []
+                : retryHandoff.attachments.filter(
+                    (missed) =>
+                      !turnInput.message.attachments.some((current) => current.id === missed.id),
+                  );
+            // Like pending history, pending images need a prompt; native resume carries none.
+            // The per-turn notes alone do not: a resumed turn continues one that had them.
+            const prompted =
+              [delivery.context, sideChatContext, restartNote].some((part) => part !== "") ||
+              missedAttachments.length > 0;
+            const resumesUnprompted =
+              turnInput.resume && !prompted && session.resumeTurn !== undefined;
+            const resumeTurn = session.resumeTurn;
+            // Like the stance note, the recovery note waits for a turn that sends a prompt.
+            const roleRecovery =
+              compact || resumesUnprompted
+                ? { note: "", delivered: Effect.void }
+                : turnRoleRecovery;
             const context = [
               compact ? "" : stanceNote,
+              roleRecovery.note,
               compact ? "" : workItemNote,
               delivery.context,
               sideChatContext,
@@ -2490,22 +2520,6 @@ export const layer: Layer.Layer<
               .filter((part) => part !== "")
               .join("\n\n");
             const messageLabel = scheduled ? SCHEDULED_TASK_PROMPT_LABEL : "User message";
-            const { restartContinuationOfRunId: _resumedRunId, ...promptedInput } = turnInput;
-            const startInput = noteContinuation ? promptedInput : turnInput;
-            const { resume: _resume, ...contextInput } = startInput;
-            const { message: resumeMessage, resume: _resumeIntent, ...resumeInput } = startInput;
-            const missedAttachments =
-              compact || goalCommand
-                ? []
-                : retryHandoff.attachments.filter(
-                    (missed) =>
-                      !turnInput.message.attachments.some((current) => current.id === missed.id),
-                  );
-            // Like pending history, pending images need a prompt; native resume carries none.
-            // The per-turn notes alone do not: a resumed turn continues one that had them.
-            const prompted =
-              [delivery.context, sideChatContext, restartNote].some((part) => part !== "") ||
-              missedAttachments.length > 0;
             // A resume that must be prompted still needs a request, or the agent has nothing to do.
             const requestText =
               turnInput.resume && prompted && userText === "" ? RESUME_PROMPT : userText;
@@ -2515,8 +2529,8 @@ export const layer: Layer.Layer<
                 ? requestText
                 : `${context}\n\n${messageLabel}:\n${requestText}`;
             const operation =
-              turnInput.resume && !prompted && session.resumeTurn !== undefined
-                ? session.resumeTurn({ ...resumeInput, messageId: resumeMessage.messageId })
+              resumesUnprompted && resumeTurn !== undefined
+                ? resumeTurn({ ...resumeInput, messageId: resumeMessage.messageId })
                 : start({
                     ...(prompted ? contextInput : startInput),
                     message: {
@@ -2551,6 +2565,7 @@ export const layer: Layer.Layer<
             yield* Effect.forEach(
               [
                 delivery.delivered,
+                roleRecovery.delivered,
                 ...(sideChatContext === "" ||
                 sideChatHandoff === undefined ||
                 nativeThreadId == null
@@ -2589,6 +2604,7 @@ export const layer: Layer.Layer<
         );
         const deliverySession =
           stanceNote === "" &&
+          turnRoleRecovery.note === "" &&
           workItemNote === "" &&
           effectiveHandoffs.length === 0 &&
           retryHandoff.handoffs.length === 0 &&

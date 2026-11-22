@@ -1301,6 +1301,7 @@ function makeLocalCommandHarness(input: {
                 ),
             }),
         Layer.mock(ManagedAgent.ManagedAgentService)({
+          recoveredRoles: () => Effect.succeed([]),
           resolveStance: ({ thread }) =>
             Effect.succeed({
               stance: thread?.stanceChoice?.stance ?? "implement",
@@ -1759,26 +1760,30 @@ effectIt.effect.each([
   ),
 );
 
-effectIt.effect("injects the unified unattended note from turn 1 when global Away is on and skips slash commands", () =>
-  Effect.gen(function* () {
-    const ordinary = makeLocalCommandHarness({
-      text: "Finish the refactor",
-      deliverTurn: true,
-      serverSettings: { away: true },
-    });
-    yield* ordinary.start;
-    const ordinaryText = ordinary.startTurn.mock.calls[0]![0].message.text;
-    expect(ordinaryText).toContain("Global Away is on");
-    expect(ordinaryText).toContain("Production deploys or migrations");
-    expect(ordinaryText).toContain("op decision");
+effectIt.effect(
+  "injects the unified unattended note from turn 1 when global Away is on and skips slash commands",
+  () =>
+    Effect.gen(function* () {
+      const ordinary = makeLocalCommandHarness({
+        text: "Finish the refactor",
+        deliverTurn: true,
+        serverSettings: { away: true },
+      });
+      yield* ordinary.start;
+      const ordinaryText = ordinary.startTurn.mock.calls[0]![0].message.text;
+      expect(ordinaryText).toContain("Global Away is on");
+      expect(ordinaryText).toContain("Production deploys or migrations");
+      expect(ordinaryText).toContain("op decision");
 
-    const slash = makeLocalCommandHarness({
-      text: "/review",
-      deliverTurn: true,
-      claude: { usages: [], settings: { away: true } },
-    });
-    yield* slash.start;
-    const delivered = slash.startTurn.mock.calls[0]?.[0]?.message?.text ?? slash.startRootRun.mock.calls[0]?.[0]?.message?.text;
-    expect(delivered).toBe("/review");
-  }).pipe(Effect.scoped),
+      const slash = makeLocalCommandHarness({
+        text: "/review",
+        deliverTurn: true,
+        claude: { usages: [], settings: { away: true } },
+      });
+      yield* slash.start;
+      const delivered =
+        slash.startTurn.mock.calls[0]?.[0]?.message?.text ??
+        slash.startRootRun.mock.calls[0]?.[0]?.message?.text;
+      expect(delivered).toBe("/review");
+    }).pipe(Effect.scoped),
 );

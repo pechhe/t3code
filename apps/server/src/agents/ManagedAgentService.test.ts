@@ -2176,4 +2176,93 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
       }
     }),
   );
+
+  const astra = provider("codex", "codex-astra", ["gpt-astra-test"]);
+  const recoveryContext = {
+    projectId: ProjectId.make("project-recovery"),
+    taskClass: "non-ui" as const,
+    ceiling: "full-access" as const,
+  };
+  const blockedThread = ThreadId.make("thread-blocked");
+  const withLive = <A, E, R>(
+    environment: Record<string, string>,
+    live: { providers: ReadonlyArray<ServerProvider>; reads: number },
+    effect: Effect.Effect<A, E, R>,
+  ) =>
+    effect.pipe(
+      Effect.provideService(HostProcess.Environment, environment),
+      Effect.provideService(ProviderRegistry.ProviderRegistry, {
+        ...makeProviderRegistryMock(),
+        getProviders: Effect.sync(() => {
+          live.reads++;
+          return live.providers;
+        }),
+      }),
+    );
+
+  it.effect("tells a thread once when each blocked role recovers", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      const live = { providers: [] as ReadonlyArray<ServerProvider>, reads: 0 };
+      const recovered = () =>
+        withLive(f.environment, live, f.service.recoveredRoles(blockedThread));
+      yield* f.service.observeRoleAvailability({
+        threadId: blockedThread,
+        context: recoveryContext,
+        roles: [
+          { role: "advisor", available: false },
+          { role: "implementer", available: false },
+          { role: "lead", available: false },
+        ],
+      });
+      expect(yield* recovered()).toEqual([]);
+      // The advisor's list has two models; one is enough for it to be available again.
+      live.providers = [astra];
+      expect(yield* recovered()).toEqual(["advisor"]);
+      expect(yield* recovered()).toEqual(["advisor"]);
+      yield* f.service.acknowledgeRecoveredRoles(blockedThread, ["advisor"]);
+      expect(yield* recovered()).toEqual([]);
+      live.providers = [codex, claude];
+      expect(yield* recovered()).toEqual(["implementer"]);
+      yield* f.service.acknowledgeRecoveredRoles(blockedThread, ["implementer"]);
+      const reads = live.reads;
+      expect(yield* recovered()).toEqual([]);
+      expect(live.reads).toBe(reads);
+    }),
+  );
+
+  it.effect("forgets a role the thread saw available again", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      const live = { providers: [astra] as ReadonlyArray<ServerProvider>, reads: 0 };
+      yield* f.service.observeRoleAvailability({
+        threadId: blockedThread,
+        context: recoveryContext,
+        roles: [{ role: "advisor", available: false }],
+      });
+      yield* f.service.observeRoleAvailability({
+        threadId: blockedThread,
+        context: recoveryContext,
+        roles: [{ role: "advisor", available: true }],
+      });
+      expect(yield* withLive(f.environment, live, f.service.recoveredRoles(blockedThread))).toEqual(
+        [],
+      );
+    }),
+  );
+
+  it.effect("reads nothing for a thread that never saw a blocked role", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      const live = { providers: [codex, claude] as ReadonlyArray<ServerProvider>, reads: 0 };
+      expect(
+        yield* withLive(
+          f.environment,
+          live,
+          f.service.recoveredRoles(ThreadId.make("thread-untouched")),
+        ),
+      ).toEqual([]);
+      expect(live.reads).toBe(0);
+    }),
+  );
 });

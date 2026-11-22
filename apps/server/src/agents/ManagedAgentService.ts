@@ -12,6 +12,9 @@ import * as Option from "effect/Option";
 import * as DateTime from "effect/DateTime";
 import {
   AGENT_ROLE_GUIDANCE,
+  type AgentRole,
+  type AgentTaskBrowser,
+  type AgentTaskClass,
   type AgentTaskRequest,
   type OrchestrationV2AppThread,
   type ResolvedDelegationStance,
@@ -39,6 +42,7 @@ import {
   managedExecution,
   modelNote,
   readOnlyToolProfile,
+  resolveProjectProviderInstanceEnabled,
   usesPhi,
   type AgentToolProfile,
 } from "@t3tools/contracts";
@@ -47,6 +51,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import { agentPolicyRoot } from "./agentPolicyRoot.ts";
@@ -160,6 +165,18 @@ type Authority = {
   /** Admission only: ThreadLaunch will allocate the named Spec's workspace before any turn. */
   readonly allocatesWorkspace?: boolean;
 };
+/** The discovery context a role was last seen unavailable in, to re-check it as accurately. */
+export type BlockedRoleObservation = {
+  readonly projectId: ProjectId;
+  readonly taskClass: AgentTaskClass;
+  readonly ceiling: RuntimeMode;
+  readonly runtimeMode?: RuntimeMode;
+  readonly readOnly?: boolean;
+  readonly browser?: AgentTaskBrowser;
+  readonly callerModel?: string;
+  readonly caller?: ModelSelection;
+};
+const MAX_TRACKED_BLOCKED_THREADS = 500;
 /** Candidate reasons for a model an account can start now, whichever the resolver chose. */
 const RUNNABLE_CANDIDATE_REASONS = new Set([
   "eligible",
@@ -200,6 +217,22 @@ export class ManagedAgentService extends Context.Service<
         readonly selection?: Resolver.RequestedModel;
       },
     ) => Effect.Effect<Omit<AgentRolesResult, "environmentId">, ManagedAgentError>;
+    /**
+     * Records what a thread saw of its roles: an unavailable one is remembered with its context,
+     * an available one forgotten, so a later recovery is told once and only to a thread that saw the block.
+     */
+    readonly observeRoleAvailability: (input: {
+      readonly threadId: ThreadId;
+      readonly context: BlockedRoleObservation;
+      readonly roles: ReadonlyArray<{ readonly role: AgentRole; readonly available: boolean }>;
+    }) => Effect.Effect<void>;
+    /** The roles this thread saw unavailable that can start now; no reads for a thread that saw none. */
+    readonly recoveredRoles: (threadId: ThreadId) => Effect.Effect<ReadonlyArray<AgentRole>>;
+    /** Forgets recovered roles once a turn that told the thread has started. */
+    readonly acknowledgeRecoveredRoles: (
+      threadId: ThreadId,
+      roles: ReadonlyArray<AgentRole>,
+    ) => Effect.Effect<void>;
     /** One role's selections that can start now, in the order a delegation would try them. */
     readonly ranked: (
       input: Omit<Authority, "workspacePath"> & {
@@ -690,6 +723,27 @@ const make = Effect.gen(function* () {
       );
   });
   const isolatedLaunches = yield* Semaphore.make(1);
+  const blockedRoles = yield* Ref.make<
+    ReadonlyMap<ThreadId, ReadonlyMap<AgentRole, BlockedRoleObservation>>
+  >(new Map());
+  const updateBlocked = (
+    threadId: ThreadId,
+    change: (roles: Map<AgentRole, BlockedRoleObservation>) => void,
+  ) =>
+    Ref.update(blockedRoles, (current) => {
+      const next = new Map(current);
+      const roles = new Map(current.get(threadId));
+      change(roles);
+      if (roles.size === 0) next.delete(threadId);
+      else {
+        if (!next.has(threadId) && next.size >= MAX_TRACKED_BLOCKED_THREADS) {
+          const oldest = next.keys().next();
+          if (oldest.done !== true) next.delete(oldest.value);
+        }
+        next.set(threadId, roles);
+      }
+      return next;
+    });
   /** Only the roles a policy configures; an optional role it leaves out is not offered. */
   const configuredRoles = (snapshot: AgentPolicySnapshot) =>
     Object.entries(snapshot.manifest.roles).flatMap(([name, policy]) => {
@@ -1007,6 +1061,83 @@ const make = Effect.gen(function* () {
       );
       return { policyHash: snapshot.hash, policyRevision: snapshot.sourceRevision, roles };
     }),
+    observeRoleAvailability: Effect.fn("ManagedAgentService.observeRoleAvailability")(function* ({
+      threadId,
+      context,
+      roles,
+    }) {
+      const observed = roles.filter(({ role }) => role !== "lead");
+      if (observed.length === 0) return;
+      yield* updateBlocked(threadId, (tracked) => {
+        for (const { role, available } of observed) {
+          if (available) tracked.delete(role);
+          else tracked.set(role, context);
+        }
+      });
+    }),
+    recoveredRoles: Effect.fn("ManagedAgentService.recoveredRoles")(
+      function* (threadId) {
+        const tracked = (yield* Ref.get(blockedRoles)).get(threadId);
+        if (tracked === undefined) return [];
+        const registry = yield* Effect.serviceOption(ProviderRegistry.ProviderRegistry);
+        if (Option.isNone(registry)) return [];
+        const providers = yield* registry.value.getProviders;
+        const settings = yield* Effect.serviceOption(Settings.ServerSettingsService);
+        const configured = Option.isSome(settings) ? yield* settings.value.getSettings : undefined;
+        const snapshot = yield* currentPolicy;
+        const presets = configuredRoles(snapshot);
+        const recovered = yield* Effect.forEach([...tracked], ([role, observed]) =>
+          Effect.gen(function* () {
+            const preset = presets.find((candidate) => candidate.role === role);
+            if (preset === undefined) return undefined;
+            const { entry } = yield* discover(
+              {
+                projectId: observed.projectId,
+                providers:
+                  configured === undefined
+                    ? providers
+                    : providers.filter((provider) =>
+                        resolveProjectProviderInstanceEnabled(
+                          configured,
+                          observed.projectId,
+                          provider.instanceId,
+                        ),
+                      ),
+                ceiling: observed.ceiling,
+                request: {
+                  role,
+                  taskClass: observed.taskClass,
+                  ...(observed.runtimeMode === undefined
+                    ? {}
+                    : { runtimeMode: observed.runtimeMode }),
+                  ...(observed.readOnly === undefined ? {} : { readOnly: observed.readOnly }),
+                  ...(observed.browser === undefined ? {} : { browser: observed.browser }),
+                },
+                ...(observed.callerModel === undefined
+                  ? {}
+                  : { callerModel: observed.callerModel }),
+                ...(observed.caller === undefined ? {} : { caller: observed.caller }),
+              },
+              snapshot,
+              role,
+              preset.policy,
+              preset.brief,
+            );
+            return entry.models.some((model) => model.available) ? role : undefined;
+          }),
+        );
+        return recovered.filter((role): role is AgentRole => role !== undefined).toSorted();
+      },
+      // A turn start must never fail from a recovery check.
+      Effect.orElseSucceed((): ReadonlyArray<AgentRole> => []),
+    ),
+    acknowledgeRecoveredRoles: Effect.fn("ManagedAgentService.acknowledgeRecoveredRoles")(
+      function* (threadId, roles) {
+        yield* updateBlocked(threadId, (tracked) => {
+          for (const role of roles) tracked.delete(role);
+        });
+      },
+    ),
     ranked: Effect.fn("ManagedAgentService.ranked")(function* (input) {
       const snapshot = yield* currentPolicy;
       const configured = configuredRoles(snapshot).find(({ role }) => role === input.role);

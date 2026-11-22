@@ -7,6 +7,7 @@ import * as ExternalWork from "../agents/ExternalAgentWorkService.ts";
 import { assertBelowDelegationLimit } from "./delegationLimits.ts";
 import * as Hex from "effect/encoding/Hex";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
+import { AgentRoleError } from "../agents/AgentRoleResolver.ts";
 import * as Experiments from "../experiments/ExperimentService.ts";
 import { derive as deriveIds } from "@t3tools/provider-core/server/IdAllocator";
 import {
@@ -177,6 +178,13 @@ function ownsRunningManagedTask(
   );
 }
 
+const isAgentRoleError = Schema.is(AgentRoleError);
+/** Refusals that say a role has no model able to start now, not that the request was wrong. */
+const ROLE_UNAVAILABLE_REASONS: ReadonlySet<string> = new Set([
+  "no-eligible-model",
+  "usage-limited",
+  "conservation",
+]);
 /** The workspace and revision a finished managed task handed back. */
 // Untraced: runs inside its tool's span, as the inline code it replaced did.
 export const managedTaskHandoff = Effect.fnUntraced(function* (input: {
@@ -1196,6 +1204,21 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
                 undefined,
                 yield* childRuntimeDefault,
               );
+              const observeRole = (available: boolean) =>
+                managedService.observeRoleAvailability({
+                  threadId: parent.thread.id,
+                  context: {
+                    projectId: taskProjectId,
+                    taskClass: agentTask.taskClass,
+                    ceiling: parent.thread.runtimeMode,
+                    runtimeMode,
+                    ...(agentTask.readOnly === undefined ? {} : { readOnly: agentTask.readOnly }),
+                    ...(agentTask.browser === undefined ? {} : { browser: agentTask.browser }),
+                    callerModel: parent.thread.modelSelection.model,
+                    caller: parent.thread.modelSelection,
+                  },
+                  roles: [{ role: agentTask.role, available }],
+                });
               const candidates = eligibleProviders.filter(
                 (provider) =>
                   (input.target?.providerInstanceId === undefined ||
@@ -1223,7 +1246,22 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
                   requireExplicitSelection: true,
                   ...selectionOf(input.target),
                 })
-                .pipe(Effect.mapError((error) => failure("capability_denied", error.message)));
+                .pipe(
+                  Effect.tapError((error) => {
+                    const targetPinned =
+                      input.target?.model !== undefined ||
+                      input.target?.providerInstanceId !== undefined ||
+                      input.target?.driverKind !== undefined;
+                    return !targetPinned &&
+                      error.reason === "selection" &&
+                      isAgentRoleError(error.cause) &&
+                      ROLE_UNAVAILABLE_REASONS.has(error.cause.reason)
+                      ? observeRole(false)
+                      : Effect.void;
+                  }),
+                  Effect.tap(() => observeRole(true)),
+                  Effect.mapError((error) => failure("capability_denied", error.message)),
+                );
             });
       let target = yield* resolveTargetRechecking({
         parent,
@@ -1745,6 +1783,31 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
             }),
       })
       .pipe(Effect.mapError((error) => failure("capability_denied", error.message)));
+    if (parent !== undefined) {
+      const pinned = input.model !== undefined || input.providerInstanceId !== undefined;
+      const observedRoles = result.roles
+        .filter((entry) => entry.role !== "lead")
+        .map((entry) => ({
+          role: entry.role,
+          available: entry.models.some((model) => model.available),
+        }))
+        .filter((entry) => !pinned || entry.available);
+      if (observedRoles.length > 0)
+        yield* managed.value.observeRoleAvailability({
+          threadId: parent.thread.id,
+          context: {
+            projectId,
+            taskClass: input.taskClass,
+            ceiling: limits.runtimeMode,
+            ...(input.runtimeMode === undefined ? {} : { runtimeMode: input.runtimeMode }),
+            ...(input.readOnly === undefined ? {} : { readOnly: input.readOnly }),
+            ...(input.browser === undefined ? {} : { browser: input.browser }),
+            callerModel: parent.thread.modelSelection.model,
+            caller: parent.thread.modelSelection,
+          },
+          roles: observedRoles,
+        });
+    }
     const stance =
       parent === undefined
         ? undefined

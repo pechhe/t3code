@@ -461,8 +461,17 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       const locked: Array<boolean> = [];
       let holding = 0;
       const managed = yield* Managed.ManagedAgentService;
+      const observed: Array<{
+        readonly threadId: ThreadId;
+        readonly roles: ReadonlyArray<{ readonly role: string; readonly available: boolean }>;
+      }> = [];
       const counted = Managed.ManagedAgentService.of({
         ...managed,
+        observeRoleAvailability: (input) =>
+          Effect.suspend(() => {
+            observed.push({ threadId: input.threadId, roles: input.roles });
+            return managed.observeRoleAvailability(input);
+          }),
         exclusive: (effect) =>
           managed.exclusive(
             Effect.acquireUseRelease(
@@ -799,11 +808,13 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
               Layer.provide(WorkspaceProvider.layerGitWorktree),
             ),
           ),
+          Effect.provideService(Managed.ManagedAgentService, counted),
           Effect.provideService(HostProcess.Environment, {
             T3CODE_AGENT_POLICY_ROOT: policyRoot,
           }),
         );
       return {
+        observed,
         champion,
         championSelections,
         completeBranch: (attempt: ChampionInvestigationBranchAttempt, foreign = false) => {
@@ -1512,6 +1523,64 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         `claude-fable-test on ${claude.instanceId}: provider-not-installed`,
       );
       expect(h.dispatched).toHaveLength(0);
+    }).pipe(
+      Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+    ),
+  );
+
+  it.effect("agent_roles records a role with no available model and clears it once available", () =>
+    Effect.gen(function* () {
+      const none = yield* harness(() => [], true, { providers: [] });
+      yield* none.roles();
+      expect(none.observed.at(-1)?.roles).toContainEqual({ role: "advisor", available: false });
+      expect(none.observed.at(-1)?.roles.some((entry) => entry.role === "lead")).toBe(false);
+      const pinned = yield* harness(() => [], true, { providers: [] });
+      yield* pinned.roles(claudeModel);
+      expect(pinned.observed).toEqual([]);
+      const back = yield* harness(() => [], true, { providers: [codex, claude] });
+      yield* back.roles();
+      expect(back.observed.at(-1)?.roles).toContainEqual({ role: "advisor", available: true });
+    }).pipe(
+      Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+    ),
+  );
+
+  it.effect("delegate_task records a role it could not start, but not a refused choice", () =>
+    Effect.gen(function* () {
+      const soleModel = (manifest: AgentPolicyManifestType): AgentPolicyManifestType => ({
+        ...manifest,
+        lists: { ...manifest.lists, advisor: [{ model: "fable", effort: "medium" }] },
+        roles: {
+          ...manifest.roles,
+          advisor: { ...manifest.roles.advisor!, callers: undefined },
+        },
+      });
+      const none = yield* harness(() => [], true, { providers: [], policy: soleModel });
+      const unavailable = yield* none.delegate({
+        task: "Advise",
+        clientRequestId: "unavailable",
+        agentTask: request({ role: "advisor", workspacePath: none.lead, readOnly: true }),
+      });
+      expect(unavailable.code).toBe("capability_denied");
+      expect(none.observed).toEqual([
+        { threadId: expect.anything(), roles: [{ role: "advisor", available: false }] },
+      ]);
+      const ready = yield* harness(() => [], true, { providers: [codex, claude] });
+      const denied = yield* ready.delegate({
+        task: "Advise",
+        clientRequestId: "denied",
+        agentTask: request({ role: "advisor", workspacePath: ready.lead, readOnly: true }),
+      });
+      expect(denied.message).toContain("selection-denied");
+      expect(ready.observed).toEqual([]);
+      const pinned = yield* none.delegate({
+        task: "Advise pinned",
+        clientRequestId: "pinned-unavailable",
+        target: { model: "claude-opus-4-6" },
+        agentTask: request({ role: "advisor", workspacePath: none.lead, readOnly: true }),
+      });
+      expect(pinned.code).toBe("capability_denied");
+      expect(none.observed).toHaveLength(1);
     }).pipe(
       Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
     ),
