@@ -107,15 +107,9 @@ export type ForgeCouncilRecording =
 /** A Spec named by its repository, `owner/repo#12`: a Forge number there, or a GitHub Issue. */
 const REPOSITORY_SPEC_REF = /^([\w.-]+\/[\w.-]+)#(\d+)$/;
 
-/** A read an agent's own Forge write expires, as a work item's is. */
-export interface ReadCadence extends Cadence {
-  readonly writeVersion: number;
-}
+export type ReadCadence = Cadence;
 
-/**
- * A Forge write through T3 makes the next request reread at once; the back-off itself follows
- * only whether this result changed, so another thread's unrelated write keeps it settled.
- */
+/** Back off while the fingerprint stays unchanged, resetting when a reread sees new data. */
 export const nextInterval = (previous: Cadence | undefined, fingerprint: string | undefined) =>
   fingerprint !== undefined && previous?.fingerprint === fingerprint
     ? Math.min(previous.intervalMs * 2, BUILD_MAX_REREAD_INTERVAL_MS)
@@ -307,7 +301,6 @@ export const CARD_CACHE_LIMIT = 256;
 
 interface CachedItem {
   readonly item: ForgeWorkItemSummary | null;
-  readonly writeVersion: number;
   readonly readAt: number | null;
   readonly attemptedAt: number;
   readonly unavailable: boolean;
@@ -602,11 +595,9 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const now = yield* Clock.currentTimeMillis;
         const previous = cache.get(key);
-        const writeVersion = yield* weave.buildWriteVersion;
         if (
           options?.fresh !== true &&
           previous !== undefined &&
-          previous.writeVersion === writeVersion &&
           isCurrent(feed, previous, target.number, now)
         ) {
           remember(cache, key, previous, ITEM_CACHE_LIMIT);
@@ -614,7 +605,6 @@ const make = Effect.gen(function* () {
         }
         const read = yield* readSummary(target.itemId);
         const next: CachedItem = {
-          writeVersion,
           ...Option.match(read, {
             onSome: (item) => ({ item, readAt: now, attemptedAt: now, unavailable: false }),
             onNone: () => ({
@@ -1039,12 +1029,10 @@ const make = Effect.gen(function* () {
         Effect.gen(function* () {
           const now = yield* Clock.currentTimeMillis;
           const previous = cardCache.get(key);
-          const writeVersion = yield* weave.buildWriteVersion;
           // Opening a card reads at once; only a client's periodic re-reads are rate-limited.
           if (
             previous !== undefined &&
             previous.opens.includes(input.open) &&
-            previous.writeVersion === writeVersion &&
             now - previous.attemptedAt < previous.intervalMs
           ) {
             remember(cardCache, key, previous, CARD_CACHE_LIMIT);
@@ -1058,7 +1046,6 @@ const make = Effect.gen(function* () {
           const fingerprint = Option.isSome(read) ? fingerprintOf(read.value) : undefined;
           const next: CachedCard = {
             fingerprint,
-            writeVersion,
             intervalMs: nextInterval(previous, fingerprint),
             ...Option.match(read, {
               onSome: (fresh) => ({

@@ -19,8 +19,7 @@ import * as Context from "effect/Context";
 import * as Exit from "effect/Exit";
 import * as Scope from "effect/Scope";
 import * as TestClock from "effect/testing/TestClock";
-import { HttpClient, HttpClientError, HttpClientResponse, HttpServer } from "effect/http";
-import * as NetAddress from "effect/net/NetAddress";
+import { HttpClient, HttpClientError, HttpClientResponse } from "effect/http";
 import * as NodeUtil from "node:util";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
@@ -181,13 +180,6 @@ const makeHarness = Effect.gen(function* () {
       ServerEnvironment.ServerEnvironment.of({
         getEnvironmentId: Effect.succeed(environmentId),
       } as ServerEnvironment.ServerEnvironment["Service"]),
-    ),
-    Layer.succeed(
-      HttpServer.HttpServer,
-      HttpServer.HttpServer.of({
-        address: NetAddress.inetAddressFromIpStringUnsafe("127.0.0.1", 43123),
-        serve: (() => Effect.void) as HttpServer.HttpServer["Service"]["serve"],
-      }),
     ),
   );
   // T3's own Weave connection: decisions go out with the delegation it stores.
@@ -355,43 +347,6 @@ it.effect("a read after Home lapses answers with what it knew and refreshes behi
     assert.strictEqual(weave.calls.length, known + 1);
     assert.strictEqual((yield* service.read).home?.count, 7);
     assert.strictEqual(weave.calls.length, known + 1);
-  }),
-);
-
-it.effect("an agent's Forge writes do not make Home read again before its interval lapses", () =>
-  Effect.gen(function* () {
-    const { weave, service, connections } = yield* connected;
-    yield* service.read;
-    const homeCalls = () => weave.calls.filter((call) => call.body.action === "home").length;
-    const known = homeCalls();
-    yield* connections.prepare({ threadId: leadThread, role: "lead", model: "claude-opus-5-5" });
-    const agent = yield* connections.connection(leadThread);
-    const version = yield* connections.buildWriteVersion;
-    for (const id of [1, 2, 3]) {
-      yield* connections.forward({
-        authorization: agent!.authorizationHeader,
-        contentType: undefined,
-        accept: undefined,
-        protocolVersion: undefined,
-        body: new TextEncoder().encode(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            id,
-            method: "tools/call",
-            params: { name: "weave_forge_set_status", arguments: {} },
-          }),
-        ),
-      });
-    }
-    assert.isAbove(yield* connections.buildWriteVersion, version);
-    yield* TestClock.adjust(30_000);
-    yield* service.read;
-    yield* service.refreshed;
-    assert.strictEqual(homeCalls(), known);
-    yield* TestClock.adjust(60_000);
-    yield* service.read;
-    yield* service.refreshed;
-    assert.strictEqual(homeCalls(), known + 1);
   }),
 );
 

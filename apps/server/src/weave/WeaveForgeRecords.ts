@@ -14,9 +14,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Queue from "effect/Queue";
-import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
-import * as Semaphore from "effect/Semaphore";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as Stream from "effect/Stream";
 import type * as Scope from "effect/Scope";
@@ -31,18 +29,6 @@ import * as WeaveAgentConnections from "./WeaveAgentConnections.ts";
 const RETRY_BASE_MS = 1_000;
 const RETRY_MAX_MS = 5 * 60 * 1_000;
 const FINISHED_RUN_STATUSES: ReadonlySet<string> = new Set(["completed", "failed", "cancelled"]);
-/**
- * A reviewer's run is written into local storage before its agent is answered, because that answer
- * is the only place Weave's run id reaches T3. A write that fails is tried again this many times,
- * waiting this long after the first failed try and doubling, before the answer goes out without it.
- */
-const REPORT_WRITE_ATTEMPTS = 5;
-const REPORT_WRITE_BACKOFF_MS = 50;
-/** Those tries as the waits between them: this long after the first failure, doubling. */
-const REPORT_WRITE_RETRY = Schedule.exponential(Duration.millis(REPORT_WRITE_BACKOFF_MS)).pipe(
-  Schedule.upTo({ times: REPORT_WRITE_ATTEMPTS - 1 }),
-);
-
 const JsonObject = Schema.Record(Schema.String, Schema.Unknown);
 const decodeJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown));
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
@@ -318,8 +304,6 @@ const make = Effect.gen(function* () {
   const wakeups = yield* Queue.unbounded<void>();
   // Dependency waits are scheduling state, not failed delivery attempts on the stored record.
   const blockedWaits = new Map<string, { count: number; nextAttemptAt: number }>();
-  /** Shared by the pass and by a read of the runs, so neither meets a report in neither place. */
-  const reviewerRunDrain = yield* Semaphore.make(1);
 
   const failed = (operation: WeaveForgeRecordError["operation"], cause: unknown) =>
     new WeaveForgeRecordError({ operation, cause });
@@ -372,81 +356,13 @@ const make = Effect.gen(function* () {
       Effect.mapError((cause) => failed("read", cause)),
     );
 
-  /**
-   * The T3 run a thread is on now. A reviewer's usage names the Forge run its own T3 run reported,
-   * so the run is read while the report is made and stamped onto it: by the time the report is
-   * written, or written again after a failure, the thread may be on another run.
-   */
-  const reportedRunIdOf = Effect.fn("WeaveForgeRecords.reportedRunIdOf")(function* (
-    threadId: ThreadId,
-  ) {
-    const shell = yield* projections.getThreadShell(threadId);
-    // A thread that no longer exists has no run to name; its run keeps the latest-report fallback.
-    return shell?.latestRunId ?? null;
-  });
-
-  /**
-   * Records the reviewer runs reported so far. The runs are only forgotten once their rows are
-   * stored, so a failed insert leaves them for the next drain instead of losing them.
-   */
-  const drainReportedRuns = Effect.gen(function* () {
-    const reported = yield* weave.reportedRuns;
-    if (reported.length === 0) return;
-    for (const report of reported) {
-      const now = yield* Clock.currentTimeMillis;
-      // The run the report was made in, which a report whose write had to wait must keep naming
-      // rather than the one its thread has moved on to. Only a report nothing stamped falls back.
-      const t3RunId = report.t3RunId ?? (yield* reportedRunIdOf(report.threadId));
-      yield* sql`INSERT INTO weave_forge_reviewer_runs
-        (reviewer_thread_id, run_id, t3_run_id, spec_id, created_at)
-        VALUES (${report.threadId}, ${report.runId}, ${t3RunId}, ${report.specId}, ${now})
-        ON CONFLICT (reviewer_thread_id, run_id)
-          DO UPDATE SET spec_id = coalesce(excluded.spec_id, spec_id),
-            t3_run_id = coalesce(excluded.t3_run_id, t3_run_id)`;
-    }
-    yield* weave.forgetReportedRuns(reported);
-    blockedWaits.clear();
-    yield* Queue.offer(wakeups, undefined);
-  });
-
-  /** The drain as the queue runs it: one at a time, so a reader never meets a report in neither place. */
-  const recordReportedRuns = reviewerRunDrain.withPermits(1)(drainReportedRuns);
-
-  /**
-   * The drain as the proxied answer runs it: the reviewer waits for its run to be on record, so a
-   * write that fails a moment is tried again before the answer goes out. Every try failing leaves
-   * the run reported for the queue's next pass, which is better than holding the agent for ever.
-   */
-  const recordReportedRunsBeforeAnswering = recordReportedRuns.pipe(
-    Effect.retry(REPORT_WRITE_RETRY),
-    Effect.catchCause((cause) =>
-      Effect.logWarning("Could not record a reviewer's Weave run", cause),
-    ),
-  );
-
-  const reviewerRuns: WeaveForgeRecords["Service"]["reviewerRuns"] = reviewerRunDrain.withPermits(
-    1,
-  )(
-    Effect.gen(function* () {
-      // A run reported just before its thread finished may still be only in the connection's memory,
-      // so reading one is what records it: completion would otherwise find no run to record times
-      // against, and a restart would lose the run altogether.
-      yield* drainReportedRuns;
-      const rows = yield* sql<{
-        readonly reviewerThreadId: ThreadId;
-        readonly runId: string;
-        readonly t3RunId: string | null;
-        readonly specId: string | null;
-        readonly createdAt: number;
-      }>`
-        SELECT reviewer_thread_id AS "reviewerThreadId", run_id AS "runId",
-          t3_run_id AS "t3RunId", spec_id AS "specId", created_at AS "createdAt"
-        FROM weave_forge_reviewer_runs
-        ORDER BY created_at, rowid
-      `;
-      return rows;
-    }).pipe(Effect.mapError((cause) => failed("read", cause))),
-  );
+  // Retain reads of historical reports from the retired per-agent proxy.
+  const reviewerRuns: WeaveForgeRecords["Service"]["reviewerRuns"] = sql<WeaveForgeReviewerRun>`
+      SELECT reviewer_thread_id AS "reviewerThreadId", run_id AS "runId",
+        t3_run_id AS "t3RunId", spec_id AS "specId", created_at AS "createdAt"
+      FROM weave_forge_reviewer_runs
+      ORDER BY created_at, rowid
+    `.pipe(Effect.mapError((cause) => failed("read", cause)));
 
   const forgetThread: WeaveForgeRecords["Service"]["forgetThread"] = Effect.fn(
     "WeaveForgeRecords.forgetThread",
@@ -505,7 +421,7 @@ const make = Effect.gen(function* () {
     return { _tag: "delivered", sessionId: sessionIdOf(row.resultJson) };
   });
 
-  /** A reviewer's own Forge run, as reported behind the proxy. */
+  /** A reviewer's historical Forge run, recorded before the proxy was retired. */
   const reviewerRunIdOf = Effect.fn("WeaveForgeRecords.reviewerRunIdOf")(function* (
     threadId: ThreadId,
     t3RunId: string | null,
@@ -916,11 +832,6 @@ const make = Effect.gen(function* () {
   });
 
   const deliverDue: WeaveForgeRecords["Service"]["deliverDue"] = Effect.gen(function* () {
-    // A run is on record before anything of its thread's goes out, so its times can be recorded
-    // even when its thread ends in this pass.
-    yield* reviewerRunDrain
-      .withPermits(1)(drainReportedRuns)
-      .pipe(Effect.mapError((cause) => failed("deliver", cause)));
     const rows = yield* pendingRows;
     const pendingKeys = new Set(rows.map((row) => row.recordKey));
     for (const key of blockedWaits.keys()) {
@@ -972,32 +883,6 @@ const make = Effect.gen(function* () {
       const connectionChanges = yield* Stream.toQueue(weave.connectionChanges, {
         capacity: "unbounded",
       });
-      // A reviewer's run id reaches T3 only in the answer to its own call, and its thread may finish
-      // before the next pass looks, so a report wakes the queue rather than waiting for it.
-      const reportedRuns = yield* Stream.toQueue(weave.reportedRunChanges, {
-        capacity: "unbounded",
-      });
-      // A reviewer is not given its run id until the run is on record: its task may end before the
-      // next pass looks, and Weave's run id reaches T3 nowhere else. The run is stamped on the report
-      // here, once, so a write that cannot happen yet still names it when the pass that follows writes
-      // it; the answer waits for every try but the last to fail.
-      yield* weave.setRunReportedHook((report) =>
-        Effect.gen(function* () {
-          const t3RunId = yield* reportedRunIdOf(report.threadId);
-          if (t3RunId !== null)
-            yield* weave.stampReportedRun({
-              threadId: report.threadId,
-              runId: report.runId,
-              t3RunId,
-            });
-          yield* recordReportedRunsBeforeAnswering;
-        }).pipe(
-          Effect.mapError((cause) => failed("deliver", cause)),
-          Effect.catchCause((cause) =>
-            Effect.logWarning("Could not record a reviewer's Weave run", cause),
-          ),
-        ),
-      );
       // What an earlier server parked for a session it could not adopt, or for a Spec that was not
       // bindable yet, is deliverable now: the session itself, and the helper and usage rows its
       // refusal parked with it. So is a row a Weave error that passes parked. A row Weave refused
@@ -1032,21 +917,15 @@ const make = Effect.gen(function* () {
               ),
             );
             const wait = yield* waitMsBeforeNextAttempt;
-            // Woken by a new record, a new Weave connection or a reported reviewer run, without waiting
-            // out the sleep.
+            // Woken by a new record or Weave connection without waiting out the sleep.
             const woke = yield* Effect.raceFirst(
               Effect.sleep(Duration.millis(wait)).pipe(Effect.as("timer" as const)),
               Effect.raceFirst(
                 Queue.take(wakeups).pipe(Effect.as("record" as const)),
-                Effect.raceFirst(
-                  Queue.take(connectionChanges).pipe(Effect.as("connection" as const)),
-                  Queue.take(reportedRuns).pipe(Effect.as("report" as const)),
-                ),
+                Queue.take(connectionChanges).pipe(Effect.as("connection" as const)),
               ),
             );
-            // Weave has just answered T3 twice over: a row waiting out an outage may work now.
-            if (woke === "connection" || woke === "report")
-              yield* retryWaitingNow.pipe(Effect.ignoreCause);
+            if (woke === "connection") yield* retryWaitingNow.pipe(Effect.ignoreCause);
           }
         }),
       );

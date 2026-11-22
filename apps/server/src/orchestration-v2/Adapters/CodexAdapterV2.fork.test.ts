@@ -45,7 +45,6 @@ import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter"
 import type * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
 import { MANAGED_BROWSER_TOOL_NAMES } from "../../mcp/toolkits/managedBrowser/toolNames.ts";
 import * as WeaveForgeUsage from "../../weave/WeaveForgeUsage.ts";
-import * as WeaveTestkit from "../../weave/WeaveAgentConnections.testkit.ts";
 import * as SlipJayGuard from "../../project/SlipJayGuard.ts";
 import * as CodexAdapterV2 from "./CodexAdapterV2.ts";
 import { withCodexReplayChildMetadata } from "./CodexAdapterV2.testkit.ts";
@@ -1391,26 +1390,25 @@ describe("CodexAdapterV2 post-settle continuation", () => {
   );
 
   it.effect.each(["canonical", "legacy"] as const)(
-    "starts a thread with %s Weave registration through renewal and reconnect failures",
+    "starts a thread with %s agent MCP registration",
     (registration) =>
       Effect.gen(function* () {
-        const weave = yield* WeaveTestkit.makeWeaveHarness;
-        const scenario = "weave-connection";
-        const threadId = ThreadId.make(`thread-${scenario}`);
-        yield* weave.connections.prepare({
-          threadId,
-          role: "reviewer",
-          model: "gpt-5.4",
+        const scenario = "agent-mcp";
+        const threadId = ThreadId.make("thread-agent-mcp");
+        const url = "https://agent-mcp.example.test/mcp";
+        const authorizationHeader = "Bearer fixture-token";
+        const agentMcp = Layer.succeed(AgentMcpServers.AgentMcpServers, {
+          read: (id, mode) =>
+            Effect.succeed(
+              id === threadId
+                ? (mode === "legacy" ? ["fixture", "fixture-legacy"] : ["fixture"]).map((name) => ({
+                    name,
+                    url,
+                    authorizationHeader,
+                  }))
+                : [],
+            ),
         });
-        // An exchanged token, a renewal Weave cannot answer, then a revoked delegation.
-        yield* weave.call(threadId);
-        yield* TestClock.adjust(12 * WeaveTestkit.hourMs);
-        weave.weave.state.unreachable = true;
-        yield* weave.call(threadId);
-        weave.weave.state.unreachable = false;
-        weave.weave.state.delegationRevoked = true;
-        yield* weave.call(threadId);
-        const connection = (yield* weave.connections.connection(threadId))!;
 
         const nativeThreadId = "weave-thread";
         const nativeTurnId = "weave-turn";
@@ -1430,16 +1428,17 @@ describe("CodexAdapterV2 post-settle continuation", () => {
                         config: {
                           ...CodexAdapterV2.CODEX_THREAD_CONFIG,
                           mcp_servers: Object.fromEntries(
-                            (registration === "legacy" ? ["weave", "yardsmith-hq"] : ["weave"]).map(
-                              (name) => [
-                                name,
-                                {
-                                  url: WeaveTestkit.weaveEndpoint,
-                                  http_headers: { Authorization: connection.authorizationHeader },
-                                  default_tools_approval_mode: "approve",
-                                },
-                              ],
-                            ),
+                            (registration === "legacy"
+                              ? ["fixture", "fixture-legacy"]
+                              : ["fixture"]
+                            ).map((name) => [
+                              name,
+                              {
+                                url,
+                                http_headers: { Authorization: authorizationHeader },
+                                default_tools_approval_mode: "approve",
+                              },
+                            ]),
                           ),
                         },
                       },
@@ -1465,7 +1464,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           transcript,
           () => Effect.void,
           (method, params) => Effect.sync(() => void requests.push({ method, params })),
-        ).pipe(Effect.provide(WeaveTestkit.agentMcpServersFor(weave.connections)));
+        ).pipe(Effect.provide(agentMcp));
         yield* harness.runtime.startTurn(
           makeCodexTestTurnInput({
             threadId,
@@ -1488,8 +1487,6 @@ describe("CodexAdapterV2 post-settle continuation", () => {
             "turn/start",
           ],
         );
-        // Every frame T3 sent Codex, the prompt included, and every event it reported.
-        weave.assertNoSecretsIn(requests, harness.events);
       }).pipe(
         Effect.provideService(AgentMcpServers.CurrentRegistration, registration),
         Effect.scoped,

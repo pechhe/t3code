@@ -58,13 +58,12 @@ const withReactor = <A, E>(
     /** Each thread's runs as its projection holds them, latest last. */
     readonly runs: Map<ThreadId, Array<{ id: string; ordinal: number; status: string }>>;
     readonly weave: Effect.Success<typeof makeWeaveHarness>["weave"];
-    /** Calls a Forge tool as the thread's provider would and answers the agent Weave saw. */
+    /** Calls a Forge tool as the thread's Weave agent and answers the agent Weave saw. */
     readonly callTool: (threadId: ThreadId, name: string) => Effect.Effect<string | undefined>;
   }) => Effect.Effect<A, E>,
 ) =>
   Effect.gen(function* () {
     const { weave, connections } = yield* makeWeaveHarness;
-    yield* connections.prepare({ threadId: delegatedLead, role: "lead", model: "claude-opus-5-5" });
     const calls: Array<{ readonly kind: "end" | "forget" | "records"; readonly detail: unknown }> =
       [];
     const tasks = new Map<ThreadId, ReadonlyArray<Task>>();
@@ -126,24 +125,19 @@ const withReactor = <A, E>(
         ),
       ),
     );
-    let nextId = 0;
     const callTool = (threadId: ThreadId, name: string) =>
       Effect.gen(function* () {
-        const connection = yield* connections.connection(threadId);
-        yield* connections.forward({
-          authorization: connection!.authorizationHeader,
-          body: new TextEncoder().encode(
-            JSON.stringify({
-              jsonrpc: "2.0",
-              id: ++nextId,
-              method: "tools/call",
-              params: { name, arguments: { specId: "spec-1" } },
-            }),
-          ),
-          contentType: "application/json",
-          accept: "application/json, text/event-stream",
-          protocolVersion: "2025-06-18",
-        });
+        yield* connections
+          .callAs(
+            {
+              threadId,
+              role: threadId === reviewerThread ? "spec-reviewer" : "lead",
+              model: "claude-opus-5-5",
+            },
+            name,
+            { specId: "spec-1" },
+          )
+          .pipe(Effect.orDie);
         return weave.toolCalls.findLast((call) => call.name === name)?.agentId;
       });
     return yield* body({ reactor, calls, tasks, recording, runs, weave, callTool });

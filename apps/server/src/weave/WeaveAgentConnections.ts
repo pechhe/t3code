@@ -1,28 +1,20 @@
-/**
- * Provider processes hold only a thread-bound T3 credential. Weave delegations and renewable
- * agent tokens stay in this process so long-lived providers never hold an expiring token.
- */
-import { WEAVE_NAMES, type OrchestrationV2AppThread, type ThreadId } from "@t3tools/contracts";
-import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
+import type { OrchestrationV2AppThread, ThreadId } from "@t3tools/contracts";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import { currentWeaveOrigin, sameWeaveAddress } from "@t3tools/shared/weaveOrigins";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Digest from "effect/crypto/Digest";
-import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
-import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import * as Schema from "effect/Schema";
-import { HttpClient, HttpClientRequest, HttpServer } from "effect/http";
+import { HttpClient, HttpClientRequest } from "effect/http";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
-import { mcpEndpointOrigin } from "../mcp/McpSessionRegistry.ts";
 
 const STORE_NAME = "weave-connection";
 /** Where the connection was stored before the Weave names; moved to STORE_NAME at start. */
@@ -45,7 +37,7 @@ export interface WeaveAgent {
 
 /**
  * The role a thread's agent acts under in Weave: its delegated task's role as Weave knows it, or
- * `lead` for a top-level thread. Any other thread has none and gets no Weave server: a raw,
+ * `lead` for a top-level thread. Any other thread has none: a raw,
  * off-policy child, or a fork or side chat with no task (an agent can fork itself), would otherwise
  * act with the lead's full authority.
  */
@@ -60,26 +52,6 @@ export const weaveAgentRole = (
     return thread.agentTask?.review?.scope === "spec" ? "spec-reviewer" : "ticket-reviewer";
   return role ?? (thread.lineage.parentThreadId === null ? "lead" : undefined);
 };
-
-/** The thread's `weave` MCP server. It carries no Weave credential. */
-export interface WeaveMcpConnection {
-  readonly endpoint: string;
-  readonly authorizationHeader: string;
-}
-
-interface WeaveForwardRequest {
-  readonly authorization: string | undefined;
-  readonly body: Uint8Array;
-  readonly contentType: string | undefined;
-  readonly accept: string | undefined;
-  readonly protocolVersion: string | undefined;
-}
-
-interface WeaveForwardResponse {
-  readonly status: number;
-  readonly contentType: string | undefined;
-  readonly body: Uint8Array;
-}
 
 /** Why the server's own read of Weave failed. `refused` covers a revoked delegation or observer. */
 export class WeaveObserveError extends Schema.TaggedError<WeaveObserveError>()(
@@ -165,7 +137,7 @@ export class WeaveConnectionError extends Schema.TaggedError<WeaveConnectionErro
   }
 }
 
-/** Why Weave would not let a thread's agent in. Each is reported to the agent and logged by code. */
+/** Why Weave would not let a thread's agent in. */
 type WeaveRefusal =
   | "not_connected"
   | "invalid_delegation"
@@ -174,19 +146,6 @@ type WeaveRefusal =
   | "agent_invalid"
   | "unauthorized"
   | "unavailable";
-
-const refusalMessages: Record<WeaveRefusal, string> = {
-  not_connected: "T3 is no longer connected to Weave.",
-  invalid_delegation:
-    "Weave refused T3's delegation: it was revoked or has expired. Choose Connect to Weave in T3's Settings → Browser to sign in again.",
-  agent_revoked:
-    "Weave refused this agent (agent_revoked): the person revoked it in Weave Settings → Connections. This thread can no longer act in Weave.",
-  agent_role_conflict:
-    "Weave refused this agent (agent_role_conflict): this thread already acts in Weave under another role, and a thread keeps the role it first had.",
-  agent_invalid: "Weave refused this agent's identity.",
-  unauthorized: "Weave refused this agent's token.",
-  unavailable: "Weave is unreachable. Try again shortly.",
-};
 
 const StoredConnection = Schema.fromJsonString(
   Schema.Struct({ origin: Schema.String, delegation: Schema.String }),
@@ -219,7 +178,6 @@ const ToolCallResponse = Schema.Struct({
 const decodeToolCall = Schema.decodeUnknownOption(ToolCallResponse);
 
 const decodeJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown));
-const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
 /** What a refusal from the exchange or the request means for a call that has to reach Weave. */
 const callFailureOf = (
@@ -242,79 +200,6 @@ const callFailureOf = (
       return new WeaveAgentCallUnavailable({ tool, reason: "unavailable" });
   }
 };
-
-const ToolCallRequest = Schema.Struct({
-  method: Schema.Literal("tools/call"),
-  params: Schema.Struct({ name: Schema.String, arguments: Schema.optional(Schema.Unknown) }),
-});
-const decodeToolCallRequest = Schema.decodeUnknownOption(ToolCallRequest);
-/** The calls a forwarded MCP body makes, so the proxy can tell what an agent asked for. */
-const toolCallsOf = (body: Uint8Array): ReadonlyArray<{ readonly name: string }> => {
-  const parsed = decodeJson(new TextDecoder().decode(body));
-  if (Option.isNone(parsed)) return [];
-  const messages = Array.isArray(parsed.value) ? parsed.value : [parsed.value];
-  return messages.flatMap((message) =>
-    Option.match(decodeToolCallRequest(message), {
-      onNone: () => [],
-      onSome: (call) => [call.params],
-    }),
-  );
-};
-/**
- * Weave's Forge tools that only read, and the heartbeat, which only renews a session and comes
- * often, by name without their prefix. Any other Forge call may change what a card shows, so a
- * tool Weave adds later expires the display caches until it is listed here.
- */
-const FORGE_TOOLS_KEEPING_CARDS = new Set([
-  "acceptance",
-  "acceptance_queue",
-  "acceptance_readiness",
-  "accounting",
-  "attempts",
-  "binds",
-  "context",
-  "eligibility",
-  "heartbeat",
-  "list",
-  "pipeline",
-  "pipeline_overview",
-  "rd_entry_proposals",
-  "read",
-  "read_run_artifact",
-  "release_plan",
-  "reports",
-  "repositories",
-  "repository_list",
-  "repository_release_line",
-  "runs",
-  "sessions",
-  "usage",
-  "waits",
-]);
-const forgeToolOf = (tool: string): string | undefined =>
-  tool.startsWith(WEAVE_NAMES.forgeToolPrefix)
-    ? tool.slice(WEAVE_NAMES.forgeToolPrefix.length)
-    : undefined;
-const isForgeWrite = (tool: string) => {
-  const forgeTool = forgeToolOf(tool);
-  return forgeTool !== undefined && !FORGE_TOOLS_KEEPING_CARDS.has(forgeTool);
-};
-
-const containsForgeWrite = (body: Uint8Array): boolean =>
-  toolCallsOf(body).some((call) => isForgeWrite(call.name));
-
-/**
- * The run `weave_forge_run` answered with. Weave nests the run it recorded at `run`; a flattened answer
- * is accepted too, so a run of either shape is still recorded.
- */
-const WeaveForgeRun = Schema.Struct({
-  run: Schema.optional(Schema.NullOr(Schema.Struct({ id: Schema.String }))),
-  runId: Schema.optional(Schema.String),
-  id: Schema.optional(Schema.String),
-  spec: Schema.optional(Schema.NullOr(Schema.Struct({ id: Schema.String }))),
-  specId: Schema.optional(Schema.NullOr(Schema.String)),
-});
-const decodeForgeRun = Schema.decodeUnknownOption(WeaveForgeRun);
 
 const DELEGATION_PATTERN = /^yshqd_[A-Za-z0-9_-]{43}$/;
 
@@ -354,8 +239,6 @@ interface ObserverToken {
 }
 
 interface ThreadConnection {
-  readonly credential: string;
-  readonly credentialHash: string;
   agent: WeaveAgent;
   token: AgentToken | undefined;
 }
@@ -369,7 +252,7 @@ export class WeaveAgentConnections extends Context.Service<
     }) => Effect.Effect<{ readonly origin: string }, WeaveConnectionError>;
     readonly disconnect: Effect.Effect<void, WeaveConnectionError>;
     readonly connectionChanges: Stream.Stream<void>;
-    /** `connection` stands for the stored origin and delegation without revealing either. */
+    /** `connection` identifies the stored origin and delegation without revealing the delegation. */
     readonly read: Effect.Effect<
       {
         readonly origin: string;
@@ -392,18 +275,13 @@ export class WeaveAgentConnections extends Context.Service<
       WeaveObserveError
     >;
     /**
-     * Only Forge Home may use the person's delegation here; thread MCP routes cannot decide
-     * as the person. An explicit `origin` refuses to post to any other Weave.
+     * Only Forge Home may decide with the person's delegation. An explicit `origin` refuses
+     * to post to any other Weave.
      */
     readonly decide: (input: {
       readonly body: Record<string, unknown>;
       readonly origin?: string;
     }) => Effect.Effect<WeaveDecisionResponse, WeaveDecisionError>;
-    /** Gives the thread's agent a connection when T3 is connected to Weave, and none otherwise. */
-    readonly prepare: (agent: WeaveAgent) => Effect.Effect<void>;
-    readonly connection: (threadId: ThreadId) => Effect.Effect<WeaveMcpConnection | undefined>;
-    /** Serves one MCP request from a thread's agent by forwarding it to Weave as that agent. */
-    readonly forward: (request: WeaveForwardRequest) => Effect.Effect<WeaveForwardResponse>;
     /**
      * Calls a Weave server MCP tool as the thread's own agent, whether or not that agent was prepared in
      * this process: an idle thread after a restart has no in-memory entry, so the connection is
@@ -418,34 +296,6 @@ export class WeaveAgentConnections extends Context.Service<
       { readonly value: unknown },
       WeaveAgentCallRefused | WeaveAgentCallUnavailable
     >;
-    /**
-     * The reviewer runs reported so far, without forgetting them: a run is only forgotten once it is
-     * on record, so a reader and a drain of the queue cannot each miss the one the other took.
-     */
-    readonly reportedRuns: Effect.Effect<ReadonlyArray<WeaveForgeRunReport>>;
-    /** Forgets the runs the caller has recorded, never one reported since it read them. */
-    readonly forgetReportedRuns: (
-      recorded: ReadonlyArray<WeaveForgeRunReport>,
-    ) => Effect.Effect<void>;
-    /**
-     * Stamps the T3 run a report was made in onto it, so a write that has to be tried again later
-     * names that run rather than the one its thread has moved on to.
-     */
-    readonly stampReportedRun: (stamped: WeaveReportedRunStamp) => Effect.Effect<void>;
-    /**
-     * Fires when a reviewer's run is reported, so the Forge record queue records it before the
-     * reviewer's thread finishes: a restart, or its agent's end, may come first otherwise.
-     */
-    readonly reportedRunChanges: Stream.Stream<void>;
-    /**
-     * Sets what T3 does with a reported run before its agent is given the answer that names it. The
-     * Forge record queue installs its write here, so a run is on record before a restart, or the
-     * reviewer's own end, can lose it. A write that cannot happen leaves the run reported, for the
-     * queue's next drain; until a hook is installed, the runs wait for that drain.
-     */
-    readonly setRunReportedHook: (hook: WeaveRunReportedHandler) => Effect.Effect<void>;
-    /** Changes after proxied Forge writes so display caches expire without another Weave call. */
-    readonly buildWriteVersion: Effect.Effect<number>;
     /** Ends the thread's Weave agent (never revokes it); its next Weave call starts a new agent. */
     readonly end: (agent: Omit<WeaveAgent, "model">) => Effect.Effect<void>;
     /**
@@ -463,24 +313,15 @@ export class WeaveAgentConnections extends Context.Service<
 const make = Effect.gen(function* () {
   const store = yield* ServerSecretStore.ServerSecretStore;
   const connectionChanges = yield* PubSub.sliding<void>(1);
-  const reportedRunChanges = yield* PubSub.sliding<void>(1);
-  /** Reviewer runs reported since the Forge record queue last collected them. */
-  const reportedRuns = yield* Ref.make<ReadonlyArray<WeaveForgeRunReport>>([]);
-  /** What records a reported run before its agent is answered; nothing until the queue installs it. */
-  const runReported = yield* Ref.make<WeaveRunReportedHandler>(() => Effect.void);
   const crypto = yield* Digest.Digest;
-  const secureRandom = yield* SecureRandom.SecureRandom;
   const fileSystem = yield* FileSystem.FileSystem;
   const httpClient = yield* HttpClient.HttpClient;
   const environmentId = yield* (yield* ServerEnvironment.ServerEnvironment).getEnvironmentId;
-  const endpoint = `${mcpEndpointOrigin((yield* HttpServer.HttpServer).address)}/mcp/${WEAVE_NAMES.servers[0]}`;
   const threads = new Map<ThreadId, ThreadConnection>();
-  const threadByCredentialHash = new Map<string, ThreadId>();
   const tokenLock = yield* KeyedLock.make<ThreadId>();
   const observers = new Map<string, ObserverToken>();
   /** Connections Weave answered 401 to, by `connectionKey`, until a call under them succeeds. */
   const refusedConnections = new Set<string>();
-  let buildWriteVersion = 0;
   const observerLock = yield* KeyedLock.make<string>();
 
   const digest = (value: string) =>
@@ -658,26 +499,14 @@ const make = Effect.gen(function* () {
     );
     if (Option.isNone(stored)) return yield* new WeaveObserveError({ reason: "not_connected" });
     const key = yield* connectionKey(stored.value);
-    const body = new TextEncoder().encode(
-      encodeJson({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "tools/call",
-        params: { name: tool, arguments: args },
-      }),
-    );
     const attempt = Effect.gen(function* () {
       const token = yield* observerToken(key, stored.value);
-      const response = yield* callWeave(stored.value.origin, token, {
-        authorization: undefined,
-        body,
-        contentType: "application/json",
-        accept: "application/json, text/event-stream",
-        protocolVersion: undefined,
-      }).pipe(Effect.mapError(() => new WeaveObserveError({ reason: "unavailable" })));
+      const response = yield* callWeave(stored.value.origin, token, tool, args).pipe(
+        Effect.mapError(() => new WeaveObserveError({ reason: "unavailable" })),
+      );
       if (response.status === 401) {
         observers.delete(key);
-        return Option.none<WeaveForwardResponse>();
+        return Option.none<typeof response>();
       }
       return Option.some(response);
     });
@@ -701,7 +530,7 @@ const make = Effect.gen(function* () {
     );
     const result =
       response.status === 200
-        ? decodeJson(new TextDecoder().decode(response.body)).pipe(Option.flatMap(decodeToolCall))
+        ? decodeJson(response.text).pipe(Option.flatMap(decodeToolCall))
         : Option.none();
     if (Option.isNone(result)) return yield* new WeaveObserveError({ reason: "unavailable" });
     const outcome = result.value.result.structuredContent;
@@ -741,137 +570,41 @@ const make = Effect.gen(function* () {
     return { origin, connection, status, text };
   });
 
-  const callWeave = (origin: string, token: string, request: WeaveForwardRequest) =>
+  const callWeave = (origin: string, token: string, tool: string, args: Record<string, unknown>) =>
     HttpClientRequest.post(`${origin}/api/mcp`).pipe(
       HttpClientRequest.bearerToken(token),
-      HttpClientRequest.setHeaders({
-        ...(request.accept === undefined ? {} : { accept: request.accept }),
-        ...(request.protocolVersion === undefined
-          ? {}
-          : { "mcp-protocol-version": request.protocolVersion }),
+      HttpClientRequest.accept("application/json, text/event-stream"),
+      HttpClientRequest.bodyJsonUnsafe({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: tool, arguments: args },
       }),
-      HttpClientRequest.bodyUint8Array(request.body, request.contentType ?? "application/json"),
       httpClient.execute,
       Effect.flatMap((response) =>
-        response.arrayBuffer.pipe(
-          Effect.map((body): WeaveForwardResponse => ({
-            status: response.status,
-            contentType: response.headers["content-type"],
-            body: new Uint8Array(body),
-          })),
-        ),
+        response.text.pipe(Effect.map((text) => ({ status: response.status, text }))),
       ),
       Effect.timeout(WEAVE_REQUEST_TIMEOUT),
       Effect.mapError((): WeaveRefusal => "unavailable"),
     );
 
-  /**
-   * A refusal answers each JSON-RPC request in the body with an error, so the agent sees why;
-   * an HTTP 401 would send MCP clients looking for OAuth instead.
-   */
-  const refusalResponse = (body: Uint8Array, refusal: WeaveRefusal): WeaveForwardResponse => {
-    const parsed = Option.getOrUndefined(decodeJson(new TextDecoder().decode(body)));
-    const error = (id: unknown) => ({
-      jsonrpc: "2.0",
-      id,
-      error: { code: -32001, message: refusalMessages[refusal], data: { reason: refusal } },
-    });
-    const ids = (Array.isArray(parsed) ? parsed : [parsed]).flatMap((message) =>
-      typeof message === "object" && message !== null && "id" in message ? [message.id] : [],
-    );
-    if (ids.length === 0) return { status: 202, contentType: undefined, body: new Uint8Array() };
-    const payload = Array.isArray(parsed) ? ids.map(error) : error(ids[0]);
-    return {
-      status: 200,
-      contentType: "application/json",
-      body: new TextEncoder().encode(encodeJson(payload)),
-    };
-  };
-
-  const forward: WeaveAgentConnections["Service"]["forward"] = Effect.fn(
-    "WeaveAgentConnections.forward",
-  )(function* (request) {
-    const credential = request.authorization?.match(/^Bearer\s+(\S+)\s*$/)?.[1] ?? "";
-    const threadId =
-      credential === "" ? undefined : threadByCredentialHash.get(yield* digest(credential));
-    if (threadId === undefined)
-      return {
-        status: 401,
-        contentType: "application/json",
-        body: new TextEncoder().encode(encodeJson({ error: "unknown_credential" })),
-      };
-    const attempt = Effect.gen(function* () {
-      const connection = threads.get(threadId);
-      if (connection === undefined) return yield* Effect.fail("unauthorized" as WeaveRefusal);
-      const stored = yield* readStored.pipe(Effect.mapError((): WeaveRefusal => "unavailable"));
-      if (Option.isNone(stored)) return yield* Effect.fail("not_connected" as WeaveRefusal);
-      // One read of the stored connection decides both the exchange and where the token goes.
-      const token = yield* agentToken(threadId, stored.value);
-      const response = yield* callWeave(stored.value.origin, token, request);
-      if (response.status !== 401) return Option.some(response);
-      // Weave refuses a revoked agent or delegation on the next request; exchanging again
-      // learns which, or recovers from a token Weave no longer honours.
-      dropToken(threadId);
-      return Option.none<WeaveForwardResponse>();
-    });
-    const response = yield* attempt.pipe(
-      Effect.flatMap(
-        Option.match({
-          onSome: Effect.succeed,
-          onNone: () =>
-            attempt.pipe(
-              Effect.flatMap(
-                Option.match({
-                  onSome: Effect.succeed,
-                  onNone: () => Effect.fail("unauthorized" as WeaveRefusal),
-                }),
-              ),
-            ),
-        }),
-      ),
-      Effect.catch((refusal: WeaveRefusal) =>
-        Effect.logWarning("Weave refused a thread's agent", {
-          threadId,
-          reason: refusal,
-        }).pipe(Effect.as(refusalResponse(request.body, refusal))),
-      ),
-      // Even an ambiguous or interrupted write may have committed in Weave, so expire the display
-      // caches once forwarding ends however it ends, without interpreting the response.
-      Effect.ensuring(
-        Effect.sync(() => {
-          if (containsForgeWrite(request.body)) buildWriteVersion += 1;
-        }),
-      ),
-    );
-    yield* reportReviewRun(threadId, request, response).pipe(
-      Effect.catchCause((cause) =>
-        Effect.logWarning("Could not report a reviewer's Weave run", { threadId, cause }),
-      ),
-    );
-    return response;
-  });
-
-  /**
-   * One Weave request as a thread's agent. `none` means Weave refused the token, so exchanging again
-   * either recovers or learns which refusal it is.
-   */
   const callOnce = Effect.fn("WeaveAgentConnections.callOnce")(function* (
     threadId: ThreadId,
     stored: StoredWeaveConnection,
-    request: WeaveForwardRequest,
+    tool: string,
+    args: Record<string, unknown>,
   ) {
     const token = yield* agentToken(threadId, stored);
-    const response = yield* callWeave(stored.origin, token, request);
+    const response = yield* callWeave(stored.origin, token, tool, args);
     if (response.status !== 401) return Option.some(response);
     dropToken(threadId);
-    return Option.none<WeaveForwardResponse>();
+    return Option.none<typeof response>();
   });
 
   /**
    * Calls a Weave server MCP tool as the thread's own agent, giving it a connection here when this process
    * has none: an idle thread after a restart has no entry, so the caller says who it acts as, from
-   * the thread's own projection, exactly as a turn does before it starts. Only the server calls
-   * this, never a provider, and never as the lead's or the observer's agent.
+   * the thread's own projection. Only the server calls this, never a provider or an observer.
    */
   const callAs: WeaveAgentConnections["Service"]["callAs"] = Effect.fn(
     "WeaveAgentConnections.callAs",
@@ -883,20 +616,7 @@ const make = Effect.gen(function* () {
     // `prepare` adds nothing while T3 is disconnected, so there is no agent to call as.
     if (threads.get(agent.threadId) === undefined) return yield* failure("not_connected");
     const threadId = agent.threadId;
-    const attempt = callOnce(threadId, stored.value, {
-      authorization: undefined,
-      body: new TextEncoder().encode(
-        encodeJson({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "tools/call",
-          params: { name: tool, arguments: args },
-        }),
-      ),
-      contentType: "application/json",
-      accept: "application/json, text/event-stream",
-      protocolVersion: undefined,
-    }).pipe(Effect.mapError(failure));
+    const attempt = callOnce(threadId, stored.value, tool, args).pipe(Effect.mapError(failure));
     const response = yield* attempt.pipe(
       Effect.flatMap(
         Option.match({
@@ -914,7 +634,7 @@ const make = Effect.gen(function* () {
         }),
       ),
     );
-    const text = new TextDecoder().decode(response.body);
+    const { text } = response;
     const outcome =
       response.status === 200
         ? decodeJson(text).pipe(
@@ -947,42 +667,6 @@ const make = Effect.gen(function* () {
     if (code !== undefined && response.status >= 400 && response.status < 500)
       return yield* new WeaveAgentCallRefused({ tool, code });
     return yield* new WeaveAgentCallUnavailable({ tool, reason: "unavailable" });
-  });
-
-  /**
-   * Reports a reviewer's own run from the answer Weave gave its `weave_forge_run` call, so it can be
-   * recorded before the reviewer's agent ends. The run id reaches T3 nowhere else, and an agent that
-   * has ended cannot be asked for it again. A lead's Forge runs are not reported: only a reviewer's
-   * call is its own review.
-   */
-  const reportReviewRun = Effect.fnUntraced(function* (
-    threadId: ThreadId,
-    request: WeaveForwardRequest,
-    response: WeaveForwardResponse,
-  ) {
-    const role = threads.get(threadId)?.agent.role;
-    if (role === undefined || !role.endsWith("-reviewer")) return;
-    if (response.status !== 200) return;
-    if (!toolCallsOf(request.body).some((call) => forgeToolOf(call.name) === "run")) return;
-    const run = decodeJson(new TextDecoder().decode(response.body)).pipe(
-      Option.flatMap(decodeToolCall),
-      Option.filter((answer) => answer.result.structuredContent.status === "succeeded"),
-      Option.flatMap((answer) => decodeForgeRun(answer.result.structuredContent.value)),
-    );
-    if (Option.isNone(run)) return;
-    const runId = run.value.run?.id ?? run.value.runId ?? run.value.id;
-    if (runId === undefined) return;
-    const report: WeaveForgeRunReport = {
-      threadId,
-      runId,
-      specId: run.value.spec?.id ?? run.value.specId ?? null,
-    };
-    yield* Ref.update(reportedRuns, (reported) => [...reported, report]);
-    yield* PubSub.publish(reportedRunChanges, undefined);
-    // The agent is not given its run id until the run is on record: this answer is the only place
-    // Weave's run id reaches T3, and the queue's next pass may come after the agent has ended.
-    const record = yield* Ref.get(runReported);
-    yield* record(report);
   });
 
   const endAgent: WeaveAgentConnections["Service"]["endAgent"] = Effect.fn(
@@ -1077,13 +761,7 @@ const make = Effect.gen(function* () {
     ),
   );
 
-  /**
-   * Gives the thread a Weave server connection when T3 has one, and keeps the credential it already has so a
-   * live provider process's headers stay valid. Nothing is added while T3 is disconnected.
-   */
-  const prepare: WeaveAgentConnections["Service"]["prepare"] = Effect.fn(
-    "WeaveAgentConnections.prepare",
-  )(function* (agent) {
+  const prepare = Effect.fn("WeaveAgentConnections.prepare")(function* (agent: WeaveAgent) {
     const connected = yield* readStored.pipe(
       Effect.map(Option.isSome),
       Effect.catch(() =>
@@ -1098,13 +776,7 @@ const make = Effect.gen(function* () {
       existing.agent = agent;
       return;
     }
-    const credential = yield* secureRandom.randomBytes(32).pipe(
-      Effect.map((bytes) => Buffer.from(bytes).toString("base64url")),
-      Effect.orDie,
-    );
-    const credentialHash = yield* digest(credential);
-    threads.set(agent.threadId, { credential, credentialHash, agent, token: undefined });
-    threadByCredentialHash.set(credentialHash, agent.threadId);
+    threads.set(agent.threadId, { agent, token: undefined });
   });
 
   return WeaveAgentConnections.of({
@@ -1156,100 +828,16 @@ const make = Effect.gen(function* () {
         }),
       ),
     ),
-    prepare,
-    // The credential stays stable for the thread's life: a live provider process keeps the
-    // headers it started with, and Claude reopens its process when its MCP config changes.
-    connection: Effect.fn("WeaveAgentConnections.connection")((threadId) =>
-      Effect.sync(() => {
-        const connection = threads.get(threadId);
-        return connection === undefined
-          ? undefined
-          : { endpoint, authorizationHeader: `Bearer ${connection.credential}` };
-      }),
-    ),
     observe,
     decide,
-    forward,
     callAs,
-    reportedRuns: Ref.get(reportedRuns),
-    forgetReportedRuns: Effect.fn("WeaveAgentConnections.forgetReportedRuns")((recorded) =>
-      // Matched by the run it names, not by the object: stamping replaces the entry it stamps.
-      Ref.update(reportedRuns, (reported) =>
-        reported.filter(
-          (run) =>
-            !recorded.some((done) => done.threadId === run.threadId && done.runId === run.runId),
-        ),
-      ),
-    ),
-    stampReportedRun: Effect.fn("WeaveAgentConnections.stampReportedRun")((stamped) =>
-      Ref.update(reportedRuns, (reported) =>
-        reported.map((run) =>
-          run.threadId === stamped.threadId && run.runId === stamped.runId
-            ? { ...run, t3RunId: stamped.t3RunId }
-            : run,
-        ),
-      ),
-    ),
-    reportedRunChanges: Stream.fromPubSub(reportedRunChanges),
-    setRunReportedHook: Effect.fn("WeaveAgentConnections.setRunReportedHook")((hook) =>
-      Ref.set(runReported, hook),
-    ),
-    buildWriteVersion: Effect.sync(() => buildWriteVersion),
     end,
     endAgent,
     forget: Effect.fn("WeaveAgentConnections.forget")(function* (agent) {
       yield* end(agent);
-      const connection = threads.get(agent.threadId);
-      if (connection === undefined) return;
       threads.delete(agent.threadId);
-      threadByCredentialHash.delete(connection.credentialHash);
     }),
   });
 });
 
 export const layer = Layer.effect(WeaveAgentConnections, make);
-
-/** A reviewer's own Forge run, as Weave answered its `weave_forge_run` call. */
-export interface WeaveForgeRunReport {
-  readonly threadId: ThreadId;
-  readonly runId: string;
-  readonly specId: string | null;
-  /** The T3 run it was reported in, once the Forge record queue has read that run. */
-  readonly t3RunId?: string;
-}
-
-/** The T3 run a reported run was made in, as the Forge record queue read it. */
-export interface WeaveReportedRunStamp {
-  readonly threadId: ThreadId;
-  readonly runId: string;
-  readonly t3RunId: string;
-}
-
-/** What T3 does with a reported run before the reviewer is given the answer naming it. */
-export type WeaveRunReportedHandler = (report: WeaveForgeRunReport) => Effect.Effect<void>;
-
-/** Every adapter attaches the thread's Weave server through the shared agent-server list. */
-export const agentMcpServersLayer = Layer.effect(
-  AgentMcpServers.AgentMcpServers,
-  Effect.gen(function* () {
-    const connections = yield* WeaveAgentConnections;
-    return AgentMcpServers.AgentMcpServers.of({
-      read: Effect.fn("AgentMcpServers.AgentMcpServers.read")(
-        (threadId, registration = "canonical") =>
-          connections.connection(threadId).pipe(
-            Effect.map((connection) =>
-              connection === undefined
-                ? []
-                : (registration === "legacy" ? WEAVE_NAMES.servers : [WEAVE_NAMES.servers[0]]).map(
-                    (name) => ({
-                      name,
-                      url: connection.endpoint,
-                      authorizationHeader: connection.authorizationHeader,
-                    }),
-                  ),
-            ),
-          ),
-      ),
-    });
-  }),
-);

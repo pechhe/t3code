@@ -32,10 +32,10 @@ import {
 const threadId = ThreadId.make("thread-build");
 
 it.effect.each(["card"] as const)(
-  "%s backs off unchanged reads, resets on changes and observes agent writes",
+  "%s backs off unchanged reads, and resets on changes",
   (_surface) =>
     Effect.gen(function* () {
-      const { weave, service, add, connections } = yield* makeHarness;
+      const { weave, service, add } = yield* makeHarness;
       const spec = item(1_000_078, "spec", "Stable", "in_progress");
       add(spec);
       yield* service.link({ threadId, reference: "#1000078" });
@@ -61,73 +61,16 @@ it.effect.each(["card"] as const)(
         assert.strictEqual(result?.item?.title, minute === 4 ? spec.title : "Stable");
       }
       // A changed read returns to one minute, even after reaching the cap.
-      let before = weave.toolCalls.length;
+      const before = weave.toolCalls.length;
       yield* TestClock.adjust(60_000);
       yield* read();
       assert.isAbove(weave.toolCalls.length, before);
 
       spec.status = "landed";
-      const agent = yield* connections.connection(leadThread);
-      const body = new TextEncoder().encode(
-        JSON.stringify({
-          jsonrpc: "2.0",
-          id: 123,
-          method: "tools/call",
-          params: {
-            name: "weave_forge_set_status",
-            arguments: { itemId: spec.id, status: "landed" },
-          },
-        }),
-      );
-      yield* connections.forward({
-        authorization: agent!.authorizationHeader,
-        contentType: undefined,
-        accept: undefined,
-        protocolVersion: undefined,
-        body,
-      });
-      before = weave.toolCalls.length;
-      yield* TestClock.adjust(60_000);
-      assert.strictEqual((yield* read())?.item?.status, "landed");
-      assert.isAbove(weave.toolCalls.length, before);
-      // Another item's write rereads this one at once but keeps its settled back-off.
-      for (const minutes of [1, 2, 4]) {
-        yield* TestClock.adjust(minutes * 60_000);
-        yield* read();
-      }
-      const other = item(1_000_079, "spec", "Elsewhere", "in_progress");
-      add(other);
-      yield* connections.forward({
-        authorization: agent!.authorizationHeader,
-        contentType: undefined,
-        accept: undefined,
-        protocolVersion: undefined,
-        body: new TextEncoder().encode(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            id: 124,
-            method: "tools/call",
-            params: {
-              name: "weave_forge_set_status",
-              arguments: { itemId: other.id, status: "landed" },
-            },
-          }),
-        ),
-      });
-      before = weave.toolCalls.length;
-      yield* TestClock.adjust(60_000);
-      yield* read();
-      assert.isAbove(weave.toolCalls.length, before);
-      before = weave.toolCalls.length;
-      for (let minute = 1; minute < 4; minute++) {
-        yield* TestClock.adjust(60_000);
-        yield* read();
-      }
-      assert.strictEqual(weave.toolCalls.length, before);
       // Advancing the clock alone never makes the display cache read Weave.
-      before = weave.toolCalls.length;
+      const settled = weave.toolCalls.length;
       yield* TestClock.adjust(60 * 60_000);
-      assert.strictEqual(weave.toolCalls.length, before);
+      assert.strictEqual(weave.toolCalls.length, settled);
     }),
 );
 
@@ -653,39 +596,6 @@ it.effect("rereads a changed item on the next check, and what waits on a changed
     // The blocker and the item waiting on it, 2 calls each; nothing else.
     assert.strictEqual(buildReads() - before, 4);
     assert.strictEqual(afterBlocker[0]?.items[0]?.item?.waits[0]?.status, "landed");
-  }),
-);
-
-it.effect("a T3 write rereads at once, without waiting for a change check", () =>
-  Effect.gen(function* () {
-    const { views, buildReads, connections, others, calls } = yield* makeChangeCheckHarness;
-    yield* TestClock.adjust(60_000);
-    yield* views();
-    const agent = yield* connections.connection(leadThread);
-    others[1]!.status = "landed";
-    yield* connections.forward({
-      authorization: agent!.authorizationHeader,
-      contentType: undefined,
-      accept: undefined,
-      protocolVersion: undefined,
-      body: new TextEncoder().encode(
-        JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "tools/call",
-          params: {
-            name: "weave_forge_set_status",
-            arguments: { itemId: others[1]!.id, status: "landed" },
-          },
-        }),
-      ),
-    });
-    const checks = calls("weave_forge_list");
-    const before = buildReads();
-    const result = yield* views();
-    assert.strictEqual(calls("weave_forge_list"), checks);
-    assert.strictEqual(buildReads() - before, 10);
-    assert.strictEqual(result[3]?.items[0]?.item?.status, "landed");
   }),
 );
 

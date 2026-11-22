@@ -110,14 +110,8 @@ const make = Effect.gen(function* () {
       key,
       Effect.gen(function* () {
         const now = yield* Clock.currentTimeMillis;
-        const writeVersion = yield* weave.buildWriteVersion;
         const previous = membership.get(key);
-        if (
-          !fresh &&
-          previous !== undefined &&
-          previous.writeVersion === writeVersion &&
-          now - previous.attemptedAt < previous.intervalMs
-        )
+        if (!fresh && previous !== undefined && now - previous.attemptedAt < previous.intervalMs)
           return previous;
         const read = yield* weave
           .observe("weave_forge_read", { number: ctx.run.arc.number })
@@ -209,7 +203,6 @@ const make = Effect.gen(function* () {
         const next: Membership = {
           ...value,
           fingerprint,
-          writeVersion,
           attemptedAt: now,
           intervalMs: ForgeWorkItems.nextInterval(previous, fingerprint),
         };
@@ -253,13 +246,11 @@ const make = Effect.gen(function* () {
         `detail\n${key}`,
         Effect.gen(function* () {
           const now = yield* Clock.currentTimeMillis;
-          const writeVersion = yield* weave.buildWriteVersion;
           const previous = details.get(key);
           const runFingerprint = ForgeWorkItems.fingerprintOf(ctx.run);
           if (
             previous !== undefined &&
             previous.opens.includes(`${input.open}\n${runFingerprint}`) &&
-            previous.writeVersion === writeVersion &&
             now - previous.attemptedAt < previous.intervalMs
           )
             return previous.value;
@@ -277,7 +268,6 @@ const make = Effect.gen(function* () {
             remember(details, key, {
               value,
               fingerprint: undefined,
-              writeVersion,
               attemptedAt: now,
               intervalMs: ForgeWorkItems.BUILD_REREAD_INTERVAL_MS,
               opens: [`${input.open}\n${runFingerprint}`, ...previous.opens].slice(0, 32),
@@ -345,7 +335,6 @@ const make = Effect.gen(function* () {
           remember(details, key, {
             value,
             fingerprint,
-            writeVersion,
             attemptedAt: now,
             intervalMs: ForgeWorkItems.nextInterval(previous, fingerprint),
             opens: [`${input.open}\n${runFingerprint}`, ...(previous?.opens ?? [])].slice(0, 32),

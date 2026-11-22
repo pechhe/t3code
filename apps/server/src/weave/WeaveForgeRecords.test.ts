@@ -4,8 +4,6 @@ import * as Clock from "effect/Clock";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
-import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as TestClock from "effect/testing/TestClock";
@@ -75,8 +73,7 @@ const harness = Effect.gen(function* () {
   );
   /** A read failure a test turns on, as a restart or a maintenance window would cause. */
   const projectionReads = { fail: false, calls: [] as Array<ThreadId> };
-  /** The T3 run each thread is on, which a report records for the usage of that run. */
-  const runs = { latestRunId: "t3-run-1" as string | null, finished: new Set<string>() };
+  const runs = { finished: new Set<string>() };
   const parentOf = (threadId: ThreadId) =>
     threadId === leadThread || threadId === unresolvedLead
       ? null
@@ -103,8 +100,6 @@ const harness = Effect.gen(function* () {
               modelSelection: { model },
             } as never);
       }),
-    getThreadShell: () =>
-      Effect.succeed(projectionReads.fail ? null : ({ latestRunId: runs.latestRunId } as never)),
     getRun: (_threadId: ThreadId, runId: string) =>
       Effect.succeed({ status: runs.finished.has(runId) ? "completed" : "running" } as never),
   });
@@ -126,46 +121,6 @@ const harness = Effect.gen(function* () {
   const boot = Effect.service(WeaveForgeRecords.WeaveForgeRecords).pipe(Effect.provide(openQueue));
   return { weave, connections, boot, projectionReads, runs, sql };
 });
-
-/** Calls `weave_forge_run` as the thread's own agent, as a reviewer reporting its run does. */
-const reportForgeRun = (
-  connections: WeaveAgentConnections.WeaveAgentConnections["Service"],
-  threadId: ThreadId,
-  toolName = "weave_forge_run",
-) =>
-  Effect.gen(function* () {
-    const connection = yield* connections.connection(threadId);
-    const response = yield* connections.forward({
-      authorization: connection!.authorizationHeader,
-      body: new TextEncoder().encode(
-        JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "tools/call",
-          params: { name: toolName, arguments: { specId: "spec-1" } },
-        }),
-      ),
-      contentType: "application/json",
-      accept: "application/json, text/event-stream",
-      protocolVersion: "2025-06-18",
-    });
-    assert.strictEqual(response.status, 200);
-  });
-
-/**
- * Runs a proxied call with a failed write's backoff costing no time: each wait moves the test clock
- * instead of the test, so what the reviewer waits for is still the whole of its own retry.
- */
-const withoutWriteBackoff = <A, E>(effect: Effect.Effect<A, E>) =>
-  Effect.gen(function* () {
-    const clock = yield* Clock.Clock;
-    return yield* effect.pipe(
-      Effect.provideService(Clock.Clock, {
-        ...clock,
-        sleep: (duration: Duration.Duration) => TestClock.adjust(duration),
-      }),
-    );
-  });
 
 it.effect(
   "a record queued twice is stored once and reaches Weave once with its own arguments",
@@ -688,43 +643,6 @@ it.effect(
     }),
 );
 
-it.effect("records the merged reviewer's own Forge run through its scope-mapped connection", () =>
-  Effect.gen(function* () {
-    const { weave, connections, boot } = yield* harness;
-    const records = yield* boot;
-    weave.tools.call = () => ({
-      status: "succeeded",
-      value: { run: { id: "run-7" }, spec: { id: "spec-1" } },
-    });
-
-    yield* reportForgeRun(connections, leadThread);
-    yield* reportForgeRun(connections, reviewerThread);
-    yield* records.deliverDue;
-
-    // Only a reviewer's own run is its review; a lead's Forge run is not recorded.
-    assert.deepStrictEqual(
-      (yield* records.reviewerRuns).map(({ reviewerThreadId, runId, specId }) => ({
-        reviewerThreadId,
-        runId,
-        specId,
-      })),
-      [{ reviewerThreadId: reviewerThread, runId: "run-7", specId: "spec-1" }],
-    );
-    const reviewCall = weave.toolCalls.find(
-      (call) =>
-        call.name === "weave_forge_run" &&
-        weave.agents.some(
-          (agent) => agent.id === call.agentId && agent.agentRef.endsWith(`/thread-reviewer`),
-        ),
-    );
-    const reviewAgent = weave.agents.find((agent) => agent.id === reviewCall?.agentId);
-    assert.strictEqual(reviewAgent?.role, "spec-reviewer");
-    assert.notStrictEqual(reviewAgent?.id, weave.agents.find((agent) => agent.role === "lead")?.id);
-    // Reading it is not one-shot: it still names the run whose times are to be recorded.
-    assert.lengthOf(yield* records.reviewerRuns, 1);
-  }),
-);
-
 it.effect("a deleted thread's queued records go with it", () =>
   Effect.gen(function* () {
     const { boot } = yield* harness;
@@ -866,19 +784,14 @@ it.effect("a row a transient failure put back keeps its thread's end unsent", ()
 );
 
 it.effect(
-  "a run reported just before completion is on record, so its times survive a restart",
+  "a previously recorded reviewer run can still have its times delivered after restart",
   () =>
     Effect.gen(function* () {
-      const { weave, connections, boot } = yield* harness;
+      const { weave, boot, sql } = yield* harness;
       const records = yield* boot;
-      weave.tools.call = () => ({
-        status: "succeeded",
-        value: { run: { id: "run-7" }, spec: { id: "spec-1" } },
-      });
-      yield* reportForgeRun(connections, reviewerThread);
-
-      // Nothing has delivered anything yet: reading the runs is what records them, which is what a
-      // finishing reviewer does before its own end is queued.
+      yield* sql`INSERT INTO weave_forge_reviewer_runs
+        (reviewer_thread_id, run_id, t3_run_id, spec_id, created_at)
+        VALUES (${reviewerThread}, 'run-7', 't3-run-1', 'spec-1', 1)`;
       const [run] = yield* records.reviewerRuns;
       assert.strictEqual(run?.reviewerThreadId, reviewerThread);
       assert.strictEqual(run?.runId, "run-7");
@@ -994,83 +907,6 @@ it.effect("a helper names the session of the Spec it counts toward, not its lead
 
     const helper = weave.toolCalls.find(({ name }) => name === "weave_forge_record_helper");
     assert.deepStrictEqual(helper?.args, { workId: "work-1", parentSessionId: "session-spec-a" });
-  }),
-);
-
-it.effect("a read of the reviewer runs racing the queue's own drain still finds the run", () =>
-  Effect.gen(function* () {
-    const { weave, connections, boot } = yield* harness;
-    const records = yield* boot;
-    weave.tools.call = () => ({
-      status: "succeeded",
-      value: { run: { id: "run-7" }, spec: { id: "spec-1" } },
-    });
-    yield* reportForgeRun(connections, reviewerThread);
-
-    // A drain reads the clock between taking a reported run and storing it. Hold that read, so the
-    // completion read below meets the run exactly where the queue has it and the table does not.
-    const clock = yield* Clock.Clock;
-    const entered = yield* Deferred.make<void>();
-    const release = yield* Deferred.make<void>();
-    let hold: {
-      readonly entered: Deferred.Deferred<void>;
-      readonly release: Deferred.Deferred<void>;
-    } | null = { entered, release };
-    const heldClock: Clock.Clock = {
-      ...clock,
-      get currentTimeMillis() {
-        const current = hold;
-        if (current === null) return clock.currentTimeMillis;
-        return Effect.suspend(() => {
-          hold = null;
-          return Deferred.succeed(current.entered, undefined).pipe(
-            Effect.andThen(Deferred.await(current.release)),
-            Effect.andThen(clock.currentTimeMillis),
-          );
-        });
-      },
-    };
-    const onHeldClock = <A, E>(effect: Effect.Effect<A, E>) =>
-      Effect.provideService(effect, Clock.Clock, heldClock);
-
-    const draining = yield* onHeldClock(records.deliverDue).pipe(Effect.forkChild);
-    yield* Deferred.await(entered);
-    const reading = yield* onHeldClock(records.reviewerRuns).pipe(Effect.forkChild);
-    // Let the read reach its own query before the held pass stores the run.
-    yield* Effect.yieldNow;
-    yield* Deferred.succeed(release, undefined);
-    const [runs] = yield* Effect.all([Fiber.join(reading), Fiber.join(draining)]);
-
-    // A run reported just before a reviewer finishes is never in neither place.
-    assert.deepStrictEqual(
-      runs.map((run) => run.runId),
-      ["run-7"],
-    );
-  }),
-);
-
-it.effect("a reported run whose insert failed is still owed to the next drain", () =>
-  Effect.gen(function* () {
-    const { weave, connections, boot, sql } = yield* harness;
-    const records = yield* boot;
-    weave.tools.call = () => ({
-      status: "succeeded",
-      value: { run: { id: "run-7" }, spec: { id: "spec-1" } },
-    });
-    yield* reportForgeRun(connections, reviewerThread);
-    // The table refuses the row for a moment, as a database that cannot be written would.
-    yield* sql`CREATE TRIGGER weave_forge_reviewer_runs_unwritable
-      BEFORE INSERT ON weave_forge_reviewer_runs
-      BEGIN SELECT RAISE(ABORT, 'unwritable'); END`;
-
-    assert.isTrue(Exit.isFailure(yield* Effect.exit(records.reviewerRuns)));
-
-    yield* sql`DROP TRIGGER weave_forge_reviewer_runs_unwritable`;
-    // The run was not lost with the failed insert: the next drain stores it.
-    assert.deepStrictEqual(
-      (yield* records.reviewerRuns).map((run) => run.runId),
-      ["run-7"],
-    );
   }),
 );
 
@@ -1706,227 +1542,23 @@ it.effect(
     }),
 );
 
-it.effect.each(["weave_forge_run"])(
-  "%s: a reviewer's run is on record by the time its proxied call answers",
-  (toolName) =>
-    Effect.gen(function* () {
-      const { weave, connections, boot, runs } = yield* harness;
-      const records = yield* boot;
-      weave.tools.call = () => ({
-        status: "succeeded",
-        value: { run: { id: "run-7" }, spec: { id: "spec-1" } },
-      });
-
-      yield* Effect.scoped(
-        Effect.gen(function* () {
-          yield* records.start();
-          yield* reportForgeRun(connections, reviewerThread, toolName);
-          // The answer the reviewer was given has its run stored: another process over the same
-          // database finds it, and so does the usage of the T3 run it was reported in.
-          const restarted = yield* boot;
-          assert.deepStrictEqual(
-            (yield* restarted.reviewerRuns).map(({ runId, t3RunId }) => [runId, t3RunId]),
-            [["run-7", runs.latestRunId]],
-          );
-        }),
-      );
-    }),
-);
-
-it.effect("a write that fails twice is retried before the reviewer is answered", () =>
+it.effect("reviewer usage still names the historical Forge run for its own T3 run", () =>
   Effect.gen(function* () {
-    const { weave, connections, boot, runs, sql } = yield* harness;
+    const { weave, boot, sql } = yield* harness;
     const records = yield* boot;
-    weave.tools.call = () => ({
-      status: "succeeded",
-      value: { run: { id: "run-7" }, spec: { id: "spec-1" } },
-    });
-    runs.latestRunId = "t3-run-a";
-    // The table refuses a write for a moment, as a database caught mid-write would.
-    yield* sql`CREATE TABLE weave_forge_reviewer_run_writes (attempts INTEGER NOT NULL)`;
-    yield* sql`CREATE TRIGGER weave_forge_reviewer_runs_unwritable
-      BEFORE INSERT ON weave_forge_reviewer_runs
-      WHEN (SELECT count(*) FROM weave_forge_reviewer_run_writes) < 2
-      BEGIN
-        INSERT INTO weave_forge_reviewer_run_writes (attempts) VALUES (1);
-        SELECT RAISE(FAIL, 'unwritable');
-      END`;
+    yield* sql`INSERT INTO weave_forge_reviewer_runs
+      (reviewer_thread_id, run_id, t3_run_id, spec_id, created_at)
+      VALUES (${reviewerThread}, 'run-1', 't3-run-a', 'spec-1', 1),
+             (${reviewerThread}, 'run-2', 't3-run-b', 'spec-1', 2)`;
 
-    yield* Effect.scoped(
-      Effect.gen(function* () {
-        yield* records.start();
-        yield* withoutWriteBackoff(reportForgeRun(connections, reviewerThread));
-      }),
-    );
-
-    // The answer was held until the row was durable, so a process that restarts now still has the
-    // run, and nothing is left owed to a later drain.
-    const stored = yield* sql<{ readonly runId: string; readonly t3RunId: string | null }>`
-      SELECT run_id AS "runId", t3_run_id AS "t3RunId" FROM weave_forge_reviewer_runs
-    `;
-    assert.deepStrictEqual(
-      stored.map(({ runId, t3RunId }) => [runId, t3RunId]),
-      [["run-7", "t3-run-a"]],
-    );
-    assert.deepStrictEqual(yield* connections.reportedRuns, []);
-  }),
-);
-
-it.effect("a run whose write failed is kept for the next drain", () =>
-  Effect.gen(function* () {
-    const { weave, connections, boot, sql } = yield* harness;
-    const records = yield* boot;
-    weave.tools.call = () => ({
-      status: "succeeded",
-      value: { run: { id: "run-7" }, spec: { id: "spec-1" } },
-    });
-    // The table refuses the row for a moment, as a database that cannot be written would, and says
-    // how often the row was tried.
-    yield* sql`CREATE TABLE weave_forge_reviewer_run_writes (attempts INTEGER NOT NULL)`;
-    yield* sql`CREATE TRIGGER weave_forge_reviewer_runs_unwritable
-      BEFORE INSERT ON weave_forge_reviewer_runs
-      BEGIN
-        INSERT INTO weave_forge_reviewer_run_writes (attempts) VALUES (1);
-        SELECT RAISE(FAIL, 'unwritable');
-      END`;
-
-    yield* Effect.scoped(
-      Effect.gen(function* () {
-        yield* records.start();
-        yield* withoutWriteBackoff(reportForgeRun(connections, reviewerThread));
-      }),
-    );
-
-    // The reviewer's answer waited for its run to be recorded, and the write that failed did not
-    // take the run with it: it is still reported, for the drain that follows.
-    const writes = yield* sql<{ readonly attempts: number }>`
-      SELECT attempts FROM weave_forge_reviewer_run_writes
-    `;
-    assert.isAtLeast(writes.length, 1);
-    assert.deepStrictEqual(
-      (yield* connections.reportedRuns).map((run) => run.runId),
-      ["run-7"],
-    );
-
-    yield* sql`DROP TRIGGER weave_forge_reviewer_runs_unwritable`;
-    const restarted = yield* boot;
-    assert.deepStrictEqual(
-      (yield* restarted.reviewerRuns).map((run) => run.runId),
-      ["run-7"],
-    );
-  }),
-);
-
-it.effect("a report written after its thread moved on names the run it was made in", () =>
-  Effect.gen(function* () {
-    const { weave, connections, boot, runs, sql } = yield* harness;
-    const records = yield* boot;
-    let round = 0;
-    weave.tools.call = (name) =>
-      name === "weave_forge_run"
-        ? {
-            status: "succeeded",
-            value: { run: { id: `run-${String(++round)}` }, spec: { id: "spec-1" } },
-          }
-        : { status: "succeeded", value: {} };
-    // The first round's write fails for as long as its outage lasts.
-    yield* sql`CREATE TRIGGER weave_forge_reviewer_runs_unwritable
-      BEFORE INSERT ON weave_forge_reviewer_runs
-      BEGIN SELECT RAISE(FAIL, 'unwritable'); END`;
-
-    yield* Effect.scoped(
-      Effect.gen(function* () {
-        yield* records.start();
-        runs.latestRunId = "t3-run-a";
-        yield* withoutWriteBackoff(reportForgeRun(connections, reviewerThread));
-
-        // The reviewer's next round reports from another T3 run, and the table takes writes again.
-        yield* sql`DROP TRIGGER weave_forge_reviewer_runs_unwritable`;
-        runs.latestRunId = "t3-run-b";
-        yield* withoutWriteBackoff(reportForgeRun(connections, reviewerThread));
-      }),
-    );
-
-    // The earlier round's run is stored against the T3 run it was made in, not the one its thread
-    // had moved on to by the time the write succeeded.
-    const stored = yield* sql<{ readonly runId: string; readonly t3RunId: string | null }>`
-      SELECT run_id AS "runId", t3_run_id AS "t3RunId" FROM weave_forge_reviewer_runs
-    `;
-    assert.deepStrictEqual(
-      stored.map(({ runId, t3RunId }) => [runId, t3RunId]),
-      [
-        ["run-1", "t3-run-a"],
-        ["run-2", "t3-run-b"],
-      ],
-    );
-  }),
-);
-
-it.effect("a delayed usage of an earlier reviewer round names that round's run", () =>
-  Effect.gen(function* () {
-    const { weave, connections, boot, runs } = yield* harness;
-    const records = yield* boot;
-    const delivered = yield* Deferred.make<Record<string, unknown>>();
-    let round = 0;
-    weave.tools.call = (name, args) => {
-      if (name === "weave_forge_run")
-        return {
-          status: "succeeded",
-          value: { run: { id: `run-${String(++round)}` }, spec: { id: "spec-1" } },
-        };
-      if (name === "weave_forge_record_usage") Deferred.doneUnsafe(delivered, Effect.succeed(args));
-      return { status: "succeeded", value: {} };
-    };
-
-    yield* Effect.scoped(
-      Effect.gen(function* () {
-        yield* records.start();
-        runs.latestRunId = "t3-run-a";
-        yield* reportForgeRun(connections, reviewerThread);
-        // A follow-up round reports before the first round's usage reaches the queue.
-        runs.latestRunId = "t3-run-b";
-        yield* reportForgeRun(connections, reviewerThread);
-
-        yield* records.enqueue(reviewerUsageOf("t3-run-a"));
-
-        const args = yield* Deferred.await(delivered);
-        assert.strictEqual(args.runId, "run-1");
-      }),
-    );
-  }),
-);
-
-it.effect("a reviewer's usage waits for the report of its own run and then names it", () =>
-  Effect.gen(function* () {
-    const { weave, connections, boot, runs } = yield* harness;
-    const records = yield* boot;
-    runs.latestRunId = "t3-run-a";
-    const delivered = yield* Deferred.make<Record<string, unknown>>();
-    weave.tools.call = (name, args) => {
-      if (name === "weave_forge_run")
-        return { status: "succeeded", value: { run: { id: "run-7" }, spec: { id: "spec-1" } } };
-      if (name === "weave_forge_record_usage") Deferred.doneUnsafe(delivered, Effect.succeed(args));
-      return { status: "succeeded", value: {} };
-    };
-    // Queued before the reviewer's own call has answered, so there is no run of it to name yet.
     yield* records.enqueue(reviewerUsageOf("t3-run-a"));
     yield* records.deliverDue;
 
-    assert.deepStrictEqual(weave.toolCalls, []);
-    const waiting = (yield* records.outstanding())[0];
-    // Waiting is not failing: nothing is counted against the row, which the end will not pass.
-    assert.strictEqual(waiting?.status, "pending");
-    assert.strictEqual(waiting?.attempts, 0);
-
-    yield* Effect.scoped(
-      Effect.gen(function* () {
-        yield* records.start();
-        yield* reportForgeRun(connections, reviewerThread);
-
-        const args = yield* Deferred.await(delivered);
-        assert.strictEqual(args.runId, "run-7");
-      }),
+    assert.strictEqual(
+      weave.toolCalls.find(({ name }) => name === "weave_forge_record_usage")?.args.runId,
+      "run-1",
     );
+    assert.deepStrictEqual(yield* records.outstanding(), []);
   }),
 );
 

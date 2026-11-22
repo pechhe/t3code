@@ -1,17 +1,16 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert } from "@effect/vitest";
-import { AgentTaskBinding, EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { DEFAULT_WEAVE_ORIGIN } from "@t3tools/shared/weaveOrigins";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Logger from "effect/Logger";
-import * as NetAddress from "effect/net/NetAddress";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { HttpClient, HttpClientError, HttpClientResponse, HttpServer } from "effect/http";
+import { HttpClient, HttpClientError, HttpClientResponse } from "effect/http";
 import * as NodeUtil from "node:util";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
@@ -25,9 +24,7 @@ export const delegation = `yshqd_${"d".repeat(43)}`;
 export const origin = "https://weave.example.test";
 export const otherDelegation = `yshqd_${"e".repeat(43)}`;
 export const otherOrigin = "https://weave-other.example.test";
-export const weaveEndpoint = "http://127.0.0.1:43123/mcp/weave";
 export const hourMs = 60 * 60 * 1_000;
-const decodeBinding = Schema.decodeEffect(AgentTaskBinding);
 const parseJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 const stringifyJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const delegations = new Map([
@@ -57,21 +54,14 @@ const makeFakeWeave = () => {
     origin: string;
     token: string;
     agentId: string | undefined;
-    body: string;
   }> = [];
   /** `toolCallsHang` holds every `tools/call` open after Weave receives it, as a slow Weave would. */
   const state = { unreachable: false, delegationRevoked: false, toolCallsHang: false };
   /** Answers a `tools/call` with Weave's structured outcome; tests replace it with Forge data. */
   const tools: {
     call: (name: string, args: Record<string, unknown>) => Record<string, unknown>;
-    catalog: ReadonlyArray<{
-      name: string;
-      description: string;
-      inputSchema: Record<string, unknown>;
-    }>;
-    instructions: string;
     onCall?: Effect.Effect<void>;
-  } = { call: () => ({ status: "succeeded", value: null }), catalog: [], instructions: "" };
+  } = { call: () => ({ status: "succeeded", value: null }) };
   const toolCalls: Array<{ name: string; args: Record<string, unknown>; agentId: string }> = [];
   let minted = 0;
 
@@ -163,7 +153,6 @@ const makeFakeWeave = () => {
           origin: weaveOrigin,
           token: bearer,
           agentId: valid ? agent.id : undefined,
-          body,
         });
         if (!valid) return respond(request, 401, { error: "invalid_token" });
         const message = parseJson(body) as {
@@ -171,23 +160,6 @@ const makeFakeWeave = () => {
           method: string;
           params?: { name: string; arguments: Record<string, unknown> };
         };
-        if (message.method === "initialize")
-          return respond(request, 200, {
-            jsonrpc: "2.0",
-            id: message.id,
-            result: {
-              protocolVersion: "2025-03-26",
-              capabilities: { tools: {} },
-              serverInfo: { name: "weave-fixture", version: "1" },
-              instructions: tools.instructions,
-            },
-          });
-        if (message.method === "tools/list")
-          return respond(request, 200, {
-            jsonrpc: "2.0",
-            id: message.id,
-            result: { agent: agent.id, tools: tools.catalog },
-          });
         if (message.method === "tools/call" && message.params !== undefined) {
           toolCalls.push({
             name: message.params.name,
@@ -196,7 +168,10 @@ const makeFakeWeave = () => {
           });
           if (tools.onCall !== undefined) yield* tools.onCall;
           if (state.toolCallsHang) return yield* Effect.never;
-          const outcome = tools.call(message.params.name, message.params.arguments);
+          const outcome =
+            message.params.name === "fixture_agent"
+              ? { status: "succeeded", value: agent.id }
+              : tools.call(message.params.name, message.params.arguments);
           return respond(request, 200, {
             jsonrpc: "2.0",
             id: message.id,
@@ -219,7 +194,7 @@ export type FakeWeave = ReturnType<typeof makeFakeWeave>;
 
 /**
  * The real WeaveAgentConnections against a fake Weave, with every log line captured, a lead and a
- * reviewer thread prepared once T3 is connected, and a check that no Weave credential
+ * reviewer thread available to call as, and a check that no Weave credential
  * (the delegations and every token Weave minted) reached what a test collected. Given a secrets
  * directory, it uses the real file store there and connects nothing itself.
  */
@@ -255,13 +230,6 @@ export const makeWeaveHarnessAt = Effect.fnUntraced(function* (secretsDirectory?
                 getEnvironmentId: Effect.succeed(EnvironmentId.make("environment-weave")),
               } as ServerEnvironment.ServerEnvironment["Service"]),
             ),
-            Layer.succeed(
-              HttpServer.HttpServer,
-              HttpServer.HttpServer.of({
-                address: NetAddress.inetAddressFromIpStringUnsafe("127.0.0.1", 43123),
-                serve: (() => Effect.void) as HttpServer.HttpServer["Service"]["serve"],
-              }),
-            ),
           ),
         ),
       ),
@@ -274,72 +242,13 @@ export const makeWeaveHarnessAt = Effect.fnUntraced(function* (secretsDirectory?
   const withLogs = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     effect.pipe(Effect.provide(logLayer));
 
-  let nextId = 0;
-  const call = (threadId: ThreadId) =>
-    Effect.gen(function* () {
-      const connection = yield* connections.connection(threadId);
-      assert.isDefined(connection);
-      const response = yield* withLogs(
-        connections.forward({
-          authorization: connection!.authorizationHeader,
-          body: new TextEncoder().encode(
-            stringifyJson({ jsonrpc: "2.0", id: ++nextId, method: "tools/list" }),
-          ),
-          contentType: "application/json",
-          accept: "application/json, text/event-stream",
-          protocolVersion: "2025-06-18",
-        }),
-      );
-      return {
-        status: response.status,
-        text: new TextDecoder().decode(response.body),
-        json: parseJson(new TextDecoder().decode(response.body)) as {
-          result?: { agent: string };
-          error?: { message: string; data: { reason: string } };
-        },
-      };
-    });
+  const call = (
+    threadId: ThreadId,
+    role = threadId === reviewerThread ? "spec-reviewer" : "lead",
+    model = "claude-opus-5-5",
+  ) => withLogs(connections.callAs({ threadId, role, model }, "fixture_agent", {}));
 
-  if (secretsDirectory === undefined) {
-    yield* connections.connect({ origin, delegation });
-    yield* connections.prepare({ threadId: leadThread, role: "lead", model: "claude-opus-5-5" });
-    yield* connections.prepare({
-      threadId: reviewerThread,
-      role: WeaveAgentConnections.weaveAgentRole({
-        lineage: {
-          parentThreadId: leadThread,
-          relationshipToParent: "subagent",
-          rootThreadId: leadThread,
-        },
-        agentTask: yield* decodeBinding({
-          role: "reviewer",
-          taskClass: "non-ui",
-          workId: "review",
-          attemptId: "attempt",
-          workspacePath: "/workspace",
-          sourceRevision: "candidate",
-          review: {
-            scope: "spec",
-            baseRevision: "base",
-            includedChanges: ["candidate"],
-            specRef: "spec-1",
-            specRevision: "body-1",
-            coverage: "complete",
-          },
-          requestFingerprint: "a".repeat(64),
-          policyHash: "b".repeat(64),
-          policyRevision: "policy",
-          briefHash: "c".repeat(64),
-          sourceAccess: "read-only",
-          toolProfile: "source-reader",
-          requested: { instanceId: "codex", model: "gpt-5.5" },
-          assigned: null,
-          effective: { instanceId: "codex", model: "gpt-5.5" },
-        }).pipe(Effect.orDie),
-      })!,
-      model: "gpt-5.5",
-    });
-  }
+  if (secretsDirectory === undefined) yield* connections.connect({ origin, delegation });
 
   /** No Weave credential may reach anything outside T3's own requests to Weave. */
   const assertNoSecretsIn = (...surfaces: ReadonlyArray<unknown>) => {
@@ -355,11 +264,3 @@ export const makeWeaveHarnessAt = Effect.fnUntraced(function* (secretsDirectory?
 });
 
 export const makeWeaveHarness = makeWeaveHarnessAt();
-
-/** The shared agent-server list the adapters read, backed by a harness's connections. */
-export const agentMcpServersFor = (
-  connections: WeaveAgentConnections.WeaveAgentConnections["Service"],
-) =>
-  WeaveAgentConnections.agentMcpServersLayer.pipe(
-    Layer.provide(Layer.succeed(WeaveAgentConnections.WeaveAgentConnections, connections)),
-  );

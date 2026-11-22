@@ -25,16 +25,6 @@
     "reason": "Retained nightly-audit evidence lists the changed file paths of that time; it is recorded data, not product terminology."
   },
   {
-    "path": "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts",
-    "category": "compatibility-aliases",
-    "reason": "Proves a legacy-registered native thread keeps the retained MCP server name."
-  },
-  {
-    "path": "apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.fork.test.ts",
-    "category": "compatibility-aliases",
-    "reason": "Proves a legacy-registered native thread keeps the retained MCP server name."
-  },
-  {
     "path": "apps/server/src/orchestration-v2/testkit/fixtures/claude_background_wake_before_queued_prompt/claude_transcript.ndjson",
     "category": "captured-fixtures",
     "reason": "Recorded bytes contain the token by chance; it is not product terminology."
@@ -157,7 +147,7 @@
   {
     "path": "apps/server/src/weave/ForgeWorkItems.test.ts",
     "category": "compatibility-aliases",
-    "reason": "Proves the retained MCP server route or the old Weave address."
+    "reason": "Proves adoption of links recorded at the old Weave address."
   },
   {
     "path": "apps/server/src/weave/ForgeWorkItems.ts",
@@ -167,17 +157,12 @@
   {
     "path": "apps/server/src/weave/WeaveAgentConnections.test.ts",
     "category": "compatibility-aliases",
-    "reason": "Proves the secret-store move, the old address and the retained MCP server name."
+    "reason": "Proves the secret-store move and the old address."
   },
   {
     "path": "apps/server/src/weave/WeaveAgentConnections.ts",
     "category": "stored-storage-wire",
     "reason": "Moves a connection stored under the old secret names to the current one at start."
-  },
-  {
-    "path": "apps/server/src/weave/WeaveMcpRoute.test.ts",
-    "category": "compatibility-aliases",
-    "reason": "Proves the retained MCP server route or the old Weave address."
   },
   {
     "path": "apps/server/src/weave/WeaveRepositories.test.ts",
@@ -222,12 +207,12 @@
   {
     "path": "packages/contracts/src/project.test.ts",
     "category": "compatibility-aliases",
-    "reason": "Retained project fields for older fork clients and the retained MCP server name."
+    "reason": "Retained project fields for older fork clients."
   },
   {
     "path": "packages/contracts/src/project.ts",
     "category": "compatibility-aliases",
-    "reason": "Retained project fields for older fork clients and the retained MCP server name."
+    "reason": "Retained project fields for older fork clients."
   },
   {
     "path": "packages/contracts/src/rpc.ts",
@@ -237,7 +222,7 @@
   {
     "path": "packages/contracts/src/weaveNames.ts",
     "category": "compatibility-aliases",
-    "reason": "Retained project fields for older fork clients and the retained MCP server name."
+    "reason": "Retained project fields for older fork clients."
   },
   {
     "path": "packages/provider-core/src/server/AgentMcpServers.ts",

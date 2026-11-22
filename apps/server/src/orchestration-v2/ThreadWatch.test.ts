@@ -583,7 +583,6 @@ const makeForgeHarness = Effect.gen(function* () {
   const changes = { seen: JSON.stringify(state.item), at: -1 };
   const weave = Layer.mock(WeaveAgentConnections.WeaveAgentConnections)({
     read: Effect.succeed(connection),
-    buildWriteVersion: Effect.succeed(0),
     observe: (tool, args) =>
       tool === "weave_forge_list"
         ? // The change check: the item counts as saved when the check first sees it differ.

@@ -2,9 +2,8 @@ import * as Schema from "effect/Schema";
 
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 
-/** Current names. `servers[1]` stays for native threads whose provider session began under it. */
+/** Current Weave tool and prefix names. */
 export const WEAVE_NAMES = {
-  servers: ["weave", "yardsmith-hq"],
   connectionTool: "t3_weave_connection",
   forgeToolPrefix: "weave_forge_",
 } as const;

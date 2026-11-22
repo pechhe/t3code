@@ -142,7 +142,6 @@ import * as ForgeSpecOfThread from "./weave/ForgeSpecOfThread.ts";
 import * as ExperimentResults from "./experiments/ExperimentResults.ts";
 import * as WeaveForgeRecords from "./weave/WeaveForgeRecords.ts";
 import * as WeaveForgeUsage from "./weave/WeaveForgeUsage.ts";
-import * as WeaveMcpRoute from "./weave/WeaveMcpRoute.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import * as DeviceService from "./device/DeviceService.ts";
 import * as DeviceHubProxy from "./device/DeviceHubProxy.ts";
@@ -1061,7 +1060,6 @@ const layerMakeRoutes = Layer.mergeAll(
     ServerHttp.layerAttachmentUploadRoute,
     GuestHttp.layer,
     DeviceHubProxy.layer,
-    WeaveMcpRoute.layer,
     WeaveSignInRoute.layer,
     ServerBrowserStream.routeLayer,
     PreviewTunnel.routeLayer,
@@ -1601,7 +1599,7 @@ const layerMakeServer = Layer.unwrap(
       Layer.provideMerge(
         Layer.mergeAll(
           McpSessionRegistry.layer.pipe(Layer.provide(PreviewManager.layer)),
-          // Decision #8623: agents reach Weave through Executor; keep T3's Weave connection for T3's own screens.
+          // Agents reach Weave through Executor; keep T3's Weave connection for T3's own screens.
           WeaveSignIn.layer.pipe(Layer.provideMerge(WeaveAgentConnections.layer)),
         ).pipe(
           Layer.provide(ServerEnvironment.layer.pipe(Layer.provide(ServerSecretStore.layer))),

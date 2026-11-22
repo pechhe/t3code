@@ -118,7 +118,6 @@ import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEve
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import type * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
-import * as WeaveTestkit from "../../weave/WeaveAgentConnections.testkit.ts";
 import * as WeaveForgeUsage from "../../weave/WeaveForgeUsage.ts";
 import * as ClaudeAdapterV2 from "./ClaudeAdapterV2.ts";
 import * as SlipJayGuard from "../../project/SlipJayGuard.ts";
@@ -1622,34 +1621,31 @@ describe("ClaudeAdapterV2 append-system-prompt-file launch argument", () => {
   );
 });
 
-describe("ClaudeAdapterV2 Weave connection", () => {
+describe("ClaudeAdapterV2 agent MCP servers", () => {
   it.effect.each(["canonical", "legacy"] as const)(
-    "launches with %s Weave registration through renewal and reconnect failures",
+    "launches with %s agent MCP registration",
     (registration) =>
       Effect.scoped(
         Effect.gen(function* () {
-          const weave = yield* WeaveTestkit.makeWeaveHarness;
-          const threadId = ThreadId.make("thread-claude-weave");
-          yield* weave.connections.prepare({
-            threadId,
-            role: "lead",
-            model: CLAUDE_TEST_MODEL_SELECTION.model,
+          const threadId = ThreadId.make("thread-agent-mcp");
+          const url = "https://agent-mcp.example.test/mcp";
+          const authorizationHeader = "Bearer fixture-token";
+          const agentMcp = Layer.succeed(AgentMcpServers.AgentMcpServers, {
+            read: (id, mode) =>
+              Effect.succeed(
+                id === threadId
+                  ? (mode === "legacy" ? ["fixture", "fixture-legacy"] : ["fixture"]).map(
+                      (name) => ({ name, url, authorizationHeader }),
+                    )
+                  : [],
+              ),
           });
-          // An exchanged token, a renewal Weave cannot answer, then a revoked delegation.
-          yield* weave.call(threadId);
-          yield* TestClock.adjust(12 * WeaveTestkit.hourMs);
-          weave.weave.state.unreachable = true;
-          yield* weave.call(threadId);
-          weave.weave.state.unreachable = false;
-          weave.weave.state.delegationRevoked = true;
-          yield* weave.call(threadId);
 
           const fileSystem = yield* FileSystem.FileSystem;
           const attachmentsDir = yield* fileSystem.makeTempDirectoryScoped({
             prefix: "t3-claude-weave-",
           });
           const opened: Array<unknown> = [];
-          const offered: Array<unknown> = [];
           const adapter = yield* ClaudeAdapterV2.makeClaudeAdapterV2({
             instanceId: ClaudeAdapterV2.CLAUDE_DEFAULT_INSTANCE_ID,
             settings: DEFAULT_CLAUDE_SETTINGS,
@@ -1666,7 +1662,7 @@ describe("ClaudeAdapterV2 Weave connection", () => {
                   opened.push(input);
                   return {
                     messages: Stream.never,
-                    offer: (message) => Effect.sync(() => void offered.push(message)),
+                    offer: () => Effect.void,
                     setModel: () => Effect.void,
                     applyFlagSettings: () => Effect.void,
                     setPermissionMode: () => Effect.void,
@@ -1686,7 +1682,7 @@ describe("ClaudeAdapterV2 Weave connection", () => {
               subagentModel: () => Effect.succeed(null),
               assertComplete: Effect.void,
             },
-          }).pipe(Effect.provide(WeaveTestkit.agentMcpServersFor(weave.connections)));
+          }).pipe(Effect.provide(agentMcp));
           const runtime = yield* adapter.openSession({
             threadId,
             providerSessionId: ProviderSessionId.make("provider-session-claude-weave"),
@@ -1714,24 +1710,18 @@ describe("ClaudeAdapterV2 Weave connection", () => {
             .options;
           assert.deepEqual(
             Object.keys(options.mcpServers ?? {}),
-            registration === "legacy" ? ["weave", "yardsmith-hq"] : ["weave"],
+            registration === "legacy" ? ["fixture", "fixture-legacy"] : ["fixture"],
           );
-          assert.deepEqual(options.mcpServers?.["weave"], {
+          assert.deepEqual(options.mcpServers?.["fixture"], {
             type: "http",
-            url: WeaveTestkit.weaveEndpoint,
+            url,
             headers: {
-              Authorization: (yield* weave.connections.connection(threadId))!.authorizationHeader,
+              Authorization: authorizationHeader,
             },
           });
-          assert.include(options.allowedTools ?? [], "mcp__weave__*");
+          assert.include(options.allowedTools ?? [], "mcp__fixture__*");
           if (registration === "legacy")
-            assert.include(options.allowedTools ?? [], "mcp__yardsmith-hq__*");
-          // The whole launch: prompt, environment, argv, settings, MCP config and its log form.
-          weave.assertNoSecretsIn(
-            opened,
-            offered,
-            ClaudeAdapterV2.loggedClaudeQueryOptions(options),
-          );
+            assert.include(options.allowedTools ?? [], "mcp__fixture-legacy__*");
         }).pipe(
           Effect.provideService(AgentMcpServers.CurrentRegistration, registration),
           Effect.provide(
