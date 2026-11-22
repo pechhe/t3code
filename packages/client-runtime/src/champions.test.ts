@@ -309,8 +309,7 @@ describe("findings", () => {
 describe("championResearchView", () => {
   const attempt = (branchId: string, state: string, admittedAt = "2026-11-05T10:00:00.000Z") =>
     ({ id: `${branchId}-${admittedAt}`, branchId, state, admittedAt, result: null }) as never;
-  const branch = (id: string) =>
-    ({ id, hypothesis: `Hypothesis ${id}`, role: "researcher" }) as never;
+  const branch = (id: string) => ({ id, hypothesis: `Hypothesis ${id}`, role: "scout" }) as never;
   const investigation = (patch: Partial<ChampionInvestigation>): ChampionInvestigation =>
     ({
       investigationId: "inv",

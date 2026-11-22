@@ -12,7 +12,7 @@ import { useComposerMenuState } from "./useComposerMenuState";
 
 /**
  * Non-device composer stance control: a compact chip matching the permissions
- * chip that opens the three-position delegation stance radio menu.
+ * chip that opens the two-position delegation stance radio menu.
  */
 export const ComposerStanceControl = memo(function ComposerStanceControl(props: {
   stance: DelegationStance;

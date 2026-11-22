@@ -13,7 +13,9 @@ import {
   AgentTaskRequest,
   type ModelSelection,
   type OrchestrationV2AppThread,
+  ProviderDriverKind,
   RunId,
+  type ServerProvider,
   ThreadId,
 } from "@t3tools/contracts";
 import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
@@ -44,6 +46,7 @@ import {
   codexModel,
   claudeModel,
   changeReview,
+  provider,
 } from "./agentPolicy.testkit.ts";
 
 const sourceRevision = "fixture-source-commit";
@@ -173,14 +176,14 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         {
           name: "ordinary",
           input: { thread: { modelSelection: selection } },
-          expected: { stance: "flexible", source: "fallback" },
+          expected: { stance: "implement", source: "fallback" },
         },
         {
           name: "lead",
           input: {
             thread: { modelSelection: model, agentTask: { ...binding, role: "lead" }, arcRun },
           },
-          expected: { stance: "flexible", source: "role" },
+          expected: { stance: "implement", source: "role" },
         },
         {
           name: "implementer",
@@ -200,7 +203,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         {
           name: "new thread preview",
           input: { modelSelection: selection },
-          expected: { stance: "flexible", source: "fallback" },
+          expected: { stance: "implement", source: "fallback" },
         },
         {
           name: "pool preview selected slug",
@@ -222,10 +225,10 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
               modelSelection: model,
               agentTask: binding,
               arcRun,
-              stanceChoice: { stance: "flexible", chosenBy: "parent" },
+              stanceChoice: { stance: "orchestrate", chosenBy: "parent" },
             },
           },
-          expected: { stance: "flexible", source: "parent" },
+          expected: { stance: "orchestrate", source: "parent" },
         },
       ];
       for (const row of cases) {
@@ -235,7 +238,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
             .pipe(Effect.provideService(HostProcess.Environment, f.environment)),
           row.name,
         ).toEqual(row.expected);
-        for (const stance of ["orchestrate", "flexible", "implement"] as const) {
+        for (const stance of ["orchestrate", "implement"] as const) {
           const input = {
             ...row.input,
             thread: {
@@ -252,6 +255,49 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           ).toEqual({ stance, source: "owner" });
         }
       }
+    }),
+  );
+  it.effect("gives a pooled model's default stance to every account serving it", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      const models = ["acct-a/claude-fable-5-2", "acct-b/claude-fable-5-2", "acct-b/other"];
+      const pi: ServerProvider = {
+        ...provider("pi", "pi-test", models),
+        models: models.map((slug) => ({
+          slug,
+          name: slug.endsWith("other") ? "Other" : "Claude Fable 5.2",
+          isCustom: false,
+          capabilities: { optionDescriptors: [] },
+        })),
+      };
+      yield* f.writeManifest({
+        ...f.manifest,
+        models: {
+          ...f.manifest.models,
+          "pooled-fable": {
+            driverKind: ProviderDriverKind.make("pi"),
+            model: "acct-a/claude-fable-5-2",
+            anyAccount: true,
+            defaultStance: "orchestrate",
+          },
+        },
+      });
+      const resolve = (model: string) =>
+        f.service
+          .resolveStance({ modelSelection: { instanceId: pi.instanceId, model } })
+          .pipe(
+            Effect.provideService(HostProcess.Environment, f.environment),
+            Effect.provideService(
+              ProviderRegistry.ProviderRegistry,
+              makeProviderRegistryMock([pi]),
+            ),
+            Effect.provide(Settings.layerTest({ pooledModelKeys: ["claude-fable-5-2"] })),
+          );
+      expect(yield* resolve("acct-b/claude-fable-5-2")).toEqual({
+        stance: "orchestrate",
+        source: "model",
+      });
+      expect(yield* resolve("acct-b/other")).toEqual({ stance: "implement", source: "fallback" });
     }),
   );
   it.effect(
@@ -1005,16 +1051,16 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
     }),
   );
 
-  it.effect("keeps a researcher's web access when the task asks for read-only", () =>
+  it.effect("keeps a scout's web access when the task asks for read-only", () =>
     Effect.gen(function* () {
       const f = yield* fixture;
-      const brief = "roles/researcher.md";
-      yield* f.fs.writeFileString(`${f.policyRoot}/${brief}`, "Researcher\n");
+      const brief = "roles/scout.md";
+      yield* f.fs.writeFileString(`${f.policyRoot}/${brief}`, "Scout\n");
       yield* f.writeManifest({
         ...f.manifest,
         roles: {
           ...f.manifest.roles,
-          researcher: {
+          scout: {
             list: "fast",
             brief,
             sourceAccess: "read-only",
@@ -1024,7 +1070,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         },
       });
       const accepted = yield* f.prepare({
-        request: request({ workspacePath: f.workspacePath, role: "researcher", readOnly: true }),
+        request: request({ workspacePath: f.workspacePath, role: "scout", readOnly: true }),
       });
       expect(accepted.binding).toMatchObject({
         sourceAccess: "read-only",

@@ -486,7 +486,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
 
   it.effect("refuses a role the policy does not configure", () =>
     Effect.gen(function* () {
-      for (const role of ["researcher", "scout"] as const)
+      for (const role of ["scout"] as const)
         expect((yield* refusal(input({ request: request({ role }) }))).reason).toBe(
           "role-not-configured",
         );

@@ -61,7 +61,7 @@ const taskBinding = (
     requestFingerprint: "c".repeat(64),
     policyHash: policy.hash,
     policyRevision: policy.sourceRevision,
-    // A policy may leave `researcher` and `scout` out; their tasks are then unavailable.
+    // A policy may leave `scout` and `lead` out; their tasks are then unavailable.
     briefHash: policy.briefs[task.role]?.hash ?? "b".repeat(64),
     sourceAccess,
     toolProfile,

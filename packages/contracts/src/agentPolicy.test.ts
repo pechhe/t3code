@@ -13,6 +13,7 @@ import {
   hidesTool,
   modelMaker,
 } from "./agentPolicy.ts";
+import { DelegationStanceChoice } from "./delegationStance.ts";
 
 const decodeManifest = Schema.decodeUnknownSync(AgentPolicyManifest);
 // Policies are only ever written in the current form, with `implementer`.
@@ -29,6 +30,7 @@ const encodeBinding = Schema.encodeSync(AgentTaskBinding);
 const encodeRequest = Schema.encodeSync(AgentTaskRequest);
 const decodeRequest = Schema.decodeUnknownSync(AgentTaskRequest);
 const decodeStoredRole = Schema.decodeSync(StoredAgentRole);
+const decodeStanceChoice = Schema.decodeSync(DelegationStanceChoice);
 
 const role = (pool: string, effort: Record<string, object>, extra: object = {}) => ({
   pool,
@@ -360,7 +362,7 @@ describe("AgentPolicyManifest", () => {
     expect(edit({ preferOtherAuthorProvider: true })._tag).toBe("Failure");
   });
 
-  it("reads a policy without the optional scout and keeps a scout a source reader", () => {
+  it("reads a policy without the optional scout, and a scout as a read-only web researcher", () => {
     const manifest = encodeManifest(decodeManifest(legacy));
     expect(decodeManifest(manifest).roles.scout).toBeUndefined();
     const scout = (edit: object) =>
@@ -378,12 +380,15 @@ describe("AgentPolicyManifest", () => {
           },
         },
       });
-    expect(scout({})._tag).toBe("Success");
+    // A scout saved before it took over web research reads with the web research profile.
+    const saved = scout({});
+    expect(saved._tag === "Success" && saved.value.roles.scout?.toolProfile).toBe("web-research");
+    expect(scout({ toolProfile: "web-research" })._tag).toBe("Success");
     expect(scout({ sourceAccess: "scoped-write" })._tag).toBe("Failure");
-    expect(scout({ toolProfile: "web-research" })._tag).toBe("Failure");
+    expect(scout({ toolProfile: "phi" })._tag).toBe("Failure");
   });
 
-  it("reads a policy without the optional researcher and keeps a researcher read-only", () => {
+  it("reads a policy without the retired researcher and keeps a saved one read-only", () => {
     const manifest = encodeManifest(decodeManifest(legacy));
     expect(decodeManifest(manifest).roles.researcher).toBeUndefined();
     const researcher = (edit: object) =>
@@ -459,7 +464,7 @@ describe("AgentPolicyManifest", () => {
     ).toBe("Failure");
   });
 
-  it("reads a policy without ui-verifier, and a save can set neither it nor implementation-phi", () => {
+  it("reads a policy without ui-verifier, and a save can set neither it, researcher nor implementation-phi", () => {
     const manifest = encodeManifest(decodeManifest(legacy));
     const { "ui-verifier": _retired, ...roles } = manifest.roles;
     const current = { ...manifest, roles };
@@ -469,6 +474,22 @@ describe("AgentPolicyManifest", () => {
     });
     expect(decodeEdit(current)._tag).toBe("Success");
     expect(decodeEdit(manifest)._tag).toBe("Failure");
+    expect(
+      decodeEdit({
+        ...current,
+        lists: { ...current.lists, researcher: [{ model: "haiku", effort: "high" }] },
+        roles: {
+          ...roles,
+          researcher: {
+            list: "researcher",
+            brief: "roles/researcher.md",
+            sourceAccess: "read-only",
+            toolProfile: "web-research",
+            taskClasses: ["non-ui"],
+          },
+        },
+      })._tag,
+    ).toBe("Failure");
     expect(
       decodeEdit({
         ...current,
@@ -655,6 +676,35 @@ describe("retired writing roles", () => {
       expect(encodeRequest(request).role).toBe("implementer");
       expect(decodeStoredRole(role)).toBe("implementer");
     }
+  });
+
+  it("read a saved or requested researcher as a scout", () => {
+    const request = decodeRequest({
+      role: "researcher",
+      taskClass: "non-ui",
+      workId: "work",
+      attemptId: "attempt",
+      workspacePath: "/workspace",
+      stance: "flexible",
+    });
+    expect([request.role, request.stance]).toEqual(["scout", "implement"]);
+    expect(decodeStoredRole("researcher")).toBe("scout");
+  });
+});
+
+describe("retired flexible stance", () => {
+  it("reads a stored flexible stance as implement, on a thread's choice and a model's default", () => {
+    expect(decodeStanceChoice({ stance: "flexible", chosenBy: "owner" })).toEqual({
+      stance: "implement",
+      chosenBy: "owner",
+    });
+    const manifest = encodeManifest(decodeManifest(legacy));
+    const [alias, binding] = Object.entries(manifest.models)[0]!;
+    const decoded = decodeManifest({
+      ...manifest,
+      models: { ...manifest.models, [alias]: { ...binding, defaultStance: "flexible" } },
+    });
+    expect(decoded.models[alias]?.defaultStance).toBe("implement");
   });
 });
 

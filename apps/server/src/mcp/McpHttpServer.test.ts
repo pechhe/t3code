@@ -1044,7 +1044,7 @@ it.effect("keeps preview actions inside the calling credential's own authority",
           Effect.provideService(McpInvocationContext.McpInvocationContext, scope),
           Effect.provideService(McpSchema.McpServerClient, client),
         );
-      const webReaderRefusal = expect.stringContaining("Browser agents, researchers");
+      const webReaderRefusal = expect.stringContaining("Browser agents, web-reading scouts");
 
       // An ordinary thread keeps acting as before.
       const parent = yield* call(invocation, "preview_open", { url: "http://example.test/parent" });

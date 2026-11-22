@@ -112,12 +112,16 @@ const encodeManifest = Schema.encodeEffect(
   Schema.fromJsonString(AgentPolicyManifest, { space: 2 }),
 );
 const decodeSnapshot = Schema.decodeUnknownEffect(AgentPolicySnapshot);
-/** A policy saved before ui-verifier was retired drops it; the edit schema refuses the rest. */
+/** A policy saved before ui-verifier or researcher was retired drops it; the edit schema refuses the rest. */
 const withoutRetiredRole = (manifest: unknown): unknown => {
   if (typeof manifest !== "object" || manifest === null || !("roles" in manifest)) return manifest;
   const roles = manifest.roles;
   if (typeof roles !== "object" || roles === null) return manifest;
-  const { "ui-verifier": _retired, ...kept } = roles as Record<string, unknown>;
+  const {
+    "ui-verifier": _retired,
+    researcher: _researcher,
+    ...kept
+  } = roles as Record<string, unknown>;
   return { ...manifest, roles: kept };
 };
 const manifestPath = "roles/policy.json";

@@ -8,7 +8,6 @@ import {
   type LucideIcon,
   MapIcon,
   ScanEyeIcon,
-  SearchIcon,
 } from "lucide-react";
 
 import { TintChip, type TintChipProps } from "./TintChip";
@@ -23,7 +22,6 @@ export const AGENT_ROLE_PRESENTATION: Record<
   "ui-verifier": { label: "UI verifier", icon: ScanEyeIcon, tint: "violet" },
   advisor: { label: "Advisor", icon: LightbulbIcon, tint: "amber" },
   reviewer: { label: "Reviewer", icon: FileCheckIcon, tint: "teal" },
-  researcher: { label: "Researcher", icon: SearchIcon, tint: "orange" },
   scout: { label: "Scout", icon: MapIcon, tint: "lime" },
   lead: { label: "Spec lead", icon: CompassIcon, tint: "indigo" },
 };

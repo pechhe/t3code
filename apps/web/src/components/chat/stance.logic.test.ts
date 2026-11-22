@@ -29,7 +29,7 @@ describe("stance.logic", () => {
         manualChoice: null,
         modelResolved: null,
       }),
-    ).toBe("flexible");
+    ).toBe("implement");
 
     const manual = touchDraftStance("orchestrate");
     expect(manual).toEqual({ stance: "orchestrate", chosenBy: "owner" });
@@ -49,7 +49,7 @@ describe("stance.logic", () => {
       resolveServerThreadStance({
         pending,
         threadKey: "env-1:thread-1",
-        serverResolved: { stance: "flexible", source: "role" },
+        serverResolved: { stance: "implement", source: "role" },
         serverChoice: undefined,
       }),
     ).toBe("orchestrate");
@@ -67,7 +67,7 @@ describe("stance.logic", () => {
       shouldClearPendingStance({
         pending,
         threadKey: "env-1:thread-1",
-        serverChoice: { stance: "flexible", chosenBy: "parent" },
+        serverChoice: { stance: "implement", chosenBy: "parent" },
       }),
     ).toBe(false);
 
@@ -88,14 +88,12 @@ describe("stance.logic", () => {
     ).toBe(true);
   });
 
-  it("steps through Orchestrate, Flexible, Implement in order", () => {
+  it("steps between Orchestrate and Implement", () => {
     expect(DELEGATION_STANCE_OPTIONS.map((option) => option.label)).toEqual([
       "Orchestrate",
-      "Flexible",
       "Implement",
     ]);
-    expect(stepDelegationStance("orchestrate", 1)).toBe("flexible");
-    expect(stepDelegationStance("flexible", 1)).toBe("implement");
+    expect(stepDelegationStance("orchestrate", 1)).toBe("implement");
     expect(stepDelegationStance("implement", 1)).toBe("orchestrate");
     expect(stepDelegationStance("orchestrate", -1)).toBe("implement");
   });

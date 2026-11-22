@@ -240,8 +240,7 @@ the editor says so.
 - **The role** (such as implementer) picks the model and effort from your
   delegation policy on each machine at every run, so a policy change reaches the
   task without editing it. The editor shows the model the role prefers. Your policy
-  has seven roles — implementer, lead, scout, researcher, browser, reviewer and
-  advisor — which differ by what they may do, not by which models may take their
+  has six roles — implementer, lead, scout, browser, reviewer and advisor — which differ by what they may do, not by which models may take their
   work: any model a role lists can take its UI work, and a note on a model says
   what it is good at. Agents ask for one writing role: an implementer handed a whole
   Spec runs as that Spec's lead, so give the lead the implementer's model list and

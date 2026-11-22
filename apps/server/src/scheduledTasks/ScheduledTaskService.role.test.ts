@@ -232,14 +232,14 @@ const twoRolePolicyLayer = Layer.mergeAll(
         manifest: {
           roles: {
             implementer: { taskClasses: ["non-ui"] },
-            researcher: { taskClasses: ["non-ui"] },
+            advisor: { taskClasses: ["non-ui"] },
           },
         },
       } as unknown as AgentPolicySnapshot),
     roles: () =>
       Effect.succeed({
         roles: [
-          { role: "researcher", selection: policyModel },
+          { role: "advisor", selection: policyModel },
           { role: "implementer", selection: implementerModel },
         ],
       } as never),
@@ -252,7 +252,7 @@ it.effect("editing a task's role moves its next run to that role's model", () =>
     const launched = yield* Ref.make<ReadonlyArray<ModelSelection>>([]);
     yield* Effect.gen(function* () {
       const service = yield* ScheduledTaskService.ScheduledTaskService;
-      const { task } = yield* service.upsert({ ...baseInput, agentRole: "researcher" });
+      const { task } = yield* service.upsert({ ...baseInput, agentRole: "advisor" });
       yield* service.runNow({ id: task.id });
       assert.deepEqual(yield* Ref.get(launched), [policyModel]);
 

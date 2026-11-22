@@ -508,46 +508,40 @@ describe("Pi composed context", () => {
     }
   });
 
-  it.each([
-    "scout",
-    "researcher",
-    "browser",
-    "reviewer",
-    "advisor",
-    "implementer",
-    "lead",
-    undefined,
-  ])("cuts helper rules and agent-config skills for %s", async (role) => {
-    const extension = await loadPiT3Extension({
-      agentConfigRoot: "/config",
-      ...(role ? { role, delegatedInstructions: "child" } : {}),
-    });
-    const options = {
-      sections: {},
-      contextFiles: [
-        { path: "/config/AGENTS.md", content: "core\n<!-- lead-only-below -->\nlead" },
-        { path: "/repo/AGENTS.md", content: "repository" },
-        { path: "/config/AGENTS.md", content: "duplicate" },
-      ],
-      skills: [
-        { name: "global", filePath: "/config/skills/global/SKILL.md" },
-        { name: "local", filePath: "/repo/.agents/skills/local/SKILL.md" },
-      ],
-    };
-    await extension.hook<AgentStartHook>("before_agent_start")({
-      systemPrompt: "base",
-      systemPromptOptions: options,
-    });
-    assert.equal(options.contextFiles.length, 2);
-    assert.equal(
-      options.contextFiles[0]?.content,
-      role && role !== "lead" ? "core\n" : "core\n<!-- lead-only-below -->\nlead",
-    );
-    assert.deepEqual(
-      options.skills.map((skill) => skill.name),
-      role && role !== "lead" ? ["local"] : ["global", "local"],
-    );
-  });
+  it.each(["scout", "browser", "reviewer", "advisor", "implementer", "lead", undefined])(
+    "cuts helper rules and agent-config skills for %s",
+    async (role) => {
+      const extension = await loadPiT3Extension({
+        agentConfigRoot: "/config",
+        ...(role ? { role, delegatedInstructions: "child" } : {}),
+      });
+      const options = {
+        sections: {},
+        contextFiles: [
+          { path: "/config/AGENTS.md", content: "core\n<!-- lead-only-below -->\nlead" },
+          { path: "/repo/AGENTS.md", content: "repository" },
+          { path: "/config/AGENTS.md", content: "duplicate" },
+        ],
+        skills: [
+          { name: "global", filePath: "/config/skills/global/SKILL.md" },
+          { name: "local", filePath: "/repo/.agents/skills/local/SKILL.md" },
+        ],
+      };
+      await extension.hook<AgentStartHook>("before_agent_start")({
+        systemPrompt: "base",
+        systemPromptOptions: options,
+      });
+      assert.equal(options.contextFiles.length, 2);
+      assert.equal(
+        options.contextFiles[0]?.content,
+        role && role !== "lead" ? "core\n" : "core\n<!-- lead-only-below -->\nlead",
+      );
+      assert.deepEqual(
+        options.skills.map((skill) => skill.name),
+        role && role !== "lead" ? ["local"] : ["global", "local"],
+      );
+    },
+  );
 
   it.each([
     { query: "preview_snapshot", limit: undefined, expected: 1 },

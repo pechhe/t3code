@@ -92,8 +92,7 @@ const manifest = () =>
         taskClasses: ["non-ui", "ui", "mixed"],
       }),
       browser: role("readers", { brief: "roles/browser.md", toolProfile: "phi" }),
-      researcher: role("readers", { brief: "roles/researcher.md", toolProfile: "web-research" }),
-      scout: role("readers", { brief: "roles/scout.md" }),
+      scout: role("readers", { brief: "roles/scout.md", toolProfile: "web-research" }),
       advisor: role("advisor", {
         brief: "roles/advisor.md",
         callers: { haiku: "opus" },
@@ -294,11 +293,11 @@ describe("delegation settings", () => {
     );
   });
 
-  it("shows roles that share a list as one job, in page order, and edits no ui-verifier", () => {
+  it("shows roles that share a list as one job, in page order, and edits no retired role", () => {
     expect(roleGroups(manifest()).map((group) => group.roles)).toEqual([
       ["implementer", "reviewer"],
       ["advisor"],
-      ["browser", "researcher", "scout"],
+      ["browser", "scout"],
     ]);
     const saved = manifest();
     const retired = {
@@ -306,6 +305,7 @@ describe("delegation settings", () => {
       roles: {
         ...saved.roles,
         "ui-verifier": { ...saved.roles.browser, brief: "roles/ui-verifier.md" },
+        researcher: { ...saved.roles.scout!, brief: "roles/researcher.md" },
       },
     };
     expect(editableManifest(retired)).toEqual(saved);
@@ -319,7 +319,7 @@ describe("delegation settings", () => {
     expect(split.roles.browser.list).toBe("browser");
     expect(split.lists["browser"]).toEqual(original.lists["readers"]);
     expect(split.lists["readers"]).toBeUndefined();
-    expect(roleGroups(split)).toHaveLength(5);
+    expect(roleGroups(split)).toHaveLength(4);
   });
 
   it("edits a list several roles share once, so every role naming it follows", () => {
@@ -327,14 +327,14 @@ describe("delegation settings", () => {
     const job = jobsFor(original, roleGroups(original)).find((candidate) =>
       candidate.roles.includes("scout"),
     )!;
-    expect(job.roles).toEqual(["browser", "researcher", "scout"]);
+    expect(job.roles).toEqual(["browser", "scout"]);
     expect(job.sections.map((section) => section.list)).toEqual(["readers"]);
-    // The one list the job shows is the list all three roles read, so a reorder reaches all three.
+    // The one list the job shows is the list both roles read, so a reorder reaches both.
     const edited = moveEntry(original, job.sections[0]!.list, 0, 1);
     expect(edited.lists["readers"]!.map((entry) => entry.model)).toEqual(["opus", "haiku"]);
-    for (const role of ["browser", "researcher", "scout"] as const)
+    for (const role of ["browser", "scout"] as const)
       expect(edited.lists[edited.roles[role]!.list]).toEqual(edited.lists["readers"]);
-    // Removing a model from it reaches them too, and leaves one shared list rather than three.
+    // Removing a model from it reaches them too, and leaves one shared list rather than two.
     const removed = removeEntry(edited, "readers", "haiku");
     expect(isValid(removed)).toBe(true);
     expect(roleGroups(removed)).toHaveLength(3);
@@ -539,7 +539,7 @@ describe("delegation settings", () => {
     expect(pooledRows).toHaveLength(1);
     expect(pooledRows[0]!.alias).toBe(pooledAlias);
     expect(pooledRows[0]!.roles).toEqual(
-      expect.arrayContaining(["implementer", "advisor", "browser", "researcher", "scout"]),
+      expect.arrayContaining(["implementer", "advisor", "browser", "scout"]),
     );
     expect(
       rows.some((row) => row.model === "claude-opus" || row.model === "antigravity/claude-opus"),

@@ -3682,9 +3682,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
           }
           const nextStanceChoice =
             stanceChoice &&
-            (stanceChoice.stance === "orchestrate" ||
-              stanceChoice.stance === "flexible" ||
-              stanceChoice.stance === "implement") &&
+            (stanceChoice.stance === "orchestrate" || stanceChoice.stance === "implement") &&
             (stanceChoice.chosenBy === "owner" || stanceChoice.chosenBy === "parent")
               ? stanceChoice
               : null;

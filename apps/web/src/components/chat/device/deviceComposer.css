@@ -158,7 +158,6 @@
     0 1px 0 oklch(1 0.002 250 / 0.8);
   --mill-slot: oklch(0.2 0.004 250);
   --stance-orch: oklch(0.54 0.2 262);
-  --stance-flex: oklch(0.52 0.19 145);
   --stance-impl: oklch(0.56 0.19 52);
 }
 
@@ -234,7 +233,6 @@
     0 1px 0 oklch(0.6 0.004 265 / 0.24);
   --mill-slot: oklch(0.05 0.004 265);
   --stance-orch: oklch(0.74 0.17 262);
-  --stance-flex: oklch(0.72 0.2 145);
   --stance-impl: oklch(0.74 0.185 52);
 }
 
@@ -1342,13 +1340,13 @@
 }
 
 /* ---------------- Stance lever ---------------- */
-/* A three-position sibling of the machine switch, marked by icons alone: Orchestrate over
-   the slot, Implement under it, Flexible beside the knob's middle stop. */
+/* A two-position sibling of the machine switch, marked by icons alone: Orchestrate over
+   the slot, Implement under it. */
 .device-stance {
   position: relative;
   display: grid;
   flex: none;
-  grid-template-columns: auto auto;
+  grid-template-columns: auto;
   justify-items: center;
   row-gap: 2px;
   margin-right: 12px;
@@ -1367,9 +1365,6 @@
 }
 .device-stance__track {
   height: 60px;
-}
-.device-stance[data-stance="flexible"] .device-stance__thumb {
-  top: 14px;
 }
 .device-stance[data-stance="implement"] .device-stance__thumb {
   top: 27px;
@@ -1394,10 +1389,6 @@
 .device-stance__names [data-stance-option="implement"] {
   grid-area: 3 / 1;
 }
-.device-stance__names [data-stance-option="flexible"] {
-  grid-area: 2 / 2;
-  align-self: center;
-}
 .device-stance__icon {
   flex: none;
   width: 11px;
@@ -1415,9 +1406,6 @@
 }
 .device-stance__names [data-stance-option="orchestrate"] {
   --stance-lit: var(--stance-orch);
-}
-.device-stance__names [data-stance-option="flexible"] {
-  --stance-lit: var(--stance-flex);
 }
 .device-stance__names [data-stance-option="implement"] {
   --stance-lit: var(--stance-impl);

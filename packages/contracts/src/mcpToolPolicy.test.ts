@@ -30,18 +30,18 @@ describe("permission classes", () => {
       expect(isToolListedForSession(name, reader)).toBe(false);
   });
 
-  it("keeps browser agents and researchers on their own narrow endpoints", () => {
+  it("keeps browser agents and web-reading scouts on their own narrow endpoints", () => {
     expect(sessionEndpointKey({ toolProfile: "phi", agentRole: "browser", readOnly: true })).toBe(
       "preview",
     );
     expect(
-      sessionEndpointKey({ toolProfile: "web-research", agentRole: "researcher", readOnly: true }),
+      sessionEndpointKey({ toolProfile: "web-research", agentRole: "scout", readOnly: true }),
     ).toBe("research");
   });
 });
 
 describe("web research tools", () => {
-  it.each(["web_search", "web_fetch"])("lists %s to editors and researchers", (name) => {
+  it.each(["web_search", "web_fetch"])("lists %s to editors and web-reading scouts", (name) => {
     expect(toolFamily(name)).toBe("web");
     expect(isToolListedForSession(name, undefined)).toBe(true);
     expect(isToolListedForSession(name, worker)).toBe(true);

@@ -155,18 +155,17 @@ picker's Favorites tab by dragging a row, or with **Alt+↑** and **Alt+↓** on
 
 ## Delegation stance
 
-The three-position lever beside the model controls sets how much a thread hands to
-other agents. Its stops, top to bottom, are Orchestrate, Flexible and Implement; hover
-a stop's icon to see its name and what it does.
+The two-position lever beside the model controls sets how much a thread hands to
+other agents. Its stops, top to bottom, are Orchestrate and Implement; hover a stop's
+icon to see its name and what it does.
 
 - **Orchestrate**: the agent keeps the outcome, the decisions and the checking, and
   hands building to implementers wherever the design is settled.
-- **Flexible**: the agent hands off bounded pieces and builds the rest itself.
 - **Implement**: the agent builds everything itself. It can still start read-only
-  helpers (a scout, researcher, browser task, reviewer or advisor); T3 refuses to
-  start a writing helper for it.
+  helpers (a scout, browser task, reviewer or advisor); T3 refuses to start a writing
+  helper for it.
 
-A new thread starts on its model's default stance, or on Flexible when the model has
+A new thread starts on its model's default stance, or on Implement when the model has
 none. Set a default per model in **Settings → Delegation → Models**. Once you move
 the lever it stays where you put it, including when you change the model. You can
 move it on an existing thread at any time, and the next message uses the new stance.
@@ -174,12 +173,15 @@ In a narrow window the stance is in the composer's **…** menu.
 
 A default belongs to the model's name, as its note does: every account that offers
 the model under that name shares it. Pi names a model by its account, so there each
-account's model has its own default.
+account's model has its own default, unless the model is one of your pooled models in
+**Settings → Accounts**: then its default covers every account in the pool.
 
 A message that is a slash command, such as `/goal`, is sent unchanged and carries no
 stance guidance; the agent takes its stance from the thread's ordinary messages.
 Helpers follow their role instead of a model default: an implementer builds its piece
-itself, and a Spec lead (an implementer handed a whole Spec) is Flexible. A thread running an Arc orchestrates.
+itself, and so does a Spec lead (an implementer handed a whole Spec) unless the thread that
+started it names another stance. A thread running an Arc orchestrates. A thread that was on
+the retired Flexible stance continues on Implement.
 
 ## Quote an assistant response
 

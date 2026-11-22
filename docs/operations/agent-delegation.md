@@ -37,11 +37,12 @@ Only connections with identified usage readings can be configured. Usage is refr
 
 On web and desktop, **Settings → Delegation** edits the configured source
 policy. Settings permission is required; agents have no MCP tool to edit it.
-The policy has seven named presets over two execution authority classes (read-only and editor). `agent_roles` returns concise guidance for each preset a caller can request; pass `role` for one preset and its full child instructions. A preset's optional `guidance` in the policy customises selection advice without changing permissions.
+The policy has six named presets over two execution authority classes (read-only and editor). `agent_roles` returns concise guidance for each preset a caller can request; pass `role` for one preset and its full child instructions. A preset's optional `guidance` in the policy customises selection advice without changing permissions.
 
-The presets are: `implementer`, `lead`, `scout`, `researcher`, `browser`,
-`reviewer` and `advisor`. The implementer and lead are editors; the other five are
-read-only. Callers ask for one writing role, `implementer`: handed a Forge Spec as
+The presets are: `implementer`, `lead`, `scout`, `browser`, `reviewer` and
+`advisor`. The implementer and lead are editors; the other four are read-only. The
+scout maps code and answers questions about libraries and products from the web; the
+retired `researcher` is read as `scout` wherever a request, task or schedule names it. Callers ask for one writing role, `implementer`: handed a Forge Spec as
 `forgeItem` it runs as the internal `lead` (the Spec lead), so `agent_roles` lists no
 `lead` and its policy row only picks that child's model. Point the `lead` row at the
 implementer's list, as the shipped policy does, so both sizes offer the same models
@@ -51,9 +52,8 @@ The implementer takes every task class, and hands its work back as a pinned revi
 unless its brief or the request tells it to land, install or publish.
 Each role has a model `list`, with effort for models that offer it. For ordinary
 delegation, the list is a pool of candidates, not a preference order. Roles
-naming the same list share it: the shipped policy gives `scout`, `researcher` and
-`browser` one list, so editing that list under any of the three edits the one list
-all three use. The Reviewer has one list for every kind of review (a change, a Spec,
+naming the same list share it: the shipped policy gives `scout` and `browser` one
+list, so editing that list under either edits the one list both use. The Reviewer has one list for every kind of review (a change, a Spec,
 a pre-mortem), so the lead chooses the reviewer by its models' notes. Its `council`
 names the list's models ticked for the review council; when they cover at least two
 makers, `delegate_task` sits a Spec review as a council: one read-only reviewer per
@@ -141,7 +141,7 @@ its revision and the role names, or the reason the policy is refused.
   output in ignored directories: the composite TypeScript projects write their
   `tsconfig.tsbuildinfo` under `node_modules/.cache` for this reason. Python 3 and a working host sandbox are required;
   an unavailable sandbox blocks the shell rather than running without protection.
-  Browser and researcher tasks have no shell. Codemode stays available: each tool
+  Browser and scout tasks, which read the web, have no shell. Codemode stays available: each tool
   a script calls reaches the same tool-call guard, including sandboxing bash.
   Edit, write, powershell and MCP resource tools stay withheld.
   The user's own installed extensions still
@@ -187,7 +187,7 @@ its revision and the role names, or the reason the policy is refused.
   holds that boundary, as for Codex. Linux Landlock does not cover metadata changes
   such as modes, owners, timestamps or xattrs. Claude read-only tasks still have no shell.
 
-- Browser agents and researchers read untrusted web pages, so they stay on narrow endpoints:
+- Browser agents and scouts read untrusted web pages, so they stay on narrow endpoints:
   no thread reads, no delegation and no T3 writes.
 - The `phi` tool profile, the `browser` role's, gives a reader its own browser
   endpoint serving only browser operations on the task's own tabs, plus the
@@ -204,7 +204,9 @@ its revision and the role names, or the reason the policy is refused.
   tools, and any other provider gets T3's `web_search` and `web_fetch` through
   Executor's Tavily. Every read-only task may use the network, and a Codex reader's
   shell commands can reach it, but no reader can write source.
-  `researcher`, `scout` and `lead` are the optional roles: a policy that leaves one out does not
+  It is the `scout`'s profile: a policy that still names `source-reader` for the scout, as
+  one written before the scout took over web research does, reads as `web-research`.
+  `scout` and `lead` are the optional roles: a policy that leaves one out does not
   offer it, so older policies and recorded snapshots stay valid.
 - While a readable policy is configured, a delegation or reviewer trial is
   refused at creation, and again when it is started, if one of its arms uses a
@@ -236,7 +238,7 @@ its revision and the role names, or the reason the policy is refused.
   any child exists; an item, or a project's repository, that T3 cannot read is
   never refused on that ground. It is still a subagent: it wakes its parent when it
   finishes, and shows only among its parent's subagents. Like
-  `researcher` and `scout`, the role is optional in a policy.
+  `scout`, the role is optional in a policy.
 - An agent working inside a thread that starts a top-level thread with
   `t3_thread_launch` or `create_threads` must say in `whyNotDelegated` why that
   thread beats a `delegate_task` child, including a whole Spec in another project.

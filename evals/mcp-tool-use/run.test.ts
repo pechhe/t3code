@@ -713,7 +713,7 @@ it("rebuilds the template from this checkout and sends a child T3's task prompt"
   const prompt = buildMessages(makeSample(childCase, base)).at(-1)?.content.at(-1);
   assert.equal(prompt?.text, taskPrompt({ task: childCase.prompt, role: "implementation" }));
   assert.notEqual(prompt?.text, childCase.prompt);
-  for (const delegationStance of ["orchestrate", "flexible", "implement"] as const) {
+  for (const delegationStance of ["orchestrate", "implement"] as const) {
     const testCase = { ...childCase, setup: { ...childCase.setup, delegationStance } };
     const notes = buildMessages(makeSample(testCase, base))
       .flatMap((message) => message.content)

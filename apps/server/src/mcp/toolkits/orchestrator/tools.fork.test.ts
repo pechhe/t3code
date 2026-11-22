@@ -44,11 +44,17 @@ it("advertises delegate_task's agentTask fields once, offering only the current 
     "browser",
     "advisor",
     "reviewer",
-    "researcher",
     "scout",
   ]);
   const decode = Schema.decodeUnknownExit(OrchestratorToolkit.tools.delegate_task.parametersSchema);
-  for (const role of ["lead", "ui-verifier", "spec-reviewer", "chore-worker", "implementer"])
+  for (const role of [
+    "lead",
+    "ui-verifier",
+    "spec-reviewer",
+    "chore-worker",
+    "researcher",
+    "implementer",
+  ])
     expect(
       Exit.isSuccess(
         decode({

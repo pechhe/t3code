@@ -6065,7 +6065,7 @@ it.effect(
     }),
 );
 
-it("T3's web family goes to editors, and to a researcher whose provider has no native search", () => {
+it("T3's web family goes to editors, and to a web-reading scout whose provider has no native search", () => {
   const pi = { nativeWebResearch: false };
   const claude = { nativeWebResearch: true };
   const codex = { nativeWebResearch: true };

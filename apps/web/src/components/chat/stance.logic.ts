@@ -11,29 +11,21 @@ export interface DelegationStanceOption {
   readonly tooltip: string;
 }
 
-export const DELEGATION_STANCE_OPTIONS: readonly [
-  DelegationStanceOption,
-  DelegationStanceOption,
-  DelegationStanceOption,
-] = [
-  {
-    stance: "orchestrate",
-    label: "Orchestrate",
-    tooltip:
-      "Plans, decides and checks. Hands the building to other agents wherever the design is settled.",
-  },
-  {
-    stance: "flexible",
-    label: "Flexible",
-    tooltip: "Hands off bounded pieces with a settled design and builds the rest itself.",
-  },
-  {
-    stance: "implement",
-    label: "Implement",
-    tooltip:
-      "Builds everything itself. Only read-only helpers can start, such as a scout or a reviewer.",
-  },
-];
+export const DELEGATION_STANCE_OPTIONS: readonly [DelegationStanceOption, DelegationStanceOption] =
+  [
+    {
+      stance: "orchestrate",
+      label: "Orchestrate",
+      tooltip:
+        "Plans, decides and checks. Hands the building to other agents wherever the design is settled.",
+    },
+    {
+      stance: "implement",
+      label: "Implement",
+      tooltip:
+        "Builds everything itself. Only read-only helpers can start, such as a scout or a reviewer.",
+    },
+  ];
 
 export function getDelegationStanceOption(stance: DelegationStance): DelegationStanceOption {
   return (

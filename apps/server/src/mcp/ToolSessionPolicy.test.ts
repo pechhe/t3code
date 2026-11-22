@@ -101,7 +101,7 @@ const budgets: ReadonlyArray<[string, SessionToolProfile | undefined, number]> =
   ["editor worker", session("implementation", "implementer"), 159_000],
   ["reader", session("source-reader", "reviewer"), 45_000],
   ["browser", session("phi", "browser"), 37_000],
-  ["researcher", session("web-research", "researcher"), 19_500],
+  ["scout", session("web-research", "scout"), 19_500],
 ];
 
 it("keeps every session endpoint under its payload budget", () => {
@@ -137,8 +137,8 @@ const instructionCases: ReadonlyArray<[string, SessionToolProfile | undefined]> 
   ["ordinary", undefined],
   ["delegated browser", session("phi", "browser")],
   ["delegated implementation-worker", session("implementation", "implementer")],
-  ["delegated researcher", session("web-research", "researcher")],
-  ["delegated scout", session("source-reader", "scout")],
+  ["delegated scout", session("web-research", "scout")],
+  ["delegated advisor", session("source-reader", "advisor")],
   ["delegated reviewer", session("source-reader", "reviewer")],
 ];
 
@@ -265,11 +265,11 @@ it("keeps a read-only agent to the closed list, and every name on it real", () =
   );
 });
 
-it("keeps browser agents and researchers off threads and delegation", () => {
+it("keeps browser agents and web-reading scouts off threads and delegation", () => {
   for (const narrow of [
     names(session("phi", "browser")),
     names(session("phi", "ui-verifier")),
-    names(session("web-research", "researcher")),
+    names(session("web-research", "scout")),
   ]) {
     for (const name of [
       "t3_thread_read",
@@ -284,7 +284,7 @@ it("keeps browser agents and researchers off threads and delegation", () => {
   }
   expect(names(session("phi", "browser")).has("preview_interact")).toBe(true);
   expect(names(session("phi", "browser")).has("device_open")).toBe(true);
-  expect(names(session("web-research", "researcher")).has("web_search")).toBe(true);
+  expect(names(session("web-research", "scout")).has("web_search")).toBe(true);
 });
 
 it("hands all three harnesses the same session endpoint", () => {

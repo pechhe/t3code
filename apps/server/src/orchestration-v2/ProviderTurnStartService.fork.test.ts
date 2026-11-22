@@ -1302,7 +1302,7 @@ function makeLocalCommandHarness(input: {
         Layer.mock(ManagedAgent.ManagedAgentService)({
           resolveStance: ({ thread }) =>
             Effect.succeed({
-              stance: thread?.stanceChoice?.stance ?? "flexible",
+              stance: thread?.stanceChoice?.stance ?? "implement",
               source: thread?.stanceChoice?.chosenBy ?? "fallback",
             }),
           rankedTextModels: () =>
@@ -1450,7 +1450,7 @@ effectIt.effect.each([
         }
         expect(text.includes("land each repository")).toBe(attached);
       } else {
-        expect(text).toBe(`${delegationStanceNote("flexible")}\n\nUser message:\nContinue`);
+        expect(text).toBe(`${delegationStanceNote("implement")}\n\nUser message:\nContinue`);
       }
     }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
@@ -1750,7 +1750,7 @@ effectIt.effect.each([
 
     const text = harness.startTurn.mock.calls[0]![0].message.text;
     if (folder === null)
-      expect(text).toBe(`${delegationStanceNote("flexible")}\n\nUser message:\nContinue`);
+      expect(text).toBe(`${delegationStanceNote("implement")}\n\nUser message:\nContinue`);
     else expect(text).toContain(`\`${folder}\``);
   }).pipe(
     Effect.scoped,

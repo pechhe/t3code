@@ -563,7 +563,7 @@ const WRITER_TOOLS: ReadonlySet<string> = new Set([
 const isWriterTool = (name: string) => WRITER_TOOLS.has(name.slice(name.lastIndexOf("_") + 1));
 // Captures may carry a harness prefix on a tool's name, so match on what follows the last `_`.
 const isHarnessExtra = (name: string) => HARNESS_EXTRAS.has(name.slice(name.lastIndexOf("_") + 1));
-// delegate_task roles whose child is a reader. A researcher's narrower web set is not simulated.
+// delegate_task roles whose child is a reader. A web-reading scout's narrower set is not simulated.
 const READ_ONLY_DELEGATE_ROLES: ReadonlySet<string> = new Set(["review"]);
 // The Linked environments beta starts off, and T3 lists its tools only while it is on.
 const hiddenWhileLinksOff = enabledWhen(McpInvocationContext.hiddenWhileLinksOff);

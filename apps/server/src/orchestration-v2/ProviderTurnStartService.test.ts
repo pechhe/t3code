@@ -1717,7 +1717,7 @@ function makeLocalCommandHarness(input: {
         Layer.mock(ManagedAgent.ManagedAgentService)({
           resolveStance: ({ thread }) =>
             Effect.succeed({
-              stance: thread?.stanceChoice?.stance ?? "flexible",
+              stance: thread?.stanceChoice?.stance ?? "implement",
               source: thread?.stanceChoice?.chosenBy ?? "fallback",
             }),
           rankedTextModels: () =>
@@ -1831,7 +1831,7 @@ effectIt.effect.each([
     });
     yield* harness.start;
     expect(harness.startTurn.mock.calls[0]?.[0].message.text).toBe(
-      [delegationStanceNote("flexible"), line, "User message:\nContinue"]
+      [delegationStanceNote("implement"), line, "User message:\nContinue"]
         .filter((part) => part !== null)
         .join("\n\n"),
     );
@@ -2685,7 +2685,7 @@ effectIt.effect("sends new steering text when restarting a manual continuation",
     });
     yield* harness.start;
     expect(harness.startTurn.mock.calls[0]?.[0].message.text).toBe(
-      withInlineContext(delegationStanceNote("flexible"), "New steering instruction"),
+      withInlineContext(delegationStanceNote("implement"), "New steering instruction"),
     );
     expect(harness.startRootRun.mock.calls[0]?.[0].resume).toBe(false);
   }),
@@ -2779,7 +2779,7 @@ effectIt.effect.each([
       expect(texts).toHaveLength(1);
       // A native resume sends no prompt, so it carries none of the per-turn notes.
       const resumes = context === "" && !resendsOriginal;
-      const notes = [delegationStanceNote("flexible"), context].filter(Boolean).join("\n\n");
+      const notes = [delegationStanceNote("implement"), context].filter(Boolean).join("\n\n");
       if (resumes) {
         expect(texts[0]).toBe("");
       } else if (resendsOriginal) {

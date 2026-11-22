@@ -90,7 +90,7 @@ import {
   UserInputAttachmentAnswerPayload,
   RuntimeMode,
 } from "./providerPolicy.ts";
-import { DelegationStance, DelegationStanceChoice } from "./delegationStance.ts";
+import { DelegationStanceChoice, StoredDelegationStance } from "./delegationStance.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
 import { OrchestrationProjectShell } from "./orchestrationProject.ts";
 import {
@@ -4108,7 +4108,7 @@ export const OrchestrationV2Command = Schema.Union([
     type: Schema.Literal("thread.stance.set"),
     commandId: CommandId,
     threadId: ThreadId,
-    stance: DelegationStance,
+    stance: StoredDelegationStance,
   }),
   Schema.Struct({
     type: Schema.Literal("thread.interaction-mode.set"),

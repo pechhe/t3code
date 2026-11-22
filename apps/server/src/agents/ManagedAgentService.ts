@@ -3,6 +3,7 @@ import * as Projections from "../orchestration-v2/ProjectionStore.ts";
 import * as PhiBrowser from "../preview/PhiBrowser.ts";
 import * as Settings from "../serverSettings.ts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import { pooledModels } from "@t3tools/shared/accountPools";
 import { defaultChildMode, exceedsCaller } from "./delegationRuntime.ts";
 import { checkWriterWorkspace } from "./writerWorkspacePreflight.ts";
 import * as AuthSessions from "../persistence/AuthSessions.ts";
@@ -23,6 +24,7 @@ import {
   AuthSessionId,
   type AgentTaskBinding,
   type AgentTaskHandoff,
+  type AgentPolicyManifest,
   type ModelSelection,
   type ProjectId,
   type RunId,
@@ -812,6 +814,31 @@ const make = Effect.gen(function* () {
     );
     return { entry, ranked };
   });
+  // A model alone (`anyAccount`) gives its default to every account's copy of it in the pool.
+  const pooledDefaultStance = Effect.fn("ManagedAgentService.pooledDefaultStance")(function* (
+    defaults: ReadonlyArray<AgentPolicyManifest["models"][string]>,
+    selection: ModelSelection,
+  ) {
+    const pooledDefaults = defaults.filter(
+      (binding) => binding.anyAccount === true || binding.poolId !== undefined,
+    );
+    if (pooledDefaults.length === 0) return undefined;
+    const registry = yield* Effect.serviceOption(ProviderRegistry.ProviderRegistry);
+    const routing = yield* configuredRouting;
+    if (Option.isNone(registry) || routing === undefined) return undefined;
+    const pool = pooledModels(yield* registry.value.getProviders, routing).find((candidate) =>
+      candidate.accounts.some(
+        (account) =>
+          account.provider.instanceId === selection.instanceId && account.model === selection.model,
+      ),
+    );
+    return pooledDefaults.find((binding) =>
+      pool?.accounts.some(
+        (account) =>
+          account.provider.driver === binding.driverKind && account.model === binding.model,
+      ),
+    )?.defaultStance;
+  });
   const resolveStance: ManagedAgentService["Service"]["resolveStance"] = Effect.fn(
     "ManagedAgentService.resolveStance",
   )(function* (input) {
@@ -831,18 +858,20 @@ const make = Effect.gen(function* () {
           ));
     if (thread?.stanceChoice !== undefined)
       return { stance: thread.stanceChoice.stance, source: thread.stanceChoice.chosenBy };
-    if (thread?.agentTask?.sourceAccess === "scoped-write") {
-      if (thread.agentTask.role === "lead") return { stance: "flexible", source: "role" };
+    // Every writer handed work, a delegated Spec lead included, builds it unless its parent says otherwise.
+    if (thread?.agentTask?.sourceAccess === "scoped-write")
       return { stance: "implement", source: "role" };
-    }
     if (thread?.arcRun !== undefined) return { stance: "orchestrate", source: "arc" };
-    const model = (input.modelSelection ?? thread?.modelSelection)?.model;
-    if (model !== undefined) {
+    const selection = input.modelSelection ?? thread?.modelSelection;
+    if (selection !== undefined) {
       const snapshot = yield* currentPolicy.pipe(Effect.option);
       if (Option.isSome(snapshot)) {
-        const stance = Object.values(snapshot.value.manifest.models).find(
-          (binding) => binding.model === model && binding.defaultStance !== undefined,
-        )?.defaultStance;
+        const defaults = Object.values(snapshot.value.manifest.models).filter(
+          (binding) => binding.defaultStance !== undefined,
+        );
+        const stance =
+          defaults.find((binding) => binding.model === selection.model)?.defaultStance ??
+          (yield* pooledDefaultStance(defaults, selection));
         if (stance !== undefined) return { stance, source: "model" };
       }
     }

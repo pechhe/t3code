@@ -340,7 +340,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         };
       }>;
       readonly readOnlyCaller?: boolean;
-      /** The stance someone chose for the lead's thread. */
+      /** The stance someone chose for the lead's thread; Orchestrate when unset. */
       readonly parentStance?: DelegationStanceChoice;
       /** The repository Forge says a Forge item belongs to, when a lead names one. */
       readonly itemProject?: string | null;
@@ -413,7 +413,8 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           interactionMode: "default",
           worktreePath: options.scratch ? scratchFolder : bound ? lead : null,
           ...(options.parentTask === undefined ? {} : { agentTask: options.parentTask }),
-          ...(options.parentStance === undefined ? {} : { stanceChoice: options.parentStance }),
+          // A lead that hands out writers orchestrates; Implement, the default, refuses them.
+          stanceChoice: options.parentStance ?? { stance: "orchestrate", chosenBy: "owner" },
           modelSelection: options.parent ?? {
             instanceId: codex.instanceId,
             model: codex.models[0]!.slug,

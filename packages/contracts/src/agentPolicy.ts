@@ -7,7 +7,11 @@ import {
   ProjectId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
-import { DelegationStance, ResolvedDelegationStance } from "./delegationStance.ts";
+import {
+  DelegationStance,
+  ResolvedDelegationStance,
+  StoredDelegationStance,
+} from "./delegationStance.ts";
 import { RuntimeMode } from "./providerPolicy.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
 import { BrowserBackend, PhiBrowserLane } from "./browserBackend.ts";
@@ -20,15 +24,13 @@ export const AgentRole = Schema.Literals([
   "ui-verifier",
   "advisor",
   "reviewer",
-  "researcher",
   "scout",
   "lead",
 ]);
 export type AgentRole = typeof AgentRole.Type;
 export const AGENT_ROLE_GUIDANCE = {
   scout:
-    "Map unfamiliar code when a separate source investigation saves context; keep narrow lookups local.",
-  researcher: "Answer a factual question about a library, API or product from primary sources.",
+    "Map unfamiliar code, or answer a question about a library, API or product from primary sources, when a separate investigation saves context; keep narrow lookups local.",
   browser: "Drive an authorised page or device task without editing source.",
   "ui-verifier": "Check the running app without editing source.",
   reviewer: "Independently judge pinned work against its requirements and repository standards.",
@@ -56,7 +58,6 @@ export const AGENT_ROLE_TITLE_LABEL = {
   "ui-verifier": "UI verifier",
   advisor: "Advisor",
   reviewer: "Reviewer",
-  researcher: "Researcher",
   scout: "Scout",
   lead: "Spec lead",
 } as const satisfies Record<AgentRole, string>;
@@ -68,6 +69,7 @@ export const AGENT_TASK_TITLE_LABELS: ReadonlyArray<string> = [
   ...Object.values(AGENT_ROLE_TITLE_LABEL),
   "Ticket reviewer",
   "Spec reviewer",
+  "Researcher",
   "Lead",
   "Worker",
   "Solo",
@@ -126,7 +128,6 @@ export const READ_ONLY_ROLES: ReadonlySet<AgentRole> = new Set([
   "ui-verifier",
   "advisor",
   "reviewer",
-  "researcher",
   "scout",
 ]);
 /** A subagent thread other than a `lead` task: it reports its result to its parent. */
@@ -140,15 +141,18 @@ export const isReviewerRole = (role: AgentRole) => role === "reviewer";
  * The managed roles a policy may grant bounded browser tasks: the writers and the independent
  * reviewer. Consulting roles never get them, and the browser roles keep their own endpoint.
  */
-export const BOUNDED_BROWSER_ROLES: ReadonlySet<AgentRole> = new Set(["implementer", "reviewer"]);
+export const BOUNDED_BROWSER_ROLES: ReadonlySet<AgentRole> = new Set([
+  "implementer",
+  "lead",
+  "reviewer",
+]);
 /** Whether a role's policy grants its tasks bounded browser tasks; recorded on the binding. */
 export const grantsBrowserTasks = (
   role: AgentRole,
   policy: { readonly browserTasks?: boolean | undefined },
 ): boolean => policy.browserTasks === true && BOUNDED_BROWSER_ROLES.has(role);
 /** The read-only roles that answer the lead's questions rather than produce work. */
-export const isConsultingRole = (role: AgentRole) =>
-  role === "advisor" || role === "researcher" || role === "scout";
+export const isConsultingRole = (role: AgentRole) => role === "advisor" || role === "scout";
 /**
  * The coarse kind that trials, categories and reports already group delegated work by. The
  * canonical role is carried beside it, never in its place.
@@ -159,7 +163,6 @@ export const AGENT_ROLE_COARSE_KIND = {
   "ui-verifier": "test",
   advisor: "research",
   reviewer: "review",
-  researcher: "research",
   scout: "research",
   lead: "implementation",
 } as const satisfies Record<AgentRole, string>;
@@ -211,7 +214,7 @@ const ModelBinding = Schema.Struct({
   options: Schema.optional(Schema.Record(TrimmedNonEmptyString, TrimmedNonEmptyString)),
   /** What the model is good at, which a delegating agent reads to choose it for a task. */
   note: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(MODEL_NOTE_MAX_LENGTH))),
-  defaultStance: Schema.optional(DelegationStance),
+  defaultStance: Schema.optional(StoredDelegationStance),
   /** Never chosen off a list: an `offPolicyReason` cannot select it, so it runs only where listed. */
   listedOnly: Schema.optional(Schema.Boolean),
 });
@@ -353,9 +356,9 @@ const StoredRolePolicy = Schema.Union([
 ]);
 
 /**
- * One entry per role. `researcher`, `scout` and `lead` were added after policies and task
- * snapshots were saved, so a policy may leave them out; such a role is then unavailable.
- * `ui-verifier` is retired: saved snapshots still carry it, and a policy may no longer set it.
+ * One entry per role. `scout` and `lead` were added after policies and task snapshots were
+ * saved, so a policy may leave them out; such a role is then unavailable. `ui-verifier` and
+ * `researcher` are retired: saved policies and snapshots still carry them, and a save drops them.
  */
 const rolesRecord = <S extends Schema.Top>(entry: S) =>
   Schema.Struct({
@@ -401,7 +404,30 @@ export const hidesTool = (patterns: ReadonlyArray<string>, name: string): boolea
         .join(".*")}$`,
     ).test(name),
   );
-const Manifest = Schema.Struct({ ...manifestFields, roles: rolesRecord(StoredCurrentRolePolicy) });
+const StoredManifest = Schema.Struct({
+  ...manifestFields,
+  roles: rolesRecord(StoredCurrentRolePolicy),
+});
+/**
+ * `scout` took over the retired `researcher`'s web research, so a scout saved with the
+ * source-only profile it had before reads with `web-research`.
+ */
+const withWebScout = <M extends typeof StoredManifest.Type>(manifest: M): M =>
+  manifest.roles.scout?.toolProfile === "source-reader"
+    ? {
+        ...manifest,
+        roles: {
+          ...manifest.roles,
+          scout: { ...manifest.roles.scout, toolProfile: "web-research" },
+        },
+      }
+    : manifest;
+const Manifest = StoredManifest.pipe(
+  Schema.decodeTo(Schema.toType(StoredManifest), {
+    decode: SchemaGetter.transform(withWebScout),
+    encode: SchemaGetter.transform((manifest) => manifest),
+  }),
+);
 const SplitListManifest = Schema.Struct({
   ...manifestFields,
   roles: rolesRecord(StoredRolePolicy),
@@ -480,7 +506,7 @@ function validManifest(
     role?.sourceAccess === "read-only" && role.toolProfile === toolProfile;
   return (
     (roles.researcher === undefined || readOnly(roles.researcher, "web-research")) &&
-    (roles.scout === undefined || readOnly(roles.scout, "source-reader")) &&
+    (roles.scout === undefined || readOnly(roles.scout, "web-research")) &&
     (roles.lead === undefined ||
       (roles.lead.sourceAccess === "scoped-write" &&
         roles.lead.toolProfile === "implementation")) &&
@@ -495,10 +521,15 @@ const CurrentManifest = Manifest.check(Schema.makeFilter((manifest) => validMani
 const CurrentSplitManifest = SplitListManifest.check(Schema.makeFilter(validSplitManifest));
 const CurrentWriterManifest = WriterManifest.check(Schema.makeFilter(validSplitManifest));
 /**
- * What a policy save may set: the current form only, without the retired `ui-verifier` role
+ * What a policy save may set: the current form only, without the retired `ui-verifier` and
+ * `researcher` roles
  * or `implementation-phi` profile. A saved role it leaves out is dropped from the file.
  */
-const { "ui-verifier": _retired, ...editableRoles } = rolesRecord(RolePolicy).fields;
+const {
+  "ui-verifier": _retired,
+  researcher: _researcher,
+  ...editableRoles
+} = rolesRecord(RolePolicy).fields;
 export const AgentPolicyManifestEdit = Schema.Struct({
   ...manifestFields,
   roles: Schema.Struct(editableRoles),
@@ -894,7 +925,7 @@ export const AgentTaskBrowser = Schema.Struct({
 export type AgentTaskBrowser = typeof AgentTaskBrowser.Type;
 
 const agentTaskRequestFields = {
-  stance: Schema.optional(DelegationStance),
+  stance: Schema.optional(StoredDelegationStance),
   browser: Schema.optional(AgentTaskBrowser),
   executionRequirement: Schema.optional(AgentExecutionRequirement),
   workUnitId: Schema.optional(TrimmedNonEmptyString),
@@ -919,13 +950,19 @@ const agentTaskRequestFields = {
 };
 const SplitReviewerRole = Schema.Literals(["ticket-reviewer", "spec-reviewer"]);
 /** Role names that were retired by merging: each still reads, as the role that replaced it. */
-const RetiredRole = Schema.Union([SplitReviewerRole, RetiredWriterRole]);
+const RetiredRole = Schema.Union([
+  SplitReviewerRole,
+  RetiredWriterRole,
+  Schema.Literal("researcher"),
+]);
 const currentRole = (role: AgentRole | typeof RetiredRole.Type): AgentRole =>
   role === "ticket-reviewer" || role === "spec-reviewer"
     ? "reviewer"
-    : isRetiredWriterRole(role)
-      ? "implementer"
-      : role;
+    : role === "researcher"
+      ? "scout"
+      : isRetiredWriterRole(role)
+        ? "implementer"
+        : role;
 // Persisted tasks under a retired name keep their task class and review scope.
 const withCurrentRole = <R extends { readonly role: typeof RetiredRole.Type }>(record: R) => ({
   ...record,
@@ -1009,12 +1046,12 @@ const OFFERED_AGENT_ROLES = [
   "browser",
   "advisor",
   "reviewer",
-  "researcher",
   "scout",
 ] as const satisfies ReadonlyArray<AgentRole>;
 const isAgentRoleName = Schema.is(Schema.Union([AgentRole, RetiredRole]));
 export const AgentTaskWireRequest = Schema.Struct({
   ...agentTaskCallerFields,
+  stance: Schema.optional(DelegationStance),
   role: Schema.String.check(
     Schema.makeFilter(isAgentRoleName, {
       expected: "an agent role",
@@ -1155,7 +1192,7 @@ export const AgentRolesResult = Schema.Struct({
       sourceAccess: Schema.Literals(["read-only", "scoped-write"]),
       /** Which of T3's two permission classes the role's tasks are in. */
       permissionClass: Schema.optional(Schema.Literals(["editor", "read-only"])),
-      /** Present only for the narrow sets that read untrusted pages (browser and researcher). */
+      /** Present only for the narrow sets that read untrusted pages (browser and scout). */
       toolProfile: Schema.optional(AgentToolProfile),
       briefHash: Sha256,
       executionRequirement: Schema.optional(AgentExecutionRequirement),

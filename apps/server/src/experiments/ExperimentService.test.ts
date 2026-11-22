@@ -1644,11 +1644,11 @@ describe("what one sample of a trial is", () => {
     ],
     eligibility: { projectIds: [], models: [], taskCategories: [], agentRoles: ["scout"] },
   });
-  const binding = (workId: string, role: "scout" | "researcher" = "scout"): AgentTaskBinding => {
+  const binding = (workId: string, role: "scout" | "advisor" = "scout"): AgentTaskBinding => {
     const { externalOwner: _owner, ...task } = externalBinding();
     return { ...task, role, workId, attemptId: "1" };
   };
-  const dispatch = (thread: string, unitId: string, role: "scout" | "researcher" = "scout") => ({
+  const dispatch = (thread: string, unitId: string, role: "scout" | "advisor" = "scout") => ({
     ...assignInput(thread),
     unitId,
     taskLever: "delegation" as const,
@@ -1689,14 +1689,14 @@ describe("what one sample of a trial is", () => {
       const service = yield* Experiments.ExperimentService;
       yield* service.create(modelTrial("scouts"));
       yield* service.transition({ experimentId: "scouts", status: "running" });
-      assert.lengthOf(yield* service.assignForTask(dispatch("t1", "other", "researcher")), 0);
+      assert.lengthOf(yield* service.assignForTask(dispatch("t1", "other", "advisor")), 0);
       assert.lengthOf(yield* service.assignForTask(dispatch("t2", "mine")), 1);
-      const researchers = modelTrial("researchers");
+      const advisors = modelTrial("advisors");
       yield* service.create({
-        ...researchers,
-        eligibility: { ...researchers.eligibility, agentRoles: ["researcher"] },
+        ...advisors,
+        eligibility: { ...advisors.eligibility, agentRoles: ["advisor"] },
       });
-      yield* service.transition({ experimentId: "researchers", status: "running" });
+      yield* service.transition({ experimentId: "advisors", status: "running" });
       const clashing = yield* Effect.flip(
         Effect.andThen(service.create(modelTrial("also-scouts")), () =>
           service.transition({ experimentId: "also-scouts", status: "running" }),

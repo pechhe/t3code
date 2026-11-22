@@ -108,7 +108,7 @@ const TODAYS_INSTRUCTIONS = "Today's instructions";
 
 export type TrialKind = "model" | "text" | "approach";
 export const CREATABLE_TRIAL_KINDS: ReadonlyArray<TrialKind> = ["model", "text"];
-export type TrialJob = "reviewer-change" | "reviewer-spec" | "implementer" | "scout" | "researcher";
+export type TrialJob = "reviewer-change" | "reviewer-spec" | "implementer" | "scout";
 
 export const TRIAL_KINDS: Readonly<Record<TrialKind, { name: string; description: string }>> = {
   model: {
@@ -161,12 +161,6 @@ export const TRIAL_JOBS: Readonly<Record<TrialJob, TrialJobInfo>> = {
     unit: "task",
     subject: "Scout tasks",
     note: "Scout shares its setting with Browser. Only Scout's work is in this trial.",
-  },
-  researcher: {
-    name: "Researcher",
-    role: "researcher",
-    unit: "task",
-    subject: "Researcher tasks",
   },
 };
 

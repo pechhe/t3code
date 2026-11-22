@@ -19,9 +19,9 @@ interface DeviceStanceSwitchProps {
 }
 
 /**
- * Three-position delegation stance lever, a sibling of the machine lever. Each stop is
+ * Two-position delegation stance lever, a sibling of the machine lever. Each stop is
  * marked by an icon alone, whose tooltip names the stance and says what it does. Clicking
- * the track cycles positions; an icon or the arrow keys pick a stance directly.
+ * the track flips it; an icon or the arrow keys pick a stance directly.
  */
 export function DeviceStanceSwitch({
   stance,
@@ -57,7 +57,7 @@ export function DeviceStanceSwitch({
     } else if (event.key === "Home") {
       next = DELEGATION_STANCE_OPTIONS[0].stance;
     } else if (event.key === "End") {
-      next = DELEGATION_STANCE_OPTIONS[2].stance;
+      next = DELEGATION_STANCE_OPTIONS[1].stance;
     }
     if (next === null) return;
     event.preventDefault();

@@ -171,7 +171,7 @@ const refuseConfinedWrites = ({ caller }: Caller) => {
         new OrchestratorMcpFailure({
           code: "capability_denied",
           message:
-            "Browser agents, researchers and work an outside client owns can't change T3 state or delegate. Say in your result what is left to do.",
+            "Browser agents, web-reading scouts and work an outside client owns can't change T3 state or delegate. Say in your result what is left to do.",
         }),
       )
     : Effect.void;

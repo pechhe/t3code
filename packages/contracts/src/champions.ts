@@ -1,5 +1,6 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
+import * as SchemaGetter from "effect/SchemaGetter";
 import {
   IsoDateTime,
   ProjectId,
@@ -881,11 +882,26 @@ export const ChampionLearningQueryResult = Schema.Struct({
   admissibleForInvestigation: Schema.optional(Schema.Boolean),
 });
 export type ChampionLearningQueryResult = typeof ChampionLearningQueryResult.Type;
+/**
+ * The consulting roles an investigation branch runs. A branch saved before `scout` took over web
+ * research names `researcher`, which reads as `scout`.
+ */
+const ChampionInvestigationRole = Schema.String.check(
+  Schema.makeFilter((role) => ["advisor", "researcher", "scout"].includes(role), {
+    expected: "advisor or scout",
+    toJsonSchema: () => ({ enum: ["advisor", "scout"] }),
+  }),
+).pipe(
+  Schema.decodeTo(Schema.Literals(["advisor", "scout"]), {
+    decode: SchemaGetter.transform((role) => (role === "advisor" ? "advisor" : "scout")),
+    encode: SchemaGetter.transform((role) => role),
+  }),
+);
 export const ChampionInvestigationAlternative = Schema.Struct({
   id: ChampionLabel,
   hypothesis: ChampionText,
   evidenceNeeds: ChampionText,
-  role: Schema.Literals(["advisor", "researcher", "scout"]),
+  role: ChampionInvestigationRole,
 });
 export const ChampionInvestigationStartInput = Schema.Struct({
   id: ChampionId,
@@ -908,7 +924,7 @@ export const ChampionInvestigationBranchAttempt = Schema.Struct({
   taskId: NodeId,
   childThreadId: ThreadId,
   messageId: MessageId,
-  role: Schema.Literals(["advisor", "researcher", "scout"]),
+  role: ChampionInvestigationRole,
   workId: ChampionText,
   attemptId: ChampionText,
   workspacePath: ChampionText,

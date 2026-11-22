@@ -71,7 +71,7 @@ it.effect.each([
   scope("source-reader", "scout"),
   scope("source-reader", "advisor"),
   scope("source-reader", "reviewer"),
-  scope("web-research", "researcher"),
+  scope("web-research", "scout"),
   { ...scope(), thread: undefined },
   {
     ...scope(),
@@ -111,7 +111,7 @@ it("explicitly assigns discovery to decision, excluding source-only and research
   expect(isToolListedForSession("t3_decide", undefined)).toBe(true);
   for (const [toolProfile, agentRole] of [
     ["source-reader", "scout"],
-    ["web-research", "researcher"],
+    ["web-research", "scout"],
     ["implementation", "reviewer"],
   ] as const) {
     expect(canUseDecisions({ toolProfile, agentRole })).toBe(false);

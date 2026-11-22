@@ -108,7 +108,7 @@ it("grants bounded browsing only from what the server recorded about the thread"
     ).toBe(true);
   }
   // A recorded grant cannot widen the roles that may hold one.
-  for (const role of ["advisor", "scout", "researcher", "browser", "ui-verifier"] as const)
+  for (const role of ["advisor", "scout", "browser", "ui-verifier"] as const)
     expect(
       boundedBrowserEligible(
         shell({ agentTask: task(role, { browserTasks: true }), lineage: subagent }),

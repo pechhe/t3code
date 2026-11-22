@@ -316,7 +316,7 @@ describe("trial clashes mirror the server's start check", () => {
     expect(
       trialsClash(
         scope("delegation", { agentRoles: ["scout"] }),
-        scope("delegation", { agentRoles: ["researcher"] }),
+        scope("delegation", { agentRoles: ["advisor"] }),
       ),
     ).toBe(false);
   });

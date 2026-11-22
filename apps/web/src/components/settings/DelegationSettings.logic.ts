@@ -126,13 +126,13 @@ export function rolePolicy(manifest: Manifest, role: AgentRole): RolePolicy {
   return policy;
 }
 
-/** Removes the retired role and discovers reasoning controls added since a model was saved. */
+/** Removes the retired roles and discovers reasoning controls added since a model was saved. */
 export function editableManifest(
   manifest: Manifest,
   catalog: ReadonlyArray<CatalogModel> = [],
   pools: ReadonlyArray<PooledModel> = [],
 ): Manifest {
-  const { "ui-verifier": _retired, ...roles } = manifest.roles;
+  const { "ui-verifier": _retired, researcher: _researcher, ...roles } = manifest.roles;
   const discovered = new Map<string, CatalogModel>();
   const models = Object.fromEntries(
     Object.entries(manifest.models).map(([alias, binding]) => {
@@ -164,7 +164,6 @@ const ROLE_ORDER: ReadonlyArray<AgentRole> = [
   "reviewer",
   "advisor",
   "browser",
-  "researcher",
   "scout",
 ];
 
@@ -174,8 +173,7 @@ export const ROLE_DESCRIPTIONS: Record<AgentRole, string> = {
   advisor: "Second opinion",
   browser: "Drives web pages",
   "ui-verifier": "Checks the running app",
-  researcher: "Researches docs and the web",
-  scout: "Maps the codebase",
+  scout: "Maps the codebase and researches docs and the web",
   lead: "Owns one whole Spec and lands it",
 };
 
@@ -536,7 +534,7 @@ export function setModelNote(
 
 /**
  * Sets a model's default delegation stance on every alias binding it; `undefined` unsets it
- * so new threads fall back to Flexible unless overridden.
+ * so new threads fall back to Implement unless overridden.
  */
 export function setModelDefaultStance(
   manifest: Manifest,

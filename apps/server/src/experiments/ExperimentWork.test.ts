@@ -1261,7 +1261,7 @@ it.effect.each(["verified-completion", "cancellation"] as const)(
         ownerReader(owner),
       );
       // Consulting roles answer the lead, so inline work may still use them.
-      for (const role of ["advisor", "scout", "researcher"] as const)
+      for (const role of ["advisor", "scout"] as const)
         expect((yield* service.workDispatchPolicy({ workUnitId: unit.id, owner, role })).id).toBe(
           unit.id,
         );
@@ -1276,7 +1276,7 @@ it.effect.each(["verified-completion", "cancellation"] as const)(
         actualModelSelection: selection,
         fallbackReason: null,
       });
-      for (const role of ["advisor", "scout", "researcher"] as const)
+      for (const role of ["advisor", "scout"] as const)
         expect(
           (yield* service
             .workDispatchPolicy({ workUnitId: unit.id, owner, role })

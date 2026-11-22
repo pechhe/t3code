@@ -1000,7 +1000,7 @@ function ModelsSection({
     <SettingsSection id="delegation-models" title="Models">
       <p className="px-3 py-2.5 text-xs text-muted-foreground sm:px-4">
         One note and one default stance per model. Agents read the note when choosing a model. A new
-        thread starts on its model&apos;s default stance, or Flexible when it has none. When every
+        thread starts on its model&apos;s default stance, or Implement when it has none. When every
         model on a job&apos;s list is unavailable, an agent may fall back to another model, never to
         one marked Never off-list.
       </p>
@@ -1053,9 +1053,8 @@ function ModelsSection({
                   label={`Default stance for ${name}`}
                   value={defaultStance}
                   values={[
-                    { value: "unset", label: "No default (Flexible)" },
+                    { value: "unset", label: "No default (Implement)" },
                     { value: "orchestrate", label: "Orchestrate" },
-                    { value: "flexible", label: "Flexible" },
                     { value: "implement", label: "Implement" },
                   ]}
                   onChange={(value) =>

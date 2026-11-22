@@ -180,7 +180,7 @@ describe("V2 environment commands", () => {
       yield* setThreadStance({
         commandId: CommandId.make("set-stance"),
         threadId: v2ThreadId,
-        stance: "flexible",
+        stance: "implement",
       }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
 
       expect(commands).toEqual([
@@ -193,7 +193,7 @@ describe("V2 environment commands", () => {
           type: "thread.stance.set",
           commandId: "set-stance",
           threadId: v2ThreadId,
-          stance: "flexible",
+          stance: "implement",
         },
       ]);
       expect(launches).toEqual([
