@@ -429,14 +429,22 @@ export const dispatchAutonomousRun = Effect.fn("orchestrationV2.dispatch.arcRun"
     }
   }
 
-  // Starting a brand-new run clears any prior ended run's decisionLog; op end preserves it for readback.
-  const clearPreviousLog = command.op === "start" && currentAny === undefined;
+  // Starting a brand-new run drops entries from any prior ended run while preserving pre-run Away
+  // entries; op end marks the log as belonging to an ended run and preserves it for readback.
   const {
     arcRun: _prevArc,
     autonomousRun: _prevAuto,
     decisionLog: prevDecisionLog,
     ...rest
   } = thread;
+  let nextDecisionLog: ReadonlyArray<OrchestrationV2ThreadDecisionEntry> | undefined =
+    prevDecisionLog;
+  if (command.op === "end" && prevDecisionLog !== undefined) {
+    nextDecisionLog = prevDecisionLog.map((entry) => ({ ...entry, endedRun: true as const }));
+  } else if (command.op === "start" && currentAny === undefined && prevDecisionLog !== undefined) {
+    const preRunEntries = prevDecisionLog.filter((entry) => entry.endedRun !== true);
+    nextDecisionLog = preRunEntries.length > 0 ? preRunEntries : undefined;
+  }
   yield* deps.emitThreadMetadata(events, command, {
     threadId: thread.id,
     providerInstanceId: thread.providerInstanceId,
@@ -445,9 +453,7 @@ export const dispatchAutonomousRun = Effect.fn("orchestrationV2.dispatch.arcRun"
       ...rest,
       ...(nextArc === undefined ? {} : { arcRun: nextArc }),
       ...(nextAuto === undefined ? {} : { autonomousRun: nextAuto }),
-      ...(!clearPreviousLog && prevDecisionLog !== undefined
-        ? { decisionLog: prevDecisionLog }
-        : {}),
+      ...(nextDecisionLog === undefined ? {} : { decisionLog: nextDecisionLog }),
       updatedAt: now,
     },
   });

@@ -704,3 +704,197 @@ it.effect(
     }).pipe(Effect.provide(layerTest)),
 );
 
+it.effect(
+  "pre-run Away decisions are preserved on run start, returned on end, and cleared only on a subsequent run",
+  () =>
+    Effect.gen(function* () {
+      const metadata = yield* ThreadMetadataMcp.ThreadMetadataMcpService;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const threadId = yield* createThread("away-prerun-decisions", "Away pre-run decisions");
+      const scope = {
+        environmentId: "env:test" as never,
+        capabilities: new Set(["orchestration"]),
+        thread: { threadId },
+      } as never;
+
+      // 1. Log a decision under global Away before any run starts
+      yield* metadata.update(scope, {
+        action: "arc_run",
+        arcRun: {
+          op: "decision",
+          decision: {
+            decision: "Keep existing config format",
+            alternative: "Migrate to v2 schema",
+            why: "No callers need v2 fields yet",
+            howToReverse: "Add additive migration later",
+          },
+        },
+      });
+
+      // 2. Starting an autonomous run preserves the pre-run Away decision
+      yield* metadata.update(scope, {
+        action: "arc_run",
+        arcRun: { op: "start", label: "First run" },
+      });
+      const afterStart = yield* projections.getThread(threadId);
+      assert.strictEqual(afterStart.decisionLog?.length, 1);
+      assert.strictEqual(afterStart.decisionLog?.[0]?.decision, "Keep existing config format");
+
+      // 3. Log a second decision during the run and end it: both are returned
+      yield* metadata.update(scope, {
+        action: "arc_run",
+        arcRun: {
+          op: "decision",
+          decision: {
+            decision: "Use in-memory cache",
+            alternative: "SQLite table",
+            why: "Bounded to 100 entries",
+            howToReverse: "Swap backing store",
+          },
+        },
+      });
+      const ended = yield* metadata.update(scope, {
+        action: "arc_run",
+        arcRun: { op: "end" },
+      });
+      assert.strictEqual(ended.decisionLog?.length, 2);
+
+      // 4. Log a new pre-run Away decision after run 1 ended, then start run 2:
+      // run 1's entries are dropped while the new pre-run decision is preserved
+      yield* metadata.update(scope, {
+        action: "arc_run",
+        arcRun: {
+          op: "decision",
+          decision: {
+            decision: "Skip optional benchmark",
+            alternative: "Run full matrix",
+            why: "No perf-sensitive paths touched",
+            howToReverse: "Run benchmark command",
+          },
+        },
+      });
+      yield* metadata.update(scope, {
+        action: "arc_run",
+        arcRun: { op: "start", label: "Second run" },
+      });
+      const afterSecondStart = yield* projections.getThread(threadId);
+      assert.strictEqual(afterSecondStart.decisionLog?.length, 1);
+      assert.strictEqual(afterSecondStart.decisionLog?.[0]?.decision, "Skip optional benchmark");
+    }).pipe(
+      Effect.provide(
+        ThreadMetadataMcp.layer.pipe(
+          Layer.provideMerge(
+            ThreadManagementService.layer.pipe(
+              Layer.provide(CommandReceiptStore.layer.pipe(Layer.provide(layerDatabase))),
+            ),
+          ),
+          Layer.provideMerge(Layer.mock(ForgeWorkItems.ForgeWorkItems)({})),
+          Layer.provideMerge(layerBase),
+        ),
+      ),
+    ),
+);
+
+it.effect(
+  "delegated Spec lead under global Away gets lead-safe Away turn note and continuation without op decision or op start",
+  () =>
+    Effect.gen(function* () {
+      const leadNote = describeUnattendedTurnNote({
+        thread: {
+          lineage: { parentThreadId: ThreadId.make("thread:parent") },
+          agentTask: { role: "lead" } as never,
+        },
+        away: true,
+      });
+      assert.include(leadNote, "Global Away is on");
+      assert.include(leadNote, "close-out report");
+      assert.notInclude(leadNote, "op decision");
+      assert.notInclude(leadNote, "op start");
+
+      const topLevelNote = describeUnattendedTurnNote({
+        thread: {
+          lineage: { parentThreadId: null },
+        },
+        away: true,
+      });
+      assert.include(topLevelNote, "op decision");
+      assert.include(topLevelNote, "op start");
+
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const sink = yield* EventSink.EventSinkV2;
+      const unattended = yield* UnattendedReactor.UnattendedReactor;
+
+      const parentId = yield* createThread("away-lead-parent", "Parent");
+      yield* orchestrator.dispatch({
+        type: "message.dispatch",
+        commandId: CommandId.make("cmd:msg:alp1"),
+        threadId: parentId,
+        messageId: MessageId.make("msg:alp1"),
+        text: "Launch lead",
+        attachments: [],
+        dispatchMode: { type: "start_immediately" },
+        createdBy: "user",
+        creationSource: "web",
+      });
+      const parentRun = (yield* projections.getThreadRecords(parentId, ["runs"])).runs[0]!;
+      yield* orchestrator.dispatch({
+        type: "delegated_task.request",
+        commandId: CommandId.make("delegate:away-lead-child"),
+        parentThreadId: parentId,
+        parentRunId: parentRun.id,
+        parentNodeId: parentRun.rootNodeId!,
+        task: "Lead Spec",
+        completionWake: "always",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        agentTask: {
+          role: "lead",
+          taskClass: "non-ui",
+          workId: "work:away-lead",
+          attemptId: "attempt-1",
+          workspacePath: "/tmp/away-lead",
+          executionRequirement: "trusted-host-allowed",
+          readOnly: false,
+          executionBoundary: "trusted-host-access",
+          requestFingerprint: "a".repeat(64),
+          policyHash: "b".repeat(64),
+          policyRevision: "1",
+          briefHash: "c".repeat(64),
+          sourceAccess: "scoped-write",
+          toolProfile: "implementation",
+          requested: { instanceId, model: "gpt-5.1-codex", options: [] },
+          assigned: null,
+          effective: { instanceId, model: "gpt-5.1-codex", options: [] },
+        },
+        createdBy: "agent",
+        creationSource: "mcp",
+      });
+      const { subagents } = yield* projections.getThreadRecords(parentId, ["subagents"]);
+      const leadId = subagents.find((c) => c.childThreadId !== null)!.childThreadId!;
+      const leadRun = (yield* projections.getThreadRecords(leadId, ["runs"])).runs[0]!;
+      const now = yield* DateTime.now;
+      const completedEvt = {
+        id: EventId.make("event:away-lead:done"),
+        type: "run.updated",
+        threadId: leadId,
+        runId: leadRun.id,
+        occurredAt: now,
+        payload: { ...leadRun, status: "completed", completedAt: now },
+      } satisfies Extract<OrchestrationV2DomainEvent, { type: "run.updated" }>;
+      yield* sink.write({ events: [completedEvt] });
+      yield* unattended.setAway(true);
+      yield* unattended.handle(completedEvt);
+
+      const leadMsgs = (yield* projections.getThreadRecords(leadId, ["messages"])).messages;
+      const cont = leadMsgs.find((m) =>
+        m.id.startsWith(UNATTENDED_CONTINUATION_MESSAGE_PREFIX),
+      );
+      assert.isDefined(cont);
+      assert.include(cont!.text, "close-out report");
+      assert.notInclude(cont!.text, "op decision");
+      assert.notInclude(cont!.text, "op start");
+    }).pipe(Effect.provide(layerTest)),
+);
+

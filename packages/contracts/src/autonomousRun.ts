@@ -88,6 +88,8 @@ export const OrchestrationV2ThreadDecisionEntry = Schema.Struct({
   howToReverse: TrimmedNonEmptyString,
   source: Schema.optional(TrimmedNonEmptyString),
   recordedAt: IsoDateTime,
+  /** Marked on `op: "end"` so starting a subsequent run drops the ended run's entries while preserving pre-run Away entries. */
+  endedRun: Schema.optional(Schema.Literal(true)),
 });
 export type OrchestrationV2ThreadDecisionEntry = typeof OrchestrationV2ThreadDecisionEntry.Type;
 

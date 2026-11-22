@@ -33,6 +33,8 @@ import {
   arcLeadThreadId,
   AWAY_ANSWER,
   AWAY_CONTINUE_PROMPT,
+  AWAY_LEAD_ANSWER,
+  AWAY_LEAD_CONTINUE_PROMPT,
   hasDoneStatusMarker,
   isCoveredByAway,
   needsOwnerAnswer,
@@ -111,7 +113,12 @@ const make = Effect.gen(function* () {
       return;
     }
     if (run === undefined && !(yield* covered(records.thread))) return;
-    const answer = run === undefined ? AWAY_ANSWER : ARC_RUN_ANSWER;
+    const answer =
+      run !== undefined
+        ? ARC_RUN_ANSWER
+        : records.thread.agentTask !== undefined
+          ? AWAY_LEAD_ANSWER
+          : AWAY_ANSWER;
     const item = records.turnItems.find(
       (candidate) => candidate.type === "user_input_request" && candidate.requestId === requestId,
     );
@@ -230,10 +237,10 @@ const make = Effect.gen(function* () {
         requestId: request.id,
       });
     }
-    const text =
-      answerableQuestions.length > 0
-        ? `${AWAY_ANSWER}\n\n${AWAY_CONTINUE_PROMPT}`
-        : AWAY_CONTINUE_PROMPT;
+    const awayAnswer = thread.agentTask !== undefined ? AWAY_LEAD_ANSWER : AWAY_ANSWER;
+    const awayContinue =
+      thread.agentTask !== undefined ? AWAY_LEAD_CONTINUE_PROMPT : AWAY_CONTINUE_PROMPT;
+    const text = answerableQuestions.length > 0 ? `${awayAnswer}\n\n${awayContinue}` : awayContinue;
     yield* engine.dispatch({
       type: "message.dispatch",
       commandId: CommandId.make(`server:unattended-continuation:${sourceRunId}`),
