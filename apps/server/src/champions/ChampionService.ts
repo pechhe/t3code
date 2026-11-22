@@ -285,6 +285,7 @@ const outside = (metric: ChampionMetricInput, value: number) =>
   (metric.maximum !== null && value > metric.maximum);
 const settled = (finding: ChampionFinding) =>
   finding.status === "verified" || finding.status === "dismissed";
+const MAX_OPEN_FINDINGS = 10;
 const sameDefinition = (a: ChampionMetricInput, b: ChampionMetricInput) =>
   JSON.stringify(metricInputOf(a)) === JSON.stringify(metricInputOf(b));
 const sameSeries = (a: ChampionMetricInput, b: ChampionMetricInput) =>
@@ -609,7 +610,21 @@ const make = Effect.gen(function* () {
       });
     return yield* decodeDocument(rows[0].document_json).pipe(Effect.mapError(failure));
   });
-  const write = Effect.fn("ChampionService.write")(function* (doc: Document) {
+  const write = Effect.fn("ChampionService.write")(function* (input: Document) {
+    const at = yield* now;
+    const retired = input.champion.lifecycle === "retired";
+    const live = new Set(input.metrics.map((m) => m.seriesId));
+    // Retired Champions and metrics that no longer exist (retired, or a new series) leave no open findings behind.
+    const doc: Document = {
+      ...input,
+      findings: input.findings.map((f) =>
+        f.status !== "verified" &&
+        f.status !== "dismissed" &&
+        (retired || (f.seriesId != null && !live.has(f.seriesId)))
+          ? { ...f, status: "dismissed" as const, updatedAt: at }
+          : f,
+      ),
+    };
     const latestSamples = presentLatest(doc, yield* now);
     const champion = {
       ...doc.champion,
@@ -1109,6 +1124,9 @@ const make = Effect.gen(function* () {
       check.metrics.some((m) => m.collect !== undefined)
         ? "The server reads some of this champion's metrics by command and has already recorded them for this check: t3_champions_check_context returns those readings as collected and leaves their metrics out of metrics. Never measure or report a collected metric, including one whose collection failed; say in your summary what a failed collection needs."
         : null,
+      "Work for genuine improvement, not metric gaming or rule compliance; you may challenge existing designs. Never fabricate baselines, report stale readings as healthy, or disguise a source change as improvement.",
+      `Findings are a work queue (at most ${MAX_OPEN_FINDINGS} open), not a progress journal. Never open a qualitative finding for a progress update, partial improvement or missing collector; put progress commentary in the check summary.`,
+      "Keep this champion's learnings short and operational (at most about 15 active notes on measurement quirks, false positives or check mechanics). Durable product or engineering knowledge belongs in the repository's docs, Decisions, AGENTS.md or tests, not in learnings.",
       "Follow each frozen metric method. Copy metricId, version, unit and source verbatim from t3_champions_check_context; never paraphrase source. Put actual execution commands, paths and collection details in evidence. If collection fails, report value null with status error and explain why; never invent a numeric value.",
       "Read and measure at the project root; every writer must use an isolated workspace. Never edit the shared root. Keep this owner thread and its namespace across checks. Do not archive or replace it while children are live.",
       "For metric breaches the server creates deterministic findings. Reconcile qualitative observations with known open findings: supply existingFindingId instead of paraphrasing a duplicate. Read history on demand, never fabricate a measurement.",
@@ -2022,9 +2040,17 @@ const make = Effect.gen(function* () {
     at: string,
   ) {
     if (sample.value === null || !targeted(metric) || !outside(metric, sample.value)) return true;
+    for (const [i, f] of findings.entries())
+      if (
+        !settled(f) &&
+        f.metricId === metric.id &&
+        f.seriesId != null &&
+        f.seriesId !== metric.seriesId
+      )
+        findings[i] = { ...f, status: "dismissed", updatedAt: at };
     const existing = findings.find((f) => f.id === `${check.championId}:metric:${metric.seriesId}`);
     if (existing === undefined) {
-      if (findings.filter((f) => !settled(f)).length >= 50) return false;
+      if (findings.filter((f) => !settled(f)).length >= MAX_OPEN_FINDINGS) return false;
       findings.push(
         yield* makeFinding(
           check.championId,
@@ -2331,7 +2357,7 @@ const make = Effect.gen(function* () {
                 } else {
                   if (
                     findings.filter((f) => !["verified", "dismissed"].includes(f.status)).length >=
-                    50
+                    MAX_OPEN_FINDINGS
                   ) {
                     findingsLimited = true;
                     continue;

@@ -1985,6 +1985,69 @@ it.effect(
     ),
 );
 
+it.effect(
+  "dismisses a metric's open finding when its series rotates or the metric is retired",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        const reading = NodePath.join(f.realProjectRoot(), "reading");
+        NodeFS.writeFileSync(reading, "5");
+        yield* accepted(service, [collectedMetric(printsFile(reading))]);
+        yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
+        const open = (yield* service.runCheck({ id: config.id })).findings[0]!;
+        assert.equal(open.status, "open");
+        const rotated = yield* service.changeMetrics({
+          id: config.id,
+          metrics: [{ ...collectedMetric(printsFile(reading)), source: "other logs" }],
+          reason: "New source",
+        });
+        assert.notEqual(rotated.metrics[0]!.seriesId, open.seriesId);
+        assert.equal(rotated.findings.find((x) => x.id === open.id)!.status, "dismissed");
+        assert.equal(rotated.champion.openFindingCount, 0);
+        const retired = yield* service.changeMetrics({
+          id: config.id,
+          metrics: [{ ...metric, id: "other", name: "Other" }],
+          retires: ["errors"],
+          reason: "Gone",
+        });
+        assert.equal(retired.champion.openFindingCount, 0);
+      }),
+    ),
+);
+
+it.effect("dismisses a retired Champion's open findings and caps open findings at 10", () =>
+  withFixture((f, service) =>
+    Effect.gen(function* () {
+      const reading = NodePath.join(f.realProjectRoot(), "reading");
+      NodeFS.writeFileSync(reading, "5");
+      const ids = Array.from({ length: 12 }, (_, i) => `m${i}`);
+      yield* accepted(
+        service,
+        ids.map((id) => collectedMetric(printsFile(reading), id)),
+      );
+      yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
+      const checked = yield* service.runCheck({ id: config.id });
+      assert.equal(checked.champion.openFindingCount, 10);
+      const retired = yield* service.setLifecycle({ id: config.id, lifecycle: "retired" });
+      assert.equal(retired.champion.openFindingCount, 0);
+      assert.isTrue(retired.findings.every((x) => x.status === "dismissed"));
+    }),
+  ),
+);
+
+it.effect("tells the routine agent the universal operating rules", () =>
+  withFixture((f, service) =>
+    Effect.gen(function* () {
+      yield* definitions(service);
+      yield* service.runCheck({ id: config.id });
+      const prompt = f.launchRequests[0]!.text;
+      assert.include(prompt, "not a progress journal");
+      assert.include(prompt, "short and operational");
+      assert.include(prompt, "not metric gaming");
+    }),
+  ),
+);
+
 // Skipped runs: a check whose models cannot run is said plainly, never passed, and the next one starts on time.
 const UNTIL = "1970-01-01T00:30:00.000Z";
 const modelProvider = (id: string, model: string, window?: { resetsAt?: string }) =>
@@ -3395,7 +3458,7 @@ it.effect(
         );
         const first = yield* service.report(f.caller(), {
           samples: [{ ...sample, value: 0 }],
-          findings: Array.from({ length: 20 }, (_, i) => ({
+          findings: Array.from({ length: 10 }, (_, i) => ({
             title: `Problem-${i}`,
             evidence: "Observed once",
           })),
@@ -3408,13 +3471,13 @@ it.effect(
             action: "dismiss",
             reason: "Resolved by owner",
           });
-        for (let batch = 1; batch < 6; batch += 1) {
+        for (let batch = 1; batch < 12; batch += 1) {
           yield* TestClock.adjust("1 second");
           yield* service.runCheck({ id: config.id });
           const report = yield* service.report(f.caller(), {
             samples: [{ ...sample, value: 0 }],
-            findings: Array.from({ length: 20 }, (_, i) => ({
-              title: `Problem-${batch * 20 + i}`,
+            findings: Array.from({ length: 10 }, (_, i) => ({
+              title: `Problem-${batch * 10 + i}`,
               evidence: "Observed once",
             })),
             summary: `Batch ${batch}`,
@@ -3433,7 +3496,7 @@ it.effect(
           before: "1970-01-01T00:00:00.001Z",
           limit: 100,
         });
-        assert.equal(old.findings?.length, 20);
+        assert.equal(old.findings?.length, 10);
         assert.isTrue(old.samples.every((x) => x.evidence.length <= 8000));
       }),
     ),
