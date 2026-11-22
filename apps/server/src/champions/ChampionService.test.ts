@@ -637,7 +637,7 @@ const fixture = Effect.fn("test.championFixture")(() =>
       }),
       reportThroughTool: Effect.fn("test.championReportTool")(function* (
         service: Champions.ChampionService["Service"],
-        input: Parameters<Champions.ChampionService["Service"]["report"]>[1],
+        input: Parameters<Champions.ChampionService["Service"]["submitReport"]>[1],
       ) {
         const scope = yield* registry.resolve(
           credential!.config.authorizationHeader.slice("Bearer ".length),
@@ -1562,6 +1562,46 @@ it.effect(
         );
       }),
     ),
+);
+
+it.effect(
+  "reports a check with nothing for the agent to measure from a summary alone or with findings",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        f.realProjectRoot();
+        yield* accepted(service, [
+          { ...metric, required: false },
+          collectedMetric(node("console.log(7)"), "disk"),
+        ]);
+        yield* service.runCheck({ id: config.id });
+        const first = yield* f.reportThroughTool(service, { summary: "Server metrics only" });
+        assert.isFalse(first.at(-1)!.isFailure);
+        assert.isNull((yield* service.get({ id: config.id })).champion.outstandingCheckId);
+        yield* service.runCheck({ id: config.id });
+        const second = yield* f.reportThroughTool(service, {
+          findings: [{ title: "Slow page", evidence: "Seen in the browser" }],
+          summary: "One finding",
+        });
+        assert.isFalse(second.at(-1)!.isFailure);
+        assert.include(
+          (yield* service.get({ id: config.id })).findings.map((finding) => finding.title),
+          "Slow page",
+        );
+      }),
+    ),
+);
+
+it.effect("refuses a check report with no samples while a required metric is unmeasured", () =>
+  withFixture((f, service) =>
+    Effect.gen(function* () {
+      yield* definitions(service);
+      yield* service.runCheck({ id: config.id });
+      const result = yield* f.reportThroughTool(service, { summary: "Nothing measured" });
+      assert.isTrue(result.at(-1)!.isFailure);
+      assert.equal((yield* service.history({ id: config.id })).samples.length, 0);
+    }),
+  ),
 );
 
 it.effect("installs a new version when a proposal changes only a metric's command", () =>

@@ -226,33 +226,17 @@ export const handlers = {
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;
       const service = yield* Champions.ChampionService;
-      if (
-        input.samples !== undefined ||
-        input.findings !== undefined ||
-        input.journeys !== undefined
-      ) {
-        if (
-          input.samples === undefined ||
-          input.findings === undefined ||
-          input.summary === undefined
-        )
-          return yield* missing(
-            "t3_champions_report",
-            "samples, findings and summary to complete a check",
-          );
-        return yield* service.report(scope.thread, {
-          samples: input.samples,
-          findings: input.findings,
-          summary: input.summary,
-          ...(input.journeys === undefined ? {} : { journeys: input.journeys }),
-        });
-      }
       if (input.summary === undefined)
         return yield* missing(
           "t3_champions_report",
-          "samples, findings and summary to complete a check, or a summary alone to complete a setup",
+          "a summary, with samples and findings when the check has metrics for you to measure or findings to raise",
         );
-      return yield* service.completeSetup(scope.thread, { summary: input.summary });
+      return yield* service.submitReport(scope.thread, {
+        summary: input.summary,
+        ...(input.samples === undefined ? {} : { samples: input.samples }),
+        ...(input.findings === undefined ? {} : { findings: input.findings }),
+        ...(input.journeys === undefined ? {} : { journeys: input.journeys }),
+      });
     }).pipe(Effect.mapError(failure)),
   ),
   t3_champions_learning_search: McpToolAccess.reads(

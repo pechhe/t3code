@@ -411,6 +411,16 @@ export class ChampionService extends Context.Service<
       caller: Caller,
       input: ChampionReportInput,
     ) => Effect.Effect<ChampionDetail, ChampionError>;
+    /** The report tool's entry: a setup run's summary completes it; a check's samples and findings default to none. */
+    readonly submitReport: (
+      caller: Caller,
+      input: {
+        readonly summary: string;
+        readonly samples?: ChampionReportInput["samples"];
+        readonly findings?: ChampionReportInput["findings"];
+        readonly journeys?: ChampionReportInput["journeys"];
+      },
+    ) => Effect.Effect<ChampionDetail, ChampionError>;
     readonly journeysStart: (caller: Caller) => Effect.Effect<ChampionJourneyPlan, ChampionError>;
     readonly journeyCandidate: (
       caller: Caller,
@@ -1932,6 +1942,24 @@ const make = Effect.gen(function* () {
         });
       }),
     );
+  });
+  const submitReport: ChampionService["Service"]["submitReport"] = Effect.fn(
+    "ChampionService.submitReport",
+  )(function* (caller, input) {
+    const { check } = yield* authenticate(caller);
+    if (
+      check.kind === "setup" &&
+      input.samples === undefined &&
+      input.findings === undefined &&
+      input.journeys === undefined
+    )
+      return yield* completeSetup(caller, { summary: input.summary });
+    return yield* report(caller, {
+      samples: input.samples ?? [],
+      findings: input.findings ?? [],
+      summary: input.summary,
+      ...(input.journeys === undefined ? {} : { journeys: input.journeys }),
+    });
   });
   const cancelSetup: ChampionService["Service"]["cancelSetup"] = Effect.fn(
     "ChampionService.cancelSetup",
@@ -5789,6 +5817,7 @@ const make = Effect.gen(function* () {
     checkContext,
     changeMetricsFromCheck,
     report,
+    submitReport,
     journeysStart,
     journeyCandidate,
     candidateReplay,
