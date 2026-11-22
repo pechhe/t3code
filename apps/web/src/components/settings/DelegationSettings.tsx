@@ -34,6 +34,7 @@ import {
 } from "../ui/number-field";
 import { PreviewCard, PreviewCardPopup, PreviewCardTrigger } from "../ui/preview-card";
 import { Switch } from "../ui/switch";
+import { toastManager } from "../ui/toast";
 import { Textarea } from "../ui/textarea";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
@@ -217,8 +218,12 @@ function ScopedDelegation({
           // Keyed by environment, not revision, so a save keeps open jobs, focus and scroll.
           key={shown.environmentId}
           environmentId={shown.environmentId}
-          // A save to "all" must reach all: an unreadable environment would silently keep its old policy.
-          unsavedEnvironments={environments.length - editable.length}
+          skippedLabels={environments
+            .filter(
+              ({ environmentId }) =>
+                !editable.some((policy) => policy.environmentId === environmentId),
+            )
+            .map(({ label }) => label)}
           targets={editable.map((policy) => ({
             environmentId: policy.environmentId,
             label: policy.label,
@@ -244,7 +249,7 @@ function ScopedDelegation({
 function PolicyEditor({
   environmentId,
   targets,
-  unsavedEnvironments,
+  skippedLabels,
   data,
   onReload,
   onSaved,
@@ -253,7 +258,7 @@ function PolicyEditor({
 }: {
   environmentId: EnvironmentId;
   targets: ReadonlyArray<{ environmentId: EnvironmentId; label: string; hash: string }>;
-  unsavedEnvironments: number;
+  skippedLabels: ReadonlyArray<string>;
   data: AgentPolicySettings;
   onReload: () => void;
   onSaved: () => void;
@@ -309,7 +314,6 @@ function PolicyEditor({
   // Set when a save reached the file but not the shared checkout's remote.
   const [publishNotice, setPublishNotice] = useState<string | null>(null);
   const jobs = jobsFor(draft, roleGroups(draft));
-  const blocked = !isValid(draft) || unsavedEnvironments > 0;
   const saveTo = async (
     target: PolicySaveTarget,
     expectedHash: string,
@@ -373,6 +377,11 @@ function PolicyEditor({
     setPending(false);
     if (failures.length > 0) {
       setRefused(true);
+      toastManager.add({
+        type: "error",
+        title: "Delegation change not saved",
+        description: failures.join("; "),
+      });
       onError(failures.join("; "));
       return;
     }
@@ -385,7 +394,23 @@ function PolicyEditor({
     setDraft(next);
     setHasEdits(true);
     queue.current.latest = next;
-    if (refused || !isValid(next) || unsavedEnvironments > 0) return;
+    if (refused) {
+      toastManager.add({
+        type: "warning",
+        title: "Delegation change not saved",
+        description: "Discard the failed edit at the top of this page before making more changes.",
+      });
+      return;
+    }
+    if (!isValid(next)) {
+      toastManager.add({
+        type: "info",
+        title: "Waiting for a model",
+        description:
+          "Every list needs at least one model. Changes will save once each list has one.",
+      });
+      return;
+    }
     if (!queue.current.running) queue.current.hashes = new Map(draftHashes);
     queue.current.next = next;
     void flush();
@@ -393,6 +418,36 @@ function PolicyEditor({
   const unenforced = readOnlyUnenforcedProviders(data.providers);
   return (
     <>
+      {skippedLabels.length > 0 ? (
+        <Alert variant="info">
+          <AlertDescription>
+            {`Changes save to ${targets.map((target) => target.label).join(", ")} only. ${skippedLabels.join(", ")} will pick them up once reconnected or updated.`}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      {!isValid(draft) &&
+      JSON.stringify(draft) !== JSON.stringify(editableManifest(saved, catalog, pools)) ? (
+        <Alert variant="info">
+          <AlertDescription>
+            Every list needs at least one model. Changes save once each has one.
+          </AlertDescription>
+          <AlertAction>
+            <Button
+              size="xs"
+              variant="ghost-muted"
+              onClick={() => {
+                setHasEdits(false);
+                setDraft(editableManifest(saved, catalog, pools));
+                setDraftHashes(
+                  new Map(targets.map((target) => [target.environmentId, target.hash])),
+                );
+              }}
+            >
+              Discard
+            </Button>
+          </AlertAction>
+        </Alert>
+      ) : null}
       {unenforced.length > 0 ? (
         <p className="px-3 text-xs text-muted-foreground sm:px-4">
           {unenforced.join(", ")} cannot keep a reader read-only, so their models serve only writer
@@ -461,31 +516,6 @@ function PolicyEditor({
           />
         ))}
       </SettingsSection>
-      {blocked &&
-      JSON.stringify(draft) !== JSON.stringify(editableManifest(saved, catalog, pools)) ? (
-        <Alert variant="info">
-          <AlertDescription>
-            {!isValid(draft)
-              ? "Every list needs at least one model. Changes save once each has one."
-              : "Every selected environment needs a readable policy before changes save. Choose one environment to save to it alone."}
-          </AlertDescription>
-          <AlertAction>
-            <Button
-              size="xs"
-              variant="ghost-muted"
-              onClick={() => {
-                setHasEdits(false);
-                setDraft(editableManifest(saved, catalog, pools));
-                setDraftHashes(
-                  new Map(targets.map((target) => [target.environmentId, target.hash])),
-                );
-              }}
-            >
-              Discard
-            </Button>
-          </AlertAction>
-        </Alert>
-      ) : null}
       <p className="px-4 text-xs text-muted-foreground">
         {data.sourceRoot}/roles/policy.json · policy {data.snapshot.sourceRevision}
         {data.checkout === undefined ? null : ` · ${describeCheckout(data.checkout)}`}

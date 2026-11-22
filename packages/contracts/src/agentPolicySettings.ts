@@ -83,6 +83,8 @@ export class AgentPolicySettingsError extends Schema.TaggedError<AgentPolicySett
       ? "The policy changed on disk. Reload the current values before saving."
       : this.reason === "busy"
         ? "Another policy save is in progress. Try again."
-        : `Delegation settings unavailable (${this.reason}).`;
+        : this.reason === "invalid"
+          ? "The policy file does not match this server's schema. Update the server or check roles/policy.json."
+          : `Delegation settings unavailable (${this.reason}).`;
   }
 }

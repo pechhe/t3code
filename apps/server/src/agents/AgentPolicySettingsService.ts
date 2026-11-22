@@ -40,9 +40,15 @@ export const make = Effect.gen(function* () {
     ),
   );
   const load = Effect.fn(function* () {
-    return yield* policy
-      .snapshot(yield* root)
-      .pipe(Effect.mapError((cause) => new AgentPolicySettingsError({ reason: "read", cause })));
+    return yield* policy.snapshot(yield* root).pipe(
+      Effect.mapError(
+        (cause) =>
+          new AgentPolicySettingsError({
+            reason: cause.reason === "invalid" ? "invalid" : "read",
+            cause,
+          }),
+      ),
+    );
   });
   const read = Effect.fn("AgentPolicySettingsService.read")(function* () {
     const sourceRoot = yield* root;

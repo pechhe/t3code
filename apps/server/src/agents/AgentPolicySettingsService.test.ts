@@ -80,6 +80,26 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("policy settings"
       expect(yield* fs.readFileString(`${f.root}/roles/policy.json`)).toBe(before);
     }),
   );
+  it.effect("reports a schema-invalid policy file apart from an unreadable one", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      const fs = yield* FileSystem.FileSystem;
+      const readError = f.run(
+        Effect.gen(function* () {
+          return yield* (yield* Settings.AgentPolicySettingsService).read();
+        }).pipe(Effect.flip),
+      );
+      yield* fs.writeFileString(`${f.root}/roles/policy.json`, JSON.stringify({ nope: true }));
+      const invalid = yield* readError;
+      expect(invalid.reason).toBe("invalid");
+      expect(invalid.message).toBe(
+        "The policy file does not match this server's schema. Update the server or check roles/policy.json.",
+      );
+      yield* fs.remove(`${f.root}/roles/policy.json`);
+      expect((yield* readError).reason).toBe("read");
+    }),
+  );
+
   it.effect("saves supported choices and reads them back", () =>
     Effect.gen(function* () {
       const f = yield* fixture;
