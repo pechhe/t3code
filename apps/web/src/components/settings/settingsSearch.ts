@@ -1097,6 +1097,15 @@ export const SETTINGS_SEARCH_ITEMS = [
     providerSettingsOnly: true,
   },
   {
+    id: "pi-credentials",
+    title: msg("Pi credentials"),
+    to: "/settings/accounts",
+    searchTerms: [
+      "pi credentials auth.json api key oauth sign in re-auth add account remove claude subscription anthropic codex openai antigravity command code opencode go monthly budget quota provider id",
+    ],
+    providerSettingsOnly: true,
+  },
+  {
     id: "usage-providers",
     title: msg("Usage providers"),
     to: "/settings/providers",

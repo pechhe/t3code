@@ -28,6 +28,8 @@ import {
   retainPriorUsageSlots,
 } from "./usageSlots.ts";
 import { reconcilePiScopedModels } from "./enabledModels.ts";
+import { refreshPiAccountsExtension } from "./accounts.ts";
+import { piAgentDirectory } from "./compaction.ts";
 import { makePiTextGeneration } from "./textGeneration.ts";
 import { PiAdapterV2Driver, type PiAdapterV2DriverEnv } from "./adapter.ts";
 import { ProviderDriverError } from "@t3tools/provider-core/server/errors";
@@ -123,6 +125,14 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
     // Pi runs extensions' session_start in its cwd; the server's cwd is $HOME on packaged desktop.
     const probeCwd = pathService.join(host.paths.providerStatusCacheDir, "pi-status-probe");
     const processEnv = yield* mergeProviderInstanceEnvironment(environment);
+    // Before discovery, so a T3 upgrade's account extension is what Pi loads (pi-accounts).
+    const accountsAgentDir = piAgentDirectory(processEnv);
+    if (accountsAgentDir !== null) {
+      yield* refreshPiAccountsExtension(accountsAgentDir).pipe(
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.ignoreCause({ log: true }),
+      );
+    }
     const continuationIdentity = defaultProviderContinuationIdentity({
       driverKind: DRIVER_KIND,
       instanceId,
@@ -357,6 +367,7 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
       orchestrationAdapter,
       textGeneration,
       refreshUsage,
+      piCredentials: { environment: processEnv, binaryPath: effectiveConfig.binaryPath },
     } satisfies ProviderInstance;
   }),
 };

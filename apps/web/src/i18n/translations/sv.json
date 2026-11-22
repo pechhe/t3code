@@ -12239,5 +12239,6 @@
   "a830583f7f6b1ae6": "Av: den förblir inloggad för sin användningsmätare, men inga trådar, delegerade uppgifter eller bakgrundsjobb körs på den.",
   "accbaf459a121a2c": "Trådar, delegerade uppgifter och bakgrundsjobb kan köras på den.",
   "c4fbf0779efe1d66": "Använd {provider} för modeller",
-  "412ff569c59642e6": "Endast användning"
+  "412ff569c59642e6": "Endast användning",
+  "723380af1e638be5": "Pi-inloggningsuppgifter"
 }

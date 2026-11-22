@@ -244,6 +244,8 @@ export const ServerProviderUsageSlot = Schema.Struct({
   metered: Schema.optionalKey(Schema.Boolean),
   /** What T3 recorded spending through it this cycle: its budget's, else the calendar month. */
   spentUsd: Schema.optionalKey(Schema.Number.check(Schema.isGreaterThanOrEqualTo(0))),
+  /** Pi: who sells the credential (a `PiAccountFamily`), so windows are read per family. */
+  providerFamily: Schema.optionalKey(TrimmedNonEmptyString),
 });
 export type ServerProviderUsageSlot = typeof ServerProviderUsageSlot.Type;
 

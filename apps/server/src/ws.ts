@@ -1,6 +1,7 @@
 import { SettingsWriteAuthority } from "./orchestration-v2/DispatchModeLimit.ts";
 import * as SavedSecrets from "./secrets/SavedSecrets.ts";
 import { layerWsChampionsRpc, listableThreads } from "./champions/ChampionsWsRpc.ts";
+import { layerWsPiAccountsRpc } from "./provider/PiAccountsWsRpc.ts";
 import * as HostPowerMonitor from "./background/HostPowerMonitor.ts";
 import * as ExperimentService from "./experiments/ExperimentService.ts";
 import { rpcSerializationForClient } from "./clientRoleSerialization.ts";
@@ -4078,6 +4079,7 @@ export const layer = Layer.unwrap(
               ),
               layerWsAwayRpc,
               layerWsChampionsRpc,
+              layerWsPiAccountsRpc,
               layerWsThreadControlRpc,
             ).pipe(
               Layer.provideMerge(

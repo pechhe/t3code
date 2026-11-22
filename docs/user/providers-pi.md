@@ -83,6 +83,20 @@ installs Pi's example `subagent` extension, T3 Code also shows its task progress
 UI. Pi runs those children without a session, so they cannot be opened or resumed as T3 Code
 threads.
 
+## Manage Pi accounts in Settings
+
+**Settings → Accounts → Credentials** lists every credential Pi holds on the environment, grouped
+by who sells it, each under its own Pi provider ID with its sign-in status and, where the provider
+reports one, its remaining quota. **Add account** saves an API key or opens the provider's sign-in;
+when T3 Code runs on another machine, paste the address your browser lands on after signing in into
+the form. Keys are write-only: T3 Code never shows one again. Removing an account deletes its
+credential from Pi, so new threads and terminal `pi` stop using it; threads already running finish
+first. API-credit accounts take a monthly budget, so their remaining credit shows beside them.
+
+Some Pi packages switch between several logins behind one provider when one runs out. Settings shows
+**Separate logins** for them: each login gets its own provider ID, so T3 Code can choose between
+them, and models and favourites that named the shared provider move to the first login.
+
 ## Several accounts for one model
 
 Each Pi sub-provider is its own account, so the same model on two Claude subscriptions, OpenRouter

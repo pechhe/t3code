@@ -623,6 +623,10 @@
       "types": "./src/accountPools.ts",
       "import": "./src/accountPools.ts"
     },
+    "./piAccounts": {
+      "types": "./src/piAccounts.ts",
+      "import": "./src/piAccounts.ts"
+    },
     "./browserBackend": {
       "types": "./src/browserBackend.ts",
       "import": "./src/browserBackend.ts"

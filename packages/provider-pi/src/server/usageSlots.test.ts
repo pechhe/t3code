@@ -154,6 +154,122 @@ describe("readPiUsageSlots", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
+  it.effect("reads each account T3 manages by its family, never by its bare provider ID", () =>
+    Effect.gen(function* () {
+      yield* TestClock.adjust(1_000);
+      const fs = yield* FileSystem.FileSystem;
+      const home = yield* writeAuth({
+        "antigravity-petch": {
+          type: "oauth",
+          access: "stale",
+          refresh: "ag-refresh-2",
+          expires: 500,
+          projectId: "project-2",
+          email: "petch@example.com",
+        },
+        "opencode-go-2": { type: "api_key", key: "oc-key-2" },
+        "commandcode-2": { type: "oauth", access: "cc-key-2", refresh: "", expires: FUTURE_MS },
+      });
+      yield* fs.writeFileString(
+        `${home}/.pi/agent/t3-accounts.json`,
+        JSON.stringify({
+          version: 1,
+          accounts: [
+            { providerId: "antigravity-petch", providerFamily: "antigravity", label: "Petch" },
+            { providerId: "opencode-go-2", providerFamily: "opencode-go", label: "Go 2" },
+            { providerId: "commandcode-2", providerFamily: "commandcode", label: "CC 2" },
+          ],
+        }),
+      );
+      yield* fs.writeFileString(
+        `${home}/.pi/agent/models.json`,
+        JSON.stringify({
+          providers: {
+            "anthropic-work": { api: "anthropic-messages", apiKey: "!cat key", models: [] },
+          },
+        }),
+      );
+      const authorizations = new Map<string, string | undefined>();
+      const slots = yield* readPiUsageSlots({
+        environment: {
+          HOME: home,
+          ANTIGRAVITY_CLIENT_ID: "client",
+          ANTIGRAVITY_CLIENT_SECRET: "secret",
+        },
+      }).pipe(
+        Effect.provideService(
+          HttpClient.HttpClient,
+          HttpClient.make((request) => {
+            const host = new URL(request.url).host;
+            authorizations.set(host, request.headers.authorization);
+            if (request.url.includes("oauth2.googleapis.com")) {
+              return Effect.succeed(
+                HttpClientResponse.fromWeb(
+                  request,
+                  Response.json({ access_token: "fresh", expires_in: 3600 }),
+                ),
+              );
+            }
+            if (request.url.includes("retrieveUserQuotaSummary")) {
+              return Effect.succeed(
+                HttpClientResponse.fromWeb(request, Response.json(antigravityAnswer)),
+              );
+            }
+            if (request.url.includes("opencode.ai")) {
+              const window = { percent: 10, resetsAt: "2026-11-16T00:00:00Z" };
+              return Effect.succeed(
+                HttpClientResponse.fromWeb(
+                  request,
+                  Response.json({ usage: { rolling: window, weekly: window, monthly: window } }),
+                ),
+              );
+            }
+            if (request.url.includes("commandcode.ai")) {
+              return Effect.succeed(
+                HttpClientResponse.fromWeb(
+                  request,
+                  Response.json({
+                    credits: { monthlyCredits: 5 },
+                    windowLimits: { fiveHour: { used: 3, cap: 4, resetAt: FUTURE_MS } },
+                  }),
+                ),
+              );
+            }
+            return Effect.die(`Unexpected request ${request.url}`);
+          }),
+        ),
+      );
+
+      const byKey = new Map(slots.map((slot) => [slot.accountKey, slot]));
+      expect([...byKey.keys()].toSorted()).toEqual([
+        "anthropic-work",
+        "antigravity-petch",
+        "commandcode-2",
+        "opencode-go-2",
+      ]);
+      expect(byKey.get("antigravity-petch")).toMatchObject({
+        providerFamily: "antigravity",
+        usageLimits: { windows: [{ id: "gemini-5h" }, { id: "gemini-weekly" }] },
+      });
+      expect(authorizations.get("daily-cloudcode-pa.googleapis.com")).toBe("Bearer fresh");
+      expect(byKey.get("opencode-go-2")).toMatchObject({
+        providerFamily: "opencode-go",
+        usageLimits: { windows: [{ id: "go_rolling", usedPercent: 10 }, {}, {}] },
+      });
+      expect(authorizations.get("opencode.ai")).toBe("Bearer oc-key-2");
+      expect(byKey.get("commandcode-2")).toMatchObject({
+        providerFamily: "commandcode",
+        usageLimits: { windows: [{ id: "cc-five-hour", kind: "session", usedPercent: 75 }] },
+      });
+      expect(authorizations.get("api.commandcode.ai")).toBe("Bearer cc-key-2");
+      expect(byKey.get("anthropic-work")).toMatchObject({
+        providerFamily: "anthropic-api",
+        metered: true,
+        usageLimits: { unavailable: { reason: "unsupported" } },
+      });
+    }).pipe(Effect.provide(layerTest)),
+  );
+
   it.effect("separates two accounts of the same sub-provider", () =>
     Effect.gen(function* () {
       const home = yield* writeAuth({

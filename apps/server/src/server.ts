@@ -11,6 +11,7 @@ import * as SlipJaySettings from "./project/SlipJaySettings.ts";
 import * as ExternalWork from "./agents/ExternalAgentWorkService.ts";
 import * as ManagedAgent from "./agents/ManagedAgentService.ts";
 import * as AgentPolicySettings from "./agents/AgentPolicySettingsService.ts";
+import * as PiAccounts from "./provider/PiAccountsService.ts";
 import * as ExperimentService from "./experiments/ExperimentService.ts";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import type { RelayManagedEndpointRuntimeConfig } from "@t3tools/contracts/relay";
@@ -903,7 +904,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
         Layer.provide(ProjectionStoreV2.layer),
       ),
     ),
-    Layer.provideMerge(AgentPolicySettings.layer),
+    Layer.provideMerge(Layer.mergeAll(AgentPolicySettings.layer, PiAccounts.layer)),
     Layer.provideMerge(ProviderRegistry.layer),
     Layer.provideMerge(
       ProviderInstanceRegistryHydration.layer.pipe(Layer.provide(SqlitePersistence.layerConfig)),

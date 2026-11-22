@@ -12231,5 +12231,6 @@
   "a830583f7f6b1ae6": "Desativado: continua conectado para o medidor de uso, mas nenhuma conversa, tarefa delegada ou tarefa em segundo plano é executada nele.",
   "accbaf459a121a2c": "Conversas, tarefas delegadas e tarefas em segundo plano podem ser executadas nele.",
   "c4fbf0779efe1d66": "Usar {provider} para modelos",
-  "412ff569c59642e6": "Somente uso"
+  "412ff569c59642e6": "Somente uso",
+  "723380af1e638be5": "Credenciais do Pi"
 }

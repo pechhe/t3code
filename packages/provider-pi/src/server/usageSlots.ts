@@ -18,6 +18,9 @@ import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
 
+import type { PiAccountFamily } from "@t3tools/contracts";
+import { listPiModelsJsonAccounts, piAccountFamily, readPiAccountsRegistry } from "./accounts.ts";
+
 /**
  * Reads allowance per `~/.pi/agent/auth.json` entry (and `~/.pi/agent/antigravity-accounts.json`
  * for linked Google accounts) rather than per Pi instance.
@@ -97,6 +100,7 @@ const ANTIGRAVITY_PROD = "https://cloudcode-pa.googleapis.com";
 const OPENCODE_GO_USAGE = "https://opencode.ai/zen/go/v1/usage";
 const ANTHROPIC_USAGE = "https://api.anthropic.com/api/oauth/usage";
 const OPENAI_CODEX_USAGE = "https://chatgpt.com/backend-api/wham/usage";
+const COMMANDCODE_CREDITS = "https://api.commandcode.ai/alpha/billing/credits";
 
 export interface AntigravityCachedToken {
   readonly access: string;
@@ -164,6 +168,22 @@ const CodexUsage = Schema.Struct({
   }),
 });
 
+const CommandCodeWindow = Schema.Struct({
+  used: Schema.Finite,
+  cap: Schema.Finite,
+  resetAt: Schema.Finite,
+});
+const CommandCodeCredits = Schema.Struct({
+  windowLimits: Schema.optional(
+    Schema.NullOr(
+      Schema.Struct({
+        fiveHour: Schema.optional(Schema.NullOr(CommandCodeWindow)),
+        weekly: Schema.optional(Schema.NullOr(CommandCodeWindow)),
+      }),
+    ),
+  ),
+});
+
 const decodeAntigravitySummary = Schema.decodeUnknownEffect(AntigravitySummary);
 const decodeOpenCodeUsage = Schema.decodeUnknownEffect(OpenCodeUsage);
 const decodeAnthropicUsage = Schema.decodeUnknownEffect(AnthropicUsage);
@@ -201,6 +221,28 @@ function codexWindows(usage: typeof CodexUsage.Type, nowMs: number): ServerProvi
         usedPercent: clampPercent(window.used_percent),
         ...(duration === undefined ? {} : { windowDurationMins: duration }),
         resetsAt: DateTime.formatIso(DateTime.makeUnsafe(resetSeconds * 1000)),
+      },
+    ];
+  });
+}
+
+function commandCodeWindows(usage: typeof CommandCodeCredits.Type): ServerProviderUsageWindow[] {
+  return (
+    [
+      ["fiveHour", "cc-five-hour", "session", "Session", 5 * 60],
+      ["weekly", "cc-weekly", "weekly", "Weekly", 7 * 24 * 60],
+    ] as const
+  ).flatMap(([key, id, kind, label, windowDurationMins]) => {
+    const window = usage.windowLimits?.[key];
+    if (!window || window.cap <= 0) return [];
+    return [
+      {
+        id,
+        kind,
+        label,
+        windowDurationMins,
+        usedPercent: clampPercent((window.used / window.cap) * 100),
+        resetsAt: DateTime.formatIso(DateTime.makeUnsafe(window.resetAt)),
       },
     ];
   });
@@ -352,30 +394,35 @@ function slotLabel(accountKey: string, credential: Credential): string {
   return account === undefined ? accountKey : `${accountKey} · ${account}`;
 }
 
-const unavailable = (
-  input: {
-    readonly accountKey: string;
-    readonly label: string;
-    readonly account: string;
-    readonly checkedAt: string;
-  },
-  reason: "unsupported" | "probeFailed",
-  message: string,
-): ServerProviderUsageSlot => ({
+interface SlotBase {
+  readonly accountKey: string;
+  readonly label: string;
+  readonly account: string;
+  readonly providerFamily?: PiAccountFamily | undefined;
+}
+
+const slotIdentity = (input: SlotBase) => ({
   accountKey: input.accountKey,
   label: input.label,
   account: input.account,
+  ...(input.providerFamily === undefined ? {} : { providerFamily: input.providerFamily }),
+});
+
+const unavailable = (
+  input: SlotBase & { readonly checkedAt: string },
+  reason: "unsupported" | "probeFailed",
+  message: string,
+): ServerProviderUsageSlot => ({
+  ...slotIdentity(input),
   usageLimits: makeUnavailableUsageLimits({ checkedAt: input.checkedAt, reason, message }),
 });
 
 const withWindows = (
-  input: { readonly accountKey: string; readonly label: string; readonly account: string },
+  input: SlotBase,
   checkedAt: string,
   windows: ReadonlyArray<ServerProviderUsageWindow>,
 ): ServerProviderUsageSlot => ({
-  accountKey: input.accountKey,
-  label: input.label,
-  account: input.account,
+  ...slotIdentity(input),
   usageLimits: makeUsageLimits({ checkedAt, windows }),
 });
 
@@ -574,12 +621,12 @@ export const probePiUsageSlots = Effect.fn("PiUsageSlots.probePiUsageSlots")(fun
 
   const resolveAntigravityAccess = Effect.fn("PiUsageSlots.resolveAntigravityAccess")(function* (
     credential: OauthCredential,
-    fromAccountsStore: boolean,
+    refreshIdle: boolean,
   ) {
     const direct = usableAccess(credential, nowMs);
     if (direct !== undefined) return direct;
-    // Only refresh idle multi-account store entries in memory; single auth.json entries remain owned by Pi.
-    if (!fromAccountsStore || !credential.refresh) return undefined;
+    // An idle login's token is refreshed in memory only: what auth.json holds stays Pi's to rotate.
+    if (!refreshIdle || !credential.refresh) return undefined;
     const cached = tokenCache.get(credential.refresh);
     if (cached !== undefined && cached.expires > nowMs + ANTIGRAVITY_TOKEN_REFRESH_SKEW_MS) {
       return cached.access;
@@ -612,12 +659,12 @@ export const probePiUsageSlots = Effect.fn("PiUsageSlots.probePiUsageSlots")(fun
   });
 
   const probeSlot = Effect.fn("PiUsageSlots.readSlot")(function* (
-    base: { readonly accountKey: string; readonly label: string; readonly account: string },
+    base: SlotBase,
     credential: Credential,
-    options?: { readonly isAntigravity?: boolean; readonly fromAccountsStore?: boolean },
+    options: { readonly family: PiAccountFamily; readonly refreshIdle: boolean },
   ) {
-    const { accountKey } = base;
-    if (options?.isAntigravity === true || accountKey === "antigravity") {
+    const { family } = options;
+    if (family === "antigravity") {
       if (credential.type !== "oauth") {
         return unavailable(
           { ...base, checkedAt },
@@ -625,10 +672,7 @@ export const probePiUsageSlots = Effect.fn("PiUsageSlots.probePiUsageSlots")(fun
           "Antigravity credentials are missing or expired. Run `pi` and sign in again.",
         );
       }
-      const access = yield* resolveAntigravityAccess(
-        credential,
-        options?.fromAccountsStore === true,
-      );
+      const access = yield* resolveAntigravityAccess(credential, options.refreshIdle);
       if (access === undefined) {
         return unavailable(
           { ...base, checkedAt },
@@ -674,7 +718,7 @@ export const probePiUsageSlots = Effect.fn("PiUsageSlots.probePiUsageSlots")(fun
         : withWindows(base, checkedAt, windows);
     }
 
-    if (accountKey === "opencode-go") {
+    if (family === "opencode-go") {
       const key = credential.type === "api_key" ? credential.key : undefined;
       if (key === undefined || key.length === 0) {
         return unavailable(
@@ -695,7 +739,39 @@ export const probePiUsageSlots = Effect.fn("PiUsageSlots.probePiUsageSlots")(fun
         );
     }
 
-    if (accountKey === "openai-codex") {
+    if (family === "commandcode") {
+      const key = credential.type === "oauth" ? credential.access : credential.key;
+      if (key === undefined || key.length === 0) {
+        return unavailable({ ...base, checkedAt }, "probeFailed", "No Command Code key is stored.");
+      }
+      return yield* client
+        .execute(
+          HttpClientRequest.get(COMMANDCODE_CREDITS).pipe(HttpClientRequest.bearerToken(key)),
+        )
+        .pipe(
+          Effect.flatMap(HttpClientResponse.schemaBodyJson(CommandCodeCredits)),
+          Effect.map((response) => {
+            const windows = commandCodeWindows(response);
+            return windows.length === 0
+              ? unavailable(
+                  { ...base, checkedAt },
+                  "unsupported",
+                  "Command Code reported no usage windows for this key.",
+                )
+              : withWindows(base, checkedAt, windows);
+          }),
+          Effect.timeout("10 seconds"),
+          Effect.orElseSucceed(() =>
+            unavailable(
+              { ...base, checkedAt },
+              "probeFailed",
+              "Command Code could not read usage.",
+            ),
+          ),
+        );
+    }
+
+    if (family === "openai-codex") {
       const access = credential.type === "oauth" ? usableAccess(credential, nowMs) : undefined;
       if (access === undefined || credential.type !== "oauth") {
         return unavailable(
@@ -726,7 +802,7 @@ export const probePiUsageSlots = Effect.fn("PiUsageSlots.probePiUsageSlots")(fun
     }
 
     // Claude subscription accounts expose the same rate-limit buckets their CLI reports.
-    if (accountKey.startsWith("claude-subscription-")) {
+    if (family === "claude-subscription") {
       const access = credential.type === "oauth" ? usableAccess(credential, nowMs) : undefined;
       if (access === undefined || credential.type !== "oauth") {
         return unavailable(
@@ -771,16 +847,15 @@ export const probePiUsageSlots = Effect.fn("PiUsageSlots.probePiUsageSlots")(fun
   });
 
   interface PreparedSlot {
-    readonly base: {
-      readonly accountKey: string;
-      readonly label: string;
-      readonly account: string;
-    };
+    readonly base: SlotBase;
     readonly credential: Credential | null;
-    readonly isAntigravity?: boolean;
-    readonly fromAccountsStore?: boolean;
+    readonly family: PiAccountFamily;
+    readonly refreshIdle: boolean;
   }
 
+  const registry = yield* readPiAccountsRegistry(agentDir).pipe(
+    Effect.catchCause(() => Effect.succeed({ version: 1 as const, accounts: [] })),
+  );
   const rawAuthAntigravity = Object.hasOwn(file, "antigravity") ? file.antigravity : undefined;
   const authAntigravityCredential =
     rawAuthAntigravity === undefined ? Option.none() : decodeCredential(rawAuthAntigravity);
@@ -799,18 +874,26 @@ export const probePiUsageSlots = Effect.fn("PiUsageSlots.probePiUsageSlots")(fun
       Effect.gen(function* () {
         const credential = decodeCredential(raw);
         if (Option.isNone(credential)) {
+          const family = piAccountFamily(registry, accountKey, undefined);
           return {
-            base: { accountKey, label: accountKey, account: accountKey },
+            base: { accountKey, label: accountKey, account: accountKey, providerFamily: family },
             credential: null,
+            family,
+            refreshIdle: false,
           };
         }
+        const family = piAccountFamily(registry, accountKey, credential.value.type);
         return {
           base: {
             accountKey,
             label: slotLabel(accountKey, credential.value),
             account: yield* accountFingerprint(accountKey, credential.value),
+            providerFamily: family,
           },
           credential: credential.value,
+          family,
+          // Each managed Antigravity login sits idle until chosen, so its token may have lapsed.
+          refreshIdle: family === "antigravity",
         };
       }),
   );
@@ -819,9 +902,15 @@ export const probePiUsageSlots = Effect.fn("PiUsageSlots.probePiUsageSlots")(fun
     antigravityAccounts.length === 0 && rawAuthAntigravity !== undefined
       ? [
           {
-            base: { accountKey: "antigravity", label: "antigravity", account: "antigravity" },
+            base: {
+              accountKey: "antigravity",
+              label: "antigravity",
+              account: "antigravity",
+              providerFamily: "antigravity",
+            },
             credential: null,
-            isAntigravity: true,
+            family: "antigravity",
+            refreshIdle: false,
           },
         ]
       : yield* Effect.forEach(antigravityAccounts, (entry, index) =>
@@ -832,17 +921,45 @@ export const probePiUsageSlots = Effect.fn("PiUsageSlots.probePiUsageSlots")(fun
                 accountKey,
                 label: slotLabel("antigravity", entry.credential),
                 account: yield* accountFingerprint("antigravity", entry.credential),
+                providerFamily: "antigravity" as const,
               },
               credential: entry.credential,
-              isAntigravity: true,
-              fromAccountsStore: entry.fromAccountsStore,
+              family: "antigravity" as const,
+              refreshIdle: entry.fromAccountsStore,
             };
           }),
         );
 
+  // A models.json key (a command Pi runs) is billed per use like any API key; T3 never runs it.
+  const modelsJsonAccounts = yield* listPiModelsJsonAccounts(agentDir).pipe(
+    Effect.catchCause(() => Effect.succeed([])),
+  );
+  const preparedModelsEntries: Array<PreparedSlot> = yield* Effect.forEach(
+    modelsJsonAccounts.filter((entry) => !Object.hasOwn(file, entry.providerId)),
+    (entry) =>
+      Effect.gen(function* () {
+        const credential: Credential = { type: "api_key" };
+        const family =
+          registry.accounts.find((account) => account.providerId === entry.providerId)
+            ?.providerFamily ?? entry.providerFamily;
+        return {
+          base: {
+            accountKey: entry.providerId,
+            label: entry.providerId,
+            account: yield* accountFingerprint(entry.providerId, credential),
+            providerFamily: family,
+          },
+          credential,
+          family,
+          refreshIdle: false,
+        };
+      }),
+  );
+
   const preparedEntries: Array<PreparedSlot> = [
     ...preparedAntigravityEntries,
     ...preparedAuthEntries,
+    ...preparedModelsEntries,
   ];
 
   const timedOutSlots = (): ReadonlyArray<ServerProviderUsageSlot> =>
@@ -858,7 +975,7 @@ export const probePiUsageSlots = Effect.fn("PiUsageSlots.probePiUsageSlots")(fun
 
   return yield* Effect.forEach(
     preparedEntries,
-    ({ base, credential, isAntigravity, fromAccountsStore }) =>
+    ({ base, credential, family, refreshIdle }) =>
       credential === null
         ? Effect.succeed(
             unavailable(
@@ -867,10 +984,7 @@ export const probePiUsageSlots = Effect.fn("PiUsageSlots.probePiUsageSlots")(fun
               "T3 cannot read this credential's format.",
             ),
           )
-        : probeSlot(base, credential, {
-            ...(isAntigravity === undefined ? {} : { isAntigravity }),
-            ...(fromAccountsStore === undefined ? {} : { fromAccountsStore }),
-          }).pipe(
+        : probeSlot(base, credential, { family, refreshIdle }).pipe(
             Effect.timeout("12 seconds"),
             Effect.catchCause(() =>
               Effect.succeed(

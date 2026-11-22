@@ -12241,5 +12241,6 @@
   "a830583f7f6b1ae6": "Off: it stays signed in for its usage meter, but no thread, delegated task or background job runs on it.",
   "accbaf459a121a2c": "Threads, delegated tasks and background jobs can run on it.",
   "c4fbf0779efe1d66": "Use {provider} for models",
-  "412ff569c59642e6": "Usage only"
+  "412ff569c59642e6": "Usage only",
+  "723380af1e638be5": "Pi credentials"
 }

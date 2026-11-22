@@ -66,6 +66,21 @@ describe("RPC authorization scopes", () => {
     );
   });
 
+  it("keeps writing Pi credentials and their sign-ins to provider managers", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.piAccountsList)).toBe(AuthOrchestrationReadScope);
+    for (const method of [
+      WS_METHODS.piAccountsSaveKey,
+      WS_METHODS.piAccountsRemove,
+      WS_METHODS.piAccountsSeparate,
+      WS_METHODS.piAccountsLoginStart,
+      WS_METHODS.piAccountsLoginRespond,
+      WS_METHODS.piAccountsLoginCancel,
+      WS_METHODS.piAccountsLoginSubscribe,
+    ]) {
+      expect(requiredScopeForRpcMethod(method)).toBe(AuthProvidersManageScope);
+    }
+  });
+
   it("keeps webhook delivery logs, which hold request bodies, behind operate scope", () => {
     for (const method of [
       WS_METHODS.scheduledTasksListWebhookDeliveries,

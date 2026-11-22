@@ -177,12 +177,14 @@ export const writeFile = Effect.fn("writePiSettingsFile")(function* (
 });
 
 /**
- * One writer at a time, across Pi sessions and Pi's own TUI: the lock is a directory, so creating
- * it is atomic. Returns undefined when another writer holds it past the stale timeout.
+ * One writer at a time, as `proper-lockfile` (which Pi uses) does it: the lock is a directory,
+ * so creating it is atomic, and it is taken over only once older than `staleMs`. Returns
+ * undefined when another writer still holds it after every attempt.
  */
-export const withSettingsLock = Effect.fn("withPiSettingsLock")(function* <A>(
+export const withPiFileLock = Effect.fn("Pi.withFileLock")(function* <A, E, R>(
   lockDirectory: string,
-  use: Effect.Effect<A, never, FileSystem.FileSystem>,
+  staleMs: number,
+  use: Effect.Effect<A, E, R>,
 ) {
   const fileSystem = yield* FileSystem.FileSystem;
   let acquired = false;
@@ -195,7 +197,7 @@ export const withSettingsLock = Effect.fn("withPiSettingsLock")(function* <A>(
     const info = yield* fileSystem.stat(lockDirectory).pipe(Effect.orElseSucceed(() => undefined));
     const modifiedAt = info === undefined ? undefined : Option.getOrUndefined(info.mtime);
     const now = yield* Clock.currentTimeMillis;
-    if (modifiedAt !== undefined && now - modifiedAt.getTime() > LOCK_STALE_MS) {
+    if (modifiedAt !== undefined && now - modifiedAt.getTime() > staleMs) {
       yield* fileSystem
         .remove(lockDirectory, { recursive: true })
         .pipe(Effect.orElseSucceed(() => undefined));
@@ -211,6 +213,12 @@ export const withSettingsLock = Effect.fn("withPiSettingsLock")(function* <A>(
     ),
   );
 });
+
+/** One writer of Pi's settings at a time, across Pi sessions and Pi's own TUI. */
+export const withSettingsLock = <A>(
+  lockDirectory: string,
+  use: Effect.Effect<A, never, FileSystem.FileSystem>,
+) => withPiFileLock(lockDirectory, LOCK_STALE_MS, use);
 
 /** Remove a model's override, putting back the reserve T3 replaced (or nothing). */
 function withoutModelReserve(

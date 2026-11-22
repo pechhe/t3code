@@ -71,6 +71,11 @@ export interface ProviderInstance {
   readonly orchestrationAdapter: ProviderAdapter.ProviderAdapterV2["Service"];
   readonly textGeneration: ProviderTextGeneration;
   readonly auth?: ProviderAuthController;
+  /** Pi only: the launch its credentials belong to (fork/differences.md `pi-accounts`). */
+  readonly piCredentials?: {
+    readonly environment: NodeJS.ProcessEnv;
+    readonly binaryPath: string;
+  };
   readonly acpSessionManagement?: {
     readonly listSessions: (input: {
       readonly cwd: string;

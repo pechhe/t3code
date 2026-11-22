@@ -12232,5 +12232,6 @@
   "a830583f7f6b1ae6": "Désactivé : il reste connecté pour son compteur d'utilisation, mais aucun fil, aucune tâche déléguée ni aucune tâche d'arrière-plan ne s'exécute dessus.",
   "accbaf459a121a2c": "Les fils, les tâches déléguées et les tâches d'arrière-plan peuvent s'exécuter dessus.",
   "c4fbf0779efe1d66": "Utiliser {provider} pour les modèles",
-  "412ff569c59642e6": "Utilisation uniquement"
+  "412ff569c59642e6": "Utilisation uniquement",
+  "723380af1e638be5": "Identifiants Pi"
 }

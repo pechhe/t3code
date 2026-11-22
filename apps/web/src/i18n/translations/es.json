@@ -12227,5 +12227,6 @@
   "a830583f7f6b1ae6": "Desactivado: sigue con la sesión iniciada para su medidor de uso, pero ningún hilo, tarea delegada o trabajo en segundo plano se ejecuta en él.",
   "accbaf459a121a2c": "Los hilos, las tareas delegadas y los trabajos en segundo plano pueden ejecutarse en él.",
   "c4fbf0779efe1d66": "Usar {provider} para modelos",
-  "412ff569c59642e6": "Solo uso"
+  "412ff569c59642e6": "Solo uso",
+  "723380af1e638be5": "Credenciales de Pi"
 }

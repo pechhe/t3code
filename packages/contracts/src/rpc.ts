@@ -73,6 +73,7 @@ import {
   WsAgentPolicySaveRpc,
 } from "./agentPolicyRpc.ts";
 import { CHAMPIONS_WS_METHODS, WsChampionsRpcs } from "./championsRpc.ts";
+import { PI_ACCOUNTS_WS_METHODS, WsPiAccountsRpcs } from "./piAccounts.ts";
 import {
   SHARED_PROVIDER_SETUP_WS_METHODS,
   WsServerApplySharedModelPreferencesRpc,
@@ -737,6 +738,7 @@ export const WS_METHODS = {
   forgeHomeDecide: "build.home.decide",
 
   ...CHAMPIONS_WS_METHODS,
+  ...PI_ACCOUNTS_WS_METHODS,
   scheduledTasksList: "scheduledTasks.list",
   scheduledTasksSubscribe: "scheduledTasks.subscribe",
   scheduledTasksUpsert: "scheduledTasks.upsert",
@@ -3096,6 +3098,7 @@ export const WsThreadControlRpcGroup = RpcGroup.make(
   WsOrchestrationV2ForceStopThreadRpc,
 ).middleware(RpcScopeAuthorization);
 export const WsChampionsRpcGroup = WsChampionsRpcs.middleware(RpcScopeAuthorization);
+export const WsPiAccountsRpcGroup = WsPiAccountsRpcs.middleware(RpcScopeAuthorization);
 export const WsIssuesRpcGroup = RpcGroup.make(
   WsIssuesListRpc,
   WsIssuesDetailRpc,
@@ -3124,5 +3127,6 @@ export const WsRpcGroup = WsCoreRpcGroup.merge(WsVcsRpcGroup)
   .merge(WsThreadStructureRpcGroup)
   .merge(WsAwayRpcGroup)
   .merge(WsChampionsRpcGroup)
+  .merge(WsPiAccountsRpcGroup)
   .merge(WsServerOperationsRpcGroup)
   .merge(WsThreadControlRpcGroup);

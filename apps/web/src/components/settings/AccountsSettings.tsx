@@ -41,14 +41,24 @@ import {
   ComboboxSearchInput,
   ComboboxTrigger,
 } from "../ui/combobox";
-import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
+import { Toggle, ToggleGroup } from "../ui/toggle-group";
+import { PiCredentials } from "./PiCredentials";
+import {
+  SettingsPageContainer,
+  SettingsRow,
+  SettingsSearchTarget,
+  SettingsSection,
+  useInSettingsSearchResults,
+  useSettingsSearchTargetId,
+} from "./settingsLayout";
 import { useSettingsScope } from "./SettingsScopeContext";
 import { useInstanceEntries } from "./useInstanceEntries";
 
-/** Settings → Accounts: the models T3 picks the account for, each with its accounts in order. */
+/** Settings → Accounts: each Pi credential, and the models T3 picks the account for. */
 export function AccountsSettings() {
   const { environments, environment } = useSettingsScope();
-  const environmentId = environment?.environmentId ?? environments[0]?.environmentId;
+  const target = environment ?? environments[0];
+  const environmentId = target?.environmentId;
   return (
     <SettingsPageContainer>
       {environmentId === undefined ? (
@@ -56,9 +66,58 @@ export function AccountsSettings() {
           Connect an environment to manage its accounts.
         </p>
       ) : (
-        <EnvironmentAccounts key={environmentId} environmentId={environmentId} />
+        <AccountsViews
+          key={environmentId}
+          environmentId={environmentId}
+          environmentLabel={target?.label}
+        />
       )}
     </SettingsPageContainer>
+  );
+}
+
+/** Credentials are what each account is; Model routing is the order T3 uses them in. */
+function AccountsViews({
+  environmentId,
+  environmentLabel,
+}: {
+  environmentId: EnvironmentId;
+  environmentLabel: string | undefined;
+}) {
+  const searchTarget = useSettingsSearchTargetId();
+  // Search stacks pages and filters them to matches, so both views must be there to match.
+  const inSearch = useInSettingsSearchResults();
+  const { providers } = useInstanceEntries(environmentId);
+  const [view, setView] = useState<"credentials" | "routing">(
+    searchTarget === "accounts" ? "routing" : "credentials",
+  );
+  return (
+    <>
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-4">
+        <ToggleGroup
+          aria-label="Accounts view"
+          variant="segmented"
+          value={[view]}
+          onValueChange={(next) => {
+            if (next[0] === "credentials" || next[0] === "routing") setView(next[0]);
+          }}
+        >
+          <Toggle value="credentials">Credentials</Toggle>
+          <Toggle value="routing">Model routing</Toggle>
+        </ToggleGroup>
+        {environmentLabel ? (
+          <span className="text-xs text-muted-foreground">Environment: {environmentLabel}</span>
+        ) : null}
+      </div>
+      {inSearch || view === "credentials" ? (
+        <SettingsSearchTarget id="pi-credentials" className="flex flex-col gap-6">
+          <PiCredentials environmentId={environmentId} providers={providers} />
+        </SettingsSearchTarget>
+      ) : null}
+      {inSearch || view === "routing" ? (
+        <EnvironmentAccounts environmentId={environmentId} />
+      ) : null}
+    </>
   );
 }
 

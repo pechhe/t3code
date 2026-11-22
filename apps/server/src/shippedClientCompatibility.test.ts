@@ -16,6 +16,7 @@ import {
   ProjectId,
   ProviderInstanceId,
   ProviderDriverKind,
+  ServerProviderUsageSlot,
   ServerSettings,
   ThreadId,
   TurnItemId,
@@ -181,6 +182,21 @@ it("a shipped client ignores additive Champion owner and approval origin metadat
   const shippedApproval = decodeShippedApproval(approval);
   assert.notProperty(shippedApproval, "sourceEnvironment");
   assert.equal(shippedApproval.quote, approval.quote);
+});
+
+const { providerFamily: _family, ...shippedSlotFields } = ServerProviderUsageSlot.fields;
+const decodeShippedUsageSlot = Schema.decodeUnknownSync(Schema.Struct(shippedSlotFields));
+
+it("a shipped client reads a Pi usage slot that names its provider family", () => {
+  const decoded = decodeShippedUsageSlot({
+    instanceId: "pi",
+    accountKey: "antigravity-hfpetch",
+    label: "Antigravity · hfpetch",
+    usageLimits: { checkedAt: "2026-11-22T00:00:00.000Z", windows: [] },
+    providerFamily: "antigravity",
+  });
+  assert.notProperty(decoded, "providerFamily");
+  assert.equal(decoded.accountKey, "antigravity-hfpetch");
 });
 
 const { sourceEnvironment: _source, ...shippedApprovalFields } = ChampionRelayedApproval.fields;
