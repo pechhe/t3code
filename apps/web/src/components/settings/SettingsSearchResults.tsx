@@ -117,6 +117,9 @@ const SETTINGS_PAGE_PANELS: Readonly<Record<SettingsPath, ComponentType>> = {
   "/settings/secrets": lazy(() =>
     import("./SecretsSettings").then((module) => ({ default: module.SecretsSettingsPanel })),
   ),
+  "/settings/weave": lazy(() =>
+    import("./WeaveConnectionSettings").then((module) => ({ default: module.WeaveSettingsPanel })),
+  ),
   "/settings/maintenance": lazy(() =>
     import("./SettingsPanels").then((module) => ({ default: module.MaintenanceSettingsPanel })),
   ),

@@ -69,7 +69,6 @@ import {
 } from "~/components/device/DeviceSetup";
 import { isElectron } from "../../env";
 
-import { WeaveConnectionSettings } from "./WeaveConnectionSettings";
 import { Badge } from "../ui/badge";
 import {
   Menu,
@@ -1782,7 +1781,6 @@ export function BrowserSettingsPanel() {
           </SettingsUnavailableGroup>
         </AdvancedSettings>
       </SettingsSection>
-      <WeaveConnectionSettings />
       <SettingsSection id="browser-recordings" title={gt("Recordings")}>
         <SettingsUnavailableGroup message={desktopOnlyMessage}>
           <BrowserRecordingFrameRateSetting disabled={desktopOnly} />

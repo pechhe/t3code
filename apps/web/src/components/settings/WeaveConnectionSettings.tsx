@@ -8,7 +8,7 @@ import { forgeWorkItems } from "../../state/forgeWorkItems";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { toastManager } from "../ui/toast";
 import { Button } from "../ui/button";
-import { SettingsRow, SettingsSection } from "./settingsLayout";
+import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 import { describeWeaveConnection, handbackOriginOf } from "./WeaveConnectionSettings.logic";
 
 /** While Weave's page is open, so the result shows without a reload; the server ends it after ten minutes. */
@@ -93,7 +93,7 @@ function WeaveConnectionRow({
 }
 
 /** Weave is connected per environment: the one that starts the sign-in receives the result. */
-export function WeaveConnectionSettings() {
+function WeaveConnectionSettings() {
   const { environments } = useEnvironments();
   return (
     <SettingsSection id="weave" title="Weave">
@@ -106,5 +106,14 @@ export function WeaveConnectionSettings() {
         />
       ))}
     </SettingsSection>
+  );
+}
+
+/** Settings → Weave: T3's own connection, which its Forge screens and Accept button use. */
+export function WeaveSettingsPanel() {
+  return (
+    <SettingsPageContainer>
+      <WeaveConnectionSettings />
+    </SettingsPageContainer>
   );
 }

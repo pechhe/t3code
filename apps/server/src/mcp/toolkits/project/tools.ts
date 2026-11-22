@@ -230,7 +230,7 @@ const ThreadLaunchTool = Tool.make("t3_thread_launch", {
 const ConnectionTool = Tool.make(WEAVE_NAMES.connectionTool, {
   ...shared,
   description:
-    'Read, connect or disconnect T3\'s Weave integration for Forge screens and server-side recording. Every project in this environment shares the connection. The person normally connects with Settings → Browser → Weave → Connect to Weave, which signs in to Weave in their browser. Only if that is unavailable, the person creates a delegation in Weave Settings → Connections → T3 agents; ask for it with request_secret, then pass {action:"connect", origin:"https://<weave origin>", delegation:<secretRef>}. T3 keeps it in its server secret store. Disconnecting stops new Weave calls; to revoke T3\'s access, the person revokes the delegation in Weave.',
+    'Read, connect or disconnect T3\'s Weave connection for its Forge screens and the person\'s Forge decisions. Every project in this environment shares the connection. The person normally connects with Settings → Weave → Connect to Weave, which signs in to Weave in their browser. Only if that is unavailable, the person creates a delegation in Weave Settings → Connections → T3 Code; ask for it with request_secret, then pass {action:"connect", origin:"https://<weave origin>", delegation:<secretRef>}. T3 keeps it in its server secret store. Disconnecting stops new Weave calls; to revoke T3\'s access, the person revokes the delegation in Weave.',
   parameters: Schema.Struct({
     action: Schema.Literals(["read", "connect", "disconnect"]),
     origin: Schema.optional(TrimmedNonEmptyString),

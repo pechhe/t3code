@@ -62,7 +62,7 @@ export class WeaveConnectionError extends Schema.TaggedError<WeaveConnectionErro
       case "invalid_origin":
         return "The Weave origin must be an https URL (http only for localhost).";
       case "invalid_delegation":
-        return "That is not a Weave delegation. Use Connect to Weave in T3's Settings → Browser instead.";
+        return "That is not a Weave delegation. Use Connect to Weave in T3's Settings → Weave instead.";
       case "store_failed":
         return "T3 could not read or save its Weave connection.";
     }

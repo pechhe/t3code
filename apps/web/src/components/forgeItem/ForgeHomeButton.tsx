@@ -19,6 +19,7 @@ import {
   MinusIcon,
   XIcon,
 } from "lucide-react";
+import { useGT } from "gt-react";
 import { type KeyboardEvent, type Ref, useImperativeHandle, useRef, useState } from "react";
 
 import { Badge } from "~/components/ui/badge";
@@ -642,6 +643,7 @@ export function ForgeHomeButton(props: {
   onOpenThread: (threadId: ThreadId) => void;
 }) {
   const { environmentId } = props;
+  const gt = useGT();
   const query = useForgeHome(environmentId);
   const [decided, setDecided] = useState<ForgeHomeState | null>(null);
   const [open, setOpen] = useState(false);
@@ -693,12 +695,16 @@ export function ForgeHomeButton(props: {
           <p className="m-0 w-80 p-3 text-xs text-muted-foreground">
             {state === null
               ? query.error === null
-                ? "Reading Forge from Weave…"
-                : "Couldn't read Forge from T3."
+                ? gt("Reading Forge from Weave…")
+                : gt("Couldn't read Forge from T3.")
               : state.status === "not_connected"
-                ? "T3 is not connected to Weave. Connect it in Settings → Browser → Weave → Connect to Weave."
+                ? gt(
+                    "T3 is not connected to Weave. Connect it in Settings → Weave → Connect to Weave.",
+                  )
                 : state.status === "invalid_token"
-                  ? "Weave refused T3's delegation: it expired or was revoked. Reconnect it in Settings → Browser → Weave → Connect to Weave."
+                  ? gt(
+                      "Weave refused T3's delegation: it expired or was revoked. Reconnect it in Settings → Weave → Connect to Weave.",
+                    )
                   : "Weave could not be reached, and Forge has not been read yet."}
           </p>
         )}

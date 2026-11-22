@@ -47,6 +47,7 @@ export type SettingsPath =
   | "/settings/connections"
   | "/settings/access"
   | "/settings/secrets"
+  | "/settings/weave"
   | "/settings/maintenance"
   | "/settings/labs"
   | "/settings/about"
@@ -125,6 +126,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/connections": msg("Environments"),
   "/settings/access": msg("Sharing & access"),
   "/settings/secrets": msg("Secrets"),
+  "/settings/weave": msg("Weave"),
   "/settings/maintenance": msg("Maintenance"),
   "/settings/labs": msg("Labs"),
   "/settings/about": msg("About"),
@@ -179,7 +181,7 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
   },
   {
     heading: msg("Connections"),
-    paths: ["/settings/connections", "/settings/access", "/settings/secrets"],
+    paths: ["/settings/connections", "/settings/access", "/settings/secrets", "/settings/weave"],
   },
   {
     heading: msg("More"),
@@ -1136,6 +1138,13 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   ...AGENT_BROWSER_BACKEND_SETTINGS_SEARCH_ITEMS,
   {
+    id: "weave-connection",
+    title: msg("Weave"),
+    to: "/settings/weave",
+    scope: "environment",
+    searchTerms: ["connect forge sign in delegation reconnect accept"],
+  },
+  {
     id: "device-sources",
     title: msg("Device sources"),
     to: "/settings/devices",
@@ -1569,6 +1578,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/decisions": msg("environment"),
   "/settings/access": msg("connections"),
   "/settings/secrets": null,
+  "/settings/weave": null,
   "/settings/maintenance": null,
   "/settings/labs": null,
   "/settings/about": null,
