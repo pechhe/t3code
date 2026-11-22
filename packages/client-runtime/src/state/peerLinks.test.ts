@@ -13,6 +13,13 @@ describe("threadHandoffNotice", () => {
     expect(threadHandoffNotice({ ...base, state: "pending" })?.detail).toBe(
       "Send a message to keep it here instead.",
     );
+    expect(
+      threadHandoffNotice({
+        ...base,
+        state: "pending",
+        wrapUp: { requestedAt: "2026-11-22T10:00:00.000Z", taskIds: ["a" as never, "b" as never] },
+      })?.title,
+    ).toBe("Moving to Box once 2 delegated tasks hand off");
   });
   it("marks the copy left behind as read-only, and a failure with its reason", () => {
     expect(

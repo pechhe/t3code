@@ -45,7 +45,7 @@ export function ThreadMoveDialog({
         ? "failed"
         : undefined,
   });
-  const verb = copy.stopsTurn ? "Stop and move" : "Move";
+  const verb = copy.stopsTurn ? "Stop and move" : copy.wrapsUp > 0 ? "Wrap up and move" : "Move";
   const move = (projectId?: string) => {
     onClose();
     void startThreadHandoff(

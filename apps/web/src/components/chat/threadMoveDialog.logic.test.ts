@@ -91,6 +91,17 @@ describe("threadMoveDialogCopy", () => {
     expect(copy.description).toContain("stops the turn");
   });
 
+  it("says how many delegated tasks wrap up before the move", () => {
+    const copy = threadMoveDialogCopy({
+      ...base,
+      options: [
+        { environmentId: "environment:mac", label: "Henry's Mac", reason: null, wrapsUp: 2 },
+      ],
+    });
+    expect(copy).toMatchObject({ canMove: true, wrapsUp: 2 });
+    expect(copy.description).toContain("2 delegated tasks still working here are asked to wrap up");
+  });
+
   it("reports a failed check", () => {
     expect(threadMoveDialogCopy({ ...base, options: "failed" }).canMove).toBe(false);
   });

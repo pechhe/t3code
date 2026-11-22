@@ -2,6 +2,10 @@ import {
   CommandId,
   type EnvironmentId,
   isDelegatedTaskThread,
+  MessageId,
+  type OrchestrationV2Subagent,
+  type OrchestrationV2TurnItem,
+  type OrchestrationV2ThreadHandoffWrapUp,
   type OrchestrationV2AppThread,
   type OrchestrationV2ParkedWaitTarget,
   type OrchestrationV2ThreadShell,
@@ -18,6 +22,7 @@ import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Digest from "effect/crypto/Digest";
 import * as SecureRandom from "effect/crypto/SecureRandom";
+import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -47,6 +52,15 @@ import * as PeerForwarding from "../PeerForwarding.ts";
 import * as PeerLinks from "../PeerLinks.ts";
 import * as PeerMcpClient from "../PeerMcpClient.ts";
 import * as HandoffGit from "./HandoffGit.ts";
+import {
+  backgroundWorkBesides,
+  carryOnMessage,
+  handoffsSection,
+  WRAP_UP_BOUND,
+  workingTasks,
+  wrapUpOverdue,
+  wrapUpRequest,
+} from "./handoffWrapUp.ts";
 import { chooseRemoteProject } from "./remoteProjectChoice.ts";
 
 /**
@@ -61,6 +75,8 @@ export const continuationMessage = (input: {
   readonly prompt: string | undefined;
   /** The waits that moved with the thread, each named. */
   readonly waits?: ReadonlyArray<string> | undefined;
+  /** What its delegated tasks handed off as they wrapped up for the move. */
+  readonly handoffs?: string | undefined;
 }) =>
   [
     `This thread was just moved here from ${input.fromLabel} (environment ${input.fromEnvironmentId}, thread ${input.fromThreadId}), with its conversation and its uncommitted work. The copy there is archived and read-only.`,
@@ -70,6 +86,7 @@ export const continuationMessage = (input: {
           `Its waits moved with it and now wake this thread here, once each: ${input.waits.join("; ")}. Nothing needs setting up again.`,
         ]),
     "If your instructions say how to resume after a context rollover, do that before your next work here: reload the workflow you were following, re-read the work item you own, and re-claim it from this thread, since claims made from the old thread still name it.",
+    ...(input.handoffs === undefined ? [] : [input.handoffs]),
     ...(input.prompt === undefined ? [] : [input.prompt]),
   ].join("\n\n");
 
@@ -83,6 +100,12 @@ export const UnansweredMoveRecheck = Context.Reference<Duration.Duration>(
   { defaultValue: () => Duration.seconds(30) },
 );
 
+/** How long a move waits for its delegated tasks to hand off before it stops the rest. */
+export const WrapUpBound = Context.Reference<Duration.Duration>(
+  "t3/peer/handoff/ThreadHandoff/WrapUpBound",
+  { defaultValue: () => WRAP_UP_BOUND },
+);
+
 /**
  * Why `thread` cannot move now, or null. A thread's waits move with it, but work that wakes it
  * from this machine cannot: a delegated task or background command is a process here, and a
@@ -90,8 +113,15 @@ export const UnansweredMoveRecheck = Context.Reference<Duration.Duration>(
  * waiting on it.
  */
 export const moveBlocker = (
-  thread: Pick<OrchestrationV2AppThread, "agentTask" | "lineage" | "parkedWaits" | "arcRun" | "autonomousRun">,
+  thread: Pick<
+    OrchestrationV2AppThread,
+    "agentTask" | "lineage" | "parkedWaits" | "arcRun" | "autonomousRun"
+  >,
   shell: Pick<OrchestrationV2ThreadShell, "pendingBackgroundTasks"> | null,
+  /** Its delegated tasks, which the move asks to wrap up rather than waiting on. */
+  subagents: ReadonlyArray<OrchestrationV2Subagent> = [],
+  /** Their subagent turn items, by which a task on another machine shows in the shell. */
+  taskItems: ReadonlyArray<Pick<OrchestrationV2TurnItem, "id" | "nodeId">> = [],
 ): string | null => {
   if (isDelegatedTaskThread(thread)) {
     return "A delegated task's thread stays with the thread waiting on it.";
@@ -104,7 +134,9 @@ export const moveBlocker = (
   }
   const staying = [
     // A pull request watch is not work: the watch itself moves.
-    ...ownBackgroundWork(shell?.pendingBackgroundTasks ?? []).map((task) =>
+    ...ownBackgroundWork(
+      backgroundWorkBesides(shell?.pendingBackgroundTasks ?? [], subagents, taskItems),
+    ).map((task) =>
       task.kind === "subagent"
         ? `delegated task ${task.description ?? task.taskId}`
         : `background ${task.kind} ${task.description ?? task.taskId}`,
@@ -190,6 +222,8 @@ export class ThreadHandoff extends Context.Service<
           readonly projectId: ProjectId;
           readonly title: string;
         }>;
+        /** Delegated tasks still working, which the move asks to wrap up first. */
+        readonly wrapsUp?: number;
       }>,
       ThreadHandoffError
     >;
@@ -242,6 +276,7 @@ const make = Effect.gen(function* () {
   /** When each unanswered import was sent from this process; a restart forgets, so it rechecks at once. */
   const unansweredSince = new Map<ThreadId, number>();
   const recheckAfter = yield* UnansweredMoveRecheck;
+  const wrapUpBound = yield* WrapUpBound;
 
   /** The thread's agent, acting on its own behalf there through the link. */
   const scopeFor = (thread: {
@@ -282,6 +317,107 @@ const make = Effect.gen(function* () {
           (error) => new ThreadHandoffError({ reason: "refused", message: error.message }),
         ),
       );
+
+  /**
+   * Tells each delegated task `text` as its parent's agent would, here or on the machine it runs
+   * on: a steer into its running turn, or a new turn when it is between turns. A task that cannot be told is stopped once the wait is over.
+   */
+  const tellTasks = Effect.fn("ThreadHandoff.tellTasks")(function* (
+    parent: Pick<OrchestrationV2AppThread, "id" | "providerInstanceId" | "projectId">,
+    tasks: ReadonlyArray<OrchestrationV2Subagent>,
+    key: string,
+    text: string,
+  ) {
+    yield* Effect.forEach(
+      tasks,
+      (task) => {
+        const commandKey = `handoff:${parent.id}:${key}:${task.id}`;
+        const quietly = <E>(told: Effect.Effect<unknown, E>) =>
+          told.pipe(
+            Effect.asVoid,
+            Effect.catchCause((cause) =>
+              Effect.logWarning("thread-handoff.tell-task-failed", {
+                threadId: parent.id,
+                taskId: task.id,
+                cause: Cause.pretty(cause),
+              }),
+            ),
+          );
+        return task.remoteChild !== undefined
+          ? quietly(
+              forwarding.sendThread(scopeFor(parent), task.remoteChild.environmentId, {
+                threadId: task.remoteChild.threadId,
+                message: text,
+                mode: "auto",
+                clientRequestId: commandKey,
+              }),
+            )
+          : task.childThreadId === null
+            ? Effect.void
+            : quietly(
+                threads.sendToThread({
+                  projectId: parent.projectId,
+                  commandId: CommandId.make(`command:${commandKey}`),
+                  threadId: task.childThreadId,
+                  messageId: MessageId.make(`message:${commandKey}`),
+                  senderThreadId: parent.id,
+                  text,
+                  attachments: [],
+                  mode: "auto",
+                  createdBy: "agent",
+                  creationSource: "mcp",
+                }),
+              );
+      },
+      { discard: true },
+    );
+  });
+
+  /** Stops each task still working when the wait for its handoff is over. */
+  const stopTasks = Effect.fn("ThreadHandoff.stopTasks")(function* (
+    parent: Pick<OrchestrationV2AppThread, "id" | "providerInstanceId" | "projectId">,
+    tasks: ReadonlyArray<OrchestrationV2Subagent>,
+    handoffId: string,
+  ) {
+    const reason = "Stopped: the thread that delegated it moved before it handed off.";
+    yield* Effect.forEach(
+      tasks,
+      (task) => {
+        const key = `handoff:${parent.id}:${handoffId}:overdue:${task.id}`;
+        const quietly = <E>(stopped: Effect.Effect<unknown, E>) =>
+          stopped.pipe(
+            Effect.asVoid,
+            Effect.catchCause((cause) =>
+              Effect.logWarning("thread-handoff.stop-task-failed", {
+                threadId: parent.id,
+                taskId: task.id,
+                cause,
+              }),
+            ),
+          );
+        return task.remoteChild !== undefined
+          ? quietly(
+              forwarding.interruptThread(scopeFor(parent), task.remoteChild.environmentId, {
+                threadId: task.remoteChild.threadId,
+                stop: true,
+                reason,
+                clientRequestId: key,
+              }),
+            )
+          : task.childThreadId === null
+            ? Effect.void
+            : quietly(
+                threads.interruptThread({
+                  projectId: parent.projectId,
+                  commandId: CommandId.make(`command:${key}`),
+                  threadId: task.childThreadId,
+                  reason,
+                }),
+              );
+      },
+      { discard: true },
+    );
+  });
 
   /** The project there that takes this thread, `ambiguous` when several fit equally. */
   const remoteProjectChoice = Effect.fn("ThreadHandoff.remoteProjectChoice")(function* (
@@ -479,7 +615,7 @@ const make = Effect.gen(function* () {
     projectHint: ProjectId | undefined,
   ) {
     const records = yield* threads
-      .getThreadRecords(threadId, [])
+      .getThreadRecords(threadId, ["subagents"])
       .pipe(
         Effect.mapError(
           () =>
@@ -489,6 +625,7 @@ const make = Effect.gen(function* () {
     const thread = records.thread;
     const handoff = thread.handoff;
     if (handoff?.state !== "departing") return handoff;
+    const wrappedUp = new Set<string>(handoff.wrapUp?.taskIds ?? []);
     const scope = scopeFor(thread);
     const source = { environmentId: hereId, threadId, handoffId: handoff.handoffId };
     if (handoff.lastError !== undefined) {
@@ -543,6 +680,10 @@ const make = Effect.gen(function* () {
         fromThreadId: threadId,
         prompt: handoff.continuationPrompt,
         waits: waits.names,
+        handoffs: handoffsSection(
+          records.subagents.filter((task) => wrappedUp.has(task.id)),
+          descriptor.label,
+        ),
       });
       sent = true;
       importCalled = true;
@@ -743,7 +884,7 @@ const make = Effect.gen(function* () {
   const options: ThreadHandoff["Service"]["options"] = Effect.fn("ThreadHandoff.options")(
     function* (threadId) {
       const records = yield* threads
-        .getThreadRecords(threadId, [])
+        .getThreadRecords(threadId, ["subagents", "turnItems"], { turnItemTypes: ["subagent"] })
         .pipe(
           Effect.mapError(
             () =>
@@ -753,7 +894,9 @@ const make = Effect.gen(function* () {
       // A delegated task's thread offers no move at all; one held by work names it on every target.
       if (isDelegatedTaskThread(records.thread)) return [];
       const shell = yield* threads.getThreadShell(threadId).pipe(Effect.orElseSucceed(() => null));
-      const blocked = moveBlocker(records.thread, shell);
+      const blocked = moveBlocker(records.thread, shell, records.subagents, records.turnItems);
+      const working = workingTasks(records.subagents).length;
+      const wrapsUp = working === 0 ? {} : { wrapsUp: working };
       const listed = yield* links.list.pipe(Effect.orElseSucceed(() => []));
       return yield* Effect.forEach(
         listed,
@@ -782,6 +925,7 @@ const make = Effect.gen(function* () {
                   label: link.label,
                   projectId: choice._tag === "chosen" ? choice.project.id : null,
                   reason: null,
+                  ...wrapsUp,
                   ...(choice._tag === "ambiguous"
                     ? {
                         candidates: choice.candidates.map((project) => ({
@@ -821,7 +965,9 @@ const make = Effect.gen(function* () {
         whenTurnEnds: threadId === request.callerThreadId,
       };
       const records = yield* threads
-        .getThreadRecords(input.threadId, ["runs"])
+        .getThreadRecords(input.threadId, ["runs", "subagents", "turnItems"], {
+          turnItemTypes: ["subagent"],
+        })
         .pipe(
           Effect.mapError(
             () =>
@@ -845,10 +991,11 @@ const make = Effect.gen(function* () {
       const shell = yield* threads
         .getThreadShell(input.threadId)
         .pipe(Effect.orElseSucceed(() => null));
-      const blocked = moveBlocker(thread, shell);
+      const blocked = moveBlocker(thread, shell, records.subagents, records.turnItems);
       if (blocked !== null) {
         return yield* new ThreadHandoffError({ reason: "refused", message: blocked });
       }
+      const working = workingTasks(records.subagents);
       const link = (yield* links.list.pipe(Effect.orElseSucceed(() => []))).find(
         (candidate) => candidate.environmentId === input.environmentId,
       );
@@ -886,6 +1033,22 @@ const make = Effect.gen(function* () {
           ? {}
           : { continuationPrompt: input.continuationPrompt }),
       };
+      const wrapUp: OrchestrationV2ThreadHandoffWrapUp | undefined =
+        working.length === 0
+          ? undefined
+          : {
+              requestedAt: DateTime.formatIso(yield* DateTime.now),
+              taskIds: working.map((task) => task.id),
+            };
+      const askToWrapUp = () =>
+        tellTasks(thread, working, `${handoffId}:wrap-up`, wrapUpRequest(link.label));
+      if (!busy && wrapUp !== undefined) {
+        // The move waits for each task's handoff; settle departs once the last has ended.
+        const pending: OrchestrationV2ThreadHandoff = { state: "pending", ...base, wrapUp };
+        yield* setHandoff(input.threadId, current, pending, "pending");
+        yield* askToWrapUp();
+        return pending;
+      }
       if (busy) {
         const stopTurn = input.stopTurn === true && !input.whenTurnEnds;
         if (!input.whenTurnEnds && !stopTurn) {
@@ -902,8 +1065,13 @@ const make = Effect.gen(function* () {
               "Messages are queued behind this turn. Remove them or let them run, then move it.",
           });
         }
-        const pending: OrchestrationV2ThreadHandoff = { state: "pending", ...base };
+        const pending: OrchestrationV2ThreadHandoff = {
+          state: "pending",
+          ...base,
+          ...(wrapUp === undefined ? {} : { wrapUp }),
+        };
         yield* setHandoff(input.threadId, current, pending, "pending");
+        yield* askToWrapUp();
         if (stopTurn) {
           // The move departs from `settle` when the stopped run ends, as an agent's own move does.
           const stopped = yield* threads
@@ -938,8 +1106,25 @@ const make = Effect.gen(function* () {
     },
   );
 
-  const cancel: ThreadHandoff["Service"]["cancel"] = (threadId) =>
-    setHandoff(threadId, "pending", null, "cancel");
+  /** Clears a waiting move, and tells each task it asked to wrap up and still working to carry on. */
+  const callOff = Effect.fn("ThreadHandoff.callOff")(function* (threadId: ThreadId, step: string) {
+    const records = yield* threads
+      .getThreadRecords(threadId, ["subagents"])
+      .pipe(Effect.orElseSucceed(() => undefined));
+    yield* setHandoff(threadId, "pending", null, step);
+    const handoff = records?.thread.handoff;
+    if (records === undefined || handoff?.state !== "pending" || handoff.wrapUp === undefined)
+      return;
+    const asked = new Set<string>(handoff.wrapUp.taskIds);
+    yield* tellTasks(
+      records.thread,
+      workingTasks(records.subagents).filter((task) => asked.has(task.id)),
+      `${handoff.handoffId}:carry-on`,
+      carryOnMessage,
+    );
+  });
+
+  const cancel: ThreadHandoff["Service"]["cancel"] = (threadId) => callOff(threadId, "cancel");
 
   /** A pending move whose turn ended departs; one a restart cut short is settled. */
   const settle = Effect.fn("ThreadHandoff.settle")(
@@ -948,9 +1133,11 @@ const make = Effect.gen(function* () {
       // thread: its shell says whether it has a move at all. The sweep retries one it could not read.
       const moving = yield* threads.getThreadShell(threadId).pipe(Effect.orElseSucceed(() => null));
       if (moving?.handoff === undefined) return;
-      const records = yield* threads.getThreadRecords(threadId, ["runs", "messages"], {
-        messageRoles: ["user"],
-      });
+      const records = yield* threads.getThreadRecords(
+        threadId,
+        ["runs", "messages", "subagents", "turnItems"],
+        { messageRoles: ["user"], turnItemTypes: ["subagent"] },
+      );
       const handoff = records.thread.handoff;
       if (handoff === undefined) return;
       // A crash between "arrived" and the end of its waits leaves them here: end them now.
@@ -967,19 +1154,58 @@ const make = Effect.gen(function* () {
         // Someone wrote during the turn the agent asked in, steered into it or
         // queued after it: new instructions win. That is the user, or an agent
         // the user works through, such as an orchestrator.
-        const asked = records.runs.at(-1)?.requestedAt;
+        const lastAsked = records.runs.at(-1)?.requestedAt;
+        // A move that waits on handoffs began when it asked for them, perhaps after the last turn.
+        const wrapUpAsked =
+          handoff.wrapUp === undefined
+            ? undefined
+            : DateTime.makeUnsafe(handoff.wrapUp.requestedAt);
+        const asked =
+          wrapUpAsked !== undefined &&
+          (lastAsked === undefined || DateTime.isGreaterThan(wrapUpAsked, lastAsked))
+            ? wrapUpAsked
+            : lastAsked;
         const writtenSince = records.messages.some(
           (message) => asked !== undefined && DateTime.isGreaterThan(message.createdAt, asked),
         );
         if (writtenSince || records.runs.some((run) => run.status === "queued")) {
-          yield* setHandoff(threadId, "pending", null, "cancel-by-user");
+          yield* callOff(threadId, "cancel-by-user");
           return;
+        }
+        // Tasks delegated during the turn are asked too; the move waits for every handoff.
+        const working = workingTasks(records.subagents);
+        if (working.length > 0) {
+          const wrapUp = handoff.wrapUp ?? {
+            requestedAt: DateTime.formatIso(yield* DateTime.now),
+            taskIds: [],
+          };
+          const known = new Set<string>(wrapUp.taskIds);
+          const unasked = working.filter((task) => !known.has(task.id));
+          if (unasked.length > 0) {
+            const taskIds = [...wrapUp.taskIds, ...unasked.map((task) => task.id)];
+            yield* setHandoff(
+              threadId,
+              "pending",
+              { ...handoff, wrapUp: { ...wrapUp, taskIds } },
+              `wrap-up:${taskIds.length}`,
+            );
+            yield* tellTasks(
+              records.thread,
+              unasked,
+              `${handoff.handoffId}:wrap-up`,
+              wrapUpRequest(handoff.label),
+            );
+            return;
+          }
+          if (!wrapUpOverdue(wrapUp, yield* DateTime.now, wrapUpBound)) return;
+          // The wait is over: stop what is left and move without its handoff.
+          yield* stopTasks(records.thread, working, handoff.handoffId);
         }
         // Work started during the turn would wake the copy left behind.
         const shell = yield* threads
           .getThreadShell(threadId)
           .pipe(Effect.orElseSucceed(() => null));
-        const blocked = moveBlocker(records.thread, shell);
+        const blocked = moveBlocker(records.thread, shell, records.subagents, records.turnItems);
         if (blocked !== null) {
           yield* setHandoff(
             threadId,
@@ -1030,10 +1256,15 @@ const make = Effect.gen(function* () {
           yield* threads.streamDomainEvents.pipe(
             Stream.filter(
               (event) =>
-                event.type === "run.updated" &&
-                ["completed", "failed", "cancelled", "interrupted", "rolled_back"].includes(
-                  event.payload.status,
-                ),
+                (event.type === "run.updated" &&
+                  ["completed", "failed", "cancelled", "interrupted", "rolled_back"].includes(
+                    event.payload.status,
+                  )) ||
+                // A delegated task ending may be the last handoff a waiting move needs.
+                (event.type === "subagent.updated" &&
+                  ["completed", "failed", "cancelled", "interrupted"].includes(
+                    event.payload.status,
+                  )),
             ),
             Stream.runForEach((event) => settle(event.threadId)),
           );

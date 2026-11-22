@@ -163,6 +163,14 @@ export const OrchestrationV2DelegatedFrom = Schema.Struct({
 });
 export type OrchestrationV2DelegatedFrom = typeof OrchestrationV2DelegatedFrom.Type;
 
+/** Delegated tasks a move asked to wrap up and hand off, and when; it departs once each has ended. */
+export const OrchestrationV2ThreadHandoffWrapUp = Schema.Struct({
+  /** An ISO time: the handoff is stored and sent as it is, with no date codec. */
+  requestedAt: Schema.String,
+  taskIds: Schema.Array(NodeId),
+});
+export type OrchestrationV2ThreadHandoffWrapUp = typeof OrchestrationV2ThreadHandoffWrapUp.Type;
+
 /**
  * A thread moving to a linked environment. `pending` waits for the thread's
  * own turn to end (the agent asked to move); `departing` is moving now and
@@ -176,6 +184,7 @@ export const OrchestrationV2ThreadHandoff = Schema.Union([
     environmentId: EnvironmentId,
     label: Schema.String,
     continuationPrompt: Schema.optional(Schema.String),
+    wrapUp: Schema.optional(OrchestrationV2ThreadHandoffWrapUp),
   }),
   Schema.Struct({
     state: Schema.Literal("departing"),
@@ -183,6 +192,7 @@ export const OrchestrationV2ThreadHandoff = Schema.Union([
     environmentId: EnvironmentId,
     label: Schema.String,
     continuationPrompt: Schema.optional(Schema.String),
+    wrapUp: Schema.optional(OrchestrationV2ThreadHandoffWrapUp),
     /** Why the last attempt did not finish; the move retries until the other side answers. */
     lastError: Schema.optional(Schema.String),
   }),
@@ -694,7 +704,11 @@ export const OrchestrationV2ParkedWaitWoke = Schema.Struct({
 });
 export type OrchestrationV2ParkedWaitWoke = typeof OrchestrationV2ParkedWaitWoke.Type;
 
-export { OrchestrationV2ThreadArcRun, OrchestrationV2ThreadAutonomousRun, OrchestrationV2ThreadDecisionEntry } from "./autonomousRun.ts";
+export {
+  OrchestrationV2ThreadArcRun,
+  OrchestrationV2ThreadAutonomousRun,
+  OrchestrationV2ThreadDecisionEntry,
+} from "./autonomousRun.ts";
 
 /**
  * How a watched thread in a linked environment ended, as that environment reported it, so the

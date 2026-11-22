@@ -199,10 +199,7 @@ import {
   isExclusiveRunStartCommand,
   withoutThreadRun,
 } from "./arcRun.ts";
-import {
-  dispatchAutonomousRun,
-  dispatchAutonomousRunWake,
-} from "./autonomousRunDispatch.ts";
+import { dispatchAutonomousRun, dispatchAutonomousRunWake } from "./autonomousRunDispatch.ts";
 import { PAUSED_TASK_RESUME_MESSAGE_PREFIX } from "./serverContinuation.ts";
 import {
   isBufferedProviderNotification,
@@ -2269,7 +2266,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         delivery == null ||
         delivery.taskIds.length === 0 ||
         controls.thread.archivedAt !== null ||
-        controls.thread.deletedAt !== null
+        controls.thread.deletedAt !== null ||
+        // A move holds results for the thread's notice there; one called off offers them again.
+        (controls.thread.handoff !== undefined && controls.thread.handoff.state !== "failed")
       )
         return;
       const messages = yield* projectionStore.getThreadRecords(threadId, ["messages"], {
@@ -9166,7 +9165,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const worktreeSetupUnresolved = worktreeSetupPending(projection);
     for (const runId of runMessagePlan.cancelWakeRunIds) {
       yield* dispatchQueuedRunCancel(
-        { type: "queued-run.cancel", commandId: command.commandId, threadId: command.threadId, runId },
+        {
+          type: "queued-run.cancel",
+          commandId: command.commandId,
+          threadId: command.threadId,
+          runId,
+        },
         events,
       );
     }
@@ -9175,7 +9179,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       projection = {
         ...projection,
         thread: runMessagePlan.updatedThread,
-        runs: cancelled.size === 0 ? projection.runs : projection.runs.filter((run) => !cancelled.has(run.id)),
+        runs:
+          cancelled.size === 0
+            ? projection.runs
+            : projection.runs.filter((run) => !cancelled.has(run.id)),
       };
       yield* emit(
         events,
@@ -14760,14 +14767,24 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     if (stopRun.updatedThread !== undefined) {
       for (const runId of stopRun.cancelWakeRunIds) {
         yield* dispatchQueuedRunCancel(
-          { type: "queued-run.cancel", commandId: input.command.commandId, threadId: thread.id, runId },
+          {
+            type: "queued-run.cancel",
+            commandId: input.command.commandId,
+            threadId: thread.id,
+            runId,
+          },
           input.events,
         );
       }
       const cancelled = new Set(stopRun.cancelWakeRunIds);
       runs = cancelled.size === 0 ? runs : runs.filter((run) => !cancelled.has(run.id));
       thread = stopRun.updatedThread;
-      yield* emitEvent({ type: "thread.metadata-updated", threadId: thread.id, occurredAt: input.now, payload: thread });
+      yield* emitEvent({
+        type: "thread.metadata-updated",
+        threadId: thread.id,
+        occurredAt: input.now,
+        payload: thread,
+      });
     }
     let recovery = thread.limitRecovery;
     const latest = latestExecutedRun(runs);
@@ -17596,9 +17613,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           childAwaitsRestartContinuation,
         };
         if (command.type === "thread.arc-run") {
-          yield* mapDispatchError(command)(dispatchAutonomousRun(autonomousRunDeps, command, events));
+          yield* mapDispatchError(command)(
+            dispatchAutonomousRun(autonomousRunDeps, command, events),
+          );
         } else {
-          yield* mapDispatchError(command)(dispatchAutonomousRunWake(autonomousRunDeps, command, events, effects));
+          yield* mapDispatchError(command)(
+            dispatchAutonomousRunWake(autonomousRunDeps, command, events, effects),
+          );
         }
         break;
       }
@@ -18429,6 +18450,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     }
     if (
       command.type === "notification.delivery.accept" ||
+      (command.type === "thread.handoff.update" &&
+        (command.handoff === null || command.handoff.state === "failed")) ||
       // A steer restart that settled a wake can reserve the next one for its siblings.
       ((command.type === "message.dispatch" ||
         command.type === "queued-message.promote-to-steer") &&

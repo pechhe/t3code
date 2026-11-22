@@ -17,6 +17,7 @@ import {
   OrchestratorMcpFailure,
   type Project,
   ProjectId,
+  ProviderDriverKind,
   ProviderInstanceId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -205,7 +206,8 @@ const layerOrchestration = (
         ...(holdTurn === undefined ? {} : { holdTurn }),
       }),
     ),
-    { databaseLayer: layerDatabase },
+    // Delegated results wake the thread as they do in the app.
+    { databaseLayer: layerDatabase, runContinuationWorker: true },
   );
   return ThreadManagement.layer.pipe(
     Layer.provide(CommandReceiptStore.layer.pipe(Layer.provide(layerDatabase))),
@@ -321,7 +323,7 @@ const makeLaptop = (
     call: PeerMcpClient.PeerMcpClient["Service"]["call"],
   ) => PeerMcpClient.PeerMcpClient["Service"]["call"],
   /** The laptop's project is its No project. */
-  options: { readonly scratch?: boolean } = {},
+  options: { readonly scratch?: boolean; readonly wrapUpBound?: Duration.Duration } = {},
 ) =>
   Effect.gen(function* () {
     const linking = yield* layerLinkingEnvironment(laptop).pipe(Layer.build);
@@ -350,6 +352,11 @@ const makeLaptop = (
       Layer.provideMerge(PeerForwarding.layer.pipe(Layer.provide(layerPeers))),
       // Unanswered moves are rechecked as soon as asked.
       Layer.provide(Layer.succeed(ThreadHandoff.UnansweredMoveRecheck, Duration.zero)),
+      Layer.provide(
+        options.wrapUpBound === undefined
+          ? Layer.empty
+          : Layer.succeed(ThreadHandoff.WrapUpBound, options.wrapUpBound),
+      ),
       Layer.provide(Layer.succeed(RemoteDelegation.FollowRetrySchedule, Schedule.forever)),
       Layer.provide(HandoffGit.layer),
       Layer.provide(
@@ -1396,6 +1403,322 @@ it.live("a running thread moves once the user stops its turn to move it", () =>
       // Only the stopped turn ran: the move itself starts none there.
       expect((yield* b.orchestrator.getThreadProjection(moved.threadId)).runs).toEqual([]);
       expect(yield* Ref.get(turns)).toHaveLength(1);
+    }),
+  ).pipe(Effect.provide(layerTestHost)),
+);
+
+/** Holds each thread's turns until that thread's gate opens: a steered turn waits on it again. */
+const makeGates = (turns: Ref.Ref<ReadonlyArray<CapturedTurn>>) => {
+  const gates = new Map<string, Deferred.Deferred<void>>();
+  const gate = (id: string) =>
+    Effect.gen(function* () {
+      const existing = gates.get(id);
+      if (existing !== undefined) return existing;
+      const made = yield* Deferred.make<void>();
+      gates.set(id, made);
+      return made;
+    });
+  return {
+    // The adapter records a turn just before holding it, so the last one recorded is this one.
+    hold: Effect.gen(function* () {
+      const id = (yield* Ref.get(turns)).at(-1)?.threadId ?? "";
+      yield* Deferred.await(yield* gate(id));
+    }),
+    release: (id: ThreadId) =>
+      Effect.flatMap(gate(id), (opened) => Deferred.succeed(opened, undefined)),
+  };
+};
+
+/**
+ * The laptop's thread mid-turn has delegated tasks, then its own turn ended with them still
+ * working.
+ */
+const delegateThenIdle = (
+  a: Effect.Success<ReturnType<typeof makeLaptop>>,
+  laptopRepo: string,
+  gates: ReturnType<typeof makeGates>,
+  titles: ReadonlyArray<string> = ["Review the login fix"],
+) =>
+  Effect.gen(function* () {
+    yield* createThread(a, laptopRepo);
+    yield* a.orchestrator.dispatch({
+      type: "message.dispatch",
+      createdBy: "user",
+      creationSource: "web",
+      commandId: CommandId.make("command:send:delegate"),
+      threadId,
+      messageId: MessageId.make("message:delegate"),
+      text: "Have a reviewer check the login fix.",
+      attachments: [],
+      dispatchMode: { type: "start_immediately" },
+    });
+    const live = yield* awaitOrchestratorState(
+      a.orchestrator,
+      a.orchestrator.getThreadProjection(threadId),
+      (projection) => projection.providerTurns.some((turn) => turn.status === "running"),
+    );
+    const parentRun = live.runs.at(-1)!;
+    for (const title of titles) {
+      yield* a.orchestrator.dispatch({
+        type: "delegated_task.request",
+        commandId: CommandId.make(`command:delegate:${title}`),
+        parentThreadId: threadId,
+        parentRunId: parentRun.id,
+        parentNodeId: parentRun.rootNodeId!,
+        task: `${title}.`,
+        title,
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        completionWake: "always",
+        createdBy: "agent",
+        creationSource: "mcp",
+      });
+      yield* awaitOrchestratorState(
+        a.orchestrator,
+        a.orchestrator.getThreadProjection(threadId),
+        (projection) =>
+          projection.subagents.some((task) => task.title === title && task.status === "running"),
+      );
+    }
+    yield* gates.release(threadId);
+    const idleNow = yield* awaitOrchestratorState(
+      a.orchestrator,
+      a.orchestrator.getThreadProjection(threadId),
+      (projection) => projection.runs.every((run) => run.status === "completed"),
+    );
+    return titles.map((title) => {
+      const task = idleNow.subagents.find((each) => each.title === title)!;
+      return { task, childThreadId: task.childThreadId! };
+    });
+  });
+
+const textsOf = (orchestrator: Orchestrator.OrchestratorV2["Service"], id: ThreadId) =>
+  orchestrator
+    .getThreadProjection(id)
+    .pipe(Effect.map((projection) => projection.messages.map((message) => message.text)));
+
+it.live(
+  "a thread moves once its working delegated tasks have wrapped up, carrying their handoffs",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const path = yield* Path.Path;
+        const { root, laptopRepo, boxRepo } = yield* makeRepos;
+        const turns = yield* Ref.make<ReadonlyArray<CapturedTurn>>([]);
+        const b = yield* serveBox(boxRepo, path.join(root, "box-state"), turns);
+        const gates = makeGates(turns);
+        const a = yield* makeLaptop(laptopRepo, turns, gates.hold);
+        yield* linkTo(a.links, b, "full-access");
+        yield* a.handoff.start_();
+        const [review, retries] = yield* delegateThenIdle(a, laptopRepo, gates, [
+          "Review the login fix",
+          "Check the flaky retries",
+        ]);
+
+        const [option] = yield* a.handoff.options(threadId);
+        expect(option?.wrapsUp).toBe(2);
+        const pending = yield* a.handoff.start({ threadId, environmentId: box.environmentId });
+        expect(pending.state).toBe("pending");
+        expect(pending.state === "pending" ? pending.wrapUp?.taskIds : undefined).toEqual([
+          review!.task.id,
+          retries!.task.id,
+        ]);
+        expect((yield* textsOf(a.orchestrator, review!.childThreadId)).at(-1)).toContain(
+          "Wrap up now",
+        );
+
+        // The first result is held for the notice: it neither wakes the thread here nor ends the wait.
+        yield* gates.release(review!.childThreadId);
+        yield* awaitOrchestratorState(
+          a.orchestrator,
+          a.orchestrator.getThreadProjection(threadId),
+          (current) =>
+            current.subagents.some(
+              (task) => task.id === review!.task.id && task.completionDelivery?.state === "claimed",
+            ),
+        );
+        yield* gates.release(retries!.childThreadId);
+        const projection = yield* awaitOrchestratorState(
+          a.orchestrator,
+          a.orchestrator.getThreadProjection(threadId),
+          (current) => current.thread.handoff?.state === "departed",
+        );
+        // The task's result started no turn here, and the move starts none there.
+        expect(projection.runs.map((run) => run.status)).toEqual(["completed"]);
+        const moved = projection.thread.handoff;
+        if (moved?.state !== "departed") return yield* Effect.die("not departed");
+        const there = yield* b.orchestrator.getThreadProjection(moved.threadId);
+        expect(there.runs).toEqual([]);
+        const notice = there.messages.at(-1)?.text ?? "";
+        expect(notice).toContain("### Review the login fix");
+        expect(notice).toContain("### Check the flaky retries");
+        expect(notice).toContain("laptop replied.");
+      }),
+    ).pipe(Effect.provide(layerTestHost)),
+);
+
+it.live(
+  "a delegated task that has not handed off when the wait runs out is stopped, and the thread moves",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const path = yield* Path.Path;
+        const { root, laptopRepo, boxRepo } = yield* makeRepos;
+        const turns = yield* Ref.make<ReadonlyArray<CapturedTurn>>([]);
+        const b = yield* serveBox(boxRepo, path.join(root, "box-state"), turns);
+        const gates = makeGates(turns);
+        const a = yield* makeLaptop(laptopRepo, turns, gates.hold, undefined, {
+          wrapUpBound: Duration.zero,
+        });
+        yield* linkTo(a.links, b, "full-access");
+        const [working] = yield* delegateThenIdle(a, laptopRepo, gates);
+        const childThreadId = working!.childThreadId;
+        yield* a.handoff.start({ threadId, environmentId: box.environmentId });
+        // The sweep finds the wait over at once.
+        yield* a.handoff.start_();
+        const projection = yield* awaitOrchestratorState(
+          a.orchestrator,
+          a.orchestrator.getThreadProjection(threadId),
+          (current) => current.thread.handoff?.state === "departed",
+        );
+        const child = yield* a.orchestrator.getThreadProjection(childThreadId);
+        expect(child.runs.map((run) => run.status)).toEqual(["interrupted"]);
+        const moved = projection.thread.handoff;
+        if (moved?.state !== "departed") return yield* Effect.die("not departed");
+        const notice = (yield* textsOf(b.orchestrator, moved.threadId)).at(-1) ?? "";
+        expect(notice).toContain("### Review the login fix");
+        expect(notice).toMatch(/without a handoff|so it was stopped/);
+      }),
+    ).pipe(Effect.provide(layerTestHost)),
+);
+
+it.live(
+  "keeping a thread here tells its delegated task to carry on, and its result arrives as before",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const path = yield* Path.Path;
+        const { root, laptopRepo, boxRepo } = yield* makeRepos;
+        const turns = yield* Ref.make<ReadonlyArray<CapturedTurn>>([]);
+        const b = yield* serveBox(boxRepo, path.join(root, "box-state"), turns);
+        const gates = makeGates(turns);
+        const a = yield* makeLaptop(laptopRepo, turns, gates.hold);
+        yield* linkTo(a.links, b, "full-access");
+        yield* a.handoff.start_();
+        const [working] = yield* delegateThenIdle(a, laptopRepo, gates);
+        const { childThreadId } = working!;
+        yield* a.handoff.start({ threadId, environmentId: box.environmentId });
+        yield* a.handoff.cancel(threadId);
+        expect((yield* textsOf(a.orchestrator, childThreadId)).at(-1)).toContain("The move is off");
+
+        // Its result wakes the thread here, which no longer waits to move.
+        yield* gates.release(childThreadId);
+        const projection = yield* awaitOrchestratorState(
+          a.orchestrator,
+          a.orchestrator.getThreadProjection(threadId),
+          (current) => current.runs.length === 2 && current.runs[1]!.status === "completed",
+        );
+        expect(projection.thread.handoff).toBeUndefined();
+      }),
+    ).pipe(Effect.provide(layerTestHost)),
+);
+
+it.live("a move asks a delegated task on a linked machine to wrap up, and carries its result", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const { root, laptopRepo, boxRepo } = yield* makeRepos;
+      const turns = yield* Ref.make<ReadonlyArray<CapturedTurn>>([]);
+      const b = yield* serveBox(boxRepo, path.join(root, "box-state"), turns);
+      const gates = makeGates(turns);
+      const a = yield* makeLaptop(laptopRepo, turns, gates.hold);
+      yield* linkTo(a.links, b, "full-access");
+      yield* a.handoff.start_();
+      // The task's thread on the box, as delegating there would have made it.
+      const thereId = ThreadId.make("thread:box-suite");
+      yield* b.orchestrator.dispatch({
+        type: "thread.create",
+        createdBy: "agent",
+        creationSource: "mcp",
+        commandId: CommandId.make("command:create:box-suite"),
+        threadId: thereId,
+        projectId: ProjectId.make("project:box"),
+        title: "Run the suite there",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: boxRepo,
+      });
+      yield* createThread(a, laptopRepo);
+      yield* a.orchestrator.dispatch({
+        type: "message.dispatch",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make("command:send:remote-delegate"),
+        threadId,
+        messageId: MessageId.make("message:remote-delegate"),
+        text: "Run the suite on the box.",
+        attachments: [],
+        dispatchMode: { type: "start_immediately" },
+      });
+      const live = yield* awaitOrchestratorState(
+        a.orchestrator,
+        a.orchestrator.getThreadProjection(threadId),
+        (projection) => projection.providerTurns.some((turn) => turn.status === "running"),
+      );
+      const parentRun = live.runs.at(-1)!;
+      yield* a.orchestrator.dispatch({
+        type: "delegated_task.remote.request",
+        commandId: CommandId.make("command:remote-delegate:suite"),
+        parentThreadId: threadId,
+        parentRunId: parentRun.id,
+        parentNodeId: parentRun.rootNodeId!,
+        task: "Run the suite there.",
+        title: "Run the suite there",
+        driver: ProviderDriverKind.make("remote"),
+        modelSelection,
+        remoteChild: { environmentId: box.environmentId, threadId: thereId, label: "Box" },
+        completionWake: "always",
+      });
+      yield* gates.release(threadId);
+      const idleNow = yield* awaitOrchestratorState(
+        a.orchestrator,
+        a.orchestrator.getThreadProjection(threadId),
+        (projection) => projection.runs.every((run) => run.status === "completed"),
+      );
+      const task = idleNow.subagents[0]!;
+
+      expect((yield* a.handoff.options(threadId))[0]?.wrapsUp).toBe(1);
+      yield* a.handoff.start({ threadId, environmentId: box.environmentId });
+      // The request crosses the link into the task's own thread there.
+      yield* awaitOrchestratorState(
+        b.orchestrator,
+        b.orchestrator.getThreadProjection(thereId),
+        (projection) => projection.messages.some((message) => message.text.includes("Wrap up now")),
+      );
+
+      // The box's report of how the task ended, as RemoteDelegation brings it back.
+      yield* a.orchestrator.dispatch({
+        type: "delegated_task.remote.complete",
+        commandId: CommandId.make("command:remote-complete:suite"),
+        parentThreadId: threadId,
+        taskId: task.id,
+        status: "completed",
+        result: "The suite passes on the box; the flaky retry is fixed.",
+      });
+      const projection = yield* awaitOrchestratorState(
+        a.orchestrator,
+        a.orchestrator.getThreadProjection(threadId),
+        (current) => current.thread.handoff?.state === "departed",
+      );
+      expect(projection.runs.map((run) => run.status)).toEqual(["completed"]);
+      const moved = projection.thread.handoff;
+      if (moved?.state !== "departed") return yield* Effect.die("not departed");
+      const notice = (yield* textsOf(b.orchestrator, moved.threadId)).at(-1) ?? "";
+      expect(notice).toContain("### Run the suite there");
+      expect(notice).toContain("The suite passes on the box; the flaky retry is fixed.");
     }),
   ).pipe(Effect.provide(layerTestHost)),
 );

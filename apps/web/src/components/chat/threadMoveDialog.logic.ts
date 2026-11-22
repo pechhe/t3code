@@ -6,6 +6,8 @@ export interface ThreadMoveTarget {
   readonly candidates?:
     | ReadonlyArray<{ readonly projectId: string; readonly title: string }>
     | undefined;
+  /** Delegated tasks still working, which the move asks to wrap up and hand off first. */
+  readonly wrapsUp?: number | undefined;
 }
 
 /** One "Continue on…" choice as a menu id: the environment, and the project there when it is named. */
@@ -34,6 +36,8 @@ export interface ThreadMoveDialogCopy {
   readonly canMove: boolean;
   /** The thread is mid-turn: moving it stops that turn first. */
   readonly stopsTurn: boolean;
+  /** Delegated tasks the move asks to wrap up first. */
+  readonly wrapsUp: number;
   /** Projects to choose between before the move can start. */
   readonly choices: ReadonlyArray<{ readonly projectId: string; readonly title: string }>;
 }
@@ -53,7 +57,7 @@ export function threadMoveDialogCopy(input: {
   const ask = `Move this thread to ${target.label}?`;
   const refused = `Can't move this thread to ${target.label}`;
   const stopsTurn = input.running;
-  const closed = { canMove: false, stopsTurn, choices: [] };
+  const closed = { canMove: false, stopsTurn, wrapsUp: 0, choices: [] };
   if (input.options === undefined) {
     return { title: ask, description: `Checking ${target.label}…`, ...closed };
   }
@@ -75,20 +79,28 @@ export function threadMoveDialogCopy(input: {
   if (option.reason !== null) {
     return { title: refused, description: option.reason, ...closed };
   }
+  const wrapsUp = option.wrapsUp ?? 0;
+  const tasks = wrapsUp === 1 ? "1 delegated task" : `${wrapsUp} delegated tasks`;
+  const wrapUp =
+    wrapsUp === 0
+      ? ""
+      : `${tasks} still working here ${wrapsUp === 1 ? "is" : "are"} asked to wrap up and hand off first, and the thread moves with ${wrapsUp === 1 ? "its handoff" : "their handoffs"}. `;
   if (option.candidates !== undefined && option.candidates.length > 0) {
     return {
       title: ask,
-      description: `Several projects on ${target.label} have this repository. Choose which one continues the thread${stopsTurn ? "; its running turn stops first" : ""}.`,
+      description: `${wrapUp}Several projects on ${target.label} have this repository. Choose which one continues the thread${stopsTurn ? "; its running turn stops first" : ""}.`,
       canMove: false,
       stopsTurn,
+      wrapsUp,
       choices: option.candidates,
     };
   }
   return {
     title: ask,
-    description: `${stopsTurn ? "This thread is mid-turn: moving it stops the turn here first. " : ""}The conversation and its work, including uncommitted and unpushed changes, continue in a new thread on ${target.label}. This copy is archived here, and the new one opens in its place.`,
+    description: `${stopsTurn ? "This thread is mid-turn: moving it stops the turn here first. " : ""}${wrapUp}The conversation and its work, including uncommitted and unpushed changes, continue in a new thread on ${target.label}. This copy is archived here, and the new one opens in its place.`,
     canMove: true,
     stopsTurn,
+    wrapsUp,
     choices: [],
   };
 }

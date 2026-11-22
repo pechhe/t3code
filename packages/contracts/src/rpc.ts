@@ -1063,6 +1063,8 @@ const WsThreadHandoffOptionsRpc = Rpc.make(WS_METHODS.threadHandoffOptions, {
         candidates: Schema.optional(
           Schema.Array(Schema.Struct({ projectId: ProjectId, title: Schema.String })),
         ),
+        /** Delegated tasks still working, which the move asks to wrap up and hand off first. */
+        wrapsUp: Schema.optional(Schema.Number),
       }),
     ),
   }),

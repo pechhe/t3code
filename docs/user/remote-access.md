@@ -501,7 +501,7 @@ thread's long-press or header menu on mobile, then pick the machine. When the
 composer shows a two-machine switch, clicking it on a started thread asks
 whether to move the thread to the other machine. It continues
 there in a new workspace of the project with the same repository, and the copy
-here becomes read-only with a link to it. Ignored files such as `.env` stay
+here is archived (unarchive it to see it again). Ignored files such as `.env` stay
 behind, and a move larger than 50 MB asks you to push the branch first. The
 machine must be linked with full access.
 
@@ -513,9 +513,11 @@ What the thread is waiting on moves with it: its waits on threads, Build items, 
 a time or your answer, and its pull request watches. They wake the thread on the new machine, once each,
 and the first message there lists them. A wait on a thread that stays behind becomes a
 wait across the link, so the new machine needs a link back to this one. A thread can't
-move while a background command, a delegated task or a landing in progress is still
-running, because those can't follow it; let them finish or stop them first. A delegated
-task's own thread stays with the thread that started it.
+move while a background command or a landing in progress is still running, because those
+can't follow it; let them finish or stop them first. Delegated tasks still working are
+asked to wrap up and hand off first: the thread moves once they have, with each handoff in
+its history, and a task still working after 10 minutes is stopped. Their own threads stay
+on this machine. A delegated task's own thread stays with the thread that started it.
 
 If the other machine's branch has commits this one lacks, the move is refused
 and nothing changes on either side. If the connection drops mid-move, the

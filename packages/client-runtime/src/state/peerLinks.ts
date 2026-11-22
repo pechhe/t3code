@@ -86,12 +86,17 @@ export function threadHandoffNotice(
 } | null {
   if (handoff === null || handoff === undefined) return null;
   switch (handoff.state) {
-    case "pending":
+    case "pending": {
+      const tasks = handoff.wrapUp?.taskIds.length ?? 0;
       return {
         tone: "info",
-        title: `Moving to ${handoff.label} when this turn ends`,
+        title:
+          tasks === 0
+            ? `Moving to ${handoff.label} when this turn ends`
+            : `Moving to ${handoff.label} once ${tasks === 1 ? "its delegated task hands" : `${tasks} delegated tasks hand`} off`,
         detail: "Send a message to keep it here instead.",
       };
+    }
     case "departing":
       return handoff.lastError === undefined
         ? { tone: "info", title: `Moving to ${handoff.label}…`, detail: null }
