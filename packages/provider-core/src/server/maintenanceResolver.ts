@@ -4,6 +4,7 @@ export type {
   ProviderComponentUpdate,
   ProviderMaintenanceCapabilities,
   ProviderMaintenanceCommandAction,
+  ProviderMaintenanceCommandStep,
 } from "@t3tools/provider-core/server/maintenance";
 import type {
   ProviderComponentUpdate,

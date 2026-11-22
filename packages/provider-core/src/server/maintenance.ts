@@ -47,11 +47,16 @@ export interface ProviderMaintenanceCapabilities {
   >;
 }
 
-export interface ProviderMaintenanceCommandAction {
-  readonly command: string;
+export interface ProviderMaintenanceCommandStep {
   readonly executable: string;
   readonly args: ReadonlyArray<string>;
+}
+
+export interface ProviderMaintenanceCommandAction extends ProviderMaintenanceCommandStep {
+  readonly command: string;
   readonly lockKey: string;
   /** The provider's environment, including its PATH and custom home. */
   readonly env?: NodeJS.ProcessEnv;
+  /** Run in order once the command succeeds, with the same environment. */
+  readonly followUps?: ReadonlyArray<ProviderMaintenanceCommandStep>;
 }

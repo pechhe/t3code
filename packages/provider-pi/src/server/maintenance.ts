@@ -21,6 +21,14 @@ import { piAgentDirectory } from "./compaction.ts";
 const DRIVER_KIND = ProviderDriverKind.make("pi");
 const PI_BOLT_PACKAGE = "pi-bolt";
 
+// Pi-Bolt replaces itself only when its installer put it there; a package manager's copy
+// updates through that package manager, and `update --all` then exits 1 after the packages.
+const PI_BOLT_PACKAGE_MANAGED = makePackageManagedProviderMaintenanceResolver({
+  provider: DRIVER_KIND,
+  npmPackageName: PI_BOLT_PACKAGE,
+  nativeUpdate: null,
+});
+
 const NODE_PI = makePackageManagedProviderMaintenanceResolver({
   provider: DRIVER_KIND,
   npmPackageName: "@earendil-works/pi-coding-agent",
@@ -112,6 +120,58 @@ export function isPiBoltCommandPath(commandPath: string): boolean {
   return /(?:^|[\\/])(?:\.?pi-bolt)(?:[\\/]|\.exe$|$)/i.test(commandPath);
 }
 
+/** The installer's layout, `<dir>/pi-bolt-<platform>/pi`, as Pi-Bolt's own install check reads it. */
+export function isPiBoltInstallerPath(realCommandPath: string): boolean {
+  return (
+    /[\\/]pi-bolt-(?:linux|darwin|win32)-[^\\/]+[\\/][^\\/]+$/i.test(realCommandPath) &&
+    !/[\\/]npm[\\/]\d+\.\d+\.\d+[\\/]pi-bolt-/i.test(realCommandPath) &&
+    !/[\\/](?:Cellar[\\/]pi-bolt|scoop[\\/]apps[\\/]pi-bolt|mise[\\/]installs)[\\/]/i.test(
+      realCommandPath,
+    )
+  );
+}
+
+const PI_BOLT_EXTENSIONS_UPDATE_ARGS = ["update", "--extensions"];
+
+const resolvePiBoltUpdate = Effect.fn("PiMaintenance.resolvePiBoltUpdate")(function* (
+  context: ProviderMaintenanceResolutionContext,
+) {
+  if (isPiBoltInstallerPath(context.realCommandPath)) {
+    // One action brings Pi-Bolt and every package current, in this instance's agent directory.
+    return makeProviderMaintenanceCapabilities({
+      provider: DRIVER_KIND,
+      packageName: PI_BOLT_PACKAGE,
+      updateExecutable: context.resolvedCommandPath,
+      updateArgs: ["update", "--all"],
+      updateLockKey: `pi-bolt:${context.realCommandPath}`,
+      env: context.env,
+      platform: context.platform,
+    });
+  }
+  const packageManaged = yield* PI_BOLT_PACKAGE_MANAGED.resolve(context);
+  const packages = makeProviderMaintenanceCapabilities({
+    provider: DRIVER_KIND,
+    packageName: PI_BOLT_PACKAGE,
+    updateExecutable: context.resolvedCommandPath,
+    updateArgs: PI_BOLT_EXTENSIONS_UPDATE_ARGS,
+    updateLockKey: `pi-bolt:${context.realCommandPath}`,
+    env: context.env,
+    platform: context.platform,
+  }).update;
+  const update = packageManaged.update;
+  if (update === null || packages === null) return { ...packageManaged, update: packages };
+  return {
+    ...packageManaged,
+    update: {
+      ...update,
+      command: `${update.command} && ${packages.command}`,
+      // The packages step must reach this instance's agent directory.
+      env: context.env,
+      followUps: [{ executable: packages.executable, args: packages.args }],
+    },
+  };
+});
+
 const resolvePiBoltMaintenance = Effect.fn("PiMaintenance.resolvePiBolt")(function* (
   context: ProviderMaintenanceResolutionContext,
 ) {
@@ -120,16 +180,7 @@ const resolvePiBoltMaintenance = Effect.fn("PiMaintenance.resolvePiBolt")(functi
   const installedVersion = versionOutput === null ? null : parsePiBoltVersion(versionOutput);
   const agentDir = piAgentDirectory(context.env);
   const packageNames = agentDir === null ? [] : yield* readPiNpmPackageNames(agentDir);
-  const capabilities = makeProviderMaintenanceCapabilities({
-    provider: DRIVER_KIND,
-    packageName: PI_BOLT_PACKAGE,
-    updateExecutable: context.resolvedCommandPath,
-    // One action brings Pi-Bolt and every package current, in this instance's agent directory.
-    updateArgs: ["update", "--all"],
-    updateLockKey: `pi-bolt:${context.realCommandPath}`,
-    env: context.env,
-    platform: context.platform,
-  });
+  const capabilities = yield* resolvePiBoltUpdate(context);
   return {
     ...capabilities,
     installedVersion,

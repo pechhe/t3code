@@ -19,6 +19,7 @@ import {
 
 import {
   isPiBoltCommandPath,
+  isPiBoltInstallerPath,
   parsePiBoltVersion,
   PI_MAINTENANCE,
   unversionedNpmPackageName,
@@ -49,6 +50,15 @@ const writeFile = (path: string, content: string, mode?: number) => {
   NodeFS.mkdirSync(NodePath.dirname(path), { recursive: true });
   NodeFS.writeFileSync(path, content);
   if (mode !== undefined) NodeFS.chmodSync(path, mode);
+};
+
+/** `<root>/bin/pi-bolt` links to the executable at `target`, as installers and npm lay it out. */
+const linkPiBolt = (root: string, target: string) => {
+  const binDir = NodePath.join(root, "bin");
+  writeFile(NodePath.join(root, target), "#!/bin/sh\n", 0o755);
+  NodeFS.mkdirSync(binDir, { recursive: true });
+  NodeFS.symlinkSync(NodePath.join(root, target), NodePath.join(binDir, "pi-bolt"));
+  return binDir;
 };
 
 const piProvider: ServerProvider = {
@@ -94,6 +104,48 @@ it.each([
   expect(isPiBoltCommandPath(path)).toBe(expected);
 });
 
+it.each([
+  ["/home/me/.pi-bolt/pi-bolt-linux-x64/pi", true],
+  ["C:\\Users\\me\\.pi-bolt\\pi-bolt-win32-x64\\pi.exe", true],
+  ["/home/me/.pi-bolt/npm/1.2.1/pi-bolt-linux-x64/pi", false],
+  ["/usr/lib/node_modules/pi-bolt/bin/pi-bolt.exe", false],
+  ["/opt/homebrew/Cellar/pi-bolt/1.2.1/libexec/pi-bolt-darwin-arm64/pi", false],
+])("lets Pi-Bolt replace itself only when its installer put it at %j", (path, expected) => {
+  expect(isPiBoltInstallerPath(path)).toBe(expected);
+});
+
+it.effect("updates an npm-installed Pi-Bolt through npm, then its packages", () =>
+  Effect.gen(function* () {
+    const root = NodeFS.mkdtempSync(
+      NodePath.join(NodeFS.realpathSync(NodeOS.tmpdir()), "pi-bolt-"),
+    );
+    const prefix = NodePath.join(root, "prefix");
+    const binDir = linkPiBolt(prefix, "lib/node_modules/pi-bolt/bin/pi-bolt.exe");
+    const agentDir = NodePath.join(root, "agent");
+    const env = { PATH: binDir, PI_CODING_AGENT_DIR: agentDir };
+    const capabilities = yield* resolveProviderMaintenanceCapabilitiesEffect(PI_MAINTENANCE, {
+      binaryPath: "pi-bolt",
+      env,
+    }).pipe(
+      Effect.provideService(HostProcess.Environment, env),
+      Effect.provideService(
+        ChildProcessSpawner.ChildProcessSpawner,
+        versionSpawner("1.5.2 (Pi-Bolt 1.2.1, linux-x64, JIT off)\n", []),
+      ),
+    );
+    expect(capabilities.installedVersion).toBe("1.2.1");
+    expect(capabilities.update).toMatchObject({
+      executable: "npm",
+      args: ["install", "-g", "--prefix", prefix, "--allow-scripts=pi-bolt", "pi-bolt@latest"],
+      env: { PI_CODING_AGENT_DIR: agentDir },
+      followUps: [
+        { executable: NodePath.join(binDir, "pi-bolt"), args: ["update", "--extensions"] },
+      ],
+    });
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
 it.effect(
   "offers Pi-Bolt and its outdated npm packages, updating the instance's agent directory",
   () =>
@@ -101,9 +153,8 @@ it.effect(
       const root = NodeFS.mkdtempSync(
         NodePath.join(NodeFS.realpathSync(NodeOS.tmpdir()), "pi-bolt-"),
       );
-      const binDir = NodePath.join(root, "bin");
+      const binDir = linkPiBolt(root, ".pi-bolt/pi-bolt-linux-x64/pi");
       const agentDir = NodePath.join(root, "agent");
-      writeFile(NodePath.join(binDir, "pi-bolt"), "#!/bin/sh\n", 0o755);
       writeFile(
         NodePath.join(agentDir, "settings.json"),
         JSON.stringify({

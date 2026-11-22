@@ -34,6 +34,7 @@ import {
   resolveLatestProviderUpdateAction,
   resolveLatestProviderVersion,
   type ProviderMaintenanceCommandAction,
+  type ProviderMaintenanceCommandStep,
 } from "@t3tools/provider-core/server/maintenanceResolver";
 import * as ProviderLatestVersions from "@t3tools/provider-core/server/ProviderLatestVersions";
 import type { ProviderMaintenanceCapabilities } from "@t3tools/provider-core/server/maintenanceResolver";
@@ -243,8 +244,12 @@ export function toProgressLine(line: string): string | null {
 }
 
 function describeCommand(command: ProviderMaintenanceCommandAction): string {
-  const executable = command.executable.split(/[\\/]/).pop() || command.executable;
-  return [executable, ...command.args].join(" ");
+  return [command, ...(command.followUps ?? [])]
+    .map((step) => {
+      const executable = step.executable.split(/[\\/]/).pop() || step.executable;
+      return [executable, ...step.args].join(" ");
+    })
+    .join(" && ");
 }
 
 function trimNullable(value: string): string | null {
@@ -324,17 +329,34 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
   const httpClient = yield* HttpClient.HttpClient;
   const latestVersions = yield* ProviderLatestVersions.ProviderLatestVersions;
   const installationGate = yield* ProviderInstallationGate.ProviderInstallationGate;
-  const runMaintenanceCommand = (
-    update: ProviderMaintenanceCommandAction,
-    onProgress: (line: string) => Effect.Effect<void>,
-  ) =>
-    runProviderMaintenanceCommandWithSpawner({
-      spawner,
-      command: update.executable,
-      args: update.args,
-      onProgress,
-      ...(update.env ? { env: update.env } : {}),
-    });
+  const runMaintenanceCommand = Effect.fn("ProviderMaintenanceRunner.runMaintenanceCommand")(
+    function* (
+      update: ProviderMaintenanceCommandAction,
+      onProgress: (line: string) => Effect.Effect<void>,
+    ) {
+      const runStep = (step: ProviderMaintenanceCommandStep) =>
+        runProviderMaintenanceCommandWithSpawner({
+          spawner,
+          command: step.executable,
+          args: step.args,
+          onProgress,
+          ...(update.env ? { env: update.env } : {}),
+        });
+      let combined: ProviderMaintenanceCommandResult = yield* runStep(update);
+      for (const step of update.followUps ?? []) {
+        if (combined.timedOut || combined.exitCode !== 0) break;
+        const result = yield* runStep(step);
+        combined = {
+          ...result,
+          stdout: [combined.stdout, result.stdout].filter(Boolean).join("\n"),
+          stderr: [combined.stderr, result.stderr].filter(Boolean).join("\n"),
+          stdoutTruncated: combined.stdoutTruncated || result.stdoutTruncated,
+          stderrTruncated: combined.stderrTruncated || result.stderrTruncated,
+        };
+      }
+      return combined;
+    },
+  );
   // Instances with other homes or accounts can still run the binary this update replaces. The
   // lock key names the package manager location, so other drivers there keep their own package.
   const instancesSharingInstallation = Effect.fn(

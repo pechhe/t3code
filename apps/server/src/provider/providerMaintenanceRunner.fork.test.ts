@@ -59,15 +59,15 @@ const piBoltCapabilities = (input: {
   lookupComponentUpdates: Effect.sync(input.components),
 });
 
-const layerSpawner = (onRun: () => void) =>
+const layerSpawner = (onRun: (command: string) => void, exitCode: () => number = () => 0) =>
   Layer.succeed(
     ChildProcessSpawner.ChildProcessSpawner,
-    ChildProcessSpawner.make(() => {
-      onRun();
+    ChildProcessSpawner.make((command) => {
+      onRun((command as unknown as { readonly command: string }).command);
       return Effect.succeed(
         ChildProcessSpawner.makeHandle({
           pid: ChildProcessSpawner.ProcessId(1),
-          exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(0)),
+          exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(exitCode())),
           isRunning: Effect.succeed(false),
           kill: () => Effect.void,
           unref: Effect.succeed(Effect.void),
@@ -229,6 +229,46 @@ describe("providerMaintenanceRunner with a Pi-Bolt wrapper", () => {
           Layer.succeed(HostProcess.Platform, "linux"),
           layerRegistryVersions([...fixture.registry]),
           layerSpawner(() => Object.assign(installed, fixture.after)),
+        ),
+      ),
+    );
+  });
+  it.effect.each([
+    { case: "fails", exitCodes: [1], ran: ["npm"], status: "failed" },
+    { case: "succeeds", exitCodes: [0, 0], ran: ["npm", "pi-bolt"], status: "succeeded" },
+  ])("runs the package step only after the install $case", (fixture) => {
+    const installed = { version: "1.2.1" };
+    const ran: Array<string> = [];
+    const exitCodes = [...fixture.exitCodes];
+    return Effect.gen(function* () {
+      const runner = yield* makeRunner(() => ({
+        ...piBoltCapabilities({ installedVersion: () => installed.version, components: () => [] }),
+        update: {
+          command: "npm install -g pi-bolt@latest && pi-bolt update --extensions",
+          executable: "npm",
+          args: ["install", "-g", "pi-bolt@latest"],
+          lockKey: "npm-global:/usr/local",
+          followUps: [{ executable: "pi-bolt", args: ["update", "--extensions"] }],
+        },
+      }));
+      const result = yield* runner.updateProvider({
+        provider: PI_DRIVER,
+        instanceId: PI_INSTANCE_ID,
+      });
+      assert.deepStrictEqual(ran, fixture.ran);
+      assert.strictEqual(result.providers[0]?.updateState?.status, fixture.status);
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          Layer.succeed(HostProcess.Platform, "linux"),
+          layerRegistryVersions(["1.3.0", "1.3.0"]),
+          layerSpawner(
+            (command) => {
+              ran.push(command);
+              installed.version = "1.3.0";
+            },
+            () => exitCodes.shift() ?? 0,
+          ),
         ),
       ),
     );
