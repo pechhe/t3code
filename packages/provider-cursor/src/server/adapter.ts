@@ -2711,7 +2711,7 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
               detail: "Cursor turn requires non-empty text or attachments.",
             });
           }
-          const text = `${userText}\n\n${buildRuntimeInstructions({ harness: "Cursor", model: turnInput.modelSelection.model })}`;
+          const text = `${userText}\n\n${buildRuntimeInstructions({ harness: "Cursor", model: turnInput.modelSelection.model, pullRequestLinking: mcpSession?.pullRequestLinking !== false })}`;
           return {
             message: images.length === 0 ? text : ({ text, images } satisfies SDKUserMessage),
             prompt: userText,

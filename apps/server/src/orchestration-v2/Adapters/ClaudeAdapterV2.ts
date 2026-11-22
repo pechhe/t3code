@@ -2366,6 +2366,7 @@ export function makeClaudeQueryOptions(input: {
   readonly t3Html?: boolean;
   /** The listing carries `t3_background_wait`. */
   readonly t3BackgroundWait?: boolean;
+  readonly pullRequestLinking?: boolean;
   readonly allowDangerouslySkipPermissions?: boolean;
   readonly appendSystemPromptFileText?: string;
   // Flag settings, because a user's settings.json env beats the process env in Claude Code.
@@ -2534,7 +2535,10 @@ export function makeClaudeQueryOptions(input: {
       type: "preset" as const,
       preset: "claude_code" as const,
       append: [
-        buildRuntimeInstructions({ harness: "Claude Code" }) +
+        buildRuntimeInstructions({
+          harness: "Claude Code",
+          pullRequestLinking: input.pullRequestLinking !== false && input.t3Delegated !== true,
+        }) +
           (input.mcpServers === undefined
             ? ""
             : t3OrchestrationText(input.t3Delegated === true, {
@@ -13522,6 +13526,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             ...(t3McpSession?.delegated === true ? { t3Delegated: true } : {}),
             ...(t3McpSession?.listsPreview === true ? { t3Preview: true } : {}),
             ...(t3McpSession?.listsHtml === false ? { t3Html: false } : {}),
+            ...(t3McpSession?.pullRequestLinking === false ? { pullRequestLinking: false } : {}),
             ...(t3McpSession?.listsBackgroundWait === true ? { t3BackgroundWait: true } : {}),
             ...(turnInput.instructionOverlay === undefined
               ? {}

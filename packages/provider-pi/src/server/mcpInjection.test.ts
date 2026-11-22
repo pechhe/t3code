@@ -1,3 +1,5 @@
+import { piChildInstructionsFor } from "./piT3Extension.ts";
+
 import { assert, describe, expect, it } from "@effect/vitest";
 import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 
@@ -136,6 +138,8 @@ describe("pi T3 MCP injection", () => {
       "--name",
       "-review",
       "--extension-flag=kept",
+      "--exclude-tools",
+      "generate_image",
       "--extension",
       "/tmp/cache/pi-t3-mcp-extension.ts",
     ]);
@@ -213,7 +217,7 @@ describe("pi T3 MCP injection", () => {
         }
       } else {
         assert.notInclude(launch.args, "--tools");
-        assert.notInclude(launch.args, "--exclude-tools");
+        assert.equal(launch.args[launch.args.indexOf("--exclude-tools") + 1], "generate_image");
       }
     },
   );
@@ -325,5 +329,14 @@ describe("materializePiT3McpExtension", () => {
       yield* Fiber.interrupt(reader);
       expect(anomalies).toEqual([]);
     }).pipe(Effect.provide(NodeServices.layer)),
+  );
+});
+
+it("keeps workspace delegation guidance only for helpers that may delegate", () => {
+  const listing = { html: false, preview: false };
+  assert.include(piChildInstructionsFor(listing), "workspaceAssignment");
+  assert.notInclude(
+    piChildInstructionsFor({ ...listing, canDelegate: false }),
+    "workspaceAssignment",
   );
 });

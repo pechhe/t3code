@@ -4,6 +4,12 @@ Link each PR you create, take over, or push to: link_pull_request, or link_pull_
 If available, call link_issue for each issue you take on or file, even via CLI; skip issues you only read.
 </pull_request_linking>`;
 
+/** Children use their delegated brief, not the parent's PR workflow. */
+export const listsPullRequestLinking = (context: {
+  readonly delegated?: boolean | undefined;
+  readonly slipJay?: boolean | undefined;
+}): boolean => context.delegated !== true && context.slipJay !== true;
+
 /** Omit model and effort when the harness manages them dynamically. */
 export function buildRuntimeInstructions(runtime: {
   readonly harness: string;

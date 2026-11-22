@@ -26,6 +26,7 @@ import * as NetAddress from "effect/net/NetAddress";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
+import { listsPullRequestLinking } from "@t3tools/provider-core/server/runtimeInstructions";
 import { agentPolicyRoot } from "../agents/agentPolicyRoot.ts";
 
 export interface McpCredentialRequest {
@@ -36,6 +37,8 @@ export interface McpCredentialRequest {
   readonly toolProfile?: AgentToolProfile;
   readonly agentRole?: AgentRole;
   readonly webResearchTools?: boolean;
+  readonly providerDriver?: import("@t3tools/contracts").ProviderDriverKind;
+  readonly slipJay?: boolean;
   /** The task's recorded source access is read-only, which decides its listing and its calls. */
   readonly readOnly?: boolean;
   /** A delegated child thread gets the child instructions. */
@@ -294,13 +297,16 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
       const listsPreview = managedBrowser || endpointKey === "preview";
       const grantsDevice = request.capabilities?.has("device") === true;
       // A managed browser task drives simulators as well as pages when agent device access is on.
-      const listsDevice = managedBrowser ? grantsDevice : families?.has("device") === true;
+      const listsDevice = grantsDevice && (managedBrowser || families?.has("device") === true);
       const listsHtml = !managedBrowser && families?.has("leaf") === true;
       const listsBackgroundWait =
         !managedBrowser &&
+        (request.providerDriver === "claudeAgent" || request.providerDriver === "opencode") &&
         (families === undefined || families.has(toolFamily("t3_background_wait")));
       const scope: McpInvocationContext.McpThreadInvocationScope = {
         webResearchTools: request.webResearchTools === true,
+        ...(request.providerDriver === undefined ? {} : { providerDriver: request.providerDriver }),
+        ...(request.slipJay === undefined ? {} : { slipJay: request.slipJay }),
         environmentId,
         // A retry after a reconnect or server restart arrives on a fresh credential, so request
         // identity follows the thread, which both share.
@@ -399,6 +405,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
           listsDevice,
           listsHtml,
           listsBackgroundWait,
+          pullRequestLinking: listsPullRequestLinking(request),
           capabilities: scope.capabilities,
         },
       };

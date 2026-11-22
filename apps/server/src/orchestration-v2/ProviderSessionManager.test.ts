@@ -26,6 +26,7 @@ import {
 import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
+import * as DeviceService from "../device/DeviceService.ts";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -709,6 +710,7 @@ function layerTest(input: {
   readonly releaseRecorded?: Deferred.Deferred<void>;
   readonly serverSettingsLayer?: ReturnType<typeof ServerSettings.layerTest>;
   readonly projectServiceLayer?: Layer.Layer<ProjectService.ProjectService>;
+  readonly deviceServiceLayer?: Layer.Layer<DeviceService.DeviceService>;
   readonly installationGateLayer?: Layer.Layer<ProviderInstallationGate.ProviderInstallationGate>;
 }) {
   const layerConfiguredEventSink =
@@ -808,6 +810,7 @@ function layerTest(input: {
           input.installationGateLayer ?? ProviderInstallationGate.layer,
           ...(input.serverSettingsLayer === undefined ? [] : [input.serverSettingsLayer]),
           ...(input.projectServiceLayer === undefined ? [] : [input.projectServiceLayer]),
+          ...(input.deviceServiceLayer === undefined ? [] : [input.deviceServiceLayer]),
         ),
       ),
     ),
@@ -880,6 +883,7 @@ function runBrowserAccessScenario(input: {
   readonly projectServicePresent?: boolean;
   readonly agentBrowserBackends?: import("@t3tools/contracts").AgentBrowserBackends;
   readonly deviceOverride?: boolean;
+  readonly deviceConfigured?: boolean;
   readonly managedBrowser?: boolean;
   readonly enableAgentDeviceAccess?: boolean;
   readonly enableDeviceSupport?: boolean;
@@ -951,6 +955,31 @@ function runBrowserAccessScenario(input: {
           state,
           idleTimeoutMs: 1_000,
           mcpConfigs,
+          deviceServiceLayer: Layer.mock(DeviceService.DeviceService)({
+            state: Effect.succeed({
+              devices: [],
+              hosts:
+                input.deviceConfigured === false
+                  ? []
+                  : [
+                      {
+                        id: "local",
+                        kind: "local",
+                        label: "This machine",
+                        platforms: [{ platform: "ios", available: true }],
+                        hubInstalled: true,
+                        agentDeviceInstalled: true,
+                      },
+                    ],
+              hostStatus: "ready",
+              hostStatuses: {},
+              sessions: [],
+              onboardingCompleted: true,
+              agentAccessEnabled: true,
+              hubBasePath: "/api/device-hub",
+              revision: 1,
+            }),
+          }),
           ...(input.projectServicePresent === false
             ? {}
             : { projectServiceLayer: layerProjectService }),
@@ -6054,6 +6083,14 @@ it.effect(
       });
       assert.isTrue(enabled?.capabilities?.has("device"));
       assert.isFalse(enabled?.browserToolsAvailable);
+      const noDevice = yield* runBrowserAccessScenario({
+        enableAgentBrowserAccess: false,
+        projectOverride: false,
+        deviceOverride: true,
+        enableDeviceSupport: true,
+        deviceConfigured: false,
+      });
+      assert.isFalse(noDevice?.capabilities?.has("device"));
       const denied = yield* runBrowserAccessScenario({
         enableAgentBrowserAccess: false,
         projectOverride: false,

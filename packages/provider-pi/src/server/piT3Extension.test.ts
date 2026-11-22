@@ -53,6 +53,17 @@ describe("Pi orchestration prompt section", () => {
     },
   );
 
+  it("does not include PR guidance on a SlipJay project", async () => {
+    const extension = await loadPiT3Extension({
+      environment: { ...T3_ENV, T3_PI_NO_PR_LINKING: "1" },
+    });
+    const result = await extension.hook<AgentStartHook>("before_agent_start")({
+      systemPrompt: "base",
+    });
+    assert.include(result?.systemPrompt ?? "", "t3_thread_launch");
+    assert.notInclude(result?.systemPrompt ?? "", "<pull_request_linking>");
+  });
+
   it("gives a delegated thread its own instructions instead", async () => {
     const extension = await loadPiT3Extension({ delegatedInstructions: "child" });
     const result = await extension.hook<AgentStartHook>("before_agent_start")({
@@ -479,7 +490,7 @@ describe("Pi composed context", () => {
       await NodeFSP.writeFile(NodePath.join(root, "config", "SKILL.md"), "skill");
       await NodeFSP.symlink(NodePath.join(root, "config"), NodePath.join(root, "alias"));
       const extension = await loadPiT3Extension({
-        role: "scout",
+        role: "reviewer",
         delegatedInstructions: "child",
         agentConfigRoot: NodePath.join(root, "alias"),
       });
@@ -531,14 +542,23 @@ describe("Pi composed context", () => {
         systemPrompt: "base",
         systemPromptOptions: options,
       });
-      assert.equal(options.contextFiles.length, 2);
+      assert.equal(options.contextFiles.length, role === "browser" ? 1 : 2);
+      const prompt = (options.sections as Record<string, string>).t3_code_orchestration ?? "";
+      assert.equal(
+        prompt.includes("<pull_request_linking>"),
+        role === undefined || role === "lead",
+      );
       assert.equal(
         options.contextFiles[0]?.content,
         role && role !== "lead" ? "core\n" : "core\n<!-- lead-only-below -->\nlead",
       );
       assert.deepEqual(
         options.skills.map((skill) => skill.name),
-        role && role !== "lead" ? ["local"] : ["global", "local"],
+        role === "browser" || role === "scout" || role === "advisor"
+          ? []
+          : role && role !== "lead"
+            ? ["local"]
+            : ["global", "local"],
       );
     },
   );

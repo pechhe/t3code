@@ -220,6 +220,7 @@ const ACP_PROMPT_ACTIVITY_UPDATES: ReadonlySet<string> = new Set([
 ]);
 
 export interface AcpAdapterV2RuntimeInput {
+  readonly pullRequestLinking?: boolean;
   readonly cwd: string;
   readonly runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
   readonly mcpServers: ReadonlyArray<EffectAcpSchema.McpServer>;
@@ -998,6 +999,7 @@ function negotiatedCapabilities(
 }
 
 interface AcpMcpContext {
+  readonly pullRequestLinking?: boolean;
   readonly servers: ReadonlyArray<EffectAcpSchema.McpServer>;
   readonly acpServers: ReadonlyArray<EffectAcpSchema.McpServer>;
   readonly httpServers: ReadonlyArray<EffectAcpSchema.McpServer>;
@@ -1027,6 +1029,9 @@ export function acpMcpContext(
   ];
   // codex-acp 1.2.0 and pi-acp drop injected HTTP servers; bridge through stdio instead.
   return {
+    ...(session?.pullRequestLinking === false || session?.delegated === true
+      ? { pullRequestLinking: false }
+      : {}),
     servers: bridgeServers.map((server) => ({
       name: server.serverId,
       command: self.command,
@@ -2796,6 +2801,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           return {
             cwd: input.runtimePolicy.cwd ?? process.cwd(),
             runtimePolicy: input.runtimePolicy,
+            ...(mcpContext.pullRequestLinking === false ? { pullRequestLinking: false } : {}),
             mcpServers: mcpContext.servers,
             acpMcpServers: mcpContext.acpServers,
             httpMcpServers: mcpContext.httpServers,
@@ -9002,8 +9008,10 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             harness: flavor.runtimeHarness ?? driver,
             model: turnInput.modelSelection.model,
             pullRequestLinking:
-              sessionSetup === null ||
-              flavor.sessionCarriesPullRequestLinking?.(sessionSetup.initializeResult) !== true,
+              mcpSession?.pullRequestLinking !== false &&
+              mcpSession?.delegated !== true &&
+              (sessionSetup === null ||
+                flavor.sessionCarriesPullRequestLinking?.(sessionSetup.initializeResult) !== true),
           });
           // The agent keeps its own history, so resend only after compaction or when the text changes.
           const sendRuntimeInstructions =

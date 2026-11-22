@@ -39,6 +39,7 @@ import * as FiberSet from "effect/FiberSet";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Schedule from "effect/Schedule";
@@ -57,6 +58,9 @@ import {
 } from "../observability/Metrics.ts";
 import { ProviderWorkspaceMissingError } from "../provider/Errors.ts";
 import * as ProviderInstallationGate from "../provider/ProviderInstallationGate.ts";
+import { findSlipJayProject } from "../vcs/SlipJayProject.ts";
+import * as ProcessRunner from "../processRunner.ts";
+import * as DeviceService from "../device/DeviceService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as ServerSettings from "../serverSettings.ts";
@@ -468,6 +472,33 @@ export const layerWithOptions = (
       /** Unreadable settings must preserve explicit browser-access opt-outs. */
       const serverSettings = yield* Effect.serviceOption(ServerSettings.ServerSettingsService);
       const projectService = yield* Effect.serviceOption(ProjectService.ProjectService);
+      const devices = yield* Effect.serviceOption(DeviceService.DeviceService);
+      const fs = yield* Effect.serviceOption(FileSystem.FileSystem);
+      const path = yield* Effect.serviceOption(Path.Path);
+      const processes = yield* Effect.serviceOption(ProcessRunner.ProcessRunner);
+      const isSlipJayThread = Effect.fn("ProviderSessionManagerV2.isSlipJayThread")(
+        function* (threadId: ThreadId) {
+          if (
+            Option.isNone(projectService) ||
+            Option.isNone(fs) ||
+            Option.isNone(path) ||
+            Option.isNone(processes)
+          )
+            return false;
+          const thread = yield* projectionStore.getThreadShell(threadId);
+          if (thread === null) return false;
+          const project = yield* projectService.value.getById(thread.projectId);
+          return (
+            Option.isSome(project) &&
+            (yield* findSlipJayProject(project.value.workspaceRoot).pipe(
+              Effect.provideService(FileSystem.FileSystem, fs.value),
+              Effect.provideService(Path.Path, path.value),
+              Effect.provideService(ProcessRunner.ProcessRunner, processes.value),
+            )) !== null
+          );
+        },
+        Effect.orElseSucceed(() => false),
+      );
       const eventSink = yield* EventSink.EventSinkV2;
       const commandOutput = yield* CommandOutputHub.CommandOutputHub;
       const promptSuggestionStore = yield* SubscriptionRef.make<
@@ -664,8 +695,21 @@ export const layerWithOptions = (
               Effect.gen(function* () {
                 // Live providers build MCP clients once; reuse credentials across workspace handoffs.
                 const accessSettings = yield* agentAccessSettings(threadId);
-                const { browser: browserToolsAvailable, device: deviceToolsAvailable } =
-                  accessSettings;
+                const { browser: browserToolsAvailable } = accessSettings;
+                const deviceToolsAvailable =
+                  accessSettings.device &&
+                  Option.isSome(devices) &&
+                  (yield* devices.value.state.pipe(
+                    Effect.map(
+                      ({ devices, hosts }) =>
+                        devices.length > 0 ||
+                        hosts.some(
+                          ({ kind, platforms }) =>
+                            kind !== "local" || platforms.some(({ available }) => available),
+                        ),
+                    ),
+                  ));
+                const slipJay = yield* isSlipJayThread(threadId);
                 const {
                   browserBackends,
                   phiBrowserSkillDirectory,
@@ -697,6 +741,12 @@ export const layerWithOptions = (
                       (item) => item.instanceId === providerInstanceId,
                     )
                   : undefined;
+                const providerDriver =
+                  provider?.driver ??
+                  (yield* registry.get(providerInstanceId).pipe(
+                    Effect.map((adapter) => adapter.driver),
+                    Effect.orElseSucceed(() => undefined),
+                  ));
                 const webResearchTools = usesT3WebTools(toolProfile, readOnly, provider);
                 const existing = yield* mcpSessions.read(threadId);
                 if (existing !== undefined) {
@@ -726,6 +776,8 @@ export const layerWithOptions = (
                     resolved.endpointKey ===
                       sessionEndpointKey({ toolProfile, agentRole, readOnly }) &&
                     resolved.webResearchTools === webResearchTools &&
+                    resolved.providerDriver === providerDriver &&
+                    resolved.slipJay === slipJay &&
                     (resolved.boundedBrowser === true) === boundedBrowser &&
                     resolved.toolProfile === toolProfile &&
                     resolved.agentRole === agentRole
@@ -743,6 +795,8 @@ export const layerWithOptions = (
                   providerInstanceId,
                   browserToolsAvailable,
                   webResearchTools,
+                  slipJay,
+                  ...(providerDriver === undefined ? {} : { providerDriver }),
                   capabilities,
                   ...(toolProfile === undefined ? {} : { toolProfile }),
                   ...(agentRole === undefined ? {} : { agentRole }),
@@ -2659,25 +2713,18 @@ export const layerWithOptions = (
                               threadId: input.threadId,
                               providerThreadId: input.providerThread.id,
                               runId: input.runId,
-                              cause:
-                                "The provider session was released while the turn started.",
+                              cause: "The provider session was released while the turn started.",
                             }),
                           ),
                     ),
                   ),
                   () =>
-                    runtime
-                      .startTurn(input)
-                      .pipe(turnMetrics("send", input.modelSelection.model)),
+                    runtime.startTurn(input).pipe(turnMetrics("send", input.modelSelection.model)),
                   (_, exit) =>
                     Exit.isFailure(exit)
                       ? observeActivity(
                           providerSessionId,
-                          markIdle(
-                            providerSessionId,
-                            input.providerThread.id,
-                            input.runOrdinal,
-                          ),
+                          markIdle(providerSessionId, input.providerThread.id, input.runOrdinal),
                         ).pipe(
                           // A failed start can leave its native thread gone (Claude rejecting a
                           // resume), so the next start must ask the adapter to resume it again.

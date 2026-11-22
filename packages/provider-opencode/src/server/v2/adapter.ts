@@ -4374,7 +4374,11 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
       });
       state.mcp = registered;
       const instructions = [
-        buildRuntimeInstructions({ harness: "OpenCode", model: turnInput.modelSelection.model }),
+        buildRuntimeInstructions({
+          harness: "OpenCode",
+          model: turnInput.modelSelection.model,
+          pullRequestLinking: mcpSession?.pullRequestLinking !== false,
+        }),
         t3OrchestrationSystemPrompt(mcpAvailable, {
           hasDeviceTools: mcpSession?.capabilities?.has("device") === true,
           delegated: mcpSession?.delegated === true,

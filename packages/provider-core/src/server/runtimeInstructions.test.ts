@@ -1,6 +1,6 @@
 import { assert, describe, it } from "@effect/vitest";
 
-import { buildRuntimeInstructions } from "./runtimeInstructions.ts";
+import { buildRuntimeInstructions, listsPullRequestLinking } from "./runtimeInstructions.ts";
 
 describe("buildRuntimeInstructions", () => {
   it("leaves PR linking to a session that already carries it, and keeps runtime identity", () => {
@@ -12,6 +12,18 @@ describe("buildRuntimeInstructions", () => {
 
     assert.include(instructions, "through the Antigravity harness, as gemini-3.8-flash.");
     assert.notInclude(instructions, "<pull_request_linking>");
+  });
+
+  it.each([
+    { slipJay: true, delegated: false, expected: false },
+    { slipJay: false, delegated: true, expected: false },
+    { slipJay: false, delegated: false, expected: true },
+  ])("scopes PR instructions to non-SlipJay parent sessions: %j", ({ expected, ...context }) => {
+    const instructions = buildRuntimeInstructions({
+      harness: "Codex",
+      pullRequestLinking: listsPullRequestLinking(context),
+    });
+    assert.equal(instructions.includes("<pull_request_linking>"), expected);
   });
 
   it("links PRs the agent creates, takes over, or pushes to, and no others", () => {

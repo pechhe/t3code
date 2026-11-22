@@ -37,6 +37,7 @@ export interface CodexRuntimeInfo {
   readonly model: string;
   readonly modelName?: string | undefined;
   readonly reasoningEffort?: string | undefined;
+  readonly pullRequestLinking?: boolean;
 }
 
 /** Keep this outside collaboration mode; model-catalog mode text overrides client developer_instructions. */
@@ -57,7 +58,11 @@ export function buildCodexAdditionalContext(
     ),
     t3_code_runtime: {
       kind: "application",
-      value: buildRuntimeInstructions({ harness: "Codex", ...runtime }),
+      value: buildRuntimeInstructions({
+        harness: "Codex",
+        ...runtime,
+        pullRequestLinking: runtime.pullRequestLinking !== false && !delegated,
+      }),
     },
     ...(tools ? { t3_code_tools: { kind: "application", value: tools } } : {}),
   };

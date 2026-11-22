@@ -24,6 +24,7 @@ import {
   T3_MCP_AGENT_SERVERS_ENV,
   T3_PI_INSTRUCTIONS_ENV,
   T3_PI_AGENT_ROLE_ENV,
+  T3_PI_NO_PR_LINKING_ENV,
   T3_PI_AGENT_CONFIG_ROOT_ENV,
   piChildInstructionsFor,
   T3_PI_READ_ONLY_ENV,
@@ -340,6 +341,7 @@ export function buildPiRpcLaunch(input: {
     hasT3Extension && input.readOnlyTools === true && input.readOnlyShell === true;
   const readOnlyAllowedTools = [
     ...PI_READ_ONLY_TOOLS,
+    ...(delegatedRole === "scout" ? ["google_search", "read_url_content"] : []),
     ...(readOnlyShell ? ["bash"] : []),
     ...allowedReadOnlyMcpPatterns,
   ];
@@ -376,7 +378,9 @@ export function buildPiRpcLaunch(input: {
             "--exclude-tools",
             readOnlyExcludedTools.join(","),
           ]
-        : []),
+        : hasT3Mcp && !launchArgs.some((arg) => /^(?:--exclude-tools|-xt)(?:=|$)/u.test(arg))
+          ? ["--exclude-tools", "generate_image"]
+          : []),
   ];
   if (
     hasT3Extension &&
@@ -395,6 +399,7 @@ export function buildPiRpcLaunch(input: {
   delete environment[T3_PI_READ_ONLY_SHELL_ENV];
   delete environment[T3_PI_INSTRUCTIONS_ENV];
   delete environment[T3_PI_AGENT_ROLE_ENV];
+  delete environment[T3_PI_NO_PR_LINKING_ENV];
   delete environment[T3_PI_AGENT_CONFIG_ROOT_ENV];
   delete environment[BROWSER_RUN_URL_ENV];
   delete environment[BROWSER_RUN_TOKEN_ENV];
@@ -414,6 +419,9 @@ export function buildPiRpcLaunch(input: {
               input.runtimeMode === "auto" ? "approval-required" : input.runtimeMode,
           }
         : {}),
+      ...(hasT3Mcp && input.mcpSession?.pullRequestLinking === false
+        ? { [T3_PI_NO_PR_LINKING_ENV]: "1" }
+        : {}),
       ...(hasT3Mcp && delegatedRole !== undefined ? { [T3_PI_AGENT_ROLE_ENV]: delegatedRole } : {}),
       ...(hasT3Mcp && input.mcpSession?.agentConfigRoot !== undefined
         ? { [T3_PI_AGENT_CONFIG_ROOT_ENV]: input.mcpSession.agentConfigRoot }
@@ -424,6 +432,10 @@ export function buildPiRpcLaunch(input: {
               preview: input.mcpSession.listsPreview === true,
               html: input.mcpSession.listsHtml !== false,
               readOnlyShell,
+              canDelegate:
+                delegatedRole !== "scout" &&
+                delegatedRole !== "advisor" &&
+                delegatedRole !== "browser",
             }),
           }
         : {}),

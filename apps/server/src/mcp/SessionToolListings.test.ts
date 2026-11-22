@@ -11,7 +11,12 @@ import { NodeHttpServer } from "@effect/platform-node";
 import { HttpBody, HttpClient, HttpRouter } from "effect/http";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
-import { EnvironmentId, ThreadId, ProviderInstanceId } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ThreadId,
+  ProviderInstanceId,
+  ProviderDriverKind,
+} from "@t3tools/contracts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as DecisionRouter from "../decisionRouting/DecisionRouter.ts";
 import * as BrowserTaskService from "../browserTasks/BrowserTaskService.ts";
@@ -20,7 +25,12 @@ import * as Champions from "../champions/ChampionService.ts";
 import * as WebResearch from "./WebResearch.ts";
 import { expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { SESSION_TOOL_ENDPOINTS, toolFamily, type SessionEndpointKey } from "@t3tools/contracts";
+import {
+  SESSION_TOOL_ENDPOINTS,
+  isPullRequestTool,
+  toolFamily,
+  type SessionEndpointKey,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as Layer from "effect/Layer";
@@ -83,7 +93,9 @@ const serviceMocks = Layer.mergeAll(
   Layer.mock(DecisionRouter.DecisionRouter)({}),
   Layer.mock(BrowserTaskService.BrowserTaskService)({}),
   Layer.mock(BrowserLogins.BrowserLogins)({}),
-  Layer.mock(Champions.ChampionService)({}),
+  Layer.mock(Champions.ChampionService)({
+    hasThreadContext: (threadId) => Effect.succeed(threadId === "champion"),
+  }),
   Layer.mock(WebResearch.WebResearch)({}),
   Layer.mock(AdviceMcpService.AdviceMcpService)({}),
   Layer.mock(OrchestratorMcpService.OrchestratorMcpService)({}),
@@ -219,9 +231,12 @@ it.effect("registers only the tool families each session endpoint declares", () 
         key,
       ).toEqual([]);
       expect(names.includes("web_search"), key).toBe(key === "editor" || key === "research");
-      expect(names.includes("t3_experiments_record_outcome"), key).toBe(
-        key === "editor" || key === "reader",
-      );
+      expect(
+        names.filter((name) =>
+          /^(t3_experiments_|t3_work_|agent_session_attach$|agent_task_outcome$)/u.test(name),
+        ),
+        key,
+      ).toEqual([]);
       expect(names.includes("t3_browser_task"), key).toBe(key === "editor" || key === "reader");
     }
   }).pipe(
@@ -285,6 +300,8 @@ it.effect("loads editor tools through its own deferred HTTP catalogue", () =>
         environmentId: EnvironmentId.make("editor-tools-test"),
         requestNamespace: "editor-tools-test",
         endpointKey: "editor",
+        providerDriver: ProviderDriverKind.make("pi"),
+        webResearchTools: true,
         thread: {
           threadId: ThreadId.make("editor-tools-test"),
           providerSessionId: "editor-tools-test",
@@ -310,7 +327,20 @@ it.effect("loads editor tools through its own deferred HTTP catalogue", () =>
         Layer.provide(
           Layer.mock(McpSessionRegistry.McpSessionRegistry)({
             resolve: (token) =>
-              Effect.succeed({ ...scope, endpointKey: token === "reader" ? "reader" : "editor" }),
+              Effect.succeed({
+                ...scope,
+                ...(token === "champion"
+                  ? { thread: { ...scope.thread, threadId: ThreadId.make("champion") } }
+                  : {}),
+                slipJay: token.endsWith("-slipjay"),
+                ...(token === "claude"
+                  ? {
+                      providerDriver: ProviderDriverKind.make("claudeAgent"),
+                      capabilities: new Set(["device" as const]),
+                    }
+                  : {}),
+                endpointKey: token.startsWith("reader") ? "reader" : "editor",
+              }),
           }),
         ),
         Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
@@ -319,13 +349,19 @@ it.effect("loads editor tools through its own deferred HTTP catalogue", () =>
         Layer.build,
       );
       const client = yield* HttpClient.HttpClient;
-      const connect = (key: "editor" | "reader") =>
+      const connect = (
+        key: "editor" | "reader",
+        token: string = key,
+        nativeWeb = false,
+        deferred = true,
+      ) =>
         Effect.gen(function* () {
           const path = SESSION_TOOL_ENDPOINTS[key].path;
           const headers = {
             accept: "application/json, text/event-stream",
-            authorization: `Bearer ${key}`,
-            "t3-tool-exposure": "deferred",
+            authorization: `Bearer ${token}`,
+            ...(deferred ? { "t3-tool-exposure": "deferred" } : {}),
+            ...(nativeWeb ? { "t3-native-web-tools": "1" } : {}),
           };
           const initialize = yield* client.post(path, {
             headers,
@@ -374,6 +410,35 @@ it.effect("loads editor tools through its own deferred HTTP catalogue", () =>
             ),
           };
         });
+      const ordinary = yield* (yield* connect("editor", "editor", false, false)).listed;
+      const native = yield* (yield* connect("editor", "editor-native", true, false)).listed;
+      const champion = yield* (yield* connect("editor", "champion", false, false)).listed;
+      const ordinaryReader = yield* (yield* connect("reader", "reader", false, false)).listed;
+      for (const names of [ordinary, ordinaryReader]) {
+        expect(names).toContain("t3_champions_learning_search");
+        expect(names).toContain("t3_champions_learning_read");
+        expect(names).not.toContain("t3_background_wait");
+        expect(names.filter((name) => name.startsWith("device_"))).toEqual([]);
+        expect(
+          names.filter((name) => /^t3_champions_(?!learning_(search|read)$)/u.test(name)),
+        ).toEqual([]);
+      }
+      for (const key of ["editor", "reader"] as const) {
+        const git = yield* (yield* connect(key, key, false, false)).listed;
+        const slipJay = yield* (yield* connect(key, key + "-slipjay", false, false)).listed;
+        expect(git).toContain("list_thread_pull_requests");
+        expect(slipJay.filter(isPullRequestTool)).toEqual([]);
+      }
+      expect(ordinary).toContain("pull_request_read");
+      expect(ordinary).toContain("ci_logs");
+      const claude = yield* (yield* connect("editor", "claude", false, false)).listed;
+      expect(claude).toEqual(
+        expect.arrayContaining(["t3_background_wait", "device_list", "device_screenshot"]),
+      );
+      expect(ordinary).toEqual(expect.arrayContaining(["web_search", "web_fetch"]));
+      expect(native).not.toContain("web_search");
+      expect(native).not.toContain("web_fetch");
+      expect(champion).toContain("t3_champions_report");
       const editor = yield* connect("editor");
       const reader = yield* connect("reader");
       const core = [

@@ -54,6 +54,7 @@ shells.set(workerThread, {
 const threadScope = (threadId: ThreadId): McpInvocationContext.McpInvocationScope => ({
   environmentId: here,
   requestNamespace: `provider:${threadId}`,
+  champion: true,
   thread: {
     threadId,
     providerSessionId: `provider:${threadId}`,

@@ -8,6 +8,7 @@ import type * as McpProviderSession from "@t3tools/provider-core/server/mcpSessi
 export const codexTurnInstructionListing = (
   mcpSession: McpProviderSession.McpProviderSessionConfig | undefined,
 ) => ({
+  ...(mcpSession?.pullRequestLinking === false ? { pullRequestLinking: false } : {}),
   delegated: mcpSession?.delegated === true,
   listsPreview: mcpSession?.listsPreview === true,
   listsDevice: mcpSession?.listsDevice === true,

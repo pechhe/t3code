@@ -41,6 +41,7 @@ export interface McpProviderSessionConfig {
   readonly listsHtml?: boolean;
   /** The thread's listing carries `t3_background_wait`. */
   readonly listsBackgroundWait?: boolean;
+  readonly pullRequestLinking?: boolean;
   /** Capabilities the credential grants ("preview", "device"). */
   readonly capabilities?: ReadonlySet<string>;
   readonly agentDeviceEnvironment?: Readonly<Record<string, string>>;

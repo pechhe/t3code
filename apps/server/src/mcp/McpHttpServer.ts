@@ -57,6 +57,8 @@ import { HiddenTools, layerHiddenTools } from "./HiddenTools.ts";
 import { parseBearerToken } from "../auth/EnvironmentAuth.ts";
 import * as ServerConfig from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import { isPullRequestTool } from "@t3tools/contracts";
+import * as Champions from "../champions/ChampionService.ts";
 import * as DeviceService from "../device/DeviceService.ts";
 import * as HtmlRender from "../htmlRender/HtmlRender.ts";
 import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecutor.ts";
@@ -365,6 +367,17 @@ const makeMcpAuthMiddleware = Effect.fn("McpHttpServer.makeAuthMiddleware")(
                 Effect.orElseSucceed(() => undefined),
               ),
       });
+      const champions = yield* Effect.serviceOption(Champions.ChampionService);
+      const championOfThread = yield* Cache.make({
+        capacity: 1_000,
+        timeToLive: Duration.seconds(10),
+        lookup: Effect.fn("McpHttpServer.championOfThread")(
+          function* (threadId: ThreadId) {
+            return Option.isSome(champions) && (yield* champions.value.hasThreadContext(threadId));
+          },
+          Effect.orElseSucceed(() => false),
+        ),
+      });
       const authenticateRequest = Effect.fn("McpHttpServer.authenticateRequest")(function* (
         request: HttpServerRequest.HttpServerRequest,
       ) {
@@ -432,8 +445,15 @@ const makeMcpAuthMiddleware = Effect.fn("McpHttpServer.makeAuthMiddleware")(
           limited.thread === undefined
             ? undefined
             : yield* Cache.get(forgeOfThread, limited.thread.threadId);
+        const threadId = limited.thread?.threadId;
+        const champion =
+          threadId === undefined ? undefined : yield* Cache.get(championOfThread, threadId);
         return {
           ...limited,
+          ...(champion === undefined ? {} : { champion }),
+          ...(limited.providerDriver === "pi" && request.headers["t3-native-web-tools"] === "1"
+            ? { webResearchTools: false }
+            : {}),
           linkedEnvironments,
           origin,
           ...(forge === undefined ? {} : { forge }),
@@ -1450,6 +1470,25 @@ const provideRegistrationServices = <Services>() =>
     ),
   );
 
+const listsInScope = (name: string, scope: McpInvocationContext.McpInvocationScope | undefined) => {
+  if (scope?.thread === undefined) return true;
+  if (isPullRequestTool(name) && scope.slipJay === true) return false;
+  switch (toolFamily(name)) {
+    case "champions":
+      return scope.champion === true;
+    case "experiments":
+    case "lead-experiments":
+    case "work":
+    case "report":
+      return false;
+  }
+  return (
+    name !== "t3_background_wait" ||
+    scope.providerDriver === "claudeAgent" ||
+    scope.providerDriver === "opencode"
+  );
+};
+
 /**
  * Keeps a tool off a read-only agent's list unless the closed read-only list names it. The server
  * checks this on every call too, before the routing that sends a call to a linked environment.
@@ -1465,6 +1504,7 @@ const listedForReadOnly = <Tools extends Record<string, Tool.Any>>(
         const scope =
           fiber && Context.getOrUndefined(fiber.context, McpInvocationContext.McpInvocationContext);
         return (
+          listsInScope(name, scope) &&
           (scope?.endpointKey !== "reader" || READ_ONLY_TOOLS.has(name)) &&
           (enabled === undefined || enabled(client))
         );
@@ -1744,12 +1784,28 @@ const layerToolExposure = Layer.effect(
   Effect.gen(function* () {
     const server = yield* McpServer.McpServer;
     return McpToolExposure.make(
-      () =>
-        server.tools.map(({ tool }) => ({
-          name: tool.name,
-          description: tool.description ?? "",
-          inputSchema: tool.inputSchema,
-        })),
+      () => {
+        const fiber = Fiber.getCurrent();
+        const client = fiber && Context.getOrUndefined(fiber.context, McpSchema.McpServerClient);
+        return server.tools
+          .filter(({ annotations }) => {
+            const enabled = Context.getOrUndefined(annotations, McpSchema.EnabledWhen);
+            return (
+              !enabled ||
+              (client !== undefined &&
+                enabled({
+                  protocolVersion: client.protocolVersion,
+                  capabilities: client.clientCapabilities,
+                  clientInfo: client.clientInfo,
+                }))
+            );
+          })
+          .map(({ tool }) => ({
+            name: tool.name,
+            description: tool.description ?? "",
+            inputSchema: tool.inputSchema,
+          }));
+      },
       () => server.notifications["notifications/tools/list_changed"]({}),
     );
   }),

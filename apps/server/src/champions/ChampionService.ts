@@ -314,6 +314,7 @@ type DetailOperation<I> = (input: I) => Effect.Effect<ChampionDetail, ChampionEr
 export class ChampionService extends Context.Service<
   ChampionService,
   {
+    readonly hasThreadContext: (threadId: ThreadId) => Effect.Effect<boolean, ChampionError>;
     readonly verifyApproval: (
       relay: ChampionRelay,
     ) => Effect.Effect<ForwardedChampionApproval, ChampionError>;
@@ -732,6 +733,16 @@ const make = Effect.gen(function* () {
       OR json_extract(document_json, '$.champion.setupThreadId') = ${threadId}`;
     return rows[0] === undefined ? undefined : yield* decodeDocument(rows[0].document_json);
   }, Effect.mapError(failure));
+  const hasThreadContext = Effect.fn("ChampionService.hasThreadContext")(function* (
+    threadId: ThreadId,
+  ) {
+    if ((yield* byThread(threadId)) !== undefined) return true;
+    const checks =
+      yield* sql`SELECT 1 FROM champion_checks WHERE thread_id = ${threadId} AND status = 'pending' LIMIT 1`.pipe(
+        Effect.mapError(failure),
+      );
+    return checks.length > 0;
+  });
   const verifyApproval = Effect.fn("ChampionService.verifyApproval")(function* (
     relay: ChampionRelay,
     waiting = "The request still waits for the user on the Champion page.",
@@ -5782,6 +5793,7 @@ const make = Effect.gen(function* () {
   );
 
   return ChampionService.of({
+    hasThreadContext,
     verifyApproval,
     setModels,
     modelDefaults: readDefaults,

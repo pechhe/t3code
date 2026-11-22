@@ -112,7 +112,7 @@ it("keeps every session endpoint under its payload budget", () => {
 
 it("lists a browser session only the families it uses", () => {
   // The preview is what the session is for; leaf gives it its own task status, cancel,
-  // watch and the html tools to show the user a page, and report its outcome. A later
+  // watch and the html tools to show the user a page. A later
   // family added here fails this test rather than quietly raising the budget.
   expect([...SESSION_TOOL_ENDPOINTS.preview.families].sort()).toEqual([
     "decision",
@@ -120,7 +120,6 @@ it("lists a browser session only the families it uses", () => {
     "leaf",
     "learnings",
     "preview",
-    "report",
   ]);
 });
 
@@ -219,11 +218,9 @@ it("lists every editor the same tools, whatever its role", () => {
     "t3_champions_record_learning",
     "t3_terminal_read",
     "link_pull_request",
-    "t3_experiments_record_outcome",
     "preview_open",
     "device_open",
     "web_search",
-    "agent_task_outcome",
   ])
     expect(ordinary.has(name), name).toBe(true);
   expect(ordinary.has("workspace_read_file")).toBe(false);
@@ -280,7 +277,7 @@ it("keeps browser agents and web-reading scouts off threads and delegation", () 
     ])
       expect(narrow.has(name), name).toBe(false);
     expect(narrow.has("t3_champions_learning_search")).toBe(true);
-    expect(narrow.has("agent_task_outcome")).toBe(true);
+    expect(narrow.has("agent_task_outcome")).toBe(false);
   }
   expect(names(session("phi", "browser")).has("preview_interact")).toBe(true);
   expect(names(session("phi", "browser")).has("device_open")).toBe(true);

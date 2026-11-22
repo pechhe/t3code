@@ -11,6 +11,7 @@ export type ToolFamily =
   | "control"
   | "workspace"
   | "scheduling"
+  | "champions"
   | "preview"
   | "bounded-browser"
   | "device"
@@ -89,6 +90,8 @@ const LEARNING_READ_TOOLS = new Set(["t3_champions_learning_search", "t3_champio
 
 const PULL_REQUEST_TOOLS = new Set([
   "link_pull_request",
+  "link_pull_requests",
+  "unlink_pull_requests",
   "unlink_pull_request",
   "list_thread_pull_requests",
   "watch_pull_request",
@@ -96,6 +99,9 @@ const PULL_REQUEST_TOOLS = new Set([
   "write_pull_request_guides",
   "read_pull_request_guide",
 ]);
+
+export const isPullRequestTool = (name: string): boolean =>
+  PULL_REQUEST_TOOLS.has(name) || name.startsWith("pull_request_") || name.startsWith("ci_");
 
 /**
  * Which family a tool belongs to. Prefixes keep this one table without naming
@@ -111,7 +117,7 @@ export const toolFamily = (name: string): ToolFamily => {
   if (SCHEDULING_TOOLS.has(name)) return "scheduling";
   // Narrow web readers search Champion learnings too, so these stay apart from Champion writes.
   if (LEARNING_READ_TOOLS.has(name)) return "learnings";
-  if (name.startsWith("t3_champions_")) return "scheduling";
+  if (name.startsWith("t3_champions_")) return "champions";
   if (LEAD_EXPERIMENT_TOOLS.has(name)) return "lead-experiments";
   if (name.startsWith("t3_experiments_")) return "experiments";
   if (name.startsWith("t3_work_")) return "work";
@@ -134,7 +140,7 @@ export const toolFamily = (name: string): ToolFamily => {
   if (name.startsWith("t3_environment_") || name === "t3_fleet_summary") return "workspace";
   if (name === "t3_terminal_read") return "workspace";
   if (name.startsWith("t3_thread_") && !CORE_THREAD_TOOLS.has(name)) return "workspace";
-  if (name === "agent_task_outcome" || name === "agent_session_attach") return "workspace";
+  if (name === "agent_session_attach") return "report";
   return "control";
 };
 
@@ -150,7 +156,6 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "unwatch_pull_request",
   "ask_advice",
   "agent_roles",
-  "agent_task_outcome",
   "delegate_task",
   "html_preview",
   "html_render",
@@ -174,9 +179,6 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "t3_champions_record_learning",
   "t3_environment_links",
   "t3_environment_read",
-  "t3_experiments_list",
-  "t3_experiments_read_evidence",
-  "t3_experiments_results",
   "t3_fleet_summary",
   "t3_project_list",
   "t3_project_read",
@@ -186,7 +188,6 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "t3_thread_search",
   "t3_thread_wait",
   "t3_video_frames",
-  "t3_work_read",
   "t3_worktree_list",
   "t3_worktree_status",
   "task_cancel",
@@ -197,6 +198,7 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
 
 /** Everything an agent session can use; `inspection` and `peer` serve outside clients and links. */
 const EDITOR: ReadonlySet<ToolFamily> = new Set([
+  "champions",
   "decision",
   "control",
   "workspace",
@@ -207,39 +209,31 @@ const EDITOR: ReadonlySet<ToolFamily> = new Set([
   "queue",
   "worktree",
   "project",
-  "experiments",
-  "lead-experiments",
-  "work",
   "leaf",
-  "report",
   "learnings",
   "web",
 ]);
 /** The toolkits the read-only list draws from; `READ_ONLY_TOOLS` picks within them. */
 const READER: ReadonlySet<ToolFamily> = new Set([
+  "champions",
   "control",
   "workspace",
   "scheduling",
   "bounded-browser",
   "worktree",
   "project",
-  "experiments",
-  "lead-experiments",
-  "work",
   "leaf",
-  "report",
   "learnings",
 ]);
 /**
  * Agents that read untrusted web pages stay narrow, because a page could otherwise steer them
  * into reading threads and sending them out.
  */
-const RESEARCH: ReadonlySet<ToolFamily> = new Set(["learnings", "leaf", "report", "web"]);
+const RESEARCH: ReadonlySet<ToolFamily> = new Set(["learnings", "leaf", "web"]);
 const PREVIEW: ReadonlySet<ToolFamily> = new Set([
   "learnings",
   "decision",
   "leaf",
-  "report",
   "preview",
   "device",
 ]);

@@ -187,6 +187,9 @@ export interface McpInvocationScope {
   readonly toolProfile?: AgentToolProfile;
   readonly agentRole?: AgentRole;
   readonly webResearchTools?: boolean;
+  readonly providerDriver?: import("@t3tools/contracts").ProviderDriverKind;
+  readonly slipJay?: boolean;
+  readonly champion?: boolean;
   /**
    * Namespaces idempotency keys so two callers reusing a clientRequestId cannot collide. It names
    * the caller (thread or client session), never the transient MCP connection.
@@ -251,14 +254,13 @@ export const browserOwnerKey = (
 
 /**
  * `McpSchema.EnabledWhen` for the device tools. A managed browser task lists them only with the
- * device grant; elsewhere they stay listed so a refused call can tell the user where to turn
- * access on.
+ * device grant, like ordinary thread sessions.
  */
 export const listsDeviceTools = (): boolean => {
   const fiber = Fiber.getCurrent();
   const scope = fiber && Context.getOrUndefined(fiber.context, McpInvocationContext);
   if (!hiddenFromOutsideClients()) return false;
-  return scope?.managedBrowser !== true || scope.capabilities.has("device");
+  return scope === undefined || scope.capabilities.has("device");
 };
 
 /** `McpSchema.EnabledWhen` for tools only another environment's link calls, such as a thread import. */

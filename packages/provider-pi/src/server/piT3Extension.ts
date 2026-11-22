@@ -29,6 +29,7 @@ export const T3_MCP_AGENT_SERVERS_ENV = "T3_MCP_AGENT_SERVERS";
  * thread, which uses `ORCHESTRATION_INSTRUCTIONS`.
  */
 export const T3_PI_INSTRUCTIONS_ENV = "T3_PI_INSTRUCTIONS";
+export const T3_PI_NO_PR_LINKING_ENV = "T3_PI_NO_PR_LINKING";
 export const T3_PI_AGENT_ROLE_ENV = "T3_PI_AGENT_ROLE";
 export const T3_PI_AGENT_CONFIG_ROOT_ENV = "T3_PI_AGENT_CONFIG_ROOT";
 export const T3_PI_READ_ONLY_ENV = "T3_PI_READ_ONLY";
@@ -36,30 +37,14 @@ export const T3_PI_READ_ONLY_SHELL_ENV = "T3_PI_READ_ONLY_SHELL";
 /** Pi's own MCP client waits this long for a T3 tool; the server streams progress meanwhile. */
 export const T3_TOOL_TIMEOUT_SECONDS = 30 * 60;
 
-/**
- * The child text a Pi process may need, keyed by what its endpoint lists, so the
- * generated extension never names a tool its own listing lacks.
- */
-const PI_CHILD_INSTRUCTION_VARIANTS: Readonly<Record<string, string>> = {
-  none: t3ChildInstructions({ preview: false, html: false }).trim(),
-  html: t3ChildInstructions({ preview: false, html: true }).trim(),
-  preview: t3ChildInstructions({ preview: true, html: false }).trim(),
-  "preview-html": t3ChildInstructions({ preview: true, html: true }).trim(),
-};
-
-const piChildInstructionKey = (listing: {
-  readonly preview: boolean;
-  readonly html: boolean;
-}): keyof typeof PI_CHILD_INSTRUCTION_VARIANTS =>
-  listing.preview ? (listing.html ? "preview-html" : "preview") : listing.html ? "html" : "none";
-
 /** The child text for a thread whose endpoint lists `listing`. */
 export const piChildInstructionsFor = (listing: {
   readonly preview: boolean;
   readonly html: boolean;
   readonly readOnlyShell?: boolean;
+  readonly canDelegate?: boolean;
 }): string => {
-  const instructions = PI_CHILD_INSTRUCTION_VARIANTS[piChildInstructionKey(listing)] ?? "";
+  const instructions = t3ChildInstructions(listing).trim();
   return listing.readOnlyShell === true
     ? instructions +
         "\n\nYour shell cannot change the assigned checkout's source files; everything outside the checkout, its .jj and .git metadata and its git-ignored paths that already exist stay writable, so jj, git and SlipJay commands work. pnpm exec/run fail here, so call tools directly, such as node_modules/.bin/vp. A command cannot create a new file or directory directly in a source directory, ignored or not: when one fails for that reason, report the path instead of working around it."
@@ -83,6 +68,7 @@ const TOKEN_ENV = ${JSON.stringify(T3_MCP_BEARER_ENV)};
 const AGENT_SERVERS_ENV = ${JSON.stringify(T3_MCP_AGENT_SERVERS_ENV)};
 const RUNTIME_MODE_ENV = ${JSON.stringify(T3_PI_RUNTIME_MODE_ENV)};
 const INSTRUCTIONS_ENV = ${JSON.stringify(T3_PI_INSTRUCTIONS_ENV)};
+const NO_PR_LINKING_ENV = ${JSON.stringify(T3_PI_NO_PR_LINKING_ENV)};
 const ROLE_ENV = ${JSON.stringify(T3_PI_AGENT_ROLE_ENV)};
 const CONFIG_ROOT_ENV = ${JSON.stringify(T3_PI_AGENT_CONFIG_ROOT_ENV)};
 const READ_ONLY_ENV = ${JSON.stringify(T3_PI_READ_ONLY_ENV)};
@@ -703,12 +689,16 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
   const register = () => {
     if (!builtinMcpConnects()) return;
     const exposure = exposureNow();
-    if (exposure === registeredExposure) return;
-    registeredExposure = exposure;
+    // Detect the pair after extensions load; Pi still uses T3 on hosts without it.
+    const available = new Set(pi.getActiveTools?.() ?? pi.getAllTools().map((tool) => tool.name));
+    const nativeWeb = available.has("google_search") && available.has("read_url_content");
+    const registrationKey = exposure + ":" + nativeWeb;
+    if (registrationKey === registeredExposure) return;
+    registeredExposure = registrationKey;
     for (const server of servers) {
       pi.registerMcpServer(server.name, {
         url: server.url,
-        headers: { Authorization: server.authorization },
+        headers: { Authorization: server.authorization, ...(!server.agent && nativeWeb ? { "t3-native-web-tools": "1" } : {}) },
         timeout: TOOL_TIMEOUT_SECONDS,
         exposure,
         ...(exposure !== "direct" && !server.agent
@@ -761,11 +751,17 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
   pi.on("before_agent_start", async (event) => {
     register();
     const options = event.systemPromptOptions;
+    const root = env(CONFIG_ROOT_ENV);
+    const role = env(ROLE_ENV);
+    const browser = helper && role === "browser";
+    const resolvedRoot = root ? await realPath(root) : undefined;
     const seen = new Set<string>();
     if (options?.contextFiles) {
       const kept = [];
       for (const file of options.contextFiles) {
         const path = await realPath(file.path);
+        // Keep only the global policy, even when Pi loaded it through a symlink.
+        if (browser && path !== (resolvedRoot && NodePath.join(resolvedRoot, "AGENTS.md"))) continue;
         if (seen.has(path)) continue;
         seen.add(path);
         if (helper) {
@@ -776,9 +772,9 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
       }
       options.contextFiles.splice(0, options.contextFiles.length, ...kept);
     }
-    const root = env(CONFIG_ROOT_ENV);
-    if (helper && root && options?.skills) {
-      const resolvedRoot = await realPath(root);
+    if (helper && (role === "browser" || role === "scout" || role === "advisor")) {
+      options?.skills?.splice(0);
+    } else if (helper && resolvedRoot && options?.skills) {
       const kept = [];
       for (const skill of options.skills) {
         const relative = NodePath.relative(resolvedRoot, await realPath(skill.filePath));
@@ -794,7 +790,7 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
       ? options?.skills?.map((skill) => ({ name: skill.name, path: skill.filePath })) ?? [] : [];
     const instructions = (process.env[INSTRUCTIONS_ENV] ??
       (pi.getAllTools().some((tool) => tool.name === "mcp__t3_code__create_threads")
-        ? ORCHESTRATION_INSTRUCTIONS : ORCHESTRATION_WITHOUT_CREATE_THREADS)) + "\\n\\n" + PULL_REQUEST_LINKING_INSTRUCTIONS;
+        ? ORCHESTRATION_INSTRUCTIONS : ORCHESTRATION_WITHOUT_CREATE_THREADS)) + (!helper && !env(NO_PR_LINKING_ENV) ? "\\n\\n" + PULL_REQUEST_LINKING_INSTRUCTIONS : "");
     const sections = event.systemPromptOptions?.sections;
     if (sections && typeof sections === "object" && event.systemPromptOptions?.forceSystemPrompt === undefined) {
       // A full prompt override bypasses Pi's later section rendering.

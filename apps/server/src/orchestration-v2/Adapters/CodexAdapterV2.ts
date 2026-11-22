@@ -859,6 +859,7 @@ export const buildCodexTurnStartParams = Effect.fn("CodexAdapterV2.buildCodexTur
     readonly delegated?: boolean;
     /** False when the listing has no html tools, so the child text must not name them. */
     readonly listsHtml?: boolean;
+    readonly pullRequestLinking?: boolean;
     /** Whether every command must pass the guard, so a mode that never asks must ask. */
     readonly guardToolCalls?: boolean;
     /** ChatGPT token sharing does not accept service tiers. */
@@ -909,7 +910,11 @@ export const buildCodexTurnStartParams = Effect.fn("CodexAdapterV2.buildCodexTur
     const t3Context =
       input.hasT3Mcp === true
         ? buildCodexAdditionalContext(
-            { model: input.modelSelection.model, reasoningEffort: effort ?? undefined },
+            {
+              model: input.modelSelection.model,
+              reasoningEffort: effort ?? undefined,
+              ...(input.pullRequestLinking === false ? { pullRequestLinking: false } : {}),
+            },
             {
               browser: input.listsPreview === true,
               device: input.listsDevice === true,
