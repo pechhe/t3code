@@ -4,7 +4,7 @@ Read this before writing or changing tests, or choosing checks for a code change
 
 - Before an authorised push outside SlipJay, run `vp run check:changed`. SlipJay landings use the runner gate and focused local checks. It runs CI's fast checks for changed files: format, lint, knip, typecheck of affected packages and dependents, and the tests beside changes and those importing what changed. CI still runs the full test suites.
 - While you iterate, run `vp test run <files>`. For big files, add `-t "<name>"`.
-- Use `vp run typecheck`; it caches per package. Each package runs `effect-tsgo tsrs --noEmit`, the Rust TypeScript checker with Effect diagnostics.
+- Use `vp run typecheck`; it caches per package. Each package runs `effect-tsgo tsrs --noEmit`, the Rust TypeScript checker with Effect diagnostics. A typecheck that fails in seconds with `Cache lookup failed: database disk image is malformed` checked nothing: the task cache is corrupt, so run `vp cache clean` and check again.
 - Run `node -e` snippets from `apps/server` or the owning package. `effect` does not resolve from the repo root.
 - Test meaningful logic or observable behavior. Do not render components to static markup to assert props or attributes, or add tests that merely assert callback wiring or mirror the implementation.
 - **Do not run repo-wide checks.** No `vp check`, no `vp run -r test`, no `vp run -r typecheck` unless I ask. CI owns the full suite.
