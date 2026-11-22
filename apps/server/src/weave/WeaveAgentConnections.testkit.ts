@@ -1,7 +1,7 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert } from "@effect/vitest";
-import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { DEFAULT_WEAVE_ORIGIN } from "@t3tools/shared/weaveOrigins";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
@@ -18,8 +18,6 @@ import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as WeaveAgentConnections from "./WeaveAgentConnections.ts";
 
 export const projectId = ProjectId.make("project-weave");
-export const leadThread = ThreadId.make("thread-lead");
-export const reviewerThread = ThreadId.make("thread-reviewer");
 export const delegation = `yshqd_${"d".repeat(43)}`;
 export const origin = "https://weave.example.test";
 export const otherDelegation = `yshqd_${"e".repeat(43)}`;
@@ -35,17 +33,15 @@ const delegations = new Map([
 ]);
 
 /**
- * Weave's exchange as `POST /api/mcp/agents` documents it: one live agent per reference and role,
- * renewed by a new exchange, replaced after it ends, refused for ever once the person revokes it.
- * A reference keeps the role it first exchanged for.
+ * Weave's exchange as `POST /api/mcp/agents` documents it: it mints tokens only for T3's own
+ * `observer` (one per environment, renewed by a new exchange, refused once the person revokes it)
+ * and answers any other role `400` `role_unknown`. Every claim T3 sent is kept in `exchanges`.
  */
 const makeFakeWeave = () => {
   const agents: Array<{
     id: string;
     origin: string;
     agentRef: string;
-    role: string;
-    model: string;
     ended: boolean;
     revoked: boolean;
   }> = [];
@@ -63,6 +59,7 @@ const makeFakeWeave = () => {
     onCall?: Effect.Effect<void>;
   } = { call: () => ({ status: "succeeded", value: null }) };
   const toolCalls: Array<{ name: string; args: Record<string, unknown>; agentId: string }> = [];
+  const exchanges: Array<Record<string, string>> = [];
   let minted = 0;
 
   const respond = (
@@ -95,11 +92,10 @@ const makeFakeWeave = () => {
         if (bearer !== delegations.get(weaveOrigin) || state.delegationRevoked)
           return respond(request, 401, { error: "invalid_delegation" });
         const claim = parseJson(body) as Record<string, string>;
-        // Weave's claim pattern: a reference is 1 to 300 printable ASCII characters.
-        if (!/^[\x21-\x7e]{1,300}$/.test(claim.agentRef ?? ""))
-          return respond(request, 400, { error: "invalid_agent" });
+        exchanges.push(claim);
+        if (claim.role !== "observer") return respond(request, 400, { error: "role_unknown" });
         const forRef = agents.filter(
-          (a) => a.origin === weaveOrigin && a.agentRef === claim.agentRef && a.role === claim.role,
+          (a) => a.origin === weaveOrigin && a.agentRef === claim.agentRef,
         );
         if (claim.action === "end") {
           const live = forRef.find((a) => !a.ended && !a.revoked);
@@ -107,34 +103,24 @@ const makeFakeWeave = () => {
           return respond(request, 200, { ended: live !== undefined });
         }
         if (forRef.some((a) => a.revoked)) return respond(request, 403, { error: "agent_revoked" });
-        if (
-          agents.some(
-            (a) =>
-              a.origin === weaveOrigin && a.agentRef === claim.agentRef && a.role !== claim.role,
-          )
-        )
-          return respond(request, 409, { error: "agent_role_conflict" });
         let agent = forRef.find((a) => !a.ended);
         if (!agent) {
           agent = {
             id: `agent-${agents.length + 1}`,
             origin: weaveOrigin,
             agentRef: claim.agentRef!,
-            role: claim.role!,
-            model: claim.model!,
             ended: false,
             revoked: false,
           };
           agents.push(agent);
         }
-        agent.model = claim.model!;
         const token = `yshqa_${String(++minted).padStart(43, "t")}`;
         const expiresAt = now + 12 * hourMs;
         tokens.set(token, { agentId: agent.id, expiresAt, origin: weaveOrigin });
         return respond(request, 200, {
           token,
           expiresAt: DateTime.formatIso(DateTime.makeUnsafe(expiresAt)),
-          agent: { executingAgentId: `agent:${agent.id}`, role: agent.role, model: agent.model },
+          agent: { executingAgentId: `agent:${agent.id}`, role: "observer", model: null },
         });
       }
       if (url.pathname === "/api/mcp") {
@@ -187,14 +173,14 @@ const makeFakeWeave = () => {
       return respond(request, 404, {});
     }),
   );
-  return { client, agents, tokens, mcpCalls, state, tools, toolCalls };
+  return { client, agents, exchanges, tokens, mcpCalls, state, tools, toolCalls };
 };
 /** Weave's fake as a test drives it: its answers, its outages and the calls it received. */
 export type FakeWeave = ReturnType<typeof makeFakeWeave>;
 
 /**
- * The real WeaveAgentConnections against a fake Weave, with every log line captured, a lead and a
- * reviewer thread available to call as, and a check that no Weave credential
+ * The real WeaveAgentConnections against a fake Weave, with every log line captured, `read` to
+ * read Forge as T3's observer, and a check that no Weave credential
  * (the delegations and every token Weave minted) reached what a test collected. Given a secrets
  * directory, it uses the real file store there and connects nothing itself.
  */
@@ -242,11 +228,8 @@ export const makeWeaveHarnessAt = Effect.fnUntraced(function* (secretsDirectory?
   const withLogs = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     effect.pipe(Effect.provide(logLayer));
 
-  const call = (
-    threadId: ThreadId,
-    role = threadId === reviewerThread ? "spec-reviewer" : "lead",
-    model = "claude-opus-5-5",
-  ) => withLogs(connections.callAs({ threadId, role, model }, "fixture_agent", {}));
+  /** One Forge read as T3's observer; Weave answers it with the observer's own id. */
+  const read = () => withLogs(connections.observe("fixture_agent", {}));
 
   if (secretsDirectory === undefined) yield* connections.connect({ origin, delegation });
 
@@ -260,7 +243,7 @@ export const makeWeaveHarnessAt = Effect.fnUntraced(function* (secretsDirectory?
       assert.notInclude(text, secret);
   };
 
-  return { weave, connections, call, logs, logLayer, stored, assertNoSecretsIn };
+  return { weave, connections, read, logs, logLayer, stored, assertNoSecretsIn };
 });
 
 export const makeWeaveHarness = makeWeaveHarnessAt();

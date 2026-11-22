@@ -46,15 +46,7 @@ import {
   type ClaudeLedgerUsage,
   type ClaudeModelLedger,
   normalizeClaudeTurnTokenUsage,
-  claudeRequestUsage,
 } from "../../provider/ClaudeTurnTokenUsage.ts";
-import {
-  addTurnRequestUsage,
-  makeTurnUsageBuffer,
-  settleTurnUsage,
-  type TurnUsageBuffer,
-} from "../../provider/TurnUsageRecords.ts";
-import * as WeaveForgeUsage from "../../weave/WeaveForgeUsage.ts";
 import { readClaudeSubagentMessages } from "../../claudeHistoryWorker.ts";
 import { resolveSelfInvocation } from "@t3tools/shared/nodeRuntime";
 import { toMcpElicitationResponse } from "../../provider/CodexMcpElicitation.ts";
@@ -154,7 +146,6 @@ import {
   type ProviderThreadId,
   type RunId,
   type ThreadId,
-  type TurnTokenUsage,
   CLAUDE_COMPACT_RESERVE,
   resolveIdleCompaction,
   isDelegatedAppThread,
@@ -5353,11 +5344,6 @@ interface ActiveClaudeTurnContext {
     requestedAt?: DateTime.Utc;
     usage: ClaudeMessageUsage | null;
   } | null;
-  /**
-   * What each of this turn's own requests spent, held until the turn ends so it records one level:
-   * its requests when they account for the turn's figure, and otherwise the turn itself.
-   */
-  readonly requestUsage: TurnUsageBuffer;
   compactionTokens: number | undefined;
   readonly toolCalls: Map<string, ActiveClaudeToolCall>;
   // A successful status can precede the boundary that supplies its token counts.
@@ -5908,7 +5894,6 @@ export interface ClaudeAdapterV2Options {
 export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
   adapterOptions: ClaudeAdapterV2Options,
 ) {
-  const buildUsage = yield* WeaveForgeUsage.WeaveForgeUsage;
   const slipJayGuard = yield* Effect.serviceOption(SlipJayGuard.SlipJayGuard);
   const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
   const readAgentServers = yield* AgentMcpServers.makeReader;
@@ -6742,34 +6727,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
          * every snapshot of it, so the message id keeps one row per request; the turn's end decides
          * whether those rows or the turn's own figure is what Weave records.
          */
-        const captureRequestUsage = (
-          context: ActiveClaudeTurnContext,
-          input: {
-            readonly messageId: string;
-            readonly usage: ClaudeMessageUsage;
-            readonly model: string;
-            readonly endedAt: DateTime.Utc;
-          },
-        ): void => {
-          const stream = context.streamUsage;
-          const requestedAt =
-            stream !== null && stream.messageId === input.messageId
-              ? stream.requestedAt
-              : undefined;
-          const request = claudeRequestUsage({
-            providerThreadId: String(context.input.providerThread.id),
-            messageId: input.messageId,
-            usage: input.usage,
-            modelRef:
-              input.model.trim().length === 0 ? context.input.modelSelection.model : input.model,
-            // A request whose start the stream never reported is billed from the turn's start.
-            startedAt: DateTime.toEpochMillis(requestedAt ?? context.startedAt),
-            endedAt: DateTime.toEpochMillis(input.endedAt),
-          });
-          if (request === null) return;
-          addTurnRequestUsage(context.requestUsage, request);
-        };
-
         // Claude has no recovered frame; the next assistant message proves recovery.
         // Runs on every model output frame and is almost always a no-op; only a pending retry gets a span.
         const completeProviderRetry = Effect.fnUntraced(function* (
@@ -9599,29 +9556,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           subagentToolCalls.clear();
         });
 
-        /**
-         * Hands what the turn spent to Weave's Build record. Its requests are kept one
-         * by one only while they account for the figure the turn shows; otherwise that figure is the
-         * turn's single row, which is also where a native subagent's usage lands.
-         */
-        const recordTurnUsage = Effect.fnUntraced(function* (
-          context: ActiveClaudeTurnContext,
-          turnTokenUsage: TurnTokenUsage,
-          completedAt: DateTime.Utc,
-        ) {
-          const usage = settleTurnUsage(context.requestUsage, turnTokenUsage, {
-            threadId: context.input.threadId,
-            provider: CLAUDE_PROVIDER,
-            providerThreadId: String(context.input.providerThread.id),
-            turnId: context.nativeTurnId,
-            modelRef: context.input.modelSelection.model,
-            startedAt: DateTime.toEpochMillis(context.startedAt),
-            endedAt: DateTime.toEpochMillis(completedAt),
-            runId: String(context.input.runId),
-          });
-          for (const record of usage) yield* buildUsage.record(record);
-        });
-
         const emitSteerStatus = (
           context: ActiveClaudeTurnContext,
           messageId: MessageId,
@@ -9985,7 +9919,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                   }),
             },
           );
-          yield* recordTurnUsage(input.context, turnTokenUsage, input.completedAt);
           yield* Effect.all(
             [
               emitProviderEvent({
@@ -11716,20 +11649,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 };
                 yield* emitContextUsage(context, stream.usage);
               }
-              // Only the turn's own requests become rows here. A native subagent's usage belongs to
-              // the lead's turn, whose single row counts it as the lead's own.
-              const counted = context.streamUsage;
-              captureRequestUsage(context, {
-                messageId: message.message.id,
-                usage:
-                  counted !== null &&
-                  counted.messageId === message.message.id &&
-                  counted.usage !== null
-                    ? counted.usage
-                    : snapshotUsage,
-                model: message.message.model,
-                endedAt: now,
-              });
             }
             const parentToolUseId = message.parent_tool_use_id;
             const snapshotModel =
@@ -13898,7 +13817,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 blocks: new Map(),
               },
               streamUsage: null,
-              requestUsage: makeTurnUsageBuffer(),
               compactionTokens: undefined,
               toolCalls: new Map(),
               compaction: null,

@@ -22,17 +22,9 @@ import {
   makeCodexTurnTokenUsageState,
   getCodexTurnAccumulator,
   accumulateCodexTurnTokenUsage,
-  codexRequestUsage,
   completeCodexTurnTokenUsage,
   type CodexTurnTokenUsageState,
 } from "../../provider/CodexTurnTokenUsage.ts";
-import {
-  addTurnRequestUsage,
-  makeTurnUsageBuffer,
-  settleTurnUsage,
-  type TurnUsageBuffer,
-} from "../../provider/TurnUsageRecords.ts";
-import * as WeaveForgeUsage from "../../weave/WeaveForgeUsage.ts";
 import type { ManagedServerProvider } from "@t3tools/provider-core/server/snapshot";
 import type { CodexEffectiveRuntime } from "../../provider/CodexManagedRuntime.ts";
 import { classifyCodexManagedError } from "../../provider/CodexManagedErrors.ts";
@@ -100,7 +92,6 @@ import type {
   ProviderTurnId,
   ProviderInstanceId,
   RuntimeMode,
-  TurnTokenUsage,
 } from "@t3tools/contracts";
 import * as CodexClient from "effect-codex-app-server/client";
 import * as CodexErrors from "effect-codex-app-server/errors";
@@ -1383,11 +1374,6 @@ interface ActiveCodexTurnContext {
   readonly subagent: CodexSubagentThreadContext | null;
   readonly startedAt: DateTime.Utc;
   readonly runningCompactionItemIds: Set<string>;
-  /**
-   * What each response of this turn spent, held until the turn ends so it records one level: its
-   * requests when they account for the turn's figure, and otherwise the turn itself.
-   */
-  readonly requestUsage: TurnUsageBuffer;
   readonly runningWebSearchItems: Map<string, CodexWebSearchItem>;
   // Modern approval requests omit paths; keep the kinds without retaining patch bodies.
   readonly fileChangeKindsByItem: Map<string, CodexFileChangeKinds>;
@@ -2106,7 +2092,6 @@ export interface CodexAdapterV2Options {
 export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
   adapterOptions: CodexAdapterV2Options,
 ) {
-  const buildUsage = yield* WeaveForgeUsage.WeaveForgeUsage;
   const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
   const readMcpSession = (threadId: ThreadId | null) =>
     threadId === null ? Effect.undefined : mcpSessions.read(threadId);
@@ -2374,28 +2359,6 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             context.nativeTurnId,
           ).hasSubagents = true;
         };
-        /**
-         * Hands what the turn spent to Weave's Build record. Its responses are kept one
-         * by one only while they account for the figure the turn shows; otherwise that figure is the
-         * turn's single row.
-         */
-        const recordTurnUsage = Effect.fnUntraced(function* (
-          context: ActiveCodexTurnContext,
-          turnTokenUsage: TurnTokenUsage,
-          completedAt: DateTime.Utc,
-        ) {
-          const usage = settleTurnUsage(context.requestUsage, turnTokenUsage, {
-            threadId: context.projectionThreadId,
-            provider: CODEX_PROVIDER,
-            providerThreadId: String(context.providerThread.id),
-            turnId: context.nativeTurnId,
-            modelRef: context.input.modelSelection.model,
-            startedAt: DateTime.toEpochMillis(context.startedAt),
-            endedAt: DateTime.toEpochMillis(completedAt),
-            ...(context.projectionRunId === null ? {} : { runId: String(context.projectionRunId) }),
-          });
-          for (const record of usage) yield* buildUsage.record(record);
-        });
         const pendingRootTurns = yield* Ref.make(
           new Map<string, ProviderAdapter.ProviderAdapterV2TurnInput>(),
         );
@@ -2761,7 +2724,6 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             fileChangeKindsByItem: new Map(),
             messagePhases: new Map(),
             runningCompactionItemIds: new Set(),
-            requestUsage: makeTurnUsageBuffer(),
             runningWebSearchItems: new Map(),
           };
           const nativeThreadId = input.turnInput.providerThread.nativeThreadRef?.nativeId;
@@ -3398,7 +3360,6 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               fileChangeKindsByItem: new Map(),
               messagePhases: new Map(),
               runningCompactionItemIds: new Set(),
-              requestUsage: makeTurnUsageBuffer(),
               runningWebSearchItems: new Map(),
             };
             beginTurnTokenUsage(activeContext);
@@ -5297,21 +5258,6 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             if (context === undefined) {
               return;
             }
-            const now = yield* DateTime.now;
-            // Every update carries `last`, the newest response's own usage, beside the thread's
-            // running total that identifies it, so a replayed update keys the same row. The response
-            // began where the previous one ended, or with the turn.
-            const request = codexRequestUsage({
-              providerThreadId: String(context.providerThread.id),
-              turnId: context.nativeTurnId,
-              tokenUsage: payload.tokenUsage,
-              modelRef: context.input.modelSelection.model,
-              startedAt:
-                context.requestUsage.requests.at(-1)?.endedAt ??
-                DateTime.toEpochMillis(context.startedAt),
-              endedAt: DateTime.toEpochMillis(now),
-            });
-            if (request !== null) addTurnRequestUsage(context.requestUsage, request);
             yield* emitProviderEvent({
               type: "provider_turn.updated",
               driver: CODEX_PROVIDER,
@@ -7301,7 +7247,6 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 input.status === "completed",
                 executedModel,
               );
-              yield* recordTurnUsage(input.context, turnTokenUsage, input.completedAt);
               const completedTurn: OrchestrationV2ProviderTurn = {
                 id: input.context.providerTurnId,
                 providerThreadId: input.context.providerThread.id,
@@ -7824,7 +7769,6 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             fileChangeKindsByItem: new Map(),
             messagePhases: new Map(),
             runningCompactionItemIds: new Set(),
-            requestUsage: makeTurnUsageBuffer(),
             runningWebSearchItems: new Map(),
           };
           const providerTurn = {

@@ -1,85 +1,48 @@
 import * as Layer from "effect/Layer";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
-import { assert, describe, it } from "@effect/vitest";
+import { assert, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { AgentTaskBinding, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Logger from "effect/Logger";
-import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
 import * as NodeUtil from "node:util";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
-import { WeaveAgentCallRefused, weaveAgentRole } from "./WeaveAgentConnections.ts";
 import {
   delegation,
   hourMs,
-  leadThread,
   makeWeaveHarness as makeHarness,
   makeWeaveHarnessAt,
   origin,
   otherDelegation,
   otherOrigin,
-  reviewerThread,
 } from "./WeaveAgentConnections.testkit.ts";
 
-it.effect("a lead and its spec-reviewer reach Weave as two different agents", () =>
+it.effect("T3 asks Weave for no identity but its own observer (WV-71)", () =>
   Effect.gen(function* () {
-    const { weave, call, assertNoSecretsIn } = yield* makeHarness;
-    const lead = yield* call(leadThread);
-    const reviewer = yield* call(reviewerThread);
-    assert.notStrictEqual(lead.value, reviewer.value);
-    assert.deepStrictEqual(
-      weave.agents.map(({ agentRef, role }) => ({ agentRef, role })),
-      [
-        { agentRef: "environment-weave/thread-lead", role: "lead" },
-        { agentRef: "environment-weave/thread-reviewer", role: "spec-reviewer" },
-      ],
-    );
-    assertNoSecretsIn(lead, reviewer);
+    const { weave, connections, read, assertNoSecretsIn } = yield* makeHarness;
+    const first = yield* read();
+    yield* read();
+    yield* connections.decide({ body: { action: "home" } });
+    yield* connections.disconnect;
+    // Every exchange is the environment's observer, which runs no model: never a thread's agent.
+    assert.deepStrictEqual(weave.exchanges, [
+      { action: "exchange", agentRef: "environment-weave", role: "observer", harness: "t3" },
+      { action: "end", agentRef: "environment-weave", role: "observer" },
+    ]);
+    assert.isTrue(weave.mcpCalls.every((mcpCall) => mcpCall.agentId === first.value));
+    assertNoSecretsIn(first);
   }),
 );
 
-it.effect("a deeply delegated thread reaches Weave under a reference it accepts", () =>
+it.effect("renewing before expiry keeps the observer", () =>
   Effect.gen(function* () {
-    // Each delegated child's id escapes its parent's, so a child of a child of a child repeats
-    // two levels of escaping; with the environment it outgrows Weave's 300-character reference.
-    const delegatedThread = (parent: string, task: string) =>
-      ThreadId.make(
-        `thread:delegated-task:command%3Amcp%3A${encodeURIComponent(parent)}%3Adelegate-task%3A${task}`,
-      );
-    const first = delegatedThread("d779967b-b9af-44b7-881b-f7dd9d53eebe", "lead");
-    const second = delegatedThread(first, "chore-storage-methods-throw");
-    const third = delegatedThread(second, "review-storage-methods");
-    assert.isAbove(`environment-weave/${third}`.length, 300);
-
-    const { weave, call, assertNoSecretsIn } = yield* makeHarness;
-    const read = yield* call(third, "spec-reviewer", "gpt-5.5");
-    assert.isDefined(read.value);
-    const ref = weave.agents.at(-1)!.agentRef;
-    assert.isAtMost(ref.length, 300);
-    assert.match(ref, /^environment-weave\/thread-[0-9a-f]{32}$/);
-
-    // The reference names the thread, not the moment: a renewal and a fresh process both reuse it,
-    // so ending the agent Weave holds reaches the same one.
-    yield* TestClock.adjust(12 * hourMs);
-    yield* call(third, "spec-reviewer", "gpt-5.5");
-    assert.strictEqual(weave.agents.length, 1);
-    const { weave: restartedWeave, call: callRestarted } = yield* makeHarness;
-    yield* callRestarted(third, "spec-reviewer", "gpt-5.5");
-    assert.strictEqual(restartedWeave.agents[0]!.agentRef, ref);
-    assertNoSecretsIn(read);
-  }),
-);
-
-it.effect("renewing before expiry keeps the agent", () =>
-  Effect.gen(function* () {
-    const { weave, call, assertNoSecretsIn } = yield* makeHarness;
-    const first = yield* call(leadThread);
+    const { weave, read, assertNoSecretsIn } = yield* makeHarness;
+    const first = yield* read();
     yield* TestClock.adjust(12 * hourMs - 10 * 60 * 1_000);
-    const renewed = yield* call(leadThread);
+    const renewed = yield* read();
     assert.strictEqual(weave.tokens.size, 2);
     assert.strictEqual(renewed.value, first.value);
     assert.notStrictEqual(weave.mcpCalls[0]!.token, weave.mcpCalls[1]!.token);
@@ -88,72 +51,49 @@ it.effect("renewing before expiry keeps the agent", () =>
   }),
 );
 
-it.effect("ending a finished agent makes the resumed thread a new agent", () =>
+it.effect("a revoked observer's reads are refused", () =>
   Effect.gen(function* () {
-    const { weave, connections, call } = yield* makeHarness;
-    const before = yield* call(reviewerThread);
-    yield* connections.end({ threadId: reviewerThread, role: "spec-reviewer" });
-    assert.isTrue(weave.agents[0]!.ended);
-    assert.isFalse(weave.agents[0]!.revoked);
-    const after = yield* call(reviewerThread);
-    assert.notStrictEqual(after.value, before.value);
-  }),
-);
-
-it.effect("a revoked agent's thread is refused and T3 reports agent_revoked", () =>
-  Effect.gen(function* () {
-    const { weave, call, assertNoSecretsIn } = yield* makeHarness;
-    yield* call(leadThread);
+    const { weave, read, assertNoSecretsIn } = yield* makeHarness;
+    yield* read();
     weave.agents[0]!.revoked = true;
-    const refused = yield* call(leadThread).pipe(Effect.flip);
-    assert.instanceOf(refused, WeaveAgentCallRefused);
-    assert.propertyVal(refused, "code", "agent_revoked");
+    yield* TestClock.adjust(12 * hourMs);
+    const refused = yield* read().pipe(Effect.flip);
+    assert.propertyVal(refused, "reason", "refused");
     assert.strictEqual(weave.agents.length, 1);
-    assertNoSecretsIn(refused);
-  }),
-);
-
-it.effect("a thread asking Weave for a second role is refused as agent_role_conflict", () =>
-  Effect.gen(function* () {
-    const { call, assertNoSecretsIn } = yield* makeHarness;
-    yield* call(leadThread);
-    const refused = yield* call(leadThread, "implementer").pipe(Effect.flip);
-    assert.instanceOf(refused, WeaveAgentCallRefused);
-    assert.propertyVal(refused, "code", "agent_role_conflict");
     assertNoSecretsIn(refused);
   }),
 );
 
 it.effect("renewal and reconnect failures report a reason and leak no credential", () =>
   Effect.gen(function* () {
-    const { weave, call, assertNoSecretsIn } = yield* makeHarness;
-    yield* call(leadThread);
+    const { weave, read, assertNoSecretsIn } = yield* makeHarness;
+    yield* read();
     yield* TestClock.adjust(12 * hourMs);
     weave.state.unreachable = true;
-    const unreachable = yield* call(leadThread).pipe(Effect.flip);
+    const unreachable = yield* read().pipe(Effect.flip);
     assert.propertyVal(unreachable, "reason", "unavailable");
     weave.state.unreachable = false;
     weave.state.delegationRevoked = true;
-    const refused = yield* call(leadThread).pipe(Effect.flip);
-    assert.propertyVal(refused, "reason", "unauthorized");
+    const refused = yield* read().pipe(Effect.flip);
+    assert.propertyVal(refused, "reason", "refused");
     assertNoSecretsIn(unreachable, refused);
   }),
 );
 
 it.effect("the connection read reports a delegation Weave refused, until it is replaced", () =>
   Effect.gen(function* () {
-    const { connections, weave, call } = yield* makeHarness;
-    yield* call(leadThread);
+    const { connections, weave, read } = yield* makeHarness;
+    yield* read();
     assert.isFalse((yield* connections.read)?.refused);
     yield* TestClock.adjust(12 * hourMs);
     weave.state.delegationRevoked = true;
-    yield* call(leadThread).pipe(Effect.flip);
+    yield* read().pipe(Effect.flip);
     const refused = yield* connections.read;
     assert.strictEqual(refused?.origin, origin);
     assert.isTrue(refused?.refused);
     weave.state.delegationRevoked = false;
     yield* connections.connect({ origin, delegation });
-    yield* call(leadThread);
+    yield* read();
     assert.isFalse((yield* connections.read)?.refused);
   }),
 );
@@ -170,80 +110,14 @@ it.effect("the delegation is kept only in the server secret store", () =>
   }),
 );
 
-it.effect("one connection serves every thread, and disconnecting stops them all", () =>
+it.effect("disconnecting stops every read", () =>
   Effect.gen(function* () {
-    const { weave, connections, call, assertNoSecretsIn } = yield* makeHarness;
-    // A thread T3 first sees after the connection was made, with no delegation of its own.
-    const later = ThreadId.make("thread-later");
-    const read = yield* call(later);
-    assert.isDefined(read.value);
-    assert.deepStrictEqual(
-      weave.agents.map(({ agentRef, role }) => ({ agentRef, role })),
-      [{ agentRef: "environment-weave/thread-later", role: "lead" }],
-    );
-
+    const { weave, connections, read } = yield* makeHarness;
+    yield* read();
     yield* connections.disconnect;
-    const refused = yield* call(later).pipe(Effect.flip);
-    assert.propertyVal(refused, "reason", "not_connected");
-    const unprepared = ThreadId.make("thread-unconnected");
-    assert.propertyVal(yield* call(unprepared).pipe(Effect.flip), "reason", "not_connected");
+    assert.propertyVal(yield* read().pipe(Effect.flip), "reason", "not_connected");
     assert.lengthOf(weave.agents, 1);
-    assertNoSecretsIn(read, refused);
-  }),
-);
-
-it.effect("calls a tool as an idle thread that nothing has prepared in this process", () =>
-  Effect.gen(function* () {
-    const { weave, connections, assertNoSecretsIn } = yield* makeHarness;
-    weave.tools.call = (name, args) => ({ status: "succeeded", value: { name, args } });
-    // What a restart leaves behind: a thread with no Weave connection in memory.
-    const idle = ThreadId.make("thread-idle");
-
-    const result = yield* connections.callAs(
-      { threadId: idle, role: "lead", model: "gpt-5.5" },
-      "weave_forge_record_usage",
-      { inputTokens: 3 },
-    );
-
-    assert.deepStrictEqual(result.value, {
-      name: "weave_forge_record_usage",
-      args: { inputTokens: 3 },
-    });
-    // The call was made as that thread's own new agent, not as a lead's or an observer's.
-    assert.deepStrictEqual(
-      weave.agents.map(({ agentRef, role }) => ({ agentRef, role })),
-      [{ agentRef: "environment-weave/thread-idle", role: "lead" }],
-    );
-    assertNoSecretsIn(result);
-  }),
-);
-
-it.effect("tells Weave's refusal from an unreachable Weave and from a record it already has", () =>
-  Effect.gen(function* () {
-    const { weave, connections } = yield* makeHarness;
-    const agent = { threadId: leadThread, role: "lead", model: "gpt-5.5" };
-    weave.tools.call = () => ({ status: "failed", code: "validation_error" });
-    const refused = yield* connections
-      .callAs(agent, "weave_forge_record_usage", {})
-      .pipe(Effect.flip);
-    assert.isTrue(isCallRefused(refused));
-    if (!isCallRefused(refused)) return;
-    assert.strictEqual(refused.code, "validation_error");
-
-    // Weave answering `duplicate` already has the record: the call reached its goal.
-    weave.tools.call = () => ({ status: "duplicate", value: { recorded: true } });
-    assert.deepStrictEqual(
-      (yield* connections.callAs(agent, "weave_forge_record_usage", {})).value,
-      {
-        recorded: true,
-      },
-    );
-
-    weave.state.unreachable = true;
-    const unavailable = yield* connections
-      .callAs(agent, "weave_forge_record_usage", {})
-      .pipe(Effect.flip);
-    assert.strictEqual(unavailable._tag, "WeaveAgentCallUnavailable");
+    assert.isTrue(weave.agents[0]!.ended);
   }),
 );
 
@@ -303,13 +177,13 @@ it.effect("a project's stored connection becomes the environment's, stored once"
       new TextEncoder().encode(JSON.stringify({ origin, delegation })),
     );
 
-    const { connections, call } = yield* makeWeaveHarnessAt(directory);
+    const { connections, read } = yield* makeWeaveHarnessAt(directory);
     assert.strictEqual((yield* connections.read)?.origin, origin);
     assert.deepStrictEqual(
       (yield* fileSystem.readDirectory(directory)).filter((file) => /^(hq|weave)-/.test(file)),
       ["weave-connection.bin"],
     );
-    assert.isDefined((yield* call(leadThread)).value);
+    assert.isDefined((yield* read()).value);
   }).pipe(
     Effect.provide(NodeServices.layer),
     Effect.scoped,
@@ -341,11 +215,11 @@ it.effect("projects with different Weave origins keep one and report the other d
     );
 
     // One connection per environment: the first project's in sorted order is kept and usable.
-    const { connections, call } = yield* makeWeaveHarnessAt(directory).pipe(
+    const { connections, read } = yield* makeWeaveHarnessAt(directory).pipe(
       Effect.provide(logLayer),
     );
     assert.strictEqual((yield* connections.read)?.origin, origin);
-    assert.isDefined((yield* call(leadThread)).value);
+    assert.isDefined((yield* read()).value);
 
     // The origin that could not be kept is named alongside the one that was.
     const report = logs.find((line) => line.includes(otherOrigin));
@@ -358,23 +232,12 @@ it.effect("projects with different Weave origins keep one and report the other d
   ),
 );
 
-it.effect("a changed model renews the same agent and records the latest model", () =>
-  Effect.gen(function* () {
-    const { weave, call } = yield* makeHarness;
-    const before = yield* call(leadThread);
-    const after = yield* call(leadThread, "lead", "claude-sonnet-5-5");
-    assert.strictEqual(after.value, before.value);
-    assert.strictEqual(weave.tokens.size, 2);
-    assert.strictEqual(weave.agents[0]!.model, "claude-sonnet-5-5");
-  }),
-);
-
 it.effect("reconnecting to another Weave never presents one Weave's token to the other", () =>
   Effect.gen(function* () {
-    const { weave, connections, call, assertNoSecretsIn } = yield* makeHarness;
-    const first = yield* call(leadThread);
+    const { weave, connections, read, assertNoSecretsIn } = yield* makeHarness;
+    const first = yield* read();
     yield* connections.connect({ origin: otherOrigin, delegation: otherDelegation });
-    const second = yield* call(leadThread);
+    const second = yield* read();
     assert.isDefined(second.value);
     assert.deepStrictEqual(
       weave.mcpCalls.map((mcpCall) => mcpCall.origin),
@@ -385,79 +248,6 @@ it.effect("reconnecting to another Weave never presents one Weave's token to the
     assertNoSecretsIn(first, second);
   }),
 );
-
-const decodeAgentTask = Schema.decodeUnknownSync(AgentTaskBinding);
-const isCallRefused = Schema.is(WeaveAgentCallRefused);
-
-describe("weaveAgentRole", () => {
-  const lineage = (relationshipToParent: "fork" | "subagent" | null) => ({
-    parentThreadId: relationshipToParent === null ? null : ThreadId.make("thread-parent"),
-    relationshipToParent,
-    rootThreadId: ThreadId.make("thread-parent"),
-  });
-  const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.5" };
-  const taskFields = {
-    taskClass: "non-ui" as const,
-    workId: "work",
-    attemptId: "1",
-    workspacePath: "/workspace",
-    requestFingerprint: "a".repeat(64),
-    policyHash: "b".repeat(64),
-    policyRevision: "test",
-    briefHash: "c".repeat(64),
-    requested: modelSelection,
-    assigned: null,
-    effective: modelSelection,
-  };
-  const recordedTask = (review?: { readonly scope: "change" | "spec" }) =>
-    decodeAgentTask({
-      ...taskFields,
-      role: "reviewer",
-      sourceAccess: "read-only",
-      toolProfile: "source-reader",
-      ...(review === undefined
-        ? {}
-        : {
-            review: {
-              ...review,
-              baseRevision: "base",
-              includedChanges: ["change"],
-              coverage: "complete",
-            },
-          }),
-    });
-  const writerTask = () =>
-    decodeAgentTask({
-      ...taskFields,
-      role: "implementer",
-      sourceAccess: "scoped-write",
-      toolProfile: "implementation",
-    });
-
-  it("is lead only for a top-level thread, and none for a raw child or a fork without a task", () => {
-    assert.strictEqual(weaveAgentRole({ lineage: lineage(null) }), "lead");
-    assert.isUndefined(weaveAgentRole({ lineage: lineage("subagent") }));
-    assert.isUndefined(weaveAgentRole({ lineage: lineage("fork") }));
-  });
-
-  it("maps the merged reviewer to the Forge role for its recorded scope", () => {
-    assert.strictEqual(
-      weaveAgentRole({ lineage: lineage("subagent"), agentTask: recordedTask() }),
-      "ticket-reviewer",
-    );
-    assert.strictEqual(
-      weaveAgentRole({ lineage: lineage("subagent"), agentTask: recordedTask({ scope: "spec" }) }),
-      "spec-reviewer",
-    );
-  });
-
-  it("names the merged implementer to Weave as the pre-merge writer it authorizes", () => {
-    assert.strictEqual(
-      weaveAgentRole({ lineage: lineage("subagent"), agentTask: writerTask() }),
-      "implementation-worker",
-    );
-  });
-});
 
 it.effect("a connection stored under the old name moves to the current one at start", () =>
   Effect.gen(function* () {
@@ -470,10 +260,10 @@ it.effect("a connection stored under the old name moves to the current one at st
       new TextEncoder().encode(JSON.stringify({ origin, delegation })),
     );
 
-    const { connections, call } = yield* makeWeaveHarnessAt(directory);
+    const { connections, read } = yield* makeWeaveHarnessAt(directory);
 
     assert.strictEqual((yield* connections.read)?.origin, origin);
-    assert.isDefined((yield* call(leadThread)).value);
+    assert.isDefined((yield* read()).value);
     assert.isTrue(Option.isSome(yield* store.get("weave-connection")));
     assert.isTrue(Option.isNone(yield* store.get("hq-connection")));
   }).pipe(

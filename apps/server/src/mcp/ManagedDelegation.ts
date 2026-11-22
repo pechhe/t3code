@@ -3,7 +3,6 @@ import * as Champions from "../champions/ChampionService.ts";
 import * as DelegationModelShadow from "../agents/DelegationModelShadow.ts";
 import * as Digest from "effect/crypto/Digest";
 import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
-import { weaveAgentRole } from "../weave/WeaveAgentConnections.ts";
 import * as ExternalWork from "../agents/ExternalAgentWorkService.ts";
 import { assertBelowDelegationLimit } from "./delegationLimits.ts";
 import * as Hex from "effect/encoding/Hex";
@@ -45,7 +44,6 @@ import {
   isReviewerRole,
   isDelegatedAppThread,
   modelMaker,
-  type OrchestratorMcpCouncilRoster,
   type OrchestratorMcpReviewCouncil,
   type AgentReviewRequest,
   READ_ONLY_ROLES,
@@ -396,7 +394,6 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
     loadProviders,
     loadTasks,
     loadCaller,
-    loadCallerRecords,
     loadThreadRecords,
     directChildTaskIds,
     threadRun,
@@ -478,62 +475,6 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
     councilRequests.add(request);
     return request;
   };
-  /**
-   * Records a council round's roster in Forge as the calling lead, so no agent copies it by hand.
-   * Undefined when the Spec is not a Forge Spec (GitHub-tracked, or no ref). A roster that cannot
-   * be recorded is reported, never raised: the reviewers are already running. A retry with the
-   * same clientRequestId replays the same seats, so it sends the same roster, which Forge replays.
-   */
-  const recordRoster = Effect.fn("OrchestratorMcpService.recordRoster")(function* (
-    callerScope: McpInvocationScope,
-    review: AgentReviewRequest,
-    clientRef: string,
-    members: ReadonlyArray<OrchestratorMcpReviewCouncil["members"][number]>,
-    missing: ReadonlyArray<OrchestratorMcpReviewCouncil["missing"][number]>,
-  ): Effect.fn.Return<OrchestratorMcpCouncilRoster | undefined> {
-    const specRef = review.specRef;
-    if (specRef === undefined) return undefined;
-    // The lead reads how to record it by hand here, where it is needed, not in the tool's description.
-    const unrecorded = (reason: string): OrchestratorMcpCouncilRoster => ({
-      recorded: false,
-      reason: `${reason} Record the roster with weave_forge_council: clientRef is this round's clientRequestId, and members carry each member's taskRef, never its taskId.`,
-    });
-    if (callerScope.thread === undefined)
-      return unrecorded("The review was not asked for by a thread, so no lead can record it.");
-    const caller = yield* loadCallerRecords(callerScope.thread.threadId, []).pipe(Effect.option);
-    const role = Option.isSome(caller) ? weaveAgentRole(caller.value.thread) : undefined;
-    if (Option.isNone(caller) || role === undefined)
-      return unrecorded("The calling thread has no Weave agent to record the roster as.");
-    return yield* forgeWorkItems
-      .recordCouncil(
-        {
-          threadId: callerScope.thread.threadId,
-          role,
-          model: caller.value.thread.modelSelection.model,
-        },
-        {
-          specRef,
-          clientRef,
-          members: members.map((entry) => ({
-            taskRef: entry.taskRef,
-            model: entry.model ?? entry.maker,
-            maker: entry.maker,
-          })),
-          missing,
-        },
-      )
-      .pipe(
-        Effect.map((recording) =>
-          recording.recorded === "not_a_forge_spec"
-            ? undefined
-            : recording.recorded
-              ? recording
-              : unrecorded(recording.reason),
-        ),
-        Effect.catchCause(() => Effect.succeed(unrecorded("T3 could not record the roster."))),
-      );
-  });
-
   const sitCouncil = Effect.fn("OrchestratorMcpService.sitCouncil")(function* (
     callerScope: McpInvocationScope,
     input: OrchestratorMcpDelegateTaskInput,
@@ -628,15 +569,9 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
       )
       .slice(0, COUNCIL_SEATS);
     if (tasks.length > 0) {
-      const roster = yield* recordRoster(callerScope, review, requestId, members, unseated);
       return {
         ...tasks[0]!,
-        council: {
-          formed: tasks.length >= 2,
-          members,
-          missing: unseated,
-          ...(roster === undefined ? {} : { roster }),
-        },
+        council: { formed: tasks.length >= 2, members, missing: unseated },
       };
     }
     // No maker could sit: the role's ordinary choice reviews alone.
@@ -648,15 +583,9 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
     const soloMembers = [
       member(soloBinding === undefined ? "solo" : modelMaker(soloBinding), taskRef, result.success),
     ];
-    const roster = yield* recordRoster(callerScope, review, requestId, soloMembers, unseated);
     return {
       ...result.success,
-      council: {
-        formed: false,
-        members: soloMembers,
-        missing: unseated,
-        ...(roster === undefined ? {} : { roster }),
-      },
+      council: { formed: false, members: soloMembers, missing: unseated },
     };
   });
 

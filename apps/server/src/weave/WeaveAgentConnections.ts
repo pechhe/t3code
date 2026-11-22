@@ -1,4 +1,3 @@
-import type { OrchestrationV2AppThread, ThreadId } from "@t3tools/contracts";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import { currentWeaveOrigin, sameWeaveAddress } from "@t3tools/shared/weaveOrigins";
 import * as Clock from "effect/Clock";
@@ -22,36 +21,9 @@ const LEGACY_STORE_NAME = "hq-connection";
 /** Before the connection belonged to the environment, each project stored its own. */
 const PROJECT_STORE_FILE = /^(hq-connection-[0-9a-f]{32})\.bin$/;
 
-/** Weave tokens last at most 12 hours; renewing this early keeps a call from meeting an expired one. */
+/** Weave tokens last at most 12 hours; renewing this early keeps a read from meeting an expired one. */
 const RENEW_BEFORE_EXPIRY_MS = 15 * 60 * 1_000;
 const WEAVE_REQUEST_TIMEOUT = "60 seconds";
-/** Weave's claim for an agent reference: 1 to 300 printable ASCII characters. */
-const WEAVE_AGENT_REF_MAX_LENGTH = 300;
-
-export interface WeaveAgent {
-  readonly threadId: ThreadId;
-  /** `lead` for a top-level thread, its delegated task's role as Weave knows it. */
-  readonly role: string;
-  readonly model: string;
-}
-
-/**
- * The role a thread's agent acts under in Weave: its delegated task's role as Weave knows it, or
- * `lead` for a top-level thread. Any other thread has none: a raw,
- * off-policy child, or a fork or side chat with no task (an agent can fork itself), would otherwise
- * act with the lead's full authority.
- */
-export const weaveAgentRole = (
-  thread: Pick<OrchestrationV2AppThread, "agentTask" | "lineage">,
-): string | undefined => {
-  const role = thread.agentTask?.role;
-  // Forge still authorizes the merged roles under their pre-merge names: the writer by name, the
-  // reviewer by its recorded scope.
-  if (role === "implementer") return "implementation-worker";
-  if (role === "reviewer")
-    return thread.agentTask?.review?.scope === "spec" ? "spec-reviewer" : "ticket-reviewer";
-  return role ?? (thread.lineage.parentThreadId === null ? "lead" : undefined);
-};
 
 /** Why the server's own read of Weave failed. `refused` covers a revoked delegation or observer. */
 export class WeaveObserveError extends Schema.TaggedError<WeaveObserveError>()(
@@ -71,46 +43,6 @@ export class WeaveDecisionError extends Schema.TaggedError<WeaveDecisionError>()
     reason: Schema.Literals(["not_connected", "other_origin", "unavailable"]),
   },
 ) {}
-
-/**
- * Weave answered, and refused this call in a way another attempt cannot change: the person revoked
- * the agent, the reference already acts under another role, or Weave will not take the record. The
- * code is Weave's own, so a caller can report why without retrying for ever.
- */
-export class WeaveAgentCallRefused extends Schema.TaggedError<WeaveAgentCallRefused>()(
-  "WeaveAgentCallRefused",
-  {
-    tool: Schema.String,
-    code: Schema.String,
-  },
-) {
-  override get message(): string {
-    return `Weave refused ${this.tool} (${this.code}).`;
-  }
-}
-
-/**
- * The call did not reach an answer another attempt could act on: Weave was unreachable, T3 is not
- * connected, Weave would not accept the thread's credential, or the thread has no agent to act as.
- */
-export class WeaveAgentCallUnavailable extends Schema.TaggedError<WeaveAgentCallUnavailable>()(
-  "WeaveAgentCallUnavailable",
-  {
-    tool: Schema.String,
-    reason: Schema.Literals(["not_connected", "unavailable", "unauthorized"]),
-  },
-) {
-  override get message(): string {
-    switch (this.reason) {
-      case "not_connected":
-        return `T3 is not connected to Weave, so ${this.tool} could not be called.`;
-      case "unauthorized":
-        return `Weave would not accept this thread's agent, so ${this.tool} could not be called.`;
-      case "unavailable":
-        return `Weave could not be reached, so ${this.tool} could not be called.`;
-    }
-  }
-}
 
 /** Weave's answer to one decisions call, with the connection that made it. */
 export interface WeaveDecisionResponse {
@@ -137,16 +69,6 @@ export class WeaveConnectionError extends Schema.TaggedError<WeaveConnectionErro
   }
 }
 
-/** Why Weave would not let a thread's agent in. */
-type WeaveRefusal =
-  | "not_connected"
-  | "invalid_delegation"
-  | "agent_revoked"
-  | "agent_role_conflict"
-  | "agent_invalid"
-  | "unauthorized"
-  | "unavailable";
-
 const StoredConnection = Schema.fromJsonString(
   Schema.Struct({ origin: Schema.String, delegation: Schema.String }),
 );
@@ -157,14 +79,6 @@ const ExchangeResponse = Schema.Struct({ token: Schema.String, expiresAt: Schema
 const decodeExchange = Schema.decodeUnknownOption(ExchangeResponse);
 const WeaveError = Schema.Struct({ error: Schema.String });
 const decodeWeaveError = Schema.decodeUnknownOption(WeaveError);
-/** A JSON-RPC error answer, which names the refusal in its data or its code. */
-const McpError = Schema.Struct({
-  error: Schema.Struct({
-    code: Schema.Number,
-    data: Schema.optional(Schema.Struct({ reason: Schema.optional(Schema.String) })),
-  }),
-});
-const decodeMcpError = Schema.decodeUnknownOption(McpError);
 
 const ToolCallResponse = Schema.Struct({
   result: Schema.Struct({
@@ -178,28 +92,6 @@ const ToolCallResponse = Schema.Struct({
 const decodeToolCall = Schema.decodeUnknownOption(ToolCallResponse);
 
 const decodeJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown));
-
-/** What a refusal from the exchange or the request means for a call that has to reach Weave. */
-const callFailureOf = (
-  tool: string,
-  refusal: WeaveRefusal,
-): WeaveAgentCallRefused | WeaveAgentCallUnavailable => {
-  switch (refusal) {
-    // Only a person can undo these, so reporting the call is over beats retrying for ever.
-    case "agent_revoked":
-    case "agent_role_conflict":
-    case "agent_invalid":
-      return new WeaveAgentCallRefused({ tool, code: refusal });
-    case "not_connected":
-      return new WeaveAgentCallUnavailable({ tool, reason: "not_connected" });
-    // A revoked or expired delegation is fixed by connecting again, so it is worth waiting for.
-    case "invalid_delegation":
-    case "unauthorized":
-      return new WeaveAgentCallUnavailable({ tool, reason: "unauthorized" });
-    case "unavailable":
-      return new WeaveAgentCallUnavailable({ tool, reason: "unavailable" });
-  }
-};
 
 const DELEGATION_PATTERN = /^yshqd_[A-Za-z0-9_-]{43}$/;
 
@@ -222,25 +114,10 @@ interface StoredWeaveConnection {
   readonly delegation: string;
 }
 
-interface AgentToken {
-  readonly value: string;
-  readonly expiresAt: number;
-  readonly role: string;
-  readonly model: string;
-  /** The connection it was exchanged under, and so the only Weave it may be presented to. */
-  readonly origin: string;
-  readonly delegation: string;
-}
-
 /** The server's own `observer` agent for one Weave connection, shared by every project and thread. */
 interface ObserverToken {
   readonly value: string;
   readonly expiresAt: number;
-}
-
-interface ThreadConnection {
-  agent: WeaveAgent;
-  token: AgentToken | undefined;
 }
 
 export class WeaveAgentConnections extends Context.Service<
@@ -282,31 +159,6 @@ export class WeaveAgentConnections extends Context.Service<
       readonly body: Record<string, unknown>;
       readonly origin?: string;
     }) => Effect.Effect<WeaveDecisionResponse, WeaveDecisionError>;
-    /**
-     * Calls a Weave server MCP tool as the thread's own agent, whether or not that agent was prepared in
-     * this process: an idle thread after a restart has no in-memory entry, so the connection is
-     * filled from `agent`. `agent` is who the caller read the thread acts as, from the thread's own
-     * projection. Only the server calls this, never a provider or an observer.
-     */
-    readonly callAs: (
-      agent: WeaveAgent,
-      tool: string,
-      args: Record<string, unknown>,
-    ) => Effect.Effect<
-      { readonly value: unknown },
-      WeaveAgentCallRefused | WeaveAgentCallUnavailable
-    >;
-    /** Ends the thread's Weave agent (never revokes it); its next Weave call starts a new agent. */
-    readonly end: (agent: Omit<WeaveAgent, "model">) => Effect.Effect<void>;
-    /**
-     * Ends the thread's Weave agent, failing when Weave could not be told, so a queued end stays due
-     * instead of leaving an agent that nothing will end.
-     */
-    readonly endAgent: (
-      agent: Omit<WeaveAgent, "model">,
-    ) => Effect.Effect<void, WeaveAgentCallUnavailable>;
-    /** Ends the agent and drops the thread's connection, for a deleted thread. */
-    readonly forget: (agent: Omit<WeaveAgent, "model">) => Effect.Effect<void>;
   }
 >()("t3/weave/WeaveAgentConnections") {}
 
@@ -317,8 +169,6 @@ const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const httpClient = yield* HttpClient.HttpClient;
   const environmentId = yield* (yield* ServerEnvironment.ServerEnvironment).getEnvironmentId;
-  const threads = new Map<ThreadId, ThreadConnection>();
-  const tokenLock = yield* KeyedLock.make<ThreadId>();
   const observers = new Map<string, ObserverToken>();
   /** Connections Weave answered 401 to, by `connectionKey`, until a call under them succeeds. */
   const refusedConnections = new Set<string>();
@@ -344,22 +194,6 @@ const make = Effect.gen(function* () {
   );
   const readStored = readStoredState.pipe(Effect.map(Option.map((state) => state.connection)));
 
-  const dropToken = (threadId: ThreadId) => {
-    const connection = threads.get(threadId);
-    if (connection !== undefined) connection.token = undefined;
-  };
-
-  /**
-   * Who a thread's Weave agent is. Weave takes a reference of at most 300 printable characters, and
-   * a delegated child's id escapes each ancestor's, so a thread nested a few levels deep outgrows
-   * it; past that length the thread is named by its digest instead, which stays stable and unique.
-   */
-  const agentRef = Effect.fn("WeaveAgentConnections.agentRef")(function* (threadId: ThreadId) {
-    const readable = `${environmentId}/${threadId}`;
-    if (readable.length <= WEAVE_AGENT_REF_MAX_LENGTH) return readable;
-    return `${environmentId}/thread-${(yield* digest(threadId)).slice(0, 32)}`;
-  });
-
   // Never pass an HTTP client error on: it carries the request, and so the bearer credential.
   const postAgents = (
     stored: { readonly origin: string; readonly delegation: string },
@@ -374,64 +208,6 @@ const make = Effect.gen(function* () {
       ),
       Effect.timeout(WEAVE_REQUEST_TIMEOUT),
       Effect.mapError(() => "unavailable" as const),
-    );
-
-  /**
-   * The thread's current Weave token for this stored connection, exchanged (or renewed) when it is
-   * missing, near expiry, or was exchanged under another origin or delegation.
-   */
-  const agentToken = (threadId: ThreadId, stored: StoredWeaveConnection) =>
-    tokenLock.withLock(
-      threadId,
-      Effect.gen(function* () {
-        const connection = threads.get(threadId);
-        if (connection === undefined) return yield* Effect.fail("unauthorized" as WeaveRefusal);
-        const { agent } = connection;
-        const now = yield* Clock.currentTimeMillis;
-        const cached = connection.token;
-        if (
-          cached !== undefined &&
-          cached.role === agent.role &&
-          cached.model === agent.model &&
-          cached.origin === stored.origin &&
-          cached.delegation === stored.delegation &&
-          cached.expiresAt - now > RENEW_BEFORE_EXPIRY_MS
-        )
-          return cached.value;
-        const { status, json } = yield* postAgents(stored, {
-          action: "exchange",
-          agentRef: yield* agentRef(threadId),
-          role: agent.role,
-          model: agent.model,
-          harness: "t3",
-        });
-        const exchanged = status === 200 ? decodeExchange(json) : Option.none();
-        const key = yield* connectionKey(stored);
-        if (Option.isSome(exchanged)) refusedConnections.delete(key);
-        else if (status === 401) refusedConnections.add(key);
-        if (Option.isNone(exchanged)) {
-          const code = Option.getOrUndefined(decodeWeaveError(json))?.error;
-          return yield* Effect.fail<WeaveRefusal>(
-            status === 401
-              ? "invalid_delegation"
-              : code === "agent_revoked" || code === "agent_role_conflict"
-                ? code
-                : status === 400
-                  ? "agent_invalid"
-                  : "unavailable",
-          );
-        }
-        const token = {
-          value: exchanged.value.token,
-          expiresAt: Date.parse(exchanged.value.expiresAt),
-          role: agent.role,
-          model: agent.model,
-          origin: stored.origin,
-          delegation: stored.delegation,
-        };
-        connection.token = token;
-        return token.value;
-      }),
     );
 
   const connectionKey = (stored: StoredWeaveConnection) =>
@@ -585,125 +361,7 @@ const make = Effect.gen(function* () {
         response.text.pipe(Effect.map((text) => ({ status: response.status, text }))),
       ),
       Effect.timeout(WEAVE_REQUEST_TIMEOUT),
-      Effect.mapError((): WeaveRefusal => "unavailable"),
-    );
-
-  const callOnce = Effect.fn("WeaveAgentConnections.callOnce")(function* (
-    threadId: ThreadId,
-    stored: StoredWeaveConnection,
-    tool: string,
-    args: Record<string, unknown>,
-  ) {
-    const token = yield* agentToken(threadId, stored);
-    const response = yield* callWeave(stored.origin, token, tool, args);
-    if (response.status !== 401) return Option.some(response);
-    dropToken(threadId);
-    return Option.none<typeof response>();
-  });
-
-  /**
-   * Calls a Weave server MCP tool as the thread's own agent, giving it a connection here when this process
-   * has none: an idle thread after a restart has no entry, so the caller says who it acts as, from
-   * the thread's own projection. Only the server calls this, never a provider or an observer.
-   */
-  const callAs: WeaveAgentConnections["Service"]["callAs"] = Effect.fn(
-    "WeaveAgentConnections.callAs",
-  )(function* (agent, tool, args) {
-    const failure = (refusal: WeaveRefusal) => callFailureOf(tool, refusal);
-    const stored = yield* readStored.pipe(Effect.mapError(() => failure("unavailable")));
-    if (Option.isNone(stored)) return yield* failure("not_connected");
-    yield* prepare(agent);
-    // `prepare` adds nothing while T3 is disconnected, so there is no agent to call as.
-    if (threads.get(agent.threadId) === undefined) return yield* failure("not_connected");
-    const threadId = agent.threadId;
-    const attempt = callOnce(threadId, stored.value, tool, args).pipe(Effect.mapError(failure));
-    const response = yield* attempt.pipe(
-      Effect.flatMap(
-        Option.match({
-          onSome: Effect.succeed,
-          onNone: () =>
-            attempt.pipe(
-              Effect.flatMap(
-                Option.match({
-                  onSome: Effect.succeed,
-                  onNone: () =>
-                    Effect.fail(new WeaveAgentCallUnavailable({ tool, reason: "unauthorized" })),
-                }),
-              ),
-            ),
-        }),
-      ),
-    );
-    const { text } = response;
-    const outcome =
-      response.status === 200
-        ? decodeJson(text).pipe(
-            Option.flatMap(decodeToolCall),
-            Option.map((answer) => answer.result.structuredContent),
-          )
-        : Option.none();
-    if (Option.isSome(outcome)) {
-      // Weave answering `duplicate` has already taken this record: the call reached its goal.
-      if (outcome.value.status === "succeeded" || outcome.value.status === "duplicate")
-        return { value: outcome.value.value };
-      if (outcome.value.code !== undefined)
-        return yield* new WeaveAgentCallRefused({ tool, code: outcome.value.code });
-      return yield* new WeaveAgentCallUnavailable({ tool, reason: "unavailable" });
-    }
-    // An answer with a status and a code of its own is a refusal; anything else may pass.
-    const code =
-      Option.getOrUndefined(
-        decodeJson(text).pipe(
-          Option.flatMap(decodeWeaveError),
-          Option.map((error) => error.error),
-        ),
-      ) ??
-      Option.getOrUndefined(
-        decodeJson(text).pipe(
-          Option.flatMap(decodeMcpError),
-          Option.map((error) => error.error.data?.reason ?? `mcp_error_${error.error.code}`),
-        ),
-      );
-    if (code !== undefined && response.status >= 400 && response.status < 500)
-      return yield* new WeaveAgentCallRefused({ tool, code });
-    return yield* new WeaveAgentCallUnavailable({ tool, reason: "unavailable" });
-  });
-
-  const endAgent: WeaveAgentConnections["Service"]["endAgent"] = Effect.fn(
-    "WeaveAgentConnections.endAgent",
-  )(function* (agent) {
-    yield* tokenLock.withLock(
-      agent.threadId,
-      Effect.gen(function* () {
-        dropToken(agent.threadId);
-        const stored = yield* readStored.pipe(Effect.mapError((): WeaveRefusal => "unavailable"));
-        // With no Weave connection there is no agent of ours left to end.
-        if (Option.isNone(stored)) return;
-        const { status } = yield* postAgents(stored.value, {
-          action: "end",
-          agentRef: yield* agentRef(agent.threadId),
-          role: agent.role,
-        });
-        if (status === 200) return;
-        return yield* Effect.fail<WeaveRefusal>("unavailable");
-      }).pipe(
-        Effect.mapError(
-          (): WeaveAgentCallUnavailable =>
-            new WeaveAgentCallUnavailable({ tool: "weave_agent_end", reason: "unavailable" }),
-        ),
-      ),
-    );
-  });
-
-  const end: WeaveAgentConnections["Service"]["end"] = (agent) =>
-    endAgent(agent).pipe(
-      Effect.catchTags({
-        WeaveAgentCallUnavailable: (error) =>
-          Effect.logWarning("Could not end a thread's Weave agent", {
-            threadId: agent.threadId,
-            reason: error.reason,
-          }),
-      }),
+      Effect.mapError(() => "unavailable" as const),
     );
 
   /**
@@ -761,24 +419,6 @@ const make = Effect.gen(function* () {
     ),
   );
 
-  const prepare = Effect.fn("WeaveAgentConnections.prepare")(function* (agent: WeaveAgent) {
-    const connected = yield* readStored.pipe(
-      Effect.map(Option.isSome),
-      Effect.catch(() =>
-        Effect.logWarning("Could not read T3's Weave connection", {
-          threadId: agent.threadId,
-        }).pipe(Effect.as(false)),
-      ),
-    );
-    const existing = threads.get(agent.threadId);
-    if (!connected) return;
-    if (existing !== undefined) {
-      existing.agent = agent;
-      return;
-    }
-    threads.set(agent.threadId, { agent, token: undefined });
-  });
-
   return WeaveAgentConnections.of({
     connectionChanges: Stream.fromPubSub(connectionChanges),
     connect: Effect.fn("WeaveAgentConnections.connect")(function* (input) {
@@ -794,8 +434,6 @@ const make = Effect.gen(function* () {
       yield* store
         .set(STORE_NAME, new TextEncoder().encode(encoded))
         .pipe(Effect.mapError(storeFailed));
-      // A new delegation or origin takes over at each thread's next exchange.
-      for (const connection of threads.values()) connection.token = undefined;
       if (
         Option.isSome(previous) &&
         (previous.value.origin !== origin || previous.value.delegation !== delegation)
@@ -808,7 +446,6 @@ const make = Effect.gen(function* () {
       const previous = yield* readStored;
       yield* store.remove(STORE_NAME).pipe(Effect.mapError(storeFailed));
       yield* PubSub.publish(connectionChanges, undefined);
-      for (const connection of threads.values()) connection.token = undefined;
       if (Option.isSome(previous)) yield* releaseObserver(previous.value);
     }).pipe(Effect.withSpan("WeaveAgentConnections.disconnect")),
     read: readStoredState.pipe(
@@ -830,13 +467,6 @@ const make = Effect.gen(function* () {
     ),
     observe,
     decide,
-    callAs,
-    end,
-    endAgent,
-    forget: Effect.fn("WeaveAgentConnections.forget")(function* (agent) {
-      yield* end(agent);
-      threads.delete(agent.threadId);
-    }),
   });
 });
 

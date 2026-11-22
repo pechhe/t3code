@@ -58,17 +58,10 @@ export const pausedByParentStopField = {
 };
 
 /**
- * Whether T3 recorded the council's roster in Weave Forge. Absent when the Spec is not a Forge
- * Spec, since there is no roster to record. `recorded: false` never stops the review: the lead
- * records the roster by hand with `weave_forge_council`, using each member's `taskRef`.
+ * A Spec review sat as a council: every member's task, and the makers that could not sit. For a
+ * Forge Spec the lead records the roster with `weave_forge_council`, naming each member's
+ * `taskRef` (never its `taskId`) and this round's clientRequestId as `clientRef`.
  */
-export const OrchestratorMcpCouncilRoster = Schema.Union([
-  Schema.Struct({ recorded: Schema.Literal(true) }),
-  Schema.Struct({ recorded: Schema.Literal(false), reason: TrimmedNonEmptyString }),
-]);
-export type OrchestratorMcpCouncilRoster = typeof OrchestratorMcpCouncilRoster.Type;
-
-/** A Spec review sat as a council: every member's task, and the makers that could not sit. */
 export const OrchestratorMcpReviewCouncil = Schema.Struct({
   /** False when fewer than two makers could sit, so one reviewer runs instead. */
   formed: Schema.Boolean,
@@ -88,12 +81,6 @@ export const OrchestratorMcpReviewCouncil = Schema.Struct({
       reason: TrimmedNonEmptyString,
     }),
   ),
-  /**
-   * T3 records this roster in Forge itself, keyed by the round's clientRequestId. Only when
-   * `recorded` is false does the lead record it by hand with `weave_forge_council`, with the
-   * members' `taskRef` (never `taskId`) and this round's clientRequestId as `clientRef`.
-   */
-  roster: Schema.optional(OrchestratorMcpCouncilRoster),
 });
 export type OrchestratorMcpReviewCouncil = typeof OrchestratorMcpReviewCouncil.Type;
 

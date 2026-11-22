@@ -1034,8 +1034,6 @@ export interface CursorAdapterV2Options {
   readonly getSdkModels?: () => ReadonlyArray<SDKModel>;
 }
 
-// Cursor reports no per-request token counts, so its turns record no usage for Weave's Build
-// record rather than a zero.
 export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
   options: CursorAdapterV2Options,
 ) {

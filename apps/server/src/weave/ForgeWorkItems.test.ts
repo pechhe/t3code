@@ -9,7 +9,6 @@ import {
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
-import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -22,7 +21,6 @@ import * as ForgeWorkItems from "./ForgeWorkItems.ts";
 import * as WeaveAgentConnections from "./WeaveAgentConnections.ts";
 import {
   delegation,
-  leadThread,
   makeWeaveHarness,
   origin,
   otherOrigin,
@@ -152,18 +150,7 @@ const makeHarness = Effect.gen(function* () {
     bodySize: 1,
     body: BODY,
   });
-  const councils = new Map<string, unknown>();
   harness.weave.tools.call = (name, args) => {
-    // Forge's roster contract: a replay returns the roster, a different one on the same reference is refused.
-    if (name === "weave_forge_council") {
-      const key = `${String(args.specId)}:${String(args.clientRef)}`;
-      const roster = { members: args.members, missing: args.missing ?? [] };
-      const prior = councils.get(key);
-      if (prior !== undefined && JSON.stringify(prior) !== JSON.stringify(roster))
-        return { status: "failed", code: "council_conflict" };
-      councils.set(key, roster);
-      return { status: "succeeded", value: roster };
-    }
     if (name === "weave_forge_list" && args.updatedSince !== undefined) {
       if (changeCheck.failing) return { status: "failed", code: "unavailable" };
       const offset = Number(args.offset ?? 0);
@@ -271,7 +258,6 @@ const makeHarness = Effect.gen(function* () {
   return {
     ...harness,
     service,
-    councils,
     add,
     touch,
     changeCheck,
@@ -295,10 +281,9 @@ it.effect("links by URL, #number or number through T3's own observer agent", () 
     assert.deepStrictEqual(thread.workItem, linked.workItem);
     // One observer for the environment: no thread, no model, and never a provider's agent.
     assert.deepStrictEqual(
-      weave.agents.map(({ agentRef, role }) => ({ agentRef, role })),
-      [{ agentRef: "environment-weave", role: "observer" }],
+      weave.exchanges.map(({ agentRef, role, model }) => ({ agentRef, role, model })),
+      [{ agentRef: "environment-weave", role: "observer", model: undefined }],
     );
-    assert.isUndefined(weave.agents[0]!.model);
 
     yield* service.link({ threadId, reference: "#1000079" });
     assert.strictEqual(thread.workItem?.number, 1_000_079);
@@ -673,7 +658,7 @@ it.effect("keeps the last known item when Weave is unreachable or the observer i
     assert.strictEqual(unreachable?.readAt, known?.readAt);
 
     weave.state.unreachable = false;
-    weave.agents.find((agent) => agent.role === "observer")!.revoked = true;
+    weave.agents[0]!.revoked = true;
     yield* TestClock.adjust(60_000);
     const revoked = yield* service.view(threadId);
     assert.isTrue(revoked?.unavailable);
@@ -1202,100 +1187,5 @@ it.effect("a card for a link made against another Weave is unavailable and reads
     // A mention's card keeps reading the project's current Weave.
     const card = yield* service.card({ threadId, itemId: mentioned.id, open: "b" });
     assert.strictEqual(card?.item.title, "Chat chips");
-  }),
-);
-
-it.effect(
-  "records a review council's roster as the lead, and reports what Forge or Weave refuses",
-  () =>
-    Effect.gen(function* () {
-      const { weave, service, add, councils } = yield* makeHarness;
-      add(item(1_000_078, "spec", "Reviewed", "in_progress"));
-      const lead = { threadId: leadThread, role: "lead", model: "claude-opus-5-5" };
-      const roster: ForgeWorkItems.ForgeCouncilRoster = {
-        specRef: "#1000078",
-        clientRef: "round-1",
-        members: [
-          { taskRef: "round-1:anthropic", model: "claude-sonnet-5-5", maker: "anthropic" },
-          { taskRef: "round-1:openai", model: "gpt-5.5", maker: "openai" },
-        ],
-        missing: [{ maker: "google", model: "gemini", reason: "capability_denied" }],
-      };
-      assert.deepStrictEqual(yield* service.recordCouncil(lead, roster), { recorded: true });
-      const call = weave.toolCalls.find((entry) => entry.name === "weave_forge_council")!;
-      assert.deepStrictEqual(call.args, {
-        specId: "item-1000078",
-        clientRef: "round-1",
-        members: roster.members,
-        missing: roster.missing,
-      });
-      // The same roster again is Forge's replay.
-      assert.deepStrictEqual(yield* service.recordCouncil(lead, roster), { recorded: true });
-      assert.strictEqual(councils.size, 1);
-
-      // A different roster on the same reference is Forge's refusal, reported and not raised.
-      const refused = yield* service.recordCouncil(lead, {
-        ...roster,
-        members: [roster.members[0]!],
-      });
-      assert.isFalse(refused.recorded);
-      assert.include(refused.recorded ? "" : refused.reason, "council_conflict");
-
-      // A Spec Forge does not know is reported too.
-      const unknown = yield* service.recordCouncil(lead, { ...roster, specRef: "#1000099" });
-      assert.isFalse(unknown.recorded);
-
-      // A Spec named by its repository is the Forge item with that number, in that project only.
-      add({
-        ...item(1_000_081, "spec", "Named by repository", "in_progress"),
-        project: "pechhe/t3code",
-      });
-      const named = { ...roster, clientRef: "round-named" };
-      assert.deepStrictEqual(
-        yield* service.recordCouncil(lead, { ...named, specRef: "pechhe/t3code#1000081" }),
-        { recorded: true },
-      );
-      const before = weave.toolCalls.filter((entry) => entry.name === "weave_forge_council").length;
-      const elsewhere = yield* service.recordCouncil(lead, {
-        ...named,
-        specRef: "pechhe/yardsmith#1000081",
-      });
-      assert.isFalse(elsewhere.recorded);
-      assert.strictEqual(
-        weave.toolCalls.filter((entry) => entry.name === "weave_forge_council").length,
-        before,
-      );
-      // A number Forge has no item for is the repository's own Issue: nothing to record.
-      assert.deepStrictEqual(
-        yield* service.recordCouncil(lead, { ...named, specRef: "pechhe/t3code#12" }),
-        { recorded: "not_a_forge_spec" },
-      );
-    }),
-);
-
-it.effect("reports a roster it cannot record when Weave is not connected or does not answer", () =>
-  Effect.gen(function* () {
-    const { weave, service, add, connections } = yield* makeHarness;
-    add(item(1_000_078, "spec", "Reviewed", "in_progress"));
-    const lead = { threadId: leadThread, role: "lead", model: "claude-opus-5-5" };
-    const roster: ForgeWorkItems.ForgeCouncilRoster = {
-      specRef: "#1000078",
-      clientRef: "round-2",
-      members: [{ taskRef: "round-2:solo", model: "gpt-5.5", maker: "openai" }],
-      missing: [],
-    };
-    weave.state.toolCallsHang = true;
-    const received = yield* Deferred.make<void>();
-    weave.tools.onCall = Deferred.succeed(received, undefined).pipe(Effect.asVoid);
-    const hung = yield* service.recordCouncil(lead, roster).pipe(Effect.forkChild);
-    yield* Deferred.await(received);
-    yield* TestClock.adjust(15_000);
-    const answer = yield* Fiber.join(hung);
-    assert.isFalse(answer.recorded);
-    weave.state.toolCallsHang = false;
-
-    yield* connections.disconnect;
-    const disconnected = yield* service.recordCouncil(lead, roster);
-    assert.isFalse(disconnected.recorded);
   }),
 );

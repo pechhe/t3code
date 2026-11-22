@@ -44,7 +44,6 @@ import * as ProviderReplayHarness from "../testkit/ProviderReplayHarness.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import type * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
 import { MANAGED_BROWSER_TOOL_NAMES } from "../../mcp/toolkits/managedBrowser/toolNames.ts";
-import * as WeaveForgeUsage from "../../weave/WeaveForgeUsage.ts";
 import * as SlipJayGuard from "../../project/SlipJayGuard.ts";
 import * as CodexAdapterV2 from "./CodexAdapterV2.ts";
 import { withCodexReplayChildMetadata } from "./CodexAdapterV2.testkit.ts";
@@ -1498,117 +1497,6 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           ),
         ),
       ),
-  );
-
-  it.effect("records one usage row per Codex response, keyed by the thread's running total", () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const nativeThreadId = "billed-usage-thread";
-        const nativeTurnId = "billed-usage-turn";
-        const breakdown = (input: number, cached: number, output: number) => ({
-          totalTokens: input + output,
-          inputTokens: input,
-          cachedInputTokens: cached,
-          outputTokens: output,
-          reasoningOutputTokens: 0,
-        });
-        // The first response, the thread's running total after it, and the second response.
-        const firstResponse = breakdown(10, 2, 5);
-        const afterFirst = breakdown(10, 2, 5);
-        const secondResponse = breakdown(10, 3, 3);
-        const afterSecond = breakdown(20, 5, 8);
-        const usageUpdate = (
-          label: string,
-          total: ReturnType<typeof breakdown>,
-          last: ReturnType<typeof breakdown>,
-        ): CodexReplay.CodexAppServerReplayEntry => ({
-          type: "emit_inbound",
-          label,
-          frame: {
-            method: "thread/tokenUsage/updated",
-            params: {
-              threadId: nativeThreadId,
-              turnId: nativeTurnId,
-              tokenUsage: { total, last, modelContextWindow: 200_000 },
-            },
-          },
-        });
-        const transcript = makeCodexReplayTranscript({
-          scenario: "billed-usage-per-response",
-          entries: [
-            ...codexReplayPreamble({
-              nativeThreadId,
-              nativeTurnId,
-              prompt: "Count the tokens.",
-            }),
-            usageUpdate("usage-1", afterFirst, firstResponse),
-            // The same update again: a replay must not count the response twice.
-            usageUpdate("usage-1-replay", afterFirst, firstResponse),
-            usageUpdate("usage-2", afterSecond, secondResponse),
-            {
-              type: "emit_inbound",
-              label: "complete",
-              frame: {
-                method: "turn/completed",
-                params: {
-                  threadId: nativeThreadId,
-                  turn: makeCodexReplayTurn({ id: nativeTurnId, status: "completed" }),
-                },
-              },
-            },
-          ],
-        });
-        // What Weave's Build record would receive, kept where the test can read it.
-        const recorded: Array<WeaveForgeUsage.WeaveForgeUsageInput> = [];
-        const harness = yield* makeCodexReplayHarness(transcript).pipe(
-          Effect.provideService(WeaveForgeUsage.WeaveForgeUsage, {
-            record: (input) => Effect.sync(() => void recorded.push(input)),
-          }),
-        );
-        yield* harness.runtime.startTurn(
-          makeCodexTestTurnInput({
-            threadId: harness.threadId,
-            providerThread: harness.providerThread,
-            now: yield* DateTime.now,
-            attemptId: RunAttemptId.make("billed-usage-attempt"),
-            text: "Count the tokens.",
-          }),
-        );
-        yield* harness.firstTerminal;
-
-        const providerThreadId = harness.providerThread.id;
-        assert.deepStrictEqual(
-          recorded.map((usage) => [usage.usageRef, usage.level, usage.tokens]),
-          [
-            [
-              `codex:${providerThreadId}:${nativeTurnId}:10/5`,
-              "request",
-              { input: 8, output: 5, cacheRead: 2 },
-            ],
-            [
-              `codex:${providerThreadId}:${nativeTurnId}:20/8`,
-              "request",
-              { input: 7, output: 3, cacheRead: 3 },
-            ],
-          ],
-        );
-        assert.deepStrictEqual(
-          recorded.map((usage) => [usage.threadId, usage.modelRef]),
-          [
-            [harness.threadId, "gpt-5.4"],
-            [harness.threadId, "gpt-5.4"],
-          ],
-        );
-      }).pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            IdAllocator.layer,
-            McpProviderSessions.layer,
-            Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
-          ),
-        ),
-      ),
-    ),
   );
 
   it.effect.each(["failed", "interrupted", "Stop"] as const)(

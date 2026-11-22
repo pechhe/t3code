@@ -133,6 +133,7 @@ describe("V2 preview upgrade", () => {
         [151, "ThreadItemCounts"],
         [152, "PausedSubagentIndex"],
         [153, "AutonomousRunIndex"],
+        [154, "DropWeaveForgeRecords"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -309,6 +310,7 @@ describe("V2 preview upgrade", () => {
         [151, "ThreadItemCounts"],
         [152, "PausedSubagentIndex"],
         [153, "AutonomousRunIndex"],
+        [154, "DropWeaveForgeRecords"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );

@@ -166,6 +166,7 @@ import Migration0150 from "./Migrations/150_DelegatedTaskReadIndexes.ts";
 import Migration0151 from "./Migrations/151_ThreadItemCounts.ts";
 import Migration0152 from "./Migrations/152_PausedSubagentIndex.ts";
 import Migration0153 from "./Migrations/153_AutonomousRunIndex.ts";
+import Migration0154 from "./Migrations/154_DropWeaveForgeRecords.ts";
 
 const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -322,6 +323,7 @@ const migrationEntries = [
   [151, "ThreadItemCounts", Migration0151],
   [152, "PausedSubagentIndex", Migration0152],
   [153, "AutonomousRunIndex", Migration0153],
+  [154, "DropWeaveForgeRecords", Migration0154],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

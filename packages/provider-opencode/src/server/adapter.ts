@@ -1041,8 +1041,6 @@ function unwrapData<A>(operation: string, result: { readonly data?: A }): NonNul
   return result.data as NonNullable<A>;
 }
 
-// OpenCode reports no per-request token counts, so its turns record no usage for Weave's Build
-// record rather than a zero.
 export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function* (
   options: OpenCodeAdapterV2Options,
 ) {
