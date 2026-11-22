@@ -1,7 +1,7 @@
 import * as BitwardenSecrets from "../secrets/BitwardenSecrets.ts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import * as ProcessRunner from "../processRunner.ts";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -12,10 +12,11 @@ import * as Schema from "effect/Schema";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import type * as Scope from "effect/Scope";
 
+const DEFAULT_EXECUTOR_MCP_URL = "https://mcp.executor.sh/mcp";
+
 export class WebResearchError extends Schema.TaggedError<WebResearchError>()("WebResearchError", {
   stage: Schema.Literals([
     "credentials",
-    "cli",
     "connection",
     "search",
     "fetch",
@@ -25,10 +26,8 @@ export class WebResearchError extends Schema.TaggedError<WebResearchError>()("We
   cause: Schema.Defect(),
 }) {
   override get message() {
-    if (this.stage === "cli")
-      return "Executor CLI 2.0.0-beta.46 or newer is required. Install executor@beta on this T3 host.";
     if (this.stage === "connection")
-      return "Executor CLI could not connect to hosted Executor. Check its installation and saved EXECUTOR_PAT credential.";
+      return "Could not connect to hosted Executor MCP. Check network access and the saved EXECUTOR_PAT credential.";
     return `Web research failed during ${this.stage}.`;
   }
 }
@@ -83,75 +82,28 @@ export const layerExecutor = Layer.effect(
   ExecutorWebClient,
   Effect.gen(function* () {
     const credentials = yield* ExecutorCredentialSource;
-    const runner = yield* ProcessRunner.ProcessRunner;
     const hostEnvironment = yield* HostProcess.Environment;
-    const home = yield* HostProcess.HomeDirectory;
-    const platform = yield* HostProcess.Platform;
-    const env = {
-      ...hostEnvironment,
-      ...(platform === "win32"
-        ? {}
-        : {
-            PATH: [
-              hostEnvironment.PATH,
-              `${home}/.local/bin`,
-              `${home}/.npm-global/bin`,
-              `${home}/.bun/bin`,
-              "/opt/homebrew/bin",
-            ]
-              .filter(Boolean)
-              .join(":"),
-          }),
-      EXECUTOR_NO_UPDATE_CHECK: "1",
-    };
-    const command = hostEnvironment.T3CODE_EXECUTOR_PATH ?? "executor";
+    const endpoint = hostEnvironment.T3CODE_EXECUTOR_MCP_URL ?? DEFAULT_EXECUTOR_MCP_URL;
     return ExecutorWebClient.of({
       connect: Effect.gen(function* () {
-        const version = yield* runner
-          .run({
-            command,
-            args: ["--version"],
-            env,
-            timeout: "10 seconds",
-            maxOutputBytes: 1024,
-          })
-          .pipe(Effect.mapError((cause) => new WebResearchError({ stage: "cli", cause })));
-        const release = /(?:^|\s)v?(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?(?:\s|$)/.exec(
-          version.stdout.trim(),
-        );
-        if (
-          version.code !== 0 ||
-          release === null ||
-          Number(release[1]) < 2 ||
-          (Number(release[1]) === 2 &&
-            Number(release[2]) === 0 &&
-            Number(release[3]) === 0 &&
-            release[4] !== undefined &&
-            Number(release[4]) < 46)
-        ) {
-          return yield* new WebResearchError({
-            stage: "cli",
-            cause: new Error("Unsupported Executor CLI version"),
-          });
-        }
         const token = yield* credentials.read;
-        const transport = new StdioClientTransport({
-          command,
-          args: ["mcp", "--host", "https://api.executor.sh"],
-          env: Object.fromEntries(
-            Object.entries({ ...env, EXECUTOR_ACCESS_TOKEN: token }).filter(
-              (entry): entry is [string, string] => entry[1] !== undefined,
-            ),
-          ),
-          stderr: "ignore",
-          maxBufferSize: 8 * 1024 * 1024,
+        const url = yield* Effect.try({
+          try: () => new URL(endpoint),
+          catch: (cause) => new WebResearchError({ stage: "connection", cause }),
+        });
+        const transport = new StreamableHTTPClientTransport(url, {
+          requestInit: { headers: { Authorization: `Bearer ${token}` } },
         });
         const client = yield* Effect.acquireRelease(
           Effect.sync(() => new Client({ name: "t3-web-research", version: "1" })),
-          (client) => Effect.promise(() => client.close()).pipe(Effect.ignore),
+          (client) =>
+            Effect.promise(async () => {
+              await transport.terminateSession().catch(() => undefined);
+              await client.close().catch(() => undefined);
+            }).pipe(Effect.ignore),
         );
         yield* Effect.tryPromise({
-          try: () => client.connect(transport),
+          try: () => client.connect(transport as Transport),
           catch: (cause) => new WebResearchError({ stage: "connection", cause }),
         });
         return { callTool: (name, args) => client.callTool({ name, arguments: args }) };
