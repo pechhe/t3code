@@ -2,13 +2,14 @@ import type {
   ModelSelection,
   OrchestrationV2ServerCommand,
   OrchestrationV2ThreadShell,
+  PooledModelKey,
   ThreadId,
 } from "@t3tools/contracts";
 import {
-  firstAccount,
-  isAccountFree,
-  pooledModelOf,
+  pickAccount,
+  pooledModelOfSelection,
   pooledModels,
+  routedModelIds,
   selectionAccountId,
   selectionOnAccount,
 } from "@t3tools/shared/accountPools";
@@ -16,34 +17,50 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
+import type * as AccountAvailability from "../provider/AccountAvailability.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import type * as ServerSettings from "../serverSettings.ts";
-import type * as Orchestrator from "./Orchestrator.ts";
+import * as Orchestrator from "./Orchestrator.ts";
 
 interface RouteOptions {
-  /** The role resolver already placed this work on an account, under conservation. */
+  /** The role resolver already placed this work on an account, through the same picker. */
   readonly placed?: boolean | undefined;
 }
 
+/** Henry reads times in London, labelled with the zone. */
+const londonTime = (iso: string) =>
+  new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/London",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    timeZoneName: "short",
+  }).format(DateTime.toDate(DateTime.makeUnsafe(iso)));
+
 /**
- * Picks the account a selection runs on before the orchestrator sees it. A pinned selection stays;
- * a thread keeps its account for the same model, so its prompt cache keeps paying off (one that
- * has not run yet gives it up once skipped); new work takes the model's first account that is not
- * skipped.
+ * Picks a selection's account before the orchestrator sees it; a pinned one stays. A thread keeps
+ * an available account for its model so its prompt cache keeps paying off. A turn no account can
+ * take without spending into a reserve is refused, naming when one returns.
  */
 export const make = (input: {
   readonly providerRegistry: Option.Option<ProviderRegistry.ProviderRegistry["Service"]>;
+  readonly availability: Option.Option<AccountAvailability.AccountAvailability["Service"]>;
   readonly serverSettings: ServerSettings.ServerSettingsService["Service"];
   readonly getThreadShell: (
     threadId: ThreadId,
   ) => Effect.Effect<OrchestrationV2ThreadShell | null, Orchestrator.OrchestratorV2Error>;
 }) => {
+  // What each account served, so a thread on one that is later removed keeps its model.
+  const seen = new Map<string, PooledModelKey>();
   const route = Effect.fn("AccountRouting.route")(function* (
+    command: OrchestrationV2ServerCommand,
     selection: ModelSelection,
-    threadId: ThreadId | undefined,
-    options?: RouteOptions,
+    shell: OrchestrationV2ThreadShell | null,
+    startsTurn: boolean,
   ) {
-    if (selection.pinned === true || options?.placed === true) return selection;
+    if (selection.pinned === true) return selection;
     if (Option.isNone(input.providerRegistry)) return selection;
     // Routing runs on the thread-launch path, so it never waits on a usage-history scan.
     const providers = yield* input.providerRegistry.value.getProviders.pipe(
@@ -51,24 +68,46 @@ export const make = (input: {
     );
     const settings = yield* input.serverSettings.getSettings.pipe(Effect.orDie);
     const pools = pooledModels(providers, settings);
-    const pool = pooledModelOf(pools, selection);
+    for (const [id, key] of routedModelIds(pools)) seen.set(id, key);
+    const pool = pooledModelOfSelection(pools, providers, settings, selection, seen);
     if (pool === undefined) return selection;
-    const shell = threadId === undefined ? null : yield* input.getThreadShell(threadId);
-    const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
-    const pick = { readOnly: shell?.agentTask?.sourceAccess === "read-only" };
-    if (shell !== null && pooledModelOf(pools, shell.modelSelection) === pool) {
-      const current = selectionAccountId(providers, shell.modelSelection);
-      const kept = pool.accounts.find((entry) => entry.account.id === current);
-      // A thread that has not run yet may have been placed by a role, under conservation.
-      if (
-        kept !== undefined &&
-        (shell.latestRunId != null || isAccountFree(pool, kept, settings.accountSkips, nowMs, pick))
-      )
-        return selectionOnAccount(kept, selection.options);
-    }
-    const target = firstAccount(pool, settings.accountSkips, nowMs, pick);
-    return target === undefined ? selection : selectionOnAccount(target, selection.options);
+    const blocks = Option.isSome(input.availability)
+      ? (yield* input.availability.value.state).blocks
+      : [];
+    const pick = pickAccount(
+      pool,
+      { blocks, nowMs: DateTime.toEpochMillis(yield* DateTime.now) },
+      {
+        readOnly: shell?.agentTask?.sourceAccess === "read-only",
+        current:
+          shell !== null &&
+          pooledModelOfSelection(pools, providers, settings, shell.modelSelection, seen) === pool
+            ? selectionAccountId(providers, shell.modelSelection)
+            : undefined,
+      },
+    );
+    if (pick.type === "account") return selectionOnAccount(pick.target, selection.options);
+    // A cool-down is a guess, so the turn is tried there rather than refused.
+    if (pick.coolingDown !== undefined)
+      return selectionOnAccount(pick.coolingDown, selection.options);
+    if (!startsTurn) return selection;
+    return yield* new Orchestrator.OrchestratorCommandRejectedError({
+      commandId: command.commandId,
+      commandType: command.type,
+      cause: `${pool.displayName} has no account available: each is out of usage or held at its reserve${
+        pick.returnsAt === undefined ? "" : ` until ${londonTime(pick.returnsAt)}`
+      }. Pick an account to use it anyway.`,
+    });
   });
+
+  const routeOnThread = (
+    command: OrchestrationV2ServerCommand,
+    selection: ModelSelection,
+    threadId: ThreadId,
+  ) =>
+    input
+      .getThreadShell(threadId)
+      .pipe(Effect.flatMap((shell) => route(command, selection, shell, false)));
 
   const routeCommand = (
     command: OrchestrationV2ServerCommand,
@@ -76,32 +115,41 @@ export const make = (input: {
   ): Effect.Effect<OrchestrationV2ServerCommand, Orchestrator.OrchestratorV2Error> => {
     switch (command.type) {
       case "thread.create":
-        return route(command.modelSelection, undefined, {
-          placed: options?.placed === true || command.agentTask !== undefined,
-        }).pipe(Effect.map((modelSelection) => ({ ...command, modelSelection })));
-      // A role's delegation is placed by the resolver; a bare model follows the order.
+        return options?.placed === true || command.agentTask !== undefined
+          ? Effect.succeed(command)
+          : route(command, command.modelSelection, null, false).pipe(
+              Effect.map((modelSelection) => ({ ...command, modelSelection })),
+            );
+      // A role's delegation is placed by the resolver; a bare model follows the route.
       case "delegated_task.request":
         return command.agentTask !== undefined
           ? Effect.succeed(command)
-          : route(command.modelSelection, undefined).pipe(
+          : route(command, command.modelSelection, null, true).pipe(
               Effect.map((modelSelection) => ({ ...command, modelSelection })),
             );
       case "message.dispatch": {
-        const selection = command.modelSelection;
         // A failover or limit recovery already names the account the turn continues on.
         if (
-          selection === undefined ||
           command.manualContinuationOfRunId !== undefined ||
           command.usageLimitContinuationOfRunId !== undefined
         )
           return Effect.succeed(command);
-        return route(selection, command.threadId).pipe(
-          Effect.map((modelSelection) => ({ ...command, modelSelection })),
-        );
+        return Effect.gen(function* () {
+          const shell = yield* input.getThreadShell(command.threadId);
+          // A follow-up that names no model continues the thread's, and moves with it.
+          const selection = command.modelSelection ?? shell?.modelSelection;
+          if (selection === undefined) return command;
+          const routed = yield* route(command, selection, shell, true);
+          return command.modelSelection === undefined &&
+            routed.instanceId === selection.instanceId &&
+            routed.model === selection.model
+            ? command
+            : { ...command, modelSelection: routed };
+        });
       }
       case "thread.model-selection.set":
       case "provider.switch":
-        return route(command.modelSelection, command.threadId).pipe(
+        return routeOnThread(command, command.modelSelection, command.threadId).pipe(
           Effect.map((modelSelection) => ({ ...command, modelSelection })),
         );
       default:

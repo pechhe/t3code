@@ -559,16 +559,15 @@ describe("recentMetricChange", () => {
 });
 
 describe("modelSelectionProblem", () => {
-  const NOW = 1_000;
   const selection = { instanceId: ProviderInstanceId.make("claude"), model: "gone" };
 
   it("names the problem with a saved selection instead of replacing it", () => {
-    expect(modelSelectionProblem(selection, [entry("claude", ["other"])], NOW)).toContain(
+    expect(modelSelectionProblem(selection, [entry("claude", ["other"])])).toContain(
       "no longer lists",
     );
-    expect(modelSelectionProblem(selection, [], NOW)).toContain("isn't on this machine");
-    expect(modelSelectionProblem(selection, [entry("claude", ["gone"])], NOW)).toBeNull();
-    expect(modelSelectionProblem(null, [], NOW)).toBe("Choose a model.");
+    expect(modelSelectionProblem(selection, [])).toContain("isn't on this machine");
+    expect(modelSelectionProblem(selection, [entry("claude", ["gone"])])).toBeNull();
+    expect(modelSelectionProblem(null, [])).toBe("Choose a model.");
   });
 });
 

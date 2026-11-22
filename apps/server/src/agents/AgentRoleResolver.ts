@@ -1,4 +1,5 @@
 import type {
+  AccountBlock,
   AgentPolicySnapshot,
   AgentTaskRequest,
   ModelSelection,
@@ -22,17 +23,14 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
 import {
-  activeSkip,
-  isConserved,
   pooledKeyIn,
+  pooledModelOfBinding,
   pooledModels,
-  selectionAccountId,
+  rankAccounts,
+  standaloneAvailability,
+  type AccountAvailability,
   type AccountRoutingSettings,
 } from "@t3tools/shared/accountPools";
-import {
-  providerOverloadKey,
-  type ProviderOverloadSnapshot,
-} from "../provider/ProviderOverloads.ts";
 
 export class AgentRoleError extends Schema.TaggedError<AgentRoleError>()("AgentRoleError", {
   reason: Schema.Literals([
@@ -53,7 +51,6 @@ export class AgentRoleError extends Schema.TaggedError<AgentRoleError>()("AgentR
     "review-prior-invalid",
     "role-not-configured",
     "usage-limited",
-    "conservation",
   ]),
   candidates: Schema.optional(Schema.Array(AgentPolicyCandidate)),
   /** The offending field, option or account and how to correct the request. */
@@ -76,13 +73,16 @@ export type RequestedModel = {
 };
 
 type ResolutionInput = {
-  readonly ignoreConservation?: boolean;
   readonly snapshot: AgentPolicySnapshot;
   readonly request: AgentTaskRequest;
   /** Already intersected with the project's enabled and caller-authorized accounts. */
   readonly providers: ReadonlyArray<ServerProvider>;
-  /** Each model's account order and the skips; without them accounts keep catalog order. */
+  /** Each routed model's accounts; without it every model runs on the account its entry names. */
   readonly routing?: AccountRoutingSettings | undefined;
+  /** The server's runtime blocks on accounts, read with usage into each account's state. */
+  readonly blocks?: ReadonlyArray<AccountBlock> | undefined;
+  /** A task already running is checked for authority only: routing settles its accounts. */
+  readonly ignoreAvailability?: boolean | undefined;
   readonly ceiling: RuntimeMode;
   readonly runtimeMode?: RuntimeMode;
   readonly allowTrustedClaudeWriters?: boolean;
@@ -108,8 +108,6 @@ type ResolutionInput = {
    * without a finding it stays refused as unsupported, so no path can start one unchecked.
    */
   readonly browser?: { readonly refusal: BrowserRefusal | null };
-  /** Models in an overload cool-down, which serve only after every healthy candidate. */
-  readonly overloads?: ProviderOverloadSnapshot;
 };
 
 export type BrowserRefusal =
@@ -295,8 +293,9 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
     selection: ModelSelection;
     alias: string;
     provider: ServerProvider;
-    /** The entry names the model alone, so any account serving it may run it. */
-    anyAccount?: boolean;
+    /** Its place in its routed model's order: Primary, then Overflow. */
+    rank: number;
+    availability: AccountAvailability;
   }> = [];
   // Each "eligible" diagnostic names its own entry: accounts of one pooled alias can share an instance.
   const entryOf = new Map<AgentPolicyCandidate, (typeof eligible)[number]>();
@@ -317,34 +316,28 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
         candidate.type === "select" &&
         (candidate.role === "reasoning" || REASONING_OPTION_IDS.has(candidate.id)),
     );
-  const routing = input.routing ?? { accountSkips: {} };
+  const routing = input.routing ?? {};
   const pools = pooledModels(input.providers, routing);
+  const context = {
+    blocks: input.blocks ?? [],
+    nowMs: DateTime.toEpochMillis(yield* DateTime.now),
+  };
   const pooledKeyOf = (provider: ServerProvider, slug: string) => {
     const model = provider.models.find((candidate) => candidate.slug === slug);
     return model === undefined ? undefined : pooledKeyIn(routing, provider, model);
-  };
-  const pooledAccountsFor = (driver: string, slug: string) => {
-    const provider = input.providers.find(
-      (candidate) =>
-        candidate.driver === driver && candidate.models.some((model) => model.slug === slug),
-    );
-    const key = provider === undefined ? undefined : pooledKeyOf(provider, slug);
-    return pools.find((pool) => pool.key === key)?.accounts;
   };
   for (const entry of list) {
     const alias = entry.model;
     const binding = snapshot.manifest.models[alias]!;
     const effort = entry.effort;
-    // A model alone runs on every account serving it, across providers and Pi sub-providers.
-    const pooled =
-      binding.anyAccount === true || binding.poolId !== undefined
-        ? pooledAccountsFor(binding.driverKind, binding.model)
-        : undefined;
-    if (pooled !== undefined) {
-      for (const entry of pooled) {
+    // A routed model runs on any account its route gives it, across providers and Pi credentials.
+    const pool = pooledModelOfBinding(pools, routing, binding);
+    if (pool !== undefined) {
+      const ranked = rankAccounts(pool, context);
+      for (const entry of pool.accounts) {
         const provider = entry.provider;
         const skip = (reason: string) => record(alias, entry.model, reason, provider.instanceId);
-        if (entry.removed) {
+        if (entry.tier === "off") {
           skip("removed-from-model");
           continue;
         }
@@ -405,10 +398,13 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
             : []),
           ...extras.map(([id, value]) => ({ id, value })),
         ];
+        // Every check above is one the ranking also makes, so an admitted account is ranked.
+        const rank = ranked.findIndex((candidate) => candidate.entry === entry);
         admit(verdict, {
           alias,
           provider,
-          anyAccount: true,
+          rank,
+          availability: ranked[rank]?.availability ?? { state: "available" },
           selection: {
             instanceId: provider.instanceId,
             model: entry.model,
@@ -482,6 +478,8 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
       admit(verdict, {
         alias,
         provider,
+        rank: 0,
+        availability: standaloneAvailability(routing, provider, binding.model, context),
         selection: {
           instanceId: provider.instanceId,
           model: binding.model,
@@ -571,6 +569,8 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
       admit(verdict, {
         alias,
         provider,
+        rank: 0,
+        availability: standaloneAvailability(routing, provider, model.slug, context),
         selection: {
           instanceId: provider.instanceId,
           model: model.slug,
@@ -580,66 +580,54 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
       });
     }
   }
+  // One choice per routed model, however many entries or accounts serve it.
   const choices = new Set(
     list.map(({ model: alias }) => {
       const binding = snapshot.manifest.models[alias]!;
-      return `${binding.driverKind}:${binding.model}`;
+      return (
+        pooledModelOfBinding(pools, routing, binding)?.key ??
+        `${binding.driverKind}:${binding.model}`
+      );
     }),
   );
-  const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
-  // Accounts serving one model are tried in that model's account order; one skipped after a usage
-  // limit, or held back by subscription conservation, serves only when it is named.
-  const overloadEnds = (instanceId: ProviderInstanceId, model: string) => {
-    const until = input.overloads?.get(providerOverloadKey(instanceId, model));
-    return until !== undefined && until > nowMs ? until : undefined;
-  };
-  const accountOf = (candidate: (typeof eligible)[number]) =>
-    selectionAccountId(input.providers, candidate.selection);
-  const accountRank = new Map<(typeof eligible)[number], number>();
+  type Candidate = (typeof eligible)[number];
+  const REASON_OF = {
+    exhausted: "usage-limited",
+    reserved: "reserved",
+    cooldown: "cooldown",
+  } as const;
+  /**
+   * What holds an account back: out of usage, at its reserve or cooling down after failures. One
+   * held back serves only when it is named; a reserve gives way only to a named account.
+   */
   const excluded = new Map<
-    (typeof eligible)[number],
-    | { readonly reason: "usage-limited"; readonly untilMs: number }
-    | { readonly reason: "conservation" }
+    Candidate,
+    { readonly reason: (typeof REASON_OF)[keyof typeof REASON_OF]; readonly untilMs: number }
   >();
-  for (const alias of new Set(eligible.map((candidate) => candidate.alias))) {
-    // A pooled alias's candidates arrive in its model's account order.
-    const serving = eligible.filter((candidate) => candidate.alias === alias);
-    serving.forEach((candidate, index) => {
-      if (!input.ignoreConservation && isConserved(candidate.provider, candidate.selection.model)) {
-        excluded.set(candidate, { reason: "conservation" });
-        return;
-      }
-      const model = candidate.provider.models.find(
-        (entry) => entry.slug === candidate.selection.model,
-      );
-      const key = model === undefined ? undefined : pooledKeyIn(routing, candidate.provider, model);
-      const skipped =
-        key === undefined
-          ? undefined
-          : activeSkip(routing.accountSkips, accountOf(candidate), key, nowMs);
-      if (skipped !== undefined) {
-        excluded.set(candidate, { reason: "usage-limited", untilMs: Date.parse(skipped.until) });
-        return;
-      }
-      accountRank.set(candidate, index);
+  for (const candidate of eligible) {
+    const { availability } = candidate;
+    if (availability.state === "available" || input.ignoreAvailability === true) continue;
+    excluded.set(candidate, {
+      reason: REASON_OF[availability.state],
+      untilMs:
+        availability.returnsAt === undefined
+          ? Number.POSITIVE_INFINITY
+          : Date.parse(availability.returnsAt),
     });
   }
-  const serves = (candidate: (typeof eligible)[number]) => !excluded.has(candidate);
-  const usageLimitedUntil = (entry: ReturnType<typeof excluded.get>) =>
-    entry?.reason === "usage-limited" ? entry.untilMs : Number.POSITIVE_INFINITY;
+  const serves = (candidate: Candidate) => !excluded.has(candidate);
+  const returnOf = (candidate: Candidate) =>
+    excluded.get(candidate)?.untilMs ?? Number.POSITIVE_INFINITY;
   /** The refusal when every account that could serve is out: it names the earliest return. */
   const allOut = (detail: string) => {
     const returns = [...excluded.values()].flatMap((entry) =>
-      entry.reason === "usage-limited" && Number.isFinite(entry.untilMs) ? [entry.untilMs] : [],
+      Number.isFinite(entry.untilMs) ? [entry.untilMs] : [],
     );
     const earliest = returns.length === 0 ? undefined : Math.min(...returns);
-    const conserved = [...excluded.entries()].filter(
-      ([, entry]) => entry.reason === "conservation",
-    );
     return new AgentRoleError({
-      reason: conserved.length > 0 ? "conservation" : "usage-limited",
+      reason: "usage-limited",
       candidates: finalDiagnostics(undefined),
-      detail: `${conserved.length > 0 ? `Subscription conservation excludes ${conserved.map(([entry]) => `${entry.selection.model} on ${entry.provider.displayName ?? entry.provider.instanceId}: ${entry.provider.subagentConservation?.message}`).join("; ")}. Choose an eligible role model, wait for fresh usage above the threshold, or change Settings > Providers > Subscription conservation. ` : ""}${conserved.length > 0 ? "No eligible account remains for this role and requested model/options." : detail}${earliest === undefined ? "" : `; the earliest an account returns is ${DateTime.formatIso(DateTime.makeUnsafe(earliest))}`}`,
+      detail: `${detail}${earliest === undefined ? "" : `; the earliest an account returns is ${DateTime.formatIso(DateTime.makeUnsafe(earliest))}`}`,
     });
   };
   let candidates = eligible.filter(serves);
@@ -674,18 +662,16 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
       });
     }
     const available = named.filter(serves);
-    // A model or account the caller names is tried even when every account serving it is skipped:
-    // a skip is a guess, and the run itself reports a real limit. A named account is never swapped
-    // for another.
-    const requested =
+    // A named account runs whatever holds it back, its reserve included, and is never swapped for
+    // another. A named model with every account out is tried on one cooling down, as a cool-down
+    // is a guess; a spent or reserved account serves only when named.
+    const requested = (
       available.length > 0
         ? available
-        : named
-            .filter((candidate) => excluded.get(candidate)?.reason === "usage-limited")
-            .toSorted(
-              (a, b) =>
-                usageLimitedUntil(excluded.get(a)) - usageLimitedUntil(excluded.get(b)) || 0,
-            );
+        : selection.instanceId !== undefined
+          ? named
+          : named.filter((candidate) => excluded.get(candidate)?.reason === "cooldown")
+    ).toSorted((a, b) => (available.length > 0 ? 0 : returnOf(a) - returnOf(b)));
     if (requested.length === 0)
       return yield* allOut(
         `${requestedName(selection)} is held back for ${request.role} and no other account can run ${named[0]!.selection.model} with the same options`,
@@ -740,26 +726,39 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
     candidate.provider.driver !== authorDriver
       ? 1
       : 0;
-  const overloadedUntil = (candidate: (typeof eligible)[number]) =>
-    overloadEnds(candidate.provider.instanceId, candidate.selection.model);
-  // Healthy, then overloaded: it may recover within the provider's own retries.
-  const tier = (candidate: (typeof eligible)[number]) =>
-    overloadedUntil(candidate) === undefined ? 0 : 1;
+  // The author may be named by its slug on one account or by its routed model.
+  const authorKey =
+    request.authorModel === undefined
+      ? undefined
+      : (input.providers
+          .map((provider) => pooledKeyOf(provider, request.authorModel!))
+          .find((key) => key !== undefined) ?? request.authorModel);
+  const wroteIt = (candidate: Candidate) =>
+    request.authorModel !== undefined &&
+    (candidate.selection.model === request.authorModel ||
+      pooledKeyOf(candidate.provider, candidate.selection.model) === authorKey);
+  // Preferences choose between models; the route's rank alone orders one model's accounts.
+  const modelOf = (candidate: Candidate) =>
+    pooledKeyOf(candidate.provider, candidate.selection.model) ?? candidate.selection.model;
+  const byModel = new Map<string, { other: number; position: number }>();
+  for (const candidate of candidates) {
+    const key = modelOf(candidate);
+    const seen = byModel.get(key);
+    byModel.set(key, {
+      other: Math.max(seen?.other ?? 0, otherProvider(candidate)),
+      position: Math.min(seen?.position ?? Number.POSITIVE_INFINITY, position(candidate.alias)),
+    });
+  }
+  const modelRank = (candidate: Candidate) => byModel.get(modelOf(candidate))!;
   candidates.sort(
     (a, b) =>
-      tier(a) - tier(b) ||
-      // Among overloaded candidates, the soonest to recover serves first.
-      (tier(a) === 1 ? (overloadedUntil(a) ?? 0) - (overloadedUntil(b) ?? 0) : 0) ||
       // A reviewer never defaults to the model that wrote the work.
-      (reviewer
-        ? Number(a.selection.model === request.authorModel) -
-          Number(b.selection.model === request.authorModel)
-        : 0) ||
-      otherProvider(b) - otherProvider(a) ||
-      position(a.alias) - position(b.alias) ||
-      accountRank.get(a)! - accountRank.get(b)!,
+      (reviewer ? Number(wroteIt(a)) - Number(wroteIt(b)) : 0) ||
+      modelRank(b).other - modelRank(a).other ||
+      modelRank(a).position - modelRank(b).position ||
+      a.rank - b.rank,
   );
-  function finalDiagnostics(chosen: (typeof eligible)[number] | undefined) {
+  function finalDiagnostics(chosen: Candidate | undefined) {
     return diagnostics.map((candidate) => {
       if (candidate.reason !== "eligible") return candidate;
       const entry = entryOf.get(candidate);
@@ -768,23 +767,13 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
         return {
           ...candidate,
           reason: out.reason,
-          ...(out.reason === "usage-limited" && Number.isFinite(out.untilMs)
+          ...(Number.isFinite(out.untilMs)
             ? { until: DateTime.formatIso(DateTime.makeUnsafe(out.untilMs)) }
             : {}),
         };
-      const until =
-        candidate.providerInstanceId === undefined
-          ? undefined
-          : overloadEnds(candidate.providerInstanceId, candidate.model);
       return {
         ...candidate,
-        reason:
-          entry !== undefined && entry === chosen
-            ? "selected"
-            : until !== undefined
-              ? "overloaded"
-              : "lower-preference",
-        ...(until === undefined ? {} : { until: DateTime.formatIso(DateTime.makeUnsafe(until)) }),
+        reason: entry !== undefined && entry === chosen ? "selected" : "lower-preference",
       };
     });
   }

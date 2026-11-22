@@ -18,9 +18,10 @@ import {
   resolveSelectableModel,
 } from "@t3tools/shared/model";
 import {
-  firstAccount,
+  pickAccount,
   pooledKeyOfFavorite,
   pooledModels,
+  rankAccounts,
   selectionOnAccount,
 } from "@t3tools/shared/accountPools";
 import { getComposerProviderState } from "./components/chat/composerProviderState";
@@ -354,19 +355,23 @@ export function resolveFirstFavoriteModelSelection(
   for (const favorite of settings.favorites) {
     const pooledKey = pooledKeyOfFavorite(favorite);
     if (pooledKey !== undefined) {
-      // A pooled favourite starts where the model's account order would, among accounts here.
+      // A pooled favourite starts where the model's route would, among accounts here; the server
+      // routes the turn itself, so one held back still names the model rather than skipping it.
       const pool = pooledModels(providers, settings).find((model) => model.key === pooledKey);
-      const first =
+      const here =
         pool === undefined
           ? undefined
-          : firstAccount(
-              {
-                ...pool,
-                accounts: pool.accounts.filter((entry) => runnable(entry.provider.instanceId)),
-              },
-              settings.accountSkips,
-              Date.now(),
-            );
+          : {
+              ...pool,
+              accounts: pool.accounts.filter((entry) => runnable(entry.provider.instanceId)),
+            };
+      const context = { blocks: [], nowMs: Date.now() };
+      const pick = here === undefined ? undefined : pickAccount(here, context);
+      const first =
+        pick?.type === "account"
+          ? pick.target
+          : (pick?.coolingDown ??
+            (here === undefined ? undefined : rankAccounts(here, context)[0]?.entry));
       if (first !== undefined) return selectionOnAccount(first, undefined);
       continue;
     }

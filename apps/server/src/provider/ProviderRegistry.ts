@@ -9,7 +9,6 @@ import {
   type ProviderInstanceId,
   type SecretReference,
   type ServerProvider,
-  type SubagentConservationRule,
   type ServerProviderUpdateState,
   type UsageSummary as UsageSummaryValue,
 } from "@t3tools/contracts";
@@ -33,18 +32,10 @@ import * as Ref from "effect/Ref";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as Semaphore from "effect/Semaphore";
-import * as Schema from "effect/Schema";
 
 import * as ProviderLatestVersions from "@t3tools/provider-core/server/ProviderLatestVersions";
-import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
 import * as UsageService from "../usage/UsageService.ts";
 import * as ServerSettingsService from "../serverSettings.ts";
-import * as HostProcess from "@t3tools/shared/HostProcess";
-import {
-  conservationNeedsRefresh,
-  evaluateConservation,
-  type ConservationMemory,
-} from "./subagentConservation.ts";
 import { usageCycleBounds, withUsageSlotSpend } from "../usage/usageSlotBudget.ts";
 import * as ModelManifest from "./ModelManifest.ts";
 import { applyProviderCompatibility } from "./providerCompatibility.ts";
@@ -125,10 +116,6 @@ export class ProviderRegistry extends Context.Service<
      */
     readonly refreshInstanceUsage: (
       instanceId: ProviderInstanceId,
-    ) => Effect.Effect<ReadonlyArray<ServerProvider>>;
-
-    readonly prepareConservation: (
-      providers: ReadonlyArray<ServerProvider>,
     ) => Effect.Effect<ReadonlyArray<ServerProvider>>;
 
     readonly refreshWorkspaceSnapshot: (input: {
@@ -495,27 +482,10 @@ export const layer = Layer.effect(
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
 
-    const platform = yield* HostProcess.Platform;
-    const conservationPath = path.join(config.providerStatusCacheDir, "subagent-conservation.json");
-    const conservationSchema = Schema.fromJsonString(
-      Schema.Record(
-        Schema.String,
-        Schema.Struct({
-          fingerprint: Schema.String,
-          ruleKey: Schema.String,
-          state: Schema.Literals(["ready", "active"]),
-        }),
-      ),
-    );
-    const decodeConservation = Schema.decodeUnknownEffect(conservationSchema);
-    const encodeConservation = Schema.encodeEffect(conservationSchema);
-    let conservationMemory: Record<string, ConservationMemory> = yield* fileSystem
-      .readFileString(conservationPath)
-      .pipe(
-        Effect.flatMap(decodeConservation),
-        Effect.orElseSucceed(() => ({})),
-      );
-    const conservationLock = yield* Semaphore.make(1);
+    // Retired subagent conservation's cache; nothing reads it now.
+    yield* fileSystem
+      .remove(path.join(config.providerStatusCacheDir, "subagent-conservation.json"))
+      .pipe(Effect.ignore);
 
     const changesPubSub = yield* Effect.acquireRelease(
       PubSub.unbounded<ReadonlyArray<ServerProvider>>(),
@@ -1019,31 +989,15 @@ export const layer = Layer.effect(
         {
           readonly instance: ProviderInstance;
           readonly at: number;
-          readonly identity: string | undefined;
         }
       >;
     }>({ inFlight: new Map(), attemptedAt: new Map() });
 
     const refreshInstanceUsage = Effect.fn("refreshInstanceUsage")(function* (
       instanceId: ProviderInstanceId,
-      options?: { readonly conservation: SubagentConservationRule },
-      identity?: string,
     ) {
       const instance = yield* instanceRegistry.getInstance(instanceId);
       if (instance === undefined) return yield* Ref.get(providersRef);
-      if (options !== undefined) {
-        const current = (yield* Ref.get(providersRef)).find(
-          (provider) => provider.instanceId === instanceId,
-        );
-        const now = yield* Clock.currentTimeMillis;
-        if (
-          current &&
-          identity !== undefined &&
-          current.usageLimits?.credentialFingerprint === identity &&
-          !conservationNeedsRefresh(current, options.conservation, now)
-        )
-          return yield* Ref.get(providersRef);
-      }
       const refreshUsage = instance.refreshUsage ?? instance.snapshot.refreshUsage;
       if (refreshUsage === undefined) return yield* Ref.get(providersRef);
       // Detached so an interrupted first caller cannot cancel the read others await. The
@@ -1095,10 +1049,7 @@ export const layer = Layer.effect(
             if (existing?.instance === instance)
               return [{ owner: false, completion: existing.completion }, state];
             const attempt = state.attemptedAt.get(instanceId);
-            const lastAttemptMs =
-              attempt?.instance === instance && attempt.identity === identity
-                ? attempt.at
-                : undefined;
+            const lastAttemptMs = attempt?.instance === instance ? attempt.at : undefined;
             if (
               lastAttemptMs !== undefined &&
               nowMs - lastAttemptMs < USAGE_REFRESH_STALE_MS &&
@@ -1114,7 +1065,6 @@ export const layer = Layer.effect(
                 attemptedAt: new Map(state.attemptedAt).set(instanceId, {
                   instance,
                   at: nowMs,
-                  identity,
                 }),
               },
             ];
@@ -1517,7 +1467,7 @@ export const layer = Layer.effect(
       }
     });
 
-    // Conservation and slot budgets are derived on every read so they follow the latest usage.
+    // Slot budgets are derived on every read so they follow the latest usage.
     // Untraced: every provider read runs it, so a span per read would swamp traces.
     const budgetRefreshingRef = yield* Ref.make(false);
     const deriveUsage = Effect.fnUntraced(function* (
@@ -1534,47 +1484,7 @@ export const layer = Layer.effect(
             Effect.orElseSucceed(() => undefined),
           )
         : undefined;
-      // An early caller without settings cannot revoke persisted rules or their memory.
-      const decorated =
-        settings === undefined
-          ? providers
-          : yield* conservationLock.withPermits(1)(
-              Effect.gen(function* () {
-                const rules = settings.subagentConservation ?? {};
-                const next: Record<string, ConservationMemory> = {};
-                const result = providers.map((provider) => {
-                  const rule = rules[provider.instanceId];
-                  if (!rule?.enabled) return provider;
-                  const evaluated = evaluateConservation(
-                    provider,
-                    rule,
-                    nowMs,
-                    conservationMemory[provider.instanceId],
-                  );
-                  if (evaluated.memory) next[provider.instanceId] = evaluated.memory;
-                  else if (
-                    !provider.usageLimits?.credentialFingerprint &&
-                    conservationMemory[provider.instanceId]
-                  )
-                    next[provider.instanceId] = conservationMemory[provider.instanceId]!;
-                  return { ...provider, subagentConservation: evaluated.status };
-                });
-                const contents = yield* encodeConservation(next).pipe(Effect.orDie);
-                if (
-                  contents !== (yield* encodeConservation(conservationMemory).pipe(Effect.orDie))
-                ) {
-                  conservationMemory = next;
-                  yield* writeFileStringAtomically({ filePath: conservationPath, contents }).pipe(
-                    Effect.provideService(FileSystem.FileSystem, fileSystem),
-                    Effect.provideService(Path.Path, path),
-                    Effect.provideService(HostProcess.Platform, platform),
-                    Effect.ignoreCause({ log: true }),
-                  );
-                }
-                return result;
-              }),
-            );
-      let current = decorated;
+      let current = providers;
       if (settings !== undefined && Option.isSome(usageService)) {
         {
           const budgets = settings.usageSlotBudgets;
@@ -1712,105 +1622,6 @@ export const layer = Layer.effect(
     const withDerivedUsage = (providers: ReadonlyArray<ServerProvider>) =>
       deriveUsage(providers, false);
 
-    const prepareConservation = Effect.fn("ProviderRegistry.prepareConservation")(function* (
-      supplied: ReadonlyArray<ServerProvider>,
-    ) {
-      const settings = yield* Effect.serviceOption(ServerSettingsService.ServerSettingsService);
-      if (Option.isNone(settings)) return supplied;
-      const rules =
-        (yield* settings.value.getSettings.pipe(Effect.orDie)).subagentConservation ?? {};
-      const accountIds = new Set(supplied.map((provider) => provider.instanceId));
-      const configured = [...accountIds].filter((id) => rules[id]?.enabled);
-      if (configured.length === 0) return supplied;
-      const unsupported = new Set(
-        (yield* Ref.get(providersRef))
-          .filter((provider) => provider.conservationScope?.providerIds.length === 0)
-          .map((provider) => provider.instanceId),
-      );
-      const ruled = configured.filter((id) => !unsupported.has(id));
-      const readIdentity = (instance: ProviderInstance | undefined) =>
-        (instance?.readUsageIdentity ?? Effect.undefined).pipe(
-          Effect.timeoutOption("1 second"),
-          Effect.map(Option.getOrUndefined),
-          Effect.orElseSucceed(() => undefined),
-        );
-      yield* Effect.forEach(
-        ruled,
-        (id) =>
-          Effect.gen(function* () {
-            const instance = yield* instanceRegistry.getInstance(id);
-            yield* refreshInstanceUsage(
-              id,
-              { conservation: rules[id]! },
-              yield* readIdentity(instance),
-            );
-          }),
-        { concurrency: "unbounded", discard: true },
-      );
-      yield* withDerivedUsage(yield* Ref.get(providersRef));
-      const finalRules =
-        (yield* settings.value.getSettings.pipe(Effect.orDie)).subagentConservation ?? {};
-      const finalUnsupported = new Set(
-        (yield* Ref.get(providersRef))
-          .filter((provider) => provider.conservationScope?.providerIds.length === 0)
-          .map((provider) => provider.instanceId),
-      );
-      const instances = yield* Effect.forEach(
-        [...accountIds].filter((id) => finalRules[id]?.enabled && !finalUnsupported.has(id)),
-        (id) =>
-          instanceRegistry.getInstance(id).pipe(Effect.map((instance) => [id, instance] as const)),
-        { concurrency: "unbounded" },
-      );
-      const identities = new Map(
-        yield* Effect.forEach(
-          instances,
-          ([id, instance]) =>
-            Effect.gen(function* () {
-              const identity = yield* readIdentity(instance);
-              return [
-                id,
-                (yield* instanceRegistry.getInstance(id)) === instance ? identity : undefined,
-              ] as const;
-            }),
-          { concurrency: "unbounded" },
-        ),
-      );
-      // Include usage updates that arrived while the bounded credential checks were pending.
-      const latest = new Map(
-        (yield* Ref.get(providersRef)).map((provider) => [provider.instanceId, provider]),
-      );
-      const now = DateTime.toEpochMillis(yield* DateTime.now);
-      return supplied.flatMap((provider) => {
-        const current = latest.get(provider.instanceId);
-        if (!current) return [];
-        const next = {
-          ...current,
-          models: provider.models,
-          slashCommands: provider.slashCommands,
-          skills: provider.skills,
-          ...(provider.workspaceSnapshots === undefined
-            ? {}
-            : { workspaceSnapshots: provider.workspaceSnapshots }),
-          ...(provider.runtimePaths === undefined ? {} : { runtimePaths: provider.runtimePaths }),
-        };
-        const rule = finalRules[provider.instanceId];
-        return [
-          rule?.enabled
-            ? {
-                ...next,
-                subagentConservation: evaluateConservation(
-                  next,
-                  rule,
-                  now,
-                  conservationMemory[provider.instanceId],
-                  { current: identities.get(provider.instanceId) },
-                ).status,
-              }
-            : next,
-        ];
-      });
-    });
-
     return {
       getProviders: Effect.gen(function* () {
         const providers = yield* Ref.get(providersRef);
@@ -1828,7 +1639,6 @@ export const layer = Layer.effect(
         ),
       refreshInstanceUsage: (instanceId) =>
         refreshInstanceUsage(instanceId).pipe(Effect.flatMap(withDerivedUsage)),
-      prepareConservation,
       reloadSecretsAndRefresh: (instanceId?: ProviderInstanceId) =>
         reloadSecretsAndRefresh(instanceId).pipe(
           Effect.catchCause(recoverRefreshFailure),

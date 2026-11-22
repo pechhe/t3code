@@ -1,4 +1,3 @@
-import { SubagentConservationSettings } from "./SubagentConservationSettings";
 import { pooledModels, type PooledModel } from "@t3tools/shared/accountPools";
 import { useAtomValue } from "@effect/atom-react";
 import { useEffect, useEffectEvent, useId, useRef, useState, type ReactNode } from "react";
@@ -42,7 +41,6 @@ import {
   catalogModels,
   effortForModel,
   ensureModel,
-  isAnyAccountBinding,
   matchesCatalogModel,
   modelLabel,
   pooledDefaultStance,
@@ -111,15 +109,6 @@ export function DelegationSettings() {
           representativeId={environment?.environmentId ?? null}
         />
       )}
-      {environments
-        .filter(({ connection }) => connection.phase === "connected")
-        .map(({ environmentId, label }) => (
-          <SubagentConservationSettings
-            key={environmentId}
-            environmentId={environmentId}
-            label={label}
-          />
-        ))}
       <PermissionsSection />
     </SettingsPageContainer>
   );
@@ -922,7 +911,7 @@ function ModelsSection({
       </p>
       {listedModels(manifest, jobs, pools).map(({ alias, model, pooledModel, roles }) => {
         const binding = manifest.models[alias]!;
-        const showPooled = pooledModel !== undefined && isAnyAccountBinding(binding);
+        const showPooled = pooledModel !== undefined;
         const name = showPooled
           ? pooledModel.displayName
           : modelLabel(binding, alias, providers, pools);
@@ -1172,7 +1161,7 @@ function PermissionsSection() {
   );
 }
 
-/** A delegation model's label: a pooled `anyAccount` (or legacy `poolId`) model by its name, else the model. */
+/** A delegation model's label: a routed model by its name, else the model. */
 function PolicyModelLabel({
   environmentId,
   binding,
@@ -1184,7 +1173,7 @@ function PolicyModelLabel({
   pools: ReadonlyArray<PooledModel>;
   variant?: "full" | "chip";
 }) {
-  const pooled = isAnyAccountBinding(binding) ? pooledModelForBinding(binding, pools) : undefined;
+  const pooled = pooledModelForBinding(binding, pools);
   return (
     <ModelLabel
       variant={variant ?? "full"}

@@ -10,8 +10,11 @@ import * as Layer from "effect/Layer";
 import * as AgentConfigCheckout from "./AgentConfigCheckout.ts";
 import { agentPolicyRoot } from "./agentPolicyRoot.ts";
 import * as Policy from "./AgentPolicyService.ts";
+import { pooledModelOfBinding, pooledModels } from "@t3tools/shared/accountPools";
+import * as Option from "effect/Option";
 import * as Providers from "../provider/ProviderRegistry.ts";
 import * as Processes from "../processRunner.ts";
+import * as ServerSettings from "../serverSettings.ts";
 
 export class AgentPolicySettingsService extends Context.Service<
   AgentPolicySettingsService,
@@ -26,6 +29,7 @@ export class AgentPolicySettingsService extends Context.Service<
 export const make = Effect.gen(function* () {
   const policy = yield* Policy.AgentPolicyService;
   const providers = yield* Providers.ProviderRegistry;
+  const serverSettings = yield* Effect.serviceOption(ServerSettings.ServerSettingsService);
   const process = yield* Processes.ProcessRunner;
   const root = agentPolicyRoot.pipe(
     Effect.flatMap((root) =>
@@ -86,10 +90,21 @@ export const make = Effect.gen(function* () {
   const validateModels = Effect.fn(function* (manifest: AgentPolicyManifest) {
     const catalog = yield* providers.getProviders;
     const current = yield* load();
+    const routing = Option.isSome(serverSettings)
+      ? yield* serverSettings.value.getSettings.pipe(Effect.orElseSucceed(() => ({})))
+      : {};
+    const pools = pooledModels(catalog, routing);
     for (const [alias, binding] of Object.entries(manifest.models)) {
-      const matching = catalog
+      const exact = catalog
         .filter((provider) => provider.driver === binding.driverKind)
         .flatMap((provider) => provider.models.filter((model) => model.slug === binding.model));
+      // A routed model's binding stays valid while any account serves it.
+      const matching =
+        exact.length > 0
+          ? exact
+          : (pooledModelOfBinding(pools, routing, binding)?.accounts.flatMap((entry) =>
+              entry.provider.models.filter((model) => model.slug === entry.model),
+            ) ?? []);
       const previous = current.manifest.models[alias];
       // Existing offline declarations remain editable; an unavailable account is not a
       // reason to erase its policy. New bindings must exist in the installed catalog.
@@ -97,7 +112,6 @@ export const make = Effect.gen(function* () {
         matching.length === 0 &&
         (previous?.model !== binding.model ||
           previous.driverKind !== binding.driverKind ||
-          previous.anyAccount !== binding.anyAccount ||
           previous.effortOption !== binding.effortOption)
       )
         return yield* new AgentPolicySettingsError({ reason: "unsupported-model" });
@@ -107,11 +121,10 @@ export const make = Effect.gen(function* () {
       const options = matching
         .flatMap((model) => model.capabilities?.optionDescriptors ?? [])
         .filter(
+          // Accounts serving one routed model may name their effort setting differently.
           (candidate) =>
             candidate.id === option ||
-            (binding.anyAccount === true &&
-              candidate.type === "select" &&
-              candidate.role === "reasoning"),
+            (candidate.type === "select" && candidate.role === "reasoning"),
         );
       const efforts = Object.values(manifest.lists)
         .flat()

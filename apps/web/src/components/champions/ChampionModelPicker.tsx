@@ -8,6 +8,7 @@ import { getCustomModelOptionsByInstance } from "../../modelSelection";
 import { selectModelSlotLabels, withPooledModelLabels } from "../chat/modelLabels";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { modelPickerPooling, pooledModelSelection } from "../chat/useComposerPooling";
+import { useRoutingContext } from "../accounts/AccountAvailability";
 import { TraitsPicker } from "../chat/TraitsPicker";
 import { Button } from "../ui/button";
 import { useInstanceEntries } from "../settings/useInstanceEntries";
@@ -31,9 +32,10 @@ export function ChampionModelPicker(props: {
   const instanceId = selection?.instanceId ?? entries[0]?.instanceId ?? ("" as ProviderInstanceId);
   const model = selection?.model ?? "";
   const activeEntry = entries.find((entry) => entry.instanceId === instanceId);
+  const routing = useRoutingContext(environmentId);
   const pooling = modelPickerPooling({
     models: withPooledModelLabels(pooledModels(providers, settings), slotLabels),
-    skips: settings.accountSkips,
+    routing,
     providers,
     selection: selection ?? createModelSelection(instanceId, model),
     onSelect: (pooled, account) => {
@@ -41,8 +43,7 @@ export function ChampionModelPicker(props: {
         model: pooled,
         account,
         current: selection,
-        settings,
-        nowMs: Date.now(),
+        routing,
       });
       if (picked !== undefined) props.onChange(picked);
     },

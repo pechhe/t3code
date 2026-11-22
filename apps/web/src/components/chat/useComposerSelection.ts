@@ -7,6 +7,7 @@ import { useStableCallback } from "../../hooks/useStableCallback";
 import { useApplyThreadModelPick } from "./useApplyThreadModelPick";
 import type { PooledAccount, PooledModel } from "@t3tools/shared/accountPools";
 import { pooledModelSelection } from "./useComposerPooling";
+import { useRoutingContext } from "../accounts/AccountAvailability";
 import {
   type EnvironmentId,
   type ModelSelection,
@@ -89,6 +90,7 @@ export function useComposerSelection(input: ComposerSelectionInput) {
   } = input;
   const messages = useMessages();
   const navigate = useNavigate();
+  const routing = useRoutingContext(environmentId);
   const setStickyComposerModelSelection = useComposerDraftStore(
     (store) => store.setStickyModelSelection,
   );
@@ -262,8 +264,7 @@ export function useComposerSelection(input: ComposerSelectionInput) {
       model,
       account,
       current: draft?.modelSelectionByProvider[shownInstanceId] ?? activeThread.modelSelection,
-      settings,
-      nowMs: Date.now(),
+      routing,
     });
     if (nextModelSelection === undefined) return;
     const modelChangeBlockReason = getStartedThreadModelChangeBlockReason({

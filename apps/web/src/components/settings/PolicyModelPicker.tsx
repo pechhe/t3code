@@ -7,6 +7,7 @@ import type {
 import { pooledModels } from "@t3tools/shared/accountPools";
 import type { ReactElement } from "react";
 
+import { useNowMinute } from "../../hooks/useNowMinute";
 import { useClientSettings } from "../../hooks/useSettings";
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
 import { selectModelSlotLabels, withPooledModelLabels } from "../chat/modelLabels";
@@ -15,7 +16,6 @@ import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { TraitsPicker } from "../chat/TraitsPicker";
 import {
   bindingInstance,
-  isAnyAccountBinding,
   pooledModelForBinding,
   withBoundModel,
   type CatalogModel,
@@ -25,10 +25,10 @@ import { useInstanceEntries } from "./useInstanceEntries";
 type Binding = AgentPolicyManifest["models"][string];
 
 /**
- * Chooses a delegation model with the composer's own model picker. Policy models name either a
- * provider kind and model slug (for a specific account) or `anyAccount` (the model alone, any
- * account in the user's order). Every installed model can be picked; one with an effort setting
- * also gets the effort picker.
+ * Chooses a delegation model with the composer's own model picker. A policy model names a provider
+ * kind and model slug, and runs as its routed model when Model routing has one, on any account its
+ * route gives it. Every installed model can be picked; one with an effort setting also gets the
+ * effort picker.
  */
 export function PolicyModelPicker(props: {
   environmentId: EnvironmentId;
@@ -50,30 +50,36 @@ export function PolicyModelPicker(props: {
     active,
     model,
   );
-  const catalogModel = (pickedInstance: ProviderInstanceId, slug: string) => {
-    const driver = entries.find((entry) => entry.instanceId === pickedInstance)?.driverKind;
-    return props.catalog.find(
-      (candidate) =>
-        candidate.pooledKey === undefined &&
-        candidate.binding.driverKind === driver &&
-        candidate.binding.model === slug,
-    );
-  };
   const slotLabels = useClientSettings(selectModelSlotLabels);
   const pools = withPooledModelLabels(pooledModels(providers, settings), slotLabels);
+  const pooledCatalogModel = (key: string) =>
+    props.catalog.find((candidate) => candidate.pooledKey === key);
+  // An account's model that a routed model covers is that routed model.
+  const catalogModel = (pickedInstance: ProviderInstanceId, slug: string) => {
+    const driver = entries.find((entry) => entry.instanceId === pickedInstance)?.driverKind;
+    const covering = pools.find((pool) =>
+      pool.accounts.some(
+        (entry) => entry.provider.instanceId === pickedInstance && entry.model === slug,
+      ),
+    );
+    return covering !== undefined
+      ? pooledCatalogModel(covering.key)
+      : props.catalog.find(
+          (candidate) =>
+            candidate.pooledKey === undefined &&
+            candidate.binding.driverKind === driver &&
+            candidate.binding.model === slug,
+        );
+  };
   const activePool =
-    props.binding !== undefined && isAnyAccountBinding(props.binding)
-      ? pooledModelForBinding(props.binding, pools)
-      : undefined;
+    props.binding === undefined ? undefined : pooledModelForBinding(props.binding, pools);
+  const nowMs = Date.parse(`${useNowMinute()}Z`);
   const pooling: ModelPickerPooling = {
     models: pools,
-    skips: settings.accountSkips,
+    routing: { blocks: [], nowMs },
     active: activePool ? { key: activePool.key, pinned: null } : null,
-    onSelect: (pickedModel, account) => {
-      const picked =
-        account === null
-          ? props.catalog.find((candidate) => candidate.pooledKey === pickedModel.key)
-          : catalogModel(account.provider.instanceId, account.model);
+    onSelect: (pickedModel) => {
+      const picked = pooledCatalogModel(pickedModel.key);
       if (picked !== undefined && props.pickDisabledReason?.(picked) == null) {
         props.onPick(picked);
       }

@@ -1,4 +1,3 @@
-import { SubagentConservationStatus } from "./providerUsageLimits.ts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { AcpRegistryUrlAuthAction } from "./acpRegistry.ts";
@@ -330,8 +329,10 @@ export const ServerProvider = Schema.Struct({
    */
   workspaceRescannedAt: Schema.optionalKey(IsoDateTime),
   usageLimits: Schema.optional(ServerProviderUsageLimits),
-  subagentConservation: Schema.optionalKey(SubagentConservationStatus),
-  /** Only these model provider IDs use the account meter; absence covers the whole catalog. */
+  /**
+   * Only these model provider IDs use the account meter, so its usage governs routing only for
+   * them; absence covers the whole catalog. Named for the retired subscription conservation.
+   */
   conservationScope: Schema.optional(
     Schema.Struct({
       providerIds: Schema.Array(TrimmedNonEmptyString),

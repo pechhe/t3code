@@ -358,31 +358,14 @@ it.effect.each(["no-settings", "settings-present", "settings-event"] as const)(
         assert.strictEqual(updated?.status, "error");
         assert.strictEqual(updated?.message, "Authentication failed");
         if (mode === "settings-event") {
-          const changed = yield* Stream.toPull(
-            registry.streamChanges.pipe(
-              Stream.filter(
-                (rows) =>
-                  rows[0]?.subagentConservation?.models.includes("conserved-model") === true,
-              ),
-            ),
-          );
+          // A settings change republishes the providers it reads.
+          const changed = yield* Stream.toPull(registry.streamChanges.pipe(Stream.take(1)));
           const pending = yield* changed.pipe(Effect.forkScoped({ startImmediately: true }));
           const settings = yield* Effect.serviceOption(Settings.ServerSettingsService);
           assert.isTrue(Option.isSome(settings));
           if (Option.isNone(settings)) return;
-          yield* settings.value.updateSettings({
-            subagentConservation: {
-              [provider.instanceId]: {
-                enabled: true,
-                remainingPercent: 20,
-                window: "any",
-                windowIds: ["session"],
-                models: ["conserved-model"],
-              },
-            },
-          });
+          yield* settings.value.updateSettings({ hideTaggedThreads: true });
           const result = (yield* Fiber.join(pending))[0]?.[0];
-          assert.deepStrictEqual(result?.subagentConservation?.models, ["conserved-model"]);
           assert.strictEqual(result?.status, "error");
         }
       }).pipe(

@@ -2,15 +2,19 @@ import { assert, describe, it } from "@effect/vitest";
 import {
   ProviderDriverKind,
   ProviderInstanceId,
+  type AccountBlock,
   type ModelSelection,
   type ServerProvider,
 } from "@t3tools/contracts";
+
+import * as DateTime from "effect/DateTime";
 
 import * as ChampionModels from "./ChampionModels.ts";
 
 const NOW = Date.parse("2026-11-20T09:00:00.000Z");
 const MODEL = "claude-opus-5-5";
 const RESET = "2026-11-24T08:53:00.000Z";
+const iso = (ms: number) => DateTime.formatIso(DateTime.makeUnsafe(ms));
 
 const account = (id: string, usedPercent?: number, resetsAt?: string): ServerProvider =>
   ({
@@ -35,13 +39,29 @@ const on = (id: string, pinned?: boolean): ModelSelection => ({
   model: MODEL,
   ...(pinned ? { pinned: true } : {}),
 });
-const source = (
-  providers: ReadonlyArray<ServerProvider>,
-  accountSkips: Record<string, Record<string, { until: string; reportedReset: boolean }>> = {},
-) => ({ providers, settings: { pooledModelKeys: [MODEL], accountSkips } as never, nowMs: NOW });
+type Blocked = Record<string, Record<string, { until: string; reportedReset: boolean }>>;
+/** The server's blocks, by account and model. */
+const blocksOf = (blocked: Blocked): ReadonlyArray<AccountBlock> =>
+  Object.entries(blocked).flatMap(([account, models]) =>
+    Object.entries(models).map(([model, { until, reportedReset }]) => ({
+      account,
+      model,
+      reason: "usage-limit" as const,
+      since: iso(NOW - 60_000),
+      until,
+      reportedReset,
+      attempts: 1,
+    })),
+  );
+const source = (providers: ReadonlyArray<ServerProvider>, blocked: Blocked = {}) => ({
+  providers,
+  settings: { pooledModelKeys: [MODEL] },
+  blocks: blocksOf(blocked),
+  nowMs: NOW,
+});
 
 describe("a pooled model", () => {
-  it("runs on the first account in its order that is not skipped for its limit", () => {
+  it("runs on the first account in its route that is not blocked for its limit", () => {
     const providers = [account("A"), account("B"), account("C")];
     const skipped = { A: { [MODEL]: { until: RESET, reportedReset: true } } };
     assert.deepEqual(ChampionModels.assess(on("A"), source(providers)), {
@@ -83,7 +103,8 @@ describe("a pooled model", () => {
 describe("a single account's model", () => {
   const lone = {
     providers: [account("solo", 100, RESET)],
-    settings: { accountSkips: {} } as never,
+    settings: {},
+    blocks: [],
     nowMs: NOW,
   };
   it("is limited by its provider window until the window resets", () => {
@@ -106,12 +127,14 @@ describe("pickSlot", () => {
   it("uses the backup only when the main model cannot run", () => {
     const picked = ChampionModels.pickSlot(slot, {
       ...source(providers),
-      settings: { accountSkips: {} } as never,
+      settings: {},
+      blocks: [],
     });
     assert.equal(picked.use?.slot, "backup");
     const free = ChampionModels.pickSlot(slot, {
       ...source([account("main"), account("backup")]),
-      settings: { accountSkips: {} } as never,
+      settings: {},
+      blocks: [],
     });
     assert.equal(free.use?.slot, "main");
   });
@@ -120,7 +143,7 @@ describe("pickSlot", () => {
     const fresh = [account("main"), account("backup")];
     const picked = ChampionModels.pickSlot(
       slot,
-      { ...source(fresh), settings: { accountSkips: {} } as never },
+      { ...source(fresh), settings: {} },
       { failed: { selection: on("main"), until: RESET } },
     );
     assert.equal(picked.use?.slot, "backup");
@@ -136,34 +159,31 @@ describe("pickSlot", () => {
     assert.equal(String(picked.use?.selection.instanceId), "B");
   });
 
-  it("limits a single account's model after its failure, with the reset time only when it was given", () => {
+  it("limits a single account's model after its failure, to the reset it gave, else its first backoff", () => {
     const solo = {
       providers: [account("solo")],
-      settings: { accountSkips: {} } as never,
+      settings: {},
+      blocks: [],
       nowMs: NOW,
     };
     const unknown = ChampionModels.pickSlot({ main: on("solo") }, solo, {
       failed: { selection: on("solo"), until: null },
     });
     assert.isNull(unknown.use);
-    assert.deepEqual(unknown.main, { status: "limited", pooled: false, until: null });
+    assert.deepEqual(unknown.main, { status: "limited", pooled: false, until: iso(NOW + 120_000) });
     const known = ChampionModels.pickSlot({ main: on("solo") }, solo, {
       failed: { selection: on("solo"), until: RESET },
     });
     assert.deepEqual(known.main, { status: "limited", pooled: false, until: RESET });
   });
 
-  it("reads a skip whose reset was not reported as an unknown time", () => {
+  it("reads a backoff as returning when it ends", () => {
     const providers = [account("solo")];
-    const skips = {
-      solo: { [MODEL]: { until: "2026-11-21T00:00:00.000Z", reportedReset: false } },
-    };
-    const assessed = ChampionModels.assess(on("solo"), {
-      providers,
-      settings: { accountSkips: skips } as never,
-      nowMs: NOW,
-    });
-    assert.deepEqual(assessed, { status: "limited", pooled: false, until: null });
+    const assessed = ChampionModels.assess(
+      on("solo"),
+      source(providers, { solo: { [MODEL]: { until: iso(NOW + 600_000), reportedReset: false } } }),
+    );
+    assert.deepEqual(assessed, { status: "limited", pooled: false, until: iso(NOW + 600_000) });
     assert.include(
       ChampionModels.skipMessage({
         what: "check",
@@ -171,14 +191,15 @@ describe("pickSlot", () => {
         assessed: { main: assessed, backup: null },
         providers,
       }),
-      "until a time the provider did not give",
+      "until 20 Nov, 09:10 GMT",
     );
   });
 
   it("uses nothing when neither can run", () => {
     const picked = ChampionModels.pickSlot(slot, {
       providers: [account("main", 100, RESET)],
-      settings: { accountSkips: {} } as never,
+      settings: {},
+      blocks: [],
       nowMs: NOW,
     });
     assert.isNull(picked.use);
@@ -270,16 +291,11 @@ describe("what a skipped run says", () => {
   });
 });
 
-describe("a single account's model that a limit failure skipped", () => {
-  it("is limited by the skip even though no pool exists for it", () => {
-    const lone = {
-      providers: [account("solo")],
-      settings: {
-        pooledModelKeys: [MODEL],
-        accountSkips: { solo: { [MODEL]: { until: RESET, reportedReset: true } } },
-      } as never,
-      nowMs: NOW,
-    };
+describe("a single account's model that a limit failure blocked", () => {
+  it("is limited by the block even though no pool exists for it", () => {
+    const lone = source([account("solo")], {
+      solo: { [MODEL]: { until: RESET, reportedReset: true } },
+    });
     assert.deepEqual(ChampionModels.assess(on("solo"), lone), {
       status: "limited",
       pooled: false,
@@ -295,7 +311,7 @@ describe("a failed model with no pool key", () => {
       models: [{ slug: "default", name: "Default", isCustom: false, capabilities: null }],
     } as unknown as ServerProvider;
     const selection = { instanceId: ProviderInstanceId.make("A"), model: "default" };
-    const src = { providers: [generic], settings: { accountSkips: {} } as never, nowMs: NOW };
+    const src = { providers: [generic], settings: {}, blocks: [], nowMs: NOW };
     assert.equal(ChampionModels.pickSlot({ main: selection }, src).main.status, "ready");
     const failed = ChampionModels.pickSlot({ main: selection }, src, {
       failed: { selection, until: null },

@@ -202,11 +202,11 @@ const ModelBinding = Schema.Struct({
   driverKind: ProviderDriverKind,
   model: TrimmedNonEmptyString,
   /**
-   * The model alone: any account serving it, tried in the model's account order. Without it the
-   * entry names `driverKind`'s account for `model`.
+   * Retired: every entry is the model alone, run on any account Model routing gives it. Saved
+   * policies still carry it, and older servers read it.
    */
   anyAccount: Schema.optional(Schema.Boolean),
-  /** Retired model pool id; an entry carrying one is read as `anyAccount`. */
+  /** Retired model pool id, ignored like `anyAccount`. */
   poolId: Schema.optional(TrimmedNonEmptyString),
   /** The select option carrying effort; absent for a model that has no effort setting. */
   effortOption: Schema.optional(TrimmedNonEmptyString),
@@ -1155,7 +1155,7 @@ export const AgentPolicyCandidate = Schema.Struct({
   model: Schema.String,
   providerInstanceId: Schema.optional(ProviderInstanceId),
   reason: Schema.String,
-  /** When an `overloaded` candidate's cool-down ends, or a `usage-limited` one's usage returns. */
+  /** When an unavailable candidate returns, when a reset or cool-down end is known. */
   until: Schema.optional(IsoDateTime),
 });
 export type AgentPolicyCandidate = typeof AgentPolicyCandidate.Type;
@@ -1181,7 +1181,10 @@ export const AgentRolesResult = Schema.Struct({
       browserTasks: Schema.optional(Schema.Boolean),
       selection: Schema.NullOr(ModelSelection),
       refusal: Schema.NullOr(TrimmedNonEmptyString),
-      /** Eligible candidates, not preference order; choose one with `target.model`. */
+      /**
+       * Eligible models, one per routed model whichever accounts serve it, not preference order;
+       * choose one with `target.model`.
+       */
       models: Schema.Array(
         Schema.Struct({
           model: Schema.String,
@@ -1189,11 +1192,13 @@ export const AgentRolesResult = Schema.Struct({
           note: Schema.optional(Schema.String),
           /** At least one account can start it now. */
           available: Schema.Boolean,
+          /** When unavailable: the earliest an account returns, when one is known. */
+          returnsAt: Schema.optional(IsoDateTime),
         }),
       ),
-      /** Accounts out of usage, passed over unless every candidate is; absent when none is. */
+      /** Models no account can serve now, each with its earliest return; absent when none is. */
       usageLimited: Schema.optional(Schema.Array(AgentPolicyCandidate)),
-      /** Models in an overload cool-down, passed over while a healthy candidate remains. */
+      /** Retired: no longer reported. Older servers listed overloaded accounts here. */
       overloaded: Schema.optional(Schema.Array(AgentPolicyCandidate)),
     }),
   ),

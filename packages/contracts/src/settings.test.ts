@@ -649,9 +649,21 @@ describe("server model preferences", () => {
 });
 
 describe("retired pooling settings", () => {
-  it("decodes settings that still hold retired pools, assumed usage or one account order, ignoring them", () => {
+  it("decodes settings that still hold retired pools, assumed usage, skips, conservation or one account order, ignoring them", () => {
     const settings = decodeServerSettings({
       switchPooledAccountOnLimit: false,
+      accountSkips: {
+        claudeAgent: { opus: { until: "2026-11-19T00:00:00.000Z", reportedReset: true } },
+      },
+      subagentConservation: {
+        codex: {
+          enabled: true,
+          remainingPercent: 10,
+          window: "any",
+          windowIds: [],
+          models: ["sol"],
+        },
+      },
       modelPools: { opus: { displayName: "Opus", slots: [] } },
       accountOrder: ["claudeAgent"],
       modelAccountsRemoved: { opus: ["claudeAgent"] },
@@ -675,13 +687,14 @@ describe("retired pooling settings", () => {
     expect(settings.switchPooledAccountOnLimit).toBe(false);
     expect(settings).not.toHaveProperty("accountOrder");
     expect(settings).not.toHaveProperty("modelAccountsRemoved");
-    expect(settings.accountSkips).toEqual({});
+    expect(settings).not.toHaveProperty("accountSkips");
+    expect(settings).not.toHaveProperty("subagentConservation");
   });
 
-  it("asks for provider management to change a model's accounts or skips", () => {
+  it("asks for provider management to change a model's accounts or route", () => {
     for (const patch of [
       { modelAccounts: { "claude-opus-5-5": ["pi:openrouter"] } },
-      { accountSkips: { claudeAgent: null } },
+      { modelRouting: { "claude-opus-5-5": { primary: ["pi:openrouter"] } } },
     ]) {
       expect(requiredScopesForServerSettingsPatch(decodeServerSettingsPatch(patch))).toEqual([
         "providers:manage",

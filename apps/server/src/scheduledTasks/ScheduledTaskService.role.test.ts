@@ -315,48 +315,50 @@ it.effect("a task saved under a split reviewer role still lists, as the merged r
   ),
 );
 
-it.effect("conservation refuses a scheduled role start instead of using its saved model", () =>
-  Effect.gen(function* () {
-    const launched = yield* Ref.make<ReadonlyArray<ModelSelection>>([]);
-    const conserved = yield* Ref.make(false);
-    const policy = Layer.mergeAll(
-      Layer.mock(ManagedAgent.ManagedAgentService)({
-        snapshot: () =>
-          Effect.succeed({
-            manifest: { roles: { implementer: { taskClasses: ["non-ui"] } } },
-          } as unknown as AgentPolicySnapshot),
-        roles: () =>
-          Ref.get(conserved).pipe(
-            Effect.map(
-              (blocked) =>
-                ({
-                  roles: [
-                    {
-                      role: "implementer",
-                      selection: blocked ? null : implementerModel,
-                      refusal: blocked
-                        ? "conservation: selected account models are conserved; change Settings > Providers"
-                        : null,
-                    },
-                  ],
-                }) as never,
+it.effect(
+  "a role held at its reserve refuses a scheduled start instead of using its saved model",
+  () =>
+    Effect.gen(function* () {
+      const launched = yield* Ref.make<ReadonlyArray<ModelSelection>>([]);
+      const conserved = yield* Ref.make(false);
+      const policy = Layer.mergeAll(
+        Layer.mock(ManagedAgent.ManagedAgentService)({
+          snapshot: () =>
+            Effect.succeed({
+              manifest: { roles: { implementer: { taskClasses: ["non-ui"] } } },
+            } as unknown as AgentPolicySnapshot),
+          roles: () =>
+            Ref.get(conserved).pipe(
+              Effect.map(
+                (blocked) =>
+                  ({
+                    roles: [
+                      {
+                        role: "implementer",
+                        selection: blocked ? null : implementerModel,
+                        refusal: blocked
+                          ? "usage-limited: every account is out of usage or held at its reserve"
+                          : null,
+                      },
+                    ],
+                  }) as never,
+              ),
             ),
-          ),
-      }),
-      Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
-    );
-    yield* Effect.gen(function* () {
-      const service = yield* ScheduledTaskService.ScheduledTaskService;
-      const { task } = yield* service.upsert({ ...baseInput, agentRole: "implementer" });
-      yield* Ref.set(conserved, true);
-      const result = yield* service.runNow({ id: task.id });
-      assert.equal(result.task.lastRunStatus, "failed");
-      assert.include(result.task.lastRunError, "conservation:");
-      assert.deepEqual(yield* Ref.get(launched), []);
-    }).pipe(Effect.provide(serviceLayer(launched, policy)));
-  }).pipe(
-    Effect.provide(
-      SqlitePersistence.layerMemory.pipe(Layer.provideMerge(ContextManagedPolicy.layerTest())),
+        }),
+        Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+      );
+      yield* Effect.gen(function* () {
+        const service = yield* ScheduledTaskService.ScheduledTaskService;
+        const { task } = yield* service.upsert({ ...baseInput, agentRole: "implementer" });
+        yield* Ref.set(conserved, true);
+        const result = yield* service.runNow({ id: task.id });
+        assert.equal(result.task.lastRunStatus, "failed");
+        assert.include(result.task.lastRunError, "usage-limited:");
+        assert.deepEqual(yield* Ref.get(launched), []);
+      }).pipe(Effect.provide(serviceLayer(launched, policy)));
+    }).pipe(
+      Effect.provide(
+        SqlitePersistence.layerMemory.pipe(Layer.provideMerge(ContextManagedPolicy.layerTest())),
+      ),
     ),
-  ),
 );

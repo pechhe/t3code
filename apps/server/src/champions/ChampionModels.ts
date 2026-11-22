@@ -1,9 +1,10 @@
 /**
  * Which model a Champion's own run uses (T3-814): the machine default or the Champion's override, then its backup
- * when no account can run the main model. "At its limit" is the thread definition: an account skipped after a
- * usage-limit failure, or a provider window at 100%. Pure so the service and its tests share one reading.
+ * when no account can run the main model. "At its limit" is Model routing's one evaluator: an account out of usage,
+ * held at its reserve or cooling down after failed runs. Pure so the service and its tests share one reading.
  */
 import type {
+  AccountBlock,
   ChampionModelDefaults,
   ChampionModelOverrides,
   ChampionNextModels,
@@ -13,54 +14,34 @@ import type {
 import * as DateTime from "effect/DateTime";
 import {
   accountIdOf,
-  activeSkip,
-  pooledModelKeyOf,
-  isAccountFree,
-  isProviderUsageExhausted,
+  pooledKeyIn,
   pooledModelOf,
   pooledModels,
+  rankAccounts,
   selectionOnAccount,
+  standaloneAvailability,
   type AccountRoutingSettings,
 } from "@t3tools/shared/accountPools";
 
+import { ACCOUNT_BACKOFF_MS } from "../provider/AccountAvailability.ts";
 import { invalidOptionSelections } from "../provider/modelSelectionValidation.ts";
 
 export type ChampionModelKind = "checks" | "advice";
 
 export interface ModelSource {
   readonly providers: ReadonlyArray<ServerProvider>;
-  readonly settings: Pick<AccountRoutingSettings, "pooledModelKeys" | "accountSkips"> &
-    Partial<AccountRoutingSettings>;
+  readonly settings: AccountRoutingSettings;
+  /** The server's runtime blocks on accounts. */
+  readonly blocks: ReadonlyArray<AccountBlock>;
   readonly nowMs: number;
 }
 
 export type Assessment =
   | { readonly status: "ready"; readonly selection: ModelSelection }
-  /** Every account is at its limit; `until` is the earliest return the provider gave, or null when it gave none. */
+  /** Every account is held back; `until` is the earliest known return, or null when none is known. */
   | { readonly status: "limited"; readonly until: string | null; readonly pooled: boolean }
   /** The model is not installed, enabled or signed in on this machine. */
   | { readonly status: "missing" };
-
-const earliest = (times: ReadonlyArray<string | null>): string | null => {
-  const known = times.filter(
-    (time): time is string => time !== null && Number.isFinite(Date.parse(time)),
-  );
-  if (known.length < times.length || known.length === 0) return null;
-  return known.reduce((a, b) => (Date.parse(a) <= Date.parse(b) ? a : b));
-};
-
-const windowReset = (provider: ServerProvider, nowMs: number): string | null => {
-  const exhausted =
-    provider.usageLimits?.windows.filter(
-      (window) =>
-        window.usedPercent >= 100 &&
-        (window.resetsAt === undefined || Date.parse(window.resetsAt) > nowMs),
-    ) ?? [];
-  const times = exhausted.map((window) => window.resetsAt ?? null);
-  if (times.length === 0 || times.includes(null)) return null;
-  // The last window to reset is the one that holds the provider back.
-  return times.reduce((a, b) => (Date.parse(a!) >= Date.parse(b!) ? a : b));
-};
 
 const optionsAllowed = (provider: ServerProvider, selection: ModelSelection) =>
   invalidOptionSelections(
@@ -79,65 +60,45 @@ const providerRunnable = (provider: ServerProvider | undefined, selection: Model
   provider.models.some((model) => model.slug === selection.model) &&
   optionsAllowed(provider, selection);
 
-/** Whether one model can take a run now, resolving a pooled model to its first account that is not at its limit. */
+const earliest = (times: ReadonlyArray<string | undefined>): string | null => {
+  const known = times.flatMap((time) =>
+    time !== undefined && Number.isFinite(Date.parse(time)) ? [Date.parse(time)] : [],
+  );
+  return known.length === 0 ? null : DateTime.formatIso(DateTime.makeUnsafe(Math.min(...known)));
+};
+
+/** Whether one model can take a run now, resolving a routed model to the first available account. */
 export const assess = (selection: ModelSelection, source: ModelSource): Assessment => {
-  const { providers, settings, nowMs } = source;
+  const { providers, settings } = source;
+  const context = { blocks: source.blocks, nowMs: source.nowMs };
   const pool =
     selection.pinned === true
       ? undefined
       : pooledModelOf(pooledModels(providers, settings), selection);
   if (pool !== undefined) {
-    const usable = pool.accounts.filter(
-      (entry) =>
-        !entry.removed && providerRunnable(entry.provider, { ...selection, model: entry.model }),
+    const usable = rankAccounts(pool, context).filter(({ entry }) =>
+      providerRunnable(entry.provider, { ...selection, model: entry.model }),
     );
     if (usable.length === 0) return { status: "missing" };
-    const free = usable.find(
-      (entry) =>
-        isAccountFree(pool, entry, settings.accountSkips, nowMs) &&
-        !isProviderUsageExhausted(entry.provider, nowMs),
-    );
+    const free = usable.find(({ availability }) => availability.state === "available");
     if (free !== undefined)
-      return { status: "ready", selection: selectionOnAccount(free, selection.options) };
+      return { status: "ready", selection: selectionOnAccount(free.entry, selection.options) };
     return {
       status: "limited",
-      pooled: true,
-      until: earliest(
-        usable.map((entry) => {
-          const skip = activeSkip(settings.accountSkips, entry.account.id, pool.key, nowMs);
-          const window = isProviderUsageExhausted(entry.provider, nowMs)
-            ? windowReset(entry.provider, nowMs)
-            : null;
-          return (skip?.reportedReset === true ? skip.until : null) ?? window;
-        }),
-      ),
+      pooled: usable.length > 1,
+      until: earliest(usable.map(({ availability }) => availability.returnsAt)),
     };
   }
   const provider = providers.find((candidate) => candidate.instanceId === selection.instanceId);
   if (!providerRunnable(provider, selection)) return { status: "missing" };
-  if (isProviderUsageExhausted(provider!, nowMs))
-    return { status: "limited", pooled: false, until: windowReset(provider!, nowMs) };
-  // A model one account serves has no pool, yet a usage-limit failure still skips its account by key.
-  const model = provider!.models.find((candidate) => candidate.slug === selection.model);
-  const key =
-    model === undefined || typeof model.name !== "string"
-      ? undefined
-      : pooledModelKeyOf(provider!, model);
-  if (key !== undefined) {
-    const skip = activeSkip(
-      settings.accountSkips,
-      accountIdOf(provider!, selection.model),
-      key,
-      nowMs,
-    );
-    if (skip !== undefined)
-      return { status: "limited", pooled: false, until: skip.reportedReset ? skip.until : null };
-  }
-  return { status: "ready", selection };
+  const availability = standaloneAvailability(settings, provider!, selection.model, context);
+  return availability.state === "available"
+    ? { status: "ready", selection }
+    : { status: "limited", pooled: false, until: availability.returnsAt ?? null };
 };
 
-/** The source with the failed run's account skipped for its model; a time that was not reported stays unknown. */
-const withFailedAccountSkipped = (
+/** The source with the failed run's account blocked for its model, as the server will block it: to its reset, else its first backoff. */
+const withFailedAccountBlocked = (
   source: ModelSource,
   failed: { readonly selection: ModelSelection; readonly until: string | null },
 ): ModelSource | undefined => {
@@ -147,24 +108,19 @@ const withFailedAccountSkipped = (
   const model = provider?.models.find((candidate) => candidate.slug === failed.selection.model);
   if (provider === undefined || model === undefined || typeof model.name !== "string")
     return undefined;
-  const key = pooledModelKeyOf(provider, model);
+  const key = pooledKeyIn(source.settings, provider, model);
   if (key === undefined) return undefined;
-  const account = accountIdOf(provider, failed.selection.model);
-  const until =
-    failed.until ?? DateTime.formatIso(DateTime.makeUnsafe(source.nowMs + 60 * 60 * 1000));
-  return {
-    ...source,
-    settings: {
-      ...source.settings,
-      accountSkips: {
-        ...source.settings.accountSkips,
-        [account]: {
-          ...source.settings.accountSkips[account],
-          [key]: { until, reportedReset: failed.until !== null },
-        },
-      },
-    },
+  const iso = (ms: number) => DateTime.formatIso(DateTime.makeUnsafe(ms));
+  const block: AccountBlock = {
+    account: accountIdOf(provider, failed.selection.model),
+    model: key,
+    reason: "usage-limit",
+    since: iso(source.nowMs),
+    until: failed.until ?? iso(source.nowMs + ACCOUNT_BACKOFF_MS[0]!),
+    reportedReset: failed.until !== null,
+    attempts: 1,
   };
+  return { ...source, blocks: [block, ...source.blocks] };
 };
 
 export interface SlotChoice {
@@ -192,15 +148,15 @@ export const pickSlot = (
 ): {
   readonly use: { selection: ModelSelection; slot: "main" | "backup" } | null;
 } & SlotAssessment => {
-  // A run that just died on the limit proves its account limited before the skip or the provider's own reading
-  // lands, so a same-model judgement counts that account as skipped: another account still serves a pooled model.
+  // A run that just died on the limit proves its account limited before the server's block or the provider's own
+  // reading lands, so a same-model judgement counts that account as blocked: another account still serves a routed model.
   const failed = options?.failed;
-  const skipped = failed === undefined ? undefined : withFailedAccountSkipped(source, failed);
+  const blocked = failed === undefined ? undefined : withFailedAccountBlocked(source, failed);
   const judge = (selection: ModelSelection): Assessment => {
-    const current = assess(selection, skipped ?? source);
-    // A model with no pool key (a generic slug such as `default`) cannot be skipped by key: the failed model itself is limited.
+    const current = assess(selection, blocked ?? source);
+    // A model with no pool key (a generic slug such as `default`) cannot be blocked by key: the failed model itself is limited.
     return failed !== undefined &&
-      skipped === undefined &&
+      blocked === undefined &&
       current.status === "ready" &&
       failed.selection.instanceId === current.selection.instanceId &&
       failed.selection.model === current.selection.model

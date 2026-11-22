@@ -183,7 +183,6 @@ const isAgentRoleError = Schema.is(AgentRoleError);
 const ROLE_UNAVAILABLE_REASONS: ReadonlySet<string> = new Set([
   "no-eligible-model",
   "usage-limited",
-  "conservation",
 ]);
 /** The workspace and revision a finished managed task handed back. */
 // Untraced: runs inside its tool's span, as the inline code it replaced did.

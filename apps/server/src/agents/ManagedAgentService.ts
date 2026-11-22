@@ -4,6 +4,7 @@ import * as PhiBrowser from "../preview/PhiBrowser.ts";
 import * as Settings from "../serverSettings.ts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { pooledModels } from "@t3tools/shared/accountPools";
+import { RUNNABLE_CANDIDATE_REASONS, roleModelAvailability } from "./roleModelAvailability.ts";
 import { defaultChildMode, exceedsCaller } from "./delegationRuntime.ts";
 import { checkWriterWorkspace } from "./writerWorkspacePreflight.ts";
 import * as AuthSessions from "../persistence/AuthSessions.ts";
@@ -40,7 +41,7 @@ import {
   isListedOnlyModel,
   isReviewerRole,
   managedExecution,
-  modelNote,
+  type AccountBlock,
   readOnlyToolProfile,
   resolveProjectProviderInstanceEnabled,
   usesPhi,
@@ -58,7 +59,7 @@ import { agentPolicyRoot } from "./agentPolicyRoot.ts";
 import * as Policy from "./AgentPolicyService.ts";
 import * as Store from "./AgentPolicyStore.ts";
 import * as Resolver from "./AgentRoleResolver.ts";
-import * as ProviderOverloads from "../provider/ProviderOverloads.ts";
+import * as AccountAvailability from "../provider/AccountAvailability.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import {
   checkoutRoot,
@@ -178,12 +179,6 @@ export type BlockedRoleObservation = {
 };
 const MAX_TRACKED_BLOCKED_THREADS = 500;
 /** Candidate reasons for a model an account can start now, whichever the resolver chose. */
-const RUNNABLE_CANDIDATE_REASONS = new Set([
-  "eligible",
-  "selected",
-  "lower-preference",
-  "overloaded",
-]);
 const decodeExternalSession = Schema.decodeUnknownEffect(
   Schema.fromJsonString(AgentExternalSession),
 );
@@ -344,18 +339,11 @@ const make = Effect.gen(function* () {
   const projections = yield* Projections.ProjectionStoreV2;
   const store = yield* Store.AgentPolicyStore;
   const resolver = yield* Resolver.AgentRoleResolver;
-  // Optional so a layer without overload tracking resolves as if nothing were overloaded.
-  const overloadTracker = yield* Effect.serviceOption(ProviderOverloads.ProviderOverloads);
-  const conservationProviders = Effect.fn("ManagedAgentService.conservationProviders")(function* (
-    providers: ReadonlyArray<ServerProvider>,
-  ) {
-    const registry = yield* Effect.serviceOption(ProviderRegistry.ProviderRegistry);
-    if (Option.isNone(registry)) return providers;
-    return yield* registry.value.prepareConservation(providers);
-  });
-  const currentOverloads = Option.match(overloadTracker, {
-    onNone: () => Effect.succeed<ProviderOverloads.ProviderOverloadSnapshot>(new Map()),
-    onSome: (tracker) => tracker.current,
+  // Optional so a layer without failure memory resolves as if no account had failed.
+  const availability = yield* Effect.serviceOption(AccountAvailability.AccountAvailability);
+  const currentBlocks = Option.match(availability, {
+    onNone: () => Effect.succeed<ReadonlyArray<AccountBlock>>([]),
+    onSome: (memory) => Effect.map(memory.state, (state) => state.blocks),
   });
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -379,9 +367,9 @@ const make = Effect.gen(function* () {
     return yield* settings.value.getSettings.pipe(
       Effect.map((current) => ({
         pooledModelKeys: current.pooledModelKeys ?? [],
+        modelRouting: current.modelRouting,
         modelAccounts: current.modelAccounts,
         modelLinks: current.modelLinks,
-        accountSkips: current.accountSkips,
         providerModelPreferences: current.providerModelPreferences,
       })),
       Effect.orElseSucceed(() => undefined),
@@ -793,9 +781,9 @@ const make = Effect.gen(function* () {
     const result = yield* resolver.preview({
       ...context,
       snapshot,
-      overloads: yield* currentOverloads,
+      blocks: yield* currentBlocks,
       ...(browser === undefined ? {} : { browser }),
-      providers: yield* conservationProviders(input.providers),
+      providers: input.providers,
       ...(routing === undefined ? {} : { routing }),
       ...(input.selection === undefined ? {} : { selection: input.selection }),
       requireExplicitSelection,
@@ -819,10 +807,6 @@ const make = Effect.gen(function* () {
             }),
       },
     });
-    const usageLimited = result.candidates.filter(
-      (candidate) => candidate.reason === "usage-limited",
-    );
-    const overloaded = result.candidates.filter((candidate) => candidate.reason === "overloaded");
     const sourceAccess =
       input.request.readOnly === true ? ("read-only" as const) : policy.sourceAccess;
     const toolProfile =
@@ -835,6 +819,14 @@ const make = Effect.gen(function* () {
       RUNNABLE_CANDIDATE_REASONS.has(candidate.reason),
     );
     const startable = new Set(runnable.map((candidate) => candidate.alias));
+    const models = roleModelAvailability({
+      list,
+      manifest: snapshot.manifest,
+      pools: pooledModels(input.providers, routing ?? {}),
+      settings: routing ?? {},
+      candidates: result.candidates,
+      startable,
+    });
     const entry = {
       role,
       guidance: policy.guidance ?? AGENT_ROLE_GUIDANCE[role],
@@ -850,18 +842,10 @@ const make = Effect.gen(function* () {
         : { executionBoundary: result.executionBoundary }),
       selection: unpinnedReview ? null : result.selection,
       refusal: unpinnedReview ? "source-pin-required" : result.refusal,
-      models: list.map(({ model: alias, effort }) => {
-        const binding = snapshot.manifest.models[alias]!;
-        const note = binding.note ?? modelNote(snapshot.manifest, binding.model);
-        return {
-          model: binding.model,
-          ...(effort === undefined ? {} : { effort }),
-          ...(note === undefined ? {} : { note }),
-          available: startable.has(alias),
-        };
-      }),
-      ...(usageLimited.length === 0 ? {} : { usageLimited }),
-      ...(overloaded.length === 0 ? {} : { overloaded }),
+      models: models.map(({ unavailable: _unavailable, ...model }) => model),
+      ...(models.some((model) => model.unavailable !== undefined)
+        ? { usageLimited: models.flatMap((model) => model.unavailable ?? []) }
+        : {}),
     };
     const ranked = result.ranked.filter((selection) =>
       runnable.some(
@@ -872,15 +856,12 @@ const make = Effect.gen(function* () {
     );
     return { entry, ranked };
   });
-  // A model alone (`anyAccount`) gives its default to every account's copy of it in the pool.
+  // A routed model's entry gives its default to every account's copy of it.
   const pooledDefaultStance = Effect.fn("ManagedAgentService.pooledDefaultStance")(function* (
     defaults: ReadonlyArray<AgentPolicyManifest["models"][string]>,
     selection: ModelSelection,
   ) {
-    const pooledDefaults = defaults.filter(
-      (binding) => binding.anyAccount === true || binding.poolId !== undefined,
-    );
-    if (pooledDefaults.length === 0) return undefined;
+    if (defaults.length === 0) return undefined;
     const registry = yield* Effect.serviceOption(ProviderRegistry.ProviderRegistry);
     const routing = yield* configuredRouting;
     if (Option.isNone(registry) || routing === undefined) return undefined;
@@ -890,7 +871,7 @@ const make = Effect.gen(function* () {
           account.provider.instanceId === selection.instanceId && account.model === selection.model,
       ),
     );
-    return pooledDefaults.find((binding) =>
+    return defaults.find((binding) =>
       pool?.accounts.some(
         (account) =>
           account.provider.driver === binding.driverKind && account.model === binding.model,
@@ -1167,10 +1148,9 @@ const make = Effect.gen(function* () {
         const result = yield* resolver.preview({
           ...context,
           snapshot,
-          overloads: yield* currentOverloads,
+          blocks: yield* currentBlocks,
           providers: input.providers,
           ...(routing === undefined ? {} : { routing }),
-          ignoreConservation: true,
         });
         // An overloaded or exhausted model is no model to pass to.
         return result.candidates.flatMap((candidate) => {
@@ -1196,7 +1176,7 @@ const make = Effect.gen(function* () {
       return yield* resolver
         .rank({
           snapshot,
-          overloads: yield* currentOverloads,
+          blocks: yield* currentBlocks,
           providers: input.providers.filter(isProviderTextGenerationCapable),
           ...(routing === undefined ? {} : { routing }),
           ceiling: "full-access",
@@ -1259,13 +1239,10 @@ const make = Effect.gen(function* () {
           ...input,
           ...context,
           snapshot,
-          providers:
-            input.recordedBinding === undefined
-              ? yield* conservationProviders(input.providers)
-              : input.providers,
+          providers: input.providers,
           ...(routing === undefined ? {} : { routing }),
-          ignoreConservation: input.recordedBinding !== undefined,
-          overloads: yield* currentOverloads,
+          blocks: yield* currentBlocks,
+          ignoreAvailability: input.recordedBinding !== undefined,
           ...(browser === undefined ? {} : { browser }),
           ...(input.recordedBinding === undefined
             ? {}
@@ -1413,7 +1390,7 @@ const make = Effect.gen(function* () {
           ...input,
           ...context,
           snapshot,
-          ignoreConservation: true,
+          ignoreAvailability: true,
           ...(treatment === undefined ? {} : { treatment }),
           ...(browser === undefined ? {} : { browser }),
         })

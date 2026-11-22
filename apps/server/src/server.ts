@@ -260,7 +260,7 @@ import * as CursorUsageAccounts from "@t3tools/provider-cursor/server/CursorUsag
 import * as UsageService from "./usage/UsageService.ts";
 import * as CodexUsageHistory from "./usage/CodexUsageHistory.ts";
 import * as RuntimeLayer from "./orchestration-v2/runtimeLayer.ts";
-import * as ProviderOverloads from "./provider/ProviderOverloads.ts";
+import * as AccountAvailability from "./provider/AccountAvailability.ts";
 import * as ThreadViewers from "./orchestration-v2/ThreadViewers.ts";
 import * as ProjectStore from "./orchestration-v2/ProjectStore.ts";
 import * as ThreadSearch from "./orchestration-v2/ThreadSearch.ts";
@@ -973,8 +973,8 @@ const layerRuntimeCoreDependencies = layerRuntimeCoreDependenciesBase.pipe(
       layerCloudManagedEndpointRuntime,
     ),
   ),
-  // One record shared by role resolution and the runtime's overload marker.
-  Layer.provideMerge(ProviderOverloads.layer),
+  // One memory of failed runs shared by routing, role resolution, failover and Champions.
+  Layer.provideMerge(AccountAvailability.layer),
 );
 
 const layerRuntimeDependencies = layerRuntimeCoreDependencies.pipe(

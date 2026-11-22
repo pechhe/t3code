@@ -252,19 +252,6 @@ function mergeSettingsEntries<Value>(
   return Object.fromEntries(next);
 }
 
-function mergeAccountSkips(
-  current: ServerSettings["accountSkips"],
-  patch: NonNullable<ServerSettingsPatch["accountSkips"]>,
-): ServerSettings["accountSkips"] {
-  const next = { ...current };
-  for (const [account, skips] of Object.entries(patch)) {
-    const merged = skips === null ? {} : mergeSettingsEntries(current[account] ?? {}, skips);
-    if (Object.keys(merged).length === 0) delete next[account];
-    else next[account] = merged;
-  }
-  return next;
-}
-
 function mergeUsageSlotBudgets(
   current: ServerSettings["usageSlotBudgets"],
   patch: NonNullable<ServerSettingsPatch["usageSlotBudgets"]>,
@@ -443,9 +430,9 @@ export function applyServerSettingsPatch(
     // Merged per entry below; its `null` removals must not reach deepMerge.
     modelAccounts: modelAccountsPatch,
     modelLinks: modelLinksPatch,
+    modelRouting: modelRoutingPatch,
     usageLimitSources: usageLimitSourcesPatch,
     usageSlotBudgets: usageSlotBudgetsPatch,
-    accountSkips: accountSkipsPatch,
     textGenerators: textGeneratorsPatch,
     secretProviders: secretProvidersPatch,
     sourceControlHosts: sourceControlHostsPatch,
@@ -694,6 +681,9 @@ export function applyServerSettingsPatch(
     ...(modelLinksPatch !== undefined
       ? { modelLinks: mergeSettingsEntries(current.modelLinks ?? {}, modelLinksPatch) }
       : {}),
+    ...(modelRoutingPatch !== undefined
+      ? { modelRouting: mergeSettingsEntries(current.modelRouting ?? {}, modelRoutingPatch) }
+      : {}),
     ...(usageLimitSourcesPatch !== undefined
       ? {
           usageLimitSources: mergeSettingsEntries(
@@ -704,9 +694,6 @@ export function applyServerSettingsPatch(
       : {}),
     ...(usageSlotBudgetsPatch !== undefined
       ? { usageSlotBudgets: mergeUsageSlotBudgets(current.usageSlotBudgets, usageSlotBudgetsPatch) }
-      : {}),
-    ...(accountSkipsPatch !== undefined
-      ? { accountSkips: mergeAccountSkips(current.accountSkips, accountSkipsPatch) }
       : {}),
     ...(textGeneratorsPatch !== undefined
       ? { textGenerators: mergeSettingsEntries(current.textGenerators, textGeneratorsPatch) }

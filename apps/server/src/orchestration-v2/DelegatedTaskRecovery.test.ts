@@ -82,12 +82,8 @@ const plan = (input: {
     failure: input.failure,
     priorFailures: input.priorFailures ?? 0,
     providers: input.providers ?? [account("limited", 40), account("sibling", 20)],
-    settings: {
-      pooledModelKeys: [model],
-      accountSkips: {},
-      providerModelPreferences: null,
-    },
-    nowMs: NOW,
+    settings: { pooledModelKeys: [model], providerModelPreferences: null },
+    context: { blocks: [], nowMs: NOW },
     otherModelAvailable: () => Effect.succeed(input.otherModel ?? false),
   });
 
@@ -109,25 +105,44 @@ describe("planDelegatedRecovery", () => {
   );
 
   it.effect(
-    "retries an upstream error on the same model three times when no other model can serve",
+    "moves an overloaded or rate-limited task to another account, else retries the same model three times",
     () =>
       Effect.gen(function* () {
+        const alone = [account("limited", 40)];
+        for (const upstream of [
+          failure("provider_error", "api_error_529"),
+          failure("provider_error", "api_error_429"),
+        ])
+          assert.deepEqual(yield* plan({ failure: upstream }), {
+            type: "failover",
+            selection: { instanceId: ProviderInstanceId.make("sibling"), model },
+          });
         for (const upstream of [
           failure("provider_error", "api_error_529"),
           failure("provider_error", "api_error_429"),
           failure("transport_error", null),
         ]) {
-          assert.deepEqual(yield* plan({ failure: upstream }), { type: "retry" });
+          assert.deepEqual(yield* plan({ failure: upstream, providers: alone }), {
+            type: "retry",
+          });
           assert.deepEqual(
-            yield* plan({ failure: upstream, priorFailures: DELEGATED_RETRY_ATTEMPTS - 1 }),
+            yield* plan({
+              failure: upstream,
+              providers: alone,
+              priorFailures: DELEGATED_RETRY_ATTEMPTS - 1,
+            }),
             { type: "retry" },
           );
           assert.deepEqual(
-            yield* plan({ failure: upstream, priorFailures: DELEGATED_RETRY_ATTEMPTS }),
+            yield* plan({
+              failure: upstream,
+              providers: alone,
+              priorFailures: DELEGATED_RETRY_ATTEMPTS,
+            }),
             { type: "deliver" },
           );
           // A role with another model passes the failure on, so the next launch moves to it.
-          assert.deepEqual(yield* plan({ failure: upstream, otherModel: true }), {
+          assert.deepEqual(yield* plan({ failure: upstream, providers: alone, otherModel: true }), {
             type: "deliver",
           });
         }
@@ -204,10 +219,7 @@ describe("makeRecoverDelegatedRun", () => {
         recoverDelegatedTask: () => Effect.void,
       };
       const settings = {
-        getSettings: Effect.succeed({
-          pooledModelKeys: [model],
-          accountSkips: {},
-        }),
+        getSettings: Effect.succeed({ pooledModelKeys: [model] }),
       };
       const recover = yield* makeRecoverDelegatedRun;
       const fiber = yield* recover(threads as never, settings as never, {

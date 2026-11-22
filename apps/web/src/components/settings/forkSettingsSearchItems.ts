@@ -7,9 +7,7 @@ export const DELEGATION_SETTINGS_SEARCH_ITEMS = [
     id: "delegation",
     title: msg("Delegation"),
     to: "/settings/delegation",
-    searchTerms: [
-      "agent models notes roles jobs subagents reviewer advisor effort order policy subscription conservation usage remaining threshold reserve",
-    ],
+    searchTerms: ["agent models notes roles jobs subagents reviewer advisor effort order policy"],
   },
   {
     id: "delegation-child-permissions",

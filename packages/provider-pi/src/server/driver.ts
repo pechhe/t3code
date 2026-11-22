@@ -7,7 +7,6 @@ import {
   type ServerSettings,
 } from "@t3tools/contracts";
 import { PiSettings } from "../settings.ts";
-import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
 import * as FileSystem from "effect/FileSystem";
@@ -233,10 +232,9 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
         yield* Ref.set(lastUsageSlotsRef, []);
         return snapshot;
       }
-      const checkedAt = DateTime.formatIso(yield* DateTime.now);
       const probed = yield* readUsageSlots.pipe(Effect.catchCause(() => Effect.succeed(null)));
       const usageSlots = yield* Ref.modify(lastUsageSlotsRef, (previous) => {
-        const merged = retainPriorUsageSlots(previous, probed, checkedAt);
+        const merged = retainPriorUsageSlots(previous, probed);
         return [merged, merged] as const;
       });
       return usageSlots.length === 0 ? snapshot : { ...snapshot, usageSlots };
@@ -323,9 +321,8 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
       if (!effectiveConfig.enabled) return;
       const probed = yield* readUsageSlots.pipe(Effect.catchCause(() => Effect.succeed(null)));
       if (probed === null) return;
-      const checkedAt = DateTime.formatIso(yield* DateTime.now);
       const usageSlots = yield* Ref.modify(lastUsageSlotsRef, (previous) => {
-        const merged = retainPriorUsageSlots(previous, probed, checkedAt);
+        const merged = retainPriorUsageSlots(previous, probed);
         return [merged, merged] as const;
       });
       yield* snapshot.replaceUsageSlots?.(usageSlots) ?? Effect.void;

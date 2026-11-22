@@ -1010,22 +1010,20 @@ export const readPiUsageSlots = Effect.fn("PiUsageSlots.readPiUsageSlots")(funct
 });
 
 /**
- * Keeps a slot's last known quota windows visible as stale when a subsequent poll fails
- * for the same credential identity, while discarding them if the credential changed.
- * Passing `null` means reading the credential store itself failed, so all prior slots stay
- * visible with a `probeFailed` notice.
+ * Keeps a credential's last reading, with its own time, over a failed poll or an older reading, and
+ * a window last seen spent that a reading omits until its reset (indefinitely when none is known),
+ * so no stale, failed or partial reading frees an exhausted account early. A changed credential
+ * drops them; `null` (credential store unreadable) keeps every slot with a `probeFailed` notice.
  */
 export function retainPriorUsageSlots(
   previous: ReadonlyArray<ServerProviderUsageSlot>,
   probed: ReadonlyArray<ServerProviderUsageSlot> | null,
-  checkedAt?: string,
 ): ReadonlyArray<ServerProviderUsageSlot> {
   if (probed === null) {
     return previous.map((slot) => ({
       ...slot,
       usageLimits: {
         ...slot.usageLimits,
-        ...(checkedAt === undefined ? {} : { checkedAt }),
         unavailable: {
           reason: "probeFailed" as const,
           message: "Could not read Pi credentials.",
@@ -1036,7 +1034,6 @@ export function retainPriorUsageSlots(
   if (previous.length === 0) return probed;
   const byKey = new Map(previous.map((slot) => [slot.accountKey, slot] as const));
   return probed.map((slot) => {
-    if (slot.usageLimits.unavailable?.reason !== "probeFailed") return slot;
     const prior = byKey.get(slot.accountKey);
     if (
       prior === undefined ||
@@ -1045,13 +1042,34 @@ export function retainPriorUsageSlots(
     ) {
       return slot;
     }
-    return {
-      ...slot,
-      usageLimits: {
-        ...slot.usageLimits,
-        windows: prior.usageLimits.windows,
-      },
-    };
+    if (slot.usageLimits.unavailable?.reason === "probeFailed") {
+      return {
+        ...slot,
+        usageLimits: {
+          ...slot.usageLimits,
+          checkedAt: prior.usageLimits.checkedAt,
+          windows: prior.usageLimits.windows,
+        },
+      };
+    }
+    const readAt = Date.parse(slot.usageLimits.checkedAt);
+    if (readAt < Date.parse(prior.usageLimits.checkedAt))
+      return { ...slot, usageLimits: prior.usageLimits };
+    const read = new Set(slot.usageLimits.windows.map((window) => window.id));
+    const stillSpent = prior.usageLimits.windows.filter((window) => {
+      if (read.has(window.id) || (window.usedPercent ?? 0) < 100) return false;
+      const resetMs = window.resetsAt === undefined ? Number.NaN : Date.parse(window.resetsAt);
+      return !Number.isFinite(resetMs) || resetMs > readAt;
+    });
+    return stillSpent.length === 0
+      ? slot
+      : {
+          ...slot,
+          usageLimits: {
+            ...slot.usageLimits,
+            windows: [...slot.usageLimits.windows, ...stillSpent],
+          },
+        };
   });
 }
 

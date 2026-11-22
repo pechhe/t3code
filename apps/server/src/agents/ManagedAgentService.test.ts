@@ -1,6 +1,6 @@
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
+import * as AccountAvailability from "../provider/AccountAvailability.ts";
 import { makeProviderRegistryMock } from "../provider/testUtils/providerRegistryMock.ts";
-import * as DateTime from "effect/DateTime";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
@@ -83,7 +83,7 @@ const dependencies = Layer.mergeAll(
   processes,
 );
 const testLayer = Layer.mergeAll(Managed.layer, Store.layer, Policy.layer).pipe(
-  Layer.provideMerge(dependencies),
+  Layer.provideMerge(Layer.mergeAll(dependencies, AccountAvailability.layer)),
 );
 const decodeBinding = Schema.decodeUnknownEffect(AgentTaskBinding);
 const encodeBinding = Schema.encodeEffect(AgentTaskBinding);
@@ -339,90 +339,33 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         }
       }),
   );
-  it.effect.each([0, 120_000])(
-    "validates conservation before admission even with a reading aged %s ms",
-    (age) =>
+  it.effect(
+    "a block on its account does not revoke a previously created managed conversation",
+    () =>
       Effect.gen(function* () {
         const f = yield* fixture;
-        const now = DateTime.toEpochMillis(yield* DateTime.now);
-        let refreshes = 0;
-        const stale = {
-          ...codex,
-          usageLimits: {
-            checkedAt: DateTime.formatIso(DateTime.makeUnsafe(now - age)),
-            credentialFingerprint: "account",
-            windows: [
-              { id: "session", kind: "session" as const, label: "Session", usedPercent: 50 },
-            ],
-          },
-        };
-        const refreshed = {
-          ...stale,
-          subagentConservation: {
-            state: "active" as const,
-            unavailable: false,
-            models: [codexModel],
-            message: "Conservation active",
-          },
-        };
-        const registry = {
-          ...makeProviderRegistryMock([stale]),
-          prepareConservation: () =>
-            Effect.sync(() => {
-              refreshes++;
-              return [refreshed];
-            }),
-        };
-        const error = yield* f
-          .prepare({
-            providers: [stale],
-            selection: { instanceId: codex.instanceId, model: codexModel },
+        const availability = yield* AccountAvailability.AccountAvailability;
+        const accepted = yield* f.prepare({ providers: [codex] });
+        yield* availability.recordFailure({
+          account: AccountId.make(codex.instanceId),
+          model: pooledModelKeyOf(codex, { slug: codexModel, name: codexModel })!,
+          reason: "usage-limit",
+          resetAt: "2099-01-01T00:00:00.000Z",
+          attemptId: "run:blocked",
+        });
+        yield* f.service
+          .validate({
+            workspacePath: f.workspacePath,
+            providers: [codex],
+            ceiling: "full-access",
+            binding: accepted.binding,
+            selection: accepted.binding.effective,
           })
           .pipe(
-            Effect.provideService(ProviderRegistry.ProviderRegistry, registry),
-            Effect.provide(
-              Settings.layerTest({
-                subagentConservation: {
-                  [codex.instanceId]: {
-                    enabled: true,
-                    remainingPercent: 60,
-                    window: "session",
-                    windowIds: ["session"],
-                    models: [codexModel],
-                  },
-                },
-              }),
-            ),
-            Effect.flip,
+            Effect.provideService(HostProcess.Environment, f.environment),
+            Effect.ensuring(availability.clear({ account: AccountId.make(codex.instanceId) })),
           );
-        expect(refreshes).toBe(1);
-        expect(error.message).toContain("conservation");
       }),
-  );
-
-  it.effect("conservation does not revoke a previously created managed conversation", () =>
-    Effect.gen(function* () {
-      const f = yield* fixture;
-      const accepted = yield* f.prepare({ providers: [codex] });
-      const conserved = {
-        ...codex,
-        subagentConservation: {
-          state: "active" as const,
-          unavailable: false,
-          models: [codexModel],
-          message: "Conservation active",
-        },
-      };
-      yield* f.service
-        .validate({
-          workspacePath: f.workspacePath,
-          providers: [conserved],
-          ceiling: "full-access",
-          binding: accepted.binding,
-          selection: accepted.binding.effective,
-        })
-        .pipe(Effect.provideService(HostProcess.Environment, f.environment));
-    }),
   );
 
   it.effect("refuses resume when the recorded read-only provider no longer enforces it", () =>
@@ -1637,70 +1580,81 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
     }),
   );
 
-  it.effect("discovery lists a role's models, and names the accounts passed over for usage", () =>
-    Effect.gen(function* () {
-      const f = yield* fixture;
-      const settings = yield* Settings.ServerSettingsService;
-      const sol = { ...f.manifest.models.sol!, note: "Careful coder" };
-      yield* f.writeManifest({ ...f.manifest, models: { ...f.manifest.models, sol } });
-      const skippedKey = pooledModelKeyOf(claude, { slug: claudeModel, name: claudeModel })!;
-      yield* settings.updateSettings({
-        accountSkips: {
-          [AccountId.make(claude.instanceId)]: {
-            [skippedKey]: { until: "2099-01-01T00:00:00.000Z", reportedReset: true },
+  it.effect(
+    "discovery lists a role's models, and names a model only when no account can serve it",
+    () =>
+      Effect.gen(function* () {
+        const f = yield* fixture;
+        const availability = yield* AccountAvailability.AccountAvailability;
+        const sol = { ...f.manifest.models.sol!, note: "Careful coder" };
+        yield* f.writeManifest({ ...f.manifest, models: { ...f.manifest.models, sol } });
+        const skippedKey = pooledModelKeyOf(claude, { slug: claudeModel, name: claudeModel })!;
+        yield* availability.recordFailure({
+          account: AccountId.make(claude.instanceId),
+          model: skippedKey,
+          reason: "usage-limit",
+          resetAt: "2099-01-01T00:00:00.000Z",
+          attemptId: "run:limited",
+        });
+        const discovered = yield* f.service
+          .roles({
+            providers: [codex, claude],
+            ceiling: "full-access",
+            request: { taskClass: "non-ui", sourceRevision },
+          })
+          .pipe(Effect.provideService(HostProcess.Environment, f.environment));
+        const reviewer = discovered.roles.find((role) => role.role === "reviewer")!;
+        expect(reviewer.selection).toBeNull();
+        expect(reviewer.refusal).toContain("choose a model");
+        // Its one account is out, so the model is reported once, with when it returns.
+        expect(reviewer.usageLimited).toEqual([
+          {
+            alias: "sonnet",
+            model: claudeModel,
+            reason: "usage-limited",
+            until: "2099-01-01T00:00:00.000Z",
           },
-        },
-      });
-      const discovered = yield* f.service
-        .roles({
-          providers: [codex, claude],
-          ceiling: "full-access",
-          request: { taskClass: "non-ui", sourceRevision },
-        })
-        .pipe(Effect.provideService(HostProcess.Environment, f.environment));
-      const reviewer = discovered.roles.find((role) => role.role === "reviewer")!;
-      expect(reviewer.selection).toBeNull();
-      expect(reviewer.refusal).toContain("choose a model");
-      expect(reviewer.usageLimited).toContainEqual(
-        expect.objectContaining({ model: claudeModel, providerInstanceId: claude.instanceId }),
-      );
-      // Every listed model in list order, with its note and whether it can start now.
-      expect(reviewer.models).toEqual([
-        { model: claudeModel, effort: "medium", available: false },
-        { model: codexModel, effort: "medium", note: "Careful coder", available: true },
-      ]);
-      const omitted = yield* f
-        .prepare({
-          requireExplicitSelection: true,
-          request: request({ role: "implementer", workspacePath: f.workspacePath }),
-        })
-        .pipe(Effect.flip);
-      expect(omitted.reason).toBe("selection");
-      expect(omitted.message).toContain("choose a model");
-      // A choice that must start now, such as a Champion replay, skips the exhausted account.
-      const ranked = yield* f.service
-        .ranked({
-          providers: [codex, claude],
-          ceiling: "full-access",
-          request: { taskClass: "non-ui", sourceRevision },
-          role: "reviewer",
-        })
-        .pipe(Effect.provideService(HostProcess.Environment, f.environment));
-      expect(ranked.map((selection) => selection.model)).toEqual([codexModel]);
-      yield* settings.updateSettings({
-        accountSkips: { [AccountId.make(claude.instanceId)]: null },
-      });
-      const unlimited = yield* f.service
-        .roles({
-          providers: [codex, claude],
-          ceiling: "full-access",
-          request: { taskClass: "non-ui", sourceRevision },
-        })
-        .pipe(Effect.provideService(HostProcess.Environment, f.environment));
-      expect(
-        unlimited.roles.find((role) => role.role === "reviewer")!.usageLimited,
-      ).toBeUndefined();
-    }).pipe(Effect.provide(Settings.layerTest())),
+        ]);
+        // Every listed model in list order, with its note and whether it can start now.
+        expect(reviewer.models).toEqual([
+          {
+            model: claudeModel,
+            effort: "medium",
+            available: false,
+            returnsAt: "2099-01-01T00:00:00.000Z",
+          },
+          { model: codexModel, effort: "medium", note: "Careful coder", available: true },
+        ]);
+        const omitted = yield* f
+          .prepare({
+            requireExplicitSelection: true,
+            request: request({ role: "implementer", workspacePath: f.workspacePath }),
+          })
+          .pipe(Effect.flip);
+        expect(omitted.reason).toBe("selection");
+        expect(omitted.message).toContain("choose a model");
+        // A choice that must start now, such as a Champion replay, skips the exhausted account.
+        const ranked = yield* f.service
+          .ranked({
+            providers: [codex, claude],
+            ceiling: "full-access",
+            request: { taskClass: "non-ui", sourceRevision },
+            role: "reviewer",
+          })
+          .pipe(Effect.provideService(HostProcess.Environment, f.environment));
+        expect(ranked.map((selection) => selection.model)).toEqual([codexModel]);
+        yield* availability.clear({ account: AccountId.make(claude.instanceId) });
+        const unlimited = yield* f.service
+          .roles({
+            providers: [codex, claude],
+            ceiling: "full-access",
+            request: { taskClass: "non-ui", sourceRevision },
+          })
+          .pipe(Effect.provideService(HostProcess.Environment, f.environment));
+        expect(
+          unlimited.roles.find((role) => role.role === "reviewer")!.usageLimited,
+        ).toBeUndefined();
+      }).pipe(Effect.provide(Settings.layerTest())),
   );
 
   it.effect(

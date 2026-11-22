@@ -156,6 +156,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.championsLearningRead]: AuthOrchestrationReadScope,
   [WS_METHODS.championsList]: AuthOrchestrationReadScope,
   [WS_METHODS.piAccountsList]: AuthOrchestrationReadScope,
+  [WS_METHODS.accountRoutingSubscribe]: AuthOrchestrationReadScope,
   [WS_METHODS.championsSubscribe]: AuthOrchestrationReadScope,
   [WS_METHODS.championsGet]: AuthOrchestrationReadScope,
   [WS_METHODS.championsHistory]: AuthOrchestrationReadScope,

@@ -47,10 +47,10 @@ import {
 import { collectReading, type CollectedReading } from "./metricCollection.ts";
 import * as SlipJayLandings from "../project/SlipJayLandings.ts";
 import { invalidOptionSelections } from "../provider/modelSelectionValidation.ts";
-import { isProviderUsageExhausted } from "@t3tools/shared/accountPools";
 import * as ChampionModels from "./ChampionModels.ts";
 import { isUsageLimitFailure } from "../orchestration-v2/AccountFailover.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as AccountAvailability from "../provider/AccountAvailability.ts";
 import {
   isProviderOverloadedFailureCode,
   ChampionExecutionAttempt,
@@ -865,8 +865,7 @@ const make = Effect.gen(function* () {
       !provider.models.some((m) => m.slug === selection.model)
     )
       return yield* new ChampionError({ reason: "invalid" });
-    if (isProviderUsageExhausted(provider, DateTime.toEpochMillis(yield* DateTime.now)))
-      return yield* new ChampionError({ reason: "unavailable" });
+    // Usage is judged once, by ChampionModels through the shared evaluator.
     const descriptors = provider.models.find((m) => m.slug === selection.model)?.capabilities
       ?.optionDescriptors;
     if (invalidOptionSelections(selection.options ?? [], descriptors).length > 0)
@@ -882,17 +881,17 @@ const make = Effect.gen(function* () {
       return rows[0] === undefined ? {} : yield* decodeDefaults(rows[0].document_json);
     },
   ).pipe(Effect.mapError(failure));
+  const accountAvailability = yield* Effect.serviceOption(AccountAvailability.AccountAvailability);
   const modelSource = Effect.gen(function* () {
-    const settings = Option.isSome(serverSettings)
-      ? yield* serverSettings.value.getSettings.pipe(
-          Effect.orElseSucceed(
-            () => ({ accountSkips: {} }) as unknown as ChampionModels.ModelSource["settings"],
-          ),
-        )
-      : ({ accountSkips: {} } as unknown as ChampionModels.ModelSource["settings"]);
+    const settings: ChampionModels.ModelSource["settings"] = Option.isSome(serverSettings)
+      ? yield* serverSettings.value.getSettings.pipe(Effect.orElseSucceed(() => ({})))
+      : {};
     return {
       providers: yield* providers.getProviders,
       settings,
+      blocks: Option.isSome(accountAvailability)
+        ? (yield* accountAvailability.value.state).blocks
+        : [],
       nowMs: DateTime.toEpochMillis(yield* DateTime.now),
     } satisfies ChampionModels.ModelSource;
   });

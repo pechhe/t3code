@@ -28,7 +28,6 @@ import {
   resolveSpeechPostProcessingModelSelection,
 } from "./serverSettings.ts";
 
-const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
 const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 
@@ -122,24 +121,26 @@ describe("serverSettings helpers", () => {
       threadDetailAfterDays: 14,
     });
   });
-  it("replaces the pooled models, and merges each model's accounts and skips per entry", () => {
-    const skip = { until: "2026-11-19T00:00:00.000Z", reportedReset: false };
+  it("replaces the pooled models, and merges each model's accounts and route per entry", () => {
+    const route = {
+      primary: ["claudeAgent"],
+      overflow: ["pi:anthropic-yardsmith"],
+      primaryOrder: "soonest" as const,
+      reserves: { claudeAgent: 10 },
+    };
     expect(DEFAULT_SERVER_SETTINGS.pooledModelKeys).toBeUndefined();
     const set = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
       pooledModelKeys: ["claude-opus-5-5", "gpt-6-2-sol", "kimi-k3"],
       modelAccounts: { "claude-opus-5-5": ["claudeAgent", "pi:antigravity"] },
       modelLinks: { "kimi-k3-0901": "kimi-k3", "gpt-6-2-sol-1017": "gpt-6-2-sol" },
-      accountSkips: {
-        claudeAgent: { "claude-opus-5-5": skip },
-        codex: { "gpt-6-2-sol": skip, "kimi-k3": skip },
-      },
+      modelRouting: { "claude-opus-5-5": route, "kimi-k3": route },
     });
     const next = applyServerSettingsPatch(set, {
       pooledModelKeys: ["gpt-6-2-sol"],
       modelAccounts: { "gpt-6-2-sol": ["codex"], "kimi-k3": [] },
       modelLinks: { "kimi-k3-0901": null },
-      // Use again now on one model keeps the account's other skips.
-      accountSkips: { claudeAgent: null, codex: { "kimi-k3": null } },
+      // A route is replaced whole, and null returns a model to its default route.
+      modelRouting: { "claude-opus-5-5": { ...route, primaryOrder: "manual" }, "kimi-k3": null },
     });
     expect(next.pooledModelKeys).toEqual(["gpt-6-2-sol"]);
     // A list the user emptied stays empty rather than seeding again.
@@ -150,7 +151,7 @@ describe("serverSettings helpers", () => {
       "kimi-k3": [],
     });
     expect(next.modelLinks).toEqual({ "gpt-6-2-sol-1017": "gpt-6-2-sol" });
-    expect(next.accountSkips).toEqual({ codex: { "gpt-6-2-sol": skip } });
+    expect(next.modelRouting).toEqual({ "claude-opus-5-5": { ...route, primaryOrder: "manual" } });
     // null returns a model to its default accounts.
     expect(
       applyServerSettingsPatch(next, { modelAccounts: { "kimi-k3": null } }).modelAccounts,
@@ -1217,29 +1218,5 @@ describe("resolveSpeechPostProcessingModelSelection", () => {
       applyServerSettingsPatch(pinned, { speechPostProcessingModelSelection: null })
         .speechPostProcessingModelSelection,
     ).toBeNull();
-  });
-});
-
-it("saves account conservation rules and replaces cleared model selections", () => {
-  const instanceId = ProviderInstanceId.make("codex-main");
-  const rule = {
-    enabled: true,
-    remainingPercent: 20,
-    window: "any",
-    windowIds: ["session", "weekly"],
-    models: ["astra", "sol"],
-  };
-  const saved = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
-    subagentConservation: { [instanceId]: rule },
-  });
-  const persisted = decodeServerSettings(JSON.parse(JSON.stringify(encodeServerSettings(saved))));
-  expect(persisted.subagentConservation?.[instanceId]).toEqual(rule);
-  const changed = applyServerSettingsPatch(persisted, {
-    subagentConservation: { [instanceId]: { ...rule, enabled: false, models: [] } },
-  });
-  expect(changed.subagentConservation?.[instanceId]).toEqual({
-    ...rule,
-    enabled: false,
-    models: [],
   });
 });

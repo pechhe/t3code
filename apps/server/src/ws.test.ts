@@ -138,6 +138,7 @@ import * as WeaveSignIn from "./weave/WeaveSignIn.ts";
 import * as ReleaseApprovals from "./releases/ReleaseApprovals.ts";
 import * as AgentPolicySettings from "./agents/AgentPolicySettingsService.ts";
 import * as PiAccounts from "./provider/PiAccountsService.ts";
+import * as AccountAvailability from "./provider/AccountAvailability.ts";
 import * as ExperimentService from "./experiments/ExperimentService.ts";
 import * as ExperimentResults from "./experiments/ExperimentResults.ts";
 import * as PeerEnvironments from "./peers/PeerEnvironments.ts";
@@ -933,6 +934,7 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(WorkspaceAttachments.WorkspaceAttachments)({}),
   Layer.mock(Champions.ChampionService)({}),
   Layer.mock(PiAccounts.PiAccountsService)({}),
+  Layer.mock(AccountAvailability.AccountAvailability)({}),
   Layer.mock(ScheduledTasks.ScheduledTaskService)({}),
   Layer.mock(SecretRequests.SecretRequests)({}),
   Layer.mock(SavedSecrets.SavedSecrets)({}),

@@ -1,4 +1,3 @@
-import { SubagentConservationSettings } from "./SubagentConservationSettings";
 import { pooledKeyOfFavorite } from "@t3tools/shared/accountPools";
 import { SettingsGroup } from "./SettingsGroup";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
@@ -1190,12 +1189,6 @@ function EnvironmentProviderSettings({
                 {/* Flat sections run dividers edge to edge and inset text like the list beside them. */}
                 <div className="space-y-6 py-4">
                   {renderProviderInstance(selectedRow, "editor")}
-                  <SubagentConservationSettings
-                    environmentId={environmentId}
-                    label={environmentLabel}
-                    instanceId={selectedRow.instanceId}
-                    readOnly={readOnly}
-                  />
                 </div>
               </ScrollArea>
             ) : (

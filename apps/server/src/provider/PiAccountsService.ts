@@ -147,23 +147,16 @@ export function movedProviderReferences(
   if (JSON.stringify(movedPreferences) !== JSON.stringify(preferences)) {
     patch["providerModelPreferences"] = movedPreferences;
   }
-  const modelAccounts = settings.modelAccounts ?? {};
-  const movedAccounts = Object.fromEntries(
-    Object.entries(modelAccounts).flatMap(([key, value]) => {
-      const moved = deep(value, account);
-      return JSON.stringify(moved) === JSON.stringify(value) ? [] : [[key, moved]];
-    }),
-  );
-  if (Object.keys(movedAccounts).length > 0) patch["modelAccounts"] = movedAccounts;
-  const skips = settings.accountSkips ?? {};
-  const movedSkips: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(skips)) {
-    const next = account(key);
-    if (next === key) continue;
-    movedSkips[key] = null;
-    movedSkips[next] = value;
+  // Routes name accounts in their tiers and as their reserves' keys.
+  for (const field of ["modelAccounts", "modelRouting"] as const) {
+    const moved = Object.fromEntries(
+      Object.entries(settings[field] ?? {}).flatMap(([key, value]) => {
+        const next = deep(value, account);
+        return JSON.stringify(next) === JSON.stringify(value) ? [] : [[key, next]];
+      }),
+    );
+    if (Object.keys(moved).length > 0) patch[field] = moved;
   }
-  if (Object.keys(movedSkips).length > 0) patch["accountSkips"] = movedSkips;
   return patch as ServerSettingsPatch;
 }
 

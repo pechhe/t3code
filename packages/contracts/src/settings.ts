@@ -35,7 +35,6 @@ import {
   TrimmedNonEmptyString,
   TrimmedString,
 } from "./baseSchemas.ts";
-import { SubagentConservationRule } from "./providerUsageLimits.ts";
 import { UsageLimitSourceId } from "./usageLimitSourceId.ts";
 import { UsageModelFilter } from "./usage.ts";
 import { SecretProviderId, SecretProviderSlug } from "./secretReference.ts";
@@ -56,7 +55,7 @@ import {
   ProviderOptionSelections,
 } from "./model.ts";
 import { ModelSelection } from "./modelSelection.ts";
-import { AccountId, AccountSkip, AccountSkips, PooledModelKey } from "./accountPools.ts";
+import { AccountId, ModelRoute, PooledModelKey } from "./accountPools.ts";
 import { ProjectScript, type ProjectMutation } from "./project.ts";
 import { DEFAULT_RUNTIME_MODE, RuntimeMode } from "./providerPolicy.ts";
 import { BrowserProfile, BrowserProfileId, DEFAULT_BROWSER_PROFILE_ID } from "./browserProfile.ts";
@@ -1749,17 +1748,20 @@ export const ServerSettings = Schema.Struct({
    */
   pooledModelKeys: Schema.optionalKey(Schema.Array(PooledModelKey)),
   /**
-   * The accounts each pooled model runs on, tried in this order, by pooled model key. A model the
-   * user never arranged uses every subscription account serving it; pay-as-you-go ones stay off.
+   * Retired account order, by pooled model key: read only as the starting route of a model with no
+   * `modelRouting` entry (subscriptions in Primary, pay-as-you-go accounts in Overflow).
    */
   modelAccounts: Schema.optionalKey(Schema.Record(PooledModelKey, Schema.Array(AccountId))),
+  /**
+   * Each routed model's Primary and Overflow accounts, order and reserves, by pooled model key. A
+   * model with none uses every subscription serving it in Primary; pay-as-you-go ones stay off.
+   */
+  modelRouting: Schema.optionalKey(Schema.Record(PooledModelKey, ModelRoute)),
   /**
    * Models the user counts as another one, by pooled model key: their accounts serve that model,
    * for a name automatic matching keeps apart (a dated release beside its plain name).
    */
   modelLinks: Schema.optionalKey(Schema.Record(PooledModelKey, PooledModelKey)),
-  /** Accounts passed over after a usage limit. The server writes them; Use again now clears one. */
-  accountSkips: AccountSkips.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   // Only the server writes these. Absent on a server that can't share its provider setup.
   sharedProviderSetup: Schema.optionalKey(SharedProviderSetupState),
   // Old ids that history still names, kept when sharing gave an account a new id on this machine.
@@ -1802,9 +1804,6 @@ export const ServerSettings = Schema.Struct({
 
   /** Sent by the Usage tab with each summary request to this environment; edit in settings.json. Invalid values are ignored. */
   usageModelFilter: ForwardCompatibleOptional(UsageModelFilter),
-  subagentConservation: Schema.optionalKey(
-    Schema.Record(ProviderInstanceId, SubagentConservationRule),
-  ),
 });
 export type ServerSettings = typeof ServerSettings.Type;
 
@@ -2016,9 +2015,6 @@ const ModelSelectionPatch = Schema.Struct({
 });
 
 export const ServerSettingsPatch = Schema.Struct({
-  subagentConservation: Schema.optionalKey(
-    Schema.Record(ProviderInstanceId, SubagentConservationRule),
-  ),
   delegation: Schema.optionalKey(DelegationRuntimeSettingsPatch),
   setModelFavorites: Schema.optionalKey(
     Schema.Array(Schema.Struct({ ...ModelFavorite.fields, favorite: Schema.Boolean })),
@@ -2219,13 +2215,8 @@ export const ServerSettingsPatch = Schema.Struct({
   ),
   // Merge per model; null makes it its own model again.
   modelLinks: Schema.optionalKey(Schema.Record(PooledModelKey, Schema.NullOr(PooledModelKey))),
-  // Merge per account and model; null on an account removes all its skips, on a model just that one.
-  accountSkips: Schema.optionalKey(
-    Schema.Record(
-      AccountId,
-      Schema.NullOr(Schema.Record(PooledModelKey, Schema.NullOr(AccountSkip))),
-    ),
-  ),
+  // Merge per model, replacing its route whole; null returns it to the default route.
+  modelRouting: Schema.optionalKey(Schema.Record(PooledModelKey, Schema.NullOr(ModelRoute))),
   // Merge per source to avoid racing other edits; null removes an entry.
   usageLimitSources: Schema.optionalKey(
     Schema.Record(UsageLimitSourceId, Schema.NullOr(UsageLimitSourceConfig)),
@@ -2275,7 +2266,7 @@ export function requiredScopesForServerSettingsPatch(
       key === "pooledModelKeys" ||
       key === "modelAccounts" ||
       key === "modelLinks" ||
-      key === "accountSkips" ||
+      key === "modelRouting" ||
       key === "usageLimitSources" ||
       key === "usageSlotBudgets" ||
       key === "textGenerators" ||

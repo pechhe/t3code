@@ -9,9 +9,9 @@ import {
   type OrchestrationV2Run,
   type RunId,
   type ServerProvider,
-  type ServerSettings as ServerSettingsValue,
   type ThreadId,
 } from "@t3tools/contracts";
+import type { AccountRoutingSettings, RoutingContext } from "@t3tools/shared/accountPools";
 import { latestRootProviderFailure } from "@t3tools/shared/orchestrationV2ThreadError";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -19,9 +19,10 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
+import * as AccountAvailability from "../provider/AccountAvailability.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
-import { failoverCommand, failoverSelection, isUsageLimitFailure } from "./AccountFailover.ts";
+import { accountFailureReason, failoverCommand, failoverSelection } from "./AccountFailover.ts";
 import type * as ThreadManagement from "./ThreadManagementService.ts";
 
 /** How long a delegated task waits before trying its model again after an upstream error. */
@@ -57,9 +58,9 @@ export type DelegatedRecovery =
   | { readonly type: "deliver" };
 
 /**
- * What a delegated task does after a failed run. A usage limit moves to the next account in the
- * user's order serving the same model, unless the task's account was named. An upstream error,
- * including a rate limit with no account to move to, on a role with no other model tries again, up to
+ * What a delegated task does after a failed run. A usage limit, rate limit or overload moves to the
+ * best account still available for the same model, unless the task's account was named. An
+ * upstream error with no account to move to, on a role with no other model, tries again, up to
  * `DELEGATED_RETRY_ATTEMPTS` times. Anything else reaches the parent.
  */
 export const planDelegatedRecovery = Effect.fn("DelegatedTaskRecovery.plan")(function* (input: {
@@ -68,22 +69,19 @@ export const planDelegatedRecovery = Effect.fn("DelegatedTaskRecovery.plan")(fun
   /** Failed runs straight before this one in the thread. */
   readonly priorFailures: number;
   readonly providers: ReadonlyArray<ServerProvider>;
-  readonly settings: Pick<
-    ServerSettingsValue,
-    "pooledModelKeys" | "modelAccounts" | "modelLinks" | "accountSkips" | "providerModelPreferences"
-  >;
+  readonly settings: AccountRoutingSettings;
   readonly readOnly?: boolean | undefined;
-  readonly nowMs: number;
+  readonly context: RoutingContext;
   /** Whether the role has another model it could run on now. */
   readonly otherModelAvailable: () => Effect.Effect<boolean>;
 }) {
-  if (isUsageLimitFailure(input.failure)) {
+  if (accountFailureReason(input.failure) !== undefined) {
     const selection = failoverSelection({
       selection: input.run.modelSelection,
       providers: input.providers,
       settings: input.settings,
-      nowMs: input.nowMs,
-      options: { readOnly: input.readOnly, enforceConservation: true },
+      context: input.context,
+      options: { readOnly: input.readOnly },
     });
     if (selection !== undefined) return { type: "failover", selection } as const;
     // With no account left, a provider-side rate limit still gets its retries.
@@ -141,6 +139,7 @@ export const delegatedRecoveryContinuation = (input: {
 export const makeRecoverDelegatedRun = Effect.gen(function* () {
   const registry = yield* Effect.serviceOption(ProviderRegistry.ProviderRegistry);
   const managed = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
+  const availability = yield* Effect.serviceOption(AccountAvailability.AccountAvailability);
   return Effect.fn("DelegatedTaskRecovery.recover")(function* (
     threads: ThreadManagement.ThreadManagementService["Service"],
     settings: ServerSettings.ServerSettingsService["Service"],
@@ -176,7 +175,10 @@ export const makeRecoverDelegatedRun = Effect.gen(function* () {
         providers,
         settings: currentSettings,
         readOnly: isReadOnlyTask(binding),
-        nowMs: DateTime.toEpochMillis(yield* DateTime.now),
+        context: {
+          blocks: Option.isSome(availability) ? (yield* availability.value.state).blocks : [],
+          nowMs: DateTime.toEpochMillis(yield* DateTime.now),
+        },
         otherModelAvailable: () =>
           Option.isNone(managed) || binding === undefined
             ? Effect.succeed(false)

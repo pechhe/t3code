@@ -1,4 +1,5 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import type { ServerProviderUsageSlot } from "@t3tools/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -492,6 +493,76 @@ describe("readPiUsageSlots", () => {
     expect(retained[1]?.usageLimits.windows).toEqual([]);
   });
 
+  it("keeps a spent window a fresh reading omits until it resets", () => {
+    const at = (hour: number) => `2026-11-15T${String(hour).padStart(2, "0")}:00:00.000Z`;
+    const session = { id: "five_hour", kind: "session" as const, label: "Session" };
+    const weekly = { id: "weekly", kind: "weekly" as const, label: "Week", resetsAt: at(20) };
+    const slot = (
+      account: string,
+      checkedAt: string,
+      windows: ServerProviderUsageSlot["usageLimits"]["windows"],
+    ) => ({
+      accountKey: "claude-subscription-hfpetch",
+      label: "claude-subscription-hfpetch",
+      account,
+      usageLimits: { checkedAt, windows },
+    });
+    const prior = [
+      slot("cred-a", at(10), [
+        { ...session, usedPercent: 90 },
+        { ...weekly, usedPercent: 100 },
+      ]),
+    ];
+    const partial = [slot("cred-a", at(11), [{ ...session, usedPercent: 5 }])];
+    expect(retainPriorUsageSlots(prior, partial)[0]?.usageLimits.windows).toEqual([
+      { ...session, usedPercent: 5 },
+      { ...weekly, usedPercent: 100 },
+    ]);
+    // A spent window with no known reset stays until a reading shows it again.
+    const unknownReset = [
+      slot("cred-a", at(10), [
+        { id: "daily", kind: "other" as const, label: "Day", usedPercent: 100 },
+      ]),
+    ];
+    expect(retainPriorUsageSlots(unknownReset, partial)[0]?.usageLimits.windows).toEqual([
+      { ...session, usedPercent: 5 },
+      { id: "daily", kind: "other", label: "Day", usedPercent: 100 },
+    ]);
+    // A reading older than the last one never replaces it.
+    expect(
+      retainPriorUsageSlots(prior, [slot("cred-a", at(9), [{ ...weekly, usedPercent: 10 }])])[0]
+        ?.usageLimits,
+    ).toEqual(prior[0]?.usageLimits);
+    // A failed probe keeps the last reading's own time, so an older reading still cannot replace it.
+    const failed = retainPriorUsageSlots(prior, [
+      {
+        ...slot("cred-a", at(8), []),
+        usageLimits: {
+          checkedAt: at(8),
+          windows: [],
+          unavailable: { reason: "probeFailed" as const, message: "Timed out." },
+        },
+      },
+    ]);
+    expect(failed[0]?.usageLimits).toMatchObject({
+      checkedAt: at(10),
+      windows: prior[0]?.usageLimits.windows,
+    });
+    expect(
+      retainPriorUsageSlots(failed, [slot("cred-a", at(9), [{ ...weekly, usedPercent: 10 }])])[0]
+        ?.usageLimits.windows,
+    ).toEqual(prior[0]?.usageLimits.windows);
+    // Past its reset, or on another credential, the omitted window goes.
+    expect(
+      retainPriorUsageSlots(prior, [slot("cred-a", at(21), [{ ...session, usedPercent: 5 }])])[0]
+        ?.usageLimits.windows,
+    ).toEqual([{ ...session, usedPercent: 5 }]);
+    expect(
+      retainPriorUsageSlots(prior, [slot("cred-b", at(11), [{ ...session, usedPercent: 5 }])])[0]
+        ?.usageLimits.windows,
+    ).toEqual([{ ...session, usedPercent: 5 }]);
+  });
+
   it.effect("retains prior Antigravity windows when a quota request hangs past its timeout", () =>
     Effect.gen(function* () {
       const home = yield* writeAuth({
@@ -563,7 +634,7 @@ describe("readPiUsageSlots", () => {
           },
         },
       ];
-      const retained = retainPriorUsageSlots(prior, result, "2026-11-15T11:00:00.000Z");
+      const retained = retainPriorUsageSlots(prior, result);
       expect(retained).toHaveLength(1);
       expect(retained[0]?.usageLimits.windows).toEqual(prior[0]?.usageLimits.windows);
       expect(retained[0]?.usageLimits.unavailable?.reason).toBe("probeFailed");

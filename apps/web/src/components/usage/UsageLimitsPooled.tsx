@@ -53,7 +53,7 @@ import { Popover, PopoverCreateHandle, PopoverPopup, PopoverTrigger } from "../u
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { PaceIcon, ResetCreditDialog, barColor, usePaceMark, useResetCredit } from "./UsageLimits";
 import { UsageSlotBudgetEditor } from "./UsageSlotBudgetEditor";
-import { SkippedAccounts } from "../accounts/AccountSkip";
+import { BlockedAccounts } from "../accounts/AccountAvailability";
 import {
   collectExternalUsageLinks,
   collectLimitNotices,
@@ -842,7 +842,7 @@ function PoolSection({
           />
         ),
       )}
-      <SkippedAccounts
+      <BlockedAccounts
         routes={pool.accounts.flatMap((account) =>
           account.routes.map((route) => ({
             ...route,

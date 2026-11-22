@@ -23,7 +23,9 @@ function PooledModelsRow(props: { environmentId: EnvironmentId; instanceId: Prov
   );
   if (serving.length === 0) return null;
   const using = serving.filter((model) =>
-    model.accounts.some((entry) => !entry.removed && entry.account.instanceId === props.instanceId),
+    model.accounts.some(
+      (entry) => entry.tier !== "off" && entry.account.instanceId === props.instanceId,
+    ),
   );
   return (
     <SettingsRow

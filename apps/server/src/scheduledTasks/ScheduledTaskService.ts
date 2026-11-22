@@ -557,7 +557,8 @@ export const layer = Layer.effect(
           },
         });
         const resolved = result.roles.find((entry) => entry.role === role);
-        if (resolved?.selection == null && resolved?.refusal?.startsWith("conservation:"))
+        // A model held at its reserve stays held: the saved model must not spend into it.
+        if (resolved?.selection == null && resolved?.refusal?.startsWith("usage-limited:"))
           return yield* taskError(resolved.refusal);
         return resolved?.selection ?? null;
       },

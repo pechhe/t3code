@@ -206,11 +206,15 @@ using a proxy through `ANTHROPIC_AUTH_TOKEN`.
 
 When more than one account serves the same model (two Claude logins, Claude through Pi's
 sub-providers, Kimi on OpenCode Go and OpenRouter), you can have T3 Code pick the account. Add the
-model under **Settings → Accounts** and the picker shows it once. Each model there lists its own
-accounts in the order T3 Code tries them: move one up or down, take one off with **×**, or put one
-back with **+**. A model you never arranged uses every subscription account serving it. A
-pay-as-you-go account (an API key, such as OpenRouter's) is marked "pay as you go" and stays off a
-model until you add it there, as does an account that appears after you arranged the model. A
+model under **Settings → Accounts → Model routing** and the picker shows it once. Each model
+sorts its accounts into **Primary**, for subscriptions, **Overflow**, for API credits and backups,
+and **Not used**. Overflow is tried only when no Primary account can take the work. Primary either
+tries the account whose longest usage window resets soonest first (**Soonest reset**, so an
+expiring weekly allowance is spent before one with days left), or goes top to bottom (**Manual
+order**). Overflow always goes top to bottom. A model you never arranged has every subscription
+account in Primary. A pay-as-you-go account (an API key, such as OpenRouter's) is marked "pay as
+you go" and stays unused on a model until you move it into a tier, as does an account that appears
+after you arranged the model. A
 model you hide on an account under **Settings → Providers** is not tried there. Models only match
 when their names do, so a dated release (DeepSeek V4.1 Flash 1017 beside DeepSeek V4.1 Flash) stays
 separate: choose **Add account** on a model to count another model's accounts as this one, and
@@ -228,23 +232,29 @@ models you have favorited and the ones your delegation roles name; **Add model**
 the models two or more accounts serve, and a model you remove goes back to running on the account
 you pick.
 
-A new thread starts on the model's first account that is not skipped, and keeps that account for as
-long as it works. An account is skipped only when a turn on it fails because it is out of
-allowance: it is then skipped for that model until the reset the provider reported, or until
-midnight on the server's clock when it reported none, and the turn continues on the next account.
-T3 Code also reads that account's usage again at once, so its card shows the new reset. A skipped
-account shows until when, with **Use again now** to stop skipping it, in **Settings → Accounts**
-and on its card here. Usage readings fill the bars but never decide which account runs.
+A **Reserve** on an account keeps that much of its allowance back for one model: at or below it,
+new work and the model's threads move to the next account, while the account still serves the
+models whose reserve is off. When every account is used up or held at its reserve, a new turn is
+refused, saying when the first account returns.
+
+A new thread starts on the first account that can take it, and keeps that account while it can,
+even on Overflow after a Primary account recovers, so its prompt cache keeps paying off. It moves
+to the next account when its account crosses its reserve, runs out, or a turn on it fails on a usage
+limit. A failure that names a reset holds the account until then. A rate limit or overload that
+names none holds it for 2 minutes, then 10, then 30 after repeated failures. A newer usage reading
+with room, or any turn that completes there, ends the hold. Each held account shows why and until
+when, with **Try now** to use it again, in **Settings → Accounts** and on its card here.
 
 To use one account on purpose, pick the model on that account: from the model's **Accounts** list,
-your favorites or the slider. That thread stays there, even while the account is skipped, and waits
-for its reset instead of moving. Only the pooled model's own row follows its order, and the
+your favorites or the slider. That thread stays there, even while the account is held or at its
+reserve, and waits for its reset instead of moving. Only the pooled model's own row follows its order, and the
 composer then shows the model's name rather than an account.
 Delegation and scheduled tasks behave the same way: naming a provider instance pins it, naming the
-model alone follows the model's order.
+model alone follows the model's routing. A role's models are routed models, so a subagent runs on
+any of a model's accounts and is refused only when none can serve it.
 
-An overloaded response or a connection error is a passing error, not a limit. A subagent that hits
-one, or a rate limit with no other account to move to, moves to its job's next model when there is
+A rate limit or overload moves a subagent to another account of its model, as a usage limit does.
+With no other account, or after a connection error, it moves to its job's next model when there is
 one; otherwise it tries the same model again after about 30 seconds, up to three times, before the
 agent that delegated it hears the error.
 

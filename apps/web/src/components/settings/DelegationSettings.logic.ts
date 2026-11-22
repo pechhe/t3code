@@ -31,9 +31,6 @@ type RoutingSettings = Pick<
 >;
 const EMPTY_ROUTING: RoutingSettings = { pooledModelKeys: [] };
 
-export const isAnyAccountBinding = (binding: Pick<Binding, "anyAccount" | "poolId">): boolean =>
-  binding.anyAccount === true || binding.poolId !== undefined;
-
 export function pooledModelForBinding(
   binding: Pick<Binding, "driverKind" | "model">,
   pools: ReadonlyArray<PooledModel>,
@@ -53,23 +50,18 @@ export function pooledModelForBinding(
     : pools.find((pool) => pool.key === key || pool.linked?.includes(key) === true);
 }
 
+/** Every entry is its model alone: one a routed model covers matches that model's row. */
 export function matchesCatalogModel(
-  binding: Pick<Binding, "driverKind" | "model" | "anyAccount" | "poolId">,
+  binding: Pick<Binding, "driverKind" | "model">,
   model: CatalogModel,
   pools: ReadonlyArray<PooledModel> = [],
 ): boolean {
-  if (model.pooledKey !== undefined) {
-    if (!isAnyAccountBinding(binding)) return false;
-    return (
-      (binding.driverKind === model.binding.driverKind && binding.model === model.binding.model) ||
-      pooledModelForBinding(binding, pools)?.key === model.pooledKey
-    );
-  }
-  return (
-    !isAnyAccountBinding(binding) &&
-    binding.driverKind === model.binding.driverKind &&
-    binding.model === model.binding.model
-  );
+  const same =
+    binding.driverKind === model.binding.driverKind && binding.model === model.binding.model;
+  const pooled = pooledModelForBinding(binding, pools);
+  return model.pooledKey !== undefined
+    ? same || pooled?.key === model.pooledKey
+    : same && pooled === undefined;
 }
 
 const coveredByPooledModel = (
@@ -78,7 +70,7 @@ const coveredByPooledModel = (
   pools: ReadonlyArray<PooledModel>,
 ) => pooledModelForBinding(binding, pools)?.key === key;
 
-/** A pooled model's shared note: an `anyAccount` binding's first, else any covered account's. */
+/** A routed model's shared note: the first its entries carry. */
 export function pooledNote(
   manifest: Manifest,
   key: PooledModelKey,
@@ -87,10 +79,7 @@ export function pooledNote(
   const covered = Object.values(manifest.models).filter((binding) =>
     coveredByPooledModel(binding, key, pools),
   );
-  return (
-    covered.find((binding) => isAnyAccountBinding(binding) && binding.note)?.note ??
-    covered.find((binding) => binding.note)?.note
-  );
+  return covered.find((binding) => binding.note)?.note;
 }
 
 /** A model's default delegation stance, shared across every alias binding it. */
@@ -103,7 +92,7 @@ export function modelDefaultStance(
   )?.defaultStance;
 }
 
-/** A pooled model's shared default stance: an `anyAccount` binding's first, else any covered account's. */
+/** A routed model's shared default stance: the first its entries carry. */
 export function pooledDefaultStance(
   manifest: Manifest,
   key: PooledModelKey,
@@ -112,10 +101,7 @@ export function pooledDefaultStance(
   const covered = Object.values(manifest.models).filter((binding) =>
     coveredByPooledModel(binding, key, pools),
   );
-  return (
-    covered.find((binding) => isAnyAccountBinding(binding) && binding.defaultStance)
-      ?.defaultStance ?? covered.find((binding) => binding.defaultStance)?.defaultStance
-  );
+  return covered.find((binding) => binding.defaultStance)?.defaultStance;
 }
 type Binding = Manifest["models"][string];
 export type RolePolicy = NonNullable<Manifest["roles"][AgentRole]>;
@@ -256,11 +242,11 @@ export function unavailableReason(
   }: { now?: number; pools?: ReadonlyArray<PooledModel>; routing?: RoutingSettings } = {},
 ): string | null {
   if (binding === undefined) return "not configured";
-  if (isAnyAccountBinding(binding)) {
+  {
     const resolvedPools = pools ?? pooledModels(providers, routing ?? EMPTY_ROUTING);
     const pool = pooledModelForBinding(binding, resolvedPools);
     if (pool !== undefined) {
-      const active = pool.accounts.filter((entry) => !entry.removed);
+      const active = pool.accounts.filter((entry) => entry.tier !== "off");
       if (active.length === 0) return "no accounts switched on";
       const reasons = active.map((entry) =>
         unavailableReason(
@@ -295,10 +281,8 @@ export function modelLabel(
   pools: ReadonlyArray<PooledModel> = [],
 ): string {
   if (binding === undefined) return alias;
-  if (isAnyAccountBinding(binding)) {
-    const pooled = pooledModelForBinding(binding, pools);
-    if (pooled !== undefined) return pooled.displayName;
-  }
+  const pooled = pooledModelForBinding(binding, pools);
+  if (pooled !== undefined) return pooled.displayName;
   return (
     providers
       .filter((provider) => provider.driver === binding.driverKind)
@@ -349,15 +333,19 @@ export function catalogModels(
   providers: ReadonlyArray<ServerProvider>,
   routing: RoutingSettings = EMPTY_ROUTING,
 ): CatalogModel[] {
-  return [...accountCatalogModels(providers), ...pooledCatalogModels(providers, routing)];
+  const pools = pooledModels(providers, routing);
+  // A model a routed model covers is offered once, as that model.
+  return [
+    ...accountCatalogModels(providers).filter(
+      (model) => pooledModelForBinding(model.binding, pools) === undefined,
+    ),
+    ...pooledCatalogModels(pools),
+  ];
 }
 
-function pooledCatalogModels(
-  providers: ReadonlyArray<ServerProvider>,
-  routing: RoutingSettings,
-): CatalogModel[] {
-  return pooledModels(providers, routing).flatMap((pool) => {
-    const first = pool.accounts.find((entry) => !entry.removed);
+function pooledCatalogModels(pools: ReadonlyArray<PooledModel>): CatalogModel[] {
+  return pools.flatMap((pool) => {
+    const first = pool.accounts.find((entry) => entry.tier !== "off");
     if (first === undefined) return [];
     const model = first.provider.models.find((candidate) => candidate.slug === first.model);
     const option = model?.capabilities?.optionDescriptors?.find(isReasoningSelect);
@@ -369,7 +357,6 @@ function pooledCatalogModels(
         binding: {
           driverKind: first.provider.driver,
           model: first.model,
-          anyAccount: true,
           ...(option?.type === "select" ? { effortOption: option.id } : {}),
         },
         efforts: option?.type === "select" ? option.options.map((choice) => choice.id) : [],
@@ -615,7 +602,7 @@ interface ListedModel {
 
 /**
  * Each listed model once, in the order the jobs list them, with the roles that use it. A model
- * served by several accounts is one model with one note, joining `anyAccount` and per-account
+ * served by several accounts is one model with one note, joining every entry for the same
  * bindings for the same pooled model into one row.
  */
 export function listedModels(
@@ -632,7 +619,6 @@ export function listedModels(
         const pooledModel = pooledModelForBinding(binding, pools);
         const key = pooledModel === undefined ? binding.model : `pooled:${pooledModel.key}`;
         const existing = models.get(key);
-        const existingBinding = existing ? manifest.models[existing.alias] : undefined;
         const listed: ListedModel =
           existing === undefined
             ? {
@@ -641,11 +627,7 @@ export function listedModels(
                 ...(pooledModel === undefined ? {} : { pooledModel }),
                 roles: [],
               }
-            : // An any-account binding names the row as the pooled model rather than one account.
-              isAnyAccountBinding(binding) &&
-                (existingBinding === undefined || !isAnyAccountBinding(existingBinding))
-              ? { ...existing, alias: entry.model }
-              : existing;
+            : existing;
         for (const role of job.roles) if (!listed.roles.includes(role)) listed.roles.push(role);
         models.set(key, listed);
       }

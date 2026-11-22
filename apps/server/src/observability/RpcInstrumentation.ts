@@ -162,6 +162,8 @@ const RPC_AGGREGATES = {
   [WS_METHODS.piAccountsLoginRespond]: "provider",
   [WS_METHODS.piAccountsLoginCancel]: "provider",
   [WS_METHODS.piAccountsLoginSubscribe]: "provider",
+  [WS_METHODS.accountRoutingSubscribe]: "provider",
+  [WS_METHODS.accountRoutingClear]: "provider",
   [WS_METHODS.scheduledTasksList]: "scheduledTasks",
   [WS_METHODS.scheduledTasksSubscribe]: "scheduledTasks",
   [WS_METHODS.scheduledTasksUpsert]: "scheduledTasks",

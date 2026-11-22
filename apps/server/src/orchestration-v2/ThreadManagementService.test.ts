@@ -175,7 +175,6 @@ const dispatchToPiAccount = (input: {
   readonly model: string;
   readonly command?: (commandId: CommandId, threadId: ThreadId) => OrchestrationV2ServerCommand;
   readonly run?: () => unknown;
-  readonly conservedModels?: ReadonlyArray<string>;
   readonly shell?: Record<string, unknown>;
   readonly dispatchOptions?: ThreadManagementService.DispatchOptions;
 }) => {
@@ -223,16 +222,6 @@ const dispatchToPiAccount = (input: {
         usageLimits: { checkedAt: resetsAt, windows: [] },
       },
     ],
-    ...(input.conservedModels === undefined
-      ? {}
-      : {
-          subagentConservation: {
-            state: "active" as const,
-            unavailable: false,
-            models: input.conservedModels,
-            message: "Kept for your own work.",
-          },
-        }),
   };
   const dispatched: Array<OrchestrationV2ServerCommand> = [];
   const layerTest = ThreadManagementService.layer.pipe(

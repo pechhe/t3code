@@ -1,19 +1,20 @@
 import type { AccountId, PooledModelKey, ProviderInstanceId } from "@t3tools/contracts";
 import {
-  activeSkip,
-  firstAccount,
+  accountAvailability,
+  pickAccount,
   pooledFavoriteModel,
   pooledKeyOfFavorite,
   type PooledAccount,
   type PooledModel,
 } from "@t3tools/shared/accountPools";
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, PencilIcon, StarIcon } from "lucide-react";
+import { T, useGT } from "gt-react";
 import { type ReactNode, useState } from "react";
 
 import { useNowMinute } from "~/hooks/useNowMinute";
 import { useClientSettings } from "~/hooks/useSettings";
 import { cn } from "~/lib/utils";
-import { AccountSkipBadge, accountSource } from "../accounts/AccountSkip";
+import { AccountStateBadge, accountSource } from "../accounts/AccountAvailability";
 import { Button } from "../ui/button";
 import { ComboboxItem } from "../ui/combobox";
 import { getPooledModelLabel, savePooledModelLabel, selectModelSlotLabels } from "./modelLabels";
@@ -39,7 +40,7 @@ type Row =
   | { readonly kind: "any"; readonly model: PooledModel }
   | { readonly kind: "account"; readonly model: PooledModel; readonly entry: PooledAccount };
 
-const serving = (model: PooledModel) => model.accounts.filter((entry) => !entry.removed);
+const serving = (model: PooledModel) => model.accounts.filter((entry) => entry.tier !== "off");
 
 function AccountIcon({ entry }: { entry: PooledAccount }) {
   return (
@@ -73,11 +74,12 @@ export function usePooledPickerEntries(input: {
   onRenameEnd: (restoreFocus: boolean) => void;
 }) {
   const { pooling } = input;
-  const skips = pooling?.skips ?? {};
+  const gt = useGT();
   const [openKey, setOpenKey] = useState<PooledModelKey | null>(pooling?.active?.key ?? null);
   const [renamingKey, setRenamingKey] = useState<PooledModelKey | null>(null);
   const slotLabels = useClientSettings(selectModelSlotLabels);
   const nowMs = Date.parse(`${useNowMinute()}Z`);
+  const routing = pooling?.routing ?? { blocks: [], nowMs };
   const models = input.enabled ? (pooling?.models ?? []) : [];
   const query = input.query.trim().toLowerCase();
   const savedFavorite = (key: PooledModelKey) =>
@@ -234,16 +236,20 @@ export function usePooledPickerEntries(input: {
             ) : null}
             <span className="min-w-0 truncate text-xs text-muted-foreground/70">
               {current !== undefined
-                ? `${active?.pinned === null ? "via" : "pinned:"} ${current.account.label}`
-                : `${accounts.length} accounts`}
+                ? active?.pinned === null
+                  ? gt("via {account}", { account: current.account.label })
+                  : gt("pinned: {account}", { account: current.account.label })
+                : gt("{count, plural, one {{count} account} other {{count} accounts}}", {
+                    count: accounts.length,
+                  })}
             </span>
           </span>
           <Button
             size="icon-xs"
             variant="ghost-muted"
             className="hidden group-hover:inline-flex group-data-highlighted:inline-flex focus-visible:inline-flex pointer-coarse:inline-flex"
-            title="Rename (F2)"
-            aria-label={"Rename " + row.model.displayName}
+            title={gt("Rename (F2)")}
+            aria-label={gt("Rename {model}", { model: row.model.displayName })}
             onPointerDown={(event) => {
               event.preventDefault();
               event.stopPropagation();
@@ -260,8 +266,12 @@ export function usePooledPickerEntries(input: {
           <Button
             size="icon-xs"
             variant="ghost-muted"
-            title={isFavorite ? "Remove from favorites" : "Add to favorites"}
-            aria-label={`${isFavorite ? "Remove" : "Add"} ${row.model.displayName} ${isFavorite ? "from" : "to"} favorites`}
+            title={isFavorite ? gt("Remove from favorites") : gt("Add to favorites")}
+            aria-label={
+              isFavorite
+                ? gt("Remove {model} from favorites", { model: row.model.displayName })
+                : gt("Add {model} to favorites", { model: row.model.displayName })
+            }
             onPointerDown={(event) => {
               event.preventDefault();
               event.stopPropagation();
@@ -286,7 +296,11 @@ export function usePooledPickerEntries(input: {
             size="icon-xs"
             variant="ghost-muted"
             aria-expanded={isOpen}
-            aria-label={`${isOpen ? "Hide" : "Show"} accounts for ${row.model.displayName}`}
+            aria-label={
+              isOpen
+                ? gt("Hide accounts for {model}", { model: row.model.displayName })
+                : gt("Show accounts for {model}", { model: row.model.displayName })
+            }
             onPointerDown={(event) => {
               event.preventDefault();
               event.stopPropagation();
@@ -304,7 +318,8 @@ export function usePooledPickerEntries(input: {
       );
     }
     if (row.kind === "any") {
-      const next = firstAccount(row.model, skips, nowMs);
+      const pick = pickAccount(row.model, routing);
+      const next = pick.type === "account" ? pick.target : undefined;
       return (
         <ComboboxItem
           key={key}
@@ -316,21 +331,21 @@ export function usePooledPickerEntries(input: {
         >
           <span aria-hidden="true" className="w-4 shrink-0" />
           <span className="min-w-0 truncate text-sm leading-snug">
-            Any account, in this model's order
+            <T>Any account, by this model's route</T>
           </span>
           {isActive && active.pinned === null ? (
             <CheckIcon className="size-3.5 shrink-0" aria-hidden="true" />
           ) : null}
           {next !== undefined ? (
             <span className="min-w-0 truncate text-xs text-muted-foreground/70">
-              next: {next.account.label}
+              {gt("next: {account}", { account: next.account.label })}
             </span>
           ) : null}
         </ComboboxItem>
       );
     }
     const position = serving(row.model).indexOf(row.entry) + 1;
-    const skip = activeSkip(skips, row.entry.account.id, row.model.key, nowMs);
+    const availability = accountAvailability(row.model.key, row.entry, routing);
     return (
       <ComboboxItem
         key={key}
@@ -338,7 +353,7 @@ export function usePooledPickerEntries(input: {
         selectedFill={false}
         index={index}
         value={key}
-        title="Pinning runs this account even while it's skipped."
+        title={gt("Pinning runs this account even while it's held back.")}
         className="w-full !min-w-0 max-w-full cursor-pointer"
       >
         <span aria-hidden="true" className="w-4 shrink-0" />
@@ -354,9 +369,9 @@ export function usePooledPickerEntries(input: {
             {accountSource(row.entry.account)}
           </span>
         </span>
-        {skip !== undefined ? (
+        {availability.state !== "available" ? (
           <span className="shrink-0">
-            <AccountSkipBadge skip={skip} />
+            <AccountStateBadge availability={availability} reserve={row.entry.reserve} />
           </span>
         ) : null}
       </ComboboxItem>

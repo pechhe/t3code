@@ -23,8 +23,6 @@ import {
   type ModelSelection,
   type ThreadId,
 } from "@t3tools/contracts";
-import { isProviderUsageExhausted } from "@t3tools/shared/accountPools";
-
 import type { ProviderInstanceEntry } from "../../providerInstances";
 
 export type ChampionsView = "new" | "edit" | "metrics";
@@ -602,7 +600,7 @@ const inputOf = (metric: ChampionMetricInput): ChampionMetricInput => ({
 
 export const metricInputsOf = (metrics: ReadonlyArray<ChampionMetric>) => metrics.map(inputOf);
 
-function entryIsUsable(entry: ProviderInstanceEntry, nowMs: number): boolean {
+function entryIsUsable(entry: ProviderInstanceEntry): boolean {
   return (
     entry.enabled &&
     entry.installed &&
@@ -610,7 +608,6 @@ function entryIsUsable(entry: ProviderInstanceEntry, nowMs: number): boolean {
     entry.status !== "error" &&
     entry.status !== "disabled" &&
     entry.snapshot.availability !== "unavailable" &&
-    !isProviderUsageExhausted(entry.snapshot, nowMs) &&
     entry.models.length > 0
   );
 }
@@ -618,7 +615,6 @@ function entryIsUsable(entry: ProviderInstanceEntry, nowMs: number): boolean {
 export function modelSelectionProblem(
   selection: ModelSelection | null,
   entries: ReadonlyArray<ProviderInstanceEntry>,
-  nowMs: number,
 ): string | null {
   if (selection === null) return "Choose a model.";
   const entry = entries.find((candidate) => candidate.instanceId === selection.instanceId);
@@ -626,8 +622,7 @@ export function modelSelectionProblem(
   if (!entry.models.some((model) => model.slug === selection.model)) {
     return "This provider no longer lists the chosen model.";
   }
-  if (isProviderUsageExhausted(entry.snapshot, nowMs)) return "This provider is out of usage.";
-  return entryIsUsable(entry, nowMs) ? null : "This provider isn't available right now.";
+  return entryIsUsable(entry) ? null : "This provider isn't available right now.";
 }
 
 const WORDS_IN_DERIVED_NAME = 5;

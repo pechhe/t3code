@@ -19,7 +19,6 @@ import {
   effortFor,
   effortForModel,
   ensureModel,
-  isAnyAccountBinding,
   jobsFor,
   listModel,
   matchesCatalogModel,
@@ -448,27 +447,28 @@ describe("delegation settings", () => {
     const pool = pools[0]!;
 
     // When the model's first account is taken off it, the catalog binding uses the first
-    // account still on it, with anyAccount: true.
+    // account still on it; every entry is the model alone, so it carries no account flag.
     const removedRouting = {
       pooledModelKeys,
       modelAccounts: { [pool.key]: [AccountId.make("claude")] },
     };
     const catalog = catalogModels([claude, pi], removedRouting);
     const pooledEntry = catalog.find((candidate) => candidate.pooledKey === pool.key)!;
-    expect(pooledEntry.binding).toMatchObject({
+    expect(pooledEntry.binding).toEqual({
       driverKind: "claudeAgent",
       model: "claude-opus",
-      anyAccount: true,
+      effortOption: "effort",
     });
+    // A model a routed model covers is offered once, as that model.
     expect(
-      catalog.find(
+      catalog.some(
         (candidate) =>
           candidate.pooledKey === undefined &&
           candidate.binding.model === "antigravity/claude-opus",
-      )?.binding.anyAccount,
-    ).toBeUndefined();
+      ),
+    ).toBe(false);
 
-    // Both anyAccount and legacy poolId bindings display as the pooled model's displayName.
+    // Any binding of a routed model's account, legacy poolId included, displays as that model.
     expect(modelLabel(pooledEntry.binding, "any", [claude, pi], pools)).toBe(pool.displayName);
     expect(
       modelLabel(
@@ -482,9 +482,8 @@ describe("delegation settings", () => {
         pools,
       ),
     ).toBe(pool.displayName);
-    expect(isAnyAccountBinding({ poolId: "legacy" })).toBe(true);
     expect(matchesCatalogModel(pooledEntry.binding, pooledEntry, pools)).toBe(true);
-    expect(matchesCatalogModel(manifest().models.opus!, pooledEntry, pools)).toBe(false);
+    expect(matchesCatalogModel(manifest().models.opus!, pooledEntry, pools)).toBe(true);
 
     const base = manifest();
     const notedSlot = setModelNote(base, "claude-opus", "Strongest; design work");
@@ -509,14 +508,17 @@ describe("delegation settings", () => {
       "medium",
       pools,
     );
-    // Forming the anyAccount entry carries the account's note forward.
+    // Forming the routed model's entry carries the account's note forward.
     expect(withPooled.models[pooledAlias]!.note).toBe("Strongest; design work");
     expect(isValid(withPooled)).toBe(true);
 
     const rows = listedModels(withPooled, jobsFor(withPooled, roleGroups(withPooled)), pools);
     const pooledRows = rows.filter((row) => row.pooledModel?.key === pool.key);
     expect(pooledRows).toHaveLength(1);
-    expect(pooledRows[0]!.alias).toBe(pooledAlias);
+    // Listing the routed model reuses the entry already naming one of its accounts, and the
+    // one row is named by the first entry its jobs list.
+    expect(pooledAlias).toBe("opus");
+    expect(pooledRows[0]!.alias).toBe("pi-opus");
     expect(pooledRows[0]!.roles).toEqual(
       expect.arrayContaining(["implementer", "advisor", "browser", "scout"]),
     );
@@ -643,7 +645,7 @@ describe("delegation settings", () => {
     );
     // Any one usable account is enough.
     expect(unavailableReason(opus, [limited, provider({ instanceId: "claude-2" })])).toBeNull();
-    // An anyAccount binding checks across all pooled accounts, including other drivers.
+    // A binding of a routed model checks across all its accounts, including other drivers.
     const piReady = provider({
       driver: "pi",
       instanceId: "pi",
@@ -652,13 +654,13 @@ describe("delegation settings", () => {
       ],
     });
     expect(
-      unavailableReason({ ...opus!, anyAccount: true }, [limited, piReady], {
+      unavailableReason(opus, [limited, piReady], {
         now: Date.parse("2026-10-15T01:00:00Z"),
         routing: { pooledModelKeys: ["claude-opus"] },
       }),
     ).toBeNull();
     expect(
-      unavailableReason({ ...opus!, anyAccount: true }, [limited, piReady], {
+      unavailableReason(opus, [limited, piReady], {
         now: Date.parse("2026-10-15T01:00:00Z"),
         routing: {
           pooledModelKeys: ["claude-opus"],

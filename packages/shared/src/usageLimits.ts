@@ -19,22 +19,14 @@ import {
 
 import * as DateTime from "effect/DateTime";
 
-import { antigravityWindowGoverns, usageMeterOf } from "./accountPools.ts";
+import {
+  antigravityWindowGoverns,
+  pickAccount,
+  pooledModelOf,
+  pooledModels,
+  usageMeterOf,
+} from "./accountPools.ts";
 import { isLocalLoopbackHost, isWildcardHost } from "./hostClassification.ts";
-
-export function conservationModelsOf<A extends string | { readonly slug: string }>(
-  provider: Pick<ServerProvider, "conservationScope">,
-  models: ReadonlyArray<A>,
-): ReadonlyArray<A> {
-  const scope = provider.conservationScope;
-  return scope === undefined
-    ? models
-    : models.filter((model) =>
-        scope.providerIds.includes(
-          (typeof model === "string" ? model : model.slug).split("/")[0] ?? "",
-        ),
-      );
-}
 
 const MINUTE = 60_000;
 
@@ -98,6 +90,16 @@ export function resolveNewThreadModelSelection(input: {
   const selection = input.explicitSelection ?? input.defaultSelection;
   const unchanged = { selection, fallback: null };
   if (input.explicitSelection || !selection || !input.fallbackSelection) return unchanged;
+  // A routed model the server can still place on another account keeps the user's choice.
+  const routed =
+    input.settings === undefined || selection.pinned === true
+      ? undefined
+      : pooledModelOf(pooledModels(input.providers, input.settings), selection);
+  if (
+    routed !== undefined &&
+    pickAccount(routed, { blocks: [], nowMs: input.now }).type === "account"
+  )
+    return unchanged;
   const provider = input.providers.find((entry) => entry.instanceId === selection.instanceId);
   const window = exhaustedUsageWindow(provider, input.now, selection.model);
   const fallback = input.providers.find(

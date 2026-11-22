@@ -74,6 +74,7 @@ import {
 } from "./agentPolicyRpc.ts";
 import { CHAMPIONS_WS_METHODS, WsChampionsRpcs } from "./championsRpc.ts";
 import { PI_ACCOUNTS_WS_METHODS, WsPiAccountsRpcs } from "./piAccounts.ts";
+import { ACCOUNT_ROUTING_WS_METHODS, WsAccountRoutingRpcs } from "./accountPools.ts";
 import {
   SHARED_PROVIDER_SETUP_WS_METHODS,
   WsServerApplySharedModelPreferencesRpc,
@@ -739,6 +740,7 @@ export const WS_METHODS = {
 
   ...CHAMPIONS_WS_METHODS,
   ...PI_ACCOUNTS_WS_METHODS,
+  ...ACCOUNT_ROUTING_WS_METHODS,
   scheduledTasksList: "scheduledTasks.list",
   scheduledTasksSubscribe: "scheduledTasks.subscribe",
   scheduledTasksUpsert: "scheduledTasks.upsert",
@@ -3099,6 +3101,7 @@ export const WsThreadControlRpcGroup = RpcGroup.make(
 ).middleware(RpcScopeAuthorization);
 export const WsChampionsRpcGroup = WsChampionsRpcs.middleware(RpcScopeAuthorization);
 export const WsPiAccountsRpcGroup = WsPiAccountsRpcs.middleware(RpcScopeAuthorization);
+export const WsAccountRoutingRpcGroup = WsAccountRoutingRpcs.middleware(RpcScopeAuthorization);
 export const WsIssuesRpcGroup = RpcGroup.make(
   WsIssuesListRpc,
   WsIssuesDetailRpc,
@@ -3128,5 +3131,6 @@ export const WsRpcGroup = WsCoreRpcGroup.merge(WsVcsRpcGroup)
   .merge(WsAwayRpcGroup)
   .merge(WsChampionsRpcGroup)
   .merge(WsPiAccountsRpcGroup)
+  .merge(WsAccountRoutingRpcGroup)
   .merge(WsServerOperationsRpcGroup)
   .merge(WsThreadControlRpcGroup);

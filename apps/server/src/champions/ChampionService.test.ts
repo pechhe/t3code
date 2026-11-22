@@ -58,6 +58,7 @@ import {
   isToolListedForSession,
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -83,6 +84,7 @@ import * as Projects from "../project/ProjectService.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as AccountAvailability from "../provider/AccountAvailability.ts";
 import * as ServerConfig from "../config.ts";
 import * as ChampionModels from "./ChampionModels.ts";
 
@@ -285,7 +287,12 @@ const fixture = Effect.fn("test.championFixture")(() =>
         providerInstanceId: runInstance,
         modelSelection: selection,
       }) as OrchestrationV2Run;
+    const availability = Context.get(
+      yield* Layer.build(AccountAvailability.layer),
+      AccountAvailability.AccountAvailability,
+    );
     const dependencies = Layer.mergeAll(
+      Layer.succeed(AccountAvailability.AccountAvailability, availability),
       Layer.mock(ThreadLaunch.ThreadLaunchService)({
         launch: (input) =>
           Effect.gen(function* () {
@@ -427,8 +434,10 @@ const fixture = Effect.fn("test.championFixture")(() =>
       Layer.succeed(ServerSettings.ServerSettingsService, settings),
     );
     return {
-      /** The machine's settings: pooled model keys and account skips, as the usage-limit routing reads them. */
+      /** The machine's settings: pooled model keys, as the usage-limit routing reads them. */
       settings,
+      /** The server's memory of failed runs on accounts. */
+      availability,
       layer: Champions.layer.pipe(Layer.provide(dependencies)),
       dependencies,
       dispatches,
@@ -2410,7 +2419,18 @@ describe("a pooled main model", () => {
   const accountOf = (id: string, window?: { resetsAt?: string }) =>
     modelProvider(id, MODEL, window);
   const pooled = (id: string) => ({ instanceId: ProviderInstanceId.make(id), model: MODEL });
-  const skipUntil = (until: string) => ({ [MODEL]: { until, reportedReset: true } });
+  const blockUntil = (
+    availability: AccountAvailability.AccountAvailability["Service"],
+    account: string,
+    until: string,
+  ) =>
+    availability.recordFailure({
+      account,
+      model: MODEL,
+      reason: "usage-limit",
+      resetAt: until,
+      attemptId: `run:${account}`,
+    });
 
   it.effect(
     "resolves to the first account not skipped for its limit and falls to the backup only when all are",
@@ -2449,15 +2469,40 @@ describe("a pooled main model", () => {
           });
           const later = "1970-01-01T00:10:00.000Z";
           assert.deepEqual(yield* check(), { slot: "main", on: "A" });
-          yield* f.settings
-            .updateSettings({ accountSkips: { A: skipUntil(later) } })
-            .pipe(Effect.orDie);
+          // A spent window that governs another of the account's models does not hold this one.
+          const otherSpent = {
+            ...accountOf("A"),
+            usageLimits: {
+              windows: [
+                {
+                  id: "go",
+                  label: "Go",
+                  usedPercent: 100,
+                  providerIds: ["opencode-go"],
+                  resetsAt: later,
+                },
+              ],
+            },
+          } as unknown as ServerProvider;
+          f.setProviders([
+            otherSpent,
+            accountOf("B"),
+            accountOf("C"),
+            modelProvider("backup", "backup-model"),
+            modelProvider("own", "own-model"),
+          ]);
+          assert.deepEqual(yield* check(), { slot: "main", on: "A" });
+          f.setProviders([
+            accountOf("A"),
+            accountOf("B"),
+            accountOf("C"),
+            modelProvider("backup", "backup-model"),
+            modelProvider("own", "own-model"),
+          ]);
+          yield* blockUntil(f.availability, "A", later);
           assert.deepEqual(yield* check(), { slot: "main", on: "B" });
-          yield* f.settings
-            .updateSettings({
-              accountSkips: { A: skipUntil(later), B: skipUntil(later), C: skipUntil(later) },
-            })
-            .pipe(Effect.orDie);
+          yield* blockUntil(f.availability, "B", later);
+          yield* blockUntil(f.availability, "C", later);
           assert.deepEqual(yield* check(), { slot: "backup", on: "backup" });
           // A Champion's own main model replaces the default's; the default's backup still catches it.
           yield* service.upsert({

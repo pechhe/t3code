@@ -106,15 +106,6 @@ const decodeAssignment = Schema.decodeUnknownSync(ExperimentAssignment);
 
 const forkSettings = {
   ...DEFAULT_SERVER_SETTINGS,
-  subagentConservation: {
-    [ProviderInstanceId.make("codex")]: {
-      enabled: true,
-      remainingPercent: 20,
-      window: "any",
-      windowIds: ["session"],
-      models: ["gpt-6-astra"],
-    },
-  },
   responseStreamingMode: "live" as const,
   pooledModelKeys: ["claude-opus-5-5"],
   favorites: [
@@ -122,8 +113,13 @@ const forkSettings = {
   ],
   modelAccounts: { "claude-opus-5-5": ["claudeAgent", "pi:antigravity"] },
   modelLinks: { "claude-opus-5-5-1017": "claude-opus-5-5" },
-  accountSkips: {
-    claudeAgent: { "claude-opus-5-5": { until: "2026-11-19T13:40:00.000Z", reportedReset: true } },
+  modelRouting: {
+    "claude-opus-5-5": {
+      primary: ["claudeAgent"],
+      overflow: ["pi:anthropic-yardsmith"],
+      primaryOrder: "soonest" as const,
+      reserves: { claudeAgent: 10 },
+    },
   },
   projectSettingsOverrides: {
     [ProjectId.make("live")]: { responseStreamingMode: "live" as const },

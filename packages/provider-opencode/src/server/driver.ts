@@ -298,7 +298,7 @@ export const OpenCodeDriver: ProviderDriver<
       conservationScope: {
         providerIds: [],
         reason:
-          "OpenCode cannot report which credential serves its models, so subscription conservation is unavailable.",
+          "OpenCode cannot report which credential serves its models, so its usage never holds a model back.",
       },
     });
     const effectiveConfig = {

@@ -1,14 +1,16 @@
 /**
- * A pool is one model the user added to their pooled models, served by several accounts and tried
- * in that model's own account order. Usage readings fill the Usage bars and supply reset times; they
- * never decide routing.
+ * Model routing (fork/differences.md `account-pools`): a routed model is one model the user added,
+ * served by several accounts. Its Primary accounts are tried first, by soonest reset or in the
+ * user's order, then its Overflow accounts. One evaluator reads each account's usage, reserve and
+ * the server's runtime blocks into one state, and every caller picks through it.
  */
 import type {
+  AccountBlock,
   AccountId,
-  AccountSkip,
-  AccountSkips,
+  ModelRoute,
   ModelSelection,
   PooledModelKey,
+  PrimaryOrder,
   ProviderDriverKind,
   ProviderInstanceId,
   ProviderOptionDescriptor,
@@ -22,8 +24,12 @@ import type {
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
-export type AccountRoutingSettings = Pick<ServerSettings, "pooledModelKeys" | "accountSkips"> & {
-  /** Absent, or absent for a model, means it runs on every subscription account serving it. */
+import { inferPiAccountFamily } from "./piAccounts.ts";
+
+export type AccountRoutingSettings = Pick<ServerSettings, "pooledModelKeys"> & {
+  /** Each routed model's tiers, order and reserves; absent for a model means its default route. */
+  readonly modelRouting?: ServerSettings["modelRouting"] | undefined;
+  /** Retired order, read only as the starting route of a model with no `modelRouting`. */
   readonly modelAccounts?: ServerSettings["modelAccounts"] | undefined;
   /** A model hidden on an account is one that account does not offer. */
   readonly providerModelPreferences?: ServerSettings["providerModelPreferences"] | undefined;
@@ -33,8 +39,8 @@ export type AccountRoutingSettings = Pick<ServerSettings, "pooledModelKeys" | "a
 
 // ── Usage readings ──────────────────────────────────────────────────────────────────────────
 
-/** Whether the provider can take a turn now, ignoring usage limits. */
-const isProviderRoutable = (provider: ServerProvider): boolean =>
+/** Whether the provider can take a turn now, ignoring usage. */
+export const isProviderRoutable = (provider: ServerProvider): boolean =>
   provider.enabled &&
   provider.installed &&
   provider.availability !== "unavailable" &&
@@ -42,15 +48,7 @@ const isProviderRoutable = (provider: ServerProvider): boolean =>
   provider.status !== "disabled" &&
   provider.auth.status === "authenticated";
 
-/** A window at its limit counts until its reported reset has passed. */
-export const isProviderUsageExhausted = (provider: ServerProvider, nowMs: number): boolean =>
-  provider.usageLimits?.windows.some(
-    (window) =>
-      window.usedPercent >= 100 &&
-      (window.resetsAt === undefined || Date.parse(window.resetsAt) > nowMs),
-  ) === true;
-
-/** The Pi sub-provider a model slug names, which is its account key. */
+/** The Pi provider ID a model slug names, which is its account key. */
 const piAccountKeyOf = (modelSlug: string): string | undefined => {
   const separator = modelSlug.indexOf("/");
   return separator <= 0 ? undefined : modelSlug.slice(0, separator);
@@ -72,14 +70,25 @@ export const antigravityWindowGoverns = (windowId: string, modelSlug: string): b
   );
 };
 
-/** The quota metering that governs `model` on `provider`: a Pi slot meters as its sub-provider. */
-export const usageMeterOf = (provider: Pick<ServerProvider, "driver">, modelSlug: string): string =>
-  provider.driver === "pi" && piAccountKeyOf(modelSlug) === "antigravity"
-    ? "antigravity"
-    : provider.driver;
+/**
+ * The quota metering that governs `model` on `provider`: a Pi credential meters as its family,
+ * which its usage slot reports, so every Antigravity login scopes its quotas alike.
+ */
+export const usageMeterOf = (
+  provider: Pick<ServerProvider, "driver" | "usageSlots">,
+  modelSlug: string,
+): string => {
+  if (provider.driver !== "pi") return provider.driver;
+  const accountKey = piAccountKeyOf(modelSlug);
+  if (accountKey === undefined) return provider.driver;
+  const family =
+    provider.usageSlots?.find((slot) => slot.accountKey === accountKey)?.providerFamily ??
+    inferPiAccountFamily(accountKey, undefined);
+  return family === "antigravity" ? "antigravity" : provider.driver;
+};
 
 /**
- * The usage reading governing `(provider, model)`: a Pi slot reads its own sub-provider entry,
+ * The usage reading governing `(provider, model)`: a Pi slot reads its own credential's entry,
  * other providers their own reading.
  */
 const slotUsageLimits = (
@@ -97,7 +106,7 @@ const slotUsageLimits = (
 };
 
 /** Usage windows governing `model` on `provider`, preserving driver-specific window scoping. */
-const applicableSlotUsageWindows = (
+export const governingUsageWindows = (
   provider: ServerProvider | undefined,
   model: string,
 ): ReadonlyArray<ServerProviderUsageWindow> => {
@@ -107,6 +116,8 @@ const applicableSlotUsageWindows = (
       (window.providerIds === undefined || window.providerIds.includes(model.split("/")[0] ?? "")),
   );
   if (provider === undefined) return windows;
+  const scope = provider.conservationScope;
+  if (scope !== undefined && !scope.providerIds.includes(model.split("/")[0] ?? "")) return [];
   switch (usageMeterOf(provider, model)) {
     case "cursor": {
       const api = windows.filter((window) => window.id === "apiPercentUsed");
@@ -130,19 +141,9 @@ const applicableSlotUsageWindows = (
   }
 };
 
-/** Subscription conservation (T3-611) holds `model` back from new managed subagents. */
-export const isConserved = (provider: ServerProvider, model: string): boolean => {
-  const conservation = provider.subagentConservation;
-  return (
-    conservation !== undefined &&
-    conservation.state !== "ready" &&
-    conservation.models.includes(model)
-  );
-};
-
 // ── Accounts ────────────────────────────────────────────────────────────────────────────────
 
-/** The account a model slug runs on: the instance, or for Pi the instance's sub-provider. */
+/** The account a model slug runs on: the instance, or for Pi the instance's credential. */
 export const accountIdOf = (
   provider: Pick<ServerProvider, "driver" | "instanceId">,
   modelSlug: string,
@@ -163,9 +164,9 @@ export const selectionAccountId = (
 export interface AccountInfo {
   readonly id: AccountId;
   readonly instanceId: ProviderInstanceId;
-  /** The account's own name: the instance's, or the Pi sub-provider's. */
+  /** The account's own name: the instance's, or the Pi credential's. */
   readonly label: string;
-  /** Where the account lives: the provider instance's name for a Pi sub-provider. */
+  /** Where the account lives: the provider instance's name for a Pi credential. */
   readonly source: string;
   readonly driver: ServerProvider["driver"];
   readonly accentColor?: string | undefined;
@@ -259,32 +260,37 @@ const plainModelName = (name: string) =>
     .replace(/\s*\([^)]*@[^)]*\)\s*$/, "")
     .trim();
 
+export type AccountTier = "primary" | "overflow" | "off";
+
 export interface PooledAccount {
   readonly account: AccountInfo;
   readonly provider: ServerProvider;
   /** The slug this account runs the model under. */
   readonly model: string;
-  /** Off this model: left out of the user's list for it, or billed per use and never added. */
-  readonly removed: boolean;
+  /** Where the model's route puts it: tried first, tried after Primary, or not used. */
+  readonly tier: AccountTier;
   /** Billed per use, so it serves a model only once the user adds it there. */
   readonly metered: boolean;
+  /** Remaining percent at or below which it is held back for this model. */
+  readonly reserve?: number | undefined;
 }
 
 export interface PooledModel {
   readonly key: PooledModelKey;
   readonly displayName: string;
-  /** Every account offering the model, in the model's order, the ones off it last. */
+  /** Every account offering the model: Primary and Overflow in the route's order, then the rest. */
   readonly accounts: ReadonlyArray<PooledAccount>;
+  readonly primaryOrder: PrimaryOrder;
   /** Models the user counts as this one that an account serves. */
   readonly linked?: ReadonlyArray<PooledModelKey>;
 }
 
 type ServingSettings = Pick<
   AccountRoutingSettings,
-  "modelAccounts" | "providerModelPreferences" | "modelLinks"
+  "modelRouting" | "modelAccounts" | "providerModelPreferences" | "modelLinks"
 >;
 
-/** A Pi sub-provider billed per use, as its usage slot reports. */
+/** A Pi credential billed per use, as its usage slot reports. */
 const isMeteredAccount = (provider: ServerProvider, modelSlug: string): boolean => {
   if (provider.driver !== "pi") return false;
   const accountKey = piAccountKeyOf(modelSlug);
@@ -295,10 +301,12 @@ const isMeteredAccount = (provider: ServerProvider, modelSlug: string): boolean 
   );
 };
 
+type ServingAccount = Omit<PooledAccount, "tier" | "reserve">;
+
 const servingEntries = (providers: ReadonlyArray<ServerProvider>, settings: ServingSettings) => {
   const byKey = new Map<
     PooledModelKey,
-    { names: string[]; accounts: PooledAccount[]; linked: Set<PooledModelKey> }
+    { names: string[]; serving: ServingAccount[]; linked: Set<PooledModelKey> }
   >();
   for (const provider of providers) {
     if (!provider.enabled) continue;
@@ -309,41 +317,84 @@ const servingEntries = (providers: ReadonlyArray<ServerProvider>, settings: Serv
       if (own === undefined) continue;
       const key = linkedModelKey(settings.modelLinks, own);
       const account = accountInfo(provider, model.slug);
-      const entry = byKey.get(key) ?? { names: [], accounts: [], linked: new Set() };
+      const entry = byKey.get(key) ?? { names: [], serving: [], linked: new Set() };
       if (own !== key) entry.linked.add(own);
       // One account offering a model twice (an alias and its target) serves it once.
-      if (entry.accounts.some((existing) => existing.account.id === account.id)) continue;
+      if (entry.serving.some((existing) => existing.account.id === account.id)) continue;
       entry.names.push(model.name);
-      entry.accounts.push({
+      entry.serving.push({
         account,
         provider,
         model: model.slug,
-        removed: false,
         metered: isMeteredAccount(provider, model.slug),
       });
       byKey.set(key, entry);
     }
   }
-  for (const [key, entry] of byKey) {
-    entry.accounts = arrangeAccounts(entry.accounts, settings.modelAccounts?.[key]);
-  }
-  return byKey;
+  return new Map(
+    [...byKey].map(([key, entry]) => {
+      const route = effectiveRoute(settings, key, entry.serving);
+      return [
+        key,
+        {
+          names: entry.names,
+          linked: entry.linked,
+          primaryOrder: route.primaryOrder,
+          accounts: arrangeAccounts(entry.serving, route),
+        },
+      ] as const;
+    }),
+  );
 };
 
 /**
- * A model's accounts in its order: the ones the user listed for it, or else every subscription in
- * the order the providers list them. The rest follow, off the model.
+ * A model's route: the saved one, else one made from the retired account order (subscriptions in
+ * Primary, pay-as-you-go accounts and any not served now in Overflow), else every subscription in
+ * Primary in the order the providers list them. An account in no tier is not used for the model,
+ * so a pay-as-you-go account never serves one until the user adds it.
  */
+const effectiveRoute = (
+  settings: Pick<ServingSettings, "modelRouting" | "modelAccounts">,
+  key: PooledModelKey,
+  serving: ReadonlyArray<Pick<ServingAccount, "account" | "metered">>,
+): ModelRoute => {
+  const saved = settings.modelRouting?.[key];
+  if (saved !== undefined) return saved;
+  const legacy = settings.modelAccounts?.[key];
+  const subscription = new Set(
+    serving.flatMap((entry) => (entry.metered ? [] : [entry.account.id])),
+  );
+  if (legacy !== undefined)
+    return {
+      primary: legacy.filter((id) => subscription.has(id)),
+      overflow: legacy.filter((id) => !subscription.has(id)),
+      primaryOrder: "soonest",
+      reserves: {},
+    };
+  return { primary: [...subscription], overflow: [], primaryOrder: "soonest", reserves: {} };
+};
+
+/** A model's accounts in route order: Primary, then Overflow, then those it does not use. */
 const arrangeAccounts = (
-  accounts: ReadonlyArray<PooledAccount>,
-  listed: ReadonlyArray<AccountId> | undefined,
+  serving: ReadonlyArray<ServingAccount>,
+  route: ModelRoute,
 ): PooledAccount[] => {
-  const inUse = listed ?? accounts.flatMap((entry) => (entry.metered ? [] : [entry.account.id]));
-  const rank = new Map(inUse.map((id, index) => [id, index]));
-  const rankOf = (entry: PooledAccount) => rank.get(entry.account.id) ?? inUse.length;
-  return accounts
-    .map((entry) => ({ ...entry, removed: !rank.has(entry.account.id) }))
-    .sort((a, b) => rankOf(a) - rankOf(b));
+  const tierOf = (id: AccountId): AccountTier =>
+    route.primary.includes(id) ? "primary" : route.overflow.includes(id) ? "overflow" : "off";
+  const rank = (entry: ServingAccount) => {
+    const id = entry.account.id;
+    const primary = route.primary.indexOf(id);
+    if (primary >= 0) return primary;
+    const overflow = route.overflow.indexOf(id);
+    return overflow >= 0 ? route.primary.length + overflow : Number.MAX_SAFE_INTEGER;
+  };
+  return serving
+    .map((entry) => ({
+      ...entry,
+      tier: tierOf(entry.account.id),
+      reserve: route.reserves[entry.account.id],
+    }))
+    .sort((a, b) => rank(a) - rank(b));
 };
 
 const shortestPlainName = (names: ReadonlyArray<string>): string =>
@@ -364,16 +415,21 @@ const disambiguateDisplayNames = (
   );
 };
 
+type ServedEntry = ReturnType<typeof servingEntries> extends Map<unknown, infer V> ? V : never;
+
+const pooledModelFrom = (key: PooledModelKey, entry: ServedEntry): PooledModel => ({
+  key,
+  displayName: shortestPlainName(entry.names),
+  accounts: entry.accounts,
+  primaryOrder: entry.primaryOrder,
+  ...(entry.linked.size === 0 ? {} : { linked: [...entry.linked] }),
+});
+
 const modelsServed = (
   providers: ReadonlyArray<ServerProvider>,
   settings: ServingSettings,
 ): ReadonlyArray<PooledModel> =>
-  [...servingEntries(providers, settings)].map(([key, entry]) => ({
-    key,
-    displayName: shortestPlainName(entry.names),
-    accounts: entry.accounts,
-    ...(entry.linked.size === 0 ? {} : { linked: [...entry.linked] }),
-  }));
+  [...servingEntries(providers, settings)].map(([key, entry]) => pooledModelFrom(key, entry));
 
 /** Every model an account serves, each with its accounts in the model's order. */
 export const servedModels = (
@@ -402,37 +458,86 @@ export const listedPooledModels = (
   return disambiguateDisplayNames(
     [...new Set(settings.pooledModelKeys ?? [])].map((key) => {
       const entry = entries.get(key);
-      if (entry === undefined) return { key, displayName: key, accounts: [] };
-      return {
-        key,
-        displayName: shortestPlainName(entry.names),
-        accounts: entry.accounts,
-        ...(entry.linked.size === 0 ? {} : { linked: [...entry.linked] }),
-      };
+      return entry === undefined
+        ? { key, displayName: key, accounts: [], primaryOrder: "soonest" as const }
+        : pooledModelFrom(key, entry);
     }),
   );
 };
 
 /**
- * The models the user added to their pooled models that more than one account serves. Any other
- * model is an ordinary model of each account: it runs on the account picked, and no limit moves it.
+ * The models the user added to Model routing that an account serves, even while only one does, so
+ * its route and reserves still hold. Any other model is an ordinary model of each account: it runs
+ * on the account picked, and no limit moves it.
  */
 export const pooledModels = (
   providers: ReadonlyArray<ServerProvider>,
   settings: ServingSettings & Pick<AccountRoutingSettings, "pooledModelKeys">,
 ): ReadonlyArray<PooledModel> => {
   const listed = new Set(settings.pooledModelKeys ?? []);
-  return multiAccountModels(providers, settings).filter((pool) => listed.has(pool.key));
+  return disambiguateDisplayNames(
+    modelsServed(providers, settings).filter(
+      (pool) => listed.has(pool.key) && pool.accounts.length > 0,
+    ),
+  );
+};
+
+/**
+ * The routed model a policy binding names: through an account serving its exact slug, else as a
+ * routed model's key, else by the key its slug reads as, so a binding outlives the account it was
+ * written against.
+ */
+export const pooledModelOfBinding = (
+  pools: ReadonlyArray<PooledModel>,
+  settings: Pick<AccountRoutingSettings, "modelLinks">,
+  binding: { readonly driverKind: ServerProvider["driver"]; readonly model: string },
+): PooledModel | undefined => {
+  const anchored = pools.find((pool) =>
+    pool.accounts.some(
+      (entry) => entry.provider.driver === binding.driverKind && entry.model === binding.model,
+    ),
+  );
+  if (anchored !== undefined) return anchored;
+  const canonical = linkedModelKey(settings.modelLinks, binding.model as PooledModelKey);
+  const named = pools.find((pool) => pool.key === canonical);
+  if (named !== undefined) return named;
+  const key = pooledKeyIn(
+    settings,
+    { driver: binding.driverKind },
+    { slug: binding.model, name: binding.model },
+  );
+  return key === undefined ? undefined : pools.find((pool) => pool.key === key);
 };
 
 type LinkSettings = Pick<
   AccountRoutingSettings,
-  "pooledModelKeys" | "modelAccounts" | "modelLinks" | "providerModelPreferences"
+  "pooledModelKeys" | "modelRouting" | "modelAccounts" | "modelLinks" | "providerModelPreferences"
 >;
 
+/** The route a model has saved, including the retired order, or undefined while it is the default. */
+const savedRoute = (
+  settings: Pick<LinkSettings, "modelRouting" | "modelAccounts">,
+  pool: Pick<PooledModel, "key" | "accounts">,
+): ModelRoute | undefined =>
+  settings.modelRouting?.[pool.key] === undefined &&
+  settings.modelAccounts?.[pool.key] === undefined
+    ? undefined
+    : effectiveRoute(settings, pool.key, pool.accounts);
+
+/** Saves a model's route, retiring its old account order. */
+const routeWrite = (
+  settings: Pick<LinkSettings, "modelAccounts">,
+  key: PooledModelKey,
+  route: ModelRoute,
+): ServerSettingsPatch => ({
+  modelRouting: { [key]: route },
+  ...(settings.modelAccounts?.[key] === undefined ? {} : { modelAccounts: { [key]: null } }),
+});
+
 /**
- * Counts `source` as `target`: the source stops being a pooled model of its own, and an
- * arranged target takes the source's subscriptions at the bottom (pay-as-you-go ones stay off).
+ * Counts `source` as `target`: the source stops being a routed model of its own, and an
+ * arranged target takes the source's subscriptions at the bottom of Primary (pay-as-you-go ones
+ * stay off).
  */
 export const linkModelPatch = (
   settings: LinkSettings,
@@ -440,22 +545,25 @@ export const linkModelPatch = (
   source: PooledModel,
 ): ServerSettingsPatch => {
   const listed = settings.pooledModelKeys ?? [];
-  const saved = settings.modelAccounts?.[target.key];
+  const saved = savedRoute(settings, target);
+  const placed = new Set([...(saved?.primary ?? []), ...(saved?.overflow ?? [])]);
   const joining = source.accounts.flatMap((entry) =>
-    entry.metered || saved?.includes(entry.account.id) ? [] : [entry.account.id],
+    entry.metered || placed.has(entry.account.id) ? [] : [entry.account.id],
   );
   return {
     modelLinks: { [source.key]: target.key },
     ...(listed.includes(source.key)
       ? { pooledModelKeys: listed.filter((key) => key !== source.key) }
       : {}),
-    ...(saved === undefined ? {} : { modelAccounts: { [target.key]: [...saved, ...joining] } }),
+    ...(saved === undefined
+      ? {}
+      : routeWrite(settings, target.key, { ...saved, primary: [...saved.primary, ...joining] })),
   };
 };
 
 /**
- * Separates `source` from `target` again: the source becomes a pooled model of its own if
- * the target is one, and the target's list drops the accounts that served it only through the link.
+ * Separates `source` from `target` again: the source becomes a routed model of its own if the
+ * target is one, and the target's route drops the accounts that served it only through the link.
  */
 export const unlinkModelPatch = (
   providers: ReadonlyArray<ServerProvider>,
@@ -467,14 +575,16 @@ export const unlinkModelPatch = (
   const links = Object.fromEntries(
     Object.entries(settings.modelLinks ?? {}).filter(([key]) => key !== source),
   );
+  const joined = servedModels(providers, settings).find((model) => model.key === target);
   const apart = servedModels(providers, { ...settings, modelLinks: links });
   const accountsOf = (key: PooledModelKey) =>
     new Set(
       apart.find((model) => model.key === key)?.accounts.map((entry) => entry.account.id) ?? [],
     );
   const stillServing = accountsOf(target);
-  const leaving = [...accountsOf(source)].filter((id) => !stillServing.has(id));
-  const saved = settings.modelAccounts?.[target];
+  const leaving = new Set([...accountsOf(source)].filter((id) => !stillServing.has(id)));
+  const saved = joined === undefined ? undefined : savedRoute(settings, joined);
+  const keep = (ids: ReadonlyArray<AccountId>) => ids.filter((id) => !leaving.has(id));
   return {
     modelLinks: { [source]: null },
     ...(listed.includes(target) && !listed.includes(source)
@@ -482,21 +592,42 @@ export const unlinkModelPatch = (
       : {}),
     ...(saved === undefined
       ? {}
-      : { modelAccounts: { [target]: saved.filter((id) => !leaving.includes(id)) } }),
+      : routeWrite(settings, target, {
+          ...saved,
+          primary: keep(saved.primary),
+          overflow: keep(saved.overflow),
+          reserves: Object.fromEntries(
+            Object.entries(saved.reserves).filter(([id]) => !leaving.has(id)),
+          ),
+        })),
   };
 };
 
+/** The route a model shows now, as an edit starts from it. */
+const modelRouteOf = (settings: ServingSettings, pool: PooledModel): ModelRoute =>
+  effectiveRoute(settings, pool.key, pool.accounts);
+
 /**
- * A model's account list after an edit of the accounts it shows: the ones in use, in order, then
- * the saved ones not shown now (a disabled provider, a hidden model), so an edit keeps them.
+ * The patch saving an edit of the accounts a model shows: the edited tiers, order, primary order
+ * and reserves, keeping the saved accounts not shown now (a disabled provider, a hidden model).
  */
-export const editedModelAccounts = (
-  saved: ReadonlyArray<AccountId> | undefined,
-  shown: ReadonlyArray<AccountId>,
-  inUse: ReadonlyArray<AccountId>,
-): AccountId[] => {
-  const visible = new Set(shown);
-  return [...inUse, ...(saved ?? []).filter((id) => !visible.has(id))];
+export const modelRoutePatch = (
+  settings: ServingSettings,
+  pool: PooledModel,
+  edit: ModelRoute,
+): ServerSettingsPatch => {
+  const before = modelRouteOf(settings, pool);
+  const shown = new Set(pool.accounts.map((entry) => entry.account.id));
+  const hidden = (ids: ReadonlyArray<AccountId>) => ids.filter((id) => !shown.has(id));
+  return routeWrite(settings, pool.key, {
+    primary: [...edit.primary, ...hidden(before.primary)],
+    overflow: [...edit.overflow, ...hidden(before.overflow)],
+    primaryOrder: edit.primaryOrder,
+    reserves: {
+      ...Object.fromEntries(Object.entries(before.reserves).filter(([id]) => !shown.has(id))),
+      ...edit.reserves,
+    },
+  });
 };
 
 const POOLED_FAVORITE_PREFIX = "pooled:";
@@ -524,6 +655,52 @@ export const pooledModelOf = (
         entry.provider.instanceId === selection.instanceId && entry.model === selection.model,
     ),
   );
+
+/** How routing remembers an account's model: its instance and slug. */
+const servedModelId = (selection: Pick<ModelSelection, "instanceId" | "model">) =>
+  `${selection.instanceId}\u0000${selection.model}`;
+
+/**
+ * Each account model the routed models are served by, with the key its own catalog entry reads
+ * as before any link, so a recovery follows the links in force then, not those seen now.
+ */
+export const routedModelIds = (
+  pools: ReadonlyArray<PooledModel>,
+): ReadonlyArray<readonly [string, PooledModelKey]> =>
+  pools.flatMap((pool) =>
+    pool.accounts.flatMap((entry) => {
+      const model = entry.provider.models.find((candidate) => candidate.slug === entry.model);
+      const key = model === undefined ? undefined : pooledModelKeyOf(entry.provider, model);
+      const id = servedModelId({ instanceId: entry.provider.instanceId, model: entry.model });
+      return key === undefined ? [] : [[id, key] as const];
+    }),
+  );
+
+/**
+ * The routed model a selection runs, even on an account that no longer serves it (disabled,
+ * removed, or the model hidden there): from its catalog entry while the account lists it, else
+ * from `seen` (`routedModelIds` as routing last saw them). Never from the slug alone: the catalog
+ * name decides dates and `@latest`, so a guess could change the model.
+ */
+export const pooledModelOfSelection = (
+  pools: ReadonlyArray<PooledModel>,
+  providers: ReadonlyArray<ServerProvider>,
+  settings: Pick<AccountRoutingSettings, "modelLinks">,
+  selection: Pick<ModelSelection, "instanceId" | "model">,
+  seen: ReadonlyMap<string, PooledModelKey> = new Map(),
+): PooledModel | undefined => {
+  const served = pooledModelOf(pools, selection);
+  if (served !== undefined) return served;
+  const provider = providers.find((candidate) => candidate.instanceId === selection.instanceId);
+  const model = provider?.models.find((candidate) => candidate.slug === selection.model);
+  const key =
+    provider !== undefined && model !== undefined
+      ? pooledKeyIn(settings, provider, model)
+      : seen.get(servedModelId(selection));
+  if (key === undefined) return undefined;
+  const routed = linkedModelKey(settings.modelLinks, key);
+  return pools.find((pool) => pool.key === routed);
+};
 
 /** The pooled key of a named model, read from the first enabled account that serves it. */
 const keyOfNamedModel = (
@@ -577,77 +754,136 @@ export const seedPooledModelKeys = (input: {
   );
 };
 
-// ── Skips ───────────────────────────────────────────────────────────────────────────────────
+// ── Availability ────────────────────────────────────────────────────────────────────────
 
-/** The account's skip for `key` while it lasts. */
-export const activeSkip = (
-  skips: AccountSkips,
-  account: AccountId,
-  key: PooledModelKey,
-  nowMs: number,
-): AccountSkip | undefined => {
-  const skip = skips[account]?.[key];
-  return skip !== undefined && Date.parse(skip.until) > nowMs ? skip : undefined;
-};
+/** What the evaluator reads besides usage: the server's runtime blocks, at one instant. */
+export interface RoutingContext {
+  readonly blocks: ReadonlyArray<AccountBlock>;
+  readonly nowMs: number;
+}
 
-/** The account's skips that still last, by model key. */
-export const activeSkipsOf = (
-  skips: AccountSkips,
-  account: AccountId,
-  nowMs: number,
-): ReadonlyArray<readonly [PooledModelKey, AccountSkip]> =>
-  Object.entries(skips[account] ?? {}).filter(([, skip]) => Date.parse(skip.until) > nowMs);
+export type AccountState = "available" | "reserved" | "exhausted" | "cooldown";
 
-/** The next midnight on this process's clock. */
-export const nextLocalMidnightMs = (nowMs: number): number => {
-  const today = DateTime.startOf(
-    DateTime.makeZonedUnsafe(nowMs, { timeZone: DateTime.zoneMakeLocal() }),
-    "day",
-  );
-  return DateTime.toEpochMillis(DateTime.add(today, { days: 1 }));
-};
+/** One account's state for one model. */
+export interface AccountAvailability {
+  readonly state: AccountState;
+  /** The lowest remaining percent among the windows governing the model, when any is read. */
+  readonly remainingPercent?: number;
+  /** When it can serve again: the latest end of what holds it back, when every end is known. */
+  readonly returnsAt?: string;
+  /** The runtime block holding it back, when one does. */
+  readonly block?: AccountBlock;
+}
+
+/** Headroom above the reserve a newer reading must show on every window to clear a block. */
+const PROBE_CLEAR_HEADROOM_PERCENT = 5;
 
 const isoOf = (ms: number) => DateTime.formatIso(DateTime.makeUnsafe(ms));
 
-/**
- * How long an account is skipped after a usage limit: to the reset the failure reported, or
- * the one its latest reading shows for that model, or with neither, to the next midnight.
- */
-export const skipAfterLimit = (input: {
-  readonly failureResetAt?: string | null | undefined;
-  readonly provider: ServerProvider | undefined;
-  readonly model: string;
-  readonly nowMs: number;
-  readonly midnightMs: number;
-}): AccountSkip => {
-  const failureMs = input.failureResetAt == null ? Number.NaN : Date.parse(input.failureResetAt);
-  if (Number.isFinite(failureMs) && failureMs > input.nowMs)
-    return { until: isoOf(failureMs), reportedReset: true };
-  const readingMs = applicableSlotUsageWindows(input.provider, input.model)
-    .filter((window) => window.usedPercent >= 100 && window.resetsAt !== undefined)
-    .map((window) => Date.parse(window.resetsAt!))
-    .filter((resetMs) => Number.isFinite(resetMs) && resetMs > input.nowMs);
-  if (readingMs.length > 0) return { until: isoOf(Math.max(...readingMs)), reportedReset: true };
-  return { until: isoOf(input.midnightMs), reportedReset: false };
+const remainingOf = (window: ServerProviderUsageWindow) => 100 - window.usedPercent;
+
+/** A window whose reported reset has passed says nothing about now. */
+const isCurrent = (window: ServerProviderUsageWindow, nowMs: number) => {
+  const resetMs = window.resetsAt === undefined ? Number.NaN : Date.parse(window.resetsAt);
+  return !Number.isFinite(resetMs) || resetMs > nowMs;
 };
 
-/** The patch recording a skip on an account, dropping the account's skips that have lapsed. */
-export const skipPatch = (
-  skips: AccountSkips,
-  account: AccountId,
+/**
+ * Whether a reading taken after `block` started shows more than the headroom above the reserve on
+ * every window governing the model. A failed or unsupported probe, an older reading, one with
+ * only T3's own budget window, or one missing a window that governed when the block began is no
+ * evidence, so it never clears a block.
+ */
+export const blockClearedByReading = (
+  block: AccountBlock,
+  entry: Pick<PooledAccount, "provider" | "model" | "reserve">,
+): boolean => {
+  const limits = slotUsageLimits(entry.provider, entry.model);
+  if (limits === undefined || limits.unavailable !== undefined) return false;
+  if (!(Date.parse(limits.checkedAt) > Date.parse(block.since))) return false;
+  const windows = governingUsageWindows(entry.provider, entry.model).filter(
+    (window) => window.id !== "budget",
+  );
+  if (block.windowIds?.some((id) => !windows.some((window) => window.id === id)) === true)
+    return false;
+  const floor = (entry.reserve ?? 0) + PROBE_CLEAR_HEADROOM_PERCENT;
+  return windows.length > 0 && windows.every((window) => remainingOf(window) > floor);
+};
+
+/** The block still holding an account back for `key`. */
+const activeBlock = (
   key: PooledModelKey,
-  skip: AccountSkip,
-  nowMs: number,
-): Readonly<Record<PooledModelKey, AccountSkip | null>> => {
-  const active = new Set(activeSkipsOf(skips, account, nowMs).map(([model]) => model));
+  entry: Pick<PooledAccount, "account" | "provider" | "model" | "reserve">,
+  context: RoutingContext,
+): AccountBlock | undefined => {
+  const block = context.blocks.find(
+    (candidate) => candidate.account === entry.account.id && candidate.model === key,
+  );
+  if (block === undefined || Date.parse(block.until) <= context.nowMs) return undefined;
+  return blockClearedByReading(block, entry) ? undefined : block;
+};
+
+/**
+ * One account's state for `key`: exhausted when a governing window is spent or a failure reported
+ * its reset, reserved when a window is at or below the account's reserve, cooling down while a
+ * backoff lasts, else available.
+ */
+export const accountAvailability = (
+  key: PooledModelKey,
+  entry: Pick<PooledAccount, "account" | "provider" | "model" | "reserve">,
+  context: RoutingContext,
+): AccountAvailability => {
+  const windows = governingUsageWindows(entry.provider, entry.model).filter((window) =>
+    isCurrent(window, context.nowMs),
+  );
+  const reserve = entry.reserve ?? 0;
+  const holds: Array<{
+    readonly state: Exclude<AccountState, "available">;
+    readonly until: string | undefined;
+  }> = [];
+  for (const window of windows) {
+    const left = remainingOf(window);
+    if (left <= 0) holds.push({ state: "exhausted", until: window.resetsAt });
+    else if (reserve > 0 && left <= reserve)
+      holds.push({ state: "reserved", until: window.resetsAt });
+  }
+  // A limit the provider gave a reset for is spent until then; a backoff is a guess.
+  const block = activeBlock(key, entry, context);
+  if (block !== undefined)
+    holds.push({ state: block.reportedReset ? "exhausted" : "cooldown", until: block.until });
+  const remaining =
+    windows.length === 0 ? {} : { remainingPercent: Math.min(...windows.map(remainingOf)) };
+  if (holds.length === 0) return { state: "available", ...remaining };
+  const state = holds.some((hold) => hold.state === "exhausted")
+    ? "exhausted"
+    : holds.some((hold) => hold.state === "reserved")
+      ? "reserved"
+      : "cooldown";
+  const ends = holds.map((hold) =>
+    hold.until === undefined ? Number.NaN : Date.parse(hold.until),
+  );
   return {
-    ...Object.fromEntries(
-      Object.keys(skips[account] ?? {}).flatMap((model) =>
-        active.has(model) ? [] : [[model, null]],
-      ),
-    ),
-    [key]: skip,
+    state,
+    ...remaining,
+    ...(ends.every(Number.isFinite) ? { returnsAt: isoOf(Math.max(...ends)) } : {}),
+    ...(block === undefined ? {} : { block }),
   };
+};
+
+/**
+ * The state of a model on an account it is not routed through: its usage and runtime blocks,
+ * with no reserve.
+ */
+export const standaloneAvailability = (
+  settings: Pick<AccountRoutingSettings, "modelLinks">,
+  provider: ServerProvider,
+  modelSlug: string,
+  context: RoutingContext,
+): AccountAvailability => {
+  const model = provider.models.find((candidate) => candidate.slug === modelSlug);
+  const key = model === undefined ? undefined : pooledKeyIn(settings, provider, model);
+  const entry = { account: accountInfo(provider, modelSlug), provider, model: modelSlug };
+  return accountAvailability(key ?? modelSlug, entry, context);
 };
 
 // ── Routing ─────────────────────────────────────────────────────────────────────────────────
@@ -656,76 +892,145 @@ export interface AccountTarget {
   readonly provider: ServerProvider;
   readonly model: string;
   readonly account: AccountInfo;
+  readonly tier?: AccountTier;
 }
 
-export interface PickOptions {
+export interface RouteOptions {
   /** Only accounts that enforce read-only source access, for a read-only task. */
   readonly readOnly?: boolean | undefined;
-  /** Leave out accounts subscription conservation holds back from new managed subagents. */
-  readonly enforceConservation?: boolean | undefined;
 }
 
-const usable = (entry: PooledAccount, options: PickOptions | undefined) =>
-  !entry.removed &&
-  isProviderRoutable(entry.provider) &&
-  (options?.readOnly !== true || entry.provider.readOnlySourceAccess === "enforced") &&
-  (options?.enforceConservation !== true || !isConserved(entry.provider, entry.model));
+export interface RankedAccount {
+  readonly entry: PooledAccount;
+  readonly availability: AccountAvailability;
+}
 
-/** Whether new work on `pool`'s model may start on `entry`: usable, and not skipped. */
-export const isAccountFree = (
-  pool: PooledModel,
-  entry: PooledAccount,
-  skips: AccountSkips,
+const usable = (entry: PooledAccount, options: RouteOptions | undefined) =>
+  entry.tier !== "off" &&
+  isProviderRoutable(entry.provider) &&
+  (options?.readOnly !== true || entry.provider.readOnlySourceAccess === "enforced");
+
+const WINDOW_KIND_MINUTES: Record<ServerProviderUsageWindow["kind"], number> = {
+  session: 5 * 60,
+  weekly: 7 * 24 * 60,
+  monthly: 30 * 24 * 60,
+  other: 0,
+};
+
+/**
+ * When an account's allowance resets for Soonest reset: the reset of its longest governing window
+ * with a known future reset, so a weekly quota expiring sooner is never hidden by a 5-hour timer.
+ */
+export const rankingResetMs = (
+  entry: Pick<PooledAccount, "provider" | "model">,
   nowMs: number,
-  options?: PickOptions,
-) => usable(entry, options) && activeSkip(skips, entry.account.id, pool.key, nowMs) === undefined;
+): number | undefined => {
+  let best: { minutes: number; resetMs: number } | undefined;
+  for (const window of governingUsageWindows(entry.provider, entry.model)) {
+    const resetMs = window.resetsAt === undefined ? Number.NaN : Date.parse(window.resetsAt);
+    if (!Number.isFinite(resetMs) || resetMs <= nowMs) continue;
+    const minutes = window.windowDurationMins ?? WINDOW_KIND_MINUTES[window.kind];
+    if (
+      best === undefined ||
+      minutes > best.minutes ||
+      (minutes === best.minutes && resetMs > best.resetMs)
+    )
+      best = { minutes, resetMs };
+  }
+  return best?.resetMs;
+};
+
+/** Soonest reset first; accounts with no known reset after them; ties keep the user's order. */
+const soonestFirst = (entries: ReadonlyArray<PooledAccount>, nowMs: number) =>
+  entries
+    .map((entry, index) => ({ entry, index, resetMs: rankingResetMs(entry, nowMs) }))
+    .sort(
+      (a, b) =>
+        Number(a.resetMs === undefined) - Number(b.resetMs === undefined) ||
+        (a.resetMs ?? 0) - (b.resetMs ?? 0) ||
+        a.index - b.index,
+    )
+    .map(({ entry }) => entry);
+
+/** A routed model's Primary accounts in the order it tries them: soonest reset, or the user's. */
+export const primaryInOrder = (pool: PooledModel, nowMs: number): ReadonlyArray<PooledAccount> => {
+  const primary = pool.accounts.filter((entry) => entry.tier === "primary");
+  return pool.primaryOrder === "manual" ? primary : soonestFirst(primary, nowMs);
+};
+
+/** A routed model's usable accounts in the order new work tries them, each with its state. */
+export const rankAccounts = (
+  pool: PooledModel,
+  context: RoutingContext,
+  options?: RouteOptions,
+): ReadonlyArray<RankedAccount> =>
+  [
+    ...primaryInOrder(pool, context.nowMs),
+    ...pool.accounts.filter((entry) => entry.tier === "overflow"),
+  ]
+    .filter((entry) => usable(entry, options))
+    .map((entry) => ({ entry, availability: accountAvailability(pool.key, entry, context) }));
 
 const toTarget = (entry: PooledAccount): AccountTarget => ({
   provider: entry.provider,
   model: entry.model,
   account: entry.account,
+  tier: entry.tier,
 });
 
-/**
- * The account a new thread on `pool`'s model runs on: the first in the model's order that is
- * usable and not skipped. With every usable account skipped, the one whose skip ends soonest,
- * so the turn is tried rather than refused.
- */
-export const firstAccount = (
-  pool: PooledModel,
-  skips: AccountSkips,
-  nowMs: number,
-  options?: PickOptions,
-): AccountTarget | undefined => {
-  const candidates = pool.accounts.filter((entry) => usable(entry, options));
-  const free = candidates.find((entry) => isAccountFree(pool, entry, skips, nowMs, options));
-  if (free !== undefined) return toTarget(free);
-  const soonest = [...candidates].sort(
-    (a, b) =>
-      Date.parse(activeSkip(skips, a.account.id, pool.key, nowMs)?.until ?? "") -
-      Date.parse(activeSkip(skips, b.account.id, pool.key, nowMs)?.until ?? ""),
-  )[0];
-  return soonest === undefined ? undefined : toTarget(soonest);
+export type AccountPick =
+  | { readonly type: "account"; readonly target: AccountTarget }
+  | {
+      readonly type: "unavailable";
+      /** The earliest an account returns, when one's return is known. */
+      readonly returnsAt?: string;
+      /**
+       * The cooling account that returns soonest, when one is: a cool-down is a guess, so work may
+       * try it rather than wait. Reserved and exhausted accounts are never offered.
+       */
+      readonly coolingDown?: AccountTarget;
+    };
+
+/** When a model returns: the earliest known return among its accounts. */
+const unavailablePick = (ranked: ReadonlyArray<RankedAccount>): AccountPick => {
+  const returns = ranked.flatMap(({ availability }) =>
+    availability.returnsAt === undefined ? [] : [Date.parse(availability.returnsAt)],
+  );
+  const cooling = [...ranked]
+    .filter(({ availability }) => availability.state === "cooldown")
+    .sort(
+      (a, b) =>
+        Date.parse(a.availability.returnsAt ?? "") - Date.parse(b.availability.returnsAt ?? ""),
+    )[0];
+  return {
+    type: "unavailable",
+    ...(returns.length === 0 ? {} : { returnsAt: isoOf(Math.min(...returns)) }),
+    ...(cooling === undefined ? {} : { coolingDown: toTarget(cooling.entry) }),
+  };
 };
 
 /**
- * Where a thread whose account failed with a usage limit moves: the first usable account in
- * the order, other than the failed one, that is not skipped. None leaves the thread waiting.
+ * The account work on `pool`'s model runs on. A thread's `current` account keeps it while it is
+ * available, so its prompt cache keeps paying off, even on Overflow; otherwise the first available
+ * account in the order: Primary, then Overflow. `exclude` is an account that just failed.
  */
-export const nextAccount = (
+export const pickAccount = (
   pool: PooledModel,
-  failed: AccountId,
-  skips: AccountSkips,
-  nowMs: number,
-  options?: PickOptions,
-): AccountTarget | undefined => {
-  const next = pool.accounts.find(
-    (entry) =>
-      entry.account.id !== failed &&
-      usable(entry, options) &&
-      activeSkip(skips, entry.account.id, pool.key, nowMs) === undefined,
+  context: RoutingContext,
+  options?: RouteOptions & {
+    readonly current?: AccountId | undefined;
+    readonly exclude?: AccountId | undefined;
+  },
+): AccountPick => {
+  const ranked = rankAccounts(pool, context, options).filter(
+    ({ entry }) => entry.account.id !== options?.exclude,
   );
-  return next === undefined ? undefined : toTarget(next);
+  const available = ranked.filter(({ availability }) => availability.state === "available");
+  const chosen =
+    available.find(({ entry }) => entry.account.id === options?.current) ?? available[0];
+  return chosen === undefined
+    ? unavailablePick(ranked)
+    : { type: "account", target: toTarget(chosen.entry) };
 };
 
 const REASONING_OPTION_IDS = new Set([

@@ -81,6 +81,15 @@ describe("RPC authorization scopes", () => {
     }
   });
 
+  it("lets readers watch account availability, and only provider managers clear a block", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.accountRoutingSubscribe)).toBe(
+      AuthOrchestrationReadScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.accountRoutingClear)).toBe(
+      AuthProvidersManageScope,
+    );
+  });
+
   it("keeps webhook delivery logs, which hold request bodies, behind operate scope", () => {
     for (const method of [
       WS_METHODS.scheduledTasksListWebhookDeliveries,

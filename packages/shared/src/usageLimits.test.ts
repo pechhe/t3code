@@ -9,7 +9,6 @@ import {
 import { describe, expect, it } from "vite-plus/test";
 
 import {
-  conservationModelsOf,
   type LimitAccount,
   displayLimitWindows,
   groupLimitWindows,
@@ -31,21 +30,6 @@ import {
   resolveNewThreadModelSelection,
 } from "./usageLimits.ts";
 import { collectLimitNotices } from "./usageLimitsCopy.ts";
-
-it("an unsupported account offers no models while ordinary account catalogs remain available", () => {
-  const catalog = [{ slug: "opencode-go/a" }, { slug: "opencode/b" }];
-  const unsupported = {
-    conservationScope: { providerIds: [], reason: "Unverified model credential." },
-  };
-  expect(conservationModelsOf(unsupported, catalog)).toEqual([]);
-  expect(
-    conservationModelsOf(
-      unsupported,
-      catalog.map((model) => model.slug),
-    ),
-  ).toEqual([]);
-  expect(conservationModelsOf({}, catalog)).toBe(catalog);
-});
 
 const now = Date.parse("2026-09-03T12:00:00.000Z");
 
@@ -131,6 +115,29 @@ describe("new thread model fallback", () => {
         providers: [limited, { ...available, ...overrides }],
       }).selection,
     ).toEqual(selection);
+  });
+  it("keeps a routed model the server can place on another account, unless an account is pinned", () => {
+    const sol = [
+      { slug: selection.model, name: "GPT-6.1 Sol", isCustom: false, capabilities: null },
+    ];
+    const spent = { ...limited, models: sol };
+    const second = provider({ instanceId: ProviderInstanceId.make("codex-2"), models: sol });
+    const routed = {
+      ...defaults,
+      providers: [spent, second, available],
+      settings: {
+        ...DEFAULT_SERVER_SETTINGS,
+        pooledModelKeys: ["gpt-6-1-sol"],
+        providerInstances: {
+          [fallback.instanceId]: { driver: available.driver, enabled: true, config: {} },
+        },
+      },
+    };
+    expect(resolveNewThreadModelSelection(routed).selection).toEqual(selection);
+    const pinned = { ...selection, pinned: true };
+    expect(
+      resolveNewThreadModelSelection({ ...routed, defaultSelection: pinned }).selection,
+    ).toEqual(fallback);
   });
   it.each([undefined, "invalid"])("treats an unknown reset as exhausted: %s", (resetsAt) => {
     expect(

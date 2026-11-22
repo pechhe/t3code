@@ -47,6 +47,7 @@ import {
 } from "./runtime.ts";
 import { createDelegationEnvironmentAtoms } from "./delegationEnvironmentAtoms.ts";
 import { createPiAccountsEnvironmentAtoms } from "./piAccountsAtoms.ts";
+import { createAccountRoutingEnvironmentAtoms } from "./accountRoutingAtoms.ts";
 import * as EnvironmentRegistry from "../connection/registry.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import { safeErrorLogAttributes } from "../errors/safeLog.ts";
@@ -1616,6 +1617,7 @@ export function createServerEnvironmentAtoms<R, E>(
     }),
     ...delegation,
     ...createPiAccountsEnvironmentAtoms(runtime),
+    ...createAccountRoutingEnvironmentAtoms(runtime),
     scheduledTasksLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:server:scheduled-tasks:live",
       tag: WS_METHODS.scheduledTasksSubscribe,

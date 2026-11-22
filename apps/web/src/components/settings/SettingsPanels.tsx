@@ -1,4 +1,5 @@
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
+import { useNowMinute } from "../../hooks/useNowMinute";
 import { m as resolveMessage } from "~/i18n/messages";
 import { useAtomValue } from "@effect/atom-react";
 import { NotificationSettings } from "./NotificationSettings";
@@ -1942,20 +1943,20 @@ export function ThreadsSettingsPanel() {
     });
   };
   const slotLabels = useClientSettings(selectModelSlotLabels);
+  const nowMs = Date.parse(`${useNowMinute()}Z`);
   const selectPooledTextGenerationModel: ModelPickerPooling["onSelect"] = (model, account) => {
     const selection = pooledModelSelection({
       model,
       account,
       current: textGenerationModelSelection,
-      settings,
-      // oxlint-disable-next-line react/purity -- runs in an event handler (oxc#27309)
-      nowMs: Date.now(),
+      // The server routes text generation itself; this only chooses the account to save.
+      routing: { blocks: [], nowMs },
     });
     if (selection) saveTextGenerationModel(selection);
   };
   const textGenerationPooling = modelPickerPooling({
     models: withPooledModelLabels(pooledModels(textGenerationProviders, settings), slotLabels),
-    skips: settings.accountSkips,
+    routing: { blocks: [], nowMs },
     providers: textGenerationProviders,
     selection: textGenerationModelSelection,
     onSelect: selectPooledTextGenerationModel,

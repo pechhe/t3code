@@ -32,6 +32,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.piAccountsLoginRespond]: AuthProvidersManageScope,
   [WS_METHODS.piAccountsLoginCancel]: AuthProvidersManageScope,
   [WS_METHODS.piAccountsLoginSubscribe]: AuthProvidersManageScope,
+  [WS_METHODS.accountRoutingClear]: AuthProvidersManageScope,
   [WS_METHODS.serverApplySharedProviderSetup]: AuthProvidersManageScope,
   [WS_METHODS.serverApplySharedModelPreferences]: AuthSettingsWriteScope,
   [WS_METHODS.serverSetProviderSetupSharing]: AuthProvidersManageScope,

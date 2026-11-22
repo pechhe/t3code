@@ -40,6 +40,12 @@ model, such as Haiku for Claude or Luna for Codex.
 
 ## Drive the headless browser
 
+Without `browser_*` in your tools (a Pi thread, say), drive the same browser with a `t3 browser run`
+script: its `tools` are `preview_open` (`{url}`, returns `tabId`), `preview_navigate`, `preview_resize`
+(`mode: "freeform"`), `preview_evaluate` (`{tabId, expression}`) and `preview_snapshot` (`save: true`).
+Each run has fresh storage, so pass it a new token from `node apps/server/src/bin.ts pair --base-dir .t3`
+(under `vp env exec --node=<pin> --` where the system Node is older).
+
 Use `browser_*`: call `browser_open` even when `browser_status` reports `available: false`
 or `tabId: null`, because that often means only that no tab exists yet. Stop only if
 `browser_open` itself fails.

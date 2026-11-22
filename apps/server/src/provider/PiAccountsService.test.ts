@@ -21,7 +21,14 @@ describe("movedProviderReferences", () => {
       modelAccounts: {
         "gemini-4-argon": ["pi:antigravity", "pi-mac:antigravity", "pi:opencode-go"],
       },
-      accountSkips: { "pi:antigravity": { "gemini-4-argon": { until: 1 } } },
+      modelRouting: {
+        "gemini-4-argon": {
+          primary: ["pi:antigravity"],
+          overflow: ["pi:opencode-go"],
+          primaryOrder: "soonest",
+          reserves: { "pi:antigravity": 10 },
+        },
+      },
     } as unknown as ServerSettings;
 
     expect(movedProviderReferences(settings, [pi], "antigravity", "antigravity-hfpetch")).toEqual({
@@ -34,9 +41,13 @@ describe("movedProviderReferences", () => {
       modelAccounts: {
         "gemini-4-argon": ["pi:antigravity-hfpetch", "pi-mac:antigravity", "pi:opencode-go"],
       },
-      accountSkips: {
-        "pi:antigravity": null,
-        "pi:antigravity-hfpetch": { "gemini-4-argon": { until: 1 } },
+      modelRouting: {
+        "gemini-4-argon": {
+          primary: ["pi:antigravity-hfpetch"],
+          overflow: ["pi:opencode-go"],
+          primaryOrder: "soonest",
+          reserves: { "pi:antigravity-hfpetch": 10 },
+        },
       },
     });
   });

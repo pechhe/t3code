@@ -173,8 +173,8 @@ In a narrow window the stance is in the composer's **…** menu.
 
 A default belongs to the model's name, as its note does: every account that offers
 the model under that name shares it. Pi names a model by its account, so there each
-account's model has its own default, unless the model is one of your pooled models in
-**Settings → Accounts**: then its default covers every account in the pool.
+account's model has its own default, unless the model is one of your routed models in
+**Settings → Accounts → Model routing**: then its default covers every account serving it.
 
 A message that is a slash command, such as `/goal`, is sent unchanged and carries no
 stance guidance; the agent takes its stance from the thread's ordinary messages.

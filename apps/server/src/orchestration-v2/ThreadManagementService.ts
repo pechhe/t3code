@@ -82,6 +82,7 @@ import * as LegacyV1ThreadImporter from "./legacy/LegacyV1ThreadImporter.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as AccountRouting from "./AccountRouting.ts";
+import * as AccountAvailability from "../provider/AccountAvailability.ts";
 import { ThreadWorktreeRestore } from "../workspace/restoreMissingWorktree.ts";
 
 export type ThreadManagementSendMode = "auto" | "queue" | "steer" | "restart";
@@ -403,7 +404,7 @@ export type ThreadManagementError = typeof ThreadManagementError.Type;
 type ThreadManagementFailure = ThreadManagementError | Orchestrator.OrchestratorV2Error;
 
 export interface DispatchOptions {
-  /** A subagent role placed this thread on its account, under conservation; routing keeps it. */
+  /** A subagent role placed this thread on its account; routing keeps it. */
   readonly placedByRole?: boolean | undefined;
 }
 
@@ -869,6 +870,7 @@ const make = Effect.gen(function* () {
 
   const accountRouting = AccountRouting.make({
     providerRegistry,
+    availability: yield* Effect.serviceOption(AccountAvailability.AccountAvailability),
     serverSettings,
     getThreadShell: orchestrator.getThreadShell,
   });

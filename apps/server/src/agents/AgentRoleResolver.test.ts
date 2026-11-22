@@ -1,7 +1,7 @@
-import { evaluateConservation } from "../provider/subagentConservation.ts";
 import { expect, it } from "@effect/vitest";
 import {
   ProviderDriverKind,
+  type AccountBlock,
   type AgentPolicySnapshot,
   ProviderInstanceId,
   type ServerProvider,
@@ -9,7 +9,6 @@ import {
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Resolver from "./AgentRoleResolver.ts";
-import { providerOverloadKey } from "../provider/ProviderOverloads.ts";
 import {
   snapshot,
   provider,
@@ -36,112 +35,119 @@ const resolve = (value: Input) =>
   });
 const refusal = (value: Input) => resolve(value).pipe(Effect.flip);
 
-it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
-  it.effect("an unsupported OpenCode binding leaves every catalog model eligible", () =>
-    Effect.gen(function* () {
-      const models = ["opencode-go/workspace-only", "opencode/console", "anthropic/claude"];
-      const account = {
-        ...provider("opencode", "scoped-go", models),
-        conservationScope: {
-          providerIds: [],
-          reason: "The serving credential cannot be verified.",
-        },
-      };
-      const status = evaluateConservation(
-        account,
-        { enabled: true, remainingPercent: 20, window: "any", windowIds: ["go_weekly"], models },
-        0,
-      ).status;
-      const original = snapshot();
-      const configured = {
-        ...original,
-        manifest: {
-          ...original.manifest,
-          models: {
-            ...original.manifest.models,
-            ...Object.fromEntries(
-              ["sol", "sonnet", "luna"].map((alias, index) => [
-                alias,
-                {
-                  driverKind: ProviderDriverKind.make("opencode"),
-                  model: models[index]!,
-                  effortOption: "effort",
-                },
-              ]),
-            ),
-          },
-          lists: {
-            ...original.manifest.lists,
-            workhorse: ["sol", "sonnet", "luna"].map((model) => ({ model, effort: "medium" })),
-          },
-        },
-      };
-      const value = input({
-        snapshot: configured,
-        providers: [{ ...account, subagentConservation: status }],
-      });
-      for (const model of models)
-        expect(
-          (yield* resolve({ ...value, selection: { instanceId: account.instanceId, model } }))
-            .model,
-        ).toBe(model);
-    }),
-  );
+const HOUR = 3_600_000;
+const iso = (ms: number) => DateTime.formatIso(DateTime.makeUnsafe(ms));
+const block = (account: string, model: string, sinceMs: number, untilMs: number): AccountBlock => ({
+  account,
+  model,
+  reason: "rate-limit",
+  since: iso(sinceMs),
+  until: iso(untilMs),
+  reportedReset: false,
+  attempts: 1,
+});
 
+it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
   it.effect(
-    "conservation filters discovery and explicit starts while retaining existing conversations",
+    "holds a routed model's account at its reserve for new tasks, spilling to the next and refusing when none remains unless one is named",
     () =>
       Effect.gen(function* () {
         const resolver = yield* Resolver.AgentRoleResolver;
-        for (const state of ["active", "unknown"] as const) {
-          const limited = {
-            ...codex,
-            subagentConservation: {
-              state,
-              unavailable: state === "unknown",
-              models: [codexModel],
-              message: "Selected model conserved",
+        const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
+        const original = snapshot();
+        const models = ["acct-a/claude-opus-5-5", "acct-b/claude-opus-5-5"];
+        const slot = (accountKey: string, usedPercent: number, resetMs: number) => ({
+          accountKey,
+          label: accountKey,
+          usageLimits: {
+            checkedAt: iso(nowMs),
+            windows: [
+              {
+                id: "week",
+                kind: "weekly" as const,
+                label: "Week",
+                usedPercent,
+                resetsAt: iso(resetMs),
+              },
+            ],
+          },
+        });
+        const pi = (aUsed: number, bUsed: number): ServerProvider => ({
+          ...provider("pi", "pi-test", models),
+          models: models.map((slug) => ({
+            slug,
+            name: "Claude Opus 5.5",
+            isCustom: false,
+            capabilities: { optionDescriptors: [] },
+          })),
+          usageSlots: [
+            slot("acct-a", aUsed, nowMs + HOUR),
+            slot("acct-b", bUsed, nowMs + 2 * HOUR),
+          ],
+        });
+        const policy: AgentPolicySnapshot = {
+          ...original,
+          manifest: {
+            ...original.manifest,
+            models: {
+              ...original.manifest.models,
+              opus: { driverKind: ProviderDriverKind.make("pi"), model: "acct-a/claude-opus-5-5" },
             },
-          };
-          const value = input({
-            providers: [limited, claude],
-            selection: { instanceId: codex.instanceId, model: codexModel },
+            lists: { ...original.manifest.lists, workhorse: [{ model: "opus" }] },
+          },
+        };
+        const routing = (reserves: Record<string, number>) => ({
+          pooledModelKeys: ["claude-opus-5-5"],
+          modelRouting: {
+            "claude-opus-5-5": {
+              primary: ["pi-test:acct-a", "pi-test:acct-b"],
+              overflow: [],
+              primaryOrder: "manual" as const,
+              reserves,
+            },
+          },
+        });
+        const value = (providers: ServerProvider, reserves: Record<string, number>) =>
+          input({
+            snapshot: policy,
+            providers: [providers],
+            request: request({ role: "implementer" }),
+            routing: routing(reserves),
           });
-          const preview = yield* resolver.preview(value);
-          expect(preview.selection).toBeNull();
-          expect(preview.refusal).toContain("conservation");
-          expect((yield* refusal(value)).reason).toBe("conservation");
-          expect((yield* resolve({ ...value, ignoreConservation: true })).model).toBe(codexModel);
-          expect(
-            (yield* resolve({
-              ...value,
-              providers: [
-                {
-                  ...limited,
-                  subagentConservation: { ...limited.subagentConservation, state: "ready" },
-                },
-                claude,
-              ],
-            })).model,
-          ).toBe(codexModel);
-          expect(
-            (yield* resolve({
-              ...value,
-              providers: [
-                {
-                  ...limited,
-                  subagentConservation: {
-                    ...limited.subagentConservation,
-                    models: ["another-model"],
-                  },
-                },
-                claude,
-              ],
-            })).model,
-          ).toBe(codexModel);
-        }
+        // 9% left on acct-a is at its 10% reserve: the task goes to acct-b.
+        const spilled = yield* resolver.preview(value(pi(91, 20), { "pi-test:acct-a": 10 }));
+        expect(spilled.selection?.model).toBe("acct-b/claude-opus-5-5");
+        expect(
+          Object.fromEntries(spilled.candidates.map(({ model, reason }) => [model, reason])),
+        ).toEqual({
+          "acct-a/claude-opus-5-5": "reserved",
+          "acct-b/claude-opus-5-5": "selected",
+        });
+        // Every account at its reserve: refused, naming when the first returns.
+        const both = value(pi(91, 95), { "pi-test:acct-a": 10, "pi-test:acct-b": 10 });
+        const refused = yield* refusal(both);
+        expect(refused.reason).toBe("usage-limited");
+        expect(refused.detail).toContain(iso(nowMs + HOUR));
+        // Naming the model alone does not spend into a reserve; naming its account does.
+        expect((yield* refusal({ ...both, selection: { model: "claude-opus-5-5" } })).reason).toBe(
+          "usage-limited",
+        );
+        expect(
+          yield* resolve({
+            ...both,
+            selection: {
+              instanceId: ProviderInstanceId.make("pi-test"),
+              model: "acct-a/claude-opus-5-5",
+            },
+          }),
+        ).toMatchObject({ model: "acct-a/claude-opus-5-5", pinned: true });
+        // A task already running is checked for authority only.
+        expect((yield* resolve({ ...both, ignoreAvailability: true })).model).toBe(
+          "acct-a/claude-opus-5-5",
+        );
       }),
   );
+
   it.effect("lets change and Spec reviews each run on any model of the one reviewer list", () =>
     Effect.gen(function* () {
       const original = snapshot();
@@ -270,6 +276,46 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       expect((yield* review(false)).model).toBe(claudeModel);
       // With only the author's provider available, it still reviews.
       expect((yield* review(true, [claude])).model).toBe(claudeModel);
+
+      // The preference picks the model; its route still picks Primary before Overflow, even when
+      // only the Overflow account is on another provider.
+      const credits = provider("pi", "pi-credits", [`anthropic-credits/${claudeModel}`]);
+      const routed = yield* resolve(
+        input({
+          snapshot: {
+            ...original,
+            manifest: {
+              ...original.manifest,
+              roles: {
+                ...original.manifest.roles,
+                reviewer: {
+                  ...original.manifest.roles["reviewer"],
+                  preferOtherAuthorProvider: true,
+                },
+              },
+            },
+          },
+          providers: [codex, claude, credits],
+          request: request({
+            role: "reviewer",
+            sourceRevision: "candidate",
+            review: changeReview,
+            authorModel: "claude-opus-test",
+          }),
+          routing: {
+            pooledModelKeys: [claudeModel],
+            modelRouting: {
+              [claudeModel]: {
+                primary: [claude.instanceId],
+                overflow: ["pi-credits:anthropic-credits"],
+                primaryOrder: "manual",
+                reserves: {},
+              },
+            },
+          },
+        }),
+      );
+      expect([routed.instanceId, routed.model]).toEqual([claude.instanceId, claudeModel]);
     }),
   );
   it.effect("a model's policy options ride along when the account offers them", () =>
@@ -1189,7 +1235,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
     }),
   );
 
-  it.effect("passes over a skipped account until its skip ends, but runs it when named", () =>
+  it.effect("passes over a blocked account until its block ends, but runs it when named", () =>
     Effect.gen(function* () {
       const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
       const review = request({
@@ -1197,34 +1243,24 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
         sourceRevision: "reviewed-commit",
         review: changeReview,
       });
-      const skipped = (untilMs: number) => ({
-        pooledModelKeys: [claudeModel],
-        accountSkips: {
-          [claude.instanceId]: {
-            [claudeModel]: {
-              until: DateTime.formatIso(DateTime.makeUnsafe(untilMs)),
-              reportedReset: true,
-            },
-          },
-        },
-      });
+      const blocked = (untilMs: number) => [block(claude.instanceId, claudeModel, nowMs, untilMs)];
 
-      // Sonnet leads the list; while its account is skipped the next entry serves.
+      // Sonnet leads the list; while its account is blocked the next entry serves.
       const passedOver = yield* resolve(
-        input({ request: review, routing: skipped(nowMs + 60_000) }),
+        input({ request: review, blocks: blocked(nowMs + 60_000) }),
       );
       expect(passedOver.model).toBe(codexModel);
 
-      // Once the skip has ended, the list's first choice serves again.
-      const returned = yield* resolve(input({ request: review, routing: skipped(nowMs) }));
+      // Once the block has ended, the list's first choice serves again.
+      const returned = yield* resolve(input({ request: review, blocks: blocked(nowMs) }));
       expect(returned.model).toBe(claudeModel);
 
-      // A named account is tried while skipped, and pinned there rather than swapped.
+      // A named account is tried while blocked, and pinned there rather than swapped.
       const named = yield* resolve(
         input({
           request: review,
           selection: { instanceId: claude.instanceId },
-          routing: skipped(nowMs + 60_000),
+          blocks: blocked(nowMs + 60_000),
         }),
       );
       expect(named).toMatchObject({
@@ -1236,7 +1272,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
   );
 
   it.effect(
-    "reports each account of a pooled model with its own skip and dispatches a free one",
+    "reports each account of a routed model with its own state and dispatches a free one",
     () =>
       Effect.gen(function* () {
         const resolver = yield* Resolver.AgentRoleResolver;
@@ -1252,17 +1288,14 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
             capabilities: { optionDescriptors: [] },
           })),
         };
+        // No `anyAccount`: every entry is its model alone.
         const policy: AgentPolicySnapshot = {
           ...original,
           manifest: {
             ...original.manifest,
             models: {
               ...original.manifest.models,
-              opus: {
-                driverKind: ProviderDriverKind.make("pi"),
-                model: "acct-a/claude-opus-5-5",
-                anyAccount: true,
-              },
+              opus: { driverKind: ProviderDriverKind.make("pi"), model: "acct-a/claude-opus-5-5" },
             },
             lists: { ...original.manifest.lists, workhorse: [{ model: "opus" }] },
           },
@@ -1272,92 +1305,57 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
             snapshot: policy,
             providers: [pi],
             request: request({ role: "implementer" }),
-            routing: {
-              pooledModelKeys: ["claude-opus-5-5"],
-              accountSkips: {
-                "pi-test:acct-a": {
-                  "claude-opus-5-5": {
-                    until: DateTime.formatIso(DateTime.makeUnsafe(nowMs + 60_000)),
-                    reportedReset: true,
-                  },
-                },
-              },
-            },
+            routing: { pooledModelKeys: ["claude-opus-5-5"] },
+            blocks: [block("pi-test:acct-a", "claude-opus-5-5", nowMs, nowMs + 60_000)],
           }),
         );
-        // The free second account serves, and only the skipped first is reported usage-limited.
+        // The free second account serves, and only the blocked first is reported cooling down.
         expect(preview.selection?.model).toBe("acct-b/claude-opus-5-5");
         expect(
           Object.fromEntries(preview.candidates.map(({ model, reason }) => [model, reason])),
         ).toEqual({
-          "acct-a/claude-opus-5-5": "usage-limited",
+          "acct-a/claude-opus-5-5": "cooldown",
           "acct-b/claude-opus-5-5": "selected",
         });
+        // With the account the binding names gone, the routed model still runs on another.
+        const withoutAnchor: ServerProvider = {
+          ...pi,
+          models: pi.models.filter((model) => model.slug === "acct-b/claude-opus-5-5"),
+        };
+        const anchorless = yield* resolver.preview(
+          input({
+            snapshot: policy,
+            providers: [withoutAnchor],
+            request: request({ role: "implementer" }),
+            routing: { pooledModelKeys: ["claude-opus-5-5"] },
+          }),
+        );
+        expect(anchorless.selection?.model).toBe("acct-b/claude-opus-5-5");
       }),
   );
 
-  it.effect("moves past an overloaded model until its cool-down ends", () =>
-    Effect.gen(function* () {
-      const resolver = yield* Resolver.AgentRoleResolver;
-      const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
-      const review = request({
-        role: "reviewer",
-        sourceRevision: "reviewed-commit",
-        review: changeReview,
-      });
-      const overloaded = (
-        entries: ReadonlyArray<readonly [ServerProvider, string, number]>,
-      ): ReadonlyMap<string, number> =>
-        new Map(
-          entries.map(([account, model, until]) => [
-            providerOverloadKey(account.instanceId, model),
-            until,
-          ]),
-        );
-
-      // Sonnet leads the list; while it is overloaded the next entry serves, and discovery
-      // says why and until when.
-      const passedOver = yield* resolver.preview(
-        input({
-          request: review,
-          overloads: overloaded([[claude, claudeModel, nowMs + 60_000]]),
-        }),
-      );
-      expect(passedOver.selection?.model).toBe(codexModel);
-      expect(passedOver.candidates).toContainEqual(
-        expect.objectContaining({
-          alias: "sonnet",
-          reason: "overloaded",
-          until: DateTime.formatIso(DateTime.makeUnsafe(nowMs + 60_000)),
-        }),
-      );
-
-      // Overload belongs to one model: another model on the same account does not demote it.
-      const otherModel = yield* resolve(
-        input({
-          request: review,
-          overloads: overloaded([[claude, "another-model", nowMs + 60_000]]),
-        }),
-      );
-      expect(otherModel.model).toBe(claudeModel);
-
-      // Once the cool-down has ended, the list's first choice serves again.
-      const recovered = yield* resolve(
-        input({ request: review, overloads: overloaded([[claude, claudeModel, nowMs]]) }),
-      );
-      expect(recovered.model).toBe(claudeModel);
-
-      // Among overloaded models the one whose cool-down ends first serves.
-      const bothOverloaded = yield* resolve(
-        input({
-          request: review,
-          overloads: overloaded([
-            [claude, claudeModel, nowMs + 120_000],
-            [codex, codexModel, nowMs + 60_000],
-          ]),
-        }),
-      );
-      expect(bothOverloaded.model).toBe(codexModel);
-    }),
+  it.effect(
+    "refuses with the earliest return when every account is out, and tries a named model's cooling account",
+    () =>
+      Effect.gen(function* () {
+        const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
+        const review = request({
+          role: "reviewer",
+          sourceRevision: "reviewed-commit",
+          review: changeReview,
+        });
+        const blocks = [
+          block(claude.instanceId, claudeModel, nowMs, nowMs + 120_000),
+          block(codex.instanceId, codexModel, nowMs, nowMs + 60_000),
+        ];
+        const refused = yield* refusal(input({ request: review, blocks }));
+        expect(refused.reason).toBe("usage-limited");
+        expect(refused.detail).toContain(iso(nowMs + 60_000));
+        // A cool-down is a guess: a model the caller names is tried on its account.
+        expect(
+          (yield* resolve(input({ request: review, blocks, selection: { model: claudeModel } })))
+            .model,
+        ).toBe(claudeModel);
+      }),
   );
 });
