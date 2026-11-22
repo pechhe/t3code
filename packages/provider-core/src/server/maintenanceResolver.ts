@@ -1,10 +1,12 @@
 // @effect-diagnostics nodeBuiltinImport:off -- Synchronous hashing keeps env values out of cache keys.
 import * as NodeCrypto from "node:crypto";
 export type {
+  ProviderComponentUpdate,
   ProviderMaintenanceCapabilities,
   ProviderMaintenanceCommandAction,
 } from "@t3tools/provider-core/server/maintenance";
 import type {
+  ProviderComponentUpdate,
   ProviderMaintenanceCapabilities,
   ProviderMaintenanceCommandAction,
 } from "@t3tools/provider-core/server/maintenance";
@@ -408,7 +410,7 @@ export function parseHomebrewLatestVersion(
   return version === "latest" ? null : version;
 }
 
-const runProbe = Effect.fn("runProbe")(function* (
+export const runProbe = Effect.fn("runProbe")(function* (
   command: string,
   args: ReadonlyArray<string>,
   env: NodeJS.ProcessEnv,
@@ -1316,23 +1318,64 @@ function manualUpdateMessage(latestVersion: string, installPath: string | undefi
     : `Version ${latestVersion} is out. Update it with the app or tool that installed it.`;
 }
 
+function componentUpdatesMessage(input: {
+  readonly currentVersion: string;
+  readonly latestVersion: string | null;
+  readonly selfBehind: boolean;
+  readonly componentUpdates: ReadonlyArray<ProviderComponentUpdate>;
+  readonly capabilities: ProviderMaintenanceCapabilities;
+}): string {
+  const items = [
+    ...(input.selfBehind && input.latestVersion
+      ? [
+          `${input.capabilities.packageName ?? "Provider"} ${input.currentVersion} → ${input.latestVersion}`,
+        ]
+      : []),
+    ...input.componentUpdates.map(
+      (component) => `${component.name} ${component.currentVersion} → ${component.latestVersion}`,
+    ),
+  ].join(", ");
+  return input.capabilities.update === null
+    ? `Updates available: ${items}. Update them with the app or tool that installed them.`
+    : `Updates available: ${items}. Sessions already running keep the old version until they restart.`;
+}
+
 function deriveVersionAdvisory(input: {
   readonly currentVersion: string | null;
   readonly latestVersion: string | null;
+  readonly componentUpdates: ReadonlyArray<ProviderComponentUpdate> | null;
   readonly capabilities: ProviderMaintenanceCapabilities;
 }): Pick<ServerProviderVersionAdvisory, "status" | "message"> {
   if (!input.currentVersion) {
     return { status: "unknown", message: null };
   }
-  if (!input.latestVersion) {
-    return { status: "unknown", message: null };
-  }
-  if (
+  const selfBehind =
+    input.latestVersion !== null &&
     (input.capabilities.compareVersions ?? compareSemverVersions)(
       input.currentVersion,
       input.latestVersion,
-    ) < 0
+    ) < 0;
+  // A wrapper names what it updates, since its version is not the one the provider shows.
+  const componentUpdates = input.componentUpdates ?? [];
+  if (
+    componentUpdates.length > 0 ||
+    (selfBehind && input.capabilities.installedVersion !== undefined)
   ) {
+    return {
+      status: "behind_latest",
+      message: componentUpdatesMessage({
+        currentVersion: input.currentVersion,
+        latestVersion: input.latestVersion,
+        selfBehind,
+        componentUpdates,
+        capabilities: input.capabilities,
+      }),
+    };
+  }
+  if (!input.latestVersion || input.componentUpdates === null) {
+    return { status: "unknown", message: null };
+  }
+  if (selfBehind) {
     return {
       status: "behind_latest",
       message:
@@ -1348,6 +1391,7 @@ export function createProviderVersionAdvisory(input: {
   readonly driver: ProviderDriverKind;
   readonly currentVersion: string | null;
   readonly latestVersion?: string | null;
+  readonly componentUpdates?: ReadonlyArray<ProviderComponentUpdate> | null;
   readonly checkedAt?: string | null;
   readonly maintenanceCapabilities?: ProviderMaintenanceCapabilities;
 }): ServerProviderVersionAdvisory {
@@ -1357,13 +1401,16 @@ export function createProviderVersionAdvisory(input: {
   const advisory = deriveVersionAdvisory({
     currentVersion: input.currentVersion,
     latestVersion,
+    componentUpdates: input.componentUpdates === undefined ? [] : input.componentUpdates,
     capabilities,
   });
 
   return {
     status: advisory.status,
     currentVersion: input.currentVersion,
-    latestVersion,
+    // Clients offer an update only with a latest version; component updates keep the current one.
+    latestVersion:
+      advisory.status === "behind_latest" ? (latestVersion ?? input.currentVersion) : latestVersion,
     updateCommand:
       resolveLatestProviderUpdateAction(capabilities, latestVersion)?.command ??
       capabilities.manualCommand ??
@@ -1372,6 +1419,7 @@ export function createProviderVersionAdvisory(input: {
     canInstallVersion: makeTargetedProviderUpdateAction(capabilities, "0.0.0") !== null,
     checkedAt: input.checkedAt ?? null,
     message: advisory.message,
+    ...(capabilities.installedVersion === undefined ? {} : { tracksRuntime: false }),
   };
 }
 
@@ -1407,10 +1455,20 @@ function installerLatestVersionKey(capabilities: ProviderMaintenanceCapabilities
 export function latestProviderVersionCacheKeys(
   capabilities: ProviderMaintenanceCapabilities,
 ): ReadonlyArray<string> {
-  return [capabilities.packageName, installerLatestVersionKey(capabilities)].filter(
-    (key) => key !== null,
-  );
+  return [
+    capabilities.packageName,
+    installerLatestVersionKey(capabilities),
+    ...(capabilities.componentCacheKeys ?? []),
+  ].filter((key) => key !== null);
 }
+
+/** The npm registry's latest release, sharing the provider latest-version cache. */
+export const resolveLatestNpmVersion = Effect.fn("resolveLatestNpmVersion")(function* (
+  packageName: string,
+) {
+  const latestVersions = yield* ProviderLatestVersions.ProviderLatestVersions;
+  return yield* latestVersions.cached(packageName, fetchNpmLatestVersion(packageName));
+});
 
 export const resolveLatestProviderVersion = Effect.fn("resolveLatestProviderVersion")(function* (
   maintenanceCapabilities: ProviderMaintenanceCapabilities,
@@ -1458,7 +1516,11 @@ export const enrichProviderSnapshotWithVersionAdvisory = Effect.fn(
   const capabilities =
     maintenanceCapabilities ?? makeManualProviderMaintenanceCapabilities(snapshot.driver);
   const currentVersion =
-    snapshot.installedVersion !== undefined ? snapshot.installedVersion : snapshot.version;
+    capabilities.installedVersion !== undefined
+      ? capabilities.installedVersion
+      : snapshot.installedVersion !== undefined
+        ? snapshot.installedVersion
+        : snapshot.version;
   const shouldResolveLatestVersion =
     options?.enableProviderUpdateChecks !== false &&
     snapshot.enabled &&
@@ -1476,13 +1538,20 @@ export const enrichProviderSnapshotWithVersionAdvisory = Effect.fn(
     };
   }
 
-  const latestVersion = yield* resolveLatestProviderVersion(capabilities);
+  const [latestVersion, componentUpdates] = yield* Effect.all(
+    [
+      resolveLatestProviderVersion(capabilities),
+      capabilities.lookupComponentUpdates ?? Effect.succeed([]),
+    ],
+    { concurrency: "unbounded" },
+  );
   return {
     ...snapshot,
     versionAdvisory: createProviderVersionAdvisory({
       driver: snapshot.driver,
       currentVersion,
       latestVersion,
+      componentUpdates,
       checkedAt: DateTime.formatIso(yield* DateTime.now),
       maintenanceCapabilities: capabilities,
     }),

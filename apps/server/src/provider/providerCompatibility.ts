@@ -133,7 +133,11 @@ export function applyProviderCompatibility(
     resolveProviderCompatibility(policies, snapshot.driver, version) ??
     resolveProviderCompatibility(fallback, snapshot.driver, version);
   const advisory = resolve(snapshot.version);
-  const latestVersion = snapshot.versionAdvisory?.latestVersion;
+  // A wrapper's releases (Pi-Bolt around Pi) do not carry the runtime version the policy rates.
+  const latestVersion =
+    snapshot.versionAdvisory?.tracksRuntime === false
+      ? undefined
+      : snapshot.versionAdvisory?.latestVersion;
   const latestAdvisory = latestVersion ? resolve(latestVersion) : undefined;
   const updateCommand = snapshot.versionAdvisory?.updateCommand;
   // The maintenance resolver emits this command only for confirmed Homebrew installs.

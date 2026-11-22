@@ -208,6 +208,8 @@ export const ServerProviderVersionAdvisory = Schema.Struct({
   canInstallVersion: Schema.optionalKey(Schema.Boolean),
   checkedAt: Schema.NullOr(IsoDateTime),
   message: Schema.NullOr(TrimmedNonEmptyString),
+  // False when these versions are a wrapper's (Pi-Bolt around Pi), not the runtime's `version`.
+  tracksRuntime: Schema.optionalKey(Schema.Boolean),
 });
 export type ServerProviderVersionAdvisory = typeof ServerProviderVersionAdvisory.Type;
 

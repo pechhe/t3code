@@ -514,11 +514,11 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
                   latestVersions,
                 ),
               ));
-            const advisory = ModelManifest.providerCompatibility(
-              manifest,
-              provider,
-              candidateVersion,
-            );
+            // A wrapper's release numbers are not the runtime's, so the policy cannot rate them.
+            const advisory =
+              fresh.installedVersion === undefined
+                ? ModelManifest.providerCompatibility(manifest, provider, candidateVersion)
+                : undefined;
             const command =
               targetVersion !== undefined
                 ? makeTargetedProviderUpdateAction(fresh, targetVersion)
@@ -637,6 +637,10 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
                     : verifiedProvider.version;
                 return (
                   !isStillInstalled(verifiedProvider) ||
+                  // A wrapper's update counts only once a fresh check finds nothing behind.
+                  (verified.installedVersion !== undefined &&
+                    verifiedProvider.versionAdvisory?.status !== "current" &&
+                    verifiedProvider.versionAdvisory?.status !== "behind_latest") ||
                   (verifiedProvider.status === "error" &&
                     (verifiedProvider.auth.status !== "unauthenticated" ||
                       !verifiedProvider.version)) ||

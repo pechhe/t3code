@@ -1,5 +1,15 @@
 import type { ProviderDriverKind } from "@t3tools/contracts";
 import type * as Effect from "effect/Effect";
+import type * as HttpClient from "effect/http/HttpClient";
+
+import type * as ProviderLatestVersions from "./ProviderLatestVersions.ts";
+
+/** Something the provider's update command also brings current, such as a Pi package. */
+export interface ProviderComponentUpdate {
+  readonly name: string;
+  readonly currentVersion: string;
+  readonly latestVersion: string;
+}
 
 export interface ProviderMaintenanceCapabilities {
   readonly provider: ProviderDriverKind;
@@ -19,6 +29,22 @@ export interface ProviderMaintenanceCapabilities {
   readonly installPath?: string;
   /** Displayed for manual updates; never executed by T3 Code. */
   readonly manualCommand?: string;
+  /**
+   * The version the update command manages, when the CLI reports another (Pi-Bolt wraps Pi).
+   * Its releases are not the runtime's, so compatibility policy never rates them.
+   */
+  readonly installedVersion?: string | null;
+  /** Latest-version cache keys the component lookup reads, dropped with the provider's own. */
+  readonly componentCacheKeys?: ReadonlyArray<string>;
+  /**
+   * Components behind their latest release; any makes the provider `behind_latest`. `null` means
+   * a component could not be checked, so with nothing found behind the advisory stays `unknown`.
+   */
+  readonly lookupComponentUpdates?: Effect.Effect<
+    ReadonlyArray<ProviderComponentUpdate> | null,
+    never,
+    HttpClient.HttpClient | ProviderLatestVersions.ProviderLatestVersions
+  >;
 }
 
 export interface ProviderMaintenanceCommandAction {

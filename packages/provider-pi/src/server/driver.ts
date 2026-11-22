@@ -47,9 +47,9 @@ import type { ServerProviderDraft } from "@t3tools/provider-core/server/snapshot
 import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
 import {
   makeCachedProviderMaintenanceResolution,
-  makePackageManagedProviderMaintenanceResolver,
   resolveProviderMaintenanceCapabilitiesEffect,
 } from "@t3tools/provider-core/server/maintenanceResolver";
+import { PI_MAINTENANCE } from "./maintenance.ts";
 import {
   haveProviderSnapshotSettingsChanged,
   makeProviderSnapshotSettingsSource,
@@ -59,12 +59,6 @@ import {
 const decodePiSettings = Schema.decodeSync(PiSettings);
 
 const DRIVER_KIND = ProviderDriverKind.make("pi");
-const UPDATE = makePackageManagedProviderMaintenanceResolver({
-  provider: DRIVER_KIND,
-  npmPackageName: "@earendil-works/pi-coding-agent",
-  mise: { tool: "pi" },
-  nativeUpdate: { args: ["update", "--self"] },
-});
 
 export type PiDriverEnv =
   | PiAdapterV2DriverEnv
@@ -141,7 +135,7 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
     });
     const effectiveConfig = { ...config, enabled } satisfies PiSettings;
     const resolveMaintenance = yield* makeCachedProviderMaintenanceResolution(
-      resolveProviderMaintenanceCapabilitiesEffect(UPDATE, {
+      resolveProviderMaintenanceCapabilitiesEffect(PI_MAINTENANCE, {
         binaryPath: effectiveConfig.binaryPath,
         env: processEnv,
       }).pipe(
