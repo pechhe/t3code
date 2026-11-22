@@ -9,8 +9,10 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 
@@ -18,7 +20,8 @@ import { reportLabel } from "@t3tools/provider-core/server/notification";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 
 import { forkParked } from "../serverActivation.ts";
-import { arcLeadThreadId } from "./arcRun.ts";
+import * as ServerSettings from "../serverSettings.ts";
+import { activeRunOf, arcLeadThreadId, HARD_STOP_BOUNDARY, isArcRunObject, isCoveredByAway } from "./arcRun.ts";
 import { requestPrompt } from "./threadWatch.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
@@ -34,12 +37,25 @@ export class DelegatedTaskQuestionReactor extends Context.Service<
 const make = Effect.gen(function* () {
   const engine = yield* Orchestrator.OrchestratorV2;
   const projections = yield* ProjectionStore.ProjectionStoreV2;
+  const serverSettings = yield* Effect.serviceOption(ServerSettings.ServerSettingsService);
 
-  /** Whether the parent answers for an Arc: it runs one, or it is a Spec lead under one that does. */
-  const arcRunOf = Effect.fnUntraced(function* (parent: OrchestrationV2AppThread) {
-    if (parent.arcRun !== undefined) return parent.arcRun;
+  /** Returns "arc" for an Arc run, "unattended" for an autonomous run or global Away, else undefined. */
+  const parentUnattendedMode = Effect.fnUntraced(function* (parent: OrchestrationV2AppThread) {
+    const own = activeRunOf(parent);
+    if (own !== undefined) return isArcRunObject(own) ? ("arc" as const) : ("unattended" as const);
     const arcLeadId = arcLeadThreadId(parent);
-    return arcLeadId === undefined ? undefined : (yield* projections.getThread(arcLeadId)).arcRun;
+    if (arcLeadId !== undefined) {
+      const lead = yield* projections.getThread(arcLeadId);
+      const leadRun = activeRunOf(lead);
+      if (leadRun !== undefined) {
+        return isArcRunObject(leadRun) ? ("arc" as const) : ("unattended" as const);
+      }
+    }
+    if (Option.isSome(serverSettings)) {
+      const { away } = yield* serverSettings.value.getSettings;
+      if (away && isCoveredByAway(parent, yield* DateTime.now)) return "unattended" as const;
+    }
+    return undefined;
   });
 
   const wakeParent = Effect.fnUntraced(function* (
@@ -50,11 +66,11 @@ const make = Effect.gen(function* () {
     const key = `${task.threadId}:${request.id}`;
     const label = reportLabel(task.title?.trim() || task.prompt);
     const parent = yield* projections.getThread(task.threadId);
-    const arcRun = yield* arcRunOf(parent);
+    const unattendedMode = yield* parentUnattendedMode(parent);
     const answering =
-      arcRun === undefined
-        ? "Answer it with action respond when the answer follows from the task or the user's instructions; otherwise ask the user, then answer it."
-        : "You answer for this Arc: decide from the evidence and the Arc's authority, then answer it with action respond. Ask the owner only for what truly needs him (acceptance, promotion, spending, permission widening, an irreversible choice).";
+      unattendedMode !== undefined
+        ? `You answer for this ${unattendedMode === "arc" ? "Arc" : "unattended run"}: decide reversible choices yourself from the evidence, testing and governing intent, log consequential decisions with t3_thread_update (action arc_run, op decision), then answer with action respond. Ask the owner only for what is truly hard to reverse (${HARD_STOP_BOUNDARY}).`
+      : "Answer it with action respond when the answer follows from the task or the user's instructions; otherwise ask the user, then answer it.";
     const situation =
       request.responseCapability.type === "message"
         ? `Delegated task ${task.id} asked a question and is still working.`
@@ -78,14 +94,13 @@ const make = Effect.gen(function* () {
   });
 
   // An approval is the owner's alone, and a parent cannot read one, so the wake carries its prompt.
-  const tellArcLeadOfApproval = Effect.fnUntraced(function* (
+  const tellUnattendedParentOfApproval = Effect.fnUntraced(function* (
     task: OrchestrationV2Subagent,
     request: OrchestrationV2RuntimeRequest,
   ) {
     if (task.childThreadId === null) return;
     const parent = yield* projections.getThread(task.threadId);
-    const arcRun = yield* arcRunOf(parent);
-    if (arcRun === undefined) return;
+    if ((yield* parentUnattendedMode(parent)) === undefined) return;
     const key = `${task.threadId}:${request.id}`;
     const label = reportLabel(task.title?.trim() || task.prompt);
     const { turnItems } = yield* projections.getThreadRecords(task.childThreadId, ["turnItems"], {
@@ -243,7 +258,7 @@ const make = Effect.gen(function* () {
             candidate.origin === "app_owned" &&
             (candidate.id === taskId || candidate.childThreadId === child.id),
         );
-        if (task !== undefined) yield* tellArcLeadOfApproval(task, event.payload);
+        if (task !== undefined) yield* tellUnattendedParentOfApproval(task, event.payload);
       }
       if (event.payload.kind !== "user_input") {
         return;

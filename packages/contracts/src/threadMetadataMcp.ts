@@ -8,7 +8,13 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
-import { OrchestrationV2ThreadArcRun, OrchestrationV2ThreadWorkItem } from "./orchestrationV2.ts";
+import {
+  OrchestrationV2ThreadArcRun,
+  OrchestrationV2ThreadAutonomousRun,
+  OrchestrationV2ThreadDecisionEntry,
+  OrchestrationV2ThreadDecisionInput,
+} from "./autonomousRun.ts";
+import { OrchestrationV2ThreadWorkItem } from "./orchestrationV2.ts";
 import { ThreadLinkedPullRequest } from "./threadPullRequest.ts";
 import { ThreadTitleRegeneration } from "./threadTitle.ts";
 
@@ -94,18 +100,21 @@ export const ThreadMetadataMcpUpdateInput = Schema.Struct({
   }),
   arcRun: Schema.optional(
     Schema.Struct({
-      op: Schema.Literals(["start", "checkpoint", "pause", "end"]),
+      op: Schema.Literals(["start", "checkpoint", "decision", "pause", "end"]),
       arc: Schema.optional(PositiveInt),
+      spec: Schema.optional(PositiveInt),
+      label: Schema.optional(TrimmedNonEmptyString),
       ref: Schema.optional(TrimmedNonEmptyString),
       specs: Schema.optional(Schema.NonEmptyArray(PositiveInt)),
       plan: Schema.optional(Schema.NonEmptyArray(PositiveInt)),
       current: Schema.optional(Schema.NullOr(PositiveInt)),
       phase: Schema.optional(TrimmedNonEmptyString),
       note: Schema.optional(TrimmedNonEmptyString),
+      decision: Schema.optional(OrchestrationV2ThreadDecisionInput),
     }),
   ).annotate({
     description:
-      "Required only for arc_run, on your own thread. start names arc (its Forge number) and ref, plus specs (Forge numbers) to answer for only those Specs in that Arc; checkpoint names phase and note; only end finishes the run. Both start and checkpoint take plan, the Spec numbers in the order you will take them (with specs, exactly those), and current, the Spec you are on (null clears it). A new phase or current Spec counts as progress; reordering alone does not.",
+      "Required only for arc_run, on your own thread. start names one of: arc (Forge Arc number, optional ref/specs/plan/current), spec (single Forge Spec number, optional ref), or label (open-ended task goal). checkpoint names phase and note (plus plan/current on Arc runs). decision logs one consequential assumption/decision ({decision,alternative,why,howToReverse,source?}) on any active run or top-level thread. pause holds the run; end finishes it and returns decisionLog.",
   }),
   clientRequestId: Schema.optional(ThreadMetadataClientRequestId),
 }).check(
@@ -119,11 +128,20 @@ export const ThreadMetadataMcpUpdateInput = Schema.Struct({
       ) {
         return "arc_run requires arcRun and accepts no title, pullRequest or workItem.";
       }
-      if (input.arcRun.op === "start" && input.arcRun.arc === undefined) {
-        return "arc_run start requires arc.";
+      if (input.arcRun.op === "start") {
+        const targets = [
+          input.arcRun.arc !== undefined,
+          input.arcRun.spec !== undefined,
+          input.arcRun.label !== undefined,
+        ].filter(Boolean).length;
+        if (targets === 0) return "arc_run start requires one of arc, spec, or label.";
+        if (targets > 1) return "arc_run start accepts only one of arc, spec, or label.";
       }
       if (input.arcRun.op === "checkpoint" && input.arcRun.phase === undefined) {
         return "arc_run checkpoint requires phase.";
+      }
+      if (input.arcRun.op === "decision" && input.arcRun.decision === undefined) {
+        return "arc_run decision requires decision.";
       }
       return true;
     }
@@ -166,6 +184,8 @@ export const ThreadMetadataMcpUpdateResult = Schema.Struct({
   linkedPullRequest: Schema.NullOr(ThreadLinkedPullRequest),
   workItem: Schema.NullOr(OrchestrationV2ThreadWorkItem),
   arcRun: Schema.optional(OrchestrationV2ThreadArcRun),
+  autonomousRun: Schema.optional(OrchestrationV2ThreadAutonomousRun),
+  decisionLog: Schema.optional(Schema.Array(OrchestrationV2ThreadDecisionEntry)),
   updatedAt: IsoDateTime,
 });
 export type ThreadMetadataMcpUpdateResult = typeof ThreadMetadataMcpUpdateResult.Type;

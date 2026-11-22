@@ -2114,6 +2114,7 @@ export function threadShellFromProjection(
       ? {}
       : { endedThreadWatches: projection.thread.endedThreadWatches }),
     ...(projection.thread.arcRun === undefined ? {} : { arcRun: projection.thread.arcRun }),
+    ...(projection.thread.autonomousRun === undefined ? {} : { autonomousRun: projection.thread.autonomousRun }),
     ...(projection.thread.parkedWaits === undefined
       ? {}
       : { parkedWaits: projection.thread.parkedWaits }),
@@ -2497,6 +2498,7 @@ function shellFromState(input: {
       ? {}
       : { endedThreadWatches: input.state.thread.endedThreadWatches }),
     ...(input.state.thread.arcRun === undefined ? {} : { arcRun: input.state.thread.arcRun }),
+    ...(input.state.thread.autonomousRun === undefined ? {} : { autonomousRun: input.state.thread.autonomousRun }),
     ...(input.state.thread.parkedWaits === undefined
       ? {}
       : { parkedWaits: input.state.thread.parkedWaits }),
@@ -5243,6 +5245,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           WHERE t.deleted_at IS NULL
             -- A held Arc stays held until its owner replies, whatever the limit window does.
             AND COALESCE(json_extract(t.payload_json, '$.arcRun.state'), '') NOT IN ('paused', 'attention')
+            AND COALESCE(json_extract(t.payload_json, '$.autonomousRun.state'), '') NOT IN ('paused', 'attention')
             -- The sweep runs every scheduler tick. Without this list the latest-run
             -- lookup above sorts every run of every thread, tens of milliseconds
             -- for one long thread; only threads with a usage-limit failure qualify.
@@ -6258,6 +6261,13 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           SELECT payload_json FROM orchestration_v2_projection_threads
             INDEXED BY orchestration_v2_projection_threads_arc_run_idx
           WHERE deleted_at IS NULL AND json_extract(payload_json, '$.arcRun') IS NOT NULL
+          UNION
+          SELECT payload_json FROM orchestration_v2_projection_threads
+            INDEXED BY orchestration_v2_projection_threads_autonomous_run_idx
+          WHERE deleted_at IS NULL
+            AND CASE WHEN json_valid(payload_json) THEN
+              json_extract(payload_json, '$.autonomousRun') IS NOT NULL
+              ELSE 0 END
         `;
         return yield* Effect.forEach(rows, (row) => decodeThreadPayload(row.payload_json));
       },
@@ -9188,6 +9198,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               AND json_extract(t.payload_json, '$.pinnedAt') IS NULL
               AND json_extract(t.payload_json, '$.autoSettleDisabledAt') IS NULL
               AND json_extract(t.payload_json, '$.arcRun') IS NULL
+              AND json_extract(t.payload_json, '$.autonomousRun') IS NULL
               AND (
                 json_extract(t.payload_json, '$.lineage.relationshipToParent') IS NOT 'subagent'
                 OR NOT EXISTS (

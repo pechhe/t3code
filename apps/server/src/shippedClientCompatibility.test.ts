@@ -793,3 +793,32 @@ it.effect("a shipped client decodes the items of a thread whose detail expired",
     assert.notDeepEqual(violations(reasoning, shipped, "reasoning"), []);
   }).pipe(Effect.provide(NodeServices.layer)),
 );
+
+it("a client that predates autonomousRun and decisionLog still decodes a thread shell carrying them", () => {
+  const { id, title, arcRun } = OrchestrationV2ThreadShell.fields;
+  const shippedShell = Schema.Struct({ id, title, arcRun });
+  const decoded = Schema.decodeUnknownSync(shippedShell)({
+    id: "thread-auto-1",
+    title: "Autonomous",
+    autonomousRun: {
+      kind: "spec",
+      spec: { number: 8708, ref: "T3-858" },
+      state: "active",
+      startedAt: "2026-11-22T12:00:00.000Z",
+      progressAt: "2026-11-22T12:00:00.000Z",
+      ceilingSince: "2026-11-22T12:00:00.000Z",
+    },
+    decisionLog: [
+      {
+        id: "dec-1",
+        decision: "Keep arcRun wire shape unchanged",
+        alternative: "Make arcRun.arc optional",
+        why: "Shipped clients decode arcRun.arc unguarded",
+        howToReverse: "Migrate once old clients retire",
+        source: "T3-858",
+        recordedAt: "2026-11-22T12:05:00.000Z",
+      },
+    ],
+  });
+  assert.deepEqual(Object.keys(decoded).toSorted(), ["id", "title"]);
+});

@@ -19,11 +19,13 @@ import * as Stream from "effect/Stream";
 import { forkParked } from "../serverActivation.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import {
+  activeRunOf,
   ARC_RUN_STALL_IDLE_MINUTES,
   ARC_RUN_STALL_OPEN_WORK_MINUTES,
   ARC_RUN_WATCHDOG_MINUTES,
   type ArcRunTrigger,
   decideArcRunWake,
+  hasActiveRun,
   isDelegatedTaskDone,
   latestArcRunTurn,
   needsOwnerAnswer,
@@ -43,7 +45,7 @@ export class ArcRunReactor extends Context.Service<
   {
     readonly start: () => Effect.Effect<void, never, Scope.Scope>;
     readonly handle: (event: OrchestrationV2DomainEvent) => Effect.Effect<void>;
-    /** One watchdog pass over every active run. Calls no model unless a run needs its lead. */
+    /** One watchdog pass over every active Arc or autonomous run. Calls no model unless needed. */
     readonly sweep: (trigger: Exclude<ArcRunTrigger, "event">) => Effect.Effect<void>;
   }
 >()("t3/orchestration-v2/ArcRunReactor") {}
@@ -130,7 +132,7 @@ const make = Effect.gen(function* () {
       ["runs", "subagents", "providerThreads", "turnItems"],
       PENDING_ITEMS,
     );
-    if (state.thread.arcRun?.state !== "active") return;
+    if (activeRunOf(state.thread)?.state !== "active") return;
     if (decideArcRunWake(state, "watchdog")?.kind === "attention") return;
 
     const now = DateTime.toEpochMillis(yield* DateTime.now);
@@ -224,12 +226,12 @@ const make = Effect.gen(function* () {
     function* (event) {
       if (event.type !== "run.updated" || event.payload.status !== "completed") return;
       const thread = yield* projections.getThread(event.threadId);
-      if (thread.arcRun?.state === "active") yield* evaluate(event.threadId, "event");
+      if (hasActiveRun(thread)) yield* evaluate(event.threadId, "event");
       if (thread.lineage.relationshipToParent !== "subagent") return;
       const parentThreadId = thread.lineage.parentThreadId;
       if (parentThreadId === null) return;
       const parent = yield* projections.getThread(parentThreadId);
-      if (parent.arcRun?.state === "active") yield* evaluate(parentThreadId, "event");
+      if (hasActiveRun(parent)) yield* evaluate(parentThreadId, "event");
     },
     (effect, event) =>
       effect.pipe(
@@ -243,7 +245,7 @@ const make = Effect.gen(function* () {
     projections.listArcRunThreads().pipe(
       Effect.flatMap((threads) =>
         Effect.forEach(
-          threads.filter((thread) => thread.arcRun?.state === "active"),
+          threads.filter((thread) => hasActiveRun(thread)),
           (thread) =>
             // Let an attention wake settle before deciding whether to report a stalled child.
             evaluate(thread.id, trigger).pipe(

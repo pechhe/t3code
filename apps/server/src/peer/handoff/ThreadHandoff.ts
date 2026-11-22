@@ -90,7 +90,7 @@ export const UnansweredMoveRecheck = Context.Reference<Duration.Duration>(
  * waiting on it.
  */
 export const moveBlocker = (
-  thread: Pick<OrchestrationV2AppThread, "agentTask" | "lineage" | "parkedWaits" | "arcRun">,
+  thread: Pick<OrchestrationV2AppThread, "agentTask" | "lineage" | "parkedWaits" | "arcRun" | "autonomousRun">,
   shell: Pick<OrchestrationV2ThreadShell, "pendingBackgroundTasks"> | null,
 ): string | null => {
   if (isDelegatedTaskThread(thread)) {
@@ -98,6 +98,9 @@ export const moveBlocker = (
   }
   if (thread.arcRun !== undefined && thread.arcRun.state !== "paused") {
     return "This thread is running an Arc, which T3 wakes here. Stop it first, then move the thread.";
+  }
+  if (thread.autonomousRun !== undefined && thread.autonomousRun.state !== "paused") {
+    return "This thread has an active autonomous run, which T3 wakes here. Stop it first, then move the thread.";
   }
   const staying = [
     // A pull request watch is not work: the watch itself moves.

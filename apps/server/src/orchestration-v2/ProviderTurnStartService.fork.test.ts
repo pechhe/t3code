@@ -112,6 +112,7 @@ function makeLocalCommandHarness(input: {
     readonly instanceId?: string;
   };
   readonly createdBy?: "agent" | "system";
+  readonly serverSettings?: Parameters<typeof ServerSettings.layerTest>[0];
   readonly scheduledTaskId?: ScheduledTaskId;
   readonly logoutFailure?: string;
   readonly openFailure?: unknown;
@@ -1223,7 +1224,7 @@ function makeLocalCommandHarness(input: {
             ...(input.attachmentsDir === undefined ? {} : { attachmentsDir: input.attachmentsDir }),
             ...(input.baseDir === undefined ? {} : { baseDir: input.baseDir }),
           },
-          input.claude?.settings,
+          input.serverSettings ?? input.claude?.settings,
         ),
         input.fileSystem === undefined
           ? FileSystem.layerNoop({ exists: () => Effect.succeed(true) })
@@ -1756,4 +1757,28 @@ effectIt.effect.each([
     Effect.scoped,
     Effect.provide(ProcessRunner.layer.pipe(Layer.provideMerge(NodeServices.layer))),
   ),
+);
+
+effectIt.effect("injects the unified unattended note from turn 1 when global Away is on and skips slash commands", () =>
+  Effect.gen(function* () {
+    const ordinary = makeLocalCommandHarness({
+      text: "Finish the refactor",
+      deliverTurn: true,
+      serverSettings: { away: true },
+    });
+    yield* ordinary.start;
+    const ordinaryText = ordinary.startTurn.mock.calls[0]![0].message.text;
+    expect(ordinaryText).toContain("Global Away is on");
+    expect(ordinaryText).toContain("Production deploys or migrations");
+    expect(ordinaryText).toContain("op decision");
+
+    const slash = makeLocalCommandHarness({
+      text: "/review",
+      deliverTurn: true,
+      claude: { usages: [], settings: { away: true } },
+    });
+    yield* slash.start;
+    const delivered = slash.startTurn.mock.calls[0]?.[0]?.message?.text ?? slash.startRootRun.mock.calls[0]?.[0]?.message?.text;
+    expect(delivered).toBe("/review");
+  }).pipe(Effect.scoped),
 );

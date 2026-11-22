@@ -109,6 +109,8 @@ export const layer: Layer.Layer<ThreadForkServiceV2> = Layer.succeed(
         projectMove: _sourceProjectMove,
         // One thread owns an Arc's run, and watching stays the source thread's.
         arcRun: _sourceArcRun,
+        autonomousRun: _sourceAutonomousRun,
+        decisionLog: _sourceDecisionLog,
         endedThreadWatches: _sourceEndedThreadWatches,
         parkedWaits: _sourceParkedWaits,
         parkedWaitGaveUp: _sourceParkedWaitGaveUp,

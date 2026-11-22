@@ -1158,6 +1158,13 @@ function threadDetail(
     ...threadSnooze(shell, nowMs),
     pinned: shell.pinnedAt != null,
     ...threadBackgroundWork(shell),
+    ...(projection.thread.arcRun === undefined ? {} : { arcRun: projection.thread.arcRun }),
+    ...(projection.thread.autonomousRun === undefined
+      ? {}
+      : { autonomousRun: projection.thread.autonomousRun }),
+    ...(projection.thread.decisionLog === undefined
+      ? {}
+      : { decisionLog: projection.thread.decisionLog }),
     createdAt: DateTime.formatIso(projection.thread.createdAt),
     updatedAt: DateTime.formatIso(projection.thread.updatedAt),
   };

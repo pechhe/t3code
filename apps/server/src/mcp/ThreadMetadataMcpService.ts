@@ -116,7 +116,7 @@ function resultFromThread(input: {
   readonly sequence: number;
   readonly thread: Pick<
     OrchestrationV2AppThread,
-    "id" | "title" | "titleRegeneration" | "linkedPullRequest" | "workItem" | "arcRun" | "updatedAt"
+    "id" | "title" | "titleRegeneration" | "linkedPullRequest" | "workItem" | "arcRun" | "autonomousRun" | "decisionLog" | "updatedAt"
   >;
 }): ThreadMetadataMcpUpdateResult {
   return {
@@ -135,6 +135,8 @@ function resultFromThread(input: {
     linkedPullRequest: input.thread.linkedPullRequest ?? null,
     workItem: input.thread.workItem ?? null,
     ...(input.thread.arcRun === undefined ? {} : { arcRun: input.thread.arcRun }),
+    ...(input.thread.autonomousRun === undefined ? {} : { autonomousRun: input.thread.autonomousRun }),
+    ...(input.thread.decisionLog === undefined ? {} : { decisionLog: input.thread.decisionLog }),
     updatedAt: DateTime.formatIso(input.thread.updatedAt),
   };
 }
@@ -211,11 +213,21 @@ const make = Effect.gen(function* () {
                       ...(arcRunInput!.ref === undefined ? {} : { ref: arcRunInput!.ref }),
                     },
                   }),
+              ...(arcRunInput!.spec === undefined
+                ? {}
+                : {
+                    spec: {
+                      number: arcRunInput!.spec,
+                      ...(arcRunInput!.ref === undefined ? {} : { ref: arcRunInput!.ref }),
+                    },
+                  }),
+              ...(arcRunInput!.label === undefined ? {} : { label: arcRunInput!.label }),
               ...(arcRunInput!.specs === undefined ? {} : { specs: arcRunInput!.specs }),
               ...(arcRunInput!.plan === undefined ? {} : { plan: arcRunInput!.plan }),
               ...(arcRunInput!.current === undefined ? {} : { current: arcRunInput!.current }),
               ...(arcRunInput!.phase === undefined ? {} : { phase: arcRunInput!.phase }),
               ...(arcRunInput!.note === undefined ? {} : { note: arcRunInput!.note }),
+              ...(arcRunInput!.decision === undefined ? {} : { decision: arcRunInput!.decision }),
             })
             .pipe(
               Effect.mapError((error) =>

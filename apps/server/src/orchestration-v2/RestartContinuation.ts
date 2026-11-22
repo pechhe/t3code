@@ -23,7 +23,7 @@ import { pinnedBinding } from "../agents/followup.ts";
 import * as Option from "effect/Option";
 import * as ServerSettings from "../serverSettings.ts";
 import { isNativeMaintenanceCommand } from "./CommandPolicy.ts";
-import { isArcRunHeld } from "./arcRun.ts";
+import { isThreadRunHeld } from "./arcRun.ts";
 import { MAX_CONTINUATION_CHAIN, serverContinuationCapReached } from "./serverContinuation.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 import {
@@ -257,7 +257,7 @@ export const continueRestartedRun = Effect.fn("RestartContinuation.continueResta
     )
       return;
     if (projection.messages.some((message) => message.id === messageId)) return;
-    if (isArcRunHeld(projection.thread.arcRun)) return;
+    if (isThreadRunHeld(projection.thread)) return;
     const source = projection.runs.find((run) => run.id === input.sourceRunId);
     if (
       !source ||

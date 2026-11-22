@@ -1,3 +1,10 @@
+import {
+  OrchestrationV2ThreadArcRun,
+  OrchestrationV2ThreadArcRunCommand,
+  OrchestrationV2ThreadArcRunWakeCommand,
+  OrchestrationV2ThreadAutonomousRun,
+  OrchestrationV2ThreadDecisionEntry,
+} from "./autonomousRun.ts";
 import { SecretStorage } from "./secretManagement.ts";
 import { AgentTaskBinding } from "./agentPolicy.ts";
 import { OrchestrationMessageContext } from "./composerContext.ts";
@@ -687,41 +694,7 @@ export const OrchestrationV2ParkedWaitWoke = Schema.Struct({
 });
 export type OrchestrationV2ParkedWaitWoke = typeof OrchestrationV2ParkedWaitWoke.Type;
 
-/**
- * A thread's responsibility for an Arc, which outlasts its turns and is independent of Away. T3
- * holds only execution state here: the Arc's outcome and decisions stay in Forge.
- */
-export const OrchestrationV2ThreadArcRun = Schema.Struct({
-  arc: Schema.Struct({
-    number: PositiveInt,
-    ref: Schema.optional(TrimmedNonEmptyString),
-  }),
-  /** Forge numbers when this thread answers for only these Specs; absent means the whole Arc. */
-  specs: Schema.optional(Schema.NonEmptyArray(PositiveInt)),
-  /**
-   * The lead's planned order of Spec numbers, revised at checkpoints. With `specs` it lists exactly
-   * those; for a whole Arc it lists the members the lead means to take.
-   */
-  plan: Schema.optional(Schema.NonEmptyArray(PositiveInt)),
-  /** The Spec the lead is working on; in `plan` when there is one, else in `specs`. */
-  current: Schema.optional(PositiveInt),
-  state: Schema.Literals(["active", "paused", "attention"]),
-  startedAt: IsoDateTime,
-  /** The last advancing checkpoint or message from the owner; bounds the no-progress wakes. */
-  progressAt: IsoDateTime,
-  /** The start or the owner's last message; bounds all of the run's turns. */
-  ceilingSince: IsoDateTime,
-  checkpoint: Schema.optional(
-    Schema.Struct({
-      phase: TrimmedNonEmptyString,
-      note: Schema.optional(TrimmedNonEmptyString),
-      at: IsoDateTime,
-    }),
-  ),
-  /** The owner's message resumed a stopped run; the next wake says what that may have left. */
-  resumed: Schema.optional(Schema.Literal(true)),
-});
-export type OrchestrationV2ThreadArcRun = typeof OrchestrationV2ThreadArcRun.Type;
+export { OrchestrationV2ThreadArcRun, OrchestrationV2ThreadAutonomousRun, OrchestrationV2ThreadDecisionEntry } from "./autonomousRun.ts";
 
 /**
  * How a watched thread in a linked environment ended, as that environment reported it, so the
@@ -875,6 +848,8 @@ export const OrchestrationV2AppThread = Schema.Struct({
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   pullRequests: Schema.optional(Schema.Array(ThreadPullRequestLink)),
   arcRun: Schema.optional(OrchestrationV2ThreadArcRun),
+  autonomousRun: Schema.optional(OrchestrationV2ThreadAutonomousRun),
+  decisionLog: Schema.optional(Schema.Array(OrchestrationV2ThreadDecisionEntry)),
   endedThreadWatches: Schema.optional(Schema.Array(OrchestrationV2EndedThreadWatch)),
   parkedWaits: Schema.optional(Schema.Array(OrchestrationV2ParkedWait)),
   ownerWait: Schema.optional(OrchestrationV2OwnerWait),
@@ -2857,6 +2832,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   parkedWaitGaveUp: Schema.optional(OrchestrationV2ParkedWaitGaveUp),
   parkedWaitWoke: Schema.optional(OrchestrationV2ParkedWaitWoke),
   arcRun: Schema.optional(OrchestrationV2ThreadArcRun),
+  autonomousRun: Schema.optional(OrchestrationV2ThreadAutonomousRun),
   workspaceAttachments: Schema.optional(Schema.Array(OrchestrationV2WorkspaceAttachment)),
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   /** Issues linked to this thread; optional so pre-linking servers still decode. */
@@ -4648,20 +4624,7 @@ const OrchestrationV2InternalCommand = Schema.Union([
     turnItemId: TurnItemId,
     ...OrchestrationV2ReleaseApprovalStateFields,
   }),
-  /** Starts, checkpoints, pauses or ends the thread's own Arc run. */
-  Schema.Struct({
-    type: Schema.Literal("thread.arc-run"),
-    commandId: CommandId,
-    threadId: ThreadId,
-    op: Schema.Literals(["start", "checkpoint", "pause", "end"]),
-    arc: Schema.optional(OrchestrationV2ThreadArcRun.fields.arc),
-    specs: OrchestrationV2ThreadArcRun.fields.specs,
-    plan: OrchestrationV2ThreadArcRun.fields.plan,
-    /** Null clears the current Spec; absent leaves it as it is. */
-    current: Schema.optional(Schema.NullOr(PositiveInt)),
-    phase: Schema.optional(TrimmedNonEmptyString),
-    note: Schema.optional(TrimmedNonEmptyString),
-  }),
+  OrchestrationV2ThreadArcRunCommand,
   /**
    * Records that a watch's remaining condition is the owner's to meet, or clears the record. Changes
    * nothing once the watch has ended or already says this.
@@ -4680,26 +4643,7 @@ const OrchestrationV2InternalCommand = Schema.Union([
     threadId: ThreadId,
     stalled: Schema.optional(OrchestrationV2ThreadStalled),
   }),
-  /**
-   * Wakes the Arc lead if stored state calls for it, decided under the thread's lock so it cannot
-   * race a restart continuation or a message; otherwise changes nothing.
-   */
-  Schema.Struct({
-    type: Schema.Literal("thread.arc-run.wake"),
-    commandId: CommandId,
-    threadId: ThreadId,
-    trigger: Schema.Literals(["event", "watchdog", "startup"]),
-    stall: Schema.optional(
-      Schema.Struct({
-        childThreadId: ThreadId,
-        title: TrimmedNonEmptyString,
-        lastEventSequence: NonNegativeInt,
-        quietMinutes: NonNegativeInt,
-        openWork: Schema.Boolean,
-      }),
-    ),
-    answersQuestion: Schema.optional(Schema.Literal(true)),
-  }),
+  OrchestrationV2ThreadArcRunWakeCommand,
   /**
    * Fires the watch if the watched thread's stored state calls for it: ends the watch and queues
    * its wake in one transaction, and otherwise changes nothing. Rejected once the watch has

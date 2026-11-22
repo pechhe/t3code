@@ -27,19 +27,22 @@ import { ServerSettingsService } from "../serverSettings.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import { cancelledBeforeStart, neverStarted } from "./RestartBackgroundNote.ts";
-import { ARC_RUN_ANSWER, arcLeadThreadId, needsOwnerAnswer } from "./arcRun.ts";
+import {
+  activeRunOf,
+  ARC_RUN_ANSWER,
+  arcLeadThreadId,
+  AWAY_ANSWER,
+  AWAY_CONTINUE_PROMPT,
+  hasDoneStatusMarker,
+  isCoveredByAway,
+  needsOwnerAnswer,
+} from "./arcRun.ts";
 import {
   isServerContinuationRun,
   MAX_CONTINUATION_CHAIN,
   serverContinuationChainLength,
   UNATTENDED_CONTINUATION_MESSAGE_PREFIX,
 } from "./serverContinuation.ts";
-
-const AWAY_ANSWER =
-  "The owner is away and this thread is unattended, so nobody will answer questions. Decide yourself from the evidence and the governing intent. When you are unsure about a consequential choice, consult the advisor role, then decide. Record anything that truly needs the owner (acceptance, promotion, spending, permission widening, an irreversible choice) as a hold, and carry on with all other work.";
-
-const CONTINUE_PROMPT =
-  "This thread is unattended. Continue the remaining work. If it is finished, or only owner holds remain, give the final report and stop.";
 
 const SUBAGENT_DONE = new Set(["completed", "failed", "cancelled", "interrupted"]);
 
@@ -48,18 +51,6 @@ const SUBAGENT_DONE = new Set(["completed", "failed", "cancelled", "interrupted"
  * An older completed run was already judged, and a skip then (snoozed, watching, away off) stands.
  */
 const SWEEP_WINDOW_MS = 10 * 60 * 1000;
-
-/** Away covers every top-level thread and Spec lead. */
-function isCovered(thread: OrchestrationV2AppThread, now: DateTime.Utc) {
-  return (
-    ((thread.lineage.parentThreadId === null && thread.agentTask === undefined) ||
-      thread.agentTask?.role === "lead") &&
-    thread.archivedAt === null &&
-    thread.deletedAt === null &&
-    thread.settledOverride !== "settled" &&
-    !(thread.snoozedUntil != null && DateTime.isGreaterThan(thread.snoozedUntil, now))
-  );
-}
 
 // Message-mode questions arrive after the turn ended; the continuation dismisses and answers them.
 function answerableLiveQuestion(request: OrchestrationV2RuntimeRequest) {
@@ -77,7 +68,7 @@ export class UnattendedReactor extends Context.Service<
     readonly handle: (event: OrchestrationV2DomainEvent) => Effect.Effect<void>;
     /**
      * While Away is on, answers every covered thread's waiting question and continues each one
-     * whose last run completed within the window.
+     * whose last run completed within the window without finishing cleanly.
      */
     readonly sweep: Effect.Effect<void>;
     /** Turning Away on sweeps at once, so threads already waiting on the owner carry on. */
@@ -93,15 +84,15 @@ const make = Effect.gen(function* () {
   // Read on every event, so it is kept here rather than fetched from settings each time.
   const away = yield* Ref.make(false);
   const covered = Effect.fnUntraced(function* (thread: OrchestrationV2AppThread) {
-    return (yield* Ref.get(away)) && isCovered(thread, yield* DateTime.now);
+    return (yield* Ref.get(away)) && isCoveredByAway(thread, yield* DateTime.now);
   });
-  // A Spec lead under a running Arc reports to its Arc lead: its question and its turn-end both go
-  // there, so nothing here may answer or continue it first.
-  const reportsToArcLead = Effect.fnUntraced(function* (thread: OrchestrationV2AppThread) {
+  // A Spec lead under a running Arc or autonomous run reports to its parent lead: its question and
+  // its turn-end both go there, so nothing here may answer or continue it first.
+  const reportsToParentRun = Effect.fnUntraced(function* (thread: OrchestrationV2AppThread) {
     const parentId = arcLeadThreadId(thread);
     if (parentId === undefined) return false;
     const parent = yield* projections.getThread(parentId);
-    return parent.arcRun !== undefined;
+    return activeRunOf(parent) !== undefined;
   });
 
   // A provider may record the request before the item holding its questions, so either event
@@ -115,14 +106,12 @@ const make = Effect.gen(function* () {
     const records = yield* projections.getThreadRecords(threadId, ["turnItems"], {
       turnItemTypes: ["user_input_request"],
     });
-    const arcRun = records.thread.arcRun;
-    if (
-      arcRun !== undefined ? arcRun.state !== "active" : yield* reportsToArcLead(records.thread)
-    ) {
+    const run = activeRunOf(records.thread);
+    if (run !== undefined ? run.state !== "active" : yield* reportsToParentRun(records.thread)) {
       return;
     }
-    if (arcRun === undefined && !(yield* covered(records.thread))) return;
-    const answer = arcRun === undefined ? AWAY_ANSWER : ARC_RUN_ANSWER;
+    if (run === undefined && !(yield* covered(records.thread))) return;
+    const answer = run === undefined ? AWAY_ANSWER : ARC_RUN_ANSWER;
     const item = records.turnItems.find(
       (candidate) => candidate.type === "user_input_request" && candidate.requestId === requestId,
     );
@@ -149,8 +138,8 @@ const make = Effect.gen(function* () {
       },
     );
     const { thread, runs } = records;
-    // An Arc run has its own reactor, whose wake also carries this thread's role.
-    if (thread.arcRun !== undefined || (yield* reportsToArcLead(thread))) return;
+    // An Arc or autonomous run has its own reactor, whose wake carries the run's explicit end contract.
+    if (activeRunOf(thread) !== undefined || (yield* reportsToParentRun(thread))) return;
     if (!(yield* covered(thread))) return;
     if (records.messages.some((message) => message.id === messageId)) return;
     const source = runs.find((run) => run.id === sourceRunId);
@@ -188,6 +177,25 @@ const make = Effect.gen(function* () {
       }).length > 0
     )
       return;
+
+    const pendingQuestions = records.runtimeRequests.filter(
+      (request) =>
+        request.kind === "user_input" &&
+        request.status === "pending" &&
+        request.responseCapability.type === "message",
+    );
+
+    // A non-run thread that explicitly ended with `🟢 Status: Done` (and has no pending
+    // questions) is finished: never burn a wasted turn nudging it.
+    if (pendingQuestions.length === 0) {
+      const { messages: sourceMessages } = yield* projections.getThreadRecords(
+        threadId,
+        ["messages"],
+        { messageRoles: ["assistant"], messageRunIds: [sourceRunId] },
+      );
+      if (sourceMessages.some((message) => hasDoneStatusMarker(message.text))) return;
+    }
+
     if (serverContinuationChainLength(runs, source) >= MAX_CONTINUATION_CHAIN) {
       yield* Effect.logInfo("Not continuing an away thread nudged too many times in a row", {
         threadId,
@@ -197,13 +205,24 @@ const make = Effect.gen(function* () {
     }
     if (isServerContinuationRun(source) && !(yield* runDidWork(threadId, source))) return;
 
-    const questions = records.runtimeRequests.filter(
-      (request) =>
-        request.kind === "user_input" &&
-        request.status === "pending" &&
-        request.responseCapability.type === "message",
-    );
-    for (const request of questions) {
+    let answerableQuestions = pendingQuestions;
+    if (pendingQuestions.length > 0) {
+      const { turnItems } = yield* projections.getThreadRecords(threadId, ["turnItems"], {
+        turnItemTypes: ["user_input_request"],
+      });
+      const ownerOnlyIds = new Set(
+        turnItems
+          .filter(
+            (item): item is Extract<typeof item, { readonly type: "user_input_request" }> =>
+              item.type === "user_input_request" && needsOwnerAnswer(item.questions),
+          )
+          .map((item) => item.requestId),
+      );
+      if (pendingQuestions.some((q) => ownerOnlyIds.has(q.id))) return;
+      answerableQuestions = pendingQuestions.filter((q) => !ownerOnlyIds.has(q.id));
+    }
+
+    for (const request of answerableQuestions) {
       yield* engine.dispatch({
         type: "thread.user-input.dismiss",
         commandId: CommandId.make(`server:unattended-dismiss:${request.id}`),
@@ -211,7 +230,10 @@ const make = Effect.gen(function* () {
         requestId: request.id,
       });
     }
-    const text = questions.length > 0 ? `${AWAY_ANSWER}\n\n${CONTINUE_PROMPT}` : CONTINUE_PROMPT;
+    const text =
+      answerableQuestions.length > 0
+        ? `${AWAY_ANSWER}\n\n${AWAY_CONTINUE_PROMPT}`
+        : AWAY_CONTINUE_PROMPT;
     yield* engine.dispatch({
       type: "message.dispatch",
       commandId: CommandId.make(`server:unattended-continuation:${sourceRunId}`),

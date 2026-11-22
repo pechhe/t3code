@@ -1,3 +1,4 @@
+import { OrchestrationV2ThreadArcRun, OrchestrationV2ThreadAutonomousRun, OrchestrationV2ThreadDecisionEntry } from "./autonomousRun.ts";
 import { SecretStorage } from "./secretManagement.ts";
 import { AgentTaskHandoff } from "./agentPolicy.ts";
 import * as DelegationFields from "./orchestratorMcpDelegationFields.ts";
@@ -629,6 +630,9 @@ export const OrchestratorMcpThreadDetail = Schema.Struct({
   blockedOnThreadWait: Schema.optional(Schema.Boolean),
   /** Absent from linked environments that predate it. */
   pendingBackgroundTasks: Schema.optional(Schema.Array(OrchestratorMcpThreadBackgroundTask)),
+  arcRun: Schema.optional(OrchestrationV2ThreadArcRun),
+  autonomousRun: Schema.optional(OrchestrationV2ThreadAutonomousRun),
+  decisionLog: Schema.optional(Schema.Array(OrchestrationV2ThreadDecisionEntry)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });

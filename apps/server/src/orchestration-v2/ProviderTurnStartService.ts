@@ -1,5 +1,4 @@
-import { describeArcRun } from "./arcRun.ts";
-import { ARC_RUN_WAKE_MESSAGE_PREFIX } from "./serverContinuation.ts";
+import { resolveUnattendedTurnNote } from "./arcRun.ts";
 import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
 import * as ProcessRunner from "../processRunner.ts";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
@@ -427,6 +426,7 @@ export const layer: Layer.Layer<
     const providerAuth = yield* ProviderAuthService.ProviderAuthService;
     // Optional: a layer without managed agents notes no delegation stance.
     const managedAgents = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
+    const serverSettings = yield* ServerSettings.ServerSettingsService;
     // Optional: a layer without Forge links states only the linked item's number.
     const forgeWorkItems = yield* Effect.serviceOption(ForgeWorkItems.ForgeWorkItems);
     const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
@@ -2432,12 +2432,14 @@ export const layer: Layer.Layer<
           slashCommand || workItem === null
             ? ""
             : linkedForgeItemNote(workItem.number, workItemSummary);
-        const arcRunNote =
-          projection.thread.arcRun === undefined ||
-          goalCommand ||
-          message.id.startsWith(ARC_RUN_WAKE_MESSAGE_PREFIX)
-            ? ""
-            : describeArcRun(projection.thread.arcRun);
+        const arcRunNote = yield* resolveUnattendedTurnNote({
+          thread: projection.thread,
+          slashCommand,
+          goalCommand,
+          messageId: message.id,
+          getAway: serverSettings.getSettings.pipe(Effect.map((settings) => settings.away)),
+          getThread: (id) => projectionStore.getThread(id),
+        });
         const startWithHandoffs = Effect.fn("ProviderTurnStartService.startWithHandoffs")(
           function* (turnInput: Parameters<typeof session.startTurn>[0], compact = false) {
             const delivery = yield* deliverContextHandoffs({
