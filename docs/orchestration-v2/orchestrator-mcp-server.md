@@ -505,8 +505,8 @@ or `target: {kind: "owner", question}`. An event wait takes `expectedMinutes` (d
 gives up at twice that, waking once with what it last knew; a time wait and the wait T3 arms on
 its own landing never give up. An owner wait sets `ownerWait`, makes
 the thread's standing `needs_you` with its question, and ends when the owner writes; a delegated
-thread cannot make one. Waits on threads, Build items and landings hold a delegated task's result
-until they end; Production and time waits do not.
+thread cannot make one. Waits on threads, Build items, landings and Production hold a delegated task's result
+until they end; time waits do not.
 Build targets use T3's Weave connection and are refused without one.
 `unblocked` means all waits and holds are clear; `closed` means Landed, Accepted
 or Dropped. An unblocked watch also wakes on Dropped. `BuildWatchReactor` polls

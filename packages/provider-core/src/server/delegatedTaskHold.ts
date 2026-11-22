@@ -50,13 +50,13 @@ export type DelegatedTaskProjection = {
 };
 
 /**
- * A delegated child waiting on another thread, a Forge item or a landing keeps its result until the
- * wake, so its parent never acts on a partial answer; a wait on Production or a time does not.
+ * A delegated child waiting on another thread, a Forge item, a landing or Production keeps its result
+ * until the wake, so its parent never acts on a partial answer; a wait on a time does not.
  */
 function waitHoldsDelegatedResult(
   target: NonNullable<OrchestrationV2AppThread["parkedWaits"]>[number]["target"],
 ): boolean {
-  return target.kind !== "production" && target.kind !== "time";
+  return target.kind !== "time";
 }
 
 /**

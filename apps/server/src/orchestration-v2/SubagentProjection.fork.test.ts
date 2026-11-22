@@ -121,7 +121,7 @@ it.each([
   ["another thread", [{ kind: "thread", threadId: "thread:other" }], "waiting_for_children"],
   ["a Forge item", [{ kind: "build_item", number: 7, until: "closed" }], "waiting_for_children"],
   ["a landing", [{ kind: "landing", operationId: "op_1" }], "waiting_for_children"],
-  ["Production", [{ kind: "production", commitId: "abc1234" }], "result_available"],
+  ["Production", [{ kind: "production", commitId: "abc1234" }], "waiting_for_children"],
   ["a time", [{ kind: "time", at: "2026-07-25T09:00:00.000Z" }], "result_available"],
   [
     "a time and a landing",

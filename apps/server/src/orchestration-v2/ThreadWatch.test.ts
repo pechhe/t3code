@@ -6,6 +6,7 @@ import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderS
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
+  type AgentTaskBinding,
   CommandId,
   EnvironmentId,
   EventId,
@@ -1073,6 +1074,65 @@ it.layer(layerTest)("thread watches", (it) => {
           events: [commandEvent("completed")],
         }),
       );
+      const [wake, ...rest] = yield* wakes(lead);
+      assert.lengthOf(rest, 0);
+      assert.equal(wake?.notification?.outcome, "completed");
+    }),
+  );
+
+  it.effect("a delegated child parked on Production does not settle a thread watch until it wakes", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const lead = yield* createThread("prod-hold-lead");
+      const worker = yield* createThread("prod-hold-worker");
+      const { thread } = yield* orchestrator.getThreadProjection(worker);
+      yield* eventSink.write({
+        commandId: CommandId.make("command:prod-hold-managed"),
+        events: [
+          {
+            id: EventId.make("event:prod-hold-managed"),
+            type: "thread.metadata-updated",
+            threadId: worker,
+            occurredAt: now,
+            payload: {
+              ...thread,
+              agentTask: {
+                role: "implementer",
+                taskClass: "non-ui",
+                workId: "prod-hold-work",
+                attemptId: "1",
+                workspacePath: "/fixture/prod-hold",
+                sourceRevision: "revision-one",
+                requestFingerprint: "a".repeat(64),
+                policyHash: "b".repeat(64),
+                policyRevision: "test",
+                briefHash: "c".repeat(64),
+                sourceAccess: "scoped-write",
+                toolProfile: "implementation",
+                requested: thread.modelSelection,
+                assigned: null,
+                effective: thread.modelSelection,
+              } as AgentTaskBinding,
+            },
+          },
+        ],
+      });
+      yield* watch(lead, worker);
+      yield* parkOn(worker, { kind: "production", commitId: "abc1234" }, { expectedMs: DAY_MS });
+      yield* observe(yield* seedRun(worker, { status: "completed", text: "Landed; waiting." }));
+      assert.lengthOf(yield* wakes(lead), 0);
+
+      const [wait] = yield* parkedOf(worker);
+      const ended = yield* orchestrator.dispatch({
+        type: "thread.thread-watch",
+        commandId: CommandId.make("command:prod-hold-end"),
+        threadId: worker,
+        watchId: wait!.id,
+        watching: false,
+      });
+      yield* observe(ended.storedEvents);
+      yield* (yield* ThreadWatchReactor.ThreadWatchReactor).sweep;
       const [wake, ...rest] = yield* wakes(lead);
       assert.lengthOf(rest, 0);
       assert.equal(wake?.notification?.outcome, "completed");
