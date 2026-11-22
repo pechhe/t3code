@@ -5723,6 +5723,33 @@ describe("a journey check", () => {
   const withPolicy = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     effect.pipe(Effect.provide(ChampionJourneys.layerBrowserPolicy));
 
+  it.effect("falls back to passwordless sudo docker when plain docker hits permission denied", () =>
+    withFixture((f, service) =>
+      withTarget([manifest("dddddddd", "commit-sudo")], (directory) =>
+        Effect.gen(function* () {
+          const realDocker = NodeFS.readFileSync(NodePath.join(directory, "docker"), "utf8");
+          NodeFS.writeFileSync(NodePath.join(directory, "docker-real"), realDocker, {
+            mode: 0o755,
+          });
+          NodeFS.writeFileSync(
+            NodePath.join(directory, "docker"),
+            `#!/bin/sh\necho "permission denied while trying to connect to the Docker daemon socket" >&2\nexit 1\n`,
+            { mode: 0o755 },
+          );
+          NodeFS.writeFileSync(
+            NodePath.join(directory, "sudo"),
+            `#!/bin/sh\nif [ "$1" = "-n" ] && [ "$2" = "docker" ]; then shift 2; exec "${directory}/docker-real" "$@"; fi\nexit 1\n`,
+            { mode: 0o755 },
+          );
+          yield* activate(service, journeysConfig(directory));
+          yield* service.runCheck({ id: config.id });
+          const plan = yield* service.journeysStart(f.caller());
+          assert.equal(plan.journeyLimit, 8);
+        }),
+      ),
+    ),
+  );
+
   it.effect("keeps a candidate from everyone, and only a replay makes it a finding", () =>
     withFixture((f, service) =>
       withTarget(

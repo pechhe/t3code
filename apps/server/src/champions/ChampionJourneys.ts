@@ -422,18 +422,33 @@ export const make = Effect.gen(function* () {
     return lastJsonLine(output.stdout);
   });
 
+  /** Reach Docker even inside a systemd --user service whose manager lacks the docker supplementary group. */
+  const runDocker = Effect.fn("ChampionJourneys.runDocker")(function* (
+    args: ReadonlyArray<string>,
+  ) {
+    const first = yield* processes
+      .run({
+        command: "docker",
+        args,
+        timeout: Duration.seconds(30),
+      })
+      .pipe(Effect.mapError(failure));
+    if (first.code === 0 || !/permission denied/i.test(first.stderr)) return first;
+    return yield* processes
+      .run({
+        command: "sudo",
+        args: ["-n", "docker", ...args],
+        timeout: Duration.seconds(30),
+      })
+      .pipe(Effect.orElseSucceed(() => first));
+  });
+
   const inspect = Effect.fn("ChampionJourneys.inspect")(function* (
     manifest: ChampionJourneyManifest,
   ) {
     const containers: InspectedContainer[] = [];
     for (const shard of manifest.shards) {
-      const output = yield* processes
-        .run({
-          command: "docker",
-          args: ["inspect", shard.container],
-          timeout: Duration.seconds(30),
-        })
-        .pipe(Effect.mapError(failure));
+      const output = yield* runDocker(["inspect", shard.container]);
       if (output.code !== 0) continue;
       const parsed = (yield* decodeDocker(output.stdout))[0];
       if (parsed === undefined) continue;
@@ -444,13 +459,7 @@ export const make = Effect.gen(function* () {
       const full = parsed.Config.Env.find((entry) => entry.startsWith("DATABASE_URL="))?.slice(13);
       const networks: { name: string; internal: boolean }[] = [];
       for (const name of Object.keys(parsed.NetworkSettings.Networks)) {
-        const network = yield* processes
-          .run({
-            command: "docker",
-            args: ["network", "inspect", name, "--format", "{{.Internal}}"],
-            timeout: Duration.seconds(30),
-          })
-          .pipe(Effect.mapError(failure));
+        const network = yield* runDocker(["network", "inspect", name, "--format", "{{.Internal}}"]);
         networks.push({ name, internal: network.stdout.trim() === "true" });
       }
       containers.push({
