@@ -8,7 +8,6 @@ import {
   AgentPolicySettingsError,
   type DelegationStance,
   isReviewerRole,
-  modelMaker,
   MODEL_NOTE_MAX_LENGTH,
   modelNote,
   type AgentPolicySettings,
@@ -18,14 +17,13 @@ import {
   type ServerProvider,
 } from "@t3tools/contracts";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import { ArrowDownIcon, ArrowUpIcon, ChevronRightIcon, PlusIcon, XIcon } from "lucide-react";
+import { ChevronRightIcon, PlusIcon, XIcon } from "lucide-react";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useAtomQueryRunner } from "../../state/use-atom-query-runner";
 import { Alert, AlertAction, AlertDescription } from "../ui/alert";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { Checkbox } from "../ui/checkbox";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import {
   NumberField,
@@ -41,15 +39,10 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   addEntry,
   catalogModels,
-  councilMembers,
-  councilSeating,
-  councilTicked,
   effortForModel,
   ensureModel,
   isAnyAccountBinding,
-  makerName,
   matchesCatalogModel,
-  moveEntry,
   modelLabel,
   pooledDefaultStance,
   pooledModelForBinding,
@@ -61,7 +54,6 @@ import {
   ROLE_DESCRIPTIONS,
   editableManifest,
   roleGroups,
-  setCouncilTick,
   setEntryEffort,
   setModelDefaultStance,
   setModelListedOnly,
@@ -559,9 +551,6 @@ function ListEditor({
   pools,
   catalog,
   onChange,
-  makers,
-  ordered = false,
-  council,
   children,
 }: {
   environmentId: EnvironmentId;
@@ -571,19 +560,11 @@ function ListEditor({
   pools: ReadonlyArray<PooledModel>;
   catalog: ReadonlyArray<CatalogModel>;
   onChange: (manifest: Manifest) => void;
-  /** Reviewer models are labelled with their model's maker. */
-  makers?: boolean;
-  /** Reviewer list keeps its stored order, which decides council seating per maker. */
-  ordered?: boolean;
-  council?: {
-    readonly ticked: (alias: string) => boolean;
-    readonly onToggle: (alias: string, ticked: boolean) => void;
-  };
   children?: ReactNode;
 }) {
   const label = (alias: string) => modelLabel(manifest.models[alias], alias, providers, pools);
   const entries = [...(manifest.lists[list] ?? [])].sort((a, b) =>
-    ordered ? 0 : label(a.model).localeCompare(label(b.model)),
+    label(a.model).localeCompare(label(b.model)),
   );
   const listed = (model: CatalogModel) =>
     entries.some((entry) => {
@@ -605,16 +586,11 @@ function ListEditor({
   return (
     <>
       <ol className="flex flex-col divide-y divide-border/50 rounded-lg border border-border/60">
-        {entries.map((entry, index) => {
+        {entries.map((entry) => {
           const binding = manifest.models[entry.model];
           const reason = unavailableReason(binding, providers, { pools });
           return (
             <li key={entry.model} className="flex min-w-0 items-center gap-1.5 px-2 py-1">
-              {ordered ? (
-                <span className="w-4 shrink-0 text-right text-xs text-muted-foreground tabular-nums">
-                  {index + 1}
-                </span>
-              ) : null}
               <PolicyModelPicker
                 environmentId={environmentId}
                 catalog={catalog}
@@ -660,42 +636,7 @@ function ListEditor({
                   Fast
                 </label>
               ) : null}
-              {makers && binding !== undefined ? (
-                <Badge variant="outline">{makerName(modelMaker(binding))}</Badge>
-              ) : null}
               <span className="min-w-0 flex-1 truncate text-xs text-warning">{reason}</span>
-              {council ? (
-                <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs">
-                  <Checkbox
-                    aria-label={`${label(entry.model)} on the council`}
-                    checked={council.ticked(entry.model)}
-                    onCheckedChange={(checked) => council.onToggle(entry.model, checked)}
-                  />
-                  Council
-                </label>
-              ) : null}
-              {ordered ? (
-                <Button
-                  size="icon-xs"
-                  variant="ghost-muted"
-                  aria-label={`Move ${label(entry.model)} up`}
-                  disabled={index === 0}
-                  onClick={() => onChange(moveEntry(manifest, list, index, -1))}
-                >
-                  <ArrowUpIcon />
-                </Button>
-              ) : null}
-              {ordered ? (
-                <Button
-                  size="icon-xs"
-                  variant="ghost-muted"
-                  aria-label={`Move ${label(entry.model)} down`}
-                  disabled={index === entries.length - 1}
-                  onClick={() => onChange(moveEntry(manifest, list, index, 1))}
-                >
-                  <ArrowDownIcon />
-                </Button>
-              ) : null}
               <Button
                 size="icon-xs"
                 variant="ghost-muted"
@@ -803,17 +744,12 @@ function JobRow({
                 const reason = unavailableReason(manifest.models[entry.model], providers, {
                   pools,
                 });
-                const ticked = isReviewer && councilTicked(manifest, entry.model);
                 return (
-                  <span key={entry.model} className="flex min-w-0 items-center gap-1">
-                    <span className={cn("min-w-0", reason !== null && "line-through")}>
-                      {chip(entry.model)}
-                    </span>
-                    {ticked ? (
-                      <Badge variant="info" size="sm">
-                        council
-                      </Badge>
-                    ) : null}
+                  <span
+                    key={entry.model}
+                    className={cn("min-w-0", reason !== null && "line-through")}
+                  >
+                    {chip(entry.model)}
                   </span>
                 );
               })}
@@ -825,9 +761,8 @@ function JobRow({
           <div className="flex flex-col gap-3 px-3 pb-4 sm:px-4">
             {isReviewer ? (
               <p className="text-xs text-muted-foreground">
-                The lead picks a reviewer for each review, change, Spec or pre-mortem, from these
-                models by their notes. Ticked models form the council for a Spec review: one per
-                maker, never the author&apos;s own model.
+                The lead picks one independent reviewer for each review, change, Spec or pre-mortem,
+                from these models by their notes.
               </p>
             ) : null}
             {primary.hint ? <p className="text-xs text-muted-foreground">{primary.hint}</p> : null}
@@ -839,23 +774,9 @@ function JobRow({
               pools={pools}
               catalog={catalog}
               onChange={onChange}
-              makers={isReviewer}
-              ordered={isReviewer}
-              {...(isReviewer
-                ? {
-                    council: {
-                      ticked: (alias) => councilTicked(manifest, alias),
-                      onToggle: (alias, ticked) =>
-                        onChange(setCouncilTick(manifest, alias, ticked)),
-                    },
-                  }
-                : {})}
             >
               {actions}
             </ListEditor>
-            {isReviewer ? (
-              <CouncilBlock manifest={manifest} providers={providers} pools={pools} />
-            ) : null}
             {job.roles.filter(isReviewerRole).map((role) => (
               <label key={role} className="flex items-center gap-2 text-xs">
                 <Switch
@@ -865,7 +786,7 @@ function JobRow({
                   }
                 />
                 {job.roles.length > 1 ? `${AGENT_ROLE_PRESENTATION[role].label}: ` : ""}Prefer a
-                different provider from the author for automatic council seating.
+                different provider from the author.
               </label>
             ))}
             {isReviewer ? (
@@ -877,41 +798,6 @@ function JobRow({
           </div>
         </CollapsiblePanel>
       </Collapsible>
-    </div>
-  );
-}
-
-/** Shows whether the ticked reviewer models seat a council and which makers can sit now. */
-function CouncilBlock({
-  manifest,
-  providers,
-  pools,
-}: {
-  manifest: Manifest;
-  providers: ReadonlyArray<ServerProvider>;
-  pools: ReadonlyArray<PooledModel>;
-}) {
-  const makers = new Set(councilMembers(manifest).map((member) => member.maker));
-  const seating = councilSeating(manifest, providers, { pools });
-  return (
-    <div
-      data-council
-      className="flex flex-col gap-1.5 rounded-lg border border-border/60 bg-muted/40 p-2.5"
-    >
-      {makers.size >= 2 ? (
-        <>
-          <p className="text-xs">
-            <span className="font-medium text-foreground">Council:</span>{" "}
-            <span className="text-muted-foreground">{seating}</span>
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Tick models from two or more makers to seat a council; otherwise each Spec review has
-            one reviewer.
-          </p>
-        </>
-      ) : (
-        <p className="text-xs text-muted-foreground">{seating}</p>
-      )}
     </div>
   );
 }

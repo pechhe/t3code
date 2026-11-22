@@ -314,21 +314,14 @@ const RolePolicy = Schema.Struct({
    * `mergeReviewerLists`, so the current shape refuses the key rather than drop its models.
    */
   specList: Schema.optionalKey(Schema.Never),
-  /**
-   * Reviewer only: models on its list ticked for the review council. A Spec review seats one
-   * member per maker among them, in list order; ticks from fewer than two makers seat none.
-   */
-  council: Schema.optional(Schema.Array(Alias)),
   /** Reviewer only: overrides `REVIEWER_WRAP_UP_TOOL_CALLS`. */
   wrapUpAfterToolCalls: Schema.optional(PositiveInt),
 });
-/** A role before one reviewer list: the reviewer had a Spec list and a council switch. */
+/** A role before one reviewer list: the reviewer had a Spec list. */
 const SplitRolePolicy = Schema.Struct({
   ...roleFields,
-  /** Reviewer only: the Spec-review pool; council seating used its stored order. */
+  /** Reviewer only: the Spec-review pool, merged into the reviewer's one list on decode. */
   specList: Schema.optional(Alias),
-  /** Reviewer only: a Spec review sat one member per maker from `specList`. */
-  council: Schema.optional(Schema.Boolean),
 });
 /** A saved role may still name the retired Phi-driving writer profile; it reads as a writer. */
 const asWriter = <Saved extends object>(saved: Saved) => ({
@@ -472,11 +465,6 @@ function validManifest(
       const specList = "specList" in role ? role.specList : undefined;
       if ((name === "reviewer") !== (specList !== undefined)) return false;
       if (specList !== undefined && lists[specList] === undefined) return false;
-    } else {
-      const council = role.council;
-      if (typeof council === "boolean") return false;
-      if (council !== undefined && !council.every((alias) => list.includes(alias))) return false;
-      if (new Set(council).size !== (council?.length ?? 0)) return false;
     }
     if (
       "wrapUpAfterToolCalls" in role &&
@@ -500,7 +488,6 @@ function validManifest(
       role.toolProfile !== "implementation"
     )
       return false;
-    if (role.council !== undefined && name !== "reviewer") return false;
   }
   const readOnly = (role: AnyRolePolicy | undefined, toolProfile: string) =>
     role?.sourceAccess === "read-only" && role.toolProfile === toolProfile;
@@ -738,23 +725,20 @@ const SpecListManifest = Schema.Union([
 /**
  * The reviewer's change and Spec lists become one list: the Spec list's models in order, then
  * the change list's others, each at the Spec list's effort where both had it. A reviewer whose
- * lists differed gets a list of its own, so another role sharing either keeps it unchanged. A
- * council that was on ticks exactly the Spec list's models.
+ * lists differed gets a list of its own, so another role sharing either keeps it unchanged.
  */
 const mergeReviewerLists = (policy: typeof CurrentSplitManifest.Type): typeof Manifest.Encoded => {
   const { reviewer, ...splitRoles } = policy.roles;
-  // Only the reviewer may carry a Spec list or council, so other roles lose nothing.
+  // Only the reviewer may carry a Spec list, so other roles lose nothing.
   const roles = Object.fromEntries(
     Object.entries(splitRoles).map(([name, role]) => {
-      const { specList: _specList, council: _council, ...kept } = role!;
+      const { specList: _specList, ...kept } = role!;
       return [name, kept];
     }),
   ) as Omit<(typeof Manifest.Encoded)["roles"], "reviewer">;
-  const { specList = reviewer.list, council, ...rest } = reviewer;
+  const { specList = reviewer.list, ...rest } = reviewer;
   const spec = policy.lists[specList]!;
-  const ticked = council === true ? { council: spec.map((entry) => entry.model) } : {};
-  if (specList === reviewer.list)
-    return { ...policy, roles: { ...roles, reviewer: { ...rest, ...ticked } } };
+  if (specList === reviewer.list) return { ...policy, roles: { ...roles, reviewer: rest } };
   const usedByOthers = new Set(Object.values(roles).flatMap((role) => (role ? [role.list] : [])));
   const lists: Record<string, ReadonlyArray<AgentListEntry>> = Object.fromEntries(
     Object.entries(policy.lists).filter(
@@ -772,7 +756,7 @@ const mergeReviewerLists = (policy: typeof CurrentSplitManifest.Type): typeof Ma
   return {
     ...policy,
     lists,
-    roles: { ...roles, reviewer: { ...rest, list: name, ...ticked } },
+    roles: { ...roles, reviewer: { ...rest, list: name } },
   };
 };
 export const AgentPolicyManifest = Schema.Union([
@@ -884,10 +868,6 @@ export const AgentReviewRequest = Schema.Struct({
       baseRevision: Schema.optional(TrimmedNonEmptyString),
     }),
   ),
-  /** `false` asks for one reviewer where the policy would sit a council. */
-  council: Schema.optional(Schema.Boolean),
-  /** Set by T3 when it sits a council: the maker this reviewer sits for, or `solo`. */
-  councilSeat: Schema.optional(TrimmedNonEmptyString),
 });
 export type AgentReviewRequest = typeof AgentReviewRequest.Type;
 

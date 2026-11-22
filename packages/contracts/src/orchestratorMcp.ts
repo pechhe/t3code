@@ -1,4 +1,8 @@
-import { OrchestrationV2ThreadArcRun, OrchestrationV2ThreadAutonomousRun, OrchestrationV2ThreadDecisionEntry } from "./autonomousRun.ts";
+import {
+  OrchestrationV2ThreadArcRun,
+  OrchestrationV2ThreadAutonomousRun,
+  OrchestrationV2ThreadDecisionEntry,
+} from "./autonomousRun.ts";
 import { SecretStorage } from "./secretManagement.ts";
 import { AgentTaskHandoff } from "./agentPolicy.ts";
 import * as DelegationFields from "./orchestratorMcpDelegationFields.ts";
@@ -306,7 +310,6 @@ export const OrchestratorMcpDelegateTaskResult = Schema.Struct({
     description: "True only on the timed-out wait call. The child keeps running.",
   }),
   next: Schema.optional(OrchestratorMcpRunningTaskNext),
-  ...DelegationFields.councilField,
 });
 export type OrchestratorMcpDelegateTaskResult = typeof OrchestratorMcpDelegateTaskResult.Type;
 

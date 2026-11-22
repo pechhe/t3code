@@ -6,7 +6,6 @@ import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as ExternalWork from "../agents/ExternalAgentWorkService.ts";
 import { assertBelowDelegationLimit } from "./delegationLimits.ts";
 import * as Hex from "effect/encoding/Hex";
-import * as Result from "effect/Result";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import * as Experiments from "../experiments/ExperimentService.ts";
 import { derive as deriveIds } from "@t3tools/provider-core/server/IdAllocator";
@@ -43,9 +42,6 @@ import {
   type AgentTaskRequest,
   isReviewerRole,
   isDelegatedAppThread,
-  modelMaker,
-  type OrchestratorMcpReviewCouncil,
-  type AgentReviewRequest,
   READ_ONLY_ROLES,
   isOrchestrationV2TaskClosed,
   isOrchestrationV2WorkActive,
@@ -158,16 +154,6 @@ function closedTask(
     (task) => task.childThreadId === childThreadId && isOrchestrationV2TaskClosed(task),
   );
 }
-
-/** The most members, and missing makers, a round's roster in Forge holds. */
-const COUNCIL_SEATS = 5;
-
-/** Refusals before launch that leave a council seat empty rather than fail the council. */
-const SEAT_REFUSALS: ReadonlySet<OrchestratorMcpFailure["code"]> = new Set([
-  "capability_denied",
-  "provider_unavailable",
-  "model_unavailable",
-]);
 
 type Failure = OrchestratorMcpFailure;
 
@@ -369,7 +355,7 @@ export interface ManagedDelegationDeps {
 }
 
 /**
- * The fork's agent_roles and delegate_task: roles, follow-ups, advice, review councils, Champions
+ * The fork's agent_roles and delegate_task: roles, follow-ups, advice, review, Champions
  * guards and external callers, in front of the orchestrator's delegated-task command.
  */
 export const make = Effect.fn("ManagedDelegation.make")(function* (deps: ManagedDelegationDeps) {
@@ -428,7 +414,6 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
     input: OrchestratorMcpDelegateTaskInput,
   ) {
     const { agentTask, ...rest } = input;
-    // A named task keeps its identity: the council recognises the seats it made by reference.
     const done = (task?: AgentTaskRequest): OrchestratorMcpResolvedDelegateTaskInput =>
       task === undefined ? rest : { ...rest, agentTask: task };
     if (agentTask === undefined) return done();
@@ -461,132 +446,6 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
       callerCheckoutIn(parent.thread, projectId) ??
         (yield* requireProject(projectId)).workspaceRoot,
     );
-  });
-
-  /**
-   * Sits a Spec review as a council when the reviewer's ticked models cover two makers: one
-   * reviewer per maker among them, in list order, never the author's own model. A request with
-   * `review.council: false` sits the role's ordinary choice alone, as a council of one.
-   * Undefined leaves the review to the ordinary single reviewer path.
-   */
-  // Requests T3 itself seated; a caller naming a seat would skip the council and trials.
-  const councilRequests = new WeakSet<AgentTaskRequest>();
-  const asSeated = (request: AgentTaskRequest) => {
-    councilRequests.add(request);
-    return request;
-  };
-  const sitCouncil = Effect.fn("OrchestratorMcpService.sitCouncil")(function* (
-    callerScope: McpInvocationScope,
-    input: OrchestratorMcpDelegateTaskInput,
-    request: AgentTaskRequest,
-    review: AgentReviewRequest,
-  ) {
-    const managed = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
-    if (Option.isNone(managed)) return undefined;
-    const policy = yield* managed.value.snapshot().pipe(Effect.option);
-    if (Option.isNone(policy)) return undefined;
-    const { manifest } = policy.value;
-    const role = manifest.roles.reviewer;
-    const ticked = new Set(role.council ?? []);
-    const councilList = (manifest.lists[role.list] ?? []).filter((entry) =>
-      ticked.has(entry.model),
-    );
-    const makers = new Set(councilList.map((entry) => modelMaker(manifest.models[entry.model]!)));
-    if (makers.size < 2) return undefined;
-    const requestId = input.clientRequestId;
-    if (requestId === undefined)
-      return yield* failure(
-        "invalid_request",
-        "A Spec review sits a council here, which needs a stable clientRequestId.",
-      );
-    const seat = (maker: string, model: string | undefined) => {
-      const taskRef = `${requestId}:${maker}`;
-      return delegateTask(callerScope, {
-        ...input,
-        task: `${input.task ?? ""}\n\n${
-          model === undefined
-            ? review.council === false
-              ? "You review alone. "
-              : "The review council could not form, so you review alone. "
-            : `You review as the ${maker} member of a review council: other members review the same candidate independently, and you do not see their reports. `
-        }Record your review with review.reviewer.taskRef "${taskRef}", and give it a score out of 10 for this round, or record that you give none.`,
-        ...(input.title === undefined ? {} : { title: `${input.title} · ${maker}` }),
-        clientRequestId: taskRef,
-        agentTask: asSeated({
-          ...request,
-          workId: `${request.workId}:${maker}`,
-          review: { ...review, councilSeat: maker },
-        }),
-        ...(model === undefined ? {} : { target: { model } }),
-      }).pipe(
-        Effect.result,
-        Effect.map((result) => ({ taskRef, result })),
-      );
-    };
-    const member = (maker: string, taskRef: string, task: OrchestratorMcpDelegateTaskResult) => ({
-      maker,
-      taskRef,
-      taskId: task.taskId,
-      model: task.model,
-    });
-    const tasks: Array<OrchestratorMcpDelegateTaskResult> = [];
-    const members: Array<OrchestratorMcpReviewCouncil["members"][number]> = [];
-    const missing: Array<OrchestratorMcpReviewCouncil["missing"][number]> = [];
-    const seated = new Set<string>();
-    let launchFailure: OrchestratorMcpFailure | undefined;
-    const list = review.council === false ? [] : councilList;
-    for (const entry of list) {
-      const binding = manifest.models[entry.model]!;
-      const maker = modelMaker(binding);
-      if (seated.has(maker)) continue;
-      // Forge records at most this many members in a round's roster.
-      if (seated.size >= COUNCIL_SEATS) break;
-      if (binding.model === request.authorModel) {
-        missing.push({ maker, model: binding.model, reason: "the author's own model" });
-        continue;
-      }
-      const { taskRef, result } = yield* seat(maker, binding.model);
-      // Only a refusal before launch leaves the seat empty. A failed launch holds the seat for
-      // the retry: the same clientRequestId replays every seat, never a second model of a maker.
-      if (Result.isFailure(result) && !SEAT_REFUSALS.has(result.failure.code)) {
-        seated.add(maker);
-        launchFailure ??= result.failure;
-        continue;
-      }
-      if (Result.isFailure(result)) {
-        missing.push({ maker, model: binding.model, reason: result.failure.message.slice(0, 500) });
-        continue;
-      }
-      seated.add(maker);
-      tasks.push(result.success);
-      members.push(member(maker, taskRef, result.success));
-    }
-    if (launchFailure !== undefined) return yield* launchFailure;
-    const unseated = missing
-      .filter((entry) => !seated.has(entry.maker))
-      .filter(
-        (entry, index, all) => all.findIndex((other) => other.maker === entry.maker) === index,
-      )
-      .slice(0, COUNCIL_SEATS);
-    if (tasks.length > 0) {
-      return {
-        ...tasks[0]!,
-        council: { formed: tasks.length >= 2, members, missing: unseated },
-      };
-    }
-    // No maker could sit: the role's ordinary choice reviews alone.
-    const { taskRef, result } = yield* seat("solo", undefined);
-    if (Result.isFailure(result)) return yield* result.failure;
-    const soloBinding = Object.values(manifest.models).find(
-      (binding) => binding.model === result.success.model,
-    );
-    const soloMembers = [
-      member(soloBinding === undefined ? "solo" : modelMaker(soloBinding), taskRef, result.success),
-    ];
-    return {
-      ...result.success,
-      council: { formed: false, members: soloMembers, missing: unseated },
-    };
   });
 
   const delegateTask = Effect.fn("OrchestratorMcpService.delegateTask")(
@@ -635,24 +494,6 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
           "invalid_request",
           'isolation "worktree" applies only to a delegation without agentTask; managed work uses agentTask.workspaceAssignment "isolated".',
         );
-      if (
-        input.agentTask?.review?.councilSeat !== undefined &&
-        !councilRequests.has(input.agentTask)
-      )
-        return yield* failure(
-          "invalid_request",
-          "review.councilSeat is set by T3 when it sits a council; omit it.",
-        );
-      const councilReview = input.followup === undefined ? input.agentTask?.review : undefined;
-      if (
-        input.agentTask !== undefined &&
-        isReviewerRole(input.agentTask.role) &&
-        councilReview?.scope === "spec" &&
-        councilReview.councilSeat === undefined
-      ) {
-        const sat = yield* sitCouncil(callerScope, input, input.agentTask, councilReview);
-        if (sat !== undefined) return sat;
-      }
       const specLead = input.agentTask?.role === "lead";
       if (specLead !== (input.forgeItem !== undefined))
         return yield* failure(
@@ -1408,33 +1249,30 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
               parentThreadId: parent.thread.id,
               workItemNumber: parent.thread.workItem?.number ?? parent.thread.workspaceIssue,
             });
-      // A council member's model is the council's choice, so no trial reassigns it.
       const taskAssignments = yield* (
-        input.agentTask?.review?.councilSeat !== undefined
-          ? Effect.succeed([])
-          : isRetryOfAcceptedDelegation
-            ? experiments.assignments({ unitId: experimentUnitId })
-            : experiments.assignForTask({
-                ...(prepared === undefined ? {} : { agentTask: prepared.binding }),
-                threadId: deriveIds.delegatedTaskThread({ commandId }),
-                projectId: taskProjectId,
-                modelSelection: target.modelSelection,
-                unitId: experimentUnitId,
-                unitCreatedAt: DateTime.formatIso(yield* DateTime.now),
-                taskLever: (
-                  input.agentTask === undefined
-                    ? input.role === "review"
-                    : isReviewerRole(input.agentTask.role)
-                )
-                  ? "reviewer"
-                  : "delegation",
-                taskCategory:
-                  input.role ??
-                  (input.agentTask === undefined
-                    ? "general"
-                    : AGENT_ROLE_COARSE_KIND[input.agentTask.role]),
-                enrollment: "new",
-              })
+        isRetryOfAcceptedDelegation
+          ? experiments.assignments({ unitId: experimentUnitId })
+          : experiments.assignForTask({
+              ...(prepared === undefined ? {} : { agentTask: prepared.binding }),
+              threadId: deriveIds.delegatedTaskThread({ commandId }),
+              projectId: taskProjectId,
+              modelSelection: target.modelSelection,
+              unitId: experimentUnitId,
+              unitCreatedAt: DateTime.formatIso(yield* DateTime.now),
+              taskLever: (
+                input.agentTask === undefined
+                  ? input.role === "review"
+                  : isReviewerRole(input.agentTask.role)
+              )
+                ? "reviewer"
+                : "delegation",
+              taskCategory:
+                input.role ??
+                (input.agentTask === undefined
+                  ? "general"
+                  : AGENT_ROLE_COARSE_KIND[input.agentTask.role]),
+              enrollment: "new",
+            })
       ).pipe(
         Effect.mapError(() =>
           failure("orchestration_error", "Unable to assign the delegated experiment."),
@@ -1734,8 +1572,7 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
             managedService !== undefined &&
             prepared !== undefined &&
             !isRetryOfAcceptedDelegation &&
-            input.followup === undefined &&
-            input.agentTask?.review?.councilSeat === undefined
+            input.followup === undefined
           ) {
             const { binding } = prepared;
             // Off the request path: nothing waits on it. The eligible list is read in the fork a moment

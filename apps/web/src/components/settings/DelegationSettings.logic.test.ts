@@ -14,9 +14,6 @@ import {
   catalogModels,
   listedModels,
   pooledNote,
-  councilSeating,
-  councilMembers,
-  councilTicked,
   effortFor,
   effortForModel,
   ensureModel,
@@ -26,7 +23,6 @@ import {
   matchesCatalogModel,
   modelDefaultStance,
   modelLabel,
-  moveEntry,
   offersFast,
   pooledDefaultStance,
   readOnlyUnenforcedProviders,
@@ -38,7 +34,6 @@ import {
   runsFast,
   savePolicyToTargets,
   setCaller,
-  setCouncilTick,
   setEntryEffort,
   setModelDefaultStance,
   setModelListedOnly,
@@ -224,25 +219,19 @@ describe("delegation settings", () => {
     expect(outcome.failure).toBe(message);
   });
 
-  it("splits a shared reviewer list without dropping council ticks, and edits it", () => {
+  it("splits a shared reviewer list, and edits it", () => {
     const original = manifest();
-    const sharedWithAdvisor = setCouncilTick(
-      {
-        ...original,
-        roles: { ...original.roles, reviewer: { ...original.roles.reviewer, list: "advisor" } },
-      },
-      "sol",
-      true,
-    );
+    const sharedWithAdvisor = {
+      ...original,
+      roles: { ...original.roles, reviewer: { ...original.roles.reviewer, list: "advisor" } },
+    };
     const group = roleGroups(sharedWithAdvisor).find((candidate) => candidate.list === "advisor")!;
     expect(group.roles).toEqual(["reviewer", "advisor"]);
     const split = splitGroup(sharedWithAdvisor, group);
     expect(split.roles.reviewer.list).toBe("reviewer");
-    expect(split.roles.reviewer.council).toEqual(["sol"]);
     expect(split.roles.advisor.list).toBe("advisor-2");
     expect(split.lists.reviewer).toEqual(original.lists.advisor);
     const edited = removeEntry(split, "reviewer", "sol");
-    expect("council" in edited.roles.reviewer).toBe(false);
     const saved = decodeManifest(encodeManifest(edited));
     expect(saved).toEqual(edited);
     expect(saved.lists.workhorse).toEqual(original.lists.workhorse);
@@ -267,14 +256,13 @@ describe("delegation settings", () => {
   });
 
   it("splitting the Reviewer job leaves separate lists for it and for the roles it shared with", () => {
-    const original = setCouncilTick(manifest(), "sol", true);
+    const original = manifest();
     const job = jobsFor(original, roleGroups(original)).find((candidate) =>
       candidate.roles.includes("reviewer"),
     )!;
     const split = splitJob(original, job);
     expect(isValid(split)).toBe(true);
     expect(split.roles.reviewer.list).toBe("reviewer");
-    expect(split.roles.reviewer.council).toEqual(["sol"]);
     expect(split.roles.implementer.list).toBe("implementer");
   });
 
@@ -329,13 +317,9 @@ describe("delegation settings", () => {
     )!;
     expect(job.roles).toEqual(["browser", "scout"]);
     expect(job.sections.map((section) => section.list)).toEqual(["readers"]);
-    // The one list the job shows is the list both roles read, so a reorder reaches both.
-    const edited = moveEntry(original, job.sections[0]!.list, 0, 1);
-    expect(edited.lists["readers"]!.map((entry) => entry.model)).toEqual(["opus", "haiku"]);
-    for (const role of ["browser", "scout"] as const)
-      expect(edited.lists[edited.roles[role]!.list]).toEqual(edited.lists["readers"]);
-    // Removing a model from it reaches them too, and leaves one shared list rather than two.
-    const removed = removeEntry(edited, "readers", "haiku");
+    // The one list the job shows is the list both roles read, so removing a model from it
+    // reaches both, and leaves one shared list rather than two.
+    const removed = removeEntry(original, "readers", "haiku");
     expect(isValid(removed)).toBe(true);
     expect(roleGroups(removed)).toHaveLength(3);
     expect(removed.lists["readers"]).toEqual([{ model: "opus", effort: "high" }]);
@@ -360,23 +344,15 @@ describe("delegation settings", () => {
     expect(isValid(setCaller(next, "advisor", created, "opus"))).toBe(true);
   });
 
-  it("swapping a listed model keeps its place, the exceptions and council tick that named it", () => {
+  it("swapping a listed model keeps its place, the exceptions that named it", () => {
     const [model] = catalogModels([provider()]);
     const fable = { ...model!, binding: { ...model!.binding, model: "claude-fable" } };
     const original = manifest();
-    const ticked = {
-      ...original,
-      roles: {
-        ...original.roles,
-        reviewer: { ...original.roles.reviewer, list: "advisor", council: ["opus"] },
-      },
-    };
-    const next = replaceEntry(ticked, "advisor", "opus", fable, "medium");
+    const next = replaceEntry(original, "advisor", "opus", fable, "medium");
     const alias = next.lists["advisor"]![1]!.model;
     expect(next.models[alias]?.model).toBe("claude-fable");
     expect(next.lists["advisor"]![1]!.effort).toBe("medium");
     expect(next.roles.advisor.callers).toEqual({ haiku: alias });
-    expect(next.roles.reviewer.council).toEqual([alias]);
     expect(isValid(next)).toBe(true);
     // A model already in the list is not listed twice.
     const sol = { ...model!, binding: manifest().models.sol! };
@@ -783,101 +759,7 @@ describe("delegation settings", () => {
     expect(editableManifest(existing).models.hydrogen).toEqual(existing.models.hydrogen);
   });
 
-  describe("council", () => {
-    const withReviewerList = () => {
-      const base = manifest();
-      return {
-        ...base,
-        lists: {
-          ...base.lists,
-          reviewer: [
-            { model: "sol", effort: "high" },
-            { model: "opus", effort: "high" },
-            { model: "haiku", effort: "high" },
-          ],
-        },
-        roles: {
-          ...base.roles,
-          reviewer: { ...base.roles.reviewer, list: "reviewer" },
-        },
-      };
-    };
-
-    it("reads an older policy without council ticks as unticked", () => {
-      expect(councilTicked(manifest(), "sol")).toBe(false);
-      expect(councilMembers(manifest())).toEqual([]);
-      expect(councilSeating(manifest(), [provider()])).toBe(
-        "Council off: tick models from two or more makers to seat a council.",
-      );
-    });
-
-    it("ticking and unticking writes council and removes the key when empty", () => {
-      const first = setCouncilTick(withReviewerList(), "opus", true);
-      expect(first.roles.reviewer.council).toEqual(["opus"]);
-      expect(councilTicked(first, "opus")).toBe(true);
-      expect(councilTicked(first, "sol")).toBe(false);
-      // Ticking follows list order and never duplicates an already-ticked model.
-      const both = setCouncilTick(setCouncilTick(first, "sol", true), "sol", true);
-      expect(both.roles.reviewer.council).toEqual(["sol", "opus"]);
-      expect(isValid(encodeManifest(both))).toBe(true);
-
-      const oneLeft = setCouncilTick(both, "sol", false);
-      expect(oneLeft.roles.reviewer.council).toEqual(["opus"]);
-      expect(councilTicked(oneLeft, "sol")).toBe(false);
-
-      const empty = setCouncilTick(oneLeft, "opus", false);
-      expect("council" in empty.roles.reviewer).toBe(false);
-      expect(encodeManifest(empty)).toEqual(encodeManifest(withReviewerList()));
-    });
-
-    it("removing a ticked model drops its tick and remains valid", () => {
-      const ticked = setCouncilTick(setCouncilTick(withReviewerList(), "sol", true), "opus", true);
-      const removedOne = removeEntry(ticked, "reviewer", "sol");
-      expect(removedOne.roles.reviewer.council).toEqual(["opus"]);
-      expect(isValid(encodeManifest(removedOne))).toBe(true);
-
-      const removedLast = removeEntry(removedOne, "reviewer", "opus");
-      expect("council" in removedLast.roles.reviewer).toBe(false);
-      expect(isValid(encodeManifest(removedLast))).toBe(true);
-    });
-
-    it("names each ticked member's maker in list order", () => {
-      const ticked = setCouncilTick(setCouncilTick(withReviewerList(), "opus", true), "sol", true);
-      expect(councilMembers(ticked).map(({ model, maker }) => [model, maker])).toEqual([
-        ["sol", "openai"],
-        ["opus", "anthropic"],
-      ]);
-    });
-
-    it("says off for zero ticks and one maker, and lists makers when two or more are ticked", () => {
-      const base = withReviewerList();
-      expect(councilSeating(base, [provider()])).toBe(
-        "Council off: tick models from two or more makers to seat a council.",
-      );
-      const oneMaker = setCouncilTick(setCouncilTick(base, "opus", true), "haiku", true);
-      expect(isValid(encodeManifest(oneMaker))).toBe(true);
-      expect(councilSeating(oneMaker, [provider()])).toBe(
-        "Council off: ticked models come from one maker (Anthropic), so each Spec review has one reviewer. Tick a model from another maker to seat a council.",
-      );
-
-      const twoMakers = setCouncilTick(setCouncilTick(base, "sol", true), "opus", true);
-      // Only the Claude account is installed, so OpenAI's member cannot sit.
-      expect(councilSeating(twoMakers, [provider()])).toBe(
-        "OpenAI, Anthropic. 1 of 2 makers can sit now: the council won't form until another maker is available, so one reviewer runs.",
-      );
-      expect(councilSeating(twoMakers, [])).toMatch(
-        /^OpenAI, Anthropic\. 0 of 2 makers can sit now/,
-      );
-      const codex = provider({
-        driver: "codex",
-        instanceId: "codex",
-        models: [{ slug: "gpt-sol", name: "Sol", isCustom: false, capabilities: null }],
-      });
-      expect(councilSeating(twoMakers, [provider(), codex])).toBe(
-        "OpenAI, Anthropic. All 2 makers can sit now.",
-      );
-    });
-
+  describe("reviewer wrap-up", () => {
     it("round-trips the reviewer wrap-up tool call limit, defaulting to 60 when absent", () => {
       const base = manifest();
       expect(reviewerWrapUpToolCalls(base)).toBe(60);

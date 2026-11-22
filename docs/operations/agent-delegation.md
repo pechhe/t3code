@@ -54,21 +54,13 @@ Each role has a model `list`, with effort for models that offer it. For ordinary
 delegation, the list is a pool of candidates, not a preference order. Roles
 naming the same list share it: the shipped policy gives `scout` and `browser` one
 list, so editing that list under either edits the one list both use. The Reviewer has one list for every kind of review (a change, a Spec,
-a pre-mortem), so the lead chooses the reviewer by its models' notes. Its `council`
-names the list's models ticked for the review council; when they cover at least two
-makers, `delegate_task` sits a Spec review as a council: one read-only reviewer per
-maker among them, in list order, at most five, never the author's own model. A maker
-whose models cannot run is reported as missing, not replaced by a second model from a
-maker already sitting; with fewer than two makers one reviewer runs. A reviewer task
+a pre-mortem), so the lead chooses one independent reviewer by its models' notes, as for an
+implementer, from a different model or maker than the author where it can. The review council is
+retired: a saved policy's `roles.reviewer.council` and a task's `review.council` or
+`review.councilSeat` are dropped on read and never written. A reviewer task
 that makes the Reviewer's `wrapUpAfterToolCalls` (default 60) tool calls with its turn
 still running is told once to write its report now; at half as many again T3 interrupts
-and restarts its turn with the instruction to report without reading further. The result's `council` names each member's task
-and the `taskRef` it records its review under. T3 records the round's roster in Forge
-itself, as the lead, once the seats are launched; `council.roster` says whether it did.
-Only when `roster.recorded` is false does the lead record it by hand with
-`weave_forge_council`, using each member's `taskRef`, never its `taskId`. A roster that
-cannot be recorded never stops the review. Forge accepts the Spec only when every
-member's review is clean.
+and restarts its turn with the instruction to report without reading further.
 Any installed provider's models can be listed, not only Codex and Claude. A model
 may carry a `note` saying what it is good at: one note per model, shared by every
 alias that binds it, and edited in Settings → Delegation → Models. The caller chooses a
@@ -93,8 +85,7 @@ Unavailable accounts remain visible and are skipped. A policy still at version 1
 is read as one list per role (both reviewer scopes share it) and written as version 2
 on its first save. A reviewer's change and Spec lists, split or under one Reviewer, read as
 one list: the Spec list's models in order, then the change list's others, at the Spec
-list's effort, in a list of the Reviewer's own when the two differed; a council that was
-on ticks the Spec list's models. The change role supplies `large` and `callers` if present.
+list's effort, in a list of the Reviewer's own when the two differed. The change role supplies `large` and `callers` if present.
 A T3 server from before this rejects a policy without a Spec list, so update every machine
 sharing agent-config before saving from Settings.
 Version 2 has no per-task-class restrictions: a version 1 restriction survives

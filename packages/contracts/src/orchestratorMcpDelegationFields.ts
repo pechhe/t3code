@@ -57,38 +57,6 @@ export const pausedByParentStopField = {
   }),
 };
 
-/**
- * A Spec review sat as a council: every member's task, and the makers that could not sit. For a
- * Forge Spec the lead records the roster with `weave_forge_council`, naming each member's
- * `taskRef` (never its `taskId`) and this round's clientRequestId as `clientRef`.
- */
-export const OrchestratorMcpReviewCouncil = Schema.Struct({
-  /** False when fewer than two makers could sit, so one reviewer runs instead. */
-  formed: Schema.Boolean,
-  members: Schema.Array(
-    Schema.Struct({
-      maker: TrimmedNonEmptyString,
-      /** What the member records as `review.reviewer.taskRef`, and the roster names. */
-      taskRef: TrimmedNonEmptyString,
-      taskId: NodeId,
-      model: Schema.NullOr(Schema.String),
-    }),
-  ),
-  missing: Schema.Array(
-    Schema.Struct({
-      maker: TrimmedNonEmptyString,
-      model: TrimmedNonEmptyString,
-      reason: TrimmedNonEmptyString,
-    }),
-  ),
-});
-export type OrchestratorMcpReviewCouncil = typeof OrchestratorMcpReviewCouncil.Type;
-
-export const councilField = {
-  /** A Spec review the policy sits as a council; the fields above are its first member's. */
-  council: Schema.optional(OrchestratorMcpReviewCouncil),
-};
-
 export const whyNotDelegatedField = {
   whyNotDelegated: Schema.optional(
     Schema.String.annotate({

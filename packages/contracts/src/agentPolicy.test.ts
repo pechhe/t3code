@@ -102,10 +102,10 @@ const legacy = {
   reviewer: { prefer: ["sonnet", "sol"], requireDifferentProvider: true },
 };
 
-/** A current policy as it was saved before one reviewer list: a Spec list and a council switch. */
+/** A current policy as it was saved before one reviewer list: a Spec list and a retired council switch. */
 const splitForm = (manifest: AgentPolicyManifestType, council?: boolean) => {
   const encoded = encodeManifest(manifest);
-  const { council: _council, ...reviewer } = encoded.roles.reviewer;
+  const { reviewer } = encoded.roles;
   return {
     ...encoded,
     roles: {
@@ -214,7 +214,6 @@ describe("AgentPolicyManifest", () => {
     ]);
     expect(merged.lists).not.toHaveProperty("changes");
     expect(merged.lists).not.toHaveProperty("specs");
-    expect(merged.roles.reviewer).not.toHaveProperty("council");
     expect(merged.roles.reviewer.preferOtherAuthorProvider).toBe(true);
     expect(encodeManifest(merged).roles).not.toHaveProperty("spec-reviewer");
     expect(encodeManifest(merged).roles).not.toHaveProperty("ticket-reviewer");
@@ -243,7 +242,7 @@ describe("AgentPolicyManifest", () => {
     ).toBe("Failure");
   });
 
-  it("reads a reviewer's change and Spec lists as one list, its council as ticks", () => {
+  it("reads a reviewer's change and Spec lists as one list, dropping a retired council", () => {
     const manifest = decodeManifest(legacy);
     const split = splitForm(manifest, true);
     const lists = {
@@ -282,14 +281,11 @@ describe("AgentPolicyManifest", () => {
       { model: "opus", effort: "high" },
       { model: "haiku", effort: "low" },
     ]);
-    expect(on.roles.reviewer.council).toEqual(["sol", "opus"]);
+    expect(on.roles.reviewer).not.toHaveProperty("council");
     expect(decodeManifest(policy(false)).roles.reviewer).not.toHaveProperty("council");
     expect(decodeManifest(policy(undefined)).roles.reviewer).not.toHaveProperty("council");
-    // One shared list for both kinds of review stays where it is, every model ticked.
-    expect(decodeManifest(split).roles.reviewer).toMatchObject({
-      list: manifest.roles.reviewer.list,
-      council: manifest.lists[manifest.roles.reviewer.list]!.map((entry) => entry.model),
-    });
+    // One shared list for both kinds of review stays where it is.
+    expect(decodeManifest(split).roles.reviewer.list).toBe(manifest.roles.reviewer.list);
     // The current shape never carries a Spec list, so it cannot silently drop one.
     const current = encodeManifest(on);
     expect(current.roles.reviewer).not.toHaveProperty("specList");
@@ -304,19 +300,22 @@ describe("AgentPolicyManifest", () => {
     ).toBe("Failure");
   });
 
-  it("lets only the reviewer tick a council from its own list, or set a wrap-up", () => {
+  it("drops a retired council from a saved policy, and lets only the reviewer set a wrap-up", () => {
     const manifest = encodeManifest(decodeManifest(legacy));
     const edit = (name: "reviewer" | "advisor", extra: object) =>
       decodeManifestExit({
         ...manifest,
         roles: { ...manifest.roles, [name]: { ...manifest.roles[name], ...extra } },
       })._tag;
-    expect(edit("reviewer", { council: ["sonnet", "sol"] })).toBe("Success");
-    expect(edit("reviewer", { council: [] })).toBe("Success");
-    expect(edit("reviewer", { council: ["opus"] })).toBe("Failure");
-    expect(edit("reviewer", { council: ["sol", "sol"] })).toBe("Failure");
-    expect(edit("reviewer", { council: true })).toBe("Failure");
-    expect(edit("advisor", { council: ["opus"] })).toBe("Failure");
+    for (const council of [["sonnet", "sol"], [], ["opus"], true]) {
+      const saved = { ...manifest.roles.reviewer, council };
+      const decoded = decodeManifest({
+        ...manifest,
+        roles: { ...manifest.roles, reviewer: saved },
+      });
+      expect(decoded.roles.reviewer).not.toHaveProperty("council");
+      expect(encodeManifest(decoded).roles.reviewer).not.toHaveProperty("council");
+    }
     expect(edit("reviewer", { wrapUpAfterToolCalls: 40 })).toBe("Success");
     expect(edit("reviewer", { wrapUpAfterToolCalls: 0 })).toBe("Failure");
     expect(edit("advisor", { wrapUpAfterToolCalls: 40 })).toBe("Failure");
@@ -655,6 +654,18 @@ describe("AgentTaskRequest", () => {
         expect(encodeBinding(binding).role).toBe("reviewer");
       }
     }
+  });
+
+  it("drops a retired council and council seat from a stored review request", () => {
+    const request = decodeRequest({
+      ...recorded,
+      review: { ...review("spec"), council: false, councilSeat: "openai" },
+    });
+    expect(request.review).not.toHaveProperty("council");
+    expect(request.review).not.toHaveProperty("councilSeat");
+    const encoded = encodeRequest(request);
+    expect(encoded.review).not.toHaveProperty("council");
+    expect(encoded.review).not.toHaveProperty("councilSeat");
   });
 });
 
