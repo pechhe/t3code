@@ -8566,7 +8566,8 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
           assert.equal(yield* git(cwd, ["rev-parse", "HEAD"]), mainHead);
           assert.equal(yield* git(cwd, ["ls-files", "--unmerged"]), unmerged);
 
-          const resolvedText = `Heading\n=======\n\nresolved${large ? "x".repeat(17 * 1024 * 1024) : ""}\n`;
+          // Just over the default git output cap; UTF-16 re-encoding costs about 10 s per 17 MiB per git call.
+          const resolvedText = `Heading\n=======\n\nresolved${large ? "x".repeat(3 * 1024 * 1024) : ""}\n`;
           if (conflict) {
             const unresolved = yield* driver
               .commit(commitCwd, "Unresolved merge", "", { stage: {} })
