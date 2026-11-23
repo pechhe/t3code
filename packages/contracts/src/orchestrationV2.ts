@@ -863,6 +863,8 @@ export const OrchestrationV2AppThread = Schema.Struct({
   pullRequests: Schema.optional(Schema.Array(ThreadPullRequestLink)),
   arcRun: Schema.optional(OrchestrationV2ThreadArcRun),
   autonomousRun: Schema.optional(OrchestrationV2ThreadAutonomousRun),
+  /** The owner turned unattended off for this thread while global Away is on. */
+  awayOptOut: Schema.optional(Schema.Literal(true)),
   decisionLog: Schema.optional(Schema.Array(OrchestrationV2ThreadDecisionEntry)),
   endedThreadWatches: Schema.optional(Schema.Array(OrchestrationV2EndedThreadWatch)),
   parkedWaits: Schema.optional(Schema.Array(OrchestrationV2ParkedWait)),
@@ -2847,6 +2849,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   parkedWaitWoke: Schema.optional(OrchestrationV2ParkedWaitWoke),
   arcRun: Schema.optional(OrchestrationV2ThreadArcRun),
   autonomousRun: Schema.optional(OrchestrationV2ThreadAutonomousRun),
+  awayOptOut: Schema.optional(Schema.Literal(true)),
   workspaceAttachments: Schema.optional(Schema.Array(OrchestrationV2WorkspaceAttachment)),
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   /** Issues linked to this thread; optional so pre-linking servers still decode. */

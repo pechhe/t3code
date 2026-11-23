@@ -140,6 +140,7 @@ const isAwayEligibleThread = (thread: {
 export function isCoveredByAway(thread: OrchestrationV2AppThread, now: DateTime.Utc): boolean {
   return (
     isAwayEligibleThread(thread) &&
+    thread.awayOptOut !== true &&
     thread.archivedAt === null &&
     thread.deletedAt === null &&
     thread.settledOverride !== "settled" &&
@@ -330,6 +331,7 @@ export function describeUnattendedTurnNote(input: {
     readonly autonomousRun?: OrchestrationV2ThreadAutonomousRun | undefined;
     readonly lineage: Pick<OrchestrationV2AppThread["lineage"], "parentThreadId">;
     readonly agentTask?: OrchestrationV2AppThread["agentTask"] | undefined;
+    readonly awayOptOut?: true | undefined;
   };
   readonly away: boolean;
   readonly skipForWake?: boolean;
@@ -341,7 +343,12 @@ export function describeUnattendedTurnNote(input: {
     const summary = describeAnyRun(run);
     return run.state === "active" ? `${summary}\n\n${AUTONOMOUS_AUTHORITY_NOTE}` : summary;
   }
-  if (input.away && input.reportsToParentRun !== true && isAwayEligibleThread(input.thread)) {
+  if (
+    input.away &&
+    input.reportsToParentRun !== true &&
+    input.thread.awayOptOut !== true &&
+    isAwayEligibleThread(input.thread)
+  ) {
     return input.thread.agentTask !== undefined ? AWAY_LEAD_TURN_NOTE : AWAY_TURN_NOTE;
   }
   return "";
@@ -594,6 +601,7 @@ export const resolveUnattendedTurnNote = Effect.fnUntraced(function* <E1, E2>(in
     readonly autonomousRun?: OrchestrationV2ThreadAutonomousRun | undefined;
     readonly lineage: Pick<OrchestrationV2AppThread["lineage"], "parentThreadId">;
     readonly agentTask?: OrchestrationV2AppThread["agentTask"] | undefined;
+    readonly awayOptOut?: true | undefined;
   };
   readonly slashCommand: boolean;
   readonly goalCommand: boolean;

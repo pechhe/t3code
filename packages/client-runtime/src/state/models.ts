@@ -216,6 +216,8 @@ export interface EnvironmentThreadShell {
   readonly workItem?: import("@t3tools/contracts").OrchestrationV2ThreadWorkItem | null;
   readonly arcRun?: import("@t3tools/contracts").OrchestrationV2ThreadArcRun | null;
   readonly autonomousRun?: import("@t3tools/contracts").OrchestrationV2ThreadAutonomousRun | null;
+  /** The owner turned unattended off for this thread while global Away is on. */
+  readonly awayOptOut?: boolean;
   readonly isDelegatedTask?: boolean;
   /** A project the thread's agent suggested for this No project chat. */
   readonly projectSuggestion?: {
@@ -398,6 +400,7 @@ export function presentThreadShell(
     workItem: thread.workItem ?? null,
     arcRun: thread.arcRun ?? null,
     autonomousRun: thread.autonomousRun ?? null,
+    awayOptOut: thread.awayOptOut === true,
     isDelegatedTask:
       thread.agentTask !== undefined || thread.lineage.relationshipToParent === "subagent",
     projectSuggestion: thread.projectSuggestion

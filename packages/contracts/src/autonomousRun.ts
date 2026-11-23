@@ -98,7 +98,8 @@ export const OrchestrationV2ThreadArcRunCommand = Schema.Struct({
   type: Schema.Literal("thread.arc-run"),
   commandId: CommandId,
   threadId: ThreadId,
-  op: Schema.Literals(["start", "checkpoint", "decision", "pause", "end"]),
+  /** `away-off` exempts the thread from global Away until `away-on` or a run starts. */
+  op: Schema.Literals(["start", "checkpoint", "decision", "pause", "end", "away-off", "away-on"]),
   arc: Schema.optional(OrchestrationV2ThreadArcRun.fields.arc),
   spec: Schema.optional(
     Schema.Struct({

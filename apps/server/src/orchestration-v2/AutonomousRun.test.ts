@@ -36,6 +36,7 @@ import {
   arcRunAttentionMessage,
   describeUnattendedTurnNote,
   hasDoneStatusMarker,
+  isCoveredByAway,
   MAX_DECISION_LOG_ENTRIES,
 } from "./arcRun.ts";
 import { ARC_RUN_WAKE_MESSAGE_PREFIX, UNATTENDED_CONTINUATION_MESSAGE_PREFIX } from "./serverContinuation.ts";
@@ -211,6 +212,49 @@ it("describeUnattendedTurnNote injects authority for Away, Arc, Spec and task ru
   assert.include(specNote, "Unattended authority");
   assert.include(specNote, "op decision");
 });
+
+it.effect(
+  "away-off exempts a thread from global Away until away-on or a run starts",
+  () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const now = yield* DateTime.now;
+      const threadId = yield* createThread("away-opt-out", "Away opt-out");
+      const arcRun = (op: "away-off" | "away-on" | "start" | "end", n: number) =>
+        orchestrator.dispatch({
+          type: "thread.arc-run",
+          commandId: CommandId.make(`cmd:away-opt:${op}:${n}`),
+          threadId,
+          op,
+          ...(op === "start" ? { label: "Pinned" } : {}),
+        });
+
+      assert.isTrue(isCoveredByAway(yield* projections.getThread(threadId), now));
+
+      yield* arcRun("away-off", 1);
+      const off = yield* projections.getThread(threadId);
+      assert.isTrue(off.awayOptOut);
+      assert.isFalse(isCoveredByAway(off, now));
+      assert.strictEqual(describeUnattendedTurnNote({ thread: off, away: true }), "");
+      assert.isTrue((yield* projections.getThreadShell(threadId))?.awayOptOut);
+
+      yield* arcRun("away-on", 2);
+      const on = yield* projections.getThread(threadId);
+      assert.isUndefined(on.awayOptOut);
+      assert.isTrue(isCoveredByAway(on, now));
+      assert.include(describeUnattendedTurnNote({ thread: on, away: true }), "Global Away is on");
+
+      // Ending a run keeps the opt-out; starting one is an explicit "on" and clears it.
+      yield* arcRun("away-off", 3);
+      yield* arcRun("end", 4);
+      assert.isTrue((yield* projections.getThread(threadId)).awayOptOut);
+      yield* arcRun("start", 5);
+      const started = yield* projections.getThread(threadId);
+      assert.isUndefined(started.awayOptOut);
+      assert.strictEqual(started.autonomousRun?.state, "active");
+    }).pipe(Effect.provide(layerTest)),
+);
 
 it.effect(
   "single-Spec autonomous run enforces per-Spec exclusivity, wakes until op end, and stops waking after end",

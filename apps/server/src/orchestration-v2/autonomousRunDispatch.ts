@@ -180,6 +180,20 @@ export const dispatchAutonomousRun = Effect.fn("orchestrationV2.dispatch.arcRun"
     return;
   }
 
+  // The owner's per-thread switch while global Away is on; a run itself is unaffected.
+  if (command.op === "away-off" || command.op === "away-on") {
+    const optOut = command.op === "away-off";
+    if ((thread.awayOptOut === true) === optOut) return;
+    const { awayOptOut: _previous, ...withoutOptOut } = thread;
+    yield* deps.emitThreadMetadata(events, command, {
+      threadId: thread.id,
+      providerInstanceId: thread.providerInstanceId,
+      occurredAt: now,
+      payload: { ...withoutOptOut, ...(optOut ? { awayOptOut: true as const } : {}), updatedAt: now },
+    });
+    return;
+  }
+
   const currentArc = thread.arcRun;
   const currentAuto = thread.autonomousRun;
   const currentAny = activeRunOf(thread);
@@ -437,6 +451,7 @@ export const dispatchAutonomousRun = Effect.fn("orchestrationV2.dispatch.arcRun"
     arcRun: _prevArc,
     autonomousRun: _prevAuto,
     decisionLog: prevDecisionLog,
+    awayOptOut: prevAwayOptOut,
     ...rest
   } = thread;
   let nextDecisionLog: ReadonlyArray<OrchestrationV2ThreadDecisionEntry> | undefined =
@@ -456,6 +471,8 @@ export const dispatchAutonomousRun = Effect.fn("orchestrationV2.dispatch.arcRun"
       ...(nextArc === undefined ? {} : { arcRun: nextArc }),
       ...(nextAuto === undefined ? {} : { autonomousRun: nextAuto }),
       ...(nextDecisionLog === undefined ? {} : { decisionLog: nextDecisionLog }),
+      // Starting a run is an explicit "on", so it clears an earlier Away opt-out.
+      ...(prevAwayOptOut === true && command.op !== "start" ? { awayOptOut: true as const } : {}),
       updatedAt: now,
     },
   });

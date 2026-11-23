@@ -39,7 +39,10 @@ export function ThreadUnattendedButton(props: {
   const runActive = run?.state === "active";
   const runHeld = run?.state === "paused" || run?.state === "attention";
   const hasRun = run !== null;
-  const effectiveOn = hasRun || envAway;
+  const optedOut = shell.awayOptOut === true;
+  // Global Away covers this thread unless the owner turned it off here.
+  const followsAway = envAway && !optedOut;
+  const effectiveOn = hasRun || followsAway;
   const disabled =
     busy ||
     !props.canOperate ||
@@ -58,29 +61,35 @@ export function ThreadUnattendedButton(props: {
       : `Unattended is on for ${runLabel}. Click to turn off.`
     : runHeld
       ? `Unattended is paused (${runLabel}). Click to end it, or reply to resume.`
-      : envAway
-        ? "Unattended via global Away. Click to also pin this thread unattended after Away turns off."
-        : "Run this thread unattended: decides reversible choices, logs assumptions, and keeps going until done.";
+      : followsAway
+        ? "Unattended via global Away. Click to turn it off for this thread."
+        : envAway
+          ? "Away is on, but this thread is off. Click to let Away cover it again."
+          : "Run this thread unattended: decides reversible choices, logs assumptions, and keeps going until done.";
 
   const handleClick = async () => {
     if (disabled) return;
-    const turningOn = !hasRun;
+    // Under global Away the switch is Away ↔ off for this thread; otherwise it starts or ends a run.
+    const turningOn = !hasRun && !followsAway;
+    const ops: ReadonlyArray<"start" | "end" | "away-off" | "away-on"> = hasRun
+      ? envAway
+        ? ["end", "away-off"]
+        : ["end"]
+      : envAway
+        ? [followsAway ? "away-off" : "away-on"]
+        : ["start"];
     playKeyClick(turningOn ? "down" : "up");
     setBusy(true);
     try {
-      await setAutonomousRun({
-        environmentId: props.environmentId,
-        input: turningOn
-          ? {
-              threadId: props.threadId,
-              op: "start",
-              label: props.threadTitle.trim() || "Unattended",
-            }
-          : {
-              threadId: props.threadId,
-              op: "end",
-            },
-      });
+      for (const op of ops) {
+        await setAutonomousRun({
+          environmentId: props.environmentId,
+          input:
+            op === "start"
+              ? { threadId: props.threadId, op, label: props.threadTitle.trim() || "Unattended" }
+              : { threadId: props.threadId, op },
+        });
+      }
     } catch (error) {
       toastManager.add(
         stackedThreadToast({
@@ -108,7 +117,7 @@ export function ThreadUnattendedButton(props: {
                 ? "Unattended on"
                 : runHeld
                   ? "Unattended paused"
-                  : envAway
+                  : followsAway
                     ? "Unattended via global Away"
                     : "Turn unattended on"
             }
@@ -121,7 +130,7 @@ export function ThreadUnattendedButton(props: {
               runHeld &&
                 "border-amber-500/40 bg-amber-500/10 text-amber-600 hover:bg-amber-500/15 dark:text-amber-400",
               !hasRun &&
-                envAway &&
+                followsAway &&
                 "border-primary/30 bg-primary/5 text-primary/80 hover:bg-primary/10 hover:text-primary",
             )}
           />
@@ -129,7 +138,7 @@ export function ThreadUnattendedButton(props: {
       >
         <MoonIcon className="size-3" aria-hidden="true" />
         <span className="hidden sm:inline">
-          {runHeld ? "Paused" : !hasRun && envAway ? "Away" : "Unattended"}
+          {runHeld ? "Paused" : !hasRun && followsAway ? "Away" : "Unattended"}
         </span>
         {runActive ? (
           <span className="size-1.5 rounded-full bg-primary" aria-hidden="true" />
