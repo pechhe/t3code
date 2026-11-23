@@ -6,11 +6,13 @@ import {
   type AgentPolicySettings,
   EnvironmentId,
   ProviderDriverKind,
+  ProviderInstanceId,
   ServerProvider,
 } from "@t3tools/contracts";
 import { multiAccountModels, pooledModels } from "@t3tools/shared/accountPools";
 import {
   addEntry,
+  bindingInstance,
   catalogModels,
   listedModels,
   pooledNote,
@@ -45,6 +47,7 @@ import {
   splitGroup,
   splitJob,
   unavailableReason,
+  withBoundModel,
 } from "./DelegationSettings.logic";
 
 const decodeManifest = Schema.decodeUnknownSync(AgentPolicyManifest);
@@ -591,6 +594,27 @@ describe("delegation settings", () => {
     expect(alias).toBe("opus");
     expect(next.lists["workhorse"]!.map((entry) => entry.model)).toEqual(["sol", "opus"]);
     expect(listModel(next, "workhorse", model!, "high")[0]).toEqual(next);
+  });
+
+  it("picks a policy model on the account that lists it, even when the composer hides it", () => {
+    const luna = { slug: "openai-codex/gpt-6-luna", name: "GPT-6 Luna" };
+    const flash = { slug: "opencode-go/deepseek-v4.1-flash", name: "DeepSeek 4.1 Flash" };
+    const pi = (instanceId: string, isDefault: boolean, models: Array<typeof luna>) => ({
+      instanceId: ProviderInstanceId.make(instanceId),
+      driverKind: "pi",
+      isDefault,
+      models,
+    });
+    const entries = [pi("pi", true, [flash]), pi("pi_codex", false, [flash, luna])];
+    const binding = { driverKind: ProviderDriverKind.make("pi"), model: luna.slug };
+    const entry = bindingInstance(entries, binding);
+    expect(entry?.instanceId).toBe("pi_codex");
+    expect(bindingInstance(entries, { ...binding, model: "missing" })?.instanceId).toBe("pi");
+
+    // The user hid Luna from the composer, so its options start with Flash.
+    const options = new Map([[entry!.instanceId, [flash]]]);
+    expect(withBoundModel(options, entry, luna.slug).get(entry!.instanceId)).toEqual([flash, luna]);
+    expect(withBoundModel(options, entry, flash.slug)).toBe(options);
   });
 
   it("explains why a model cannot take work now", () => {

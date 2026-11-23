@@ -89,9 +89,8 @@ export function ThreadUnattendedButton(props: {
           description: error instanceof Error ? error.message : "Try again.",
         }),
       );
-    } finally {
-      setBusy(false);
     }
+    setBusy(false);
   };
 
   return (

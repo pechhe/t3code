@@ -14,8 +14,10 @@ import type { ModelPickerPooling } from "../chat/modelPickerPooling";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { TraitsPicker } from "../chat/TraitsPicker";
 import {
+  bindingInstance,
   isAnyAccountBinding,
   pooledModelForBinding,
+  withBoundModel,
   type CatalogModel,
 } from "./DelegationSettings.logic";
 import { useInstanceEntries } from "./useInstanceEntries";
@@ -40,13 +42,14 @@ export function PolicyModelPicker(props: {
   onPick: (model: CatalogModel) => void;
 }) {
   const { settings, providers, entries } = useInstanceEntries(props.environmentId);
-  const active =
-    entries.find((entry) => entry.driverKind === props.binding?.driverKind && entry.isDefault) ??
-    entries.find((entry) => entry.driverKind === props.binding?.driverKind) ??
-    entries[0];
+  const active = bindingInstance(entries, props.binding) ?? entries[0];
   const instanceId = active?.instanceId ?? ("" as ProviderInstanceId);
   const model = props.binding?.model ?? "";
-  const options = getCustomModelOptionsByInstance(settings, providers, instanceId, model);
+  const options = withBoundModel(
+    getCustomModelOptionsByInstance(settings, providers, instanceId, model),
+    active,
+    model,
+  );
   const catalogModel = (pickedInstance: ProviderInstanceId, slug: string) => {
     const driver = entries.find((entry) => entry.instanceId === pickedInstance)?.driverKind;
     return props.catalog.find(
@@ -118,16 +121,7 @@ export function PolicyEffortPicker(props: {
 }) {
   const { entries } = useInstanceEntries(props.environmentId);
   const binding = props.binding;
-  const entry =
-    entries.find(
-      (candidate) =>
-        candidate.driverKind === binding?.driverKind &&
-        candidate.models.some((model) => model.slug === binding.model),
-    ) ??
-    entries.find(
-      (candidate) => candidate.driverKind === binding?.driverKind && candidate.isDefault,
-    ) ??
-    entries.find((candidate) => candidate.driverKind === binding?.driverKind);
+  const entry = bindingInstance(entries, binding);
   if (binding === undefined || entry === undefined) {
     return <span className="text-muted-foreground text-xs">{props.effort}</span>;
   }
