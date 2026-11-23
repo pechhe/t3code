@@ -33,6 +33,7 @@ it.effect("T3 asks Weave for no identity but its own observer (WV-71)", () =>
       { action: "end", agentRef: "environment-weave", role: "observer" },
     ]);
     assert.isTrue(weave.mcpCalls.every((mcpCall) => mcpCall.agentId === first.value));
+    assert.isTrue(weave.mcpCalls.every((mcpCall) => mcpCall.scope === "coding"));
     assertNoSecretsIn(first);
   }),
 );

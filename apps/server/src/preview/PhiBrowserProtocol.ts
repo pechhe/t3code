@@ -60,7 +60,7 @@ export class PhiBrowserInputError extends Schema.TaggedError<PhiBrowserInputErro
   override get message(): string {
     switch (this.reason) {
       case "unsupported-operation":
-        return "Phi does not support this operation. Read preview_status capabilities.";
+        return "Phi does not support this operation. Read browser_status capabilities.";
       case "unsupported-option":
         return "Phi does not support this locator or option. Use CSS, a supported role locator, or a fresh snapshot ref.";
       case "stale-reference":
@@ -70,7 +70,7 @@ export class PhiBrowserInputError extends Schema.TaggedError<PhiBrowserInputErro
       case "invalid-input":
         return "Invalid Phi browser operation input.";
       case "unsupported-shortcut":
-        return "Phi's installed key helper does not support native Meta shortcuts. Use preview_type with clear=true to replace input, or a supported key without Meta.";
+        return "Phi's installed key helper does not support native Meta shortcuts. Use browser_act (action: 'type') with clear=true to replace input, or a supported key without Meta.";
     }
   }
 }

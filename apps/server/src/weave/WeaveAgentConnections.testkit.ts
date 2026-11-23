@@ -49,6 +49,7 @@ const makeFakeWeave = () => {
   const mcpCalls: Array<{
     origin: string;
     token: string;
+    scope: string | null;
     agentId: string | undefined;
   }> = [];
   /** `toolCallsHang` holds every `tools/call` open after Weave receives it, as a slow Weave would. */
@@ -137,6 +138,7 @@ const makeFakeWeave = () => {
           !state.delegationRevoked;
         mcpCalls.push({
           origin: weaveOrigin,
+          scope: url.searchParams.get("scope"),
           token: bearer,
           agentId: valid ? agent.id : undefined,
         });

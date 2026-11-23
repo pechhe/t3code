@@ -347,7 +347,7 @@ const make = Effect.gen(function* () {
   });
 
   const callWeave = (origin: string, token: string, tool: string, args: Record<string, unknown>) =>
-    HttpClientRequest.post(`${origin}/api/mcp`).pipe(
+    HttpClientRequest.post(`${origin}/api/mcp?scope=coding`).pipe(
       HttpClientRequest.bearerToken(token),
       HttpClientRequest.accept("application/json, text/event-stream"),
       HttpClientRequest.bodyJsonUnsafe({
