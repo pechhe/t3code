@@ -31,7 +31,7 @@ export type AccountRoutingSettings = Pick<ServerSettings, "pooledModelKeys"> & {
   readonly modelRouting?: ServerSettings["modelRouting"] | undefined;
   /** Retired order, read only as the starting route of a model with no `modelRouting`. */
   readonly modelAccounts?: ServerSettings["modelAccounts"] | undefined;
-  /** A model hidden on an account is one that account does not offer. */
+  /** Picker visibility; a hidden model routes only on a known subscription. */
   readonly providerModelPreferences?: ServerSettings["providerModelPreferences"] | undefined;
   /** Models the user counts as another one. */
   readonly modelLinks?: ServerSettings["modelLinks"] | undefined;
@@ -301,24 +301,56 @@ const isMeteredAccount = (provider: ServerProvider, modelSlug: string): boolean 
   );
 };
 
+/**
+ * Positive evidence an account is a subscription, not credits: a Pi usage slot that is not
+ * metered, or a native provider's usage windows. A missing reading proves nothing.
+ */
+const isKnownSubscription = (provider: ServerProvider, modelSlug: string): boolean => {
+  if (provider.driver !== "pi") return (provider.usageLimits?.windows.length ?? 0) > 0;
+  const accountKey = piAccountKeyOf(modelSlug);
+  const slot = provider.usageSlots?.find((candidate) => candidate.accountKey === accountKey);
+  return accountKey !== undefined && slot !== undefined && slot.metered !== true;
+};
+
 type ServingAccount = Omit<PooledAccount, "tier" | "reserve">;
+
+const hiddenOn = (
+  settings: Pick<ServingSettings, "providerModelPreferences">,
+  instanceId: ProviderInstanceId,
+  slug: string,
+) => settings.providerModelPreferences?.[instanceId]?.hiddenModels.includes(slug) === true;
 
 const servingEntries = (providers: ReadonlyArray<ServerProvider>, settings: ServingSettings) => {
   const byKey = new Map<
     PooledModelKey,
-    { names: string[]; serving: ServingAccount[]; linked: Set<PooledModelKey> }
+    {
+      names: string[];
+      serving: ServingAccount[];
+      linked: Set<PooledModelKey>;
+      /** Accounts the model is hidden on that are not known subscriptions. */
+      hiddenSpend: Set<AccountId>;
+    }
   >();
   for (const provider of providers) {
     if (!provider.enabled) continue;
-    const hidden = settings.providerModelPreferences?.[provider.instanceId]?.hiddenModels ?? [];
+    // Hiding a model only tidies the picker; a route's Off tier leaves an account out.
     for (const model of provider.models) {
-      if (hidden.includes(model.slug)) continue;
       const own = pooledModelKeyOf(provider, model);
       if (own === undefined) continue;
       const key = linkedModelKey(settings.modelLinks, own);
       const account = accountInfo(provider, model.slug);
-      const entry = byKey.get(key) ?? { names: [], serving: [], linked: new Set() };
+      const entry = byKey.get(key) ?? {
+        names: [],
+        serving: [],
+        linked: new Set(),
+        hiddenSpend: new Set(),
+      };
       if (own !== key) entry.linked.add(own);
+      if (
+        hiddenOn(settings, provider.instanceId, model.slug) &&
+        !isKnownSubscription(provider, model.slug)
+      )
+        entry.hiddenSpend.add(account.id);
       // One account offering a model twice (an alias and its target) serves it once.
       if (entry.serving.some((existing) => existing.account.id === account.id)) continue;
       entry.names.push(model.name);
@@ -333,7 +365,7 @@ const servingEntries = (providers: ReadonlyArray<ServerProvider>, settings: Serv
   }
   return new Map(
     [...byKey].map(([key, entry]) => {
-      const route = effectiveRoute(settings, key, entry.serving);
+      const route = effectiveRoute(settings, key, entry.serving, entry.hiddenSpend);
       return [
         key,
         {
@@ -348,12 +380,22 @@ const servingEntries = (providers: ReadonlyArray<ServerProvider>, settings: Serv
 };
 
 /**
- * A model's route: the saved one, else one made from the retired account order (subscriptions in
- * Primary, pay-as-you-go accounts and any not served now in Overflow), else every subscription in
- * Primary in the order the providers list them. An account in no tier is not used for the model,
- * so a pay-as-you-go account never serves one until the user adds it.
+ * A model's route: the saved one, else the retired order's (subscriptions Primary, the rest
+ * Overflow), else every subscription Primary, never placing `hiddenSpend` (unhiding opts one in).
+ * An account in no tier is not used for the model.
  */
 const effectiveRoute = (
+  settings: Pick<ServingSettings, "modelRouting" | "modelAccounts">,
+  key: PooledModelKey,
+  serving: ReadonlyArray<Pick<ServingAccount, "account" | "metered">>,
+  hiddenSpend: ReadonlySet<AccountId>,
+): ModelRoute => {
+  const route = placedRoute(settings, key, serving);
+  const unhidden = (ids: ReadonlyArray<AccountId>) => ids.filter((id) => !hiddenSpend.has(id));
+  return { ...route, primary: unhidden(route.primary), overflow: unhidden(route.overflow) };
+};
+
+const placedRoute = (
   settings: Pick<ServingSettings, "modelRouting" | "modelAccounts">,
   key: PooledModelKey,
   serving: ReadonlyArray<Pick<ServingAccount, "account" | "metered">>,
@@ -511,8 +553,12 @@ export const pooledModelOfBinding = (
 
 type LinkSettings = Pick<
   AccountRoutingSettings,
-  "pooledModelKeys" | "modelRouting" | "modelAccounts" | "modelLinks" | "providerModelPreferences"
+  "pooledModelKeys" | "modelRouting" | "modelAccounts" | "modelLinks"
 >;
+
+/** The accounts a shown model does not use, which a route rebuilt from it keeps unused. */
+const offAccounts = (pool: Pick<PooledModel, "accounts">): ReadonlySet<AccountId> =>
+  new Set(pool.accounts.flatMap((entry) => (entry.tier === "off" ? [entry.account.id] : [])));
 
 /** The route a model has saved, including the retired order, or undefined while it is the default. */
 const savedRoute = (
@@ -522,7 +568,7 @@ const savedRoute = (
   settings.modelRouting?.[pool.key] === undefined &&
   settings.modelAccounts?.[pool.key] === undefined
     ? undefined
-    : effectiveRoute(settings, pool.key, pool.accounts);
+    : effectiveRoute(settings, pool.key, pool.accounts, offAccounts(pool));
 
 /** Saves a model's route, retiring its old account order. */
 const routeWrite = (
@@ -605,11 +651,11 @@ export const unlinkModelPatch = (
 
 /** The route a model shows now, as an edit starts from it. */
 const modelRouteOf = (settings: ServingSettings, pool: PooledModel): ModelRoute =>
-  effectiveRoute(settings, pool.key, pool.accounts);
+  effectiveRoute(settings, pool.key, pool.accounts, offAccounts(pool));
 
 /**
  * The patch saving an edit of the accounts a model shows: the edited tiers, order, primary order
- * and reserves, keeping the saved accounts not shown now (a disabled provider, a hidden model).
+ * and reserves, keeping the saved accounts not shown now (a disabled provider).
  */
 export const modelRoutePatch = (
   settings: ServingSettings,
@@ -619,15 +665,27 @@ export const modelRoutePatch = (
   const before = modelRouteOf(settings, pool);
   const shown = new Set(pool.accounts.map((entry) => entry.account.id));
   const hidden = (ids: ReadonlyArray<AccountId>) => ids.filter((id) => !shown.has(id));
-  return routeWrite(settings, pool.key, {
-    primary: [...edit.primary, ...hidden(before.primary)],
-    overflow: [...edit.overflow, ...hidden(before.overflow)],
-    primaryOrder: edit.primaryOrder,
-    reserves: {
-      ...Object.fromEntries(Object.entries(before.reserves).filter(([id]) => !shown.has(id))),
-      ...edit.reserves,
-    },
-  });
+  const placed = new Set([...edit.primary, ...edit.overflow]);
+  // Placing an account the model is hidden on, not known to be a subscription, opts it in.
+  const unhide = pool.accounts.flatMap((entry) =>
+    !isKnownSubscription(entry.provider, entry.model) &&
+    placed.has(entry.account.id) &&
+    hiddenOn(settings, entry.provider.instanceId, entry.model)
+      ? [{ provider: entry.provider.instanceId, model: entry.model, hidden: false }]
+      : [],
+  );
+  return {
+    ...routeWrite(settings, pool.key, {
+      primary: [...edit.primary, ...hidden(before.primary)],
+      overflow: [...edit.overflow, ...hidden(before.overflow)],
+      primaryOrder: edit.primaryOrder,
+      reserves: {
+        ...Object.fromEntries(Object.entries(before.reserves).filter(([id]) => !shown.has(id))),
+        ...edit.reserves,
+      },
+    }),
+    ...(unhide.length === 0 ? {} : { setModelsHidden: unhide }),
+  };
 };
 
 const POOLED_FAVORITE_PREFIX = "pooled:";

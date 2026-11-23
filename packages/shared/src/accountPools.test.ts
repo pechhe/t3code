@@ -712,22 +712,33 @@ describe("the models the user adds", () => {
     });
   });
 
-  it("leaves out an account the model is hidden on", () => {
-    const c = provider("c", "claudeAgent", [["sonnet", "Sonnet"]]);
+  it("routes a model hidden in the picker only on an account known to be a subscription", () => {
     const hiddenOnA = {
       ...routing(["sonnet"]),
       providerModelPreferences: { a: { hiddenModels: ["sonnet"], modelOrder: [] } },
     };
-    expect(
-      pooledModels([a, b, c], hiddenOnA).flatMap((model) =>
-        model.accounts.map((entry) => entry.account.id),
-      ),
-    ).toEqual(["b", "c"]);
-    expect(
-      pooledModels([a, b], hiddenOnA).map((model) =>
-        model.accounts.map((entry) => entry.account.id),
-      ),
-    ).toEqual([["b"]]);
+    const tiers = (first: ServerProvider) =>
+      pooledModels([first, b], hiddenOnA)[0]?.accounts.map((entry) => [
+        entry.account.id,
+        entry.tier,
+      ]);
+    // Its usage windows show a subscription, so hiding only tidied the picker.
+    const subscribed = {
+      ...a,
+      usageLimits: {
+        checkedAt: iso(NOW),
+        windows: [{ id: "weekly", kind: "weekly" as const, label: "Week", usedPercent: 10 }],
+      },
+    };
+    expect(tiers(subscribed)).toEqual([
+      ["a", "primary"],
+      ["b", "primary"],
+    ]);
+    // With no reading its billing is unknown, so the hidden model stays off it.
+    expect(tiers(a)).toEqual([
+      ["b", "primary"],
+      ["a", "off"],
+    ]);
   });
 
   it("leaves a pay-as-you-go account off a model until the user lists it there", () => {
@@ -769,6 +780,66 @@ describe("the models the user adds", () => {
       ["pi:openrouter", "overflow"],
       ["pi:claude-subscription-hfpetch", "off"],
     ]);
+    // Hidden on it, the retired order never used it: it stays Not used, and so does an edit.
+    const hiddenCredits = {
+      ...routing(["sonnet"]),
+      modelAccounts: { sonnet: ["pi:openrouter", "a"] },
+      providerModelPreferences: {
+        pi: { hiddenModels: ["openrouter/anthropic/sonnet"], modelOrder: [] },
+      },
+    };
+    expect(accountsOf(hiddenCredits)).toEqual([
+      ["a", "primary"],
+      ["pi:openrouter", "off"],
+      ["pi:claude-subscription-hfpetch", "off"],
+    ]);
+    const [sonnet] = pooledModels([a, pi], hiddenCredits);
+    const edited = modelRoutePatch(hiddenCredits, sonnet!, {
+      primary: ["a"],
+      overflow: [],
+      primaryOrder: "manual",
+      reserves: {},
+    });
+    expect(edited.modelRouting?.["sonnet"]?.overflow).toEqual([]);
+    expect(edited.setModelsHidden).toBeUndefined();
+    // No route places it while hidden, a saved one included: hiding excludes the credits for good.
+    const tierOfCredits = (settings: Parameters<typeof pooledModels>[1]) =>
+      pooledModels([a, pi], settings)[0]?.accounts.find(
+        (entry) => entry.account.id === "pi:openrouter",
+      )?.tier;
+    const savedOverflow = {
+      ...hiddenCredits,
+      modelRouting: {
+        sonnet: {
+          primary: ["a"],
+          overflow: ["pi:openrouter"],
+          primaryOrder: "manual" as const,
+          reserves: {},
+        },
+      },
+    };
+    expect(tierOfCredits(savedOverflow)).toBe("off");
+    // Nor while its usage slot is missing: unknown billing never starts it as a subscription.
+    const withoutSlot = { ...pi, usageSlots: [] };
+    const { modelAccounts: _legacy, ...unarranged } = hiddenCredits;
+    for (const settings of [unarranged, hiddenCredits])
+      expect(
+        pooledModels([a, withoutSlot], settings)[0]?.accounts.find(
+          (entry) => entry.account.id === "pi:openrouter",
+        )?.tier,
+      ).toBe("off");
+    // Placing it on the Model routing page unhides it there, which is what lets it serve.
+    const [shown] = pooledModels([a, pi], savedOverflow);
+    const optIn = modelRoutePatch(savedOverflow, shown!, {
+      primary: ["a"],
+      overflow: ["pi:openrouter"],
+      primaryOrder: "manual",
+      reserves: {},
+    });
+    expect(optIn.setModelsHidden).toEqual([
+      { provider: "pi", model: "openrouter/anthropic/sonnet", hidden: false },
+    ]);
+    expect(tierOfCredits({ ...savedOverflow, providerModelPreferences: {} })).toBe("overflow");
   });
 
   it("seeds the models Henry uses: his favorites and the models his roles name", () => {
@@ -892,7 +963,12 @@ describe("editing a model's route", () => {
       }),
     ).toEqual({
       modelRouting: {
-        opus: { primary: ["b"], overflow: ["a", "x"], primaryOrder: "manual", reserves: { a: 15 } },
+        opus: {
+          primary: ["b"],
+          overflow: ["a", "x"],
+          primaryOrder: "manual",
+          reserves: { a: 15 },
+        },
       },
       modelAccounts: { opus: null },
     });

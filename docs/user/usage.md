@@ -214,8 +214,11 @@ expiring weekly allowance is spent before one with days left), or goes top to bo
 order**). Overflow always goes top to bottom. A model you never arranged has every subscription
 account in Primary. A pay-as-you-go account (an API key, such as OpenRouter's) is marked "pay as
 you go" and stays unused on a model until you move it into a tier, as does an account that appears
-after you arranged the model. A
-model you hide on an account under **Settings → Providers** is not tried there. Models only match
+after you arranged the model. Hiding a model on an account under **Settings → Providers** only
+tidies the model picker; to stop a model using an account, move the account to **Not used**. A
+model hidden on an account not known to be a subscription (such as API credits) is never used
+there; moving it into a tier on this page
+shows the model there again. Models only match
 when their names do, so a dated release (DeepSeek V4.1 Flash 1017 beside DeepSeek V4.1 Flash) stays
 separate: choose **Add account** on a model to count another model's accounts as this one, and
 the **×** beside its name to separate them again. Pi's Antigravity
