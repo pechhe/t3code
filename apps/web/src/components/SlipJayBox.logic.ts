@@ -169,8 +169,16 @@ export function resolveReleaseRow(
       action: "releasing",
     };
   }
-  if (promotion?.status === "failed" && release.waitingOn.kind !== "up_to_date") {
-    return { tone: "bad", text: "Release failed", detail: promotion.reason, action: "retry" };
+  if (promotion?.status === "failed" && !isStaleFailedPromotion(release, promotion)) {
+    return {
+      tone: "bad",
+      text:
+        promotion.candidate === null
+          ? "Release failed"
+          : `Release failed · ${sha7(promotion.candidate)}`,
+      detail: promotion.reason,
+      action: "retry",
+    };
   }
   const { tone, text, detail } = resolveReleaseWaiting(release);
   const candidate =
@@ -205,17 +213,36 @@ export function resolveReleaseAttention(
   return kinds.includes("withheld") ? "held" : null;
 }
 
+/**
+ * Whether a failed promotion has been superseded by production (production is up to date,
+ * already serves that candidate, or deployed a newer release after the failure finished).
+ */
+export function isStaleFailedPromotion(
+  release: SlipJayRunnerRelease,
+  promotion: VcsSlipJayPromotion,
+): boolean {
+  if (release.waitingOn.kind === "up_to_date") return true;
+  const live = release.production.live;
+  if (live === null) return false;
+  if (promotion.candidate !== null && live.commitId === promotion.candidate) return true;
+  if (promotion.finishedAt == null) return false;
+  const finishedAt = Date.parse(promotion.finishedAt);
+  const deployedAt = Date.parse(live.deployedAt);
+  return !Number.isNaN(finishedAt) && !Number.isNaN(deployedAt) && finishedAt < deployedAt;
+}
+
 /** The releases that failed and still matter, which the box's tag calls attention to. */
 export function resolveFailedPromotions(
   overview: SlipJayRunnerOverview | null | undefined,
   promotions: ReadonlyArray<VcsSlipJayPromotion> | null | undefined,
 ): ReadonlyArray<VcsSlipJayPromotion> {
-  return (promotions ?? []).filter(
-    (promotion) =>
-      promotion.status === "failed" &&
-      overview?.repositories.find((repository) => repository.repo === promotion.repo)?.release
-        ?.waitingOn.kind !== "up_to_date",
-  );
+  return (promotions ?? []).filter((promotion) => {
+    if (promotion.status !== "failed") return false;
+    const release = overview?.repositories.find(
+      (repository) => repository.repo === promotion.repo,
+    )?.release;
+    return release == null || !isStaleFailedPromotion(release, promotion);
+  });
 }
 
 export type ReleasePhase = "images" | "audit" | "verification" | "deploy";

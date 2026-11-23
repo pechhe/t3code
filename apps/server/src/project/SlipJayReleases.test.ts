@@ -255,12 +255,15 @@ describe("SlipJayReleases.promote", () => {
           const releases = yield* SlipJayReleases;
           yield* releases.promote({ cwd: root, repo: REPO });
           const failed = yield* promotionsUntil((all) => all[0]?.status === "failed");
+          assert.isString(failed[0]?.finishedAt);
+          assert.isFalse(Number.isNaN(Date.parse(failed[0]?.finishedAt ?? "")));
           assert.deepStrictEqual(failed, [
             {
               repo: REPO,
               status: "failed",
               candidate: PLANNED.candidate,
               reason: "2 tests failed",
+              finishedAt: failed[0]?.finishedAt,
             },
           ]);
           yield* releases.dismiss({ repo: REPO });
@@ -314,12 +317,15 @@ describe("SlipJayReleases.promote", () => {
           yield* releases.promote({ cwd: root, repo: "pechhe/weave" });
           return yield* promotionsUntil((all) => all[0]?.status === "failed");
         }).pipe(Effect.provide(releasesWith((input) => Effect.die(`unexpected ${input.command}`))));
+        assert.isString(failed[0]?.finishedAt);
+        assert.isFalse(Number.isNaN(Date.parse(failed[0]?.finishedAt ?? "")));
         assert.deepStrictEqual(failed, [
           {
             repo: "pechhe/weave",
             status: "failed",
             candidate: null,
             reason: "This checkout does not publish pechhe/weave.",
+            finishedAt: failed[0]?.finishedAt,
           },
         ]);
       }),

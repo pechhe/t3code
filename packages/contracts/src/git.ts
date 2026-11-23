@@ -472,6 +472,8 @@ export const VcsSlipJayPromotion = Schema.Struct({
   candidate: Schema.NullOr(Schema.String),
   /** SlipJay's own words on why it failed. */
   reason: Schema.NullOr(Schema.String),
+  /** ISO timestamp recorded when a promotion fails. */
+  finishedAt: Schema.optional(Schema.NullOr(Schema.String)),
 });
 export type VcsSlipJayPromotion = typeof VcsSlipJayPromotion.Type;
 

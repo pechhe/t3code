@@ -8,6 +8,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   advanceReleaseClock,
+  isStaleFailedPromotion,
   resolveBoxFooter,
   resolveReleaseAttention,
   resolveReleaseProgress,
@@ -131,8 +132,18 @@ describe("the SlipJay box", () => {
     expect(resolveReleaseRow(waiting("deploy"), promotion({})).text).toBe(
       "Releasing b42c421 to production",
     );
-    const failed = promotion({ status: "failed", reason: "2 tests failed" });
+    const failed = promotion({
+      status: "failed",
+      reason: "2 tests failed",
+      finishedAt: "2026-10-30T10:05:00Z",
+    });
     expect(resolveReleaseRow(waiting("verification"), failed)).toEqual({
+      tone: "bad",
+      text: "Release failed · b42c421",
+      detail: "2 tests failed",
+      action: "retry",
+    });
+    expect(resolveReleaseRow(waiting("verification"), { ...failed, candidate: null })).toEqual({
       tone: "bad",
       text: "Release failed",
       detail: "2 tests failed",
@@ -150,20 +161,93 @@ describe("the SlipJay box", () => {
       reason: "no",
     };
     const running: VcsSlipJayPromotion = { ...failed, repo: "o/s", status: "releasing" };
-    const withRelease = (kind: SlipJayRunnerRelease["waitingOn"]["kind"]) =>
+    const withRelease = (
+      kind: SlipJayRunnerRelease["waitingOn"]["kind"],
+      over: Partial<SlipJayRunnerRelease> = {},
+    ) =>
       overview({
         repositories: [
           {
             repo: "o/r",
             screeningLanes: 0,
             today: { landed: 0, failedScreens: 0 },
-            release: release({ waitingOn: { kind, detail: null } }),
+            release: release({ waitingOn: { kind, detail: null }, ...over }),
           },
         ],
       });
     expect(resolveFailedPromotions(withRelease("approval"), [failed, running])).toEqual([failed]);
     expect(resolveFailedPromotions(withRelease("up_to_date"), [failed])).toEqual([]);
     expect(resolveFailedPromotions(overview(), null)).toEqual([]);
+
+    // Commit A failed before commit B deployed; commit C landed later so waitingOn is verification again.
+    const supersededByTime: VcsSlipJayPromotion = {
+      repo: "o/r",
+      status: "failed",
+      candidate: "aaaaaaa11111",
+      reason: "2 tests failed",
+      finishedAt: "2026-10-30T10:00:00Z",
+    };
+    const newerDeployOverview = withRelease("verification", {
+      candidate: { commitId: "ccccccc33333", landedAt: "2026-10-30T10:20:00Z" },
+      production: {
+        live: { commitId: "bbbbbbb22222", deployedAt: "2026-10-30T10:10:00Z", healthy: true },
+        latestAttempt: null,
+      },
+    });
+    const newerDeployRelease = newerDeployOverview.repositories[0]!.release!;
+    expect(isStaleFailedPromotion(newerDeployRelease, supersededByTime)).toBe(true);
+    expect(resolveFailedPromotions(newerDeployOverview, [supersededByTime])).toEqual([]);
+    expect(resolveReleaseAttention(newerDeployOverview, [supersededByTime])).toBeNull();
+    expect(resolveReleaseRow(newerDeployRelease, supersededByTime)).toEqual({
+      tone: "warn",
+      text: "Waiting on verification · ccccccc",
+      detail: null,
+      action: "release",
+    });
+
+    // Production live commit matches the failed promotion's candidate.
+    const sameLivePromotion: VcsSlipJayPromotion = {
+      repo: "o/r",
+      status: "failed",
+      candidate: "bbbbbbb22222",
+      reason: "timed out",
+      finishedAt: "2026-10-30T10:15:00Z",
+    };
+    expect(isStaleFailedPromotion(newerDeployRelease, sameLivePromotion)).toBe(true);
+    expect(resolveFailedPromotions(newerDeployOverview, [sameLivePromotion])).toEqual([]);
+    expect(resolveReleaseAttention(newerDeployOverview, [sameLivePromotion])).toBeNull();
+    expect(resolveReleaseRow(newerDeployRelease, sameLivePromotion).action).toBe("release");
+
+    // Non-stale failure: finished after live deploy, or no live deploy yet.
+    const activeFailure: VcsSlipJayPromotion = {
+      repo: "o/r",
+      status: "failed",
+      candidate: "ccccccc33333",
+      reason: "verification failed",
+      finishedAt: "2026-10-30T10:25:00Z",
+    };
+    expect(isStaleFailedPromotion(newerDeployRelease, activeFailure)).toBe(false);
+    expect(resolveFailedPromotions(newerDeployOverview, [activeFailure])).toEqual([activeFailure]);
+    expect(resolveReleaseAttention(newerDeployOverview, [activeFailure])).toBe("failed");
+    expect(resolveReleaseRow(newerDeployRelease, activeFailure)).toEqual({
+      tone: "bad",
+      text: "Release failed · ccccccc",
+      detail: "verification failed",
+      action: "retry",
+    });
+
+    const noLiveOverview = withRelease("verification", {
+      production: { live: null, latestAttempt: null },
+    });
+    const noLiveRelease = noLiveOverview.repositories[0]!.release!;
+    expect(isStaleFailedPromotion(noLiveRelease, supersededByTime)).toBe(false);
+    expect(resolveReleaseAttention(noLiveOverview, [supersededByTime])).toBe("failed");
+    expect(resolveReleaseRow(noLiveRelease, supersededByTime)).toEqual({
+      tone: "bad",
+      text: "Release failed · aaaaaaa",
+      detail: "2 tests failed",
+      action: "retry",
+    });
   });
 
   it("says in a sentence what the candidate waits on", () => {

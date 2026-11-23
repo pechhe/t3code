@@ -1,4 +1,5 @@
 import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
@@ -227,11 +228,20 @@ export const make = Effect.gen(function* () {
           if (!claimed) return;
           yield* release(cwd, repo).pipe(
             Effect.onExit((exit) =>
-              replace(repo, (current) => {
+              Effect.gen(function* () {
                 const reason = Exit.isSuccess(exit) ? exit.value : "The release stopped early.";
-                return reason === null
-                  ? null
-                  : { repo, status: "failed", candidate: current?.candidate ?? null, reason };
+                if (reason === null) {
+                  yield* replace(repo, () => null);
+                  return;
+                }
+                const finishedAt = DateTime.formatIso(yield* DateTime.now);
+                yield* replace(repo, (current) => ({
+                  repo,
+                  status: "failed",
+                  candidate: current?.candidate ?? null,
+                  reason,
+                  finishedAt,
+                }));
               }),
             ),
             Effect.forkIn(scope),
