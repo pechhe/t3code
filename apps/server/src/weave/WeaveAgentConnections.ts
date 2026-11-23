@@ -267,7 +267,7 @@ const make = Effect.gen(function* () {
     );
   });
 
-  const observeTool: WeaveAgentConnections["Service"]["observe"] = Effect.fn(
+  const observe: WeaveAgentConnections["Service"]["observe"] = Effect.fn(
     "WeaveAgentConnections.observe",
   )(function* (tool, args) {
     const stored = yield* readStored.pipe(
@@ -317,27 +317,6 @@ const make = Effect.gen(function* () {
       });
     return { origin: stored.value.origin, connection: key, value: outcome.value };
   });
-
-  /**
-   * Weave lists Forge as grouped tools whose `action` names the Forge action (WV-70). A Weave that
-   * does not serve the grouped tool yet answers `mcp_tool_unavailable`; it is asked once more under
-   * the action's own earlier tool name, `weave_forge_<action>`, with the rest of the input.
-   * Temporary: remove once Production Weave serves the grouped Forge tools.
-   */
-  const observe: WeaveAgentConnections["Service"]["observe"] = (tool, args) =>
-    observeTool(tool, args).pipe(
-      Effect.catchIf(
-        (error) =>
-          error.reason === "failed" &&
-          error.code === "mcp_tool_unavailable" &&
-          tool.startsWith("weave_forge_") &&
-          typeof args.action === "string",
-        () => {
-          const { action, ...input } = args;
-          return observeTool(`weave_forge_${String(action)}`, input);
-        },
-      ),
-    );
 
   const decide: WeaveAgentConnections["Service"]["decide"] = Effect.fn(
     "WeaveAgentConnections.decide",

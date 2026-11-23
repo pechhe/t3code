@@ -37,48 +37,6 @@ it.effect("T3 asks Weave for no identity but its own observer (WV-71)", () =>
   }),
 );
 
-it.effect(
-  "a Forge read reaches a Weave that serves grouped tools and one that does not yet (WV-70)",
-  () =>
-    Effect.gen(function* () {
-      const { weave, connections } = yield* makeHarness;
-      // A Weave that serves the grouped Forge tools runs the named action directly.
-      weave.tools.call = (name, args) =>
-        name === "weave_forge_query" && args.action === "read"
-          ? { status: "succeeded", value: { grouped: true } }
-          : { status: "unavailable", code: "mcp_tool_unavailable" };
-      const grouped = yield* connections.observe("weave_forge_query", {
-        action: "read",
-        number: 7,
-      });
-      assert.deepStrictEqual(grouped.value, { grouped: true });
-      assert.deepStrictEqual(
-        weave.toolCalls.map((call) => call.name),
-        ["weave_forge_query"],
-      );
-      // An earlier Weave knows only the action's own tool: it is asked under that name, without `action`.
-      weave.toolCalls.length = 0;
-      weave.tools.call = (name, args) =>
-        name === "weave_forge_read"
-          ? { status: "succeeded", value: { legacy: args } }
-          : { status: "unavailable", code: "mcp_tool_unavailable" };
-      const legacy = yield* connections.observe("weave_forge_query", { action: "read", number: 7 });
-      assert.deepStrictEqual(legacy.value, { legacy: { number: 7 } });
-      assert.deepStrictEqual(
-        weave.toolCalls.map((call) => call.name),
-        ["weave_forge_query", "weave_forge_read"],
-      );
-      // Any other refusal is the answer; nothing is retried.
-      weave.toolCalls.length = 0;
-      weave.tools.call = () => ({ status: "failed", code: "build_item_unavailable" });
-      const refused = yield* connections
-        .observe("weave_forge_query", { action: "read", number: 7 })
-        .pipe(Effect.flip);
-      assert.propertyVal(refused, "code", "build_item_unavailable");
-      assert.strictEqual(weave.toolCalls.length, 1);
-    }),
-);
-
 it.effect("renewing before expiry keeps the observer", () =>
   Effect.gen(function* () {
     const { weave, read, assertNoSecretsIn } = yield* makeHarness;
