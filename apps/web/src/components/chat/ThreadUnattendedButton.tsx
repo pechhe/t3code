@@ -1,5 +1,5 @@
 import type { EnvironmentId, ScopedThreadRef, ThreadId } from "@t3tools/contracts";
-import { MoonIcon } from "lucide-react";
+import { MoonIcon, SunIcon } from "lucide-react";
 import { useState } from "react";
 
 import { playKeyClick } from "~/lib/interfaceSounds";
@@ -42,6 +42,8 @@ export function ThreadUnattendedButton(props: {
   const optedOut = shell.awayOptOut === true;
   // Global Away covers this thread unless the owner turned it off here.
   const followsAway = envAway && !optedOut;
+  // Away is on but the owner kept this thread attended: say so, rather than the "turn on" label.
+  const keptAttended = envAway && optedOut && !hasRun;
   const effectiveOn = hasRun || followsAway;
   const disabled =
     busy ||
@@ -64,7 +66,7 @@ export function ThreadUnattendedButton(props: {
       : followsAway
         ? "Unattended via global Away. Click to turn it off for this thread."
         : envAway
-          ? "Away is on, but this thread is off. Click to let Away cover it again."
+          ? "Attended: Away is on, but this thread asks you as usual. Click to let Away cover it again."
           : "Run this thread unattended: decides reversible choices, logs assumptions, and keeps going until done.";
 
   const handleClick = async () => {
@@ -119,7 +121,9 @@ export function ThreadUnattendedButton(props: {
                   ? "Unattended paused"
                   : followsAway
                     ? "Unattended via global Away"
-                    : "Turn unattended on"
+                    : keptAttended
+                      ? "Attended while Away is on"
+                      : "Turn unattended on"
             }
             onPointerDown={(event) => event.preventDefault()}
             onClick={() => void handleClick()}
@@ -136,9 +140,19 @@ export function ThreadUnattendedButton(props: {
           />
         }
       >
-        <MoonIcon className="size-3" aria-hidden="true" />
+        {keptAttended ? (
+          <SunIcon className="size-3" aria-hidden="true" />
+        ) : (
+          <MoonIcon className="size-3" aria-hidden="true" />
+        )}
         <span className="hidden sm:inline">
-          {runHeld ? "Paused" : !hasRun && followsAway ? "Away" : "Unattended"}
+          {runHeld
+            ? "Paused"
+            : !hasRun && followsAway
+              ? "Away"
+              : keptAttended
+                ? "Attended"
+                : "Unattended"}
         </span>
         {runActive ? (
           <span className="size-1.5 rounded-full bg-primary" aria-hidden="true" />
