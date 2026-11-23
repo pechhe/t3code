@@ -1666,15 +1666,24 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           );
         });
 
-      const streamItemId = (turn: ActivePiTurn, contentIndex: number) =>
-        `${turn.providerTurn.id}:m${turn.messageOrdinal}:c${contentIndex}`;
+      const streamItemId = (turn: ActivePiTurn, kind: PiStreamItemState["kind"]) =>
+        `${turn.providerTurn.id}:m${turn.messageOrdinal}:${kind}`;
+
+      const resetOrdinalStreamItems = (turn: ActivePiTurn) => {
+        for (const kind of ["assistant_message", "reasoning"] as const) {
+          const item = turn.streamItems.get(streamItemId(turn, kind));
+          if (item !== undefined) {
+            item.text = "";
+            item.completed = false;
+          }
+        }
+      };
 
       const streamItemFor = Effect.fnUntraced(function* (
         turn: ActivePiTurn,
         kind: PiStreamItemState["kind"],
-        contentIndex: number,
       ) {
-        const nativeItemId = streamItemId(turn, contentIndex);
+        const nativeItemId = streamItemId(turn, kind);
         const existing = turn.streamItems.get(nativeItemId);
         if (existing !== undefined) return existing;
         const startedAt = yield* DateTime.now;
@@ -2688,7 +2697,11 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             const role = recordString(event["message"], "role");
             if (turn !== null && role === "assistant") {
               turn.sawAgentActivity = true;
-              turn.messageOrdinal += 1;
+              if (turn.activeProviderRetry !== null && turn.messageOrdinal > 0) {
+                resetOrdinalStreamItems(turn);
+              } else {
+                turn.messageOrdinal += 1;
+              }
             }
             const readSteer = role === "user" ? turn?.unreadSteers.shift() : undefined;
             if (turn !== null && readSteer !== undefined) {
@@ -2708,10 +2721,10 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             yield* reportLiveUsage(turn, event["usage"]);
             const delta = event["assistantMessageEvent"];
             const deltaType = recordString(delta, "type");
-            const contentIndex = recordNumber(delta, "contentIndex") ?? 0;
             if (deltaType === "text_start" || deltaType === "thinking_start") {
               // A provider that reconnects mid-block starts it again; its earlier text is abandoned.
-              const restarted = turn.streamItems.get(streamItemId(turn, contentIndex));
+              const kind = deltaType === "text_start" ? "assistant_message" : "reasoning";
+              const restarted = turn.streamItems.get(streamItemId(turn, kind));
               if (restarted !== undefined && !restarted.completed) restarted.text = "";
               return;
             }
@@ -2719,7 +2732,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
               const item = yield* streamItemFor(
                 turn,
                 deltaType === "text_delta" ? "assistant_message" : "reasoning",
-                contentIndex,
               );
               item.text += recordString(delta, "delta") ?? "";
               yield* scheduleStreamFlush(turn, item);
@@ -2729,7 +2741,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
               const item = yield* streamItemFor(
                 turn,
                 deltaType === "text_end" ? "assistant_message" : "reasoning",
-                contentIndex,
               );
               yield* completeStreamItem(
                 turn,
@@ -2744,7 +2755,12 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             if (turn === null) return;
             const message = event["message"];
             if (recordString(message, "role") !== "assistant") return;
-            yield* completeOpenStreamItems(turn);
+            const stopReason = recordString(message, "stopReason");
+            // Keep open items uncompleted on error so an auto-retry replaces them instead of
+            // stacking failed partial messages; finalizeTurn completes them if no retry succeeds.
+            if (stopReason !== "error") {
+              yield* completeOpenStreamItems(turn);
+            }
             const reportedProvider = recordString(message, "provider");
             const reportedModelId = recordString(message, "model");
             if (reportedProvider && reportedModelId) {
@@ -2752,7 +2768,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             }
             const promptCache = piPromptCache(message);
             if (promptCache !== undefined) turn.promptCache = promptCache;
-            if (recordString(message, "stopReason") === "error" && turn.failure === null) {
+            if (stopReason === "error" && turn.failure === null) {
               turn.failure = yield* piModelFailure(
                 recordString(message, "errorMessage") ?? "Pi reported a model error.",
               );

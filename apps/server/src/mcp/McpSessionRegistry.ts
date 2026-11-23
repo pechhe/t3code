@@ -138,7 +138,7 @@ const getHttpMcpEndpointHost = (address: NetAddress.IpAddress): string =>
     : NetAddress.formatUrlHostString(NetAddress.formatIp(address));
 
 /** The origin provider processes on this host use to reach the server's MCP endpoints. */
-export const mcpEndpointOrigin = (address: HttpServer.HttpServer["Service"]["address"]): string =>
+const mcpEndpointOrigin = (address: HttpServer.HttpServer["Service"]["address"]): string =>
   NetAddress.isInetAddress(address)
     ? `http://${getHttpMcpEndpointHost(address.address)}:${address.port}`
     : "http://127.0.0.1";

@@ -6381,6 +6381,37 @@ describe("PiAdapterV2", () => {
       yield* startTurn(runtime, providerThread);
       yield* fake.takeRequest("prompt");
       yield* fake.emit({ type: "agent_start" });
+      yield* fake.emit({ type: "message_start", message: { role: "assistant" } });
+      yield* fake.emit({
+        type: "message_update",
+        assistantMessageEvent: {
+          type: "text_delta",
+          contentIndex: 1,
+          delta: "Abandoned partial reply",
+        },
+      });
+      yield* fake.emit({
+        type: "message_update",
+        assistantMessageEvent: {
+          type: "thinking_end",
+          contentIndex: 0,
+          thinking: "Abandoned thought",
+        },
+      });
+      const abandonedReasoning = yield* takeEvent(
+        (event) => event.type === "turn_item.updated" && event.turnItem.type === "reasoning",
+      );
+      yield* TestClock.adjust(Duration.millis(60));
+      const abandonedAssistant = yield* takeEvent(
+        (event) =>
+          event.type === "turn_item.updated" && event.turnItem.type === "assistant_message",
+      );
+      assert.isTrue(
+        abandonedAssistant.type === "turn_item.updated" &&
+          abandonedAssistant.turnItem.type === "assistant_message" &&
+          abandonedAssistant.turnItem.status === "running" &&
+          abandonedAssistant.turnItem.text === "Abandoned partial reply",
+      );
       yield* fake.emit({
         type: "message_end",
         message: {
@@ -6400,6 +6431,7 @@ describe("PiAdapterV2", () => {
       const running = yield* takeEvent(
         (event) => event.type === "turn_item.updated" && event.turnItem.type === "error",
       );
+      yield* fake.emit({ type: "message_start", message: { role: "assistant" } });
       // Streamed tool input settles the retry; Pi sends auto_retry_end only after the message ends.
       yield* fake.emit({
         type: "message_update",
@@ -6416,6 +6448,41 @@ describe("PiAdapterV2", () => {
           recovered.turnItem.id === running.turnItem.id &&
           recovered.turnItem.status === "completed" &&
           recovered.turnItem.title === "Provider recovered",
+      );
+      yield* fake.emit({
+        type: "message_update",
+        assistantMessageEvent: { type: "text_end", contentIndex: 0, content: "Recovered reply" },
+      });
+      yield* fake.emit({
+        type: "message_end",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "Recovered reply" }],
+          stopReason: "stop",
+        },
+      });
+      const completedAssistant = yield* takeEvent(
+        (event) =>
+          event.type === "turn_item.updated" &&
+          event.turnItem.type === "assistant_message" &&
+          event.turnItem.status === "completed",
+      );
+      const clearedReasoning = yield* takeEvent(
+        (event) =>
+          event.type === "turn_item.updated" &&
+          event.turnItem.type === "reasoning" &&
+          event.turnItem.text === "",
+      );
+      assert.isTrue(
+        abandonedAssistant.type === "turn_item.updated" &&
+          completedAssistant.type === "turn_item.updated" &&
+          completedAssistant.turnItem.type === "assistant_message" &&
+          completedAssistant.turnItem.id === abandonedAssistant.turnItem.id &&
+          completedAssistant.turnItem.text === "Recovered reply" &&
+          abandonedReasoning.type === "turn_item.updated" &&
+          clearedReasoning.type === "turn_item.updated" &&
+          clearedReasoning.turnItem.id === abandonedReasoning.turnItem.id &&
+          clearedReasoning.turnItem.status === "completed",
       );
       yield* fake.emit({ type: "auto_retry_end", success: true, attempt: 1 });
 

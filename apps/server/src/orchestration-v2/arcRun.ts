@@ -1,3 +1,4 @@
+/* oxlint-disable t3code/no-em-dash-copy -- model-facing prompt instructions, not UI copy */
 import type {
   OrchestrationV2AppThread,
   OrchestrationV2Notification,
@@ -41,33 +42,25 @@ export const HARD_STOP_BOUNDARY =
   "Production deploys or migrations, real spending, external messages to third parties or customers, destructive data operations, or credentials/permissions only the owner can grant";
 
 /** Answers an autonomous or Arc lead's own question: true whether or not the owner is at his desk. */
-export const ARC_RUN_ANSWER =
-  `This thread is running autonomously, so you decide reversible choices yourself from the evidence, testing and the governing intent — including UI/UX look-and-feel on develop, previews or behind gates. Log each consequential assumption or decision with t3_thread_update (action arc_run, op decision). Hold only what is truly hard to reverse (${HARD_STOP_BOUNDARY}) with a watch on the owner, and carry on with all other work.`;
+export const ARC_RUN_ANSWER = `This thread is running autonomously, so you decide reversible choices yourself from the evidence, testing and the governing intent — including UI/UX look-and-feel on develop, previews or behind gates. Log each consequential assumption or decision with t3_thread_update (action arc_run, op decision). Hold only what is truly hard to reverse (${HARD_STOP_BOUNDARY}) with a watch on the owner, and carry on with all other work.`;
 
 /** Answers a question while global Away is on. */
-export const AWAY_ANSWER =
-  `The owner is away and this thread is unattended, so nobody will answer questions. Decide reversible choices yourself from the evidence, testing and the governing intent — including UI/UX look-and-feel on develop, previews or behind gates. Log each consequential assumption or decision with t3_thread_update (action arc_run, op decision). Hold only what is truly hard to reverse (${HARD_STOP_BOUNDARY}) as an owner wait, and carry on with all other work.`;
+export const AWAY_ANSWER = `The owner is away and this thread is unattended, so nobody will answer questions. Decide reversible choices yourself from the evidence, testing and the governing intent — including UI/UX look-and-feel on develop, previews or behind gates. Log each consequential assumption or decision with t3_thread_update (action arc_run, op decision). Hold only what is truly hard to reverse (${HARD_STOP_BOUNDARY}) as an owner wait, and carry on with all other work.`;
 
 /** Answers a delegated Spec lead's question while global Away is on (delegated threads cannot call op decision/start). */
-export const AWAY_LEAD_ANSWER =
-  `The owner is away and this thread is unattended, so nobody will answer questions. Decide reversible choices yourself from the evidence, testing and the governing intent — including UI/UX look-and-feel on develop, previews or behind gates. Record each consequential assumption or decision in your close-out report. Hold only what is truly hard to reverse (${HARD_STOP_BOUNDARY}) as an owner wait, and carry on with all other work.`;
+export const AWAY_LEAD_ANSWER = `The owner is away and this thread is unattended, so nobody will answer questions. Decide reversible choices yourself from the evidence, testing and the governing intent — including UI/UX look-and-feel on develop, previews or behind gates. Record each consequential assumption or decision in your close-out report. Hold only what is truly hard to reverse (${HARD_STOP_BOUNDARY}) as an owner wait, and carry on with all other work.`;
 
 /** Continuation prompt when a non-run thread stops mid-work while global Away is on. */
-export const AWAY_CONTINUE_PROMPT =
-  `This thread is unattended while the owner is away. Continue the remaining work: decide reversible choices yourself by judgement or testing, log consequential assumptions or decisions with t3_thread_update (action arc_run, op decision), and start an autonomous run (op start) if multi-step work remains. End with a '🟢 Status: Done' line (listing the decisions and assumptions made) once finished, or record an owner watch if only hard-to-reverse holds (${HARD_STOP_BOUNDARY}) remain.`;
+export const AWAY_CONTINUE_PROMPT = `This thread is unattended while the owner is away. Continue the remaining work: decide reversible choices yourself by judgement or testing, log consequential assumptions or decisions with t3_thread_update (action arc_run, op decision), and start an autonomous run (op start) if multi-step work remains. End with a '🟢 Status: Done' line (listing the decisions and assumptions made) once finished, or record an owner watch if only hard-to-reverse holds (${HARD_STOP_BOUNDARY}) remain.`;
 
 /** Continuation prompt when a delegated Spec lead stops mid-work while global Away is on. */
-export const AWAY_LEAD_CONTINUE_PROMPT =
-  `This thread is unattended while the owner is away. Continue the remaining work: decide reversible choices yourself by judgement or testing, and record consequential assumptions or decisions in your close-out report. End with a '🟢 Status: Done' line (listing the decisions and assumptions made) once finished, or record an owner watch if only hard-to-reverse holds (${HARD_STOP_BOUNDARY}) remain.`;
+export const AWAY_LEAD_CONTINUE_PROMPT = `This thread is unattended while the owner is away. Continue the remaining work: decide reversible choices yourself by judgement or testing, and record consequential assumptions or decisions in your close-out report. End with a '🟢 Status: Done' line (listing the decisions and assumptions made) once finished, or record an owner watch if only hard-to-reverse holds (${HARD_STOP_BOUNDARY}) remain.`;
 
-const AUTONOMOUS_AUTHORITY_NOTE =
-  `Unattended authority: decide reversible choices yourself from evidence, testing and governing intent — including UI/UX look-and-feel on develop, previews or behind gates (show screenshots in your report). Hold only hard-to-reverse actions (${HARD_STOP_BOUNDARY}). Log each consequential assumption or decision with t3_thread_update (action arc_run, op decision) and surface the full list in your closing report. Do not stop until the work is finished (call op end) or only hard-to-reverse holds remain.`;
+const AUTONOMOUS_AUTHORITY_NOTE = `Unattended authority: decide reversible choices yourself from evidence, testing and governing intent — including UI/UX look-and-feel on develop, previews or behind gates (show screenshots in your report). Hold only hard-to-reverse actions (${HARD_STOP_BOUNDARY}). Log each consequential assumption or decision with t3_thread_update (action arc_run, op decision) and surface the full list in your closing report. Do not stop until the work is finished (call op end) or only hard-to-reverse holds remain.`;
 
-const AWAY_TURN_NOTE =
-  `Global Away is on: the owner is away and this thread is unattended. Decide reversible choices yourself from evidence, testing and governing intent — including UI/UX look-and-feel on develop, previews or behind gates (show screenshots in your report). Hold only hard-to-reverse actions (${HARD_STOP_BOUNDARY}) using watch {kind: "owner"}. Log consequential assumptions or decisions with t3_thread_update (action arc_run, op decision) and surface them in your closing report. If multi-step work remains, start an autonomous run with t3_thread_update (action arc_run, op start) and call op end when finished; otherwise finish with a '🟢 Status: Done' line.`;
+const AWAY_TURN_NOTE = `Global Away is on: the owner is away and this thread is unattended. Decide reversible choices yourself from evidence, testing and governing intent — including UI/UX look-and-feel on develop, previews or behind gates (show screenshots in your report). Hold only hard-to-reverse actions (${HARD_STOP_BOUNDARY}) using watch {kind: "owner"}. Log consequential assumptions or decisions with t3_thread_update (action arc_run, op decision) and surface them in your closing report. If multi-step work remains, start an autonomous run with t3_thread_update (action arc_run, op start) and call op end when finished; otherwise finish with a '🟢 Status: Done' line.`;
 
-const AWAY_LEAD_TURN_NOTE =
-  `Global Away is on: the owner is away and this thread is unattended. Decide reversible choices yourself from evidence, testing and governing intent — including UI/UX look-and-feel on develop, previews or behind gates (show screenshots in your report). Hold only hard-to-reverse actions (${HARD_STOP_BOUNDARY}) using watch {kind: "owner"}. Record consequential assumptions or decisions in your close-out report, and finish with a '🟢 Status: Done' line once complete.`;
+const AWAY_LEAD_TURN_NOTE = `Global Away is on: the owner is away and this thread is unattended. Decide reversible choices yourself from evidence, testing and governing intent — including UI/UX look-and-feel on develop, previews or behind gates (show screenshots in your report). Hold only hard-to-reverse actions (${HARD_STOP_BOUNDARY}) using watch {kind: "owner"}. Record consequential assumptions or decisions in your close-out report, and finish with a '🟢 Status: Done' line once complete.`;
 
 export type AnyThreadRun = OrchestrationV2ThreadArcRun | OrchestrationV2ThreadAutonomousRun;
 
@@ -107,9 +100,8 @@ export interface ArcRunState {
 export const isDelegatedTaskDone = (status: OrchestrationV2Subagent["status"]) =>
   TASK_DONE.has(status);
 
-export const isArcRunObject = (
-  run: AnyThreadRun | undefined,
-): run is OrchestrationV2ThreadArcRun => run !== undefined && "arc" in run;
+export const isArcRunObject = (run: AnyThreadRun | undefined): run is OrchestrationV2ThreadArcRun =>
+  run !== undefined && "arc" in run;
 
 export const activeRunOf = (
   thread: Pick<OrchestrationV2AppThread, "arcRun" | "autonomousRun">,
@@ -137,9 +129,10 @@ export const hasDoneStatusMarker = (text: string | undefined): boolean =>
   text !== undefined && DONE_STATUS_LINE.test(text);
 
 /** Away covers every top-level thread and standalone Spec lead (not read-only or writing helpers). */
-export const isAwayEligibleThread = (
-  thread: { readonly lineage: Pick<OrchestrationV2AppThread["lineage"], "parentThreadId">; readonly agentTask?: OrchestrationV2AppThread["agentTask"] | undefined },
-): boolean =>
+const isAwayEligibleThread = (thread: {
+  readonly lineage: Pick<OrchestrationV2AppThread["lineage"], "parentThreadId">;
+  readonly agentTask?: OrchestrationV2AppThread["agentTask"] | undefined;
+}): boolean =>
   (thread.lineage.parentThreadId === null && thread.agentTask === undefined) ||
   thread.agentTask?.role === "lead";
 
@@ -192,7 +185,8 @@ function arcRunNoProgressWakes(
 ): number {
   return runs.filter(
     (run) =>
-      run.userMessageId.startsWith(ARC_RUN_WAKE_MESSAGE_PREFIX) && ranSince(run, runState.progressAt),
+      run.userMessageId.startsWith(ARC_RUN_WAKE_MESSAGE_PREFIX) &&
+      ranSince(run, runState.progressAt),
   ).length;
 }
 
@@ -301,7 +295,7 @@ function arcRunRole(arcRun: OrchestrationV2ThreadArcRun): string {
     : `You lead Specs ${arcRun.specs.map((number) => `#${number}`).join(", ")} within Arc ${label}, responsible for delivering those and not the rest of the Arc.`;
 }
 
-export function describeArcRun(arcRun: OrchestrationV2ThreadArcRun): string {
+function describeArcRun(arcRun: OrchestrationV2ThreadArcRun): string {
   const plan =
     arcRun.plan === undefined
       ? "No plan is recorded. Record the intended Spec order with t3_thread_update action arc_run."
@@ -313,7 +307,7 @@ export function describeArcRun(arcRun: OrchestrationV2ThreadArcRun): string {
   return `${arcRunRole(arcRun)} ${plan} ${current} ${checkpointLine(arcRun)}`;
 }
 
-export function describeAutonomousRun(run: OrchestrationV2ThreadAutonomousRun): string {
+function describeAutonomousRun(run: OrchestrationV2ThreadAutonomousRun): string {
   const label = runLabel(run);
   const role =
     run.kind === "spec"
@@ -322,7 +316,7 @@ export function describeAutonomousRun(run: OrchestrationV2ThreadAutonomousRun): 
   return `${role} ${checkpointLine(run)}`;
 }
 
-export function describeAnyRun(run: AnyThreadRun): string {
+function describeAnyRun(run: AnyThreadRun): string {
   return isArcRunObject(run) ? describeArcRun(run) : describeAutonomousRun(run);
 }
 
@@ -353,7 +347,7 @@ export function describeUnattendedTurnNote(input: {
   return "";
 }
 
-export function formatDecisionLog(
+function formatDecisionLog(
   decisions: ReadonlyArray<OrchestrationV2ThreadDecisionEntry> | undefined,
 ): string {
   if (decisions === undefined || decisions.length === 0) return "";
@@ -563,7 +557,7 @@ export function evaluateRunOnStop(input: {
 }
 
 export const MAX_DECISION_LOG_ENTRIES = 100;
-export const MAX_DECISION_FIELD_CHARS = 1_000;
+const MAX_DECISION_FIELD_CHARS = 1_000;
 
 export function trimDecisionField(value: string): string {
   const trimmed = value.trim();

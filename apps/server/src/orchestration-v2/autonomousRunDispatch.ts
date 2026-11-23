@@ -39,7 +39,12 @@ import type {
 } from "./ProjectionStore.ts";
 import type { EffectOutboxError } from "./EffectOutbox.ts";
 
-export interface AutonomousRunDispatchDeps<TEffects, TDispatchError, TProjectionError, TMessageError> {
+export interface AutonomousRunDispatchDeps<
+  TEffects,
+  TDispatchError,
+  TProjectionError,
+  TMessageError,
+> {
   readonly projectionStore: ProjectionStoreV2Shape;
   readonly isDelegatedTaskThread: (thread: OrchestrationV2AppThread) => boolean;
   readonly makeDispatchError: (input: {
@@ -88,32 +93,35 @@ export interface AutonomousRunDispatchDeps<TEffects, TDispatchError, TProjection
   ) => Effect.Effect<boolean, EffectOutboxError>;
 }
 
-export const cancelQueuedRunWakes = Effect.fn("AutonomousRunDispatch.cancelQueuedRunWakes")(
-  function* <TEffects, TDispatchError, TProjectionError, TMessageError>(
-    deps: Pick<
-      AutonomousRunDispatchDeps<TEffects, TDispatchError, TProjectionError, TMessageError>,
-      "cancelQueuedRun"
-    >,
-    command: { readonly commandId: CommandId; readonly threadId: ThreadId },
-    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
-    runs: ReadonlyArray<OrchestrationV2Run>,
-  ) {
-    for (const run of runs) {
-      if (run.status !== "queued" || !run.userMessageId.startsWith(ARC_RUN_WAKE_MESSAGE_PREFIX)) {
-        continue;
-      }
-      yield* deps.cancelQueuedRun(
-        {
-          type: "queued-run.cancel",
-          commandId: command.commandId,
-          threadId: command.threadId,
-          runId: run.id,
-        },
-        events,
-      );
+const cancelQueuedRunWakes = Effect.fn("AutonomousRunDispatch.cancelQueuedRunWakes")(function* <
+  TEffects,
+  TDispatchError,
+  TProjectionError,
+  TMessageError,
+>(
+  deps: Pick<
+    AutonomousRunDispatchDeps<TEffects, TDispatchError, TProjectionError, TMessageError>,
+    "cancelQueuedRun"
+  >,
+  command: { readonly commandId: CommandId; readonly threadId: ThreadId },
+  events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+  runs: ReadonlyArray<OrchestrationV2Run>,
+) {
+  for (const run of runs) {
+    if (run.status !== "queued" || !run.userMessageId.startsWith(ARC_RUN_WAKE_MESSAGE_PREFIX)) {
+      continue;
     }
-  },
-);
+    yield* deps.cancelQueuedRun(
+      {
+        type: "queued-run.cancel",
+        commandId: command.commandId,
+        threadId: command.threadId,
+        runId: run.id,
+      },
+      events,
+    );
+  }
+});
 
 export const dispatchAutonomousRun = Effect.fn("orchestrationV2.dispatch.arcRun")(function* <
   TEffects,
@@ -211,9 +219,7 @@ export const dispatchAutonomousRun = Effect.fn("orchestrationV2.dispatch.arcRun"
   switch (command.op) {
     case "start": {
       if (thread.archivedAt !== null || thread.settledOverride === "settled") {
-        return yield* refuse(
-          "A settled or archived thread cannot run an Arc. Unsettle it first.",
-        );
+        return yield* refuse("A settled or archived thread cannot run an Arc. Unsettle it first.");
       }
       if (isArcRunHeld(currentAny)) {
         return yield* refuse(
@@ -310,9 +316,7 @@ export const dispatchAutonomousRun = Effect.fn("orchestrationV2.dispatch.arcRun"
           currentAuto !== undefined &&
           (currentAuto.kind !== "spec" || currentAuto.spec?.number !== command.spec.number)
         ) {
-          return yield* refuse(
-            "This thread already holds another autonomous run. End it first.",
-          );
+          return yield* refuse("This thread already holds another autonomous run. End it first.");
         }
         const others = yield* deps.projectionStore
           .listArcRunThreads()
@@ -334,7 +338,7 @@ export const dispatchAutonomousRun = Effect.fn("orchestrationV2.dispatch.arcRun"
           );
         }
         nextAuto = {
-          ...(currentAuto ?? {}),
+          ...currentAuto,
           kind: "spec",
           spec: command.spec,
           state: "active",
@@ -352,12 +356,10 @@ export const dispatchAutonomousRun = Effect.fn("orchestrationV2.dispatch.arcRun"
           currentAuto !== undefined &&
           (currentAuto.kind !== "task" || currentAuto.label !== command.label)
         ) {
-          return yield* refuse(
-            "This thread already holds another autonomous run. End it first.",
-          );
+          return yield* refuse("This thread already holds another autonomous run. End it first.");
         }
         nextAuto = {
-          ...(currentAuto ?? {}),
+          ...currentAuto,
           kind: "task",
           ...(command.label === undefined ? {} : { label: command.label }),
           state: "active",
@@ -532,19 +534,19 @@ export const dispatchAutonomousRunWake = Effect.fn("orchestrationV2.dispatch.arc
     if (decision.kind !== "attention") {
       const continuations = yield* deps.projectionStore
         .getManagedChildContinuations(thread.id)
-        .pipe(
-          Effect.mapError((cause) => deps.makeProjectionError({ threadId: thread.id, cause })),
-        );
+        .pipe(Effect.mapError((cause) => deps.makeProjectionError({ threadId: thread.id, cause })));
       if (continuations.length > 0) return;
     }
     const latest = latestArcRunTurn(state.runs);
     if (latest === undefined) return;
     if (
-      yield* deps.childAwaitsRestartContinuation(state.runs, latest).pipe(
-        Effect.mapError((cause) =>
-          deps.makeProjectionError({ threadId: command.threadId, cause }),
-        ),
-      )
+      yield* deps
+        .childAwaitsRestartContinuation(state.runs, latest)
+        .pipe(
+          Effect.mapError((cause) =>
+            deps.makeProjectionError({ threadId: command.threadId, cause }),
+          ),
+        )
     ) {
       return;
     }

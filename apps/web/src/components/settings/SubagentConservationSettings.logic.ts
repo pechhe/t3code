@@ -22,7 +22,7 @@ export const MODELS_MESSAGE = "Select at least one model, or turn conservation o
 export const ENABLE_MESSAGE =
   "Enter a threshold (1–99%) and select at least one model to enable conservation.";
 
-export function parseThreshold(text: string): number | null {
+function parseThreshold(text: string): number | null {
   const value = Number(text);
   return text.trim() !== "" && Number.isInteger(value) && value >= 1 && value <= 99 ? value : null;
 }
