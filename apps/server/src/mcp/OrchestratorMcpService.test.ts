@@ -1,6 +1,7 @@
 import * as FixtureReleaseApprovals from "../releases/ReleaseApprovals.ts";
 import * as FixtureExperimentService from "../experiments/ExperimentService.ts";
 import * as AdviceService from "../agents/AdviceService.ts";
+import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import { resolveRuntimeMode } from "./delegatedTaskModes.ts";
 import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as Experiments from "../experiments/ExperimentService.ts";
@@ -3794,7 +3795,23 @@ describe("OrchestratorMcpService provider resolution", () => {
             assert.include(refused.message, "whyNotDelegated");
           }
           assert.equal((yield* service.listThreads(scope, {})).total, listedBefore.total);
-          const first = yield* service.createThreads(scope, request);
+          // A caller on Implement starts no separate thread; Orchestrate still does.
+          const withStance = (stance: "implement" | "orchestrate") =>
+            Effect.provideService(ManagedAgent.ManagedAgentService, {
+              assertLaunchAllowed: () =>
+                stance === "implement"
+                  ? Effect.fail(new ManagedAgent.ManagedAgentError({ reason: "stance" }))
+                  : Effect.void,
+            } as unknown as ManagedAgent.ManagedAgentService["Service"]);
+          const implementRefused = yield* service
+            .createThreads(scope, request)
+            .pipe(withStance("implement"), Effect.flip);
+          assert.equal(implementRefused.code, "capability_denied");
+          assert.include(implementRefused.message, "Delegation stance is implement");
+          assert.equal((yield* service.listThreads(scope, {})).total, listedBefore.total);
+          const first = yield* service
+            .createThreads(scope, request)
+            .pipe(withStance("orchestrate"));
           const child = first.threads[0]!;
           const selection = parentEnabled
             ? { instanceId: codexInstanceId, model: "gpt-5.4" }
@@ -3802,7 +3819,10 @@ describe("OrchestratorMcpService provider resolution", () => {
           assert.equal(first.threads.length, 1);
           assert.equal(child.providerInstanceId, selection.instanceId);
           assert.equal(child.model, selection.model);
-          assert.deepEqual(yield* service.createThreads(scope, request), first);
+          assert.deepEqual(
+            yield* service.createThreads(scope, request).pipe(withStance("implement")),
+            first,
+          );
           // A replay of an accepted creation needs no reason again.
           assert.deepEqual(
             yield* service.createThreads(scope, { ...request, whyNotDelegated: undefined }),
@@ -3822,8 +3842,18 @@ describe("OrchestratorMcpService provider resolution", () => {
             ...request,
             threads: [{ ...request.threads[0]!, prompt: "Start work." }],
           };
+          // Under Implement that retry would start new work, so it is refused; once accepted it replays.
+          const promptRefused = yield* service
+            .createThreads(scope, withPrompt)
+            .pipe(withStance("implement"), Effect.flip);
+          assert.equal(promptRefused.code, "capability_denied");
+          assert.equal((yield* orchestrator.getThreadProjection(child.threadId)).runs.length, 0);
           const started = yield* service.createThreads(scope, withPrompt);
           assert.equal(started.threads[0]?.threadId, child.threadId);
+          assert.deepEqual(
+            yield* service.createThreads(scope, withPrompt).pipe(withStance("implement")),
+            started,
+          );
           const before = yield* orchestrator.getThreadProjection(child.threadId);
           assert.deepEqual(before.runs[0]?.modelSelection, selection);
           assert.equal(before.messages.length, 1);

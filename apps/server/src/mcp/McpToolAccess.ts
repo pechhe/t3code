@@ -580,7 +580,8 @@ export interface StartedModes {
 /**
  * Starts threads with the modes `modes` requests, which may not be broader
  * than the caller's. `linked` says what a linked caller gets: threads stamped
- * with its `linkOrigin`, or a refusal where the tool cannot carry one.
+ * with its `linkOrigin`, or a refusal where the tool cannot carry one. `refuseLinked` also
+ * judges the calling thread before a call is forwarded, as the destination never sees it.
  */
 export const startsThreads = <P, A, E, R>(
   modes: (params: P) => {
@@ -589,6 +590,9 @@ export const startsThreads = <P, A, E, R>(
   },
   handle: (params: P, modes: StartedModes) => Effect.Effect<A, E, R>,
   linked: "stamped" | { readonly refused: string },
+  refuseLinked?: (
+    caller: { readonly id: ThreadId } | undefined,
+  ) => Effect.Effect<void, OrchestratorMcpFailure>,
 ) => {
   const started = Effect.fn("McpToolAccess.started")(function* (caller: Caller, params: P) {
     const requested = modes(params);
@@ -617,6 +621,7 @@ export const startsThreads = <P, A, E, R>(
             ? Effect.void
             : assertBelowDelegationLimit(caller.threads, caller.caller),
         ),
+        Effect.tap((caller) => refuseLinked?.(caller.caller) ?? Effect.void),
         Effect.flatMap((caller) => started(caller, params)),
       ),
   );

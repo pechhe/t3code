@@ -112,7 +112,7 @@ export class ManagedAgentError extends Schema.TaggedError<ManagedAgentError>()(
 ) {
   override get message(): string {
     if (this.reason === "stance")
-      return "Delegation stance is implement: do the work yourself, or ask the owner to move the lever before starting an implementer.";
+      return "Delegation stance is implement: do the work yourself, or ask the owner to switch this thread to Orchestrate before handing it to an implementer or a new thread.";
     if (this.reason === "hard-link")
       return `Managed writer refused: regular file has multiple hard links: ${this.path}.`;
     const refusal = `Managed agent dispatch refused (${this.reason}${refusalDetail(this.cause, this.detail)}).`;
@@ -208,6 +208,10 @@ export class ManagedAgentService extends Context.Service<
         "stanceChoice" | "agentTask" | "arcRun" | "modelSelection"
       >;
       readonly request: AgentTaskRequest;
+    }) => Effect.Effect<void, ManagedAgentError>;
+    /** Refuses a thread on Implement the launch of a separate thread. */
+    readonly assertLaunchAllowed: (input: {
+      readonly threadId: ThreadId;
     }) => Effect.Effect<void, ManagedAgentError>;
     readonly roles: (
       input: Omit<Authority, "workspacePath"> & {
@@ -1042,6 +1046,10 @@ const make = Effect.gen(function* () {
           return yield* new ManagedAgentError({ reason: "stance" });
       },
     ),
+    assertLaunchAllowed: Effect.fn("ManagedAgentService.assertLaunchAllowed")(function* (input) {
+      const stance = yield* resolveStance({ threadId: input.threadId }).pipe(Effect.orDie);
+      if (stance.stance === "implement") return yield* new ManagedAgentError({ reason: "stance" });
+    }),
     snapshot: Effect.fn("ManagedAgentService.snapshot")(() =>
       currentPolicy.pipe(
         Effect.tap((snapshot) =>

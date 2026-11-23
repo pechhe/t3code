@@ -50,7 +50,11 @@ import * as OrchestrationMcp from "../../OrchestratorMcpService.ts";
 import * as ForgeWorkItems from "../../../weave/ForgeWorkItems.ts";
 import * as WeaveAgentConnections from "../../../weave/WeaveAgentConnections.ts";
 import * as SecretRequests from "../../../secrets/SecretRequests.ts";
-import { logWhyNotDelegated, requireWhyNotDelegated } from "../../delegationLimits.ts";
+import {
+  logWhyNotDelegated,
+  refuseImplementStance,
+  requireWhyNotDelegated,
+} from "../../delegationLimits.ts";
 import { newCommandId, readCaller, resolveProjectId, unavailable } from "../../threadAccess.ts";
 import { ProjectToolkit } from "./tools.ts";
 
@@ -253,8 +257,20 @@ export const handlers = {
           input.clientRequestId === undefined
             ? null
             : yield* context.threads.getThreadShell(threadId).pipe(Effect.mapError(unavailable));
-        if (launched === null || launched.deletedAt !== null)
-          yield* requireWhyNotDelegated(caller, input.whyNotDelegated);
+        const replayed = launched !== null && launched.deletedAt === null;
+        // A replay starts nothing new unless this retry brings a first message not yet accepted.
+        yield* refuseImplementStance(
+          caller,
+          !replayed
+            ? undefined
+            : input.message === undefined && (input.attachments ?? []).length === 0
+              ? Effect.succeed(true)
+              : context.threads.getMessagesById(threadId, [messageId]).pipe(
+                  Effect.map((accepted) => accepted.has(messageId)),
+                  Effect.mapError(unavailable),
+                ),
+        );
+        if (!replayed) yield* requireWhyNotDelegated(caller, input.whyNotDelegated);
         const attachments = input.attachments ?? [];
         if (attachments.some((attachment) => !Claims.attachmentIsPendingUpload(attachment)))
           return yield* new OrchestratorMcpFailure({
@@ -579,6 +595,8 @@ export const handlers = {
       }),
     // The launched thread carries the caller's link, if it has one.
     "stamped",
+    // A linked environment never sees the calling thread, so its stance is judged here; the peer's receipts are unseen, so even a replay is refused.
+    refuseImplementStance,
   ),
   t3_thread_watch_status: McpToolAccess.reads((input) =>
     Effect.gen(function* () {

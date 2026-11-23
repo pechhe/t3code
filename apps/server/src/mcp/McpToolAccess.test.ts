@@ -601,6 +601,7 @@ const LinkedProbeToolkit = Toolkit.make(
   Tool.make("writes_with_capability", linkedProbe),
   Tool.make("writes_threads", linkedProbe),
   Tool.make("starts_threads", linkedProbe),
+  Tool.make("starts_guarded_threads", linkedProbe),
   Tool.make("writes_environment", linkedProbe),
 );
 /** Runs here, and tells whether `environmentId` reached the handler. */
@@ -615,6 +616,16 @@ const linkedProbeServer = McpHttpServer.toolkitRegistration(
     writes_with_capability: McpToolAccess.writesWithCapability(ranHere),
     writes_threads: McpToolAccess.writesThreads((input) => [input.threadId], ranHere),
     starts_threads: McpToolAccess.startsThreads((input) => input, ranHere, "stamped"),
+    // The destination never sees the calling thread, so the source judges it before forwarding.
+    starts_guarded_threads: McpToolAccess.startsThreads(
+      (input) => input,
+      ranHere,
+      "stamped",
+      (caller) =>
+        caller === undefined
+          ? Effect.void
+          : Effect.fail(new OrchestratorMcpFailure({ code: "capability_denied", message: "no" })),
+    ),
     writes_environment: McpToolAccess.writesEnvironment(ranHere),
   }),
 ).pipe(
@@ -650,6 +661,7 @@ it.effect.each([
     "interaction_mode_escalation_denied",
   ],
   ["starts_threads", plan, { environmentId: box }, "starts_threads in environment-box"],
+  ["starts_guarded_threads", plan, { environmentId: box }, "capability_denied"],
   ["writes_environment", supervised, { environmentId: box }, "capability_denied"],
   [
     "writes_environment",

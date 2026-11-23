@@ -180,7 +180,11 @@ import {
   runtimeModeRank,
 } from "./delegatedTaskModes.ts";
 import { assertTargetWithinLimits, isLiveCallerShell, threadNotFound } from "./threadAccess.ts";
-import { logWhyNotDelegated, requireWhyNotDelegated } from "./delegationLimits.ts";
+import {
+  logWhyNotDelegated,
+  refuseImplementStance,
+  requireWhyNotDelegated,
+} from "./delegationLimits.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as RemoteDelegation from "../peer/RemoteDelegation.ts";
 import * as ManagedDelegation from "./ManagedDelegation.ts";
@@ -3494,8 +3498,20 @@ const make = Effect.gen(function* () {
               });
               const isRetryOfAcceptedCreation = yield* threadManagement.hasReceipt(commandId);
               // A retry replays the accepted creation, so it needs no reason again.
-              if (!isRetryOfAcceptedCreation)
+              if (!isRetryOfAcceptedCreation) {
+                yield* refuseImplementStance(parent.thread);
                 yield* requireWhyNotDelegated(parent.thread, input.whyNotDelegated);
+              } else if (request.prompt !== undefined) {
+                // A replay starts nothing new unless this retry brings a prompt not yet accepted.
+                const promptId = stableMessageId({ scope, requestKey: key, index });
+                yield* refuseImplementStance(
+                  parent.thread,
+                  threadManagement.getMessagesById(threadId, [promptId]).pipe(
+                    Effect.map((accepted) => accepted.has(promptId)),
+                    Effect.mapError(threadManagementFailure),
+                  ),
+                );
+              }
               const committedThread = isRetryOfAcceptedCreation
                 ? yield* threadManagement
                     .getThreadShell(threadId)

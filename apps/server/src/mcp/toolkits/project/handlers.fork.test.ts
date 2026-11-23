@@ -1,4 +1,5 @@
 import * as WorkspaceProvider from "../../../project/WorkspaceProvider.ts";
+import * as ManagedAgent from "../../../agents/ManagedAgentService.ts";
 import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
 import { expect, it } from "@effect/vitest";
 import {
@@ -61,6 +62,8 @@ const clientLaunchHarness = (input: {
   readonly checkWorktreeBase?: ThreadLaunch.ThreadLaunchService["Service"]["checkWorktreeBase"];
   readonly launch?: ThreadLaunch.ThreadLaunchService["Service"]["launch"];
   readonly hostedAppUrl?: string;
+  /** Whether a launch's first message was already accepted, for a retry. */
+  readonly firstMessageAccepted?: { current: boolean };
   /** The thread calling the launch; omitted means an outside client with no thread. */
   readonly caller?: OrchestrationV2ThreadShell;
   /** The orchestrator refuses the new thread's mode, as under a managed ceiling. */
@@ -137,6 +140,14 @@ const clientLaunchHarness = (input: {
             ),
     }),
     Layer.mock(ThreadManagement.ThreadManagementService)({
+      getMessagesById: (_threadId, messageIds) =>
+        Effect.succeed(
+          new Map(
+            input.firstMessageAccepted?.current === true
+              ? messageIds.map((id) => [id, {} as never])
+              : [],
+          ),
+        ),
       // A thread exists once a launch started it.
       getThreadShell: (threadId) => {
         if (input.caller !== undefined && threadId === input.caller.id)
@@ -235,10 +246,12 @@ it.effect("a thread says why a new top-level thread beats a delegated task", () 
     });
     const launched: Array<ThreadLaunch.ThreadLaunchInput> = [];
     const caller = liveThreadShell(ThreadId.make("thread:caller"));
+    const firstMessageAccepted = { current: false };
     const { dependencies } = clientLaunchHarness({
       runtimeModeCeiling: "full-access",
       launched,
       caller,
+      firstMessageAccepted,
     });
     const toolkit = yield* ProjectToolkit.pipe(
       Effect.provide(
@@ -248,19 +261,65 @@ it.effect("a thread says why a new top-level thread beats a delegated task", () 
         ),
       ),
     );
+    let stance: "implement" | "orchestrate" | undefined;
     const launch = (params: Record<string, unknown>) =>
-      toolkit
-        .handle("t3_thread_launch", params as never)
-        .pipe(
-          Stream.unwrap,
-          Stream.runCollect,
-          Effect.provide(
-            Layer.mergeAll(
-              WorkspaceProvider.layer.pipe(Layer.provideMerge(dependencies)),
-              Logger.layer([capture], { mergeWithExisting: false }),
-            ),
+      toolkit.handle("t3_thread_launch", params as never).pipe(
+        Stream.unwrap,
+        Stream.runCollect,
+        Effect.provide(
+          Layer.mergeAll(
+            WorkspaceProvider.layer.pipe(Layer.provideMerge(dependencies)),
+            Logger.layer([capture], { mergeWithExisting: false }),
+            stance === undefined
+              ? Layer.empty
+              : Layer.succeed(ManagedAgent.ManagedAgentService, {
+                  assertLaunchAllowed: () =>
+                    stance === "implement"
+                      ? Effect.fail(new ManagedAgent.ManagedAgentError({ reason: "stance" }))
+                      : Effect.void,
+                } as unknown as ManagedAgent.ManagedAgentService["Service"]),
           ),
-        );
+        ),
+      );
+
+    // A caller on Implement starts no separate thread, reason or not; Orchestrate still does.
+    stance = "implement";
+    const implementRefused = (yield* launch({
+      title: "Fix",
+      whyNotDelegated: "The user asked for a separate thread.",
+      clientRequestId: "stance-key",
+    })).at(-1)?.result;
+    expect(implementRefused).toMatchObject({ code: "capability_denied" });
+    expect((implementRefused as { message?: string }).message).toContain(
+      "Delegation stance is implement",
+    );
+    expect(launched).toHaveLength(0);
+    stance = "orchestrate";
+    const orchestrated = (yield* launch({
+      title: "Fix",
+      whyNotDelegated: "The user asked for a separate thread.",
+      clientRequestId: "stance-key",
+    })).at(-1)?.result;
+    expect(orchestrated).toMatchObject({ projectId: caller.projectId });
+    expect(launched).toHaveLength(1);
+    // A retry of that accepted launch replays under Implement, unless it brings a first message
+    // not yet accepted.
+    stance = "implement";
+    expect(
+      (yield* launch({ title: "Fix", clientRequestId: "stance-key" })).at(-1)?.result,
+    ).toMatchObject({ projectId: caller.projectId });
+    expect(
+      (yield* launch({ title: "Fix", message: "Go.", clientRequestId: "stance-key" })).at(-1)
+        ?.result,
+    ).toMatchObject({ code: "capability_denied" });
+    firstMessageAccepted.current = true;
+    expect(
+      (yield* launch({ title: "Fix", message: "Go.", clientRequestId: "stance-key" })).at(-1)
+        ?.result,
+    ).toMatchObject({ projectId: caller.projectId });
+    firstMessageAccepted.current = false;
+    launched.length = 0;
+    stance = undefined;
 
     const refused = (yield* launch({ title: "Fix" })).at(-1)?.result;
     expect(refused).toMatchObject({ code: "invalid_request" });
