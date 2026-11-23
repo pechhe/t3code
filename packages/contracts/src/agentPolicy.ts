@@ -901,6 +901,7 @@ export function managedExecution(input: {
 export const AgentTaskBrowser = Schema.Struct({
   backend: BrowserBackend,
   phiLane: Schema.optional(PhiBrowserLane),
+  persona: Schema.optional(TrimmedNonEmptyString),
 });
 export type AgentTaskBrowser = typeof AgentTaskBrowser.Type;
 

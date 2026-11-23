@@ -706,6 +706,9 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
               ? {
                   managedBrowser: {
                     projectId: input.scope.managedProjectId,
+                    ...(input.scope.taskBrowser?.persona === undefined
+                      ? {}
+                      : { defaultPersona: input.scope.taskBrowser.persona }),
                     ...(journey === undefined ? {} : { journey }),
                   },
                 }
@@ -851,6 +854,8 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
           });
       }
     }
+    if (backend === "phi" && openInput && "persona" in openInput && openInput.persona !== undefined)
+      return yield* new PreviewAutomationBackendError({ backend, reason: "unsupported" });
     if (backend === "phi" && input.scope.managedBrowser === true && openInput) {
       input = {
         ...input,

@@ -99,6 +99,7 @@ import * as PreviewBrowser from "./PreviewBrowser.ts";
 import * as JourneyBrowserPolicy from "./JourneyBrowserPolicy.ts";
 import * as PreviewBrowserHost from "./PreviewBrowserHost.ts";
 import * as ManagedBrowserTasks from "./ManagedBrowserTasks.ts";
+import { prepareAutoSignIn } from "./ManagedBrowserSignIn.ts";
 import { presentAsChrome, ServerBrowserContexts } from "./ServerBrowserContexts.ts";
 import { BrowserControlInterrupted, SessionControl } from "./SessionControl.ts";
 import { redactDeep, redactText, secretForms } from "./secretRedaction.ts";
@@ -484,6 +485,8 @@ interface ServerTab {
 
   readonly desktop: { readonly close: () => Promise<void> } | null;
   readonly profileId: string | undefined;
+  autoSignInPersona: string | undefined;
+  readonly defaultSignInPersona: string | undefined;
   readonly openerTabId: string | undefined;
 
   readonly downloads: Array<ServerDownload>;
@@ -554,6 +557,8 @@ interface TabStart {
   readonly bounded?: boolean;
   /** A browser run's tab, which shares its run's one context. */
   readonly run?: boolean;
+  readonly autoSignInPersona?: string;
+  readonly defaultSignInPersona?: string;
 }
 
 /** Read-only operations remain available during human control; evaluate requires control because scripts can mutate the page. */
@@ -738,6 +743,20 @@ const make = Effect.gen(function* () {
 
   const journeyNetwork = yield* Effect.serviceOption(JourneyBrowserPolicy.JourneyBrowserPolicy);
   const managed = yield* ManagedBrowserTasks.make();
+  const signInNavigation = (tab: ServerTab, url: string) => {
+    const projectId = managed.projectOf(tab.control.agentId);
+    if (projectId === undefined || tab.desktop !== null || tab.profileId !== undefined) return null;
+    const policy = managed.signInPolicy(projectId);
+    return policy === null
+      ? null
+      : prepareAutoSignIn(
+          tab.page.context(),
+          url,
+          policy,
+          tab.autoSignInPersona,
+          tab.defaultSignInPersona,
+        );
+  };
   const runContexts = new BrowserRunContexts();
   /** A Champion check's journey sessions, by agent session; the broker sets them from the server's own record. */
   const journeySessions = new Map<
@@ -1420,6 +1439,8 @@ const make = Effect.gen(function* () {
       bounded: start.bounded === true,
       desktop: desktop === null ? null : { close: desktop.close },
       profileId: snapshot.profileId,
+      autoSignInPersona: start.autoSignInPersona,
+      defaultSignInPersona: start.defaultSignInPersona,
       openerTabId: adopted?.openerTabId,
       downloads: [],
       fileChooser: null,
@@ -1655,21 +1676,23 @@ const make = Effect.gen(function* () {
         timeout: Math.min(commitTimeout, openLimit),
       } as const;
       tab.loading = true;
-      const initialUrl = URL.parse(snapshot.navStatus.url);
-      if (initialUrl) initialUrl.hash = "";
-      tab.pendingInitialRequestUrl = initialUrl?.href ?? null;
-      tab.initialNavigation = (
-        (desktop || adopted) && page.url() === snapshot.navStatus.url
-          ? page.reload(options)
-          : page.goto(snapshot.navStatus.url, options)
-      ).then(
-        (response) => {
-          if (managedProject !== undefined) ManagedBrowserTasks.assertAllowedNavigation(response);
-        },
-        (cause: unknown) => {
-          throw ServerBrowserPage.toOperationError(cause, commitTimeout);
-        },
-      );
+      const url = snapshot.navStatus.url;
+      const initialNavigation = async () => {
+        const signIn = signInNavigation(tab, url);
+        const destination = signIn?.url ?? url;
+        const initialUrl = URL.parse(destination);
+        if (initialUrl) initialUrl.hash = "";
+        tab.pendingInitialRequestUrl = initialUrl?.href ?? null;
+        const response =
+          (desktop || adopted) && page.url() === destination
+            ? await page.reload(options)
+            : await page.goto(destination, options);
+        if (managedProject !== undefined) ManagedBrowserTasks.assertAllowedNavigation(response);
+        signIn?.complete(response, page.url());
+      };
+      tab.initialNavigation = initialNavigation().catch((cause: unknown) => {
+        throw ServerBrowserPage.toOperationError(cause, commitTimeout);
+      });
 
       if (tab.control.agentId !== null) tab.control.track(tab.initialNavigation);
       else void tab.initialNavigation.catch(constVoid);
@@ -2535,15 +2558,17 @@ const make = Effect.gen(function* () {
     const startedAt = performance.now();
     const remaining = () => Math.max(1, timeout - (performance.now() - startedAt));
     await leaveBusyPage(tab, tab.cdp, timeout / 2);
+    const signIn = signInNavigation(tab, url);
     const navigation = tab.page
-      .goto(url, { timeout: remaining(), waitUntil: "commit" })
+      .goto(signIn?.url ?? url, { timeout: remaining(), waitUntil: "commit" })
       .then((response) => {
         if (managed.isManaged(tab.control.agentId))
           ManagedBrowserTasks.assertAllowedNavigation(response);
-        return response;
+        signIn?.complete(response, tab.page.url());
       });
     if (readiness === "none") {
-      tab.control.track(navigation);
+      if (signIn) await navigation;
+      else tab.control.track(navigation);
       return;
     }
     // Once the target commits, a stalled subresource only delays readiness; report the loading tab.
@@ -3073,6 +3098,10 @@ const make = Effect.gen(function* () {
                   deadlineMs,
                   bounded: request.browserLane === "bounded" || request.browserLane === "run",
                   run: request.browserLane === "run",
+                  ...(open.persona === undefined ? {} : { autoSignInPersona: open.persona }),
+                  ...(request.managedBrowser?.defaultPersona === undefined
+                    ? {}
+                    : { defaultSignInPersona: request.managedBrowser.defaultPersona }),
                 },
               ),
             ),
@@ -3106,6 +3135,7 @@ const make = Effect.gen(function* () {
                 reason: "dialogPending",
               });
             if (existing) {
+              if (open.persona !== undefined) tab.autoSignInPersona = open.persona;
               if (url)
                 await loadPage(navigate(tab, url, "load", remainingLimit()), navigationTimeout);
             } else {

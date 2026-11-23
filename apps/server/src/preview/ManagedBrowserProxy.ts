@@ -36,12 +36,12 @@ const hostname = (host: string) =>
     .replace(/\.$/, "");
 const isPrivate = (address: string) =>
   privateAddresses.check(address, NodeNet.isIP(address) === 6 ? "ipv6" : "ipv4");
-const allowedAddress = (host: string, port: number, entries: ReadonlyArray<string>) =>
+export const allowedAddress = (host: string, port: number, entries: ReadonlyArray<string>) =>
   entries.some((entry) => {
     const match = /^(\[[^\]]+\]|[^:]+):(\d+)(?:-(\d+))?$/.exec(entry);
     return (
       match !== null &&
-      hostname(match[1]!) === host &&
+      hostname(match[1]!) === hostname(host) &&
       port >= Number(match[2]) &&
       port <= Number(match[3] ?? match[2])
     );

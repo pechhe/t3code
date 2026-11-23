@@ -396,7 +396,7 @@ const make = Effect.gen(function* () {
 
   return {
     browser_open: McpToolAccess.composed(
-      ({ target, backend, show, viewport, url, phiLane, profileId }, run) =>
+      ({ target, backend, show, viewport, url, phiLane, profileId, persona }, run) =>
         Effect.gen(function* () {
           const scope = yield* McpInvocationContext.McpInvocationContext;
           const lane = yield* openLane(scope, {
@@ -405,6 +405,14 @@ const make = Effect.gen(function* () {
             ...(profileId === undefined ? {} : { profileId }),
             ...(phiLane === undefined ? {} : { phiLane }),
           });
+          const phi =
+            (lane === "managed" && pinnedBackend(scope) === "phi") ||
+            (lane === "shared" &&
+              (backend === "phi" ||
+                phiLane !== undefined ||
+                (backend === undefined && scope.browserBackends?.default === "phi")));
+          if (phi && persona !== undefined)
+            return yield* refuse("persona applies only to managed headless tabs, not Phi.");
           const size =
             viewport === undefined ? {} : { viewport: { _tag: "freeform" as const, ...viewport } };
           // The Phi user lane takes over the user's selected tab unless it opens a page.
@@ -429,8 +437,10 @@ const make = Effect.gen(function* () {
                   ...(show === true ? { open: true } : takesOver ? {} : { open: false }),
                   ...(takesOver ? {} : { reuseExistingTab: false }),
                 });
-          const opened = (yield* run(lanes[lane].act, { operation: "open", input }))
-            .result as PreviewAutomationStatus;
+          const opened = (yield* run(lanes[lane].act, {
+            operation: "open",
+            input: { ...input, ...(persona === undefined ? {} : { persona }) },
+          })).result as PreviewAutomationStatus;
           if (lane === "bounded" && scope.endpointKey === "editor")
             rememberBoundedTab(opened.tabId);
           if (scope.endpointKey === "editor") rememberOpened(scope, opened.tabId);

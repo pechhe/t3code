@@ -168,6 +168,17 @@ it.effect("acts on the thread's own bounded lane: integrated, fresh storage, no 
     expect(allowed.scope.browserLane).toBe("bounded");
     expect(allowed.scope.managedBrowser).toBe(true);
     expect(allowed.scope.taskBrowser).toEqual({ backend: "integrated" });
+    const delegated = yield* attempt({
+      scope: scope({ agentRole: "browser" }),
+      shell: shell({
+        lineage: subagent,
+        agentTask: task("browser", {
+          toolProfile: "phi",
+          browser: { backend: "integrated", persona: "none" },
+        }),
+      }),
+    });
+    expect(delegated.scope.taskBrowser).toEqual({ backend: "integrated", persona: "none" });
     expect(allowed.scope.browserBackends).toEqual({
       enabled: ["integrated"],
       default: "integrated",

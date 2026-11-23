@@ -765,6 +765,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### managed-browser-roles
 
+- **Automatic preview sign-in:** `agentBrowserSignIn` is an optional project override for managed headless previews on their loopback allowlist. A tab's persona overrides the task's persona, then the project default; `none` opts out. The initial and later navigation hooks in `ServerBrowser.ts` use `ManagedBrowserSignIn.ts` to cache successful sign-in by context and origin (shared across a browser run). Phi, desktop-attached tabs and saved profiles are unchanged. Proof: `ManagedBrowserSignIn.fork.test.ts` and `ManagedIntegratedBrowser.fork.test.ts`. No equivalent found on upstream main; retire when upstream covers the same scoped sign-in and isolation.
+
 - **Decision:** `retain` (v0.1.11-nightly.20261118.4903, 2026-11-19): Upstream's tab colour scheme and reclaim guard are adopted beside task leases and bounded idle timeouts in `ServerBrowser`. Evidence: ServerBrowser.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261114.4669, 2026-11-14): Adopt upstream renderer-crash recovery for ordinary preview tabs (#36389), while closing task-owned and persistent-profile tabs on crash so their leases, session identity and profile lifetime cannot be silently replaced. Keep managed endpoint narrowing, proxy validation and credential redaction. Evidence: ServerBrowser.test.ts covers managed/profile crash closure and ordinary-tab recovery; managed access and proxy suites pass.

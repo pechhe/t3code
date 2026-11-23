@@ -526,6 +526,21 @@ an empty list permits no private destinations. The T3 listening port and proxy's
 remain denied even if an entry includes them. Changing the allow list also closes active
 managed contexts, so an established tunnel cannot outlive a revocation.
 
+Set `agentBrowserSignIn` in server settings or the project's override to sign in managed
+headless tabs automatically on those previews. For example:
+`{ "path": "/dev/agent-login?as={persona}&next={next}", "defaultPersona": "admin" }`.
+The preview must serve that same-origin route, set the session cookie and redirect to
+`{next}` (the requested path and query). Use the destination URL or `target` as usual.
+Set `agentTask.browser.persona` to choose the task's default role. Pass `persona` to
+`browser_open` or a script's `preview_open` in `t3 browser run` to override it.
+Use `persona: "none"` to skip automatic sign-in without clearing cookies, or set
+the project override to `null` to disable it.
+
+Each browser context has one automatic sign-in persona per origin. Tabs in one
+`t3 browser run` share the same context and cookies; after sign-in, a conflicting
+explicit persona is refused. Start a fresh run to use a different persona on that
+origin. Phi, desktop-attached tabs and saved profiles do not use automatic sign-in.
+
 Each managed context uses its own authenticated forward proxy. It validates every DNS
 answer and connects to that numeric address, preventing a second lookup from rebinding
 an allowed public hostname to a private address. HTTP redirects, subresources, popups,

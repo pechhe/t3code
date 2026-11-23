@@ -114,12 +114,16 @@ const BOUNDED_BACKENDS: AgentBrowserBackends = { enabled: ["integrated"], defaul
 export const boundedBrowserScope = (
   scope: McpInvocationContext.McpThreadInvocationScope,
   projectId: ProjectId,
+  persona?: string,
 ): McpInvocationContext.McpThreadInvocationScope => ({
   ...scope,
   capabilities: new Set(["preview"]),
   managedBrowser: true,
   managedProjectId: projectId,
-  taskBrowser: { backend: "integrated" },
+  taskBrowser: {
+    backend: "integrated",
+    ...(persona === undefined ? {} : { persona }),
+  },
   browserBackends: BOUNDED_BACKENDS,
   browserLane: "bounded",
 });
@@ -159,6 +163,7 @@ export const assertBoundedBrowserCaller = Effect.fn("mcp.assertBoundedBrowserCal
       scope: boundedBrowserScope(
         scope as McpInvocationContext.McpThreadInvocationScope,
         shell.projectId,
+        shell.agentTask?.browser?.persona,
       ),
     };
   },

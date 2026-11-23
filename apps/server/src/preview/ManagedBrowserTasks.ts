@@ -124,18 +124,21 @@ export const make = Effect.fn("ManagedBrowserTasks.make")(function* () {
   const sessions = new Map<string, ProjectId>();
   const lostTabs = new Map<string, string>();
 
-  /** The loopback allowlist a project's managed tasks browse under, or null when it bars them. */
-  const policy = (projectId: ProjectId) => {
+  const signInPolicy = (projectId: ProjectId) => {
     if (settings === undefined) return null;
     const project = resolveProjectSettings(settings, projectId).settings;
     return project.enableAgentBrowserAccess &&
       project.agentBrowserBackends.enabled.includes("integrated")
-      ? project.agentBrowserLoopbackAllow
+      ? { signIn: project.agentBrowserSignIn, allowlist: project.agentBrowserLoopbackAllow }
       : null;
   };
 
+  /** The loopback allowlist a project's managed tasks browse under, or null when it bars them. */
+  const policy = (projectId: ProjectId) => signInPolicy(projectId)?.allowlist ?? null;
+
   return {
     policy,
+    signInPolicy,
     /**
      * The options a managed task's browser context starts with. A Champion journey's context
      * reaches only its allowlist, runs at the lowest priority and reports each network decision.

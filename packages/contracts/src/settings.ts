@@ -1269,6 +1269,13 @@ export const WorktreeCleanup = Schema.NullOr(
 );
 export type WorktreeCleanup = typeof WorktreeCleanup.Type;
 
+export const AgentBrowserSignIn = Schema.Struct({
+  /** Same-origin route template; supports {persona} and {next}. */
+  path: Schema.String.check(Schema.isPattern(/^\/(?!\/|\\)/)),
+  defaultPersona: TrimmedNonEmptyString,
+});
+export type AgentBrowserSignIn = typeof AgentBrowserSignIn.Type;
+
 export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
   "worktreeCleanup",
   "defaultModelSelection",
@@ -1281,6 +1288,7 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
   "enableAgentBrowserAccess",
   "agentBrowserBackends",
   "agentBrowserLoopbackAllow",
+  "agentBrowserSignIn",
   "enableAgentDeviceAccess",
   "textGenerationModelSelection",
   "threadTitleInstructions",
@@ -1322,6 +1330,7 @@ export const ProjectSettingsOverrides = Schema.Struct({
   enableAgentBrowserAccess: Schema.optionalKey(Schema.Boolean),
   agentBrowserBackends: Schema.optionalKey(AgentBrowserBackends),
   agentBrowserLoopbackAllow: Schema.optionalKey(Schema.Array(Schema.String)),
+  agentBrowserSignIn: Schema.optionalKey(Schema.NullOr(AgentBrowserSignIn)),
   enableAgentDeviceAccess: Schema.optionalKey(Schema.Boolean),
   textGenerationModelSelection: Schema.optionalKey(ModelSelection),
   threadTitleInstructions: Schema.optionalKey(TrimmedString),
@@ -1543,6 +1552,9 @@ export const ServerSettings = Schema.Struct({
   enableAgentBrowserAccess: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   agentBrowserBackends: AgentBrowserBackends.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_AGENT_BROWSER_BACKENDS)),
+  ),
+  agentBrowserSignIn: Schema.NullOr(AgentBrowserSignIn).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
   ),
   agentBrowserLoopbackAllow: Schema.Array(Schema.String).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
@@ -2086,6 +2098,7 @@ export const ServerSettingsPatch = Schema.Struct({
   enableAgentBrowserAccess: Schema.optionalKey(Schema.Boolean),
   agentBrowserBackends: Schema.optionalKey(AgentBrowserBackends),
   agentBrowserLoopbackAllow: Schema.optionalKey(Schema.Array(Schema.String)),
+  agentBrowserSignIn: Schema.optionalKey(Schema.NullOr(AgentBrowserSignIn)),
   phiBrowserSkillDirectory: Schema.optionalKey(Schema.String),
   enablePreviewTunnel: Schema.optionalKey(Schema.Boolean),
   cloudSpeechCredentials: Schema.optionalKey(

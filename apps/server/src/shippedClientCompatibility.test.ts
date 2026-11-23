@@ -121,8 +121,12 @@ const forkSettings = {
     },
   },
   accountReserves: { claudeAgent: { percent: 10, allowedModels: ["claude-opus-5-5"] } },
+  agentBrowserSignIn: {
+    path: "/dev/agent-login?as={persona}&next={next}",
+    defaultPersona: "admin",
+  },
   projectSettingsOverrides: {
-    [ProjectId.make("live")]: { responseStreamingMode: "live" as const },
+    [ProjectId.make("live")]: { responseStreamingMode: "live" as const, agentBrowserSignIn: null },
   },
 };
 

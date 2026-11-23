@@ -374,6 +374,9 @@ it.effect("keeps a Phi browser task on the lane it was delegated", () =>
     expect(json(yield* handle("browser_open", { backend: "phi", phiLane: "shadow" }))).toContain(
       "Phi lane is agents",
     );
+    expect(json(yield* handle("browser_open", { persona: "planner" }))).toContain(
+      "persona applies only to managed headless tabs, not Phi.",
+    );
     expect(seen.invokes).toHaveLength(0);
   }),
 );
@@ -384,6 +387,9 @@ it.effect(
     Effect.gen(function* () {
       const { seen, handle } = yield* harness("editor");
       const headless = resultOf<{ readonly tabId: string }>(yield* handle("browser_open", {}));
+      expect(json(yield* handle("browser_open", { backend: "phi", persona: "none" }))).toContain(
+        "persona applies only to managed headless tabs, not Phi.",
+      );
       const phi = resultOf<{ readonly tabId: string }>(
         yield* handle("browser_open", { backend: "phi", phiLane: "shadow" }),
       );
@@ -394,6 +400,7 @@ it.effect(
         phiLane: "shadow",
         open: false,
       });
+      expect(seen.invokes[1]!.input).not.toHaveProperty("persona");
 
       yield* handle("browser_act", {
         tabId: headless.tabId,

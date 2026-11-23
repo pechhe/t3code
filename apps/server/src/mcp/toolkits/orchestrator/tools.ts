@@ -171,7 +171,7 @@ const CustodyPeerTool = Tool.make(CustodyPeer.toolName, {
 
 const DelegateTaskTool = Tool.make("delegate_task", {
   description:
-    "Start one child agent with only `task`: no parent history. Call `agent_roles` first; choose target.model explicitly for multi-model pools. Supply agentTask (role, taskClass, workId, attemptId; workspacePath defaults to yours) and clientRequestId. One writing role, `implementer`: with `forgeItem` it owns a whole Spec; without, it builds a piece in your workspace for you to land. Browser defaults integrated; choose browser.backend='phi' and optional phiLane. Reviews need sourceRevision and scope. Isolated workspaceAssignment returns a handoff. Pass only `followup` (a `taskId`, `changes`) to continue that conversation.",
+    "Start one child agent with only `task`, no parent history. Call `agent_roles` first; choose target.model for multi-model pools. Supply agentTask (role, taskClass, workId, attemptId; workspacePath defaults to yours) and clientRequestId. Only implementer writes: owns the Spec with forgeItem; otherwise builds in your workspace for you to land. Default browser integrated; choose browser.backend='phi' and optional phiLane. browser.persona sets headless sign-in ('none' skips). Reviews need sourceRevision and scope. Isolated workspaceAssignment returns a handoff. Pass only `followup` (taskId, changes) to continue.",
   parameters: OrchestratorMcpDelegateTaskWireInput,
   success: OrchestratorMcpDelegateTaskResult,
   failure: OrchestratorMcpFailure,

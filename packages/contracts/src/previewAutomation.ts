@@ -164,35 +164,38 @@ export type PreviewAutomationDialogInput = typeof PreviewAutomationDialogInput.T
 
 export const PreviewAutomationOpenInput = Schema.Struct({
   backend: Schema.optional(BrowserBackend).annotate({
-    description: "Browser backend for the new tab. Omit for the effective default.",
+    description: "Omit for the default backend.",
+  }),
+  persona: Schema.optional(TrimmedNonEmptyString).annotate({
+    description: 'Headless sign-in role; "none" skips.',
   }),
   phiLane: Schema.optional(PhiBrowserLane).annotate({
-    description: "Phi lane for a Phi tab: shadow, agents or user.",
+    description: "Phi lane.",
   }),
   ...PreviewAutomationTabTargetFields,
   url: Schema.optional(BoundedUrl).annotate({
-    description: `First page URL. ${URL_GUIDANCE} Omit to open a blank tab.`,
+    description: `${URL_GUIDANCE} Omit for a blank tab.`,
   }),
   open: Schema.optional(
     Schema.Boolean.annotate({
-      description: "Show the preview to the user. Default true. False for background only.",
+      description: "Show preview (default true).",
     }),
   ),
   show: Schema.optional(
     Schema.Boolean.annotate({
-      description: "Old alias for `open`.",
+      description: "Alias for open.",
     }),
   ),
   reuseExistingTab: Schema.optional(
     Schema.Boolean.annotate({
-      description: "Reuse `tabId`, or your current tab. Default true. False makes a new tab.",
+      description: "Reuse the selected tab (default true).",
     }),
   ),
   profileId: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(64))).annotate({
     description: PROFILE_GUIDANCE,
   }),
   viewport: Schema.optional(PreviewViewportSetting).annotate({
-    description: "Fixes the tab's size for its life. Only the integrated backend honours it.",
+    description: "Fixed size; integrated only.",
   }),
 }).check(
   Schema.makeFilter(
@@ -712,6 +715,7 @@ export const PreviewAutomationRequest = Schema.Struct({
   managedBrowser: Schema.optional(
     Schema.Struct({
       projectId: ProjectId,
+      defaultPersona: Schema.optional(TrimmedNonEmptyString),
       /** A Champion check's journey: only these addresses, at the machine's lowest priority. */
       journey: Schema.optional(
         Schema.Struct({

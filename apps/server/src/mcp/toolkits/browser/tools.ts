@@ -75,7 +75,7 @@ const EnvironmentPortTarget = BrowserNavigationTarget.members[1];
 const OpenTool = threadBound(
   Tool.make("browser_open", {
     description:
-      "Open a new browser tab and get its `tabId` for every other browser_* call. Default: a fresh headless tab on T3's server Chromium, with empty storage, only you can use, that `browser_task` can drive; it lists `logins`, the saved login keys a task may type here. `backend:'phi'` opens Henry's Phi browser instead, only when the work needs his logins or eyes: `phiLane` shadow (isolated incognito), agents (the shared sign-in Space, can hand off) or user (his own window, only when he asked; without `url` it takes over his selected tab). `show:true` opens it in this thread's browser panel for the user, following the project's browser setting, and `profileId` (from `browser_status` profiles) uses saved browser logins. A task's browser agent keeps the backend and lane its task chose. For a dev server pass `target` instead of `url`. Close tabs you open with `browser_close`. Page code, loops over pages or in-page timings belong in `t3 browser run <file>` (see its --help).",
+      "Use the returned tabId; close with browser_close. Default: a fresh headless tab on T3's server Chromium for browser_task; logins lists saved keys. Managed headless tabs auto-sign in on configured loopback previews. Use backend:'phi' only for Henry's logins or eyes: phiLane shadow (incognito), agents (shared sign-in, handoff) or user (only on request; omit url to take over his selected tab). show:true opens the panel following the project's browser setting; profileId uses saved logins. Tasks keep their backend and lane. Use target for dev servers. For scripts or timings: t3 browser run <file>.",
     parameters: Schema.Struct({
       url: PreviewAutomationOpenInput.fields.url,
       target: Schema.optional(EnvironmentPortTarget),
@@ -83,6 +83,7 @@ const OpenTool = threadBound(
         description: "Default headless.",
       }),
       phiLane: PreviewAutomationOpenInput.fields.phiLane,
+      persona: PreviewAutomationOpenInput.fields.persona,
       show: Schema.optional(
         Schema.Boolean.annotate({ description: "Show it in this thread's browser panel." }),
       ),
