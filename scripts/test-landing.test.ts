@@ -91,7 +91,9 @@ function walk(directory: string, found: string[] = []): string[] {
   for (const entry of NodeFS.readdirSync(NodePath.join(REPOSITORY_ROOT, directory), {
     withFileTypes: true,
   })) {
+    // knip-schemas.test.ts writes and removes a throwaway project here while this walk may run.
     if (
+      entry.name.startsWith(".knip-test-") ||
       [
         "node_modules",
         "dist",
