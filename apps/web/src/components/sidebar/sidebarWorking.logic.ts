@@ -1,7 +1,3 @@
-import {
-  resolveWorkingThreadTier,
-  type WorkingThreadTier,
-} from "@t3tools/client-runtime/state/thread-inbox";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 
 import { hasPlanReadyPrompt } from "../Sidebar.logic";
@@ -46,20 +42,4 @@ export function liftNeedsYouThreads<T extends NeedsYouInput>(threads: readonly T
     (isThreadNeedsYouForActiveSort(thread) ? needsYou : rest).push(thread);
   }
   return needsYou.length === 0 || rest.length === 0 ? [...threads] : [...needsYou, ...rest];
-}
-
-/**
- * The first Landing row of an ordered Working shelf, when running or waiting rows precede it:
- * the row that opens the quiet Landing & releasing group.
- */
-export function firstLandingThread<
-  T extends Pick<EnvironmentThreadShell, "standing" | "parkedWaits">,
->(workingThreads: readonly T[]): T | null {
-  let sawActive = false;
-  for (const thread of workingThreads) {
-    const tier: WorkingThreadTier = resolveWorkingThreadTier(thread);
-    if (tier === "landing") return sawActive ? thread : null;
-    sawActive = true;
-  }
-  return null;
 }

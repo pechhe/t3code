@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import {
-  firstLandingThread,
-  isThreadNeedsYouForActiveSort,
-  liftNeedsYouThreads,
-} from "./sidebarWorking.logic";
+import { isThreadNeedsYouForActiveSort, liftNeedsYouThreads } from "./sidebarWorking.logic";
 
 const quiet = {
   hasActionableProposedPlan: false,
@@ -46,17 +42,5 @@ describe("liftNeedsYouThreads", () => {
       "done-1",
       "done-2",
     ]);
-  });
-});
-
-describe("firstLandingThread", () => {
-  const running = thread("running", { standing: { state: "working" } });
-  const waiting = thread("waiting", { standing: { state: "waiting", waitCategory: "waiting" } });
-  const landing = thread("landing", { standing: { state: "waiting", waitCategory: "landing" } });
-
-  it("marks the first landing row only under running or waiting rows", () => {
-    expect(firstLandingThread([running, waiting, landing, landing])).toBe(landing);
-    expect(firstLandingThread([landing])).toBeNull();
-    expect(firstLandingThread([running, waiting])).toBeNull();
   });
 });

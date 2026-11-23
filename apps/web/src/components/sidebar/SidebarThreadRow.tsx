@@ -612,8 +612,6 @@ type SidebarThreadRowProps = {
   snoozeWakeLabelText: string | null;
   /** The clock of a row that waits: "in 6h" until a time wait wakes, or how long it has waited. */
   waitClockLabel?: string | null;
-  /** The first landing row under Working's running and waiting rows opens the Landing & releasing group. */
-  landingDivider?: boolean;
   /** What a parked thread wakes on, or what just woke it; a quiet line under the title. */
   parkedSubtitle: string | null;
   ownerSnoozed?: boolean;
@@ -1510,15 +1508,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         sortable?.isDragging && "relative z-20",
       )}
     >
-      {props.landingDivider && !sortable?.isDragging ? (
-        <div
-          data-testid="sidebar-landing-divider"
-          className="flex items-center gap-2 px-(--sidebar-row-content-inset) pt-1.5 pb-1 text-xs text-muted-foreground/70"
-        >
-          <T>Landing & releasing</T>
-          <span aria-hidden className="h-px flex-1 bg-border" />
-        </div>
-      ) : null}
       <Tooltip disabled={isRenaming || snoozeMenuOpen || sortable?.isDragging}>
         <TooltipTrigger
           render={
