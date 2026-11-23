@@ -7,7 +7,6 @@ import {
 } from "@t3tools/shared/accountPools";
 import { exhaustedUsageWindow } from "@t3tools/shared/usageLimits";
 import * as Schema from "effect/Schema";
-import type { ModelEsque } from "../chat/providerIconUtils";
 import {
   AGENT_ROLE_TITLE_LABEL,
   AgentPolicyManifest,
@@ -19,7 +18,6 @@ import {
   modelNote,
   type AgentListEntry,
   type PooledModelKey,
-  type ProviderInstanceId,
   type ProviderOptionSelection,
   type ServerProvider,
 } from "@t3tools/contracts";
@@ -193,10 +191,9 @@ export function roleGroups(manifest: Manifest): RoleGroup[] {
 }
 
 type PickerEntry = {
-  readonly instanceId: ProviderInstanceId;
   readonly driverKind: string;
   readonly isDefault: boolean;
-  readonly models: ReadonlyArray<ModelEsque>;
+  readonly models: ReadonlyArray<{ readonly slug: string }>;
 };
 
 /** The account a policy model is picked and tuned on: one that lists it, else the driver's default. */
@@ -211,22 +208,6 @@ export function bindingInstance<E extends PickerEntry>(
     ofDriver.find((entry) => entry.isDefault) ??
     ofDriver[0]
   );
-}
-
-/**
- * Keeps a policy's model among its account's picker options when the composer hides it, so the
- * picker names that model instead of falling back to the account's first one.
- */
-export function withBoundModel(
-  options: ReadonlyMap<ProviderInstanceId, ReadonlyArray<ModelEsque>>,
-  entry: PickerEntry | undefined,
-  slug: string,
-): ReadonlyMap<ProviderInstanceId, ReadonlyArray<ModelEsque>> {
-  const bound = entry?.models.find((model) => model.slug === slug);
-  if (entry === undefined || bound === undefined) return options;
-  const listed = options.get(entry.instanceId) ?? [];
-  if (listed.some((option) => option.slug === slug)) return options;
-  return new Map(options).set(entry.instanceId, [...listed, bound]);
 }
 
 /**

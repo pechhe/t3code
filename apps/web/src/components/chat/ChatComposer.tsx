@@ -1147,11 +1147,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   for (const entry of providerInstanceEntries) {
     modelOptionsByInstance.set(
       entry.instanceId,
-      getAppModelOptionsForInstance(
-        settings,
-        entry,
-        entry.instanceId === selectedInstanceId ? selectedModelForPicker : null,
-      ),
+      // The selection is a hidden model only when its started thread is on it.
+      entry.instanceId === selectedInstanceId
+        ? getAppModelOptionsForInstance(settings, entry, selectedModelForPicker, {
+            keepHiddenSelection: true,
+          })
+        : getAppModelOptionsForInstance(settings, entry, null),
     );
   }
 

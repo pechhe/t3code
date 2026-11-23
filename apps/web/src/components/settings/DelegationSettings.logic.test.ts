@@ -46,7 +46,6 @@ import {
   splitGroup,
   splitJob,
   unavailableReason,
-  withBoundModel,
 } from "./DelegationSettings.logic";
 
 const decodeManifest = Schema.decodeUnknownSync(AgentPolicyManifest);
@@ -598,7 +597,7 @@ describe("delegation settings", () => {
     expect(listModel(next, "workhorse", model!, "high")[0]).toEqual(next);
   });
 
-  it("picks a policy model on the account that lists it, even when the composer hides it", () => {
+  it("picks a policy model on the account that lists it", () => {
     const luna = { slug: "openai-codex/gpt-6-luna", name: "GPT-6 Luna" };
     const flash = { slug: "opencode-go/deepseek-v4.1-flash", name: "DeepSeek 4.1 Flash" };
     const pi = (instanceId: string, isDefault: boolean, models: Array<typeof luna>) => ({
@@ -612,11 +611,6 @@ describe("delegation settings", () => {
     const entry = bindingInstance(entries, binding);
     expect(entry?.instanceId).toBe("pi_codex");
     expect(bindingInstance(entries, { ...binding, model: "missing" })?.instanceId).toBe("pi");
-
-    // The user hid Luna from the composer, so its options start with Flash.
-    const options = new Map([[entry!.instanceId, [flash]]]);
-    expect(withBoundModel(options, entry, luna.slug).get(entry!.instanceId)).toEqual([flash, luna]);
-    expect(withBoundModel(options, entry, flash.slug)).toBe(options);
   });
 
   it("explains why a model cannot take work now", () => {

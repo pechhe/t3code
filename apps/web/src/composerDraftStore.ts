@@ -1372,7 +1372,11 @@ export function deriveEffectiveComposerModelState(input: {
           input.settings,
           input.providers,
           baseModelCandidate,
-          { preserveUnavailableSelection: preserveThreadModel },
+          {
+            preserveUnavailableSelection: preserveThreadModel,
+            // A started thread stays on its model when the user hides it (fork: account-pools).
+            keepHiddenSelection: preserveThreadModel && input.threadStarted,
+          },
         )
       : null) ??
     // Antigravity has no static model or cross-account catalog fallback.

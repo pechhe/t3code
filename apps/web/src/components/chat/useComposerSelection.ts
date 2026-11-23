@@ -168,13 +168,13 @@ export function useComposerSelection(input: ComposerSelectionInput) {
         return;
       }
     }
-    // The picker lists an unavailable model only as the active selection, so re-picking keeps it.
+    // The picker lists an unavailable or hidden model only as the active selection, so re-picking keeps it.
     const resolvedModel = resolveAppModelSelectionForInstance(
       instanceId,
       settings,
       providerStatuses,
       model,
-      { preserveUnavailableSelection: true },
+      { preserveUnavailableSelection: true, keepHiddenSelection: true },
     );
     const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
     const storedDraft = useComposerDraftStore.getState().getComposerDraft(threadRef);

@@ -484,6 +484,48 @@ describe("instance-scoped model selection", () => {
     ).toBe("claude-sonnet-4-6");
   });
 
+  it("keeps a started thread on its own model when the user hides it", () => {
+    const instanceId = ProviderInstanceId.make("pi");
+    const providers = [
+      provider({
+        provider: ProviderDriverKind.make("pi"),
+        instanceId: "pi",
+        models: ["opencode-go/deepseek-v4.1-flash", "openai-codex/gpt-6-luna"],
+      }),
+    ];
+    const settings: UnifiedSettings = {
+      ...settingsWithProviderInstances(),
+      providerModelPreferences: {
+        [instanceId]: { hiddenModels: ["openai-codex/gpt-6-luna"], modelOrder: [] },
+      },
+    };
+    const composerModel = (threadStarted: boolean) =>
+      deriveEffectiveComposerModelState({
+        threadStarted,
+        draft: null,
+        providers,
+        selectedProvider: ProviderDriverKind.make("pi"),
+        selectedInstanceId: instanceId,
+        threadModelSelection: createModelSelection(instanceId, "openai-codex/gpt-6-luna"),
+        projectModelSelection: null,
+        settings,
+      }).selectedModel;
+    const slugs = (keepHiddenSelection: boolean) =>
+      getAppModelOptionsForInstance(
+        settings,
+        deriveProviderInstanceEntries(providers)[0]!,
+        "openai-codex/gpt-6-luna",
+        { keepHiddenSelection },
+      ).map((option) => option.slug);
+
+    // A delegated scout runs on Luna that the user hid from Pi's list; replying keeps it there.
+    expect(composerModel(true)).toBe("openai-codex/gpt-6-luna");
+    expect(slugs(true)).toContain("openai-codex/gpt-6-luna");
+    // A new thread's hidden default still falls back, and the picker still hides the model.
+    expect(composerModel(false)).toBe("opencode-go/deepseek-v4.1-flash");
+    expect(slugs(false)).not.toContain("openai-codex/gpt-6-luna");
+  });
+
   it("falls back instead of resolving a custom slug against the wrong instance", () => {
     const providers = [
       provider({

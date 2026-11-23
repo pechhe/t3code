@@ -233,10 +233,16 @@ export function resolveModelPickerSelectedModel(input: {
   return input.options.find((option) => option.slug === input.model);
 }
 
+type HiddenSelection = {
+  /** Lists a selected model the user hid, when the provider still serves it (fork: account-pools). */
+  readonly keepHiddenSelection?: boolean;
+};
+
 export function getAppModelOptionsForInstance(
   settings: UnifiedSettings,
   entry: ProviderInstanceEntry,
   selectedModel?: string | null,
+  { keepHiddenSelection = false }: HiddenSelection = {},
 ): AppModelOption[] {
   const options: AppModelOption[] = entry.models
     .filter((model) => !model.isCustom)
@@ -265,12 +271,17 @@ export function getAppModelOptionsForInstance(
   }
 
   const preferences = readInstanceModelPreferences(settings, entry.instanceId);
+  const kept = keepHiddenSelection ? normalizeCustomModelSlug(selectedModel) : null;
+  const hiddenModels =
+    kept && entry.models.some((model) => model.slug === kept)
+      ? preferences.hiddenModels.filter((slug) => slug !== kept)
+      : preferences.hiddenModels;
   return appendUnavailableDynamicModelSelection(
-    applyInstanceModelPreferences(options, preferences),
+    applyInstanceModelPreferences(options, { ...preferences, hiddenModels }),
     entry.models,
     entry.driverKind,
     selectedModel,
-    preferences.hiddenModels,
+    hiddenModels,
   );
 }
 
@@ -293,7 +304,7 @@ export function resolveAppModelSelectionForInstance(
   settings: UnifiedSettings,
   providers: ReadonlyArray<ServerProvider>,
   selectedModel: string | null | undefined,
-  resolutionOptions?: { readonly preserveUnavailableSelection?: boolean },
+  resolutionOptions?: { readonly preserveUnavailableSelection?: boolean } & HiddenSelection,
 ): string | null {
   const entry = deriveProviderInstanceEntries(providers).find((candidate) =>
     entryAnswersTo(candidate, instanceId),
@@ -302,7 +313,10 @@ export function resolveAppModelSelectionForInstance(
   const options = getAppModelOptionsForInstance(
     settings,
     entry,
-    resolutionOptions?.preserveUnavailableSelection ? selectedModel : null,
+    resolutionOptions?.preserveUnavailableSelection || resolutionOptions?.keepHiddenSelection
+      ? selectedModel
+      : null,
+    resolutionOptions,
   );
   const resolvedSelection = resolveSelectableModel(entry.driverKind, selectedModel, options);
   if (resolvedSelection) {
@@ -433,16 +447,15 @@ export function getCustomModelOptionsByInstance(
   providers: ReadonlyArray<ServerProvider>,
   selectedInstanceId?: ProviderInstanceId | null,
   selectedModel?: string | null,
+  hiddenSelection?: HiddenSelection,
 ): ReadonlyMap<ProviderInstanceId, ReadonlyArray<ModelEsque>> {
   const out = new Map<ProviderInstanceId, ReadonlyArray<ModelEsque>>();
   for (const entry of deriveProviderInstanceEntries(providers)) {
     out.set(
       entry.instanceId,
-      getAppModelOptionsForInstance(
-        settings,
-        entry,
-        entry.instanceId === selectedInstanceId ? selectedModel : null,
-      ),
+      entry.instanceId === selectedInstanceId
+        ? getAppModelOptionsForInstance(settings, entry, selectedModel, hiddenSelection)
+        : getAppModelOptionsForInstance(settings, entry, null),
     );
   }
   return out;

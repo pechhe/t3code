@@ -17,7 +17,6 @@ import { TraitsPicker } from "../chat/TraitsPicker";
 import {
   bindingInstance,
   pooledModelForBinding,
-  withBoundModel,
   type CatalogModel,
 } from "./DelegationSettings.logic";
 import { useInstanceEntries } from "./useInstanceEntries";
@@ -45,11 +44,9 @@ export function PolicyModelPicker(props: {
   const active = bindingInstance(entries, props.binding) ?? entries[0];
   const instanceId = active?.instanceId ?? ("" as ProviderInstanceId);
   const model = props.binding?.model ?? "";
-  const options = withBoundModel(
-    getCustomModelOptionsByInstance(settings, providers, instanceId, model),
-    active,
-    model,
-  );
+  const options = getCustomModelOptionsByInstance(settings, providers, instanceId, model, {
+    keepHiddenSelection: true,
+  });
   const slotLabels = useClientSettings(selectModelSlotLabels);
   const pools = withPooledModelLabels(pooledModels(providers, settings), slotLabels);
   const pooledCatalogModel = (key: string) =>
