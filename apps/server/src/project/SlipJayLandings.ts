@@ -21,6 +21,7 @@ import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import {
+  isSlipJayKillableStage,
   SlipJayCommandError,
   type SlipJayRunnerOverview,
   type VcsSlipJayCancelInput,
@@ -147,6 +148,46 @@ export function cancelResult(output: {
   return Option.isSome(decodeCancelRefusal(output.stdout.trim()))
     ? { cancelled: false }
     : undefined;
+}
+
+/** How the overview lets an operation be stopped: withdrawn while queued, killed while screening. */
+export function cancelAction(
+  overview: SlipJayRunnerOverview,
+  operationId: string,
+): "cancel" | "kill" | undefined {
+  const operation = [...overview.serial, ...overview.deploy].find(
+    (candidate) => candidate.operationId === operationId,
+  );
+  if (operation === undefined) return undefined;
+  if (operation.status === "queued") return "cancel";
+  return operation.status === "running" && isSlipJayKillableStage(operation.stage)
+    ? "kill"
+    : undefined;
+}
+
+/**
+ * `slipjay runner kill`'s answer: `killed …` or `killing …` evicted it, `nothing running` means it
+ * finished first. A `not killed: …` refusal comes back as its line; anything else is a failure.
+ */
+export function killResult(output: {
+  readonly stdout: string;
+  readonly stderr?: string;
+  readonly code: number | null;
+}): VcsSlipJayCancelResult | { readonly refusal: string } | undefined {
+  const firstLine = (text: string) =>
+    text
+      .split("\n")
+      .map((entry) => entry.trim())
+      .find((entry) => entry.length > 0);
+  const raw = firstLine(output.stdout) ?? firstLine(output.stderr ?? "");
+  // The runner client prefixes its answer with `[runner <name>] `.
+  const line = raw?.replace(/^\[runner [^\]]+\]\s*/, "");
+  if (line === undefined) return undefined;
+  if (/^not killed\b/i.test(line)) return { refusal: line };
+  if (output.code !== 0) return undefined;
+  if (/^(killed|killing)\b/i.test(line)) return { cancelled: true };
+  if (/^nothing running\b/i.test(line)) return { cancelled: false };
+  return undefined;
 }
 
 const LAND_OUTPUT_MAX_BYTES = 1024 * 1024;
@@ -749,12 +790,30 @@ export const make = Effect.gen(function* () {
           detail,
           ...extra,
         });
-      // Only an operation the overview shows queued: a client cannot name arbitrary ones.
-      const current = yield* SubscriptionRef.get(overview);
-      const queued = [...current.serial, ...current.deploy].some(
-        (operation) => operation.operationId === operationId && operation.status === "queued",
-      );
-      if (!queued) return yield* failure("This operation is no longer queued.");
+      // Only an operation the overview shows queued or screening: a client cannot name arbitrary ones.
+      const action = cancelAction(yield* SubscriptionRef.get(overview), operationId);
+      if (action === undefined) return yield* failure("This operation can no longer be cancelled.");
+      if (action === "kill") {
+        const killed = yield* processes
+          .run({
+            command: "slipjay",
+            args: ["runner", "kill", operationId],
+            timeout: "30 seconds",
+            maxOutputBytes: 64 * 1024,
+            outputMode: "truncate",
+          })
+          .pipe(
+            Effect.mapError((cause) => failure("SlipJay could not be run to cancel.", { cause })),
+          );
+        const verdict = killResult(killed);
+        if (verdict !== undefined && "cancelled" in verdict) return verdict;
+        return yield* failure(
+          verdict === undefined
+            ? "SlipJay could not cancel. Run `slipjay runner kill` on the server for details."
+            : verdict.refusal,
+          killed.code === null ? undefined : { exitCode: killed.code },
+        );
+      }
       const output = yield* processes
         .run({
           command: "slipjay",

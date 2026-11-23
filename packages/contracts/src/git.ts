@@ -287,6 +287,18 @@ export const VcsSlipJayCancelInput = Schema.Struct({
 });
 export type VcsSlipJayCancelInput = typeof VcsSlipJayCancelInput.Type;
 
+const SLIPJAY_KILLABLE_STAGES: ReadonlySet<string> = new Set([
+  "fetching",
+  "rebasing",
+  "installing",
+  "screening",
+  "verifying",
+]);
+
+/** Whether `slipjay runner kill` can still evict an operation in this stage, before anything publishes. */
+export const isSlipJayKillableStage = (stage: string): boolean =>
+  SLIPJAY_KILLABLE_STAGES.has(stage);
+
 export const VcsSlipJayCancelResult = Schema.Struct({
   /** False when the runner refused, most often because the operation already started. */
   cancelled: Schema.Boolean,

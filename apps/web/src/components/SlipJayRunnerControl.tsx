@@ -11,13 +11,14 @@ import {
   slipJayWorkspaceName,
 } from "@t3tools/client-runtime/slipjay-checkout";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import type {
-  EnvironmentId,
-  ScopedThreadRef,
-  SlipJayRunnerDeploy,
-  SlipJayRunnerOperation,
-  SlipJayRunnerOverview,
-  ThreadId,
+import {
+  isSlipJayKillableStage,
+  type EnvironmentId,
+  type ScopedThreadRef,
+  type SlipJayRunnerDeploy,
+  type SlipJayRunnerOperation,
+  type SlipJayRunnerOverview,
+  type ThreadId,
 } from "@t3tools/contracts";
 import { useState, type ReactNode } from "react";
 
@@ -763,7 +764,8 @@ function RunnerOperationRow({
           )}
         </span>
       </span>
-      {operation.status === "queued" ? (
+      {operation.status === "queued" ||
+      (operation.status === "running" && isSlipJayKillableStage(operation.stage)) ? (
         <span className="shrink-0 pe-1">
           <SlipJayCancelButton environmentId={environmentId} operationId={operation.operationId} />
         </span>
@@ -827,7 +829,7 @@ function SlipJayPauseButton({
 }
 
 /**
- * Withdraws a queued operation with `slipjay cancel`, reporting a refusal; the runner
+ * Withdraws a queued operation, or evicts a screening one, with `slipjay cancel`, reporting a refusal; the runner
  * refuses one that has started.
  */
 export function useSlipJayCancel(environmentId: EnvironmentId, operationId: string) {
@@ -849,7 +851,7 @@ export function useSlipJayCancel(environmentId: EnvironmentId, operationId: stri
       toastManager.add({
         type: "info",
         title: "Already started",
-        description: "The runner had started it, so it was not cancelled.",
+        description: "The runner had already moved past it, so it was not cancelled.",
       });
     }
   };

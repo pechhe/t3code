@@ -10,7 +10,15 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import * as ProcessRunner from "../processRunner.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
-import { cancelResult, landResult, make, SlipJayLandings } from "./SlipJayLandings.ts";
+import { emptyRunnerOverview } from "./slipJayLandingState.ts";
+import {
+  cancelAction,
+  cancelResult,
+  killResult,
+  landResult,
+  make,
+  SlipJayLandings,
+} from "./SlipJayLandings.ts";
 
 interface Land {
   readonly stdout: string;
@@ -277,10 +285,83 @@ describe("SlipJayLandings.cancel", () => {
           landings.cancel({ operationId: "op_unknown" }),
         ).pipe(Effect.provide(host.layer), Effect.flip);
         assert.strictEqual(error._tag, "SlipJayCommandError");
-        assert.strictEqual(error.detail, "This operation is no longer queued.");
+        assert.strictEqual(error.detail, "This operation can no longer be cancelled.");
+        assert.deepStrictEqual(yield* Ref.get(host.runs), []);
       }),
     ),
   );
+
+  it("kills only a running pre-publish operation and cancels only a queued one", () => {
+    const operation = (operationId: string, status: string, stage: string) => ({
+      operationId,
+      kind: "landing",
+      repo: "o/r",
+      status,
+      stage,
+      submittedBy: "h:w",
+    });
+    const overview = {
+      ...emptyRunnerOverview,
+      serial: [
+        operation("q", "queued", "queued"),
+        ...["fetching", "rebasing", "installing", "screening", "verifying"].map((stage) =>
+          operation(stage, "running", stage),
+        ),
+        ...["waiting-for-predecessor", "integrating", "finalizing", "publishing"].map((stage) =>
+          operation(stage, "running", stage),
+        ),
+      ],
+      deploy: [operation("d", "running", "deploying")],
+    };
+    assert.strictEqual(cancelAction(overview, "q"), "cancel");
+    for (const stage of ["fetching", "rebasing", "installing", "screening", "verifying"])
+      assert.strictEqual(cancelAction(overview, stage), "kill");
+    for (const id of [
+      "waiting-for-predecessor",
+      "integrating",
+      "finalizing",
+      "publishing",
+      "d",
+      "gone",
+    ])
+      assert.strictEqual(cancelAction(overview, id), undefined);
+  });
+
+  it("reads slipjay runner kill's answer", () => {
+    assert.deepStrictEqual(killResult({ stdout: "killed op_a\n", code: 0 }), { cancelled: true });
+    assert.deepStrictEqual(killResult({ stdout: "killing op_a\n", code: 0 }), { cancelled: true });
+    assert.deepStrictEqual(killResult({ stdout: "nothing running\n", code: 0 }), {
+      cancelled: false,
+    });
+    assert.deepStrictEqual(killResult({ stdout: "not killed: past verification\n", code: 1 }), {
+      refusal: "not killed: past verification",
+    });
+    assert.deepStrictEqual(
+      killResult({ stdout: "[runner peach-live] killed landing abc123\n", code: 0 }),
+      { cancelled: true },
+    );
+    assert.deepStrictEqual(
+      killResult({
+        stdout:
+          "[runner peach-live] killing landing abc123: it stops when rebasing finishes, before verification\n",
+        code: 0,
+      }),
+      { cancelled: true },
+    );
+    assert.deepStrictEqual(
+      killResult({ stdout: "[runner peach-live] nothing running\n", code: 0 }),
+      { cancelled: false },
+    );
+    const refusal =
+      "[runner peach-live] not killed: landing abc123 has already passed verification";
+    const expected = {
+      refusal: "not killed: landing abc123 has already passed verification",
+    };
+    assert.deepStrictEqual(killResult({ stdout: "", stderr: refusal + "\n", code: 1 }), expected);
+    assert.deepStrictEqual(killResult({ stdout: refusal, code: 1 }), expected);
+    assert.strictEqual(killResult({ stdout: "", code: 1 }), undefined);
+    assert.strictEqual(killResult({ stdout: "boom", code: 1 }), undefined);
+  });
 });
 
 describe("SlipJayLandings.readLog", () => {
