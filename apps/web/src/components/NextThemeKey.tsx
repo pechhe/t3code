@@ -17,7 +17,7 @@ export function NextThemeKey() {
   const label = next === null ? null : themeRotationLabel(next);
   const tip = label === null ? "Choose favourite themes to cycle through" : `Next theme: ${label}`;
   return (
-    <span className="app-away-key ml-3 flex items-center [-webkit-app-region:no-drag]">
+    <span className="app-device-key ml-3 flex items-center [-webkit-app-region:no-drag]">
       <Tooltip>
         <TooltipTrigger
           render={

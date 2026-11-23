@@ -22,7 +22,6 @@ import {
 import { primaryServerKeybindingsAtom } from "../../state/server";
 import { cn } from "../../lib/utils";
 import { useIssuesSupported, usePullRequestsSupported } from "../../state/environments";
-import { AwayKey } from "../AwayKey";
 import { NextThemeKey } from "../NextThemeKey";
 import { T3Wordmark } from "../T3Wordmark";
 import {
@@ -100,7 +99,6 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
           ) : null}
         </div>
         <NextThemeKey />
-        <AwayKey />
         {pillLabel ? (
           <div className="ml-1 flex h-7 items-center">
             <Badge data-environment-identification="pill" size="sm" variant="secondary">
