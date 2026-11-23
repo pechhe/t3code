@@ -368,6 +368,7 @@ const make = Effect.gen(function* () {
       Effect.map((current) => ({
         pooledModelKeys: current.pooledModelKeys ?? [],
         modelRouting: current.modelRouting,
+        accountReserves: current.accountReserves,
         modelAccounts: current.modelAccounts,
         modelLinks: current.modelLinks,
         providerModelPreferences: current.providerModelPreferences,

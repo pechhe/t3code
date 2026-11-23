@@ -3051,9 +3051,9 @@
   "85447208bc0e46f8": "Slut på användning.",
   "a4331a599b40e3a4": "Slut på användning till {until}.",
   "362600dae5f5fa7d": "Förbrukat",
-  "7b04b1759a64659a": "Hålls tillbaka för den här modellen vid sin reserv.",
-  "90f7d5f109bf93f9": "Hålls tillbaka för den här modellen vid sin reserv till {until}.",
-  "804cdda2e184839c": "Reserverad ({remaining}% ≤ {reserve}%)",
+  "2a3456137e0eb22e": "{remaining} % kvar: hålls tillbaka för den här modellen på grund av reserven.",
+  "a93bd389729ec2e7": "{remaining} % kvar: hålls tillbaka för den här modellen på grund av reserven till {until}.",
+  "aa9e98740b751481": "Hålls för reserv ({reserve} %)",
   "1ec2906da7b61fb8": "Leverantören rapporterade när den återställs.",
   "c0e5b6cf1e75b83e": "Ingen återställning rapporterades, så T3 väntar och försöker igen.",
   "7af1ef96a0576865": "Leverantören rapporterade att den återställs {until}.",
@@ -7296,7 +7296,17 @@
   "6d521d61ed177169": "Kopiera version {version}",
   "18040c4f55f3b533": "Version",
   "fd1d2853467e6195": "Kopiera version",
-  "2f3fa9f26f0ec42d": "Kontovy",
+  "4f54addf079e7b1b": "Reserv",
+  "737d22fa2245e7aa": "Reserv för {account}",
+  "d1ed2f841b0db5fa": "Av",
+  "698829397241dfda": "Modeller som får använda reserven för {account}",
+  "3ed69e0cb0e5dc53": "Tillåtna i reserven:",
+  "71d430a68440e1f6": "Ingen reserv: alla routade modeller kan använda kontot ner till 0 %.",
+  "200ea263ec012f78": "Vid {percent} % kvar eller mindre slutar routade modeller använda kontot. Ingen routad modell använder det ännu.",
+  "bae8bd09ce3b02dd": "Vid {percent} % kvar eller mindre hålls kontot tillbaka från alla routade modeller (endast manuell fästning).",
+  "1d0ce96cb2b1699e": "Vid {percent} % kvar eller mindre kan bara {models} använda kontot; andra modeller går vidare till sitt nästa konto.",
+  "4b53aea70eb60fc6": "Konton och inloggningsuppgifter",
+  "78ca82fca54a2fa5": "Leverantörskonton",
   "41e3d328edbd2d7c": "Modellroutning",
   "7703d0d4b0cf358c": "Lägg till modell",
   "09ccd421a047e23e": "Lägg till en modell som T3 Code väljer konto för",
@@ -7318,15 +7328,14 @@
   "92b33a3bfa54bc1c": "Räkna en annan modell",
   "deb57578e4394b9f": "Räkna en annan modells konton som {model}",
   "cacc5a79a44cb0df": "Vad agenter ser i {tool}",
+  "7ed5f2e80120d603": "{model} får använda kontots reserv och kan därför använda det ner till 0 %.",
+  "834c055398ecc194": "Vid {percent} % kvar eller mindre håller kontot sin reserv borta från {model}.",
+  "5864c7b1e7bfddb2": "Stannar vid {percent} %",
   "191c0ef3b82a1ec0": "Betala per användning",
   "5b5fda16c96e9081": "Ingen användningsavläsning",
   "df130193fd8be551": "{percent}% kvar",
   "60f0cefe3a1feb23": "{left} / {limit} kvar",
   "1bf11e27504eea26": "återställs {when}",
-  "82dde3005176dc20": "Reserv för {account} på {model}",
-  "afc10d7beabb4d09": "Reserv av",
-  "6842b1274e888016": "Reserv {percent}%",
-  "d1ed2f841b0db5fa": "Av",
   "56d8098b377f156b": "Flytta upp {account} för {model}",
   "fb899fbc6f673783": "Flytta ned {account} för {model}",
   "d4b7110f302c2bfd": "Till Överflöd",
@@ -7335,8 +7344,6 @@
   "f5994977bbccb284": "Ta bort {model} från modellerna som T3 Code väljer konto för",
   "fa2dbbb67dcfc16a": "Sök modeller",
   "0c23f35872aa172b": "Anslut en miljö för att hantera dess konton.",
-  "9a9a0b180431832f": "Inloggningsuppgifter",
-  "b3efda8e0f4c9b99": "Modellroutning",
   "e53981dd27ca71a4": [
     "Miljö: ",
     {
@@ -7345,7 +7352,8 @@
       "v": "v"
     }
   ],
-  "247a7f00912e0fd6": "Nya trådar, delegerade uppgifter och Champions kör varje modell på dess första tillgängliga primära konto, och på Överflöd först när inget primärt konto är tillgängligt över sin reserv. En tråd behåller sitt konto så länge det är tillgängligt, så att dess promptcache fortsätter att löna sig. Modeller som du inte har lagt till körs på kontot du väljer.",
+  "be7fdeb6b9556a99": "Prenumerationerna och API-nycklarna som den här miljön kör modeller med. En reserv sparar de sista procenten av ett kontos kvot eller månadsbudget åt modellerna du tillåter; alla andra routade modeller, även sådana du lägger till senare, går vidare till sitt nästa konto.",
+  "99410a33acc61ac7": "Nya trådar, delegerade uppgifter och Champions kör varje modell på dess första tillgängliga Primary-konto, och på Overflow först när inget Primary-konto är tillgängligt. Ett kontos reserv, som ställs in ovan, håller kontot borta från modeller den inte tillåter. En tråd behåller sitt konto så länge det är tillgängligt, så att promptcachen fortsätter att löna sig. Modeller du inte har lagt till körs på kontot du väljer.",
   "981cc7ad094d8d71": "Inga modeller har lagts till än. Lägg till en så att T3 Code kan välja mellan kontona som erbjuder den.",
   "05823499e4db2b4d": "Tidigast återställning",
   "19d61932d5e157ac": "Manuell ordning",
@@ -7353,6 +7361,7 @@
   "676e49aacb5b110a": "Används inte:",
   "3bb3921f6d9870b2": "Räknar också:",
   "e326741bc876b59b": "Nästa",
+  "389b86b08bd5b8b4": "Använder reserven",
   "6196de88c6749804": "leverantör otillgänglig",
   "fe1b66a1780045e9": "Det finns inga fler modeller att lägga till.",
   "5498f2f33907b02c": "ACP:n kunde inte förberedas.",
@@ -8951,6 +8960,119 @@
   "dfabc4c20ab78d41": "Inga licenser matchar sökningen.",
   "a6f0345697704afa": "Läser in meddelanden om öppen källkod…",
   "9268a10862868fe5": "Spela upp förhandsvisningen av panelanimeringen igen",
+  "758615ed4577c29e": "Pi-inloggningen kunde inte starta.",
+  "f862dd595acda4c2": "{count, plural, =1 {{name} delar en inloggning i en leverantör} other {{name} delar {count} inloggningar i en leverantör}}",
+  "6ab1f30f482176ba": "Pi växlar själv mellan dem när en tar slut, så T3 kan inte se eller välja var och en. Att separera ger var och en ett eget leverantörs-ID; hänvisningar till det gamla flyttas till den första.",
+  "6e84812f44905f06": "T3 kunde inte separera inloggningarna.",
+  "483a517915842d2b": "Separerar…",
+  "e92a944d55101131": "Separera inloggningar",
+  "1ecb34bc86d51672": "{count, plural, =1 {1 konto i Pi} other {{count} konton i Pi}}",
+  "367a9f63c167de7c": "Logga in igen",
+  "1fca5d0c23f61bd7": "Logga in",
+  "b97e0dbf2da63f78": "Nyckel och budget",
+  "3a9eb6a3200060ae": "Uppdatera nyckel",
+  "68c6fabd47c453e2": "Ta bort {account}",
+  "d770b2c429fb0f25": "{spent} spenderat den här månaden · ange en månadsbudget för att följa vad som är kvar",
+  "88b30c79e63d6fbe": "T3 kunde inte spara nyckeln.",
+  "8b4733eb899f07b6": "Ersätter nyckeln i {file}",
+  "d7f7c42547c38916": "Klistra in den nya nyckeln",
+  "e588ac9a51eb7324": "T3 kunde inte ta bort kontot.",
+  "5436f5da3e735e86": "Ta bort",
+  "c470de965e25e06c": "Lägg till konto",
+  "6747d554a4c8051f": "T3 kunde inte lägga till kontot.",
+  "150ebd505ec37779": "Kontotyp",
+  "2a076e687ab109f6": "Google-kontot, t.ex. {example}",
+  "c70fa3b90b5e99ab": "t.ex. {example}",
+  "86522c53dd8e09d1": "Arbetar…",
+  "2b14aee8c27e1f50": "Spara konto",
+  "f28ff90acd6f9839": "Pi tog inte emot svaret.",
+  "f8b08ce89f418133": "Loggar in {account}",
+  "654a55642b6cc046": "Loggar in",
+  "20b90f680e2e225f": "Den här miljön kör ingen Pi-leverantör och har därför inga Pi-inloggningsuppgifter att hantera.",
+  "d1f4f3b5ce52004e": [
+    "Varje konto är ett eget Pi-leverantörs-ID i miljöns Pi-inloggningsuppgifter (",
+    {
+      "t": "code",
+      "i": 1,
+      "c": "auth.json"
+    },
+    "), som både T3 och Pi i terminalen använder."
+  ],
+  "6d8e4ebc889bace9": "Lägg till konto",
+  "d016e2518d1f635d": "Läser Pi-inloggningsuppgifter…",
+  "b35871cdc4218005": "Inga konton ännu.",
+  "e7a16692b4325d90": "Ny nyckel (endast skrivning; T3 visar den aldrig igen)",
+  "781adeddb3639165": [
+    "Ta bort ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    "? T3 raderar inloggningsuppgiften från Pi i den här miljön; trådar som redan kör på den slutförs först."
+  ],
+  "a533009e42438f88": "Kontotyp",
+  "0d305b4cb7a0237c": "Pi-leverantörs-ID",
+  "47facfd68a40ff55": "Nyckel (endast skrivning; T3 visar den aldrig igen)",
+  "0e731e9f468b9cbb": "Sparas under det Pi-leverantörs-ID du anger.",
+  "2346506f10f7618c": [
+    "Pi-leverantörs-ID:",
+    " ",
+    {
+      "t": "code",
+      "i": 1,
+      "c": {
+        "i": 2,
+        "k": "_gt_value_2",
+        "v": "v"
+      }
+    },
+    " ",
+    "· Inloggningen öppnas i webbläsaren, på den här eller en annan dator."
+  ],
+  "f6b3ce9ba22c4e6a": [
+    "Pi-leverantörs-ID:",
+    " ",
+    {
+      "t": "code",
+      "i": 1,
+      "c": {
+        "i": 2,
+        "k": "_gt_value_2",
+        "v": "v"
+      }
+    }
+  ],
+  "ba58f96850068f18": "Avbryt inloggning",
+  "beda5103143a1bb6": "Startar Pi-inloggningen…",
+  "0838429cb8f0c5f1": "Öppna inloggningssidan",
+  "ac68b5034c4b254b": "Den här miljön är en annan dator, så sidan webbläsaren hamnar på efter inloggningen kanske inte laddas. Kopiera adressen och klistra in den nedan.",
+  "5eec615552740909": [
+    "Öppna",
+    " ",
+    {
+      "t": "a",
+      "i": 1,
+      "c": {
+        "i": 2,
+        "k": "_gt_value_2",
+        "v": "v"
+      }
+    },
+    " ",
+    "och ange",
+    " ",
+    {
+      "t": "code",
+      "i": 3,
+      "c": {
+        "i": 4,
+        "k": "_gt_value_4",
+        "v": "v"
+      }
+    },
+    "."
+  ],
   "1c16849175c9fdd3": "Skicka {signal}",
   "3e2c2cacab23110c": [
     "Skicka ",
@@ -10394,7 +10516,6 @@
   "75b1a7d1af613c5d": "Slutför senare",
   "06980ca0b81bf3b7": "Uppdatera hjälpen",
   "08f57e9a43ad6b5a": "Installera hjälpprogrammet",
-  "86522c53dd8e09d1": "Arbetar…",
   "f3c63f198627f0dd": "Uppdatera tillägget",
   "df1a5ac47a9530a6": "Installera tillägget",
   "e0616a924f8405cb": "Aktivera tillägget",
@@ -11696,7 +11817,6 @@
   "dd95128501e22145": "Fångstblink",
   "9f5280c955132ee1": "Fångstanimeringar",
   "f8d32e19131fd5b3": "agenter cli codex claude cursor grok fx kiro opencode antigravity google logga in logga ut installera prenumeration instanser autentisering api-nyckel modeller konfiguration binär sökväg konfigurationskatalog codex_home skugghem slutpunkt argument miljövariabler visningsnamn accentfärg anpassad favorit dold automatisk komprimering inbyggda sessioner importera återuppta",
-  "723380af1e638be5": "Pi-inloggningsuppgifter",
   "ad371af21e5b4b01": "Användningsleverantörer",
   "9d9d31a4f3d5ff69": "användningskällor CLIProxyAPI CLI-proxy hubb kvot prenumeration gränser hanteringsnyckel lägg till ta bort",
   "d65fa0946585b245": "Textgeneratorer",
@@ -12016,6 +12136,7 @@
   "ade1cf4e2c1ff4b4": "{label}: {remaining} % kvar, {timeLeft} % av fönstret kvar",
   "f6116fcec2d2ea7f": "{remaining} % kvar · {timeLeft} % av fönstret kvar",
   "07f5912af296f9ea": "{remaining} % kvar",
+  "e45eab3a8d518f9d": "Reserv vid {reserve} %: vid eller under den använder bara tillåtna modeller kontot.",
   "a01c358de99da345": "Återställs {resetsAt} · {resetsIn}",
   "93b30237a69f3fc4": "Återställs {resetsAt}",
   "69b2a63d2321a66c": "Använder…",

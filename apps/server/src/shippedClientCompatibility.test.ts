@@ -118,9 +118,9 @@ const forkSettings = {
       primary: ["claudeAgent"],
       overflow: ["pi:anthropic-yardsmith"],
       primaryOrder: "soonest" as const,
-      reserves: { claudeAgent: 10 },
     },
   },
+  accountReserves: { claudeAgent: { percent: 10, allowedModels: ["claude-opus-5-5"] } },
   projectSettingsOverrides: {
     [ProjectId.make("live")]: { responseStreamingMode: "live" as const },
   },

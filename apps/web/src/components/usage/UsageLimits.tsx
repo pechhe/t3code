@@ -126,10 +126,12 @@ function WindowBar({
   color,
   window,
   now,
+  reserve,
 }: {
   readonly color: string;
   readonly window: ServerProviderUsageWindow;
   readonly now: number;
+  readonly reserve?: number | undefined;
 }) {
   const timestampFormat = usePrimarySettings((settings) => settings.timestampFormat);
   const gt = useGT();
@@ -190,6 +192,13 @@ function WindowBar({
             style={paceMark.tick}
           />
         ) : null}
+        {reserve !== undefined && reserve > 0 ? (
+          <span
+            aria-hidden
+            className="absolute inset-y-1 w-0.5 -translate-x-1/2 rounded-full bg-warning"
+            style={{ left: `${reserve}%` }}
+          />
+        ) : null}
       </TooltipTrigger>
       <TooltipPopup side="top">
         <div className="flex flex-col gap-0.5">
@@ -201,6 +210,13 @@ function WindowBar({
           {timeLeft !== null ? (
             <span className="text-muted-foreground">
               <T>The line is where even spending would be.</T>
+            </span>
+          ) : null}
+          {reserve !== undefined && reserve > 0 ? (
+            <span className="text-muted-foreground">
+              {gt("Reserve at {reserve}%: at or below it, only allowed models use this account.", {
+                reserve,
+              })}
             </span>
           ) : null}
           {resetsAt ? (
@@ -222,12 +238,15 @@ export function LimitWindows({
   windows,
   now,
   compact = false,
+  reserve,
 }: {
   readonly driver: ServerProvider["driver"];
   readonly accentColor?: string | undefined;
   readonly windows: ReadonlyArray<ServerProviderUsageWindow>;
   readonly now: number;
   readonly compact?: boolean;
+  /** The account's reserve, marked on each bar. */
+  readonly reserve?: number | undefined;
 }) {
   const color = normalizeProviderAccentColor(accentColor) ?? barColor(driver);
   const gt = useGT();
@@ -251,7 +270,7 @@ export function LimitWindows({
                 {gt("{remaining}% left", { remaining: remainingPercent(window) })}
               </span>
             </span>
-            <WindowBar color={color} window={window} now={now} />
+            <WindowBar color={color} window={window} now={now} reserve={reserve} />
             <span className="flex items-center gap-2 text-xs whitespace-nowrap text-muted-foreground tabular-nums">
               {pace ? <PaceIcon pace={pace} /> : null}
               <span className="ms-auto shrink-0">{resetsIn ?? ""}</span>

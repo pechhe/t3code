@@ -298,6 +298,56 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
     }).pipe(Effect.provide(layerServerSettings())),
   );
 
+  it.effect(
+    "moves per-model reserves onto their accounts on load and on an older client's write",
+    () =>
+      Effect.gen(function* () {
+        const config = yield* ServerConfig.ServerConfig;
+        const fs = yield* FileSystem.FileSystem;
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        yield* fs.writeFileString(
+          config.settingsPath,
+          `{
+          "modelRouting": {
+            "claude-opus-5-5": { "primary": ["pi:claude-a"], "reserves": { "pi:claude-a": 10 } },
+            "claude-sonnet-5-5": { "primary": ["pi:claude-a"], "reserves": {} }
+          }
+        }`,
+        );
+
+        const settings = yield* service.getSettings;
+        assert.deepEqual(settings.accountReserves, {
+          "pi:claude-a": { percent: 10, allowedModels: ["claude-sonnet-5-5"] },
+        });
+        assert.deepEqual(settings.modelRouting?.["claude-opus-5-5"], {
+          primary: ["pi:claude-a"],
+          overflow: [],
+          primaryOrder: "soonest",
+        });
+        // A client from before account reserves still sends them on a route.
+        yield* service.updateSettings({
+          modelRouting: {
+            "gpt-6-luna": {
+              primary: ["pi:openai-codex"],
+              overflow: [],
+              primaryOrder: "soonest",
+              reserves: { "pi:openai-codex": 15 },
+            },
+          },
+        });
+        const persisted = yield* decodeServerSettingsJson(
+          yield* fs.readFileString(config.settingsPath),
+        );
+        assert.deepEqual(persisted.accountReserves, {
+          "pi:claude-a": { percent: 10, allowedModels: ["claude-sonnet-5-5"] },
+          "pi:openai-codex": { percent: 15, allowedModels: [] },
+        });
+        assert.isFalse(
+          Object.values(persisted.modelRouting ?? {}).some((route) => route.reserves !== undefined),
+        );
+      }).pipe(Effect.provide(layerServerSettings())),
+  );
+
   it.effect("moves an idle compaction mode saved in the legacy switch to its own field", () =>
     Effect.gen(function* () {
       const config = yield* ServerConfig.ServerConfig;

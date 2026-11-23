@@ -4,6 +4,7 @@ import {
   type EnvironmentId,
   type ModelRoute,
   type PooledModelKey,
+  type ServerProvider,
 } from "@t3tools/contracts";
 import {
   accountAvailability,
@@ -15,8 +16,10 @@ import {
   modelRoutePatch,
   multiAccountModels,
   pickAccount,
+  pooledModels,
   primaryInOrder,
   rankingResetMs,
+  routedModelsOn,
   servedModels,
   unlinkModelPatch,
   type AccountInfo,
@@ -31,8 +34,10 @@ import { Link } from "@tanstack/react-router";
 import { T, useGT, useMessages, Var } from "gt-react";
 import { useState, type ReactNode } from "react";
 
+import { useNowMinute } from "../../hooks/useNowMinute";
 import {
   useClientSettings,
+  useEnvironmentSettings,
   usePrimarySettings,
   useUpdateEnvironmentSettings,
 } from "../../hooks/useSettings";
@@ -58,15 +63,15 @@ import {
   ComboboxSearchInput,
   ComboboxTrigger,
 } from "../ui/combobox";
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { LimitWindows } from "../usage/UsageLimits";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
+import { AccountReserveControl } from "./AccountReserveControl";
 import { PiCredentials } from "./PiCredentials";
 import {
   SettingsPageContainer,
+  SettingsRow,
   SettingsSearchTarget,
   SettingsSection,
-  useInSettingsSearchResults,
-  useSettingsSearchTargetId,
 } from "./settingsLayout";
 import { useSettingsScope } from "./SettingsScopeContext";
 import { useInstanceEntries } from "./useInstanceEntries";
@@ -93,7 +98,10 @@ export function AccountsSettings() {
   );
 }
 
-/** Credentials are what each account is; Model routing is the order T3 uses them in. */
+/**
+ * One page: the accounts and what each keeps in reserve, then the order each routed model tries
+ * them in, so a reserve and the routes it affects are read together.
+ */
 function AccountsViews({
   environmentId,
   environmentLabel,
@@ -102,48 +110,107 @@ function AccountsViews({
   environmentLabel: string | undefined;
 }) {
   const gt = useGT();
-  const searchTarget = useSettingsSearchTargetId();
-  // Search stacks pages and filters them to matches, so both views must be there to match.
-  const inSearch = useInSettingsSearchResults();
-  const { providers } = useInstanceEntries(environmentId);
-  const [view, setView] = useState<"credentials" | "routing">(
-    searchTarget === "accounts" ? "routing" : "credentials",
-  );
+  const { settings, providers } = useInstanceEntries(environmentId);
+  const slotLabels = useClientSettings(selectModelSlotLabels);
+  const canManage = useEnvironmentScope(environmentId, AuthProvidersManageScope);
+  const routedModels = withPooledModelLabels(pooledModels(providers, settings), slotLabels);
   return (
     <>
-      <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-4">
-        <ToggleGroup
-          aria-label={gt("Accounts view")}
-          variant="segmented"
-          value={[view]}
-          onValueChange={(next) => {
-            if (next[0] === "credentials" || next[0] === "routing") setView(next[0]);
-          }}
+      <SettingsSearchTarget id="pi-credentials" className="flex flex-col gap-6">
+        <SettingsSection
+          title={gt("Accounts and credentials")}
+          headerAction={
+            environmentLabel ? (
+              <span className="text-xs text-muted-foreground">
+                <T>
+                  Environment: <Var>{environmentLabel}</Var>
+                </T>
+              </span>
+            ) : undefined
+          }
         >
-          <Toggle value="credentials">
-            <T>Credentials</T>
-          </Toggle>
-          <Toggle value="routing">
-            <T>Model routing</T>
-          </Toggle>
-        </ToggleGroup>
-        {environmentLabel ? (
-          <span className="text-xs text-muted-foreground">
+          <p className="px-3 py-2.5 text-xs text-muted-foreground sm:px-4">
             <T>
-              Environment: <Var>{environmentLabel}</Var>
+              The subscriptions and API keys this environment runs models on. A reserve keeps an
+              account&apos;s last few percent of quota or monthly budget for the models you allow
+              into it; every other routed model, including any you add later, moves on to its next
+              account.
             </T>
-          </span>
-        ) : null}
-      </div>
-      {inSearch || view === "credentials" ? (
-        <SettingsSearchTarget id="pi-credentials" className="flex flex-col gap-6">
-          <PiCredentials environmentId={environmentId} providers={providers} />
-        </SettingsSearchTarget>
-      ) : null}
-      {inSearch || view === "routing" ? (
-        <EnvironmentAccounts environmentId={environmentId} />
-      ) : null}
+          </p>
+        </SettingsSection>
+        <PiCredentials
+          environmentId={environmentId}
+          providers={providers}
+          routedModels={routedModels}
+        />
+        <ProviderAccountReserves
+          environmentId={environmentId}
+          providers={providers}
+          routedModels={routedModels}
+          disabled={!canManage}
+        />
+      </SettingsSearchTarget>
+      <EnvironmentAccounts environmentId={environmentId} />
     </>
+  );
+}
+
+/**
+ * Accounts outside Pi (a native Claude or Codex login) that serve a routed model, so their
+ * reserve is set here too.
+ */
+function ProviderAccountReserves(props: {
+  environmentId: EnvironmentId;
+  providers: ReadonlyArray<ServerProvider>;
+  routedModels: ReadonlyArray<PooledModel>;
+  disabled: boolean;
+}) {
+  const gt = useGT();
+  const reserves = useEnvironmentSettings(props.environmentId, (s) => s.accountReserves);
+  const now = Date.parse(`${useNowMinute()}Z`);
+  const accounts = props.providers.filter(
+    (provider) =>
+      provider.driver !== "pi" &&
+      (reserves?.[provider.instanceId] !== undefined ||
+        ((provider.usageLimits?.windows.length ?? 0) > 0 &&
+          routedModelsOn(props.routedModels, provider.instanceId).length > 0)),
+  );
+  if (accounts.length === 0) return null;
+  return (
+    <SettingsSection title={gt("Provider accounts")}>
+      {accounts.map((provider) => {
+        const windows = provider.usageLimits?.windows ?? [];
+        const label = provider.displayName ?? provider.instanceId;
+        return (
+          <SettingsRow
+            key={provider.instanceId}
+            title={label}
+            description={<code className="font-mono text-xs">{provider.instanceId}</code>}
+          >
+            <div className="mt-2 flex flex-col gap-2">
+              {windows.length > 0 ? (
+                <LimitWindows
+                  driver={provider.driver}
+                  accentColor={provider.accentColor}
+                  windows={windows}
+                  now={now}
+                  reserve={reserves?.[provider.instanceId]?.percent}
+                  compact
+                />
+              ) : null}
+              <AccountReserveControl
+                environmentId={props.environmentId}
+                account={provider.instanceId}
+                accountLabel={label}
+                routedModels={props.routedModels}
+                metered={windows.length > 0}
+                disabled={props.disabled}
+              />
+            </div>
+          </SettingsRow>
+        );
+      })}
+    </SettingsSection>
   );
 }
 
@@ -207,9 +274,10 @@ function EnvironmentAccounts({ environmentId }: { environmentId: EnvironmentId }
         <p className="px-3 py-2.5 text-xs text-muted-foreground sm:px-4">
           <T>
             New threads, delegated tasks and Champions run each model on its first available Primary
-            account, and on Overflow only once no Primary account is available above its reserve. A
-            thread keeps its account while that account stays available, so its prompt cache keeps
-            paying off. Models you haven&apos;t added run on the account you pick.
+            account, and on Overflow only once no Primary account is available. An account&apos;s
+            reserve, set above, holds it back from the models it doesn&apos;t allow. A thread keeps
+            its account while that account stays available, so its prompt cache keeps paying off.
+            Models you haven&apos;t added run on the account you pick.
           </T>
         </p>
         {models.length === 0 ? (
@@ -242,8 +310,6 @@ function EnvironmentAccounts({ environmentId }: { environmentId: EnvironmentId }
   );
 }
 
-const RESERVE_CHOICES: ReadonlyArray<number> = [0, 5, 10, 15, 20, 30];
-
 /** The route a model shows, from the accounts it shows, as an edit starts from it. */
 const shownRoute = (model: PooledModel): ModelRoute => ({
   primary: model.accounts.flatMap((entry) => (entry.tier === "primary" ? [entry.account.id] : [])),
@@ -251,11 +317,6 @@ const shownRoute = (model: PooledModel): ModelRoute => ({
     entry.tier === "overflow" ? [entry.account.id] : [],
   ),
   primaryOrder: model.primaryOrder,
-  reserves: Object.fromEntries(
-    model.accounts.flatMap((entry) =>
-      entry.reserve === undefined ? [] : [[entry.account.id, entry.reserve] as const],
-    ),
-  ),
 });
 
 /** One routed model: its live pick, Primary and Overflow, the accounts it does not use and links. */
@@ -303,12 +364,6 @@ function ModelRouteCard(props: {
     ids.splice(to, 0, id);
     props.onSetRoute({ ...route, [tier]: ids });
   };
-  const setReserve = (id: AccountId, percent: number) => {
-    const rest = Object.fromEntries(
-      Object.entries(route.reserves).filter(([account]) => account !== id),
-    );
-    props.onSetRoute({ ...route, reserves: percent === 0 ? rest : { ...rest, [id]: percent } });
-  };
   const rows = (entries: ReadonlyArray<PooledAccount>, tier: "primary" | "overflow") =>
     entries.length === 0 ? (
       <p className="rounded-lg border border-dashed border-border/70 px-3 py-2 text-xs text-muted-foreground">
@@ -341,7 +396,6 @@ function ModelRouteCard(props: {
             disabled={props.disabled}
             onMove={(steps) => reorder(tier, entry.account.id, steps)}
             onTier={(to) => moveTier(entry.account.id, to)}
-            onReserve={(percent) => setReserve(entry.account.id, percent)}
           />
         ))}
       </ol>
@@ -530,7 +584,7 @@ function QuotaMeter(props: { remaining: number; reserve: number | undefined; sta
       />
       {props.reserve !== undefined && props.reserve > 0 ? (
         <span
-          className="absolute -top-0.5 h-2.5 w-0.5 -translate-x-1/2 rounded-full bg-foreground/70"
+          className="absolute -top-0.5 h-2.5 w-0.5 -translate-x-1/2 rounded-full bg-warning"
           style={{ left: `${props.reserve}%` }}
         />
       ) : null}
@@ -553,7 +607,6 @@ function RouteAccountRow(props: {
   disabled: boolean;
   onMove: (steps: number) => void;
   onTier: (to: AccountTier) => void;
-  onReserve: (percent: number) => void;
 }) {
   const { entry } = props;
   const { account } = entry;
@@ -567,7 +620,6 @@ function RouteAccountRow(props: {
   );
   const remaining = availability.remainingPercent;
   const routable = isProviderRoutable(entry.provider);
-  const reserve = entry.reserve ?? 0;
   return (
     <li
       className={cn(
@@ -600,6 +652,28 @@ function RouteAccountRow(props: {
             </Badge>
           ) : null}
           <AccountStateBadge availability={availability} reserve={entry.reserve} />
+          {entry.usesReserve === true ? (
+            <Badge
+              variant="success"
+              size="sm"
+              title={gt("{model} is allowed into this account's reserve, so it can use it to 0%.", {
+                model: props.modelName,
+              })}
+            >
+              <T>Uses reserve</T>
+            </Badge>
+          ) : entry.reserve !== undefined && availability.state === "available" ? (
+            <Badge
+              variant="outline"
+              size="sm"
+              title={gt(
+                "At or below {percent}% left, this account holds its reserve back from {model}.",
+                { percent: entry.reserve, model: props.modelName },
+              )}
+            >
+              {gt("Stops at {percent}%", { percent: entry.reserve })}
+            </Badge>
+          ) : null}
           {routable ? null : (
             <span className="text-xs text-muted-foreground">
               <T>provider unavailable</T>
@@ -645,34 +719,6 @@ function RouteAccountRow(props: {
         </span>
       </span>
       <span className="ms-auto flex items-center gap-0.5">
-        {/* A subscription's reserve stays editable while its reading is missing. */}
-        {remaining === undefined && entry.metered && reserve === 0 ? null : (
-          <Select
-            value={String(RESERVE_CHOICES.includes(reserve) ? reserve : 0)}
-            disabled={props.disabled}
-            onValueChange={(value) => value !== null && props.onReserve(Number(value))}
-          >
-            <SelectTrigger
-              size="xs"
-              className="w-auto min-w-0"
-              aria-label={gt("Reserve for {account} on {model}", {
-                account: account.label,
-                model: props.modelName,
-              })}
-            >
-              <SelectValue>
-                {reserve === 0 ? gt("Reserve off") : gt("Reserve {percent}%", { percent: reserve })}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectPopup>
-              {RESERVE_CHOICES.map((choice) => (
-                <SelectItem key={choice} value={String(choice)}>
-                  {choice === 0 ? gt("Off", { $context: "reserve setting" }) : `${choice}%`}
-                </SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
-        )}
         {availability.block !== undefined ? (
           <TryNowButton
             environmentId={props.environmentId}

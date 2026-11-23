@@ -55,7 +55,7 @@ import {
   ProviderOptionSelections,
 } from "./model.ts";
 import { ModelSelection } from "./modelSelection.ts";
-import { AccountId, ModelRoute, PooledModelKey } from "./accountPools.ts";
+import { AccountId, AccountReserve, ModelRoute, PooledModelKey } from "./accountPools.ts";
 import { ProjectScript, type ProjectMutation } from "./project.ts";
 import { DEFAULT_RUNTIME_MODE, RuntimeMode } from "./providerPolicy.ts";
 import { BrowserProfile, BrowserProfileId, DEFAULT_BROWSER_PROFILE_ID } from "./browserProfile.ts";
@@ -1753,10 +1753,12 @@ export const ServerSettings = Schema.Struct({
    */
   modelAccounts: Schema.optionalKey(Schema.Record(PooledModelKey, Schema.Array(AccountId))),
   /**
-   * Each routed model's Primary and Overflow accounts, order and reserves, by pooled model key. A
-   * model with none uses every subscription serving it in Primary; pay-as-you-go ones stay off.
+   * Each routed model's Primary and Overflow accounts and order, by pooled model key. A model with
+   * none uses every subscription serving it in Primary; pay-as-you-go ones stay off.
    */
   modelRouting: Schema.optionalKey(Schema.Record(PooledModelKey, ModelRoute)),
+  /** Each account's reserve, by account; an account without one serves every model to 0%. */
+  accountReserves: Schema.optionalKey(Schema.Record(AccountId, AccountReserve)),
   /**
    * Models the user counts as another one, by pooled model key: their accounts serve that model,
    * for a name automatic matching keeps apart (a dated release beside its plain name).
@@ -2217,6 +2219,8 @@ export const ServerSettingsPatch = Schema.Struct({
   modelLinks: Schema.optionalKey(Schema.Record(PooledModelKey, Schema.NullOr(PooledModelKey))),
   // Merge per model, replacing its route whole; null returns it to the default route.
   modelRouting: Schema.optionalKey(Schema.Record(PooledModelKey, Schema.NullOr(ModelRoute))),
+  // Merge per account, replacing its reserve whole; null removes it.
+  accountReserves: Schema.optionalKey(Schema.Record(AccountId, Schema.NullOr(AccountReserve))),
   // Merge per source to avoid racing other edits; null removes an entry.
   usageLimitSources: Schema.optionalKey(
     Schema.Record(UsageLimitSourceId, Schema.NullOr(UsageLimitSourceConfig)),
@@ -2267,6 +2271,7 @@ export function requiredScopesForServerSettingsPatch(
       key === "modelAccounts" ||
       key === "modelLinks" ||
       key === "modelRouting" ||
+      key === "accountReserves" ||
       key === "usageLimitSources" ||
       key === "usageSlotBudgets" ||
       key === "textGenerators" ||

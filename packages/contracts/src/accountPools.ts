@@ -21,22 +21,31 @@ export type PooledModelKey = typeof PooledModelKey.Type;
 export const PrimaryOrder = Schema.Literals(["soonest", "manual"]);
 export type PrimaryOrder = typeof PrimaryOrder.Type;
 
-/** Remaining usage, in percent, at or below which an account is held back for a model. */
+/** Remaining usage, in percent, at or below which an account is held back. */
 export const ReservePercent = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 99 }));
 export type ReservePercent = typeof ReservePercent.Type;
 
 /**
+ * An account's reserve: at or below `percent` left on a governing window (a monthly budget
+ * included), only `allowedModels` still route to it; every other routed model, one added later
+ * included, spills over. With none allowed, the account serves only work pinned to it.
+ */
+export const AccountReserve = Schema.Struct({
+  percent: ReservePercent,
+  allowedModels: Schema.Array(PooledModelKey).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+});
+export type AccountReserve = typeof AccountReserve.Type;
+
+/**
  * Which accounts serve one routed model. Primary is tried first, Overflow only once no Primary
- * account is available above its reserve; an account in neither is not used for the model.
+ * account is available; an account in neither is not used for the model.
  */
 export const ModelRoute = Schema.Struct({
   primary: Schema.Array(AccountId),
   overflow: Schema.Array(AccountId).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   primaryOrder: PrimaryOrder.pipe(Schema.withDecodingDefault(Effect.succeed("soonest" as const))),
-  /** By account; an account without one has no reserve for this model. */
-  reserves: Schema.Record(AccountId, ReservePercent).pipe(
-    Schema.withDecodingDefault(Effect.succeed({})),
-  ),
+  /** Retired per-model reserves: read once into `accountReserves`, never written. */
+  reserves: Schema.optionalKey(Schema.Record(AccountId, ReservePercent)),
 });
 export type ModelRoute = typeof ModelRoute.Type;
 

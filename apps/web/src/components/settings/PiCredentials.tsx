@@ -4,6 +4,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import {
   AuthProvidersManageScope,
+  type AccountId,
   type EnvironmentId,
   type PiAccount,
   type PiAccountFamily,
@@ -12,10 +13,13 @@ import {
   type ProviderInstanceId,
   type ServerProvider,
 } from "@t3tools/contracts";
+import type { PooledModel } from "@t3tools/shared/accountPools";
 import { isLoopbackHost } from "@t3tools/shared/preview";
+import { T, useGT, Var } from "gt-react";
 import { ExternalLinkIcon, PlusIcon, XIcon } from "lucide-react";
 import { useState } from "react";
 
+import { useEnvironmentSettings } from "../../hooks/useSettings";
 import { useEnvironmentHttpBaseUrl } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
@@ -39,6 +43,7 @@ import {
   previewPiProviderId,
   type PiCredentialGroup,
 } from "./PiCredentials.logic";
+import { AccountReserveControl } from "./AccountReserveControl";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
 
 const SILENT = { reportFailure: false, reportDefect: false } as const;
@@ -50,19 +55,21 @@ function failureText(result: { readonly _tag: string }, fallback: string): strin
   return failure instanceof Error && failure.message ? failure.message : fallback;
 }
 
-/** Settings → Accounts → Credentials: every Pi credential of each Pi instance here. */
+/** Settings → Accounts: every Pi credential of each Pi instance here, with its reserve. */
 export function PiCredentials({
   environmentId,
   providers,
+  routedModels,
 }: {
   readonly environmentId: EnvironmentId;
   readonly providers: ReadonlyArray<ServerProvider>;
+  readonly routedModels: ReadonlyArray<PooledModel>;
 }) {
   const piProviders = providers.filter((provider) => provider.driver === "pi");
   if (piProviders.length === 0) {
     return (
       <p className="px-4 text-sm text-muted-foreground">
-        This environment runs no Pi provider, so it has no Pi credentials to manage.
+        <T>This environment runs no Pi provider, so it has no Pi credentials to manage.</T>
       </p>
     );
   }
@@ -74,6 +81,7 @@ export function PiCredentials({
           environmentId={environmentId}
           provider={provider}
           showInstanceName={piProviders.length > 1}
+          routedModels={routedModels}
         />
       ))}
     </>
@@ -90,11 +98,14 @@ function PiInstanceCredentials({
   environmentId,
   provider,
   showInstanceName,
+  routedModels,
 }: {
   readonly environmentId: EnvironmentId;
   readonly provider: ServerProvider;
   readonly showInstanceName: boolean;
+  readonly routedModels: ReadonlyArray<PooledModel>;
 }) {
+  const gt = useGT();
   const instanceId = provider.instanceId;
   const canManage = useEnvironmentScope(environmentId, AuthProvidersManageScope);
   const query = useEnvironmentQuery(
@@ -118,7 +129,7 @@ function PiInstanceCredentials({
       setEditing(null);
       return true;
     }
-    setLoginError(failureText(result, "Pi's sign-in could not start."));
+    setLoginError(failureText(result, gt("Pi's sign-in could not start.")));
     return false;
   };
   return (
@@ -126,8 +137,10 @@ function PiInstanceCredentials({
       <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-4">
         <p className="min-w-0 text-sm text-muted-foreground">
           {showInstanceName ? `${provider.displayName ?? instanceId}: ` : ""}
-          Each account is its own Pi provider ID in this environment&apos;s Pi credentials (
-          <code className="font-mono text-xs">auth.json</code>), used by T3 and terminal Pi alike.
+          <T>
+            Each account is its own Pi provider ID in this environment&apos;s Pi credentials (
+            <code className="font-mono text-xs">auth.json</code>), used by T3 and terminal Pi alike.
+          </T>
         </p>
         <Button
           size="xs"
@@ -135,7 +148,7 @@ function PiInstanceCredentials({
           onClick={() => setEditing({ kind: "add" })}
         >
           <PlusIcon />
-          Add account
+          <T>Add account</T>
         </Button>
       </div>
       {query.error ? <p className="px-4 text-sm text-destructive">{query.error}</p> : null}
@@ -168,7 +181,9 @@ function PiInstanceCredentials({
       )}
       {query.data === null ? (
         query.isPending ? (
-          <p className="px-4 text-sm text-muted-foreground">Reading Pi&apos;s credentials…</p>
+          <p className="px-4 text-sm text-muted-foreground">
+            <T>Reading Pi&apos;s credentials…</T>
+          </p>
         ) : null
       ) : (
         groups.map((group) => (
@@ -177,6 +192,7 @@ function PiInstanceCredentials({
             group={group}
             environmentId={environmentId}
             provider={provider}
+            routedModels={routedModels}
             editing={editing}
             canManage={canManage}
             onEdit={setEditing}
@@ -205,14 +221,20 @@ function SharedLoginsNotice({
   readonly shared: PiAccountsSharedLogins;
   readonly disabled: boolean;
 }) {
+  const gt = useGT();
   const separate = useAtomCommand(serverEnvironment.separatePiAccounts, SILENT);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const name = shared.providerFamily === "antigravity" ? "Antigravity" : "Command Code";
   return (
     <SettingsRow
-      title={`${name} shares ${shared.count === 1 ? "a login" : `${shared.count} logins`} inside one provider`}
-      description={`Pi switches between them itself when one runs out, so T3 cannot see or choose each one. Separating gives each its own provider ID; references to the old one move to the first.`}
+      title={gt(
+        "{count, plural, =1 {{name} shares a login inside one provider} other {{name} shares {count} logins inside one provider}}",
+        { count: shared.count, name },
+      )}
+      description={gt(
+        "Pi switches between them itself when one runs out, so T3 cannot see or choose each one. Separating gives each its own provider ID; references to the old one move to the first.",
+      )}
       status={error ?? undefined}
       control={
         <Button
@@ -226,11 +248,11 @@ function SharedLoginsNotice({
               environmentId,
               input: { instanceId, providerFamily: shared.providerFamily },
             });
-            setError(failureText(result, "T3 could not separate these logins."));
+            setError(failureText(result, gt("T3 could not separate these logins.")));
             setPending(false);
           }}
         >
-          {pending ? "Separating…" : "Separate logins"}
+          {pending ? gt("Separating…") : gt("Separate logins")}
         </Button>
       }
     />
@@ -241,6 +263,7 @@ function CredentialGroup({
   group,
   environmentId,
   provider,
+  routedModels,
   editing,
   canManage,
   onEdit,
@@ -249,23 +272,27 @@ function CredentialGroup({
   readonly group: PiCredentialGroup;
   readonly environmentId: EnvironmentId;
   readonly provider: ServerProvider;
+  readonly routedModels: ReadonlyArray<PooledModel>;
   readonly editing: Editing | null;
   readonly canManage: boolean;
   readonly onEdit: (editing: Editing | null) => void;
   readonly onSignIn: (account: PiAccount) => void;
 }) {
+  const gt = useGT();
   const count = group.accounts.length;
   return (
     <SettingsSection
       title={group.title}
       headerAction={
         <span className="text-xs text-muted-foreground tabular-nums">
-          {count === 1 ? "1 account in Pi" : `${count} accounts in Pi`}
+          {gt("{count, plural, =1 {1 account in Pi} other {{count} accounts in Pi}}", { count })}
         </span>
       }
     >
       {count === 0 ? (
-        <p className="px-3 py-3 text-sm text-muted-foreground sm:px-4">No accounts yet.</p>
+        <p className="px-3 py-3 text-sm text-muted-foreground sm:px-4">
+          <T>No accounts yet.</T>
+        </p>
       ) : null}
       {group.accounts.map((account) => (
         <AccountRow
@@ -273,6 +300,7 @@ function CredentialGroup({
           account={account}
           environmentId={environmentId}
           provider={provider}
+          routedModels={routedModels}
           editing={
             editing?.kind !== "add" && editing?.account.providerId === account.providerId
               ? editing
@@ -291,6 +319,7 @@ function AccountRow({
   account,
   environmentId,
   provider,
+  routedModels,
   editing,
   canManage,
   onEdit,
@@ -299,16 +328,24 @@ function AccountRow({
   readonly account: PiAccount;
   readonly environmentId: EnvironmentId;
   readonly provider: ServerProvider;
+  readonly routedModels: ReadonlyArray<PooledModel>;
   readonly editing: Exclude<Editing, { kind: "add" }> | null;
   readonly canManage: boolean;
   readonly onEdit: (editing: Editing | null) => void;
   readonly onSignIn: () => void;
 }) {
+  const gt = useGT();
   const now = Date.parse(`${useNowMinute()}:00.000Z`);
   const slot = piAccountSlot(provider, account.providerId);
   const badge = piAccountBadge(account, piProviderRegistered(provider, account.providerId));
   const budgetWindow = slot?.usageLimits.windows.find((window) => window.id === "budget");
   const signIn = isSignInFamily(account.providerFamily);
+  // Routing names a Pi credential by its instance and provider ID.
+  const accountId: AccountId = `${provider.instanceId}:${account.providerId}`;
+  const reserve = useEnvironmentSettings(
+    environmentId,
+    (settings) => settings.accountReserves?.[accountId]?.percent,
+  );
   return (
     <SettingsRow
       title={account.label}
@@ -323,7 +360,9 @@ function AccountRow({
         <span className="flex items-center gap-1">
           {signIn ? (
             <Button size="xs" variant="outline" disabled={!canManage} onClick={onSignIn}>
-              {account.status === "signedIn" ? "Re-auth" : "Sign in"}
+              {account.status === "signedIn"
+                ? gt("Re-auth")
+                : gt("Sign in", { $context: "button, signs an account in" })}
             </Button>
           ) : account.providerFamily !== "other" || account.source === "auth" ? (
             <Button
@@ -334,7 +373,7 @@ function AccountRow({
                 onEdit(hasBudget(account) ? { kind: "budget", account } : { kind: "key", account })
               }
             >
-              {hasBudget(account) ? "Key & budget" : "Update key"}
+              {hasBudget(account) ? gt("Key & budget") : gt("Update key")}
             </Button>
           ) : null}
           <Button
@@ -342,7 +381,7 @@ function AccountRow({
             size="icon-xs"
             variant="ghost-muted"
             disabled={!canManage}
-            aria-label={`Remove ${account.label}`}
+            aria-label={gt("Remove {account}", { account: account.label })}
             onClick={() => onEdit({ kind: "remove", account })}
           >
             <XIcon />
@@ -357,16 +396,26 @@ function AccountRow({
             accentColor={provider.accentColor}
             windows={slot.usageLimits.windows}
             now={now}
+            reserve={reserve}
             compact
           />
         ) : slot?.spentUsd !== undefined ? (
           <p className="text-xs text-muted-foreground tabular-nums">
-            ${slot.spentUsd.toFixed(2)} spent this month · set a monthly budget to track what is
-            left
+            {gt("{spent} spent this month · set a monthly budget to track what is left", {
+              spent: `$${slot.spentUsd.toFixed(2)}`,
+            })}
           </p>
         ) : slot?.usageLimits.unavailable ? (
           <p className="text-xs text-muted-foreground">{slot.usageLimits.unavailable.message}</p>
         ) : null}
+        <AccountReserveControl
+          environmentId={environmentId}
+          account={accountId}
+          accountLabel={account.label}
+          routedModels={routedModels}
+          metered={(slot?.usageLimits.windows.length ?? 0) > 0}
+          disabled={!canManage}
+        />
         {editing?.kind === "key" || editing?.kind === "budget" ? (
           <KeyForm
             environmentId={environmentId}
@@ -407,6 +456,7 @@ function KeyForm({
   readonly account: PiAccount;
   readonly onDone: () => void;
 }) {
+  const gt = useGT();
   const save = useAtomCommand(serverEnvironment.savePiAccountKey, SILENT);
   const [label, setLabel] = useState(account.label);
   const [key, setKey] = useState("");
@@ -430,34 +480,38 @@ function KeyForm({
           },
         });
         setPending(false);
-        const failure = failureText(result, "T3 could not save this key.");
+        const failure = failureText(result, gt("T3 could not save this key."));
         if (failure) setError(failure);
         else onDone();
       }}
     >
       <label className="flex min-w-40 flex-1 flex-col gap-1">
-        <span className="text-3xs text-muted-foreground">Name</span>
+        <span className="text-3xs text-muted-foreground">
+          <T>Name</T>
+        </span>
         <Input value={label} onChange={(event) => setLabel(event.currentTarget.value)} />
       </label>
       <label className="flex min-w-56 flex-[2] flex-col gap-1">
         <span className="text-3xs text-muted-foreground">
-          New key (write-only; T3 never shows it again)
+          <T>New key (write-only; T3 never shows it again)</T>
         </span>
         <Input
           type="password"
           autoComplete="off"
           value={key}
           placeholder={
-            account.source === "models" ? "Replaces the models.json key" : "Paste the new key"
+            account.source === "models"
+              ? gt("Replaces the {file} key", { file: "models.json" })
+              : gt("Paste the new key")
           }
           onChange={(event) => setKey(event.currentTarget.value)}
         />
       </label>
       <Button size="xs" type="submit" disabled={pending || key.trim().length === 0}>
-        {pending ? "Saving…" : "Save key"}
+        {pending ? gt("Saving…") : gt("Save key")}
       </Button>
       <Button size="xs" variant="ghost" type="button" disabled={pending} onClick={onDone}>
-        Cancel
+        <T>Cancel</T>
       </Button>
       {error ? <p className="basis-full text-xs text-destructive">{error}</p> : null}
     </form>
@@ -475,14 +529,17 @@ function RemoveConfirm({
   readonly account: PiAccount;
   readonly onDone: () => void;
 }) {
+  const gt = useGT();
   const remove = useAtomCommand(serverEnvironment.removePiAccount, SILENT);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed border-destructive/40 p-3">
       <p className="min-w-0 flex-1 text-xs text-muted-foreground">
-        Remove {account.label}? T3 deletes its credential from Pi on this environment; threads
-        already running on it finish first.
+        <T>
+          Remove <Var>{account.label}</Var>? T3 deletes its credential from Pi on this environment;
+          threads already running on it finish first.
+        </T>
       </p>
       <Button
         size="xs"
@@ -495,15 +552,15 @@ function RemoveConfirm({
             input: { instanceId, providerId: account.providerId },
           });
           setPending(false);
-          const failure = failureText(result, "T3 could not remove this account.");
+          const failure = failureText(result, gt("T3 could not remove this account."));
           if (failure) setError(failure);
           else onDone();
         }}
       >
-        {pending ? "Removing…" : "Remove"}
+        {pending ? gt("Removing…") : gt("Remove", { $context: "button, removes an account" })}
       </Button>
       <Button size="xs" variant="ghost" disabled={pending} onClick={onDone}>
-        Cancel
+        <T>Cancel</T>
       </Button>
       {error ? <p className="basis-full text-xs text-destructive">{error}</p> : null}
     </div>
@@ -539,6 +596,7 @@ function AddAccountForm({
   readonly signInError: string | null;
   readonly onDone: () => void;
 }) {
+  const gt = useGT();
   const save = useAtomCommand(serverEnvironment.savePiAccountKey, SILENT);
   const [family, setFamily] = useState<PiAccountFamily>("opencode-go");
   const [label, setLabel] = useState("");
@@ -553,7 +611,7 @@ function AddAccountForm({
     (signIn || key.trim().length > 0) &&
     (family !== "other" || /^[a-z0-9][a-z0-9._-]*$/.test(providerId.trim()));
   return (
-    <SettingsSection title="Add account">
+    <SettingsSection title={gt("Add account")}>
       <form
         className="flex flex-col gap-3 p-3 sm:p-4"
         onSubmit={async (event) => {
@@ -576,19 +634,21 @@ function AddAccountForm({
             },
           });
           setPending(false);
-          const failure = failureText(result, "T3 could not add this account.");
+          const failure = failureText(result, gt("T3 could not add this account."));
           if (failure) setError(failure);
           else onDone();
         }}
       >
         <div className="flex flex-wrap items-end gap-3">
           <label className="flex min-w-48 flex-col gap-1">
-            <span className="text-3xs text-muted-foreground">Account type</span>
+            <span className="text-3xs text-muted-foreground">
+              <T>Account type</T>
+            </span>
             <Select
               value={family}
               onValueChange={(next) => next && setFamily(next as PiAccountFamily)}
             >
-              <SelectTrigger aria-label="Account type">
+              <SelectTrigger aria-label={gt("Account type")}>
                 <SelectValue>{PI_FAMILY_LABEL[family]}</SelectValue>
               </SelectTrigger>
               <SelectPopup>
@@ -601,21 +661,27 @@ function AddAccountForm({
             </Select>
           </label>
           <label className="flex min-w-40 flex-1 flex-col gap-1">
-            <span className="text-3xs text-muted-foreground">Name</span>
+            <span className="text-3xs text-muted-foreground">
+              <T>Name</T>
+            </span>
             <Input
               value={label}
               placeholder={
-                family === "antigravity" ? "The Google account, e.g. hfpetch" : "e.g. yardsmith"
+                family === "antigravity"
+                  ? gt("The Google account, e.g. {example}", { example: "hfpetch" })
+                  : gt("e.g. {example}", { example: "yardsmith" })
               }
               onChange={(event) => setLabel(event.currentTarget.value)}
             />
           </label>
           {family === "other" ? (
             <label className="flex min-w-40 flex-col gap-1">
-              <span className="text-3xs text-muted-foreground">Pi provider ID</span>
+              <span className="text-3xs text-muted-foreground">
+                <T>Pi provider ID</T>
+              </span>
               <Input
                 value={providerId}
-                placeholder="e.g. openrouter"
+                placeholder={gt("e.g. {example}", { example: "openrouter" })}
                 onChange={(event) => setProviderId(event.currentTarget.value)}
               />
             </label>
@@ -624,7 +690,7 @@ function AddAccountForm({
         {signIn ? null : (
           <label className="flex flex-col gap-1">
             <span className="text-3xs text-muted-foreground">
-              Key (write-only; T3 never shows it again)
+              <T>Key (write-only; T3 never shows it again)</T>
             </span>
             <Input
               type="password"
@@ -636,12 +702,22 @@ function AddAccountForm({
         )}
         <p className="text-xs text-muted-foreground">
           {preview === null ? (
-            "Saved under the Pi provider ID you give."
+            <T>Saved under the Pi provider ID you give.</T>
+          ) : signIn ? (
+            <T>
+              Pi provider ID:{" "}
+              <code className="font-mono">
+                <Var>{preview}</Var>
+              </code>{" "}
+              · Sign-in opens in your browser, on this or another machine.
+            </T>
           ) : (
-            <>
-              Pi provider ID: <code className="font-mono">{preview}</code>
-              {signIn ? " · Sign-in opens in your browser, on this or another machine." : ""}
-            </>
+            <T>
+              Pi provider ID:{" "}
+              <code className="font-mono">
+                <Var>{preview}</Var>
+              </code>
+            </T>
           )}
         </p>
         {error || signInError ? (
@@ -649,10 +725,14 @@ function AddAccountForm({
         ) : null}
         <div className="flex gap-2">
           <Button size="xs" type="submit" disabled={pending || !ready}>
-            {pending ? "Working…" : signIn ? "Sign in" : "Save account"}
+            {pending
+              ? gt("Working…")
+              : signIn
+                ? gt("Sign in", { $context: "button, signs an account in" })
+                : gt("Save account")}
           </Button>
           <Button size="xs" variant="ghost" type="button" disabled={pending} onClick={onDone}>
-            Cancel
+            <T>Cancel</T>
           </Button>
         </div>
       </form>
@@ -677,6 +757,7 @@ function LoginPanel({
   const query = useEnvironmentQuery(
     serverEnvironment.piAccountLogin({ environmentId, input: { instanceId, flowId } }),
   );
+  const gt = useGT();
   const respond = useAtomCommand(serverEnvironment.respondPiAccountLogin, SILENT);
   const cancel = useAtomCommand(serverEnvironment.cancelPiAccountLogin, SILENT);
   const httpBaseUrl = useEnvironmentHttpBaseUrl(environmentId);
@@ -692,12 +773,12 @@ function LoginPanel({
       environmentId,
       input: { instanceId, flowId, promptId: prompt.id, value },
     });
-    setError(failureText(result, "Pi did not take that answer."));
+    setError(failureText(result, gt("Pi did not take that answer.")));
     setAnswer("");
   };
   return (
     <SettingsSection
-      title={state ? `Signing in ${state.providerId}` : "Signing in"}
+      title={state ? gt("Signing in {account}", { account: state.providerId }) : gt("Signing in")}
       headerAction={
         loginActive(state) ? (
           <Button
@@ -705,11 +786,11 @@ function LoginPanel({
             variant="ghost"
             onClick={() => void cancel({ environmentId, input: { instanceId, flowId } })}
           >
-            Cancel sign-in
+            <T>Cancel sign-in</T>
           </Button>
         ) : (
           <Button size="xs" variant="ghost" onClick={onClose}>
-            Close
+            <T>Close</T>
           </Button>
         )
       }
@@ -717,7 +798,9 @@ function LoginPanel({
       <div className="flex flex-col gap-3 p-3 text-sm sm:p-4">
         {state === null ||
         (state.phase === "starting" && state.prompt === null && !state.authUrl) ? (
-          <p className="text-muted-foreground">Starting Pi&apos;s sign-in…</p>
+          <p className="text-muted-foreground">
+            <T>Starting Pi&apos;s sign-in…</T>
+          </p>
         ) : null}
         {state?.authUrl ? (
           <div className="flex flex-col items-start gap-1">
@@ -727,27 +810,34 @@ function LoginPanel({
               render={<a href={state.authUrl} target="_blank" rel="noreferrer" />}
             >
               <ExternalLinkIcon />
-              Open the sign-in page
+              <T>Open the sign-in page</T>
             </Button>
             {state.instructions ? (
               <p className="text-xs text-muted-foreground">{state.instructions}</p>
             ) : null}
             {remote ? (
               <p className="text-xs text-muted-foreground">
-                This environment is another machine, so the page your browser lands on after signing
-                in may not load. Copy that address and paste it below.
+                <T>
+                  This environment is another machine, so the page your browser lands on after
+                  signing in may not load. Copy that address and paste it below.
+                </T>
               </p>
             ) : null}
           </div>
         ) : null}
         {state?.deviceCode ? (
           <p className="text-xs text-muted-foreground">
-            Open{" "}
-            <a className="underline" href={state.deviceCode.url} target="_blank" rel="noreferrer">
-              {state.deviceCode.url}
-            </a>{" "}
-            and enter <code className="font-mono text-foreground">{state.deviceCode.userCode}</code>
-            .
+            <T>
+              Open{" "}
+              <a className="underline" href={state.deviceCode.url} target="_blank" rel="noreferrer">
+                <Var>{state.deviceCode.url}</Var>
+              </a>{" "}
+              and enter{" "}
+              <code className="font-mono text-foreground">
+                <Var>{state.deviceCode.userCode}</Var>
+              </code>
+              .
+            </T>
           </p>
         ) : null}
         {prompt?.kind === "select" ? (
@@ -784,7 +874,7 @@ function LoginPanel({
                 onChange={(event) => setAnswer(event.currentTarget.value)}
               />
               <Button size="xs" type="submit" disabled={answer.trim().length === 0}>
-                Continue
+                <T>Continue</T>
               </Button>
             </div>
           </form>

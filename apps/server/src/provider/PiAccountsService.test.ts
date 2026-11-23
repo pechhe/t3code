@@ -26,9 +26,9 @@ describe("movedProviderReferences", () => {
           primary: ["pi:antigravity"],
           overflow: ["pi:opencode-go"],
           primaryOrder: "soonest",
-          reserves: { "pi:antigravity": 10 },
         },
       },
+      accountReserves: { "pi:antigravity": { percent: 10, allowedModels: ["gemini-4-argon"] } },
     } as unknown as ServerSettings;
 
     expect(movedProviderReferences(settings, [pi], "antigravity", "antigravity-hfpetch")).toEqual({
@@ -46,8 +46,11 @@ describe("movedProviderReferences", () => {
           primary: ["pi:antigravity-hfpetch"],
           overflow: ["pi:opencode-go"],
           primaryOrder: "soonest",
-          reserves: { "pi:antigravity-hfpetch": 10 },
         },
+      },
+      accountReserves: {
+        "pi:antigravity": null,
+        "pi:antigravity-hfpetch": { percent: 10, allowedModels: ["gemini-4-argon"] },
       },
     });
   });

@@ -3,6 +3,7 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   type AccountBlock,
+  type AccountReserve,
   type ModelRoute,
   type ServerProvider,
 } from "@t3tools/contracts";
@@ -10,6 +11,7 @@ import {
 import {
   accountAvailability,
   accountIdOf,
+  foldRouteReserves,
   governingUsageWindows,
   listedPooledModels,
   modelRoutePatch,
@@ -235,7 +237,10 @@ describe("a model's route", () => {
   const a = provider("a", "claudeAgent", models);
   const b = provider("b", "claudeAgent", models);
   const c = provider("c", "codex", models);
-  const settingsWith = (route?: Partial<ModelRoute>) => ({
+  const settingsWith = (
+    route?: Partial<ModelRoute>,
+    accountReserves?: Record<string, AccountReserve>,
+  ) => ({
     pooledModelKeys: ["opus"],
     ...(route === undefined
       ? {}
@@ -245,14 +250,17 @@ describe("a model's route", () => {
               primary: [],
               overflow: [],
               primaryOrder: "manual" as const,
-              reserves: {},
               ...route,
             },
           },
         }),
+    ...(accountReserves === undefined ? {} : { accountReserves }),
   });
-  const pool = (route?: Partial<ModelRoute>, providers = [c, b, a]) =>
-    pooledModels(providers, settingsWith(route))[0]!;
+  const pool = (
+    route?: Partial<ModelRoute>,
+    providers = [c, b, a],
+    accountReserves?: Record<string, AccountReserve>,
+  ) => pooledModels(providers, settingsWith(route, accountReserves))[0]!;
   const tiers = (model: PooledModel) =>
     model.accounts.map((entry) => `${entry.account.id} ${entry.tier}`);
   const context = (blocks: ReadonlyArray<AccountBlock> = [], nowMs = NOW) => ({ blocks, nowMs });
@@ -301,7 +309,7 @@ describe("a model's route", () => {
           pooledModelKeys: ["opus"],
           modelAccounts: { opus: ["a"] },
           modelRouting: {
-            opus: { primary: ["c"], overflow: ["b"], primaryOrder: "manual", reserves: {} },
+            opus: { primary: ["c"], overflow: ["b"], primaryOrder: "manual" },
           },
         })[0]!,
       ),
@@ -355,52 +363,76 @@ describe("a model's route", () => {
     expect(picked(manual)).toBe("a");
   });
 
-  it("holds an account at its reserve for one model only, spilling to the next and then Overflow", () => {
+  it("holds an account at its reserve from every routed model it does not allow, spilling to the next and then Overflow", () => {
+    const served = [...models, ["haiku", "Haiku"] as const];
     const codex = provider(
       "codex",
       "codex",
-      models,
+      served,
       usage([window("week", "weekly", 91, NOW + 50 * HOUR)]),
     );
     const credits = provider(
       "credits",
       "codex",
-      models,
+      served,
       usage([window("budget", "monthly", 29, NOW + 300 * HOUR)]),
     );
-    const routed = (reserve: number | undefined) =>
+    const route = { primary: ["codex"], overflow: ["credits"], primaryOrder: "soonest" as const };
+    const routed = (
+      reserves?: Record<string, AccountReserve>,
+      modelLinks?: Record<string, string>,
+    ) =>
       pooledModels([codex, credits], {
-        pooledModelKeys: ["opus", "sonnet"],
-        modelRouting: {
-          opus: {
-            primary: ["codex"],
-            overflow: ["credits"],
-            primaryOrder: "soonest",
-            reserves: reserve === undefined ? {} : { codex: reserve },
-          },
-          sonnet: {
-            primary: ["codex"],
-            overflow: ["credits"],
-            primaryOrder: "soonest",
-            reserves: {},
-          },
-        },
+        // Haiku has no saved route, as a model added after the reserve was set.
+        pooledModelKeys: ["opus", "sonnet", "haiku"],
+        modelRouting: { opus: route, sonnet: route },
+        ...(reserves === undefined ? {} : { accountReserves: reserves }),
+        ...(modelLinks === undefined ? {} : { modelLinks }),
       });
-    const [opus, sonnet] = routed(10);
-    // 9% left is at or below a 10% reserve: Opus spills to the credits, Sonnet keeps the account.
+    const pickedOf = (pools: ReadonlyArray<PooledModel>) =>
+      Object.fromEntries(pools.map((pool) => [pool.key, picked(pool)]));
+    const [opus, sonnet] = routed({ codex: { percent: 10, allowedModels: ["sonnet"] } });
+    // 9% left is at or below a 10% reserve: Opus spills to the credits; Sonnet, allowed into the
+    // reserve, keeps the account to its last percent.
     expect(accountAvailability("opus", opus!.accounts[0]!, context())).toEqual({
       state: "reserved",
       remainingPercent: 9,
       returnsAt: iso(NOW + 50 * HOUR),
     });
-    expect(picked(opus!)).toBe("credits");
     expect(pickAccount(opus!, context())).toMatchObject({
       type: "account",
       target: { tier: "overflow" },
     });
-    expect(picked(sonnet!)).toBe("codex");
-    // Without a reserve, the account serves to its last percent.
-    expect(picked(routed(undefined)[0]!)).toBe("codex");
+    expect(sonnet!.accounts[0]?.usesReserve).toBe(true);
+    expect(sonnet!.accounts[0]?.reserve).toBeUndefined();
+    // A model added later is not allowed in, so it spills over too.
+    expect(pickedOf(routed({ codex: { percent: 10, allowedModels: ["sonnet"] } }))).toEqual({
+      opus: "credits",
+      sonnet: "codex",
+      haiku: "credits",
+    });
+    // An allowed model saved under a key since linked to Sonnet still lets Sonnet in.
+    expect(
+      pickedOf(
+        routed({ codex: { percent: 10, allowedModels: ["sonnet-4"] } }, { "sonnet-4": "sonnet" }),
+      ).sonnet,
+    ).toBe("codex");
+    // With no model allowed, the reserve holds the account back from every routed model.
+    expect(pickedOf(routed({ codex: { percent: 10, allowedModels: [] } }))).toEqual({
+      opus: "credits",
+      sonnet: "credits",
+      haiku: "credits",
+    });
+    // Without a reserve, the account serves every model to its last percent.
+    expect(pickedOf(routed())).toEqual({ opus: "codex", sonnet: "codex", haiku: "codex" });
+    // An API key's reserve reads its monthly budget: 71% left is within a 75% reserve.
+    expect(
+      accountAvailability(
+        "opus",
+        routed({ credits: { percent: 75, allowedModels: [] } })[0]!.accounts[1]!,
+        context(),
+      ).state,
+    ).toBe("reserved");
     // Every account held back: unavailable, naming the earliest return.
     const spent = pooledModels(
       [
@@ -412,7 +444,10 @@ describe("a model's route", () => {
           usage([window("budget", "monthly", 100, NOW + 300 * HOUR)]),
         ),
       ],
-      settingsWith({ primary: ["codex"], overflow: ["credits"], reserves: { codex: 10 } }),
+      settingsWith(
+        { primary: ["codex"], overflow: ["credits"] },
+        { codex: { percent: 10, allowedModels: [] } },
+      ),
     )[0]!;
     expect(pickAccount(spent, context())).toEqual({
       type: "unavailable",
@@ -425,11 +460,11 @@ describe("a model's route", () => {
     expect(picked(pool(route), { current: "c" })).toBe("c");
     expect(picked(pool(route), { current: "b" })).toBe("b");
     expect(picked(pool(route), { current: "x" })).toBe("a");
-    const atReserve = pool({ ...route, reserves: { c: 20 } }, [
-      a,
-      b,
-      provider("c", "codex", models, usage([window("week", "weekly", 85, NOW + HOUR)])),
-    ]);
+    const atReserve = pool(
+      route,
+      [a, b, provider("c", "codex", models, usage([window("week", "weekly", 85, NOW + HOUR)]))],
+      { c: { percent: 20, allowedModels: [] } },
+    );
     expect(picked(atReserve, { current: "c" })).toBe("a");
     // A failover leaves the failed account out.
     expect(picked(pool(route), { exclude: "a" })).toBe("b");
@@ -456,10 +491,15 @@ describe("a model's route", () => {
           ...extra,
         },
       });
-    const state = (account: ServerProvider, blocks: ReadonlyArray<AccountBlock>, reserve = 10) =>
+    const state = (
+      account: ServerProvider,
+      blocks: ReadonlyArray<AccountBlock>,
+      allowedModels: ReadonlyArray<string> = [],
+    ) =>
       accountAvailability(
         "opus",
-        pool({ primary: ["a", "b"], reserves: { a: reserve } }, [account, b]).accounts[0]!,
+        pool({ primary: ["a", "b"] }, [account, b], { a: { percent: 10, allowedModels } })
+          .accounts[0]!,
         context(blocks),
       ).state;
     expect(state(a, [block()])).toBe("cooldown");
@@ -468,6 +508,8 @@ describe("a model's route", () => {
     expect(state(reading(NOW, 50), [block()])).toBe("available");
     // Only 4% above the reserve, an older reading, or a failed probe leaves it in force.
     expect(state(reading(NOW, 86), [block()])).toBe("cooldown");
+    // A model allowed into the reserve has none to clear, so 14% left is room enough.
+    expect(state(reading(NOW, 86), [block()], ["opus"])).toBe("available");
     expect(state(reading(NOW - 2 * 60_000, 50), [block()])).toBe("cooldown");
     expect(state(reading(NOW, 50, { unavailable: { reason: "probeFailed" } }), [block()])).toBe(
       "cooldown",
@@ -679,7 +721,6 @@ describe("the models the user adds", () => {
           primary: ["cc", "go"],
           overflow: [],
           primaryOrder: "soonest",
-          reserves: {},
         },
       },
       modelAccounts: { "deepseek-v4-1-flash": null },
@@ -691,7 +732,6 @@ describe("the models the user adds", () => {
           primary: ["cc", "go"],
           overflow: ["pi:openrouter"],
           primaryOrder: "manual" as const,
-          reserves: { go: 10 },
         },
       },
       modelLinks: { "deepseek-v4-1-flash-1017": "deepseek-v4-1-flash" },
@@ -706,7 +746,6 @@ describe("the models the user adds", () => {
           primary: ["cc"],
           overflow: [],
           primaryOrder: "manual",
-          reserves: {},
         },
       },
     });
@@ -798,7 +837,6 @@ describe("the models the user adds", () => {
       primary: ["a"],
       overflow: [],
       primaryOrder: "manual",
-      reserves: {},
     });
     expect(edited.modelRouting?.["sonnet"]?.overflow).toEqual([]);
     expect(edited.setModelsHidden).toBeUndefined();
@@ -814,7 +852,6 @@ describe("the models the user adds", () => {
           primary: ["a"],
           overflow: ["pi:openrouter"],
           primaryOrder: "manual" as const,
-          reserves: {},
         },
       },
     };
@@ -834,7 +871,6 @@ describe("the models the user adds", () => {
       primary: ["a"],
       overflow: ["pi:openrouter"],
       primaryOrder: "manual",
-      reserves: {},
     });
     expect(optIn.setModelsHidden).toEqual([
       { provider: "pi", model: "openrouter/anthropic/sonnet", hidden: false },
@@ -959,6 +995,7 @@ describe("editing a model's route", () => {
         primary: ["b"],
         overflow: ["a"],
         primaryOrder: "manual",
+        // A route edited from an older client never writes its retired reserves back.
         reserves: { a: 15 },
       }),
     ).toEqual({
@@ -967,10 +1004,61 @@ describe("editing a model's route", () => {
           primary: ["b"],
           overflow: ["a", "x"],
           primaryOrder: "manual",
-          reserves: { a: 15 },
         },
       },
       modelAccounts: { opus: null },
     });
+  });
+});
+
+describe("retired per-model reserves", () => {
+  const route = (primary: ReadonlyArray<string>, reserves?: Record<string, number>) => ({
+    primary,
+    overflow: [],
+    primaryOrder: "soonest" as const,
+    ...(reserves === undefined ? {} : { reserves }),
+  });
+
+  it("move onto their accounts, keeping each model that used the account to 0% allowed in", () => {
+    const folded = foldRouteReserves({
+      modelRouting: {
+        opus: route(["codex", "claude"], { codex: 10 }),
+        sonnet: route(["codex"], { codex: 20 }),
+        // Luna served on codex with no reserve while other models had one: it keeps going to 0%.
+        luna: route(["codex", "claude"], {}),
+        haiku: route(["claude"]),
+      },
+      // Added but never rearranged, so it runs its default route with no reserve anywhere.
+      pooledModelKeys: ["opus", "luna", "gemini"],
+      accountReserves: { claude: { percent: 5, allowedModels: [] } },
+    });
+    expect(folded).toEqual({
+      modelRouting: {
+        opus: route(["codex", "claude"]),
+        sonnet: route(["codex"]),
+        luna: route(["codex", "claude"]),
+        haiku: route(["claude"]),
+      },
+      pooledModelKeys: ["opus", "luna", "gemini"],
+      accountReserves: {
+        // The highest percent any model held it at.
+        codex: { percent: 20, allowedModels: ["luna", "gemini"] },
+        claude: { percent: 5, allowedModels: [] },
+      },
+    });
+    expect(foldRouteReserves(folded)).toBe(folded);
+  });
+
+  it("only strip routes whose reserves were all off, and leave an account's own reserve alone", () => {
+    expect(foldRouteReserves({ modelRouting: { opus: route(["codex"], {}) } })).toEqual({
+      modelRouting: { opus: route(["codex"]) },
+    });
+    const own = { codex: { percent: 15, allowedModels: ["opus"] } };
+    expect(
+      foldRouteReserves({
+        modelRouting: { opus: route(["codex"], { codex: 30 }) },
+        accountReserves: own,
+      }).accountReserves,
+    ).toEqual(own);
   });
 });

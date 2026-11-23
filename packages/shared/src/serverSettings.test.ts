@@ -126,7 +126,6 @@ describe("serverSettings helpers", () => {
       primary: ["claudeAgent"],
       overflow: ["pi:anthropic-yardsmith"],
       primaryOrder: "soonest" as const,
-      reserves: { claudeAgent: 10 },
     };
     expect(DEFAULT_SERVER_SETTINGS.pooledModelKeys).toBeUndefined();
     const set = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
@@ -152,6 +151,21 @@ describe("serverSettings helpers", () => {
     });
     expect(next.modelLinks).toEqual({ "gpt-6-2-sol-1017": "gpt-6-2-sol" });
     expect(next.modelRouting).toEqual({ "claude-opus-5-5": { ...route, primaryOrder: "manual" } });
+    // Each account's reserve is replaced whole, and null removes it.
+    const reserved = applyServerSettingsPatch(next, {
+      accountReserves: {
+        claudeAgent: { percent: 10, allowedModels: ["claude-opus-5-5"] },
+        "pi:openai-codex": { percent: 20, allowedModels: [] },
+      },
+    });
+    expect(
+      applyServerSettingsPatch(reserved, {
+        accountReserves: {
+          claudeAgent: { percent: 15, allowedModels: [] },
+          "pi:openai-codex": null,
+        },
+      }).accountReserves,
+    ).toEqual({ claudeAgent: { percent: 15, allowedModels: [] } });
     // null returns a model to its default accounts.
     expect(
       applyServerSettingsPatch(next, { modelAccounts: { "kimi-k3": null } }).modelAccounts,

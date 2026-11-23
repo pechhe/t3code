@@ -147,7 +147,12 @@ export function movedProviderReferences(
   if (JSON.stringify(movedPreferences) !== JSON.stringify(preferences)) {
     patch["providerModelPreferences"] = movedPreferences;
   }
-  // Routes name accounts in their tiers and as their reserves' keys.
+  // Reserves are keyed by account and merge per key, so the old key is removed.
+  const reserves = Object.entries(settings.accountReserves ?? {}).flatMap(([id, reserve]) =>
+    account(id) === id ? [] : [[id, null] as const, [account(id), reserve] as const],
+  );
+  if (reserves.length > 0) patch["accountReserves"] = Object.fromEntries(reserves);
+  // Routes name accounts in their tiers.
   for (const field of ["modelAccounts", "modelRouting"] as const) {
     const moved = Object.fromEntries(
       Object.entries(settings[field] ?? {}).flatMap(([key, value]) => {

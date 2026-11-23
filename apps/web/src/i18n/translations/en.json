@@ -3051,9 +3051,9 @@
   "85447208bc0e46f8": "Out of usage.",
   "a4331a599b40e3a4": "Out of usage until {until}.",
   "362600dae5f5fa7d": "Exhausted",
-  "7b04b1759a64659a": "Held back for this model at its reserve.",
-  "90f7d5f109bf93f9": "Held back for this model at its reserve until {until}.",
-  "804cdda2e184839c": "Reserved ({remaining}% ≤ {reserve}%)",
+  "2a3456137e0eb22e": "{remaining}% left: held back for this model at its reserve.",
+  "a93bd389729ec2e7": "{remaining}% left: held back for this model at its reserve until {until}.",
+  "aa9e98740b751481": "Held for reserve ({reserve}%)",
   "1ec2906da7b61fb8": "The provider reported when it resets.",
   "c0e5b6cf1e75b83e": "No reset was reported, so T3 backs off and tries it again.",
   "7af1ef96a0576865": "The provider reported it resets at {until}.",
@@ -7297,7 +7297,17 @@
   "6d521d61ed177169": "Copy version {version}",
   "18040c4f55f3b533": "Version",
   "fd1d2853467e6195": "Copy version",
-  "2f3fa9f26f0ec42d": "Accounts view",
+  "4f54addf079e7b1b": "Reserve",
+  "737d22fa2245e7aa": "Reserve for {account}",
+  "d1ed2f841b0db5fa": "Off",
+  "698829397241dfda": "Models allowed into {account}'s reserve",
+  "3ed69e0cb0e5dc53": "Allowed in reserve:",
+  "71d430a68440e1f6": "No reserve: every routed model can use this account down to 0%.",
+  "200ea263ec012f78": "At or below {percent}% left, routed models stop using this account. No routed model uses it yet.",
+  "bae8bd09ce3b02dd": "At or below {percent}% left, this account is held back from every routed model (manual pin only).",
+  "1d0ce96cb2b1699e": "At or below {percent}% left, only {models} can still use this account; other models spill over to their next account.",
+  "4b53aea70eb60fc6": "Accounts and credentials",
+  "78ca82fca54a2fa5": "Provider accounts",
   "41e3d328edbd2d7c": "Model routing",
   "7703d0d4b0cf358c": "Add model",
   "09ccd421a047e23e": "Add a model T3 Code picks the account for",
@@ -7319,15 +7329,14 @@
   "92b33a3bfa54bc1c": "Count another model",
   "deb57578e4394b9f": "Count another model's accounts as {model}",
   "cacc5a79a44cb0df": "What agents see in {tool}",
+  "7ed5f2e80120d603": "{model} is allowed into this account's reserve, so it can use it to 0%.",
+  "834c055398ecc194": "At or below {percent}% left, this account holds its reserve back from {model}.",
+  "5864c7b1e7bfddb2": "Stops at {percent}%",
   "191c0ef3b82a1ec0": "Pay as you go",
   "5b5fda16c96e9081": "No usage reading",
   "df130193fd8be551": "{percent}% left",
   "60f0cefe3a1feb23": "{left} / {limit} left",
   "1bf11e27504eea26": "resets {when}",
-  "82dde3005176dc20": "Reserve for {account} on {model}",
-  "afc10d7beabb4d09": "Reserve off",
-  "6842b1274e888016": "Reserve {percent}%",
-  "d1ed2f841b0db5fa": "Off",
   "56d8098b377f156b": "Move {account} up for {model}",
   "fb899fbc6f673783": "Move {account} down for {model}",
   "d4b7110f302c2bfd": "To Overflow",
@@ -7336,8 +7345,6 @@
   "f5994977bbccb284": "Remove {model} from the models T3 Code picks an account for",
   "fa2dbbb67dcfc16a": "Search models",
   "0c23f35872aa172b": "Connect an environment to manage its accounts.",
-  "9a9a0b180431832f": "Credentials",
-  "b3efda8e0f4c9b99": "Model routing",
   "e53981dd27ca71a4": [
     "Environment: ",
     {
@@ -7346,7 +7353,8 @@
       "v": "v"
     }
   ],
-  "247a7f00912e0fd6": "New threads, delegated tasks and Champions run each model on its first available Primary account, and on Overflow only once no Primary account is available above its reserve. A thread keeps its account while that account stays available, so its prompt cache keeps paying off. Models you haven't added run on the account you pick.",
+  "be7fdeb6b9556a99": "The subscriptions and API keys this environment runs models on. A reserve keeps an account's last few percent of quota or monthly budget for the models you allow into it; every other routed model, including any you add later, moves on to its next account.",
+  "99410a33acc61ac7": "New threads, delegated tasks and Champions run each model on its first available Primary account, and on Overflow only once no Primary account is available. An account's reserve, set above, holds it back from the models it doesn't allow. A thread keeps its account while that account stays available, so its prompt cache keeps paying off. Models you haven't added run on the account you pick.",
   "981cc7ad094d8d71": "No models are added yet. Add one to let T3 Code choose between the accounts that serve it.",
   "05823499e4db2b4d": "Soonest reset",
   "19d61932d5e157ac": "Manual order",
@@ -7354,6 +7362,7 @@
   "676e49aacb5b110a": "Not used:",
   "3bb3921f6d9870b2": "Also counts:",
   "e326741bc876b59b": "Next up",
+  "389b86b08bd5b8b4": "Uses reserve",
   "6196de88c6749804": "provider unavailable",
   "fe1b66a1780045e9": "No models are left to add.",
   "5498f2f33907b02c": "The ACP could not be prepared.",
@@ -8953,6 +8962,119 @@
   "dfabc4c20ab78d41": "No licenses match that search.",
   "a6f0345697704afa": "Loading open-source notices…",
   "9268a10862868fe5": "Replay panel animation preview",
+  "758615ed4577c29e": "Pi's sign-in could not start.",
+  "f862dd595acda4c2": "{count, plural, =1 {{name} shares a login inside one provider} other {{name} shares {count} logins inside one provider}}",
+  "6ab1f30f482176ba": "Pi switches between them itself when one runs out, so T3 cannot see or choose each one. Separating gives each its own provider ID; references to the old one move to the first.",
+  "6e84812f44905f06": "T3 could not separate these logins.",
+  "483a517915842d2b": "Separating…",
+  "e92a944d55101131": "Separate logins",
+  "1ecb34bc86d51672": "{count, plural, =1 {1 account in Pi} other {{count} accounts in Pi}}",
+  "367a9f63c167de7c": "Re-auth",
+  "1fca5d0c23f61bd7": "Sign in",
+  "b97e0dbf2da63f78": "Key & budget",
+  "3a9eb6a3200060ae": "Update key",
+  "68c6fabd47c453e2": "Remove {account}",
+  "d770b2c429fb0f25": "{spent} spent this month · set a monthly budget to track what is left",
+  "88b30c79e63d6fbe": "T3 could not save this key.",
+  "8b4733eb899f07b6": "Replaces the {file} key",
+  "d7f7c42547c38916": "Paste the new key",
+  "e588ac9a51eb7324": "T3 could not remove this account.",
+  "5436f5da3e735e86": "Remove",
+  "c470de965e25e06c": "Add account",
+  "6747d554a4c8051f": "T3 could not add this account.",
+  "150ebd505ec37779": "Account type",
+  "2a076e687ab109f6": "The Google account, e.g. {example}",
+  "c70fa3b90b5e99ab": "e.g. {example}",
+  "86522c53dd8e09d1": "Working…",
+  "2b14aee8c27e1f50": "Save account",
+  "f28ff90acd6f9839": "Pi did not take that answer.",
+  "f8b08ce89f418133": "Signing in {account}",
+  "654a55642b6cc046": "Signing in",
+  "20b90f680e2e225f": "This environment runs no Pi provider, so it has no Pi credentials to manage.",
+  "d1f4f3b5ce52004e": [
+    "Each account is its own Pi provider ID in this environment's Pi credentials (",
+    {
+      "t": "code",
+      "i": 1,
+      "c": "auth.json"
+    },
+    "), used by T3 and terminal Pi alike."
+  ],
+  "6d8e4ebc889bace9": "Add account",
+  "d016e2518d1f635d": "Reading Pi's credentials…",
+  "b35871cdc4218005": "No accounts yet.",
+  "e7a16692b4325d90": "New key (write-only; T3 never shows it again)",
+  "781adeddb3639165": [
+    "Remove ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    "? T3 deletes its credential from Pi on this environment; threads already running on it finish first."
+  ],
+  "a533009e42438f88": "Account type",
+  "0d305b4cb7a0237c": "Pi provider ID",
+  "47facfd68a40ff55": "Key (write-only; T3 never shows it again)",
+  "0e731e9f468b9cbb": "Saved under the Pi provider ID you give.",
+  "2346506f10f7618c": [
+    "Pi provider ID:",
+    " ",
+    {
+      "t": "code",
+      "i": 1,
+      "c": {
+        "i": 2,
+        "k": "_gt_value_2",
+        "v": "v"
+      }
+    },
+    " ",
+    "· Sign-in opens in your browser, on this or another machine."
+  ],
+  "f6b3ce9ba22c4e6a": [
+    "Pi provider ID:",
+    " ",
+    {
+      "t": "code",
+      "i": 1,
+      "c": {
+        "i": 2,
+        "k": "_gt_value_2",
+        "v": "v"
+      }
+    }
+  ],
+  "ba58f96850068f18": "Cancel sign-in",
+  "beda5103143a1bb6": "Starting Pi's sign-in…",
+  "0838429cb8f0c5f1": "Open the sign-in page",
+  "ac68b5034c4b254b": "This environment is another machine, so the page your browser lands on after signing in may not load. Copy that address and paste it below.",
+  "5eec615552740909": [
+    "Open",
+    " ",
+    {
+      "t": "a",
+      "i": 1,
+      "c": {
+        "i": 2,
+        "k": "_gt_value_2",
+        "v": "v"
+      }
+    },
+    " ",
+    "and enter",
+    " ",
+    {
+      "t": "code",
+      "i": 3,
+      "c": {
+        "i": 4,
+        "k": "_gt_value_4",
+        "v": "v"
+      }
+    },
+    "."
+  ],
   "1c16849175c9fdd3": "Send {signal}",
   "3e2c2cacab23110c": [
     "Send ",
@@ -10396,7 +10518,6 @@
   "75b1a7d1af613c5d": "Finish later",
   "06980ca0b81bf3b7": "Update helper",
   "08f57e9a43ad6b5a": "Install helper",
-  "86522c53dd8e09d1": "Working…",
   "f3c63f198627f0dd": "Update extension",
   "df1a5ac47a9530a6": "Install extension",
   "e0616a924f8405cb": "Enable extension",
@@ -11698,7 +11819,6 @@
   "dd95128501e22145": "Capture flash",
   "9f5280c955132ee1": "Capture animations",
   "f8d32e19131fd5b3": "agents cli codex claude cursor grok fx kiro opencode antigravity google sign in sign out install subscription instances authentication api key models configuration binary path config directory codex_home shadow home endpoint arguments environment variables display name accent color custom favorite hidden auto compact native sessions import resume",
-  "723380af1e638be5": "Pi credentials",
   "ad371af21e5b4b01": "Usage providers",
   "9d9d31a4f3d5ff69": "usage sources CLIProxyAPI CLI proxy hub quota subscription limits management key add remove",
   "d65fa0946585b245": "Text generators",
@@ -12018,6 +12138,7 @@
   "ade1cf4e2c1ff4b4": "{label}: {remaining}% left, {timeLeft}% of the window left",
   "f6116fcec2d2ea7f": "{remaining}% left · {timeLeft}% of the window left",
   "07f5912af296f9ea": "{remaining}% left",
+  "e45eab3a8d518f9d": "Reserve at {reserve}%: at or below it, only allowed models use this account.",
   "a01c358de99da345": "Resets {resetsAt} · {resetsIn}",
   "93b30237a69f3fc4": "Resets {resetsAt}",
   "69b2a63d2321a66c": "Using…",

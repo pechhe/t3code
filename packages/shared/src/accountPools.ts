@@ -7,6 +7,7 @@
 import type {
   AccountBlock,
   AccountId,
+  AccountReserve,
   ModelRoute,
   ModelSelection,
   PooledModelKey,
@@ -27,8 +28,10 @@ import * as DateTime from "effect/DateTime";
 import { inferPiAccountFamily } from "./piAccounts.ts";
 
 export type AccountRoutingSettings = Pick<ServerSettings, "pooledModelKeys"> & {
-  /** Each routed model's tiers, order and reserves; absent for a model means its default route. */
+  /** Each routed model's tiers and order; absent for a model means its default route. */
   readonly modelRouting?: ServerSettings["modelRouting"] | undefined;
+  /** Each account's reserve and the models allowed into it. */
+  readonly accountReserves?: ServerSettings["accountReserves"] | undefined;
   /** Retired order, read only as the starting route of a model with no `modelRouting`. */
   readonly modelAccounts?: ServerSettings["modelAccounts"] | undefined;
   /** Picker visibility; a hidden model routes only on a known subscription. */
@@ -273,6 +276,8 @@ export interface PooledAccount {
   readonly metered: boolean;
   /** Remaining percent at or below which it is held back for this model. */
   readonly reserve?: number | undefined;
+  /** The account keeps a reserve this model is allowed into, so it serves the model to 0%. */
+  readonly usesReserve?: boolean | undefined;
 }
 
 export interface PooledModel {
@@ -287,7 +292,7 @@ export interface PooledModel {
 
 type ServingSettings = Pick<
   AccountRoutingSettings,
-  "modelRouting" | "modelAccounts" | "providerModelPreferences" | "modelLinks"
+  "modelRouting" | "modelAccounts" | "providerModelPreferences" | "modelLinks" | "accountReserves"
 >;
 
 /** A Pi credential billed per use, as its usage slot reports. */
@@ -312,7 +317,7 @@ const isKnownSubscription = (provider: ServerProvider, modelSlug: string): boole
   return accountKey !== undefined && slot !== undefined && slot.metered !== true;
 };
 
-type ServingAccount = Omit<PooledAccount, "tier" | "reserve">;
+type ServingAccount = Omit<PooledAccount, "tier" | "reserve" | "usesReserve">;
 
 const hiddenOn = (
   settings: Pick<ServingSettings, "providerModelPreferences">,
@@ -372,7 +377,9 @@ const servingEntries = (providers: ReadonlyArray<ServerProvider>, settings: Serv
           names: entry.names,
           linked: entry.linked,
           primaryOrder: route.primaryOrder,
-          accounts: arrangeAccounts(entry.serving, route),
+          accounts: arrangeAccounts(entry.serving, route, (id) =>
+            reserveForModel(settings, id, key),
+          ),
         },
       ] as const;
     }),
@@ -411,15 +418,38 @@ const placedRoute = (
       primary: legacy.filter((id) => subscription.has(id)),
       overflow: legacy.filter((id) => !subscription.has(id)),
       primaryOrder: "soonest",
-      reserves: {},
     };
-  return { primary: [...subscription], overflow: [], primaryOrder: "soonest", reserves: {} };
+  return { primary: [...subscription], overflow: [], primaryOrder: "soonest" };
+};
+
+/** Whether a reserve lets a routed model in, following the user's model links. */
+export const reserveAllows = (
+  links: ServerSettings["modelLinks"],
+  reserve: AccountReserve,
+  key: PooledModelKey,
+) => reserve.allowedModels.some((model) => linkedModelKey(links, model) === key);
+
+/**
+ * How an account's reserve applies to one routed model: a cutoff for a model not allowed into it,
+ * none for one that is (it serves to 0%), and nothing when the account keeps no reserve.
+ */
+const reserveForModel = (
+  settings: Pick<AccountRoutingSettings, "accountReserves" | "modelLinks">,
+  account: AccountId,
+  key: PooledModelKey,
+): Pick<PooledAccount, "reserve" | "usesReserve"> => {
+  const reserve = settings.accountReserves?.[account];
+  if (reserve === undefined) return {};
+  return reserveAllows(settings.modelLinks, reserve, key)
+    ? { usesReserve: true }
+    : { reserve: reserve.percent };
 };
 
 /** A model's accounts in route order: Primary, then Overflow, then those it does not use. */
 const arrangeAccounts = (
   serving: ReadonlyArray<ServingAccount>,
   route: ModelRoute,
+  reserveOf: (id: AccountId) => Pick<PooledAccount, "reserve" | "usesReserve">,
 ): PooledAccount[] => {
   const tierOf = (id: AccountId): AccountTier =>
     route.primary.includes(id) ? "primary" : route.overflow.includes(id) ? "overflow" : "off";
@@ -434,7 +464,7 @@ const arrangeAccounts = (
     .map((entry) => ({
       ...entry,
       tier: tierOf(entry.account.id),
-      reserve: route.reserves[entry.account.id],
+      ...reserveOf(entry.account.id),
     }))
     .sort((a, b) => rank(a) - rank(b));
 };
@@ -574,9 +604,9 @@ const savedRoute = (
 const routeWrite = (
   settings: Pick<LinkSettings, "modelAccounts">,
   key: PooledModelKey,
-  route: ModelRoute,
+  { primary, overflow, primaryOrder }: ModelRoute,
 ): ServerSettingsPatch => ({
-  modelRouting: { [key]: route },
+  modelRouting: { [key]: { primary, overflow, primaryOrder } },
   ...(settings.modelAccounts?.[key] === undefined ? {} : { modelAccounts: { [key]: null } }),
 });
 
@@ -642,9 +672,6 @@ export const unlinkModelPatch = (
           ...saved,
           primary: keep(saved.primary),
           overflow: keep(saved.overflow),
-          reserves: Object.fromEntries(
-            Object.entries(saved.reserves).filter(([id]) => !leaving.has(id)),
-          ),
         })),
   };
 };
@@ -654,8 +681,8 @@ const modelRouteOf = (settings: ServingSettings, pool: PooledModel): ModelRoute 
   effectiveRoute(settings, pool.key, pool.accounts, offAccounts(pool));
 
 /**
- * The patch saving an edit of the accounts a model shows: the edited tiers, order, primary order
- * and reserves, keeping the saved accounts not shown now (a disabled provider).
+ * The patch saving an edit of the accounts a model shows: the edited tiers, order and primary
+ * order, keeping the saved accounts not shown now (a disabled provider).
  */
 export const modelRoutePatch = (
   settings: ServingSettings,
@@ -679,12 +706,66 @@ export const modelRoutePatch = (
       primary: [...edit.primary, ...hidden(before.primary)],
       overflow: [...edit.overflow, ...hidden(before.overflow)],
       primaryOrder: edit.primaryOrder,
-      reserves: {
-        ...Object.fromEntries(Object.entries(before.reserves).filter(([id]) => !shown.has(id))),
-        ...edit.reserves,
-      },
     }),
     ...(unhide.length === 0 ? {} : { setModelsHidden: unhide }),
+  };
+};
+
+// ── Account reserves ────────────────────────────────────────────────────────────────────────
+
+/** The routed models an account serves in Primary or Overflow: those its reserve can hold back. */
+export const routedModelsOn = (
+  pools: ReadonlyArray<PooledModel>,
+  account: AccountId,
+): ReadonlyArray<PooledModel> =>
+  pools.filter((pool) =>
+    pool.accounts.some((entry) => entry.account.id === account && entry.tier !== "off"),
+  );
+
+/**
+ * Moves retired per-model reserves onto their accounts at the highest percent any model held; models
+ * that ran on it unreserved (saved routes through it, default-route models) are allowed in, so they
+ * keep serving to 0%. An account's own reserve wins. Routes lose `reserves`.
+ */
+export const foldRouteReserves = <
+  S extends Pick<ServerSettings, "modelRouting" | "accountReserves" | "pooledModelKeys">,
+>(
+  settings: S,
+): S => {
+  const routes = settings.modelRouting;
+  if (routes === undefined || !Object.values(routes).some((route) => route.reserves !== undefined))
+    return settings;
+  const percents = new Map<AccountId, number>();
+  for (const route of Object.values(routes))
+    for (const [account, percent] of Object.entries(route.reserves ?? {}))
+      percents.set(account, Math.max(percents.get(account) ?? 0, percent));
+  const onDefaultRoute = [...new Set(settings.pooledModelKeys ?? [])].filter(
+    (key) => routes[key] === undefined,
+  );
+  const folded: Record<AccountId, AccountReserve> = {};
+  for (const [account, percent] of percents) {
+    if (settings.accountReserves?.[account] !== undefined) continue;
+    folded[account] = {
+      percent,
+      allowedModels: [
+        ...Object.entries(routes).flatMap(([key, route]) =>
+          [...route.primary, ...route.overflow].includes(account) &&
+          route.reserves?.[account] === undefined
+            ? [key]
+            : [],
+        ),
+        ...onDefaultRoute,
+      ],
+    };
+  }
+  return {
+    ...settings,
+    modelRouting: Object.fromEntries(
+      Object.entries(routes).map(([key, { reserves: _retired, ...route }]) => [key, route]),
+    ),
+    ...(Object.keys(folded).length === 0
+      ? {}
+      : { accountReserves: { ...settings.accountReserves, ...folded } }),
   };
 };
 

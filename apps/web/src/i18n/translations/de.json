@@ -3052,9 +3052,9 @@
   "85447208bc0e46f8": "Kein Kontingent mehr.",
   "a4331a599b40e3a4": "Kein Kontingent mehr bis {until}.",
   "362600dae5f5fa7d": "Erschöpft",
-  "7b04b1759a64659a": "Für dieses Modell an seiner Reserve zurückgehalten.",
-  "90f7d5f109bf93f9": "Für dieses Modell an seiner Reserve zurückgehalten bis {until}.",
-  "804cdda2e184839c": "Reserviert ({remaining}% ≤ {reserve}%)",
+  "2a3456137e0eb22e": "{remaining}% übrig: für dieses Modell wegen der Reserve zurückgehalten.",
+  "a93bd389729ec2e7": "{remaining}% übrig: für dieses Modell wegen der Reserve bis {until} zurückgehalten.",
+  "aa9e98740b751481": "Für Reserve zurückgehalten ({reserve}%)",
   "1ec2906da7b61fb8": "Der Anbieter hat gemeldet, wann es zurückgesetzt wird.",
   "c0e5b6cf1e75b83e": "Es wurde kein Reset gemeldet, daher wartet T3 und versucht es erneut.",
   "7af1ef96a0576865": "Der Anbieter hat gemeldet, dass es um {until} zurückgesetzt wird.",
@@ -7289,7 +7289,17 @@
   "6d521d61ed177169": "Version {version} kopieren",
   "18040c4f55f3b533": "Version",
   "fd1d2853467e6195": "Version kopieren",
-  "2f3fa9f26f0ec42d": "Kontenansicht",
+  "4f54addf079e7b1b": "Reserve",
+  "737d22fa2245e7aa": "Reserve für {account}",
+  "d1ed2f841b0db5fa": "Aus",
+  "698829397241dfda": "In die Reserve von {account} zugelassene Modelle",
+  "3ed69e0cb0e5dc53": "In der Reserve erlaubt:",
+  "71d430a68440e1f6": "Keine Reserve: Jedes geroutete Modell kann dieses Konto bis 0% nutzen.",
+  "200ea263ec012f78": "Bei höchstens {percent}% Rest nutzen geroutete Modelle dieses Konto nicht mehr. Noch nutzt es kein geroutetes Modell.",
+  "bae8bd09ce3b02dd": "Bei höchstens {percent}% Rest wird dieses Konto allen gerouteten Modellen vorenthalten (nur manuell angeheftet).",
+  "1d0ce96cb2b1699e": "Bei höchstens {percent}% Rest kann nur noch {models} dieses Konto nutzen; andere Modelle weichen auf ihr nächstes Konto aus.",
+  "4b53aea70eb60fc6": "Konten und Zugangsdaten",
+  "78ca82fca54a2fa5": "Anbieterkonten",
   "41e3d328edbd2d7c": "Modell-Routing",
   "7703d0d4b0cf358c": "Modell hinzufügen",
   "09ccd421a047e23e": "Ein Modell hinzufügen, für das T3 Code das Konto wählt",
@@ -7311,15 +7321,14 @@
   "92b33a3bfa54bc1c": "Weiteres Modell zählen",
   "deb57578e4394b9f": "Konten eines anderen Modells als {model} zählen",
   "cacc5a79a44cb0df": "Was Agents in {tool} sehen",
+  "7ed5f2e80120d603": "{model} darf die Reserve dieses Kontos nutzen und kann es daher bis 0% verwenden.",
+  "834c055398ecc194": "Bei höchstens {percent}% Rest hält dieses Konto seine Reserve für {model} zurück.",
+  "5864c7b1e7bfddb2": "Stoppt bei {percent}%",
   "191c0ef3b82a1ec0": "Nutzungsbasiert",
   "5b5fda16c96e9081": "Kein Nutzungswert",
   "df130193fd8be551": "{percent}% übrig",
   "60f0cefe3a1feb23": "{left} / {limit} übrig",
   "1bf11e27504eea26": "Reset {when}",
-  "82dde3005176dc20": "Reserve für {account} bei {model}",
-  "afc10d7beabb4d09": "Reserve aus",
-  "6842b1274e888016": "Reserve {percent}%",
-  "d1ed2f841b0db5fa": "Aus",
   "56d8098b377f156b": "{account} für {model} nach oben verschieben",
   "fb899fbc6f673783": "{account} für {model} nach unten verschieben",
   "d4b7110f302c2bfd": "Zu Überlauf",
@@ -7328,8 +7337,6 @@
   "f5994977bbccb284": "{model} aus den Modellen entfernen, für die T3 Code ein Konto wählt",
   "fa2dbbb67dcfc16a": "Modelle suchen",
   "0c23f35872aa172b": "Verbinde eine Umgebung, um ihre Konten zu verwalten.",
-  "9a9a0b180431832f": "Zugangsdaten",
-  "b3efda8e0f4c9b99": "Modell-Routing",
   "e53981dd27ca71a4": [
     "Umgebung: ",
     {
@@ -7338,7 +7345,8 @@
       "v": "v"
     }
   ],
-  "247a7f00912e0fd6": "Neue Threads, delegierte Aufgaben und Champions nutzen für jedes Modell sein erstes verfügbares primäres Konto und Überlauf erst, wenn kein primäres Konto über seiner Reserve verfügbar ist. Ein Thread behält sein Konto, solange es verfügbar bleibt, damit sich sein Prompt-Cache weiter auszahlt. Modelle, die du nicht hinzugefügt hast, laufen auf dem Konto, das du wählst.",
+  "be7fdeb6b9556a99": "Die Abos und API-Schlüssel, mit denen diese Umgebung Modelle ausführt. Eine Reserve hält die letzten Prozent des Kontingents oder Monatsbudgets eines Kontos für die Modelle zurück, die du zulässt; jedes andere geroutete Modell, auch später hinzugefügte, wechselt zu seinem nächsten Konto.",
+  "99410a33acc61ac7": "Neue Threads, delegierte Aufgaben und Champions führen jedes Modell auf seinem ersten verfügbaren Primary-Konto aus und auf Overflow erst, wenn kein Primary-Konto verfügbar ist. Die oben festgelegte Reserve eines Kontos hält es von Modellen fern, die sie nicht zulässt. Ein Thread behält sein Konto, solange es verfügbar bleibt, damit sich sein Prompt-Cache weiter lohnt. Modelle, die du nicht hinzugefügt hast, laufen auf dem gewählten Konto.",
   "981cc7ad094d8d71": "Noch keine Modelle hinzugefügt. Füge eines hinzu, damit T3 Code zwischen den Konten wählen kann, die es bedienen.",
   "05823499e4db2b4d": "Frühester Reset",
   "19d61932d5e157ac": "Manuelle Reihenfolge",
@@ -7346,6 +7354,7 @@
   "676e49aacb5b110a": "Nicht genutzt:",
   "3bb3921f6d9870b2": "Zählt auch:",
   "e326741bc876b59b": "Als Nächstes",
+  "389b86b08bd5b8b4": "Nutzt Reserve",
   "6196de88c6749804": "Anbieter nicht verfügbar",
   "fe1b66a1780045e9": "Keine Modelle mehr zum Hinzufügen.",
   "5498f2f33907b02c": "Der ACP konnte nicht vorbereitet werden.",
@@ -8945,6 +8954,118 @@
   "dfabc4c20ab78d41": "Keine Lizenzen entsprechen dieser Suche.",
   "a6f0345697704afa": "Open-Source-Hinweise werden geladen…",
   "9268a10862868fe5": "Vorschau der Panel-Animation erneut abspielen",
+  "758615ed4577c29e": "Die Anmeldung bei Pi konnte nicht starten.",
+  "f862dd595acda4c2": "{count, plural, =1 {{name} teilt sich eine Anmeldung in einem Anbieter} other {{name} teilt sich {count} Anmeldungen in einem Anbieter}}",
+  "6ab1f30f482176ba": "Pi wechselt selbst zwischen ihnen, wenn eine aufgebraucht ist, daher kann T3 sie nicht einzeln sehen oder wählen. Beim Trennen erhält jede ihre eigene Anbieter-ID; Verweise auf die alte gehen auf die erste über.",
+  "6e84812f44905f06": "T3 konnte diese Anmeldungen nicht trennen.",
+  "483a517915842d2b": "Wird getrennt…",
+  "e92a944d55101131": "Anmeldungen trennen",
+  "1ecb34bc86d51672": "{count, plural, =1 {1 Konto in Pi} other {{count} Konten in Pi}}",
+  "367a9f63c167de7c": "Neu anmelden",
+  "1fca5d0c23f61bd7": "Anmelden",
+  "b97e0dbf2da63f78": "Schlüssel & Budget",
+  "3a9eb6a3200060ae": "Schlüssel ändern",
+  "68c6fabd47c453e2": "{account} entfernen",
+  "d770b2c429fb0f25": "{spent} diesen Monat ausgegeben · lege ein Monatsbudget fest, um den Rest zu verfolgen",
+  "88b30c79e63d6fbe": "T3 konnte diesen Schlüssel nicht speichern.",
+  "8b4733eb899f07b6": "Ersetzt den Schlüssel in {file}",
+  "d7f7c42547c38916": "Neuen Schlüssel einfügen",
+  "e588ac9a51eb7324": "T3 konnte dieses Konto nicht entfernen.",
+  "5436f5da3e735e86": "Entfernen",
+  "c470de965e25e06c": "Konto hinzufügen",
+  "6747d554a4c8051f": "T3 konnte dieses Konto nicht hinzufügen.",
+  "150ebd505ec37779": "Kontotyp",
+  "2a076e687ab109f6": "Das Google-Konto, z. B. {example}",
+  "c70fa3b90b5e99ab": "z. B. {example}",
+  "86522c53dd8e09d1": "Wird ausgeführt…",
+  "2b14aee8c27e1f50": "Konto speichern",
+  "f28ff90acd6f9839": "Pi hat diese Antwort nicht angenommen.",
+  "f8b08ce89f418133": "{account} wird angemeldet",
+  "654a55642b6cc046": "Anmeldung läuft",
+  "20b90f680e2e225f": "Diese Umgebung führt keinen Pi-Anbieter aus und hat daher keine Pi-Zugangsdaten zu verwalten.",
+  "d1f4f3b5ce52004e": [
+    "Jedes Konto ist eine eigene Pi-Anbieter-ID in den Pi-Zugangsdaten dieser Umgebung (",
+    {
+      "t": "code",
+      "i": 1,
+      "c": "auth.json"
+    },
+    "), die T3 und Pi im Terminal gleichermaßen nutzen."
+  ],
+  "6d8e4ebc889bace9": "Konto hinzufügen",
+  "d016e2518d1f635d": "Pi-Zugangsdaten werden gelesen…",
+  "b35871cdc4218005": "Noch keine Konten.",
+  "e7a16692b4325d90": "Neuer Schlüssel (nur schreibbar; T3 zeigt ihn nie wieder an)",
+  "781adeddb3639165": [
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " entfernen? T3 löscht die Zugangsdaten aus Pi in dieser Umgebung; Threads, die bereits darauf laufen, werden zuerst beendet."
+  ],
+  "a533009e42438f88": "Kontotyp",
+  "0d305b4cb7a0237c": "Pi-Anbieter-ID",
+  "47facfd68a40ff55": "Schlüssel (nur schreibbar; T3 zeigt ihn nie wieder an)",
+  "0e731e9f468b9cbb": "Wird unter der angegebenen Pi-Anbieter-ID gespeichert.",
+  "2346506f10f7618c": [
+    "Pi-Anbieter-ID:",
+    " ",
+    {
+      "t": "code",
+      "i": 1,
+      "c": {
+        "i": 2,
+        "k": "_gt_value_2",
+        "v": "v"
+      }
+    },
+    " ",
+    "· Die Anmeldung öffnet sich in deinem Browser, auf diesem oder einem anderen Rechner."
+  ],
+  "f6b3ce9ba22c4e6a": [
+    "Pi-Anbieter-ID:",
+    " ",
+    {
+      "t": "code",
+      "i": 1,
+      "c": {
+        "i": 2,
+        "k": "_gt_value_2",
+        "v": "v"
+      }
+    }
+  ],
+  "ba58f96850068f18": "Anmeldung abbrechen",
+  "beda5103143a1bb6": "Pi-Anmeldung wird gestartet…",
+  "0838429cb8f0c5f1": "Anmeldeseite öffnen",
+  "ac68b5034c4b254b": "Diese Umgebung ist ein anderer Rechner, daher lädt die Seite, auf der dein Browser nach der Anmeldung landet, eventuell nicht. Kopiere diese Adresse und füge sie unten ein.",
+  "5eec615552740909": [
+    "Öffne",
+    " ",
+    {
+      "t": "a",
+      "i": 1,
+      "c": {
+        "i": 2,
+        "k": "_gt_value_2",
+        "v": "v"
+      }
+    },
+    " ",
+    "und gib",
+    " ",
+    {
+      "t": "code",
+      "i": 3,
+      "c": {
+        "i": 4,
+        "k": "_gt_value_4",
+        "v": "v"
+      }
+    },
+    " ein."
+  ],
   "1c16849175c9fdd3": "{signal} senden",
   "3e2c2cacab23110c": [
     {
@@ -10387,7 +10508,6 @@
   "75b1a7d1af613c5d": "Später abschließen",
   "06980ca0b81bf3b7": "Hilfsprogramm aktualisieren",
   "08f57e9a43ad6b5a": "Hilfsprogramm installieren",
-  "86522c53dd8e09d1": "Wird ausgeführt…",
   "f3c63f198627f0dd": "Erweiterung aktualisieren",
   "df1a5ac47a9530a6": "Erweiterung installieren",
   "e0616a924f8405cb": "Erweiterung aktivieren",
@@ -11690,7 +11810,6 @@
   "dd95128501e22145": "Aufblitzen bei Aufnahme",
   "9f5280c955132ee1": "Aufnahmeanimationen",
   "f8d32e19131fd5b3": "agenten cli codex claude cursor grok fx kiro opencode antigravity google anmelden abmelden installieren abonnement instanzen authentifizierung api-schlüssel modelle konfiguration binärdatei pfad konfigurationsverzeichnis codex_home shadow home endpunkt argumente umgebungsvariablen anzeigename akzentfarbe benutzerdefiniert favorit ausgeblendet automatisch komprimieren native sitzungen import fortsetzen",
-  "723380af1e638be5": "Pi-Zugangsdaten",
   "ad371af21e5b4b01": "Nutzungsanbieter",
   "9d9d31a4f3d5ff69": "nutzungsquellen CLIProxyAPI cli proxy hub kontingent abonnement limits verwaltung schlüssel hinzufügen entfernen",
   "d65fa0946585b245": "Textgeneratoren",
@@ -12010,6 +12129,7 @@
   "ade1cf4e2c1ff4b4": "{label}: {remaining} % übrig, {timeLeft} % des Zeitfensters übrig",
   "f6116fcec2d2ea7f": "{remaining} % übrig · {timeLeft} % des Zeitfensters übrig",
   "07f5912af296f9ea": "{remaining} % übrig",
+  "e45eab3a8d518f9d": "Reserve bei {reserve}%: darunter (oder gleich) nutzen nur erlaubte Modelle dieses Konto.",
   "a01c358de99da345": "Zurückgesetzt {resetsAt} · {resetsIn}",
   "93b30237a69f3fc4": "Zurückgesetzt {resetsAt}",
   "69b2a63d2321a66c": "Wird verwendet…",

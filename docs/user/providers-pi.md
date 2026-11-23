@@ -85,7 +85,7 @@ threads.
 
 ## Manage Pi accounts in Settings
 
-**Settings → Accounts → Credentials** lists every credential Pi holds on the environment, grouped
+**Settings → Accounts** lists every credential Pi holds on the environment, grouped
 by who sells it, each under its own Pi provider ID with its sign-in status and, where the provider
 reports one, its remaining quota. **Add account** saves an API key or opens the provider's sign-in;
 when T3 Code runs on another machine, paste the address your browser lands on after signing in into

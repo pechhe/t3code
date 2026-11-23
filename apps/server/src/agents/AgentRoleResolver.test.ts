@@ -103,9 +103,14 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
               primary: ["pi-test:acct-a", "pi-test:acct-b"],
               overflow: [],
               primaryOrder: "manual" as const,
-              reserves,
             },
           },
+          accountReserves: Object.fromEntries(
+            Object.entries(reserves).map(([account, percent]) => [
+              account,
+              { percent, allowedModels: [] },
+            ]),
+          ),
         });
         const value = (providers: ServerProvider, reserves: Record<string, number>) =>
           input({
@@ -309,7 +314,6 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
                 primary: [claude.instanceId],
                 overflow: ["pi-credits:anthropic-credits"],
                 primaryOrder: "manual",
-                reserves: {},
               },
             },
           },

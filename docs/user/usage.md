@@ -206,7 +206,7 @@ using a proxy through `ANTHROPIC_AUTH_TOKEN`.
 
 When more than one account serves the same model (two Claude logins, Claude through Pi's
 sub-providers, Kimi on OpenCode Go and OpenRouter), you can have T3 Code pick the account. Add the
-model under **Settings → Accounts → Model routing** and the picker shows it once. Each model
+model under **Model routing** in **Settings → Accounts** and the picker shows it once. Each model
 sorts its accounts into **Primary**, for subscriptions, **Overflow**, for API credits and backups,
 and **Not used**. Overflow is tried only when no Primary account can take the work. Primary either
 tries the account whose longest usage window resets soonest first (**Soonest reset**, so an
@@ -235,10 +235,14 @@ models you have favorited and the ones your delegation roles name; **Add model**
 the models two or more accounts serve, and a model you remove goes back to running on the account
 you pick.
 
-A **Reserve** on an account keeps that much of its allowance back for one model: at or below it,
-new work and the model's threads move to the next account, while the account still serves the
-models whose reserve is off. When every account is used up or held at its reserve, a new turn is
-refused, saying when the first account returns.
+A **Reserve** on an account, set beside it under **Accounts and credentials**, keeps its last few
+percent of quota, or of an API key's monthly budget, for the models you allow into it. At or below
+the reserve, only those models still use the account, down to 0%; every other routed model,
+including one you add later, moves to its next account. With no model allowed, the account serves
+only work pinned to it. Model routing shows each account as **Stops at 10%**, **Uses reserve** or,
+once it is there, **Held for reserve**. An API key without a monthly budget has nothing to measure
+a reserve against. When every account is used up or held at its reserve, a new turn is refused,
+saying when the first account returns.
 
 A new thread starts on the first account that can take it, and keeps that account while it can,
 even on Overflow after a Primary account recovers, so its prompt cache keeps paying off. It moves

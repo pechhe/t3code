@@ -431,6 +431,7 @@ export function applyServerSettingsPatch(
     modelAccounts: modelAccountsPatch,
     modelLinks: modelLinksPatch,
     modelRouting: modelRoutingPatch,
+    accountReserves: accountReservesPatch,
     usageLimitSources: usageLimitSourcesPatch,
     usageSlotBudgets: usageSlotBudgetsPatch,
     textGenerators: textGeneratorsPatch,
@@ -683,6 +684,14 @@ export function applyServerSettingsPatch(
       : {}),
     ...(modelRoutingPatch !== undefined
       ? { modelRouting: mergeSettingsEntries(current.modelRouting ?? {}, modelRoutingPatch) }
+      : {}),
+    ...(accountReservesPatch !== undefined
+      ? {
+          accountReserves: mergeSettingsEntries(
+            current.accountReserves ?? {},
+            accountReservesPatch,
+          ),
+        }
       : {}),
     ...(usageLimitSourcesPatch !== undefined
       ? {

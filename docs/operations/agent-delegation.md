@@ -30,8 +30,9 @@ that) and point the dev server there. To make a save as slow as a real push, set
 ## Keep allowance back for your own work
 
 Subscription conservation is retired. To keep part of an account's allowance for your own threads,
-set a **Reserve** on that account for the model in **Settings → Accounts → Model routing**. It
-holds new threads, subagents and scheduled role tasks alike; naming the account still uses it.
+set a **Reserve** on that account in **Settings → Accounts**, allowing only the models that may
+spend it. It holds new threads, subagents and scheduled role tasks alike; naming the account still
+uses it.
 
 ## Check a policy before pointing a server at it
 

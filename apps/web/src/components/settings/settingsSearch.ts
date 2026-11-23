@@ -1089,19 +1089,19 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "accounts",
-    title: msg("Accounts"),
+    title: msg("Model routing"),
     to: "/settings/accounts",
     searchTerms: [
-      "account order pool pooled model several accounts add remove opt in subscriptions pay as you go skip skipped usage limit use again failover next pi sub-provider",
+      "account order pool pooled model several accounts add remove opt in subscriptions pay as you go skip skipped usage limit use again failover next pi sub-provider primary overflow stops at uses reserve held for reserve",
     ],
     providerSettingsOnly: true,
   },
   {
     id: "pi-credentials",
-    title: msg("Pi credentials"),
+    title: msg("Accounts and credentials"),
     to: "/settings/accounts",
     searchTerms: [
-      "pi credentials auth.json api key oauth sign in re-auth add account remove claude subscription anthropic codex openai antigravity command code opencode go monthly budget quota provider id",
+      "pi credentials auth.json api key oauth sign in re-auth add account remove claude subscription anthropic codex openai antigravity command code opencode go monthly budget quota provider id reserve allowed models held back",
     ],
     providerSettingsOnly: true,
   },

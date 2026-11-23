@@ -3051,9 +3051,9 @@
   "85447208bc0e46f8": "Sem uso disponível.",
   "a4331a599b40e3a4": "Sem uso disponível até {until}.",
   "362600dae5f5fa7d": "Esgotada",
-  "7b04b1759a64659a": "Retida para este modelo na sua reserva.",
-  "90f7d5f109bf93f9": "Retida para este modelo na sua reserva até {until}.",
-  "804cdda2e184839c": "Reservada ({remaining}% ≤ {reserve}%)",
+  "2a3456137e0eb22e": "{remaining}% restante: retida para este modelo pela reserva.",
+  "a93bd389729ec2e7": "{remaining}% restante: retida para este modelo pela reserva até {until}.",
+  "aa9e98740b751481": "Retida pela reserva ({reserve}%)",
   "1ec2906da7b61fb8": "O provedor informou quando ele é redefinido.",
   "c0e5b6cf1e75b83e": "Nenhuma redefinição foi informada, então o T3 espera e tenta novamente.",
   "7af1ef96a0576865": "O provedor informou que ele é redefinido às {until}.",
@@ -7290,7 +7290,17 @@
   "6d521d61ed177169": "Copiar versão {version}",
   "18040c4f55f3b533": "Versão",
   "fd1d2853467e6195": "Copiar versão",
-  "2f3fa9f26f0ec42d": "Visualização de contas",
+  "4f54addf079e7b1b": "Reserva",
+  "737d22fa2245e7aa": "Reserva de {account}",
+  "d1ed2f841b0db5fa": "Desativada",
+  "698829397241dfda": "Modelos permitidos na reserva de {account}",
+  "3ed69e0cb0e5dc53": "Permitidos na reserva:",
+  "71d430a68440e1f6": "Sem reserva: qualquer modelo roteado pode usar esta conta até 0%.",
+  "200ea263ec012f78": "Com {percent}% ou menos restante, os modelos roteados deixam de usar esta conta. Nenhum modelo roteado a usa ainda.",
+  "bae8bd09ce3b02dd": "Com {percent}% ou menos restante, esta conta fica retida para todos os modelos roteados (apenas fixação manual).",
+  "1d0ce96cb2b1699e": "Com {percent}% ou menos restante, só {models} pode continuar usando esta conta; os outros modelos passam para a próxima conta.",
+  "4b53aea70eb60fc6": "Contas e credenciais",
+  "78ca82fca54a2fa5": "Contas de provedores",
   "41e3d328edbd2d7c": "Roteamento de modelos",
   "7703d0d4b0cf358c": "Adicionar modelo",
   "09ccd421a047e23e": "Adicionar um modelo para o qual o T3 Code escolhe a conta",
@@ -7312,15 +7322,14 @@
   "92b33a3bfa54bc1c": "Contar outro modelo",
   "deb57578e4394b9f": "Contar as contas de outro modelo como {model}",
   "cacc5a79a44cb0df": "O que os agentes veem em {tool}",
+  "7ed5f2e80120d603": "{model} pode usar a reserva desta conta, então pode usá-la até 0%.",
+  "834c055398ecc194": "Com {percent}% ou menos restante, esta conta guarda a reserva e não a usa para {model}.",
+  "5864c7b1e7bfddb2": "Para em {percent}%",
   "191c0ef3b82a1ec0": "Pagamento por uso",
   "5b5fda16c96e9081": "Sem leitura de uso",
   "df130193fd8be551": "{percent}% restante",
   "60f0cefe3a1feb23": "{left} / {limit} restante",
   "1bf11e27504eea26": "redefine {when}",
-  "82dde3005176dc20": "Reserva de {account} para {model}",
-  "afc10d7beabb4d09": "Reserva desativada",
-  "6842b1274e888016": "Reserva {percent}%",
-  "d1ed2f841b0db5fa": "Desativada",
   "56d8098b377f156b": "Mover {account} para cima em {model}",
   "fb899fbc6f673783": "Mover {account} para baixo em {model}",
   "d4b7110f302c2bfd": "Para Excedente",
@@ -7329,8 +7338,6 @@
   "f5994977bbccb284": "Remover {model} dos modelos para os quais o T3 Code escolhe uma conta",
   "fa2dbbb67dcfc16a": "Pesquisar modelos",
   "0c23f35872aa172b": "Conecte um ambiente para gerenciar as contas dele.",
-  "9a9a0b180431832f": "Credenciais",
-  "b3efda8e0f4c9b99": "Roteamento de modelos",
   "e53981dd27ca71a4": [
     "Ambiente: ",
     {
@@ -7339,7 +7346,8 @@
       "v": "v"
     }
   ],
-  "247a7f00912e0fd6": "Novas threads, tarefas delegadas e Champions executam cada modelo na primeira conta principal disponível, e em Excedente só quando nenhuma conta principal está disponível acima da sua reserva. Uma thread mantém a conta enquanto ela continua disponível, para que o cache de prompt continue valendo a pena. Os modelos que você não adicionou rodam na conta que você escolher.",
+  "be7fdeb6b9556a99": "As assinaturas e chaves de API com que este ambiente executa modelos. Uma reserva guarda os últimos pontos percentuais da cota ou do orçamento mensal de uma conta para os modelos que você permitir; qualquer outro modelo roteado, inclusive os adicionados depois, passa para a próxima conta.",
+  "99410a33acc61ac7": "Novos threads, tarefas delegadas e Champions executam cada modelo na primeira conta Primary disponível, e em Overflow só quando nenhuma conta Primary está disponível. A reserva de uma conta, definida acima, a retém para os modelos que ela não permite. Um thread mantém sua conta enquanto ela estiver disponível, para que o cache de prompts continue valendo a pena. Modelos que você não adicionou rodam na conta escolhida.",
   "981cc7ad094d8d71": "Nenhum modelo adicionado ainda. Adicione um para o T3 Code escolher entre as contas que o oferecem.",
   "05823499e4db2b4d": "Redefinição mais próxima",
   "19d61932d5e157ac": "Ordem manual",
@@ -7347,6 +7355,7 @@
   "676e49aacb5b110a": "Não usadas:",
   "3bb3921f6d9870b2": "Também conta:",
   "e326741bc876b59b": "Próxima",
+  "389b86b08bd5b8b4": "Usa a reserva",
   "6196de88c6749804": "provedor indisponível",
   "fe1b66a1780045e9": "Não há mais modelos para adicionar.",
   "5498f2f33907b02c": "Não foi possível preparar o ACP.",
@@ -8944,6 +8953,119 @@
   "dfabc4c20ab78d41": "Nenhuma licença corresponde a essa pesquisa.",
   "a6f0345697704afa": "Carregando avisos de código aberto…",
   "9268a10862868fe5": "Repetir a pré-visualização da animação do painel",
+  "758615ed4577c29e": "Não foi possível iniciar o login do Pi.",
+  "f862dd595acda4c2": "{count, plural, =1 {{name} compartilha um login dentro de um provedor} other {{name} compartilha {count} logins dentro de um provedor}}",
+  "6ab1f30f482176ba": "O Pi alterna entre eles sozinho quando um se esgota, então o T3 não consegue vê-los nem escolhê-los individualmente. Separar dá a cada um seu próprio ID de provedor; as referências ao antigo passam para o primeiro.",
+  "6e84812f44905f06": "O T3 não conseguiu separar esses logins.",
+  "483a517915842d2b": "Separando…",
+  "e92a944d55101131": "Separar logins",
+  "1ecb34bc86d51672": "{count, plural, =1 {1 conta no Pi} other {{count} contas no Pi}}",
+  "367a9f63c167de7c": "Reautenticar",
+  "1fca5d0c23f61bd7": "Entrar",
+  "b97e0dbf2da63f78": "Chave e orçamento",
+  "3a9eb6a3200060ae": "Atualizar chave",
+  "68c6fabd47c453e2": "Remover {account}",
+  "d770b2c429fb0f25": "{spent} gastos este mês · defina um orçamento mensal para acompanhar o que resta",
+  "88b30c79e63d6fbe": "O T3 não conseguiu salvar esta chave.",
+  "8b4733eb899f07b6": "Substitui a chave do {file}",
+  "d7f7c42547c38916": "Cole a nova chave",
+  "e588ac9a51eb7324": "O T3 não conseguiu remover esta conta.",
+  "5436f5da3e735e86": "Remover",
+  "c470de965e25e06c": "Adicionar conta",
+  "6747d554a4c8051f": "O T3 não conseguiu adicionar esta conta.",
+  "150ebd505ec37779": "Tipo de conta",
+  "2a076e687ab109f6": "A conta do Google, ex.: {example}",
+  "c70fa3b90b5e99ab": "ex.: {example}",
+  "86522c53dd8e09d1": "Trabalhando…",
+  "2b14aee8c27e1f50": "Salvar conta",
+  "f28ff90acd6f9839": "O Pi não aceitou essa resposta.",
+  "f8b08ce89f418133": "Entrando em {account}",
+  "654a55642b6cc046": "Entrando",
+  "20b90f680e2e225f": "Este ambiente não executa nenhum provedor Pi, então não há credenciais do Pi para gerenciar.",
+  "d1f4f3b5ce52004e": [
+    "Cada conta é um ID de provedor próprio nas credenciais do Pi deste ambiente (",
+    {
+      "t": "code",
+      "i": 1,
+      "c": "auth.json"
+    },
+    "), usadas tanto pelo T3 quanto pelo Pi no terminal."
+  ],
+  "6d8e4ebc889bace9": "Adicionar conta",
+  "d016e2518d1f635d": "Lendo as credenciais do Pi…",
+  "b35871cdc4218005": "Ainda não há contas.",
+  "e7a16692b4325d90": "Nova chave (somente gravação; o T3 nunca a mostra de novo)",
+  "781adeddb3639165": [
+    "Remover ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    "? O T3 apaga a credencial do Pi neste ambiente; threads já em execução nela terminam primeiro."
+  ],
+  "a533009e42438f88": "Tipo de conta",
+  "0d305b4cb7a0237c": "ID do provedor Pi",
+  "47facfd68a40ff55": "Chave (somente gravação; o T3 nunca a mostra de novo)",
+  "0e731e9f468b9cbb": "Salvo com o ID de provedor Pi que você informar.",
+  "2346506f10f7618c": [
+    "ID do provedor Pi:",
+    " ",
+    {
+      "t": "code",
+      "i": 1,
+      "c": {
+        "i": 2,
+        "k": "_gt_value_2",
+        "v": "v"
+      }
+    },
+    " ",
+    "· O login abre no seu navegador, nesta ou em outra máquina."
+  ],
+  "f6b3ce9ba22c4e6a": [
+    "ID do provedor Pi:",
+    " ",
+    {
+      "t": "code",
+      "i": 1,
+      "c": {
+        "i": 2,
+        "k": "_gt_value_2",
+        "v": "v"
+      }
+    }
+  ],
+  "ba58f96850068f18": "Cancelar login",
+  "beda5103143a1bb6": "Iniciando o login do Pi…",
+  "0838429cb8f0c5f1": "Abrir a página de login",
+  "ac68b5034c4b254b": "Este ambiente é outra máquina, então a página em que seu navegador chega após o login pode não carregar. Copie esse endereço e cole abaixo.",
+  "5eec615552740909": [
+    "Abra",
+    " ",
+    {
+      "t": "a",
+      "i": 1,
+      "c": {
+        "i": 2,
+        "k": "_gt_value_2",
+        "v": "v"
+      }
+    },
+    " ",
+    "e digite",
+    " ",
+    {
+      "t": "code",
+      "i": 3,
+      "c": {
+        "i": 4,
+        "k": "_gt_value_4",
+        "v": "v"
+      }
+    },
+    "."
+  ],
   "1c16849175c9fdd3": "Enviar {signal}",
   "3e2c2cacab23110c": [
     "Enviar ",
@@ -10385,7 +10507,6 @@
   "75b1a7d1af613c5d": "Concluir depois",
   "06980ca0b81bf3b7": "Atualizar assistente",
   "08f57e9a43ad6b5a": "Instalar assistente",
-  "86522c53dd8e09d1": "Trabalhando…",
   "f3c63f198627f0dd": "Atualizar extensão",
   "df1a5ac47a9530a6": "Instalar extensão",
   "e0616a924f8405cb": "Ativar extensão",
@@ -11687,7 +11808,6 @@
   "dd95128501e22145": "Flash de captura",
   "9f5280c955132ee1": "Animações de captura",
   "f8d32e19131fd5b3": "agentes cli codex claude cursor grok fx kiro opencode antigravity google entrar sair instalar assinatura instâncias autenticação chave de api modelos configuração caminho do binário diretório de configuração codex_home shadow home endpoint argumentos variáveis de ambiente nome de exibição cor de destaque personalizado favorito oculto compactação automática sessões nativas importar retomar",
-  "723380af1e638be5": "Credenciais do Pi",
   "ad371af21e5b4b01": "Provedores de uso",
   "9d9d31a4f3d5ff69": "fontes de uso CLIProxyAPI proxy de CLI hub cota assinatura limites chave de gerenciamento adicionar remover",
   "d65fa0946585b245": "Geradores de texto",
@@ -12007,6 +12127,7 @@
   "ade1cf4e2c1ff4b4": "{label}: {remaining}% restante, {timeLeft}% da janela restante",
   "f6116fcec2d2ea7f": "{remaining}% restante · {timeLeft}% da janela restante",
   "07f5912af296f9ea": "{remaining}% restante",
+  "e45eab3a8d518f9d": "Reserva em {reserve}%: nesse nível ou abaixo, só os modelos permitidos usam esta conta.",
   "a01c358de99da345": "Redefine {resetsAt} · {resetsIn}",
   "93b30237a69f3fc4": "Redefine {resetsAt}",
   "69b2a63d2321a66c": "Usando…",

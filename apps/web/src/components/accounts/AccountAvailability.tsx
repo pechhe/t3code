@@ -53,7 +53,7 @@ const BACKOFF_CAUSE: Record<AccountBlock["reason"], string> = {
   overload: "overload",
 };
 
-/** "Reserved (9% ≤ 10%)", "Exhausted", "Cooling down after a rate limit": why an account waits. */
+/** "Held for reserve (10%)", "Exhausted", "Cooling down after a rate limit": why an account waits. */
 export function AccountStateBadge({
   availability,
   reserve,
@@ -96,14 +96,16 @@ export function AccountStateBadge({
           size="sm"
           title={
             until === undefined
-              ? gt("Held back for this model at its reserve.")
-              : gt("Held back for this model at its reserve until {until}.", { until })
+              ? gt("{remaining}% left: held back for this model at its reserve.", {
+                  remaining: Math.round(availability.remainingPercent ?? 0),
+                })
+              : gt("{remaining}% left: held back for this model at its reserve until {until}.", {
+                  remaining: Math.round(availability.remainingPercent ?? 0),
+                  until,
+                })
           }
         >
-          {gt("Reserved ({remaining}% ≤ {reserve}%)", {
-            remaining: Math.round(availability.remainingPercent ?? 0),
-            reserve: reserve ?? 0,
-          })}
+          {gt("Held for reserve ({reserve}%)", { reserve: reserve ?? 0 })}
         </Badge>
       );
     case "cooldown": {

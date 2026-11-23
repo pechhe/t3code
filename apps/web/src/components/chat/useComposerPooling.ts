@@ -52,6 +52,7 @@ export function useComposerPooling(input: {
 }): ModelPickerPooling {
   const modelAccounts = useEnvironmentSettings(input.environmentId, (s) => s.modelAccounts);
   const modelRouting = useEnvironmentSettings(input.environmentId, (s) => s.modelRouting);
+  const accountReserves = useEnvironmentSettings(input.environmentId, (s) => s.accountReserves);
   const modelLinks = useEnvironmentSettings(input.environmentId, (s) => s.modelLinks);
   const routing = useRoutingContext(input.environmentId);
   const pooledModelKeys = useEnvironmentSettings(
@@ -67,6 +68,7 @@ export function useComposerPooling(input: {
     pooledModels(input.providers, {
       pooledModelKeys,
       modelRouting,
+      accountReserves,
       modelAccounts,
       modelLinks,
       providerModelPreferences,

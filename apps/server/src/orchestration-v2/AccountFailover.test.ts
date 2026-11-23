@@ -177,7 +177,6 @@ const settingsLayer = ServerSettings.layerTest({
       primary: [HFPETCH, YARDSMITH],
       overflow: [CREDITS],
       primaryOrder: "soonest",
-      reserves: {},
     },
   },
 });
@@ -545,8 +544,11 @@ describe("one evaluator for interactive turns, delegated tasks and agent_roles",
               primary: [HFPETCH, YARDSMITH],
               overflow: [],
               primaryOrder: "manual",
-              reserves: { [HFPETCH]: 75, [YARDSMITH]: 65 },
             },
+          },
+          accountReserves: {
+            [HFPETCH]: { percent: 75, allowedModels: [] },
+            [YARDSMITH]: { percent: 65, allowedModels: [] },
           },
         });
         // hfpetch has 70% left of its week, under a 75% reserve; yardsmith 60%, under 65%.

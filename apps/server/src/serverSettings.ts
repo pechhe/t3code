@@ -50,6 +50,7 @@ import * as Semaphore from "effect/Semaphore";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
+import { foldRouteReserves } from "@t3tools/shared/accountPools";
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
 import { resolveSymlinkTarget } from "@t3tools/shared/symlink";
 import * as ServerConfig from "./config.ts";
@@ -188,6 +189,7 @@ const normalizeServerSettings = (
     Effect.flatMap(decodeServerSettings),
     Effect.map(foldProviderInstanceEnabledFlags),
     Effect.map(foldInstanceModelCompactAt),
+    Effect.map(foldRouteReserves),
     Effect.map((next) => withIdleCompaction(next, globalIdleCompaction(next))),
     Effect.map((next) => ({ ...next, ...deriveLegacyProjectOverrides(next) })),
     Effect.mapError(
@@ -1089,11 +1091,13 @@ const make = Effect.gen(function* () {
             ),
           );
 
-    const loaded = foldInstanceModelCompactAt(
-      foldProviderInstanceEnabledFlags(
-        legacyProviders === undefined
-          ? settings
-          : migrateLegacyProviderSettings(settings, legacyProviders, providerHistory),
+    const loaded = foldRouteReserves(
+      foldInstanceModelCompactAt(
+        foldProviderInstanceEnabledFlags(
+          legacyProviders === undefined
+            ? settings
+            : migrateLegacyProviderSettings(settings, legacyProviders, providerHistory),
+        ),
       ),
     );
     const folded = settingsFileTrusted
