@@ -6,7 +6,7 @@ import type * as ManagedAgent from "./ManagedAgentService.ts";
 
 const notes: Record<DelegationStance, string> = {
   orchestrate:
-    "Delegation stance: orchestrate. This thread owns the outcome, the decisions and the checking. Hand building to implementers wherever the design is settled and an available implementer's note suits the work, UI building included. Keep design work that is still open and the rounds with the user. When no available implementer suits a piece, build that piece yourself rather than give it to a model whose note says it is poor at it. A small fix you may make yourself.",
+    "Delegation stance: orchestrate. This thread owns the outcome, the decisions and the checking. Hand building to implementers wherever the design is settled and an available implementer's note suits the work, UI building included. Keep design work that is still open and the rounds with the user. When no available implementer suits a piece, build that piece yourself rather than give it to a model whose note says it is poor at it. Send review findings and failing checks in an implementer's piece back to it as a delegate_task followup, however small; keep only mechanical fixes such as formatting or lockfile conflicts.",
   implement:
     "Delegation stance: implement. Build everything yourself; read-only helpers (scout, browser, reviewer, advisor) are fine. T3 refuses to start an implementer for this thread.",
 };
