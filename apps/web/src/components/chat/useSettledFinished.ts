@@ -16,7 +16,8 @@ const isDocumentVisible = () => document.visibilityState === "visible";
 
 /**
  * Which finished subagents have had their time in view and moved down into the finished list.
- * Each gets its own full time; going out of view starts them all over when they return.
+ * Each gets its own full time; going out of view starts them all over when they return. `settle`
+ * moves some down at once, as when the user folds the panel away.
  */
 export function useSettledFinished(
   threadRef: ScopedThreadRef,
@@ -63,5 +64,11 @@ export function useSettledFinished(
     );
     return () => clearTimeout(timer);
   }, [holdMs, inView, key, pending]);
-  return settled;
+  const settle = (ids: ReadonlyArray<ThreadId>) =>
+    setSettled((current) => {
+      const next = new Set([...current, ...ids]);
+      settledFinishedByThread.set(key, next);
+      return next;
+    });
+  return { settled, settle };
 }

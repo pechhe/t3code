@@ -255,7 +255,7 @@ function SubagentRow(props: {
 function PanelSummary({
   threadRef,
   subagentIds,
-  recentCount,
+  finishedCount,
   stalledChildId,
   extraSubagents,
   extraWorking,
@@ -266,7 +266,7 @@ function PanelSummary({
 }: {
   readonly threadRef: ScopedThreadRef;
   readonly subagentIds: ReadonlyArray<ThreadId>;
-  readonly recentCount: number;
+  readonly finishedCount: number;
   readonly stalledChildId: ThreadId | null;
   readonly extraSubagents: number;
   /** Agents with no shell of their own that are not the stalled one. */
@@ -284,7 +284,7 @@ function PanelSummary({
   );
   const working = shellWorking + extraWorking;
   const parts = panelSummaryParts({
-    subagents: subagentIds.length + recentCount + extraSubagents,
+    subagents: subagentIds.length + finishedCount + extraSubagents,
     working,
     stalled: stalledChildId === null ? 0 : 1,
     watches,
@@ -394,29 +394,39 @@ function FinishedSubagents(props: {
   readonly threadRef: ScopedThreadRef;
   readonly settled: ReadonlyArray<OrchestrationV2Subagent>;
   readonly onOpenThread: (threadId: ThreadId) => void;
+  /** The panel header already folds them, so the list needs no fold of its own. */
+  readonly unfolded: boolean;
 }) {
-  const [open, setOpen] = useLocalStorage(FINISHED_OPEN_STORAGE_KEY, false, Schema.Boolean);
+  const [storedOpen, setOpen] = useLocalStorage(FINISHED_OPEN_STORAGE_KEY, false, Schema.Boolean);
+  const open = props.unfolded || storedOpen;
   const failed = props.settled.filter((subagent) => subagent.status === "failed").length;
   return (
     <Reveal open={props.settled.length > 0}>
       <div className="border-t border-border/70">
-        <button
-          type="button"
-          aria-expanded={open}
-          onClick={() => setOpen((current) => !current)}
-          className="flex w-full cursor-pointer items-center gap-1.5 px-3 py-1.5 text-start text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
-        >
-          <ChevronRightIcon
-            aria-hidden
-            className={cn("size-3.5 transition-transform duration-150", open && "rotate-90")}
-          />
-          {props.settled.length} finished
-          {failed > 0 ? (
-            <span className="text-destructive tabular-nums">· {failed} failed</span>
-          ) : null}
-        </button>
+        {props.unfolded ? null : (
+          <button
+            type="button"
+            aria-expanded={open}
+            onClick={() => setOpen((current) => !current)}
+            className="flex w-full cursor-pointer items-center gap-1.5 px-3 py-1.5 text-start text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+          >
+            <ChevronRightIcon
+              aria-hidden
+              className={cn("size-3.5 transition-transform duration-150", open && "rotate-90")}
+            />
+            {props.settled.length} finished
+            {failed > 0 ? (
+              <span className="text-destructive tabular-nums">· {failed} failed</span>
+            ) : null}
+          </button>
+        )}
         <Reveal open={open}>
-          <div className="grid max-h-[min(12rem,30dvh)] grid-cols-[minmax(0,1fr)] overflow-y-auto border-t border-border/70">
+          <div
+            className={cn(
+              "grid max-h-[min(12rem,30dvh)] grid-cols-[minmax(0,1fr)] overflow-y-auto",
+              !props.unfolded && "border-t border-border/70",
+            )}
+          >
             {props.settled.map((subagent) =>
               subagent.childThreadId === null ? null : (
                 <FinishedSubagentRow
@@ -454,6 +464,8 @@ export function SubagentPanel(props: {
   readonly subagentIds: ReadonlyArray<ThreadId>;
   readonly subagents: ReadonlyArray<OrchestrationV2Subagent>;
   readonly finished: ReadonlyArray<OrchestrationV2Subagent>;
+  /** Finished subagents the user saw before this viewing; they start in the finished list. */
+  readonly seen: ReadonlySet<ThreadId>;
   /** Watches, commands, monitors and agents with no row of their own. */
   readonly waits: ReadonlyArray<PanelWait>;
   readonly standing: OrchestrationV2ThreadStanding | undefined;
@@ -474,6 +486,7 @@ export function SubagentPanel(props: {
     subagentIds,
     subagents,
     finished,
+    seen,
     waits,
     standing,
 
@@ -504,15 +517,24 @@ export function SubagentPanel(props: {
     watchWaits.length > 0 ||
     parkedWaits.length > 0 ||
     stalled !== undefined;
-  const open = !(header && collapsed);
-  const settledIds = useSettledFinished(
+  const keptOpen = !(header && collapsed);
+  const unseenIds = finished.flatMap((subagent) =>
+    subagent.childThreadId === null || seen.has(subagent.childThreadId)
+      ? []
+      : [subagent.childThreadId],
+  );
+  const { settled: settledIds, settle } = useSettledFinished(
     threadRef,
-    finished.flatMap((subagent) => subagent.childThreadId ?? []),
-    open,
+    unseenIds,
+    keptOpen || unseenIds.length > 0,
   );
   const isSettled = (subagent: OrchestrationV2Subagent) =>
-    subagent.childThreadId !== null && settledIds.has(subagent.childThreadId);
-  const recentCount = finished.filter((subagent) => !isSettled(subagent)).length;
+    subagent.childThreadId !== null &&
+    (seen.has(subagent.childThreadId) || settledIds.has(subagent.childThreadId));
+  const recentIds = unseenIds.filter((id) => !settledIds.has(id));
+  const recentCount = recentIds.length;
+  // A finished subagent the user has not seen opens a folded panel until it has had its time.
+  const open = keptOpen || recentCount > 0;
   const askingRow = request?.rowThreadId;
   const quiet = subagentIds.filter((id) => id !== askingRow);
   const row = (threadId: ThreadId) => (
@@ -545,8 +567,9 @@ export function SubagentPanel(props: {
     quiet.length > 0 || recentCount > 0 || agentWaits.length > 0 || stalledRowless !== null;
   const sectioned =
     [hasSubagentRows, watchWaits.length > 0, parkedWaits.length > 0].filter(Boolean).length > 1;
-  // A parked-only panel has nothing for Stop all to stop.
-  const stoppable = hasSubagentRows || watchWaits.length > 0;
+  // Finished and parked rows leave Stop all nothing to stop.
+  const stoppable =
+    quiet.length > 0 || agentWaits.length > 0 || stalledRowless !== null || watchWaits.length > 0;
   return (
     <div
       data-subagent-panel="true"
@@ -559,7 +582,10 @@ export function SubagentPanel(props: {
             variant="ghost"
             aria-expanded={open}
             aria-label={open ? "Collapse waiting list" : "Show waiting list"}
-            onClick={() => setCollapsed((current) => !current)}
+            onClick={() => {
+              setCollapsed(open);
+              if (open) settle(recentIds);
+            }}
           >
             <ChevronRightIcon
               className={cn("size-3.5 transition-transform duration-150", open && "rotate-90")}
@@ -569,7 +595,7 @@ export function SubagentPanel(props: {
             <PanelSummary
               threadRef={threadRef}
               subagentIds={subagentIds}
-              recentCount={recentCount}
+              finishedCount={finished.length}
               stalledChildId={stalled?.childThreadId ?? null}
               extraSubagents={agentWaits.length + (stalledRowless === null ? 0 : 1)}
               extraWorking={
@@ -626,6 +652,9 @@ export function SubagentPanel(props: {
           threadRef={threadRef}
           settled={finished.filter(isSettled)}
           onOpenThread={onOpenThread}
+          unfolded={
+            header && !hasSubagentRows && watchWaits.length === 0 && parkedWaits.length === 0
+          }
         />
         {watchWaits.length > 0 ? (
           <div

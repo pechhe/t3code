@@ -682,7 +682,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
   if (priorVisit.key !== activeThreadKey) {
     setPriorVisit({ key: activeThreadKey, at: activeThreadLastVisitedAt });
   }
-  const finishedSubagents = finishedPanelSubagents({
+  const { finished: finishedSubagents, seen: seenFinishedSubagents } = finishedPanelSubagents({
     subagents,
     liveIds: liveSubagentIds,
     seenAt: priorVisit.key === activeThreadKey ? priorVisit.at : activeThreadLastVisitedAt,
@@ -690,7 +690,6 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
       activeThreadShell?.source.latestUserAuthoredMessageAt ??
       activeThreadShell?.source.latestUserMessageAt ??
       null,
-    parentBusy: isWorking,
   });
   const panelStanding = activeThreadShell?.source.standing;
   const panelParkedWaits = activeThreadShell?.source.parkedWaits ?? NO_PARKED_WAITS;
@@ -706,6 +705,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
         subagentIds={liveSubagentIds}
         subagents={subagents}
         finished={finishedSubagents}
+        seen={seenFinishedSubagents}
         waits={panelWaits}
         standing={panelStanding}
         parkedWaits={panelParkedWaits}

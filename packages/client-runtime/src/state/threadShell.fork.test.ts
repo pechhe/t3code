@@ -113,9 +113,10 @@ describe("subagent live state", () => {
     const live = [ThreadId.make("live")];
     const ids = (subagents: ReadonlyArray<OrchestrationV2Subagent>) =>
       subagents.map((subagent) => subagent.childThreadId);
+    const seenIds = (seen: ReadonlySet<ThreadId>) => [...seen].toSorted();
 
-    it("lists what finished since the user last wrote, newest first", () => {
-      const finished = finishedPanelSubagents({
+    it("lists every finished child newest first, seen if it finished before the user last wrote", () => {
+      const { finished, seen } = finishedPanelSubagents({
         subagents: [
           record("before", "completed", "2026-11-04T11:00:00.000Z"),
           record("older", "completed", "2026-11-04T12:01:00.000Z"),
@@ -126,9 +127,9 @@ describe("subagent live state", () => {
         ],
         liveIds: live,
         since,
-        parentBusy: false,
       });
-      expect(ids(finished)).toEqual(["newer", "older"]);
+      expect(ids(finished)).toEqual(["newer", "older", "before"]);
+      expect(seenIds(seen)).toEqual(["before"]);
     });
 
     it("drops what finished before the user last had the thread open", () => {
@@ -136,37 +137,31 @@ describe("subagent live state", () => {
         record("seen", "completed", "2026-11-04T12:01:00.000Z"),
         record("unseen", "completed", "2026-11-04T12:10:00.000Z"),
       ];
-      const input = { subagents, liveIds: live, since, parentBusy: false };
-      expect(ids(finishedPanelSubagents({ ...input, seenAt: "2026-11-04T12:05:00.000Z" }))).toEqual(
-        ["unseen"],
-      );
-      expect(ids(finishedPanelSubagents({ ...input, seenAt: "2026-11-04T11:00:00.000Z" }))).toEqual(
-        ["unseen", "seen"],
-      );
-      expect(ids(finishedPanelSubagents({ ...input, seenAt: undefined }))).toEqual([
-        "unseen",
-        "seen",
-      ]);
+      const input = { subagents, liveIds: live, since };
+      const seenAt = (at: string | undefined) =>
+        seenIds(finishedPanelSubagents({ ...input, seenAt: at }).seen);
+      expect(seenAt("2026-11-04T12:05:00.000Z")).toEqual(["seen"]);
+      expect(seenAt("2026-11-04T11:00:00.000Z")).toEqual([]);
+      expect(seenAt(undefined)).toEqual([]);
     });
 
     it("judges a child by its latest record", () => {
-      const finished = finishedPanelSubagents({
+      const { finished } = finishedPanelSubagents({
         subagents: [
           record("again", "completed", "2026-11-04T12:01:00.000Z"),
           record("again", "running", null),
         ],
         liveIds: live,
         since,
-        parentBusy: false,
       });
       expect(finished).toEqual([]);
     });
 
-    it("clears once the thread has settled, and holds while the thread still runs", () => {
+    it("keeps a settled thread's finished children once nothing runs", () => {
       const subagents = [record("done", "completed", "2026-11-04T12:01:00.000Z")];
-      const settled = { subagents, liveIds: [], since };
-      expect(finishedPanelSubagents({ ...settled, parentBusy: false })).toEqual([]);
-      expect(ids(finishedPanelSubagents({ ...settled, parentBusy: true }))).toEqual(["done"]);
+      expect(ids(finishedPanelSubagents({ subagents, liveIds: [], since }).finished)).toEqual([
+        "done",
+      ]);
     });
   });
 

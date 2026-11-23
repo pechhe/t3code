@@ -330,9 +330,8 @@ export function isSubagentDoer(role: AgentRole | undefined): boolean {
 }
 
 /**
- * Delegated subagents that finished since the user last wrote or last had the thread open,
- * newest first. They stay visible while the thread has work in progress, and clear once it has
- * settled.
+ * The thread's finished delegated subagents, newest first, and which of them the user has seen:
+ * those that finished before they last wrote or last had the thread open.
  */
 export function finishedPanelSubagents(input: {
   readonly subagents: ReadonlyArray<OrchestrationV2Subagent>;
@@ -340,9 +339,10 @@ export function finishedPanelSubagents(input: {
   readonly since: DateTime.Utc | null;
   /** When the user last had the thread open before this viewing; what finished earlier was seen. */
   readonly seenAt?: string | undefined;
-  readonly parentBusy: boolean;
-}): ReadonlyArray<OrchestrationV2Subagent> {
-  if (input.liveIds.length === 0 && !input.parentBusy) return [];
+}): {
+  readonly finished: ReadonlyArray<OrchestrationV2Subagent>;
+  readonly seen: ReadonlySet<ThreadId>;
+} {
   const wroteMs = input.since === null ? null : DateTime.toEpochMillis(input.since);
   const seenMs = input.seenAt === undefined ? Number.NaN : Date.parse(input.seenAt);
   const sinceMs = Number.isNaN(seenMs) ? wroteMs : Math.max(seenMs, wroteMs ?? seenMs);
@@ -352,15 +352,23 @@ export function finishedPanelSubagents(input: {
       latestByChild.set(subagent.childThreadId, subagent);
     }
   }
-  const finished = [...latestByChild.entries()].flatMap(([childThreadId, subagent]) =>
-    FINISHED_SUBAGENT_STATUSES.has(subagent.status) &&
-    subagent.completedAt !== null &&
-    !input.liveIds.includes(childThreadId) &&
-    (sinceMs === null || DateTime.toEpochMillis(subagent.completedAt) > sinceMs)
-      ? [{ subagent, completedMs: DateTime.toEpochMillis(subagent.completedAt) }]
-      : [],
-  );
-  return finished.sort((a, b) => b.completedMs - a.completedMs).map((entry) => entry.subagent);
+  const finished = [...latestByChild.entries()]
+    .flatMap(([childThreadId, subagent]) =>
+      FINISHED_SUBAGENT_STATUSES.has(subagent.status) &&
+      subagent.completedAt !== null &&
+      !input.liveIds.includes(childThreadId)
+        ? [{ childThreadId, subagent, completedMs: DateTime.toEpochMillis(subagent.completedAt) }]
+        : [],
+    )
+    .sort((a, b) => b.completedMs - a.completedMs);
+  return {
+    finished: finished.map((entry) => entry.subagent),
+    seen: new Set(
+      finished.flatMap((entry) =>
+        sinceMs !== null && entry.completedMs <= sinceMs ? [entry.childThreadId] : [],
+      ),
+    ),
+  };
 }
 
 /** A thread's delegated subagents in panel order: leads, then other doers, then helpers. */
