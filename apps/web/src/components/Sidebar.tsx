@@ -234,6 +234,8 @@ import {
 } from "./Sidebar.drag";
 import { SidebarPointerSensor } from "./Sidebar.pointer";
 import { sidebarRowWaitingProps } from "./sidebar/sidebarRowWaiting";
+import { firstLandingThread, liftNeedsYouThreads } from "./sidebar/sidebarWorking.logic";
+import { sortWorkingShelfThreads } from "@t3tools/client-runtime/state/thread-inbox";
 import { isWorkingRowDrag } from "./sidebar/sidebarDrag.logic";
 import { createSidebarListMotion } from "./Sidebar.motion";
 import { createSidebarShiftGuard } from "./Sidebar.shiftGuard";
@@ -411,9 +413,11 @@ function resolveDraggedOrders(input: {
       applySidebarThreadDrop(thread, "settled", drag.occurredAt),
     ]).map(threadShellKey),
     activeOrder: workingShelfEnabled
-      ? sortInboxThreadsByReturn(
-          [...others(activeThreads), applySidebarThreadDrop(thread, "active", drag.occurredAt)],
-          inboxReturns.returnedAt,
+      ? liftNeedsYouThreads(
+          sortInboxThreadsByReturn(
+            [...others(activeThreads), applySidebarThreadDrop(thread, "active", drag.occurredAt)],
+            inboxReturns.returnedAt,
+          ),
         ).map(threadShellKey)
       : undefined,
   };
@@ -681,7 +685,6 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
         snoozed: configLoaded && effectiveSnoozed(thread, { now: preciseNow }),
         settled: configLoaded && thread.settledOverride === "settled",
         pinned: thread.pinnedAt != null,
-        waiting: thread.standing?.state === "waiting",
       });
       (section === "snoozed"
         ? snoozed
@@ -698,7 +701,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
   const sortedActive = sortActiveBySend
     ? sortWorkingThreadsBySend(active)
     : workingShelfEnabled
-      ? sortInboxThreadsByReturn(active, inboxObservation.returnedAt)
+      ? liftNeedsYouThreads(sortInboxThreadsByReturn(active, inboxObservation.returnedAt))
       : sortThreadsForSidebar(active);
   return {
     pinnedThreads:
@@ -719,7 +722,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
             preferredIds: optimisticDrop.order,
             getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
           }),
-    workingThreads: sortWorkingThreadsBySend(working),
+    workingThreads: sortWorkingShelfThreads(working),
     snoozedThreads: snoozed.toSorted((left, right) =>
       compareWaitingThreads(left, right, preciseNow),
     ),
@@ -770,9 +773,7 @@ function isOptimisticDropReleased(input: {
       ? "settled"
       : thread.pinnedAt != null
         ? "pinned"
-        : thread.standing?.state === "waiting"
-          ? "snoozed"
-          : "active";
+        : "active";
   if (
     canonicalSection !== optimisticDrop.sourceSection &&
     canonicalSection !== optimisticDrop.section
@@ -3461,6 +3462,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                     )}
                   >
                     {(() => {
+                      const landingDividerKey = workingShelfExpanded
+                        ? (() => {
+                            const first = firstLandingThread(visibleWorkingThreads);
+                            return first === null ? null : threadShellKey(first);
+                          })()
+                        : null;
                       const renderThreadRow = (
                         thread: EnvironmentThreadShell,
                         section: SidebarSection,
@@ -3520,6 +3527,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             }
                             sweepAction={
                               actionSweep?.keys.has(threadKey) ? actionSweep.action : null
+                            }
+                            landingDivider={
+                              section === "working" && threadKey === landingDividerKey
                             }
                             {...sidebarRowWaitingProps({
                               thread,
@@ -3685,7 +3695,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 key="snoozed-shelf-header"
                                 marker="snoozed-header"
                                 className={cn(workingThreads.length === 0 && "mt-auto")}
-                                label={gt("Waiting", { $context: "sidebar section" })}
+                                label={gt("Snoozed", { $context: "sidebar section" })}
                                 count={snoozedThreads.length}
                                 toggle={{
                                   expanded: snoozedShelfExpanded,

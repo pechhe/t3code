@@ -4,6 +4,7 @@ import { isThreadWorking as isSidebarThreadWorking } from "@t3tools/client-runti
 import * as DateTime from "effect/DateTime";
 import { deriveActiveWorkStartedAt } from "../session-logic.ts";
 import { describe, expect, it } from "vite-plus/test";
+import { m } from "../i18n/messages";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 import {
@@ -422,9 +423,9 @@ describe("resolveWorkingStartedAt", () => {
 });
 
 describe("waiting placement", () => {
-  it("places waiting below owner snooze, settlement and pins", () => {
-    const base = { snoozed: false, settled: false, pinned: false, waiting: true };
-    expect(resolveSidebarThreadSection(base)).toBe("snoozed");
+  it("keeps Snoozed for the owner's snooze alone", () => {
+    const base = { snoozed: false, settled: false, pinned: false };
+    expect(resolveSidebarThreadSection(base)).toBe("active");
     expect(
       resolveSidebarThreadSection({ ...base, snoozed: true, settled: true, pinned: true }),
     ).toBe("snoozed");
@@ -490,6 +491,93 @@ describe("resolveThreadStatusPill", () => {
     expect(threadQuestionSubtitle({ ...asking, parkedWaits: [{ title: "Build" } as never] })).toBe(
       "Which account? · Also waiting on Build",
     );
+  });
+
+  describe("wait guardrails", () => {
+    const idle = { ...baseThread, runtime: null };
+    const detailOf = (thread: Parameters<typeof resolveThreadStatusPill>[0]["thread"]) => {
+      const detail = resolveThreadStatusPill({ thread })?.detail;
+      return detail === undefined ? undefined : m(detail);
+    };
+    const review = (reason: "long_wait" | "overdue") => ({
+      waitId: "w",
+      title: "Deploy window",
+      kind: "time" as const,
+      startedAt: "2026-06-01T00:00:00.000Z",
+      flaggedAt: "2026-06-01T00:00:00.000Z",
+      endsAt: "2026-06-01T06:00:00.000Z",
+      reason,
+    });
+    const checkWait = (reason: "long_wait" | "overdue") => ({
+      ...idle,
+      standing: {
+        state: "needs_you" as const,
+        reason: "check_wait" as const,
+        waitReview: review(reason),
+      },
+    });
+
+    it("flags a long or overdue wait until the owner has visited it", () => {
+      expect(resolveThreadStatusPill({ thread: checkWait("long_wait") })).toMatchObject({
+        label: "Check wait",
+        dotClass: "border border-current",
+      });
+      expect(detailOf(checkWait("long_wait"))).toBe("6h wait · Deploy window");
+      expect(detailOf(checkWait("overdue"))).toBe("Overdue · Deploy window");
+      expect(
+        resolveThreadStatusPill({
+          thread: { ...checkWait("long_wait"), lastVisitedAt: "2026-06-01T00:00:01.000Z" },
+        }),
+      ).toBeNull();
+    });
+
+    it("stops flagging a wait that gave up once it has been visited", () => {
+      const gaveUp = { ...idle, parkedWaitGaveUp: { at: "2026-06-01T00:00:00.000Z" } as never };
+      expect(resolveThreadStatusPill({ thread: gaveUp })).toMatchObject({ label: "Wait gave up" });
+      expect(
+        resolveThreadStatusPill({
+          thread: { ...gaveUp, lastVisitedAt: "2026-06-01T00:00:01.000Z" },
+        }),
+      ).toBeNull();
+    });
+
+    it.each([
+      [{ kind: "build_item", number: 7, ref: "T3-7", need: "acceptance" }, "accept T3-7"],
+      [{ kind: "build_item", number: 7, ref: "T3-7", need: "triage" }, "triage T3-7"],
+      [{ kind: "build_item", number: 7, need: "shaping" }, "shape #7"],
+      [{ kind: "build_item", number: 7, ref: "T3-7", need: "unclaimed" }, "start T3-7"],
+      [{ kind: "production", need: "release_approval" }, "release"],
+    ] as const)("names what %j waits on its owner", (waitsOnPerson, detail) => {
+      const thread = { ...idle, standing: { state: "needs_you" as const, waitsOnPerson } };
+      expect(resolveThreadStatusPill({ thread })?.label).toBe("Needs you");
+      expect(detailOf(thread)).toBe(detail);
+    });
+
+    it("tells landing and releasing waits from other waits, and keeps a seen failure quiet", () => {
+      const waiting = (waitCategory: "waiting" | "landing", kind?: string) => ({
+        ...idle,
+        standing: { state: "waiting" as const, waitCategory },
+        parkedWaits: kind === undefined ? [] : [{ target: { kind } } as never],
+      });
+      expect(resolveThreadStatusPill({ thread: waiting("waiting") })?.label).toBe("Waiting");
+      expect(resolveThreadStatusPill({ thread: waiting("landing", "landing") })?.label).toBe(
+        "Landing",
+      );
+      expect(resolveThreadStatusPill({ thread: waiting("landing", "production") })?.label).toBe(
+        "Releasing",
+      );
+      expect(resolveThreadStatusPill({ thread: waiting("landing") })?.label).toBe("Landing");
+      expect(
+        resolveThreadStatusPill({
+          thread: {
+            ...idle,
+            latestRun: { status: "failed", completedAt: "2026-06-01T00:00:00.000Z" } as never,
+            standing: { state: "finished" as const },
+            lastVisitedAt: "2099-01-01T00:00:00.000Z",
+          },
+        }),
+      ).toMatchObject({ label: "Failed", colorClass: "text-sidebar-muted-foreground" });
+    });
   });
 
   it("shows an active thread wait without a pulse and resumes Working when it ends", () => {

@@ -1,13 +1,16 @@
 import {
   effectiveSnoozed,
   parkedThreadSubtitle,
-  parkedWaitTimeLeft,
+  parkedWaitClockLabel,
+  parkedWaitStageSubtitle,
 } from "@t3tools/client-runtime/state/thread-settled";
+import { resolveWorkingThreadTier } from "@t3tools/client-runtime/state/thread-inbox";
+import { isVisitedSince } from "@t3tools/shared/threadStanding";
 import { msg } from "gt-react";
 
 import type { MessageResolver } from "../../i18n/messages";
 import type { SidebarThreadSummary } from "../../types";
-import { threadQuestionSubtitle, type SidebarSection } from "../Sidebar.logic";
+import { threadQuestionSubtitle, waitReviewDetail, type SidebarSection } from "../Sidebar.logic";
 import { snoozeWakeLabel } from "../Sidebar.snooze";
 
 export function sidebarRowWaitingProps(input: {
@@ -15,21 +18,37 @@ export function sidebarRowWaitingProps(input: {
   section: SidebarSection;
   snoozeNow: string;
   messages: MessageResolver;
+  lastVisitedAt?: string | null | undefined;
 }) {
   const { thread, section, snoozeNow, messages } = input;
+  const lastVisitedAt = input.lastVisitedAt ?? thread.lastVisitedAt;
+  const nowMs = Date.parse(snoozeNow);
+  const ownerSnoozed = effectiveSnoozed(thread, { now: snoozeNow });
+  const standing = thread.standing;
+  const waiting = standing?.state === "waiting";
+  const flagged = standing?.reason === "check_wait" ? standing.waitReview : undefined;
+  const review =
+    flagged !== undefined && !isVisitedSince(lastVisitedAt, flagged.flaggedAt)
+      ? flagged
+      : undefined;
   return {
     snoozeWakeLabelText:
-      section !== "snoozed"
-        ? null
-        : !effectiveSnoozed(thread, { now: snoozeNow }) && (thread.parkedWaits?.length ?? 0) > 0
-          ? parkedWaitTimeLeft(thread.parkedWaits, Date.parse(snoozeNow))
-          : thread.snoozedUntil != null
-            ? snoozeWakeLabel(thread.snoozedUntil, { now: new Date().toISOString() }, messages)
-            : null,
-    ownerSnoozed: effectiveSnoozed(thread, { now: snoozeNow }),
-    parkedSubtitle: effectiveSnoozed(thread, { now: snoozeNow })
+      section === "snoozed" && thread.snoozedUntil != null
+        ? snoozeWakeLabel(thread.snoozedUntil, { now: new Date().toISOString() }, messages)
+        : null,
+    /** How long a Working row has waited, or until a time wait wakes; a Check wait row shows it too. */
+    waitClockLabel:
+      !ownerSnoozed && (waiting || review !== undefined)
+        ? parkedWaitClockLabel(thread.parkedWaits, nowMs)
+        : null,
+    ownerSnoozed,
+    parkedSubtitle: ownerSnoozed
       ? messages(msg("Snoozed by you"))
       : (threadQuestionSubtitle(thread, messages) ??
-        parkedThreadSubtitle(thread.parkedWaits, Date.parse(snoozeNow))),
+        (review !== undefined
+          ? messages(waitReviewDetail(review))
+          : waiting && resolveWorkingThreadTier(thread) === "landing"
+            ? parkedWaitStageSubtitle(thread.parkedWaits)
+            : parkedThreadSubtitle(thread.parkedWaits, nowMs))),
   };
 }

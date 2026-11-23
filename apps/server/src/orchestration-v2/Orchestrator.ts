@@ -261,6 +261,7 @@ import {
   wakeDecisionOfRemote,
   watchedThreadRecords,
 } from "./threadWatch.ts";
+import { isCompletionStall } from "./stalledChildren.ts";
 import {
   gaveUpWake,
   parkedWaitTargetsEqual,
@@ -757,6 +758,28 @@ export function threadHasUnfinishedWork(records: {
   );
 }
 
+function withoutThreadAttention(
+  thread: OrchestrationV2AppThread,
+  acknowledgement?: "reply" | "settle",
+) {
+  if (
+    thread.ownerWait === undefined &&
+    (acknowledgement === undefined || thread.parkedWaitGaveUp === undefined) &&
+    (acknowledgement !== "reply" || thread.parkedWaitWoke === undefined) &&
+    !isCompletionStall(thread.stalled)
+  )
+    return thread;
+  const { ownerWait: _ownerWait, parkedWaitGaveUp, parkedWaitWoke, stalled, ...rest } = thread;
+  return {
+    ...rest,
+    ...(acknowledgement === undefined && parkedWaitGaveUp !== undefined
+      ? { parkedWaitGaveUp }
+      : {}),
+    ...(acknowledgement !== "reply" && parkedWaitWoke !== undefined ? { parkedWaitWoke } : {}),
+    ...(stalled !== undefined && !isCompletionStall(stalled) ? { stalled } : {}),
+  };
+}
+
 function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
   switch (command.type) {
     case "thread.create":
@@ -793,6 +816,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.pull-request-watch.sync":
     case "thread.thread-watch":
     case "thread.thread-watch.fire":
+    case "thread.thread-watch.update-status":
     case "thread.thread-watch.waits-on-person":
     case "thread.stalled.set":
     case "thread.arc-run":
@@ -3376,6 +3400,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const detachReason = freshContext
         ? FRESH_CONTEXT_DETACH_REASON
         : "Provider or model selection changed.";
+      const cleared = withoutThreadAttention(projection.thread);
       yield* writeSystemEvents(
         [
           ...(selectionChanged
@@ -3397,6 +3422,22 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 },
               ]
             : []),
+          ...(cleared === projection.thread
+            ? []
+            : [
+                {
+                  type: "thread.metadata-updated" as const,
+                  threadId,
+                  providerInstanceId: queuedRun.providerInstanceId,
+                  occurredAt: now,
+                  payload: {
+                    ...cleared,
+                    providerInstanceId: queuedRun.providerInstanceId,
+                    modelSelection: queuedRun.modelSelection,
+                    updatedAt: now,
+                  },
+                },
+              ]),
           ...(handoff === null || transferId === null || latestHandoffRun === undefined
             ? []
             : [
@@ -4732,6 +4773,44 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     );
   });
 
+  const dispatchThreadWatchUpdateStatus = Effect.fn(
+    "orchestrationV2.dispatch.threadWatchUpdateStatus",
+  )(function* (
+    command: Extract<
+      OrchestrationV2ServerCommand,
+      { readonly type: "thread.thread-watch.update-status" }
+    >,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+  ) {
+    const thread = yield* projectionStore
+      .getThread(command.threadId)
+      .pipe(
+        Effect.mapError(
+          (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+        ),
+      );
+    const waits = thread.parkedWaits ?? [];
+    const wait = waits.find((candidate) => candidate.id === command.watchId);
+    if (wait === undefined) return;
+    const overdueAt = command.overdueAt ?? wait.overdueAt;
+    const landingStage = command.landingStage ?? wait.landingStage;
+    if (overdueAt === wait.overdueAt && landingStage === wait.landingStage) return;
+    yield* emitParkedWaits(
+      events,
+      command,
+      thread,
+      waits.map((candidate) =>
+        candidate === wait
+          ? {
+              ...wait,
+              ...(overdueAt === undefined ? {} : { overdueAt }),
+              ...(landingStage === undefined ? {} : { landingStage }),
+            }
+          : candidate,
+      ),
+    );
+  });
+
   const dispatchThreadStalled = Effect.fn("orchestrationV2.dispatch.threadStalled")(function* (
     command: Extract<OrchestrationV2ServerCommand, { readonly type: "thread.stalled.set" }>,
     events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
@@ -4746,7 +4825,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     if (thread.deletedAt !== null) return;
     if (
       thread.stalled?.childThreadId === command.stalled?.childThreadId &&
-      thread.stalled?.since === command.stalled?.since
+      thread.stalled?.since === command.stalled?.since &&
+      thread.stalled?.title === command.stalled?.title
     ) {
       return;
     }
@@ -4847,6 +4927,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     if (
       decision.kind !== "archived" &&
       decision.kind !== "needs-input" &&
+      decision.kind !== "idle" &&
       (yield* childAwaitsRestartContinuation(watched.runs, decision.resultRun).pipe(
         Effect.mapError(
           (cause) => new OrchestratorProjectionError({ threadId: watchedThreadId, cause }),
@@ -4857,10 +4938,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     }
     let detail: string | undefined;
     if (decision.kind === "needs-input") {
-      const { turnItems } = yield* readWatched(["turnItems"], {
-        turnItemTypes: ["user_input_request", "approval_request"],
-      });
-      detail = requestPrompt(decision.requests[0]!, turnItems);
+      detail = decision.detail;
+      const request = decision.requests[0];
+      if (request !== undefined) {
+        const { turnItems } = yield* readWatched(["turnItems"], {
+          turnItemTypes: ["user_input_request", "approval_request"],
+        });
+        detail = requestPrompt(request, turnItems);
+      }
+    } else if (decision.kind === "idle") {
+      detail = "It is idle with no active run.";
     } else if (decision.kind !== "archived") {
       const records = yield* readWatched(["messages", "turnItems", "providerTurns"], {
         messageRoles: ["assistant"],
@@ -4877,10 +4964,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     return {
       state: "ended" as const,
       outcome: {
-        kind: decision.kind,
+        kind: wording.kind,
         title: watched.thread.title,
         ...(detail === undefined ? {} : { detail }),
-        ...(wording.kind === "needs-input" ? { requestCount: wording.count } : {}),
+        ...(wording.kind === "needs-input" && wording.count !== undefined
+          ? { requestCount: wording.count }
+          : {}),
         ...(wording.kind === "stopped" && wording.stoppedBackgroundWork.length > 0
           ? { stoppedBackgroundWork: wording.stoppedBackgroundWork }
           : {}),
@@ -5053,7 +5142,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       return;
     }
     const { parkedWaitWoke: _previousWoke, ...unwoken } = thread;
-    yield* emitParkedWaits(events, command, unwoken, remaining, gaveUp);
+    yield* emitParkedWaits(events, command, unwoken, remaining);
     const messageId = MessageId.make(`message:${thread.id}:${wait.id}`);
     const wakeMessage = {
       type: "message.dispatch" as const,
@@ -5069,7 +5158,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     yield* dispatchMessage(wakeMessage, events, effects);
     // A delegated child's result went back when it parked, so its woken turn is a follow-up.
     yield* recordSubagentFollowup(wakeMessage, events).pipe(mapDispatchError(command));
-    if (gaveUp !== undefined) return;
+    if (gaveUp !== undefined) {
+      const woken = yield* getProjectionWithPendingEvents(thread.id, events);
+      yield* emitParkedWaits(events, command, woken.thread, woken.thread.parkedWaits ?? [], gaveUp);
+      return;
+    }
     // Recorded after the wake, so it names the run the wake started and the thread it unsettled.
     const woken = yield* getProjectionWithPendingEvents(thread.id, events);
     const runId = woken.runs.find((run) => run.userMessageId === messageId)?.id;
@@ -6049,7 +6142,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             const alreadySettled =
               thread.settledOverride === "settled" && thread.settledAt !== null && !wasPinned;
             return {
-              ...withoutThreadRun(thread),
+              ...withoutThreadRun(withoutThreadAttention(thread, "settle")),
               settledOverride: "settled",
               settledAt: alreadySettled ? thread.settledAt : (command.settledAt ?? now),
               // Settled threads refuse recovery, so an armed resume would stay hidden until un-settled.
@@ -8571,15 +8664,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       });
       projection = applyToProjection(projection, event);
     }
-    // The owner writing answers the thread's question to them and acknowledges its last wake.
-    if (
-      (projection.thread.parkedWaitGaveUp !== undefined ||
-        projection.thread.parkedWaitWoke !== undefined ||
-        projection.thread.ownerWait !== undefined) &&
-      command.createdBy === "user"
-    ) {
+    const cleared = withoutThreadAttention(
+      projection.thread,
+      command.createdBy === "user" ? "reply" : undefined,
+    );
+    if (cleared !== projection.thread) {
       const now = yield* DateTime.now;
-      const { parkedWaitWoke: _woke, ownerWait: _answered, ...unwoken } = projection.thread;
       const event = yield* emit(
         events,
         command,
@@ -8588,7 +8678,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         threadId: command.threadId,
         providerInstanceId: projection.thread.providerInstanceId,
         occurredAt: now,
-        payload: withParkedWaits(unwoken, projection.thread.parkedWaits ?? [], now, null),
+        payload: { ...cleared, updatedAt: now },
       });
       projection = applyToProjection(projection, event);
     }
@@ -14105,6 +14195,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     }
     const now = yield* DateTime.now;
     const emitEvent = emit(events, command);
+    const cleared = withoutThreadAttention(projection.thread);
+    if (cleared !== projection.thread) {
+      yield* emitEvent({
+        type: "thread.metadata-updated",
+        threadId: command.threadId,
+        providerInstanceId: projection.thread.providerInstanceId,
+        occurredAt: now,
+        payload: { ...cleared, updatedAt: now },
+      });
+    }
     const scope = {
       threadId: command.threadId,
       runId: state.run.id,
@@ -17579,6 +17679,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.thread-watch.fire":
         yield* mapDispatchError(command)(dispatchThreadWatchFire(command, events, effects));
         break;
+      case "thread.thread-watch.update-status":
+        yield* dispatchThreadWatchUpdateStatus(command, events);
+        break;
       case "thread.thread-watch.waits-on-person":
         yield* dispatchThreadWatchWaitsOnPerson(command, events);
         break;
@@ -18066,6 +18169,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           command.type === "thread.thread-watch" ||
           command.type === "thread.thread-watch.fire" ||
           command.type === "thread.thread-watch.waits-on-person" ||
+          command.type === "thread.thread-watch.update-status" ||
           command.type === "thread.stalled.set" ||
           command.type === "thread.arc-run" ||
           command.type === "thread.arc-run.wake" ||

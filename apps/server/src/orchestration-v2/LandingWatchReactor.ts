@@ -255,6 +255,15 @@ const make = Effect.gen(function* () {
     // wait left there; waking the child would cost a turn whose reply returns to the parent.
     if (isLeafSubagentThread(thread) && wait.id.includes(LANDING_WAIT_ID)) return yield* end;
     if (isActive(landing)) {
+      if (wait.landingStage !== landing.stage) {
+        yield* engine.dispatch({
+          type: "thread.thread-watch.update-status",
+          commandId: CommandId.make(`server:landing-stage:${wait.id}:${yield* crypto.uuidV4()}`),
+          threadId: thread.id,
+          watchId: wait.id,
+          landingStage: landing.stage,
+        });
+      }
       return yield* reportParked(thread, wait, {
         lastKnown: `Landing ${operationId} was still running, at ${landing.stage}.`,
       });
@@ -338,6 +347,26 @@ const make = Effect.gen(function* () {
     if (!overview.connected) {
       return yield* reportParked(thread, wait, {
         lastKnown: `T3 could not reach the SlipJay runner, so it could not decide whether Production in ${repository} serves ${commitId}.`,
+      });
+    }
+    const needsApproval =
+      overview.repositories.find((entry) => entry.repo === repository)?.release?.waitingOn.kind ===
+      "approval";
+    if (
+      needsApproval
+        ? wait.waitsOnPerson?.need !== "release_approval" || wait.waitsOnPerson.title !== repository
+        : wait.waitsOnPerson?.need === "release_approval"
+    ) {
+      yield* engine.dispatch({
+        type: "thread.thread-watch.waits-on-person",
+        commandId: CommandId.make(
+          `server:production-approval:${wait.id}:${yield* crypto.uuidV4()}`,
+        ),
+        threadId: thread.id,
+        watchId: wait.id,
+        ...(needsApproval
+          ? { waitsOnPerson: { need: "release_approval", title: repository } }
+          : {}),
       });
     }
     const served = productionServes(overview, repository);
@@ -454,7 +483,10 @@ const make = Effect.gen(function* () {
   let servedKey: string | undefined;
   const onRunner = (overview: SlipJayRunnerOverview) => {
     const key = `${overview.connected}:${overview.repositories
-      .map((entry) => `${entry.repo}=${entry.release?.production.live?.commitId ?? ""}`)
+      .map(
+        (entry) =>
+          `${entry.repo}=${entry.release?.production.live?.commitId ?? ""}:${entry.release?.waitingOn.kind ?? ""}`,
+      )
       .join(",")}`;
     if (key === servedKey) return Effect.void;
     servedKey = key;

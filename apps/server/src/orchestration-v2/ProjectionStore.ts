@@ -1327,6 +1327,7 @@ type ShellThreadRow = {
   readonly has_undelivered_delegated_result: number;
   readonly has_descendant_approval: number;
   readonly waiting_child_thread_ids: string;
+  readonly waiting_child_landing_thread_ids: string;
 };
 
 type ShellRunRow = {
@@ -1945,12 +1946,24 @@ const descendantApprovalExists = (
 )`;
 
 /** Delegated children that ended their turn and only wait now, as a JSON array of thread ids. */
-const waitingChildThreadIds = (sql: SqlClient.SqlClient, threadId: Statement.Fragment) => sql`(
+const waitingChildThreadIds = (
+  sql: SqlClient.SqlClient,
+  threadId: Statement.Fragment,
+  landingOnly = false,
+) => sql`(
   SELECT json_group_array(task.child_thread_id)
   FROM orchestration_v2_projection_subagents task
   JOIN orchestration_v2_projection_threads child ON child.thread_id = task.child_thread_id
   WHERE task.thread_id = ${threadId} AND task.origin = 'app_owned'
     AND json_array_length(child.payload_json, '$.parkedWaits') > 0
+    ${
+      landingOnly
+        ? sql`AND NOT EXISTS (
+      SELECT 1 FROM json_each(child.payload_json, '$.parkedWaits') wait
+      WHERE json_extract(wait.value, '$.target.kind') NOT IN ('landing', 'production')
+    )`
+        : sql``
+    }
     AND NOT EXISTS (
       SELECT 1 FROM orchestration_v2_projection_runs run
       WHERE run.thread_id = child.thread_id
@@ -1979,6 +1992,7 @@ export function threadShellFromProjection(
   options: {
     readonly descendantApprovalPending?: boolean;
     readonly waitingChildThreadIds?: ReadonlySet<string>;
+    readonly waitingChildLandingThreadIds?: ReadonlySet<string>;
   } = {},
 ): OrchestrationV2ThreadShell {
   const providerSession =
@@ -2057,6 +2071,8 @@ export function threadShellFromProjection(
     activeRun,
     turnItems: projection.turnItems,
   });
+  const latestRunFailedAt =
+    latestRun?.status === "failed" ? (latestRun.completedAt ?? latestRun.requestedAt) : null;
   const standing = deriveThreadStanding({
     status: latestRun?.status ?? "idle",
     activeRunId: activeRun?.id ?? null,
@@ -2074,6 +2090,12 @@ export function threadShellFromProjection(
     pendingGuestMessageCount: pendingGuestMessageCount(projection.thread.guestShare),
     pendingBackgroundTasks,
     parkedWaits: projection.thread.parkedWaits,
+    lastVisitedAt:
+      projection.thread.lastVisitedAt == null
+        ? null
+        : DateTime.formatIso(projection.thread.lastVisitedAt),
+    latestRunFailedAt: latestRunFailedAt == null ? null : DateTime.formatIso(latestRunFailedAt),
+    parkedWaitGaveUp: projection.thread.parkedWaitGaveUp,
     ownerWait: projection.thread.ownerWait,
     stalled: projection.thread.stalled,
     undeliveredDelegatedResult: hasUndeliveredDelegatedResult(projection.subagents ?? []),
@@ -2081,6 +2103,9 @@ export function threadShellFromProjection(
     ...(options.waitingChildThreadIds === undefined
       ? {}
       : { waitingChildThreadIds: options.waitingChildThreadIds }),
+    ...(options.waitingChildLandingThreadIds === undefined
+      ? {}
+      : { waitingChildLandingThreadIds: options.waitingChildLandingThreadIds }),
   });
   return {
     ...(projection.thread.stanceChoice === undefined
@@ -2114,7 +2139,9 @@ export function threadShellFromProjection(
       ? {}
       : { endedThreadWatches: projection.thread.endedThreadWatches }),
     ...(projection.thread.arcRun === undefined ? {} : { arcRun: projection.thread.arcRun }),
-    ...(projection.thread.autonomousRun === undefined ? {} : { autonomousRun: projection.thread.autonomousRun }),
+    ...(projection.thread.autonomousRun === undefined
+      ? {}
+      : { autonomousRun: projection.thread.autonomousRun }),
     ...(projection.thread.awayOptOut === true ? { awayOptOut: true as const } : {}),
     ...(projection.thread.parkedWaits === undefined
       ? {}
@@ -2326,6 +2353,8 @@ type ShellThreadState = {
   readonly hasUndeliveredDelegatedResult: boolean;
   readonly hasDescendantApproval: boolean;
   readonly waitingChildThreadIds: ReadonlySet<string>;
+  readonly waitingChildLandingThreadIds: ReadonlySet<string>;
+  readonly latestRunFailedAt: string | null;
   readonly pendingBackgroundTasks: OrchestrationV2ThreadShell["pendingBackgroundTasks"];
   readonly providerInstanceHistory: OrchestrationV2ThreadShell["providerInstanceHistory"];
   readonly goal: OrchestrationV2ThreadShell["goal"];
@@ -2453,11 +2482,16 @@ function shellStateStanding(state: ShellThreadState) {
     lastErrorClass: state.lastErrorClass,
     pendingBackgroundTasks: state.pendingBackgroundTasks,
     parkedWaits: state.thread.parkedWaits,
+    lastVisitedAt:
+      state.thread.lastVisitedAt == null ? null : DateTime.formatIso(state.thread.lastVisitedAt),
+    latestRunFailedAt: state.latestRunFailedAt,
+    parkedWaitGaveUp: state.thread.parkedWaitGaveUp,
     ownerWait: state.thread.ownerWait,
     stalled: state.thread.stalled,
     undeliveredDelegatedResult: state.hasUndeliveredDelegatedResult,
     descendantApprovalPending: state.hasDescendantApproval,
     waitingChildThreadIds: state.waitingChildThreadIds,
+    waitingChildLandingThreadIds: state.waitingChildLandingThreadIds,
   });
 }
 
@@ -2499,7 +2533,9 @@ function shellFromState(input: {
       ? {}
       : { endedThreadWatches: input.state.thread.endedThreadWatches }),
     ...(input.state.thread.arcRun === undefined ? {} : { arcRun: input.state.thread.arcRun }),
-    ...(input.state.thread.autonomousRun === undefined ? {} : { autonomousRun: input.state.thread.autonomousRun }),
+    ...(input.state.thread.autonomousRun === undefined
+      ? {}
+      : { autonomousRun: input.state.thread.autonomousRun }),
     ...(input.state.thread.awayOptOut === true ? { awayOptOut: true as const } : {}),
     ...(input.state.thread.parkedWaits === undefined
       ? {}
@@ -8852,7 +8888,8 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                   AND task.origin = 'app_owned'
               ) AS has_undelivered_delegated_result,
               ${descendantApprovalExists(sql, sql`t.thread_id`)} AS has_descendant_approval,
-              ${waitingChildThreadIds(sql, sql`t.thread_id`)} AS waiting_child_thread_ids
+              ${waitingChildThreadIds(sql, sql`t.thread_id`)} AS waiting_child_thread_ids,
+              ${waitingChildThreadIds(sql, sql`t.thread_id`, true)} AS waiting_child_landing_thread_ids
             FROM orchestration_v2_projection_threads t
             LEFT JOIN orchestration_v2_projection_runs active ON active.run_id = (
               SELECT r.run_id
@@ -9568,6 +9605,13 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           hasUndeliveredDelegatedResult: row.has_undelivered_delegated_result === 1,
           hasDescendantApproval: row.has_descendant_approval === 1,
           waitingChildThreadIds: new Set(decodeChildThreadIds(row.waiting_child_thread_ids)),
+          waitingChildLandingThreadIds: new Set(
+            decodeChildThreadIds(row.waiting_child_landing_thread_ids),
+          ),
+          latestRunFailedAt:
+            latestRunStatus === "failed"
+              ? DateTime.formatIso(latestRunCompletedAt ?? latestRunRequestedAt ?? thread.updatedAt)
+              : null,
           pendingBackgroundTasks,
           providerInstanceHistory: providerInstanceHistoryForShell({
             threadId: thread.id,

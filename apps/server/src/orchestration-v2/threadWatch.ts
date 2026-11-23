@@ -16,6 +16,7 @@ import type {
 import { delegatedTaskProgress } from "@t3tools/provider-core/server/subagentProjection";
 import { delegatedTaskProgressTurnItems } from "@t3tools/provider-core/server/delegatedTaskHold";
 import { reportLabel } from "@t3tools/provider-core/server/notification";
+import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import * as DateTime from "effect/DateTime";
 
 import { runOutcome } from "./RestartBackgroundNote.ts";
@@ -23,16 +24,21 @@ import { runOutcome } from "./RestartBackgroundNote.ts";
 const QUOTE_LENGTH = 4000;
 
 export type WatchedThreadState = Parameters<typeof delegatedTaskProgress>[0] & {
-  readonly thread: Pick<OrchestrationV2AppThread, "id" | "archivedAt" | "deletedAt">;
+  readonly thread: Pick<
+    OrchestrationV2AppThread,
+    "id" | "archivedAt" | "deletedAt" | "ownerWait" | "stalled" | "parkedWaits"
+  >;
   readonly runtimeRequests: ReadonlyArray<OrchestrationV2RuntimeRequest>;
 };
 
 export type ThreadWatchDecision =
   | { readonly kind: "archived" }
+  | { readonly kind: "idle" }
   | {
       readonly kind: "needs-input";
       /** Oldest first. */
       readonly requests: ReadonlyArray<OrchestrationV2RuntimeRequest>;
+      readonly detail?: string;
     }
   | { readonly kind: "failed" | "stopped" | "finished"; readonly resultRun: OrchestrationV2Run };
 
@@ -92,6 +98,32 @@ export function decideThreadWatch(state: WatchedThreadState): ThreadWatchDecisio
   // leaves out a monitor run and a run a held queue has not started, either of which would otherwise
   // report an older run's result while the thread still works.
   if (state.runs.some((entry) => !RUN_ENDED.has(entry.status))) return undefined;
+  const { ownerWait, stalled, parkedWaits = [] } = state.thread;
+  if (ownerWait !== undefined)
+    return { kind: "needs-input", requests: [], detail: ownerWait.question };
+  if (stalled !== undefined) return { kind: "needs-input", requests: [], detail: stalled.title };
+  const blocked = parkedWaits.find(
+    (wait) => wait.waitsOnPerson !== undefined && wait.waitsOnPerson.need !== "hold",
+  );
+  if (blocked !== undefined)
+    return {
+      kind: "needs-input",
+      requests: [],
+      detail: blocked.waitsOnPerson?.title ?? blocked.title,
+    };
+  // Delegated progress calls a runless thread working because it has no result run.
+  if (
+    state.runs.length === 0 &&
+    parkedWaits.length === 0 &&
+    !state.subagents.some(
+      (task) => task.status === "pending" || task.status === "running" || task.status === "waiting",
+    ) &&
+    !state.providerThreads.some((thread) =>
+      backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? []),
+    )
+  ) {
+    return { kind: "idle" };
+  }
   const progress = delegatedTaskProgress(state);
   if (progress.state !== "result_available" || progress.resultRun === undefined) return undefined;
   const status = runOutcome(progress.resultRun);
@@ -195,7 +227,7 @@ function quote(text: string, threadId: string, there: string): string {
 /** What a thread watch's wake words: a local decision, or how a linked environment reported it. */
 export type ThreadWatchWakeDecision =
   | { readonly kind: "archived" | "unreadable" | "finished" | "failed" }
-  | { readonly kind: "needs-input"; readonly count: number }
+  | { readonly kind: "needs-input"; readonly count?: number | undefined }
   | { readonly kind: "stopped"; readonly stoppedBackgroundWork: ReadonlyArray<string> }
   | { readonly kind: "unreachable"; readonly reason: string };
 
@@ -205,7 +237,11 @@ export function wakeDecisionOf(
 ): ThreadWatchWakeDecision {
   switch (decision.kind) {
     case "needs-input":
-      return { kind: "needs-input", count: decision.requests.length };
+      return decision.requests.length === 0
+        ? { kind: "needs-input" }
+        : { kind: "needs-input", count: decision.requests.length };
+    case "idle":
+      return { kind: "finished" };
     case "stopped":
       return {
         kind: "stopped",
@@ -222,7 +258,10 @@ export function wakeDecisionOfRemote(
 ): ThreadWatchWakeDecision {
   switch (outcome.kind) {
     case "needs-input":
-      return { kind: "needs-input", count: outcome.requestCount ?? 1 };
+      return {
+        kind: "needs-input",
+        count: outcome.requestCount ?? (outcome.detail === undefined ? 1 : undefined),
+      };
     case "stopped":
       return { kind: "stopped", stoppedBackgroundWork: outcome.stoppedBackgroundWork ?? [] };
     case "unreachable":
@@ -270,6 +309,9 @@ export function threadWatchWake(input: {
         return `Thread ${link} can no longer be watched: ${decision.reason}`;
       case "needs-input": {
         const count = decision.count;
+        if (count === undefined) {
+          return `Thread ${link} needs a person to act.${said("What needs attention:")}`;
+        }
         return `Thread ${link} is waiting for a person: it has ${count === 1 ? "1 pending request" : `${count} pending requests`}. Read and answer one with t3_pending_request_read and t3_pending_request_respond using threadId ${watch.threadId}${there}, or ask the user.${said(`Its oldest request, in that thread's own words:`)}`;
       }
       case "failed":
@@ -330,14 +372,18 @@ export function decideBuildWatch(
   if (target.until === "closed") {
     return item.status === "landed" || item.status === "accepted" ? "closed" : undefined;
   }
-  return item.waits.length === 0 ? "unblocked" : undefined;
+  return item.waits.length === 0 && item.status !== "inbox" && item.status !== "shaping"
+    ? "unblocked"
+    : undefined;
 }
 
-/** Owner acceptance is the only Forge state that asks the person to act here. */
 export function buildWatchWaitsOnPerson(
   target: Extract<OrchestrationV2WatchTarget, { readonly kind: "build_item" }>,
   item: ForgeWorkItemSummary,
-): "acceptance" | undefined {
+): "acceptance" | "triage" | "shaping" | "unclaimed" | undefined {
+  if (target.until === "closed" && item.status === "ready") return "unclaimed";
+  if (item.status === "inbox") return "triage";
+  if (item.status === "shaping") return "shaping";
   if (target.until !== "unblocked" || item.waits.length > 0) return undefined;
   return item.status === "landed" && item.acceptanceLevel === "owner" ? "acceptance" : undefined;
 }

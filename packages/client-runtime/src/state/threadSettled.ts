@@ -76,6 +76,8 @@ export interface ThreadSnoozeShell extends QueuedThreadShell {
   readonly source?: Pick<EnvironmentThreadShell["source"], "pendingRuntimeRequest" | "ownerWait">;
   readonly snoozedUntil?: string | null;
   readonly snoozedAt?: string | null;
+  readonly standing?: EnvironmentThreadShell["standing"];
+  readonly parkedWaitGaveUp?: EnvironmentThreadShell["parkedWaitGaveUp"];
   readonly hasPendingApprovals: boolean;
   readonly hasPendingUserInput: boolean;
   readonly pendingUserInputAt?: string | null;
@@ -119,12 +121,32 @@ export function threadRaisedHandWhileSnoozed(shell: ThreadSnoozeShell): boolean 
   }
   if (shell.pendingSubagentRequest != null) return true;
   if ((shell.pendingGuestMessageCount ?? 0) > 0) return true;
+  if (standingRaisedHandWhileSnoozed(shell)) return true;
   const failedAt = failureEdgeAt(shell);
   return (
     failedAt !== undefined &&
     (shell.snoozedAt == null ||
       (failedAt != null && Date.parse(failedAt) > Date.parse(shell.snoozedAt)))
   );
+}
+
+/** A wait the agent can no longer progress alone, or one flagged after the snooze, wakes a snoozed thread. */
+function standingRaisedHandWhileSnoozed(shell: ThreadSnoozeShell): boolean {
+  const standing = shell.standing;
+  if (standing?.state !== "needs_you") return false;
+  const after = (at: string | undefined) =>
+    at !== undefined && (shell.snoozedAt == null || Date.parse(at) > Date.parse(shell.snoozedAt));
+  switch (standing.reason) {
+    case "release":
+    case "wait_target_blocked":
+      return true;
+    case "check_wait":
+      return after(standing.waitReview?.flaggedAt);
+    case "wait_gave_up":
+      return after(shell.parkedWaitGaveUp?.at);
+    default:
+      return false;
+  }
 }
 
 // V2 runtime.updatedAt includes metadata writes, not just failures.
@@ -217,6 +239,14 @@ function parkedWaitEndsAt(wait: OrchestrationV2ParkedWait): string | null {
   return times[0] ?? null;
 }
 
+/** When the soonest-ending wait ends by itself, or null when none has an end. */
+export function parkedWaitsEndAt(
+  waits: ReadonlyArray<OrchestrationV2ParkedWait> | undefined,
+): string | null {
+  const wait = nextParkedWait(waits);
+  return wait === null ? null : parkedWaitEndsAt(wait);
+}
+
 /** The wait that ends first: what the shelf and the sort show for a thread parked on several. */
 function nextParkedWait(
   waits: ReadonlyArray<OrchestrationV2ParkedWait> | undefined,
@@ -235,7 +265,7 @@ function nextParkedWait(
 }
 
 /** Whole minutes, hours or days, rounded up to the unit a person reads: "20m", "2h", "3d". */
-function formatParkedSpan(ms: number): string {
+export function formatParkedSpan(ms: number): string {
   const minutes = Math.max(1, Math.round(ms / 60_000));
   if (minutes < 60) return `${minutes}m`;
   const hours = Math.round(minutes / 60);
@@ -342,6 +372,34 @@ export function parkedWaitTimeLeft(
   if (Number.isNaN(left)) return null;
   const span = left <= 0 ? "now" : `in ${formatParkedSpan(left)}`;
   return wait.target.kind === "time" ? span : `gives up ${span}`;
+}
+
+/**
+ * The clock slot of a Working row that only waits: "in 6h" until a time wait wakes, otherwise
+ * how long the soonest-ending wait has run ("8m").
+ */
+export function parkedWaitClockLabel(
+  waits: ReadonlyArray<OrchestrationV2ParkedWait> | undefined,
+  nowMs: number,
+): string | null {
+  const wait = nextParkedWait(waits);
+  if (wait === null) return null;
+  if (wait.target.kind === "time") {
+    const left = Date.parse(wait.target.at) - nowMs;
+    if (Number.isNaN(left)) return null;
+    return left <= 0 ? "now" : "in " + formatParkedSpan(left);
+  }
+  const startedMs = Date.parse(wait.startedAt);
+  return Number.isNaN(startedMs) ? null : formatParkedSpan(Math.max(0, nowMs - startedMs));
+}
+
+/** What a landing or production wait reads as: "pechhe/yardsmith · verifying", or just its title. */
+export function parkedWaitStageSubtitle(
+  waits: ReadonlyArray<OrchestrationV2ParkedWait> | undefined,
+): string | null {
+  const wait = nextParkedWait(waits);
+  if (wait === null) return null;
+  return wait.landingStage === undefined ? wait.title : wait.title + " · " + wait.landingStage;
 }
 
 const WEEKDAY_INDEX = {

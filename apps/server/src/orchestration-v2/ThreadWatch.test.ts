@@ -35,6 +35,7 @@ import { type ForgeWorkItemSummary, type SlipJayRunnerOverview } from "@t3tools/
 import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as WeaveAgentConnections from "../weave/WeaveAgentConnections.ts";
 import * as ForgeWatchReactor from "./ForgeWatchReactor.ts";
+import * as StalledChildReactor from "./StalledChildReactor.ts";
 import * as LandingWatchReactor from "./LandingWatchReactor.ts";
 import * as SlipJayLandings from "../project/SlipJayLandings.ts";
 import type { TrackedLanding } from "../project/slipJayLandingState.ts";
@@ -675,6 +676,7 @@ it.layer(layerTest)("thread watches", (it) => {
       const reactor = yield* ThreadWatchReactor.ThreadWatchReactor;
       const lead = yield* createThread("finish-lead");
       const worker = yield* createThread("finish-worker", "Fix the login");
+      yield* seedRun(worker, { status: "running" });
       yield* watch(lead, worker);
       const [started] = yield* watchesOf(lead);
       assert.deepEqual(started?.target, { kind: "thread", threadId: worker });
@@ -682,7 +684,6 @@ it.layer(layerTest)("thread watches", (it) => {
       // The watcher waits on something outside itself, so it is not auto-settled.
       assert.equal((yield* orchestrator.getThreadShell(lead))?.standing?.state, "waiting");
 
-      yield* observe(yield* seedRun(worker, { status: "running" }));
       assert.lengthOf(yield* wakes(lead), 0);
       yield* observe(yield* seedRun(worker, { status: "completed", text: "Landed abc123." }));
 
@@ -916,6 +917,7 @@ it.layer(layerTest)("thread watches", (it) => {
         const reactor = yield* ThreadWatchReactor.ThreadWatchReactor;
         const lead = yield* createThread("moving-lead");
         const worker = yield* createThread("moving-worker", "Finish me");
+        yield* seedRun(worker, { status: "running" });
         yield* watch(lead, worker);
         const handoff = {
           handoffId: "handoff-moving",
@@ -962,6 +964,7 @@ it.layer(layerTest)("thread watches", (it) => {
         const reactor = yield* ThreadWatchReactor.ThreadWatchReactor;
         const lead = yield* createThread("move-lead");
         const worker = yield* createThread("move-worker", "Move me");
+        yield* parkOn(worker, { kind: "production", commitId: "abc1234" }, {});
         yield* watch(lead, worker);
         const environmentId = EnvironmentId.make("environment-box");
         const moved = ThreadId.make("thread:moved-worker");
@@ -1029,6 +1032,7 @@ it.layer(layerTest)("thread watches", (it) => {
     Effect.gen(function* () {
       const lead = yield* createThread("pause-lead");
       const worker = yield* createThread("pause-worker");
+      yield* seedRun(worker, { status: "running" });
       yield* watch(lead, worker);
       const command = {
         id: TurnItemId.make("turn-item:pause-tests"),
@@ -1080,63 +1084,66 @@ it.layer(layerTest)("thread watches", (it) => {
     }),
   );
 
-  it.effect("a delegated child parked on Production does not settle a thread watch until it wakes", () =>
-    Effect.gen(function* () {
-      const orchestrator = yield* Orchestrator.OrchestratorV2;
-      const eventSink = yield* EventSink.EventSinkV2;
-      const lead = yield* createThread("prod-hold-lead");
-      const worker = yield* createThread("prod-hold-worker");
-      const { thread } = yield* orchestrator.getThreadProjection(worker);
-      yield* eventSink.write({
-        commandId: CommandId.make("command:prod-hold-managed"),
-        events: [
-          {
-            id: EventId.make("event:prod-hold-managed"),
-            type: "thread.metadata-updated",
-            threadId: worker,
-            occurredAt: now,
-            payload: {
-              ...thread,
-              agentTask: {
-                role: "implementer",
-                taskClass: "non-ui",
-                workId: "prod-hold-work",
-                attemptId: "1",
-                workspacePath: "/fixture/prod-hold",
-                sourceRevision: "revision-one",
-                requestFingerprint: "a".repeat(64),
-                policyHash: "b".repeat(64),
-                policyRevision: "test",
-                briefHash: "c".repeat(64),
-                sourceAccess: "scoped-write",
-                toolProfile: "implementation",
-                requested: thread.modelSelection,
-                assigned: null,
-                effective: thread.modelSelection,
-              } as AgentTaskBinding,
+  it.effect(
+    "a delegated child parked on Production does not settle a thread watch until it wakes",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const eventSink = yield* EventSink.EventSinkV2;
+        const lead = yield* createThread("prod-hold-lead");
+        const worker = yield* createThread("prod-hold-worker");
+        yield* seedRun(worker, { status: "running" });
+        const { thread } = yield* orchestrator.getThreadProjection(worker);
+        yield* eventSink.write({
+          commandId: CommandId.make("command:prod-hold-managed"),
+          events: [
+            {
+              id: EventId.make("event:prod-hold-managed"),
+              type: "thread.metadata-updated",
+              threadId: worker,
+              occurredAt: now,
+              payload: {
+                ...thread,
+                agentTask: {
+                  role: "implementer",
+                  taskClass: "non-ui",
+                  workId: "prod-hold-work",
+                  attemptId: "1",
+                  workspacePath: "/fixture/prod-hold",
+                  sourceRevision: "revision-one",
+                  requestFingerprint: "a".repeat(64),
+                  policyHash: "b".repeat(64),
+                  policyRevision: "test",
+                  briefHash: "c".repeat(64),
+                  sourceAccess: "scoped-write",
+                  toolProfile: "implementation",
+                  requested: thread.modelSelection,
+                  assigned: null,
+                  effective: thread.modelSelection,
+                } as AgentTaskBinding,
+              },
             },
-          },
-        ],
-      });
-      yield* watch(lead, worker);
-      yield* parkOn(worker, { kind: "production", commitId: "abc1234" }, { expectedMs: DAY_MS });
-      yield* observe(yield* seedRun(worker, { status: "completed", text: "Landed; waiting." }));
-      assert.lengthOf(yield* wakes(lead), 0);
+          ],
+        });
+        yield* watch(lead, worker);
+        yield* parkOn(worker, { kind: "production", commitId: "abc1234" }, { expectedMs: DAY_MS });
+        yield* observe(yield* seedRun(worker, { status: "completed", text: "Landed; waiting." }));
+        assert.lengthOf(yield* wakes(lead), 0);
 
-      const [wait] = yield* parkedOf(worker);
-      const ended = yield* orchestrator.dispatch({
-        type: "thread.thread-watch",
-        commandId: CommandId.make("command:prod-hold-end"),
-        threadId: worker,
-        watchId: wait!.id,
-        watching: false,
-      });
-      yield* observe(ended.storedEvents);
-      yield* (yield* ThreadWatchReactor.ThreadWatchReactor).sweep;
-      const [wake, ...rest] = yield* wakes(lead);
-      assert.lengthOf(rest, 0);
-      assert.equal(wake?.notification?.outcome, "completed");
-    }),
+        const [wait] = yield* parkedOf(worker);
+        const ended = yield* orchestrator.dispatch({
+          type: "thread.thread-watch",
+          commandId: CommandId.make("command:prod-hold-end"),
+          threadId: worker,
+          watchId: wait!.id,
+          watching: false,
+        });
+        yield* observe(ended.storedEvents);
+        yield* (yield* ThreadWatchReactor.ThreadWatchReactor).sweep;
+        const [wake, ...rest] = yield* wakes(lead);
+        assert.lengthOf(rest, 0);
+        assert.equal(wake?.notification?.outcome, "completed");
+      }),
   );
 
   it.effect("does not wake for an older result while a newer run waits in a held queue", () =>
@@ -1230,6 +1237,8 @@ it.layer(layerTest)("thread watches", (it) => {
       const lead = yield* createThread("kinds-lead");
       const babysitter = yield* createThread("kinds-babysitter");
       const waiter = yield* createThread("kinds-waiter");
+      yield* seedRun(babysitter, { status: "running" });
+      yield* seedRun(waiter, { status: "running" });
       yield* watch(lead, babysitter);
       yield* watch(lead, waiter);
       const pullRequest = { host: "github.com", repository: "pingdotgg/t3code", number: 9 };
@@ -1249,7 +1258,7 @@ it.layer(layerTest)("thread watches", (it) => {
         (yield* wakes(lead)).map((wake) => wake.notification?.source),
         [{ kind: "thread", threadId: waiter }],
       );
-      // A watch on a thread that has never run waits for it.
+      // The lead still has a parked watch on the babysitter.
       assert.lengthOf(yield* wakes(waiter), 0);
 
       const unwatched = yield* orchestrator.dispatch({
@@ -1278,7 +1287,10 @@ it.layer(layerTest)("thread watches", (it) => {
       const stopped = yield* createThread("outcome-stopped", "Stopping");
       const archived = yield* createThread("outcome-archived", "Archiving");
       const deleted = yield* createThread("outcome-deleted", "Deleting");
-      for (const thread of [failed, stopped, archived, deleted]) yield* watch(lead, thread);
+      for (const thread of [failed, stopped, archived, deleted]) {
+        yield* seedRun(thread, { status: "running" });
+        yield* watch(lead, thread);
+      }
       yield* observe(yield* seedRun(failed, { status: "failed" }));
       yield* observe(yield* seedRun(stopped, { status: "interrupted", text: "Halfway." }));
       const archive = yield* orchestrator.dispatch({
@@ -1308,12 +1320,75 @@ it.layer(layerTest)("thread watches", (it) => {
     }),
   );
 
+  it.effect("immediately wakes a watch on an idle thread with no active run", () =>
+    Effect.gen(function* () {
+      const watcher = yield* createThread("idle-watcher");
+      const idle = yield* createThread("idle-target", "Nothing running");
+      yield* watch(watcher, idle);
+      assert.lengthOf(yield* watchesOf(watcher), 0);
+      assert.include((yield* wakes(watcher))[0]?.text, "idle with no active run");
+    }),
+  );
+
+  it.effect("wakes when a parked target needs a person, including on metadata updates", () =>
+    Effect.gen(function* () {
+      const engine = yield* Orchestrator.OrchestratorV2;
+      for (const kind of ["owner", "stalled", "person"] as const) {
+        const watcher = yield* createThread(`needs-person-watcher-${kind}`);
+        const target = yield* createThread(`needs-person-target-${kind}`);
+        yield* parkOn(target, { kind: "build_item", number: 1000001, until: "closed" }, {});
+        yield* watch(watcher, target);
+        assert.lengthOf(yield* wakes(watcher), 0);
+        const [wait] = yield* parkedOf(target);
+        const commandId = CommandId.make(`command:watch-needs-person:${kind}`);
+        const detail = `Attention: ${kind}`;
+        const change = yield* engine.dispatch(
+          kind === "owner"
+            ? {
+                type: "thread.thread-watch",
+                commandId,
+                threadId: target,
+                target: { kind: "owner", question: detail },
+                watching: true,
+              }
+            : kind === "stalled"
+              ? {
+                  type: "thread.stalled.set",
+                  commandId,
+                  threadId: target,
+                  stalled: {
+                    childThreadId: watcher,
+                    title: detail,
+                    since: DateTime.formatIso(now),
+                  },
+                }
+              : {
+                  type: "thread.thread-watch.waits-on-person",
+                  commandId,
+                  threadId: target,
+                  watchId: wait!.id,
+                  waitsOnPerson: { need: "unclaimed", title: detail },
+                },
+        );
+        yield* observe(change.storedEvents);
+        const [wake] = yield* wakes(watcher);
+        assert.include(wake?.text, detail);
+        assert.notInclude(wake?.text, "t3_pending_request_read");
+        assert.equal(wake?.notification?.outcome, "updated");
+        const later = yield* createThread(`already-needs-person-${kind}`);
+        yield* watch(later, target);
+        assert.include((yield* wakes(later))[0]?.text, detail);
+      }
+    }),
+  );
+
   it.effect("wakes a watcher whose target thread can no longer be read", () =>
     Effect.gen(function* () {
       const reactor = yield* ThreadWatchReactor.ThreadWatchReactor;
       const sql = yield* SqlClient.SqlClient;
       const lead = yield* createThread("gone-lead");
       const worker = yield* createThread("gone-worker", "Vanishing");
+      yield* seedRun(worker, { status: "running" });
       yield* watch(lead, worker);
       yield* reactor.sweep;
       assert.lengthOf(yield* wakes(lead), 0);
@@ -1330,6 +1405,7 @@ it.layer(layerTest)("thread watches", (it) => {
     Effect.gen(function* () {
       const lead = yield* createThread("input-lead");
       const worker = yield* createThread("input-worker", "Asking");
+      yield* parkOn(worker, { kind: "production", commitId: "abc1234" }, {});
       yield* watch(lead, worker);
       const request = (id: string, at: string, question: string) => {
         const createdAt = DateTime.makeUnsafe(at);
@@ -1409,6 +1485,7 @@ it.layer(layerTest)("thread watches", (it) => {
     Effect.gen(function* () {
       const left = yield* createThread("mutual-left");
       const right = yield* createThread("mutual-right");
+      yield* seedRun(right, { status: "running" });
       yield* watch(left, right);
       yield* watch(right, left);
       yield* observe(yield* seedRun(right, { status: "completed", text: "Right done." }));
@@ -1453,7 +1530,9 @@ it.layer(layerTest)("thread watches", (it) => {
         snoozedUntil: "2099-01-01T00:00:00.000Z",
       });
       const one = yield* createThread("many-one");
+      yield* seedRun(one, { status: "running" });
       const two = yield* createThread("many-two");
+      yield* seedRun(two, { status: "running" });
       yield* watch(first, one);
       yield* watch(second, one);
       yield* watch(first, two);
@@ -1471,6 +1550,7 @@ it.layer(layerTest)("thread watches", (it) => {
       const reactor = yield* ThreadWatchReactor.ThreadWatchReactor;
       const lead = yield* createThread("restart-lead");
       const worker = yield* createThread("restart-worker");
+      yield* seedRun(worker, { status: "running" });
       yield* watch(lead, worker);
       // Not observed: the reactor learns of it only from stored state.
       yield* seedRun(worker, { status: "completed", text: "Done offline." });
@@ -1485,6 +1565,7 @@ it.layer(layerTest)("thread watches", (it) => {
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
       const worker = yield* createThread("end-worker");
+      yield* seedRun(worker, { status: "running" });
       const endings = ["unwatch", "stop", "archive", "settle"] as const;
       for (const ending of endings) {
         const lead = yield* createThread(`end-lead-${ending}`);
@@ -1531,6 +1612,7 @@ it.layer(layerTest)("thread watches", (it) => {
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
       const worker = yield* createThread("owner-worker");
+      yield* seedRun(worker, { status: "running" });
       const question = "Keep the old column or drop it?";
       const askOwner = (threadId: ThreadId, name: string) =>
         orchestrator.dispatch({
@@ -1563,6 +1645,40 @@ it.layer(layerTest)("thread watches", (it) => {
       assert.isUndefined(answered?.ownerWait);
       assert.lengthOf(answered?.parkedWaits ?? [], 1);
 
+      for (const action of ["wake", "away", "subagent", "settle", "auto-settle"] as const) {
+        const threadId = yield* createThread(`owner-${action}`);
+        yield* askOwner(threadId, action);
+        const commandId = CommandId.make(`command:owner-cleared:${action}`);
+        if (action === "settle") {
+          yield* orchestrator.dispatch({ type: "thread.settle", commandId, threadId });
+        } else if (action === "auto-settle") {
+          yield* orchestrator.dispatch({
+            type: "thread.auto-settle",
+            commandId,
+            threadId,
+            snapshotAt: yield* DateTime.now,
+          });
+        } else {
+          yield* orchestrator.dispatch({
+            type: "message.dispatch",
+            commandId,
+            threadId,
+            messageId: MessageId.make(`message:owner-cleared:${action}`),
+            createdBy: "agent",
+            creationSource: "server",
+            text: "The work can continue.",
+            attachments: [],
+            dispatchMode: { type: "queue_after_active" },
+            ...(action === "subagent"
+              ? { senderThreadId: worker }
+              : {
+                  notification: { source: { kind: "system" }, outcome: "updated", summary: action },
+                }),
+          });
+        }
+        assert.isUndefined((yield* orchestrator.getThreadShell(threadId))?.ownerWait, action);
+      }
+
       const deleted = yield* createThread("owner-deleted");
       yield* askOwner(deleted, "deleted");
       yield* orchestrator.dispatch({
@@ -1582,6 +1698,7 @@ it.layer(layerTest)("thread watches", (it) => {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
       const lead = yield* createThread("queued-lead");
       const worker = yield* createThread("queued-worker");
+      yield* seedRun(worker, { status: "running" });
       yield* seedBusyThread(lead);
       yield* watch(lead, worker);
       yield* observe(yield* seedRun(worker, { status: "completed", text: "Done." }));
@@ -1602,6 +1719,7 @@ it.layer(layerTest)("thread watches", (it) => {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
       const lead = yield* createThread("settle-stops-lead");
       const worker = yield* createThread("settle-stops-worker", "Sleeper");
+      yield* seedRun(worker, { status: "running" });
       yield* watch(lead, worker);
       yield* observe(yield* seedBackgroundCommand(worker));
       assert.lengthOf(yield* wakes(lead), 0);
@@ -1869,6 +1987,52 @@ it.layer(layerTest)("thread watches", (it) => {
       assert.equal((yield* wakeRun())?.status, "cancelled");
     }),
   );
+  it.effect("surfaces Forge Inbox and Shaping without treating either as unblocked", () =>
+    Effect.gen(function* () {
+      const h = yield* makeForgeHarness;
+      const watcher = yield* createThread("build-owner-transition");
+      const engine = yield* Orchestrator.OrchestratorV2;
+      yield* h.start(watcher, "unblocked");
+      for (const [status, need] of [
+        ["inbox", "triage"],
+        ["shaping", "shaping"],
+      ] as const) {
+        h.state.item = { ...h.state.item, status, waits: [] };
+        yield* TestClock.adjust("1 minute");
+        yield* h.reactor.sweep;
+        assert.equal(
+          (yield* engine.getThreadShell(watcher))?.standing?.reason,
+          "wait_target_blocked",
+        );
+        assert.equal((yield* watchesOf(watcher))[0]?.waitsOnPerson?.need, need);
+        assert.lengthOf(yield* h.messages(watcher), 0);
+      }
+      h.state.item = { ...h.state.item, status: "ready", waits: [] };
+      yield* TestClock.adjust("1 minute");
+      yield* h.reactor.sweep;
+      assert.lengthOf(yield* h.messages(watcher), 1);
+    }),
+  );
+
+  it.effect("a closed watch needs the owner to claim a ready Forge item", () =>
+    Effect.gen(function* () {
+      const h = yield* makeForgeHarness;
+      const watcher = yield* createThread("build-ready-closed");
+      const engine = yield* Orchestrator.OrchestratorV2;
+      h.state.item = { ...h.state.item, status: "ready", waits: [] };
+      yield* h.start(watcher, "closed");
+      yield* h.reactor.sweep;
+      assert.equal((yield* watchesOf(watcher))[0]?.waitsOnPerson?.need, "unclaimed");
+      assert.equal((yield* engine.getThreadShell(watcher))?.standing?.state, "needs_you");
+      h.state.item = { ...h.state.item, status: "in_progress" };
+      yield* TestClock.adjust("1 minute");
+      yield* h.reactor.sweep;
+      assert.isUndefined((yield* watchesOf(watcher))[0]?.waitsOnPerson);
+      assert.equal((yield* engine.getThreadShell(watcher))?.standing?.state, "waiting");
+      assert.lengthOf(yield* h.messages(watcher), 0);
+    }),
+  );
+
   it.effect("one unreachable Build item does not hold back another watch on the same thread", () =>
     Effect.gen(function* () {
       const h = yield* makeForgeHarness;
@@ -2865,11 +3029,253 @@ const createProjectThread = (projectId: ProjectId, name: string) =>
   });
 
 it.layer(layerTest)("parked waits", (it) => {
+  it.effect("flags an expected wait once, then visit updates both shell paths", () =>
+    Effect.gen(function* () {
+      const engine = yield* Orchestrator.OrchestratorV2;
+      const reactor = yield* ThreadWatchReactor.ThreadWatchReactor;
+      const thread = yield* createThread("expected-wait");
+      yield* parkOn(
+        thread,
+        { kind: "landing", operationId: "op_expected" },
+        { expectedMs: HOUR_MS },
+      );
+      const [wait] = yield* parkedOf(thread);
+      assert.isUndefined(wait?.overdueAt);
+      const overdue = yield* engine.streamDomainEvents.pipe(
+        Stream.filter(
+          (event) =>
+            event.threadId === thread &&
+            event.type === "thread.metadata-updated" &&
+            event.payload.parkedWaits?.[0]?.overdueAt !== undefined,
+        ),
+        Stream.take(1),
+        Stream.runDrain,
+        Effect.forkScoped,
+      );
+      yield* reactor.sweep;
+      yield* TestClock.adjust("1 hour");
+      yield* Fiber.join(overdue);
+      const [flagged] = yield* parkedOf(thread);
+      assert.equal((yield* engine.getThreadShell(thread))?.standing?.reason, "check_wait");
+      const status = {
+        type: "thread.thread-watch.update-status",
+        threadId: thread,
+        watchId: wait!.id,
+        overdueAt: flagged!.overdueAt!,
+        landingStage: "verifying",
+      } as const;
+      const first = yield* engine.dispatch({
+        ...status,
+        commandId: CommandId.make("command:wait-stage-first"),
+      });
+      const repeat = yield* engine.dispatch({
+        ...status,
+        commandId: CommandId.make("command:wait-stage-repeat"),
+      });
+      assert.lengthOf(first.storedEvents, 1);
+      assert.lengthOf(repeat.storedEvents, 0);
+      assert.equal((yield* parkedOf(thread))[0]?.landingStage, "verifying");
+      yield* engine.dispatch({
+        type: "thread.visit",
+        commandId: CommandId.make("command:visit-expected-wait"),
+        threadId: thread,
+        visitedAt: DateTime.formatIso(yield* DateTime.now),
+      });
+      const memory = ProjectionStore.threadShellFromProjection(
+        yield* engine.getThreadProjection(thread),
+      );
+      assert.equal(memory.standing?.state, "waiting");
+      assert.deepEqual((yield* engine.getThreadShell(thread))?.standing, memory.standing);
+    }),
+  );
+
+  it.effect("visiting a failed turn acknowledges the failure in both shell paths", () =>
+    Effect.gen(function* () {
+      const engine = yield* Orchestrator.OrchestratorV2;
+      const thread = yield* createThread("visit-failure");
+      yield* seedRun(thread, { status: "failed" });
+      assert.equal((yield* engine.getThreadShell(thread))?.standing?.reason, "failed");
+      yield* engine.dispatch({
+        type: "thread.visit",
+        commandId: CommandId.make("command:visit-failure"),
+        threadId: thread,
+        visitedAt: DateTime.formatIso(now),
+      });
+      const memory = ProjectionStore.threadShellFromProjection(
+        yield* engine.getThreadProjection(thread),
+      );
+      assert.equal(memory.standing?.state, "finished");
+      assert.deepEqual((yield* engine.getThreadShell(thread))?.standing, memory.standing);
+    }),
+  );
+
+  it.effect("Production approval changes update the parked wait even without a deploy", () =>
+    Effect.gen(function* () {
+      const engine = yield* Orchestrator.OrchestratorV2;
+      const h = yield* makeProductionHarness;
+      const thread = yield* createThread("release-approval-wait");
+      yield* parkOn(thread, { kind: "production", commitId: "abcdef123" }, {});
+      const current = serving(null);
+      const entry = current.repositories[0]!;
+      h.runner.current = {
+        ...current,
+        repositories: [
+          {
+            ...entry,
+            release: { ...entry.release!, waitingOn: { kind: "approval", detail: null } },
+          },
+        ],
+      };
+      yield* h.reactor.sweep;
+      assert.equal((yield* engine.getThreadShell(thread))?.standing?.reason, "release");
+      assert.deepEqual((yield* parkedOf(thread))[0]?.waitsOnPerson, {
+        need: "release_approval",
+        title: "pechhe/t3code",
+      });
+      h.runner.current = current;
+      yield* h.reactor.sweep;
+      assert.isUndefined((yield* parkedOf(thread))[0]?.waitsOnPerson);
+    }),
+  );
+
+  it.effect(
+    "surfaces orphaned completion deliveries after two minutes and clears on resolution",
+    () =>
+      Effect.gen(function* () {
+        const engine = yield* Orchestrator.OrchestratorV2;
+        const sink = yield* EventSink.EventSinkV2;
+        const reactor = yield* Effect.service(StalledChildReactor.StalledChildReactor).pipe(
+          Effect.provide(StalledChildReactor.layer.pipe(Layer.provide(ProjectionStore.layer))),
+        );
+        for (const delivery of ["pending", "claimed"] as const) {
+          const parent = yield* createThread(`watchdog-${delivery}`);
+          const child = yield* createThread(`watchdog-child-${delivery}`, "Child");
+          const started = yield* DateTime.now;
+          yield* seedRun(parent, { status: "completed" });
+          const runId = run(parent, 1, "completed").id;
+          const nodeId = NodeId.make(`node:watchdog-${delivery}`);
+          const write = (state: typeof delivery | "acknowledged" | "running") =>
+            sink.write({
+              commandId: CommandId.make(`command:delivery-${delivery}-${state}`),
+              events: [
+                {
+                  id: EventId.make(`event:delivery-${delivery}-${state}`),
+                  type: "subagent.updated",
+                  threadId: parent,
+                  providerInstanceId: modelSelection.instanceId,
+                  driver,
+                  occurredAt: started,
+                  payload: {
+                    id: nodeId,
+                    threadId: parent,
+                    runId,
+                    parentNodeId: rootNodeId,
+                    origin: "app_owned",
+                    createdBy: "agent",
+                    driver,
+                    providerInstanceId: modelSelection.instanceId,
+                    providerThreadId: null,
+                    childThreadId: child,
+                    nativeTaskRef: null,
+                    prompt: "Finish",
+                    title: "Child",
+                    model: null,
+                    status: state === "running" ? "running" : "cancelled",
+                    result: null,
+                    startedAt: started,
+                    completedAt: state === "running" ? null : started,
+                    updatedAt: started,
+                    ...(state === "running"
+                      ? {}
+                      : { completionDelivery: { state, observedByRunId: null } }),
+                  },
+                },
+              ],
+            });
+          if (delivery === "pending") {
+            const roster = (waiting: boolean) =>
+              sink.write({
+                commandId: CommandId.make(`command:child-wait-roster:${waiting}`),
+                events: [
+                  {
+                    id: EventId.make(`event:child-wait-roster:${waiting}`),
+                    type: "provider-thread.updated",
+                    threadId: parent,
+                    driver,
+                    providerInstanceId: modelSelection.instanceId,
+                    occurredAt: started,
+                    payload: {
+                      id: ProviderThreadId.make("provider-thread:child-wait-roster"),
+                      driver,
+                      providerInstanceId: modelSelection.instanceId,
+                      providerSessionId: null,
+                      appThreadId: parent,
+                      ownerNodeId: null,
+                      nativeThreadRef: null,
+                      nativeConversationHeadRef: null,
+                      status: "active",
+                      firstRunOrdinal: 1,
+                      lastRunOrdinal: 1,
+                      handoffIds: [],
+                      forkedFrom: null,
+                      createdAt: started,
+                      updatedAt: started,
+                      pendingBackgroundTasks: waiting
+                        ? [{ kind: "subagent", taskId: nodeId, childThreadId: child }]
+                        : [],
+                    },
+                  },
+                ],
+              });
+            yield* roster(true);
+            yield* write("running");
+            yield* parkOn(child, { kind: "landing", operationId: "op_child_landing" }, {});
+            const parentStanding = () =>
+              engine.getThreadShell(parent).pipe(Effect.map((shell) => shell?.standing));
+            assert.equal((yield* parentStanding())?.waitCategory, "landing");
+            const projection = yield* engine.getThreadProjection(parent);
+            const waiting = new Set([child]);
+            assert.deepEqual(
+              ProjectionStore.threadShellFromProjection(projection, {
+                waitingChildThreadIds: waiting,
+                waitingChildLandingThreadIds: waiting,
+              }).standing,
+              yield* parentStanding(),
+            );
+            const at = DateTime.formatIso(DateTime.add(started, { hours: 1 }));
+            yield* parkOn(child, { kind: "time", at }, {});
+            assert.equal((yield* parentStanding())?.waitCategory, "waiting");
+            assert.deepEqual(
+              ProjectionStore.threadShellFromProjection(projection, {
+                waitingChildThreadIds: waiting,
+                waitingChildLandingThreadIds: new Set(),
+              }).standing,
+              yield* parentStanding(),
+            );
+            yield* roster(false);
+          }
+          yield* write(delivery);
+          yield* reactor.sweep;
+          assert.equal((yield* engine.getThreadShell(parent))?.standing?.state, "working");
+          yield* TestClock.adjust("2 minutes");
+          yield* reactor.sweep;
+          const stalled = (yield* engine.getThreadShell(parent))?.standing;
+          assert.equal(stalled?.state, "stalled");
+          assert.equal(stalled?.stalled?.childThreadId, child);
+          assert.equal(stalled?.stalled?.title, "Delivery stalled · Child");
+          yield* write("acknowledged");
+          yield* reactor.sweep;
+          assert.equal((yield* engine.getThreadShell(parent))?.standing?.state, "finished");
+        }
+      }),
+  );
+
   it.effect("a waiting thread holds no background work and wakes on its thread target", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
       const lead = yield* createThread("park-thread-lead");
       const worker = yield* createThread("park-thread-worker", "Fix the login");
+      yield* seedRun(worker, { status: "running" });
       yield* seedRun(lead, { status: "completed", text: "Parked on the worker." });
       yield* parkOn(
         lead,
@@ -2992,7 +3398,9 @@ it.layer(layerTest)("parked waits", (it) => {
         (yield* parkedOf(thread))[0]?.lastKnown,
         "Landing op_slow was still running, at verifying.",
       );
+      assert.equal((yield* parkedOf(thread))[0]?.landingStage, "verifying");
 
+      yield* seedBusyThread(thread);
       const woken = yield* awaitParkedWake(thread);
       yield* TestClock.adjust("23 hours");
       yield* TestClock.adjust("24 hours");
@@ -3021,7 +3429,62 @@ it.layer(layerTest)("parked waits", (it) => {
       yield* TestClock.adjust("2 days");
       assert.lengthOf(yield* parkedWakes(thread), 1);
 
-      // The owner's next message clears the flag.
+      const readWakeRun = () =>
+        orchestrator
+          .getThreadRecords(thread, ["runs"])
+          .pipe(Effect.map(({ runs }) => runs.find((run) => run.userMessageId === wake?.id)!));
+      assert.equal((yield* readWakeRun()).status, "queued");
+      const priorRun = (yield* orchestrator.getThreadRecords(thread, ["runs"])).runs.find(
+        (run) => run.ordinal === 1,
+      )!;
+      yield* (yield* EventSink.EventSinkV2).write({
+        commandId: CommandId.make("command:give-up-prior-run-finished"),
+        events: [
+          {
+            id: EventId.make("event:give-up-prior-run-finished"),
+            type: "run.updated",
+            threadId: thread,
+            runId: priorRun.id,
+            occurredAt: yield* DateTime.now,
+            payload: { ...priorRun, status: "completed", completedAt: yield* DateTime.now },
+          },
+        ],
+      });
+      yield* orchestrator.dispatch({
+        type: "queue.resume",
+        commandId: CommandId.make("command:give-up-start-queued"),
+        threadId: thread,
+      });
+      const wakeRun = yield* readWakeRun();
+      assert.equal(wakeRun.status, "starting");
+      assert.isDefined((yield* orchestrator.getThreadShell(thread))?.parkedWaitGaveUp);
+      yield* (yield* EventSink.EventSinkV2).write({
+        commandId: CommandId.make("command:give-up-wake-finished"),
+        events: [
+          {
+            id: EventId.make("event:give-up-wake-finished"),
+            type: "run.updated",
+            threadId: thread,
+            runId: wakeRun.id,
+            occurredAt: yield* DateTime.now,
+            payload: { ...wakeRun, status: "completed", completedAt: yield* DateTime.now },
+          },
+        ],
+      });
+      assert.equal((yield* orchestrator.getThreadShell(thread))?.standing?.reason, "wait_gave_up");
+      yield* orchestrator.dispatch({
+        type: "thread.visit",
+        commandId: CommandId.make("command:visit-give-up"),
+        threadId: thread,
+        visitedAt: DateTime.formatIso(yield* DateTime.now),
+      });
+      const memory = ProjectionStore.threadShellFromProjection(
+        yield* orchestrator.getThreadProjection(thread),
+      );
+      assert.equal(memory.standing?.state, "finished");
+      assert.deepEqual((yield* orchestrator.getThreadShell(thread))?.standing, memory.standing);
+
+      // The owner can also clear the persisted marker by replying.
       yield* orchestrator.dispatch({
         type: "message.dispatch",
         createdBy: "user",
@@ -3137,6 +3600,7 @@ it.layer(layerTest)("parked waits", (it) => {
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
       const worker = yield* createThread("park-settle-worker");
+      yield* seedRun(worker, { status: "running" });
       for (const settle of ["hand", "auto"] as const) {
         const thread = yield* createThread(`park-settle-${settle}`);
         yield* seedRun(thread, { status: "completed", text: "Parked." });

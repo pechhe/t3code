@@ -452,7 +452,81 @@ it("a shipped client decodes a stalled thread and one that waits on the owner as
       waitsOnPerson: { kind: "build_item", number: 7, title: "Ship it", need: "acceptance" },
     },
   };
-  for (const wire of [stalledWire, waitingOnOwnerWire]) {
+  const checkWaitWire = {
+    id: "thread-check-wait",
+    title: "Telemetry check",
+    status: "completed",
+    parkedWaits: [
+      {
+        id: "wait:long",
+        title: "Check call drops",
+        startedAt: "2026-11-10T09:00:00.000Z",
+        target: { kind: "time", at: "2026-11-10T15:00:00.000Z" },
+        overdueAt: "2026-11-10T10:00:00.000Z",
+      },
+    ],
+    standing: {
+      state: "needs_you",
+      reason: "check_wait",
+      waitReview: {
+        waitId: "wait:long",
+        title: "Check call drops",
+        kind: "time",
+        startedAt: "2026-11-10T09:00:00.000Z",
+        flaggedAt: "2026-11-10T09:00:00.000Z",
+        endsAt: "2026-11-10T15:00:00.000Z",
+        reason: "long_wait",
+      },
+    },
+  };
+  const landingWire = {
+    id: "thread-landing",
+    title: "Landing search fix",
+    status: "completed",
+    parkedWaits: [
+      {
+        id: "wait:landing",
+        title: "pechhe/yardsmith",
+        startedAt: "2026-11-10T09:00:00.000Z",
+        target: { kind: "landing", operationId: "op_123" },
+        landingStage: "verifying",
+      },
+    ],
+    standing: {
+      state: "waiting",
+      waitCategory: "landing",
+    },
+  };
+  const releaseWaitWire = {
+    id: "thread-release",
+    title: "Release check",
+    status: "completed",
+    parkedWaits: [
+      {
+        id: "wait:prod",
+        title: "pechhe/yardsmith",
+        startedAt: "2026-11-10T09:00:00.000Z",
+        target: { kind: "production", commitId: "abc1234" },
+        waitsOnPerson: { need: "release_approval", title: "pechhe/yardsmith" },
+      },
+    ],
+    standing: {
+      state: "needs_you",
+      reason: "release",
+      waitsOnPerson: {
+        kind: "production",
+        title: "pechhe/yardsmith",
+        need: "release_approval",
+      },
+    },
+  };
+  for (const wire of [
+    stalledWire,
+    waitingOnOwnerWire,
+    checkWaitWire,
+    landingWire,
+    releaseWaitWire,
+  ]) {
     const decoded = Schema.decodeUnknownSync(shippedShell)(wire);
     assert.equal(decoded.status, "completed");
     assert.notProperty(decoded, "standing");

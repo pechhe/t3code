@@ -1,7 +1,7 @@
 // @effect-diagnostics globalTimers:off - Shelf placement timers run in web and native clients, outside an Effect runtime.
 import { threadRuntimeIsActive, type EnvironmentThreadShell } from "./models.ts";
 import { toSortableTimestamp } from "./threadSort.ts";
-import { effectiveSnoozed } from "./threadSettled.ts";
+import { effectiveSnoozed, parkedWaitsEndAt } from "./threadSettled.ts";
 
 type WorkingThreadInput = Pick<
   EnvironmentThreadShell,
@@ -15,14 +15,65 @@ type WorkingThreadInput = Pick<
   | "standing"
 >;
 
-/** The server's standing decides where it exists; only an older server leaves it out. */
+/**
+ * The server's standing decides where it exists; only an older server leaves it out.
+ * Working holds every thread the agent still owns: running, waiting and landing.
+ */
 export function isThreadWorking(thread: WorkingThreadInput): boolean {
   if (thread.standing !== undefined) {
     // Standing cannot see a question below the thread, or any request in a linked environment.
     if (thread.pendingSubagentRequest != null) return false;
-    return thread.standing.state === "working";
+    return thread.standing.state === "working" || thread.standing.state === "waiting";
   }
   return threadRuntimeIsWorking(thread);
+}
+
+export type WorkingThreadTier = "running" | "waiting" | "landing";
+
+type WorkingTierInput = Pick<EnvironmentThreadShell, "standing" | "parkedWaits">;
+
+const isLandingTarget = (wait: NonNullable<WorkingTierInput["parkedWaits"]>[number]) =>
+  wait.target.kind === "landing" || wait.target.kind === "production";
+
+/** Where a Working thread sits: running, waiting on something outside, or landing and releasing. */
+export function resolveWorkingThreadTier(thread: WorkingTierInput): WorkingThreadTier {
+  const standing = thread.standing;
+  if (standing?.state !== "waiting") return "running";
+  if (standing.waitCategory === "landing") return "landing";
+  if (standing.waitCategory === undefined) {
+    const waits = thread.parkedWaits ?? [];
+    if (waits.length > 0 && waits.every(isLandingTarget)) return "landing";
+  }
+  return "waiting";
+}
+
+const WORKING_TIER_RANK: Record<WorkingThreadTier, number> = { running: 0, waiting: 1, landing: 2 };
+
+/**
+ * Working shelf order: running by newest send, then waiting and landing, each by the wait that
+ * ends first (waits without an end after those with one), ties by newest send.
+ */
+export function sortWorkingShelfThreads<T extends WorkingSortInput & WorkingTierInput>(
+  threads: readonly T[],
+): T[] {
+  const bySend = sortWorkingThreadsBySend(threads);
+  const sendRank = new Map(bySend.map((thread, index) => [thread, index]));
+  const endsAt = (thread: T) => {
+    const at = parkedWaitsEndAt(thread.parkedWaits);
+    const ms = at === null ? Number.NaN : Date.parse(at);
+    return Number.isNaN(ms) ? Number.POSITIVE_INFINITY : ms;
+  };
+  return [...threads].sort((left, right) => {
+    const tier = WORKING_TIER_RANK[resolveWorkingThreadTier(left)];
+    const otherTier = WORKING_TIER_RANK[resolveWorkingThreadTier(right)];
+    if (tier !== otherTier) return tier - otherTier;
+    if (tier > 0) {
+      const ends = endsAt(left);
+      const otherEnds = endsAt(right);
+      if (ends !== otherEnds) return ends < otherEnds ? -1 : 1;
+    }
+    return sendRank.get(left)! - sendRank.get(right)!;
+  });
 }
 
 function threadRuntimeIsWorking(thread: WorkingThreadInput): boolean {
@@ -252,8 +303,7 @@ export function createInboxReturnTracker() {
           thread.deletedAt != null ||
           thread.pinnedAt != null ||
           thread.settledOverride === "settled" ||
-          effectiveSnoozed(thread, { now: observedAt }) ||
-          thread.standing?.state === "waiting";
+          effectiveSnoozed(thread, { now: observedAt });
         // Only shelf placement is held: execution state and attention requests stay authoritative.
         const endedAt = toSortableTimestamp(thread.latestRun?.completedAt ?? undefined);
         const endedLongAgo = endedAt !== null && endedAt <= at - STALE_EXIT_MS;

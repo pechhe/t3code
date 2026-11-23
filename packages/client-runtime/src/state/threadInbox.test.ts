@@ -4,7 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import {
   createInboxReturnTracker,
   isThreadWorking,
+  resolveWorkingThreadTier,
   sortInboxThreadsByReturn,
+  sortWorkingShelfThreads,
   sortWorkingThreadsBySend,
 } from "./threadInbox.ts";
 
@@ -37,7 +39,7 @@ function thread(id: string, working: boolean) {
 describe("isThreadWorking", () => {
   it.each([
     ["working", true],
-    ["waiting", false],
+    ["waiting", true],
     ["stalled", false],
     ["needs_you", false],
     ["finished", false],
@@ -166,7 +168,6 @@ describe("createInboxReturnTracker", () => {
     { snoozedUntil: "2026-06-02T00:00:00Z" },
     { activeOrderKey: "manual-order" },
     { standing: { state: "needs_you" as const } },
-    { standing: { state: "waiting" as const } },
   ])("ends a grace immediately for attention or manual placement: %j", (change) => {
     const tracker = createInboxReturnTracker();
     tracker.observe([thread("a", true)]);
@@ -297,5 +298,50 @@ describe("sortWorkingThreadsBySend", () => {
     expect(
       sortWorkingThreadsBySend([launched, sentFirst, sentLast]).map((thread) => thread.id),
     ).toEqual(["sent-last", "sent-first", "launched"]);
+  });
+});
+
+describe("Working tiers", () => {
+  const wait = (kind: "time" | "landing" | "production", at = "2026-06-02T00:00:00.000Z") =>
+    ({
+      id: "w-" + kind,
+      title: kind,
+      startedAt: "2026-06-01T00:00:00.000Z",
+      target:
+        kind === "time" ? { kind, at } : kind === "landing" ? { kind, landingId: "l" } : { kind },
+    }) as never;
+  const waiting = (
+    id: string,
+    waitCategory: "waiting" | "landing",
+    parkedWaits: ReadonlyArray<never>,
+    sentAt = "2026-06-01T00:00:00.000Z",
+  ) => ({
+    ...thread(id, false),
+    latestUserAuthoredMessageAt: sentAt,
+    standing: { state: "waiting" as const, waitCategory },
+    parkedWaits,
+  });
+
+  it("tiers a thread by its standing, falling back on its waits", () => {
+    expect(resolveWorkingThreadTier({ standing: { state: "working" } })).toBe("running");
+    expect(resolveWorkingThreadTier({})).toBe("running");
+    expect(resolveWorkingThreadTier(waiting("a", "waiting", [wait("time")]))).toBe("waiting");
+    expect(resolveWorkingThreadTier(waiting("a", "landing", [wait("landing")]))).toBe("landing");
+    expect(
+      resolveWorkingThreadTier({
+        standing: { state: "waiting" },
+        parkedWaits: [wait("landing"), wait("production")],
+      }),
+    ).toBe("landing");
+  });
+
+  it("orders running, then waiting by soonest end, then landing", () => {
+    const running = { ...thread("running", true), standing: { state: "working" as const } };
+    const later = waiting("later", "waiting", [wait("time", "2026-06-03T00:00:00.000Z")]);
+    const sooner = waiting("sooner", "waiting", [wait("time", "2026-06-02T00:00:00.000Z")]);
+    const landing = waiting("landing", "landing", [wait("landing")]);
+    expect(
+      sortWorkingShelfThreads([landing, later, sooner, running]).map((thread) => thread.id),
+    ).toEqual(["running", "sooner", "later", "landing"]);
   });
 });

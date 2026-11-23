@@ -6,6 +6,7 @@ import { resolveThreadWorkingStartedAt } from "@t3tools/client-runtime/state/mod
 import { isShownUnderParent } from "@t3tools/client-runtime/state/threads";
 import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { threadPullRequestSearchTerms } from "@t3tools/shared/threadPullRequests";
+import { isVisitedSince } from "@t3tools/shared/threadStanding";
 import * as React from "react";
 import { msg } from "gt-react";
 import { m, type MessageResolver } from "../i18n/messages";
@@ -31,6 +32,7 @@ import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/c
 import type { AsyncResult } from "effect/reactivity";
 import {
   effectiveSnoozed,
+  formatParkedSpan,
   hasUnseenRunFailure,
   snoozeShelfEndsAt,
   type ThreadSnoozeShell,
@@ -200,12 +202,10 @@ export function resolveSidebarThreadSection(input: {
   readonly snoozed: boolean;
   readonly settled: boolean;
   readonly pinned: boolean;
-  readonly waiting?: boolean;
 }): SidebarSection {
   if (input.snoozed) return "snoozed";
   if (input.settled) return "settled";
   if (input.pinned) return "pinned";
-  if (input.waiting) return "snoozed";
   return "active";
 }
 
@@ -658,6 +658,9 @@ export interface ThreadStatusPill {
     | "Stalled"
     | "Needs you"
     | "Wait gave up"
+    | "Check wait"
+    | "Landing"
+    | "Releasing"
     | "Done";
   /** What a Needs you pill waits on, such as "accept T3-12". */
   detail?: string;
@@ -677,6 +680,7 @@ type ThreadStatusInput = Pick<
   | "latestRun"
   | "runtime"
   | "standing"
+  | "parkedWaits"
   | "parkedWaitGaveUp"
 > & {
   readOnCompletionRunId?: SidebarThreadSummary["readOnCompletionRunId"];
@@ -794,6 +798,16 @@ export function resolveThreadLastVisitedAt(
   // servers.
   if (serverLastVisitedAt === undefined) return localLastVisitedAt;
   return serverLastVisitedAt ?? undefined;
+}
+
+/** The later of the server's and this client's visit: a click clears a flag before the server's visit lands. */
+export function latestThreadVisit(
+  serverLastVisitedAt: string | null | undefined,
+  localLastVisitedAt: string | undefined,
+): string | undefined {
+  const server = serverLastVisitedAt ?? undefined;
+  if (server === undefined || localLastVisitedAt === undefined) return server ?? localLastVisitedAt;
+  return Date.parse(localLastVisitedAt) > Date.parse(server) ? localLastVisitedAt : server;
 }
 
 export function hasUnseenCompletion(thread: ThreadStatusInput): boolean {
@@ -1218,20 +1232,74 @@ export function threadQuestionSubtitle(
   );
 }
 
-/** What the server's standing adds to a row whose own status is quiet: one rule for every row. */
+/**
+ * What the server's standing adds to a row whose own status is quiet: one rule for every row.
+ * `lastVisitedAt` clears a flag the owner has already opened, before the server's visit lands.
+ */
 export function threadStandingAttention(
   standing: ThreadStatusInput["standing"],
   parkedWaitGaveUp?: ThreadStatusInput["parkedWaitGaveUp"],
-): "needs_you" | "gave_up" | "stalled" | null {
+  lastVisitedAt?: string | null,
+): "needs_you" | "gave_up" | "check_wait" | "stalled" | null {
   if (
     standing?.state === "needs_you" &&
-    (standing.question !== undefined || standing.waitsOnPerson?.need === "acceptance")
+    (standing.question !== undefined || standing.waitsOnPerson !== undefined)
   )
     return "needs_you";
-  // A wait that gave up is the owner's to look at, whatever the server's standing says.
-  if (parkedWaitGaveUp !== undefined) return "gave_up";
-  if (standing?.state === "needs_you") return null;
+  // A wait that gave up is the owner's to look at until they open the thread.
+  if (parkedWaitGaveUp !== undefined && !isVisitedSince(lastVisitedAt, parkedWaitGaveUp.at)) {
+    return "gave_up";
+  }
+  if (standing?.state === "needs_you") {
+    const review = standing.reason === "check_wait" ? standing.waitReview : undefined;
+    return review !== undefined && !isVisitedSince(lastVisitedAt, review.flaggedAt)
+      ? "check_wait"
+      : null;
+  }
   return standing?.state === "stalled" ? "stalled" : null;
+}
+
+/** Whether every own wait is a production wait; a thread with none (a child's landing) is Landing. */
+export function isReleasingWaits(waits: SidebarThreadSummary["parkedWaits"]): boolean {
+  return (
+    waits !== undefined &&
+    waits.length > 0 &&
+    waits.every((wait) => wait.target.kind === "production")
+  );
+}
+
+/** What a Needs you standing waits on, such as "accept T3-12" or "release". */
+export function waitsOnPersonDetail(
+  waits: NonNullable<NonNullable<ThreadStatusInput["standing"]>["waitsOnPerson"]>,
+): string {
+  if (waits.kind === "production") return msg("release");
+  const ref = waits.ref ?? `#${waits.number}`;
+  switch (waits.need) {
+    case "acceptance":
+      return msg("accept {ref}", { ref });
+    case "triage":
+      return msg("triage {ref}", { ref });
+    case "shaping":
+      return msg("shape {ref}", { ref });
+    case "unclaimed":
+      return msg("start {ref}", { ref });
+    default:
+      return ref;
+  }
+}
+
+/** "6h wait · Deploy window" for a long wait, "Overdue · Deploy window" for one past its due time. */
+export function waitReviewDetail(
+  review: NonNullable<NonNullable<ThreadStatusInput["standing"]>["waitReview"]>,
+): string {
+  if (review.reason === "overdue") return msg("Overdue · {title}", { title: review.title });
+  const endsMs = review.endsAt === undefined ? Number.NaN : Date.parse(review.endsAt);
+  const span = Number.isNaN(endsMs)
+    ? null
+    : formatParkedSpan(endsMs - Date.parse(review.startedAt));
+  return span === null
+    ? msg("Long wait · {title}", { title: review.title })
+    : msg("{span} wait · {title}", { span, title: review.title });
 }
 
 export function resolveThreadStatusPill(input: {
@@ -1240,6 +1308,7 @@ export function resolveThreadStatusPill(input: {
   const { thread } = input;
   const base = resolveRuntimeThreadStatusPill(thread);
   const standing = thread.standing;
+  const lastVisitedAt = thread.lastVisitedAt;
   if (standing === undefined && thread.parkedWaitGaveUp === undefined) return base;
   // Standing fills the gaps only: an approval, question or failure pill is already more specific.
   const quiet =
@@ -1249,8 +1318,17 @@ export function resolveThreadStatusPill(input: {
     (thread.parkedWaitGaveUp !== undefined && base.label === msg("Done"));
   const attention =
     quiet || standing?.question !== undefined
-      ? threadStandingAttention(standing, thread.parkedWaitGaveUp)
+      ? threadStandingAttention(standing, thread.parkedWaitGaveUp, lastVisitedAt)
       : null;
+  if (attention === "check_wait" && standing?.waitReview !== undefined) {
+    return {
+      label: msg("Check wait"),
+      detail: waitReviewDetail(standing.waitReview),
+      colorClass: "text-warning-foreground",
+      dotClass: "border border-current",
+      pulse: false,
+    };
+  }
   if (attention === "gave_up") {
     return {
       label: msg("Wait gave up"),
@@ -1262,10 +1340,9 @@ export function resolveThreadStatusPill(input: {
   if (standing === undefined) return base;
   if (attention === "needs_you") {
     const waits = standing.waitsOnPerson;
-    const ref = waits?.ref ?? (waits === undefined ? "" : `#${waits.number}`);
     return {
       label: msg("Needs you"),
-      ...(waits === undefined ? {} : { detail: msg("accept {ref}", { ref }) }),
+      ...(waits === undefined ? {} : { detail: waitsOnPersonDetail(waits) }),
       colorClass: "text-accent-foreground font-semibold",
       dotClass: "bg-current",
       pulse: false,
@@ -1280,8 +1357,22 @@ export function resolveThreadStatusPill(input: {
     };
   }
   if (standing.state === "waiting") {
+    const landing = standing.waitCategory === "landing";
+    const releasing = landing && isReleasingWaits(thread.parkedWaits);
     return {
-      label: msg("Waiting"),
+      label: releasing ? msg("Releasing") : landing ? msg("Landing") : msg("Waiting"),
+      colorClass: "text-sidebar-muted-foreground",
+      dotClass: "bg-sidebar-muted-foreground",
+      pulse: false,
+    };
+  }
+  if (
+    standing.state === "finished" &&
+    thread.latestRun?.status === "failed" &&
+    (base === null || base.label === msg("Done"))
+  ) {
+    return {
+      label: msg("Failed"),
       colorClass: "text-sidebar-muted-foreground",
       dotClass: "bg-sidebar-muted-foreground",
       pulse: false,

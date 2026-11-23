@@ -1,6 +1,6 @@
 import type { OrchestrationV2ThreadStalled, ThreadId } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
-import { THREAD_STALLED_AFTER_MS } from "@t3tools/shared/threadStanding";
+import { STUCK_WORKING_AFTER_MS, THREAD_STALLED_AFTER_MS } from "@t3tools/shared/threadStanding";
 
 export interface StalledChildCandidate {
   readonly topLevelThreadId: ThreadId;
@@ -8,6 +8,7 @@ export interface StalledChildCandidate {
   readonly title: string;
   /** The later of the live run's start and the child's newest provider event, in epoch ms. */
   readonly lastProviderActivityAt: number;
+  readonly holdingCompletion?: true;
 }
 
 /**
@@ -20,7 +21,14 @@ export function decideStalledThreads(
 ): ReadonlyMap<ThreadId, OrchestrationV2ThreadStalled> {
   const stalled = new Map<ThreadId, StalledChildCandidate>();
   for (const candidate of candidates) {
-    if (now - candidate.lastProviderActivityAt < THREAD_STALLED_AFTER_MS) continue;
+    const threshold = candidate.holdingCompletion
+      ? STUCK_WORKING_AFTER_MS
+      : THREAD_STALLED_AFTER_MS;
+    if (
+      !Number.isFinite(candidate.lastProviderActivityAt) ||
+      now - candidate.lastProviderActivityAt < threshold
+    )
+      continue;
     const current = stalled.get(candidate.topLevelThreadId);
     if (
       current === undefined ||
@@ -38,5 +46,15 @@ export function decideStalledThreads(
         since: DateTime.formatIso(DateTime.makeUnsafe(candidate.lastProviderActivityAt)),
       },
     ]),
+  );
+}
+
+export const DELIVERY_STALLED_PREFIX = "Delivery stalled · ";
+export const BACKGROUND_STALLED_PREFIX = "Background work stalled · ";
+
+export function isCompletionStall(stalled: OrchestrationV2ThreadStalled | undefined): boolean {
+  return (
+    stalled?.title.startsWith(DELIVERY_STALLED_PREFIX) === true ||
+    stalled?.title.startsWith(BACKGROUND_STALLED_PREFIX) === true
   );
 }

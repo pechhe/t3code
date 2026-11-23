@@ -10,7 +10,9 @@ import {
   canSnooze,
   effectiveSnoozed,
   hasQueuedTurnStart,
+  parkedWaitClockLabel,
   parkedWaitFacts,
+  parkedWaitStageSubtitle,
   parkedWaitTimeLeft,
   parkedWaitWakesOn,
   snoozeShelfEndsAt,
@@ -278,6 +280,71 @@ describe("threadRaisedHandWhileSnoozed", () => {
         makeShell({ snoozedUntil: FUTURE_WAKE, sessionStatus: "error" }),
       ),
     ).toBe(true);
+  });
+});
+
+describe("threadRaisedHandWhileSnoozed with a wait standing", () => {
+  const snoozed = makeShell({ snoozedUntil: FUTURE_WAKE });
+  const flagged = (flaggedAt: string): ThreadSnoozeShell => ({
+    ...snoozed,
+    standing: {
+      state: "needs_you",
+      reason: "check_wait",
+      waitReview: {
+        waitId: "w",
+        title: "Deploy",
+        kind: "time",
+        startedAt: SNOOZED_AT,
+        flaggedAt,
+        reason: "long_wait",
+      },
+    },
+  });
+
+  it("wakes for a wait flagged after the snooze, not before", () => {
+    expect(threadRaisedHandWhileSnoozed(flagged("2026-04-10T10:00:00.000Z"))).toBe(true);
+    expect(threadRaisedHandWhileSnoozed(flagged("2026-04-10T08:00:00.000Z"))).toBe(false);
+  });
+
+  it("wakes for a release approval and a blocked wait target", () => {
+    for (const reason of ["release", "wait_target_blocked"] as const) {
+      expect(
+        threadRaisedHandWhileSnoozed({ ...snoozed, standing: { state: "needs_you", reason } }),
+      ).toBe(true);
+    }
+    expect(
+      threadRaisedHandWhileSnoozed({
+        ...snoozed,
+        standing: { state: "needs_you", reason: "wait_gave_up" },
+        parkedWaitGaveUp: { at: "2026-04-10T10:00:00.000Z" } as never,
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("parked wait labels", () => {
+  const wait = (target: unknown, landingStage?: string) =>
+    ({
+      id: "w",
+      title: "pechhe/yardsmith",
+      startedAt: "2026-04-10T11:00:00.000Z",
+      target,
+      ...(landingStage === undefined ? {} : { landingStage }),
+    }) as never;
+
+  it("shows time left for a time wait and elapsed time for an event wait", () => {
+    const nowMs = Date.parse(NOW);
+    expect(
+      parkedWaitClockLabel([wait({ kind: "time", at: "2026-04-10T18:00:00.000Z" })], nowMs),
+    ).toBe("in 6h");
+    expect(parkedWaitClockLabel([wait({ kind: "landing" })], nowMs)).toBe("1h");
+  });
+
+  it("adds the landing stage to a landing subtitle", () => {
+    expect(parkedWaitStageSubtitle([wait({ kind: "landing" }, "verifying")])).toBe(
+      "pechhe/yardsmith · verifying",
+    );
+    expect(parkedWaitStageSubtitle([wait({ kind: "production" })])).toBe("pechhe/yardsmith");
   });
 });
 

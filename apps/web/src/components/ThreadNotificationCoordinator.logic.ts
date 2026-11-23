@@ -26,6 +26,8 @@ export interface ThreadNotificationObservation {
   readonly backgroundWake: boolean;
   /** The server's standing; absent from older servers, where the fields above decide. */
   readonly standing?: ThreadStandingState | undefined;
+  /** Why the standing needs the owner; a long or overdue wait notifies once when it is flagged. */
+  readonly standingReason?: OrchestrationV2ThreadStanding["reason"] | undefined;
 }
 
 /** What a thread shell says about whether its finished run has anything to report. */
@@ -161,7 +163,12 @@ export function createThreadNotificationGate<Key>(
     // Attention standing cannot see (a question below the thread, a linked environment's
     // request) still notifies, and a second question while the thread needs you is a new event.
     if (standing === "needs_you" || standing === "stalled") {
-      if (prior.standing !== standing || fresh) notify(key, "input");
+      const waitFlagged =
+        (next.standingReason === "check_wait" ||
+          next.standingReason === "wait_gave_up" ||
+          next.standingReason === "wait_target_blocked") &&
+        prior.standingReason !== next.standingReason;
+      if (prior.standing !== standing || fresh || waitFlagged) notify(key, "input");
       return;
     }
     if (fresh) {

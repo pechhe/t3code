@@ -76,6 +76,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
+import { isVisitedSince } from "@t3tools/shared/threadStanding";
 import { msg, T, useGT, useMessages, Var } from "gt-react";
 
 import type { MessageResolver } from "../../i18n/messages";
@@ -102,6 +103,7 @@ import {
   resolveSidebarRowAccessibility,
   type SidebarDropVerb,
   resolveSidebarRowStatus,
+  latestThreadVisit,
   resolveThreadLastVisitedAt,
   resolveWorkingStartedAt,
   useRetainedValue,
@@ -608,6 +610,10 @@ type SidebarThreadRowProps = {
   dragOverPinned: boolean;
   sweepAction: SidebarSweepAction | null;
   snoozeWakeLabelText: string | null;
+  /** The clock of a row that waits: "in 6h" until a time wait wakes, or how long it has waited. */
+  waitClockLabel?: string | null;
+  /** The first landing row under Working's running and waiting rows opens the Landing & releasing group. */
+  landingDivider?: boolean;
   /** What a parked thread wakes on, or what just woke it; a quiet line under the title. */
   parkedSubtitle: string | null;
   ownerSnoozed?: boolean;
@@ -792,7 +798,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   const status = resolveSidebarRowStatus({ ...thread, lastVisitedAt });
   const subagentActivity = useSubagentActivity(scopeThreadRef(thread.environmentId, thread.id));
   const isParked = (thread.parkedWaits?.length ?? 0) > 0 && !props.ownerSnoozed;
-  const parkedSubtitle = props.parkedSubtitle;
+  const review = thread.standing?.reason === "check_wait" ? thread.standing.waitReview : undefined;
+  // A visit clears Check wait here before the server's visit lands, so its subtitle and clock go too.
+  const reviewVisited =
+    review !== undefined &&
+    isVisitedSince(latestThreadVisit(thread.lastVisitedAt, localLastVisitedAt), review.flaggedAt);
+  const parkedSubtitle = reviewVisited ? null : props.parkedSubtitle;
+  const waitClockLabel = reviewVisited ? null : props.waitClockLabel;
   const lastVisitedDate = lastVisitedAt === undefined ? null : parseTimestampDate(lastVisitedAt);
   const wokeAtDate = props.wokeAt === null ? null : parseTimestampDate(props.wokeAt);
   const isWoke =
@@ -809,6 +821,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     variantAction,
     subagentActivity,
     resolve: messages,
+    lastVisitedAt: latestThreadVisit(thread.lastVisitedAt, localLastVisitedAt),
   });
   const isWokeStatus = topStatus?.icon === "woke";
 
@@ -1497,6 +1510,15 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         sortable?.isDragging && "relative z-20",
       )}
     >
+      {props.landingDivider && !sortable?.isDragging ? (
+        <div
+          data-testid="sidebar-landing-divider"
+          className="flex items-center gap-2 px-(--sidebar-row-content-inset) pt-1.5 pb-1 text-xs text-muted-foreground/70"
+        >
+          <T>Landing & releasing</T>
+          <span aria-hidden className="h-px flex-1 bg-border" />
+        </div>
+      ) : null}
       <Tooltip disabled={isRenaming || snoozeMenuOpen || sortable?.isDragging}>
         <TooltipTrigger
           render={
@@ -1591,7 +1613,15 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                             BackgroundThreadAnnouncer and the open thread's
                             timeline speak status changes instead. */}
                           {topStatus.label}
-                          {status === "preparing" || status === "working" ? (
+                          {waitClockLabel != null ? (
+                            <span
+                              aria-hidden
+                              className="inline-flex items-center gap-1 font-normal tabular-nums"
+                            >
+                              <ClockIcon className="size-3" />
+                              {waitClockLabel}
+                            </span>
+                          ) : status === "preparing" || status === "working" ? (
                             <span aria-hidden>
                               <WorkingDuration
                                 environmentId={thread.environmentId}

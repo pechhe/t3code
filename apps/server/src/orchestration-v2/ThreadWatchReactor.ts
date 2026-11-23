@@ -6,6 +6,7 @@ import {
 } from "@t3tools/contracts";
 import { turnItemUpdateCanEndBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import * as Clock from "effect/Clock";
+import * as DateTime from "effect/DateTime";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
@@ -42,6 +43,7 @@ interface Deadline {
   readonly threadId: ThreadId;
   readonly watchId: string;
   readonly dueAt: number;
+  readonly overdue?: true;
 }
 
 function threadTargetsOf(watcher: OrchestrationV2AppThread): ReadonlyArray<Watching> {
@@ -90,9 +92,7 @@ function canSettleWatchedThread(event: OrchestrationV2DomainEvent): boolean {
   switch (event.type) {
     case "turn-item.updated":
       return turnItemUpdateCanEndBackgroundWork(event.payload);
-    // A thread that has moved is followed to where it went rather than seen idle.
     case "thread.metadata-updated":
-      return event.payload.handoff?.state === "departed";
     case "run.created":
     case "run.updated":
     case "run.background-work-cancelled":
@@ -151,13 +151,25 @@ const make = Effect.gen(function* () {
     }
     for (const wait of watcher.parkedWaits ?? []) {
       const dueAt = parkedWaitDueAt(wait);
-      if (dueAt === undefined || Number.isNaN(dueAt)) continue;
-      deadlines.set(`${watcher.id}\u0000${wait.id}`, {
-        threadId: watcher.id,
-        watchId: wait.id,
-        dueAt,
-      });
-      changed = true;
+      const key = `${watcher.id}\u0000${wait.id}`;
+      if (dueAt !== undefined && Number.isFinite(dueAt)) {
+        deadlines.set(key, { threadId: watcher.id, watchId: wait.id, dueAt });
+        changed = true;
+      }
+      const expectedAt = Date.parse(wait.expectedAt ?? "");
+      if (
+        wait.overdueAt === undefined &&
+        Number.isFinite(expectedAt) &&
+        (dueAt === undefined || expectedAt < dueAt)
+      ) {
+        deadlines.set(`${key}\u0000overdue`, {
+          threadId: watcher.id,
+          watchId: wait.id,
+          dueAt: expectedAt,
+          overdue: true,
+        });
+        changed = true;
+      }
     }
     return changed;
   };
@@ -173,6 +185,16 @@ const make = Effect.gen(function* () {
       ([, deadline]) =>
         Effect.gen(function* () {
           const uuid = yield* crypto.uuidV4();
+          if (deadline.overdue) {
+            yield* engine.dispatch({
+              type: "thread.thread-watch.update-status",
+              commandId: CommandId.make(`server:parked-wait-overdue:${deadline.threadId}:${uuid}`),
+              threadId: deadline.threadId,
+              watchId: deadline.watchId,
+              overdueAt: DateTime.formatIso(DateTime.makeUnsafe(now)),
+            });
+            return;
+          }
           yield* engine.dispatch({
             type: "thread.thread-watch.fire",
             commandId: CommandId.make(`server:parked-wait-due:${deadline.threadId}:${uuid}`),
@@ -242,7 +264,7 @@ const make = Effect.gen(function* () {
         const thread = threadPayloadOf(event);
         if (thread !== undefined) {
           if (index(thread)) yield* rearm;
-          // A new watch on a thread that already finished fires at once.
+          // A new watch on a thread that is already idle or needs attention fires at once.
           if (event.type === "thread.metadata-updated") {
             yield* Effect.forEach(threadTargetsOf(thread), evaluate, { discard: true });
           }

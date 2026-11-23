@@ -624,8 +624,15 @@ export const OrchestrationV2WatchTarget = Schema.Union([
 ]);
 export type OrchestrationV2WatchTarget = typeof OrchestrationV2WatchTarget.Type;
 
-/** What only the owner can still do for a watch: accept a landed item, or clear its holds. */
-export const OrchestrationV2WatchNeed = Schema.Literals(["acceptance", "hold"]);
+/** What only the owner can still do for a watch: accept, triage/shape, approve a release, or legacy hold. */
+export const OrchestrationV2WatchNeed = Schema.Literals([
+  "acceptance",
+  "hold",
+  "triage",
+  "shaping",
+  "unclaimed",
+  "release_approval",
+]);
 export type OrchestrationV2WatchNeed = typeof OrchestrationV2WatchNeed.Type;
 
 /** `ref` and `title` name the Forge item, so a reader need not call Forge to say what it waits on. */
@@ -672,6 +679,10 @@ export const OrchestrationV2ParkedWait = Schema.Struct({
   note: Schema.optional(Schema.String),
   /** What T3 last knew about the target, for the give-up message. */
   lastKnown: Schema.optional(Schema.String),
+  /** Stamped once an event wait passes expectedAt so the owner is notified until visited. */
+  overdueAt: Schema.optional(IsoDateTime),
+  /** Live SlipJay landing stage (for example queued, verifying, promoting) for landing waits. */
+  landingStage: Schema.optional(TrimmedNonEmptyString),
 });
 export type OrchestrationV2ParkedWait = typeof OrchestrationV2ParkedWait.Type;
 
@@ -758,24 +769,69 @@ export const OrchestrationV2ThreadStalled = Schema.Struct({
 });
 export type OrchestrationV2ThreadStalled = typeof OrchestrationV2ThreadStalled.Type;
 
+export const OrchestrationV2ThreadStandingReason = Schema.Literals([
+  "approval",
+  "input",
+  "guest",
+  "release",
+  "plan_ready",
+  "acceptance",
+  "question",
+  "failed",
+  "stalled",
+  "wait_gave_up",
+  "check_wait",
+  "wait_target_blocked",
+]);
+export type OrchestrationV2ThreadStandingReason = typeof OrchestrationV2ThreadStandingReason.Type;
+
+export const OrchestrationV2ThreadStandingWaitCategory = Schema.Literals(["waiting", "landing"]);
+export type OrchestrationV2ThreadStandingWaitCategory =
+  typeof OrchestrationV2ThreadStandingWaitCategory.Type;
+
+export const OrchestrationV2ThreadStandingWaitReview = Schema.Struct({
+  waitId: TrimmedNonEmptyString,
+  title: TrimmedNonEmptyString,
+  kind: Schema.Literals(["thread", "build_item", "landing", "production", "time"]),
+  startedAt: IsoDateTime,
+  flaggedAt: IsoDateTime,
+  endsAt: Schema.optional(IsoDateTime),
+  reason: Schema.Literals(["long_wait", "overdue"]),
+});
+export type OrchestrationV2ThreadStandingWaitReview =
+  typeof OrchestrationV2ThreadStandingWaitReview.Type;
+
+export const OrchestrationV2ThreadStandingWaitsOnPerson = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("build_item"),
+    number: PositiveInt,
+    ref: Schema.optional(TrimmedNonEmptyString),
+    title: Schema.optional(Schema.String),
+    need: OrchestrationV2WatchNeed,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("production"),
+    ref: Schema.optional(TrimmedNonEmptyString),
+    title: Schema.optional(Schema.String),
+    need: Schema.Literal("release_approval"),
+  }),
+]);
+export type OrchestrationV2ThreadStandingWaitsOnPerson =
+  typeof OrchestrationV2ThreadStandingWaitsOnPerson.Type;
+
 /**
  * The server's one answer to where a thread stands. Absent from older servers. Shipped clients
  * ignore it, so the shell's `status` and `pendingBackgroundTasks` stay as they were.
  */
 export const OrchestrationV2ThreadStanding = Schema.Struct({
   state: Schema.Literals(["working", "waiting", "stalled", "needs_you", "finished"]),
+  reason: Schema.optional(OrchestrationV2ThreadStandingReason),
+  waitCategory: Schema.optional(OrchestrationV2ThreadStandingWaitCategory),
+  waitReview: Schema.optional(OrchestrationV2ThreadStandingWaitReview),
   stalled: Schema.optional(OrchestrationV2ThreadStalled),
   /** `needs_you` because the thread's agent asked its owner this and waits on the answer. */
   question: Schema.optional(Schema.String),
-  waitsOnPerson: Schema.optional(
-    Schema.Struct({
-      kind: Schema.Literal("build_item"),
-      number: PositiveInt,
-      ref: Schema.optional(TrimmedNonEmptyString),
-      title: Schema.optional(Schema.String),
-      need: OrchestrationV2WatchNeed,
-    }),
-  ),
+  waitsOnPerson: Schema.optional(OrchestrationV2ThreadStandingWaitsOnPerson),
 });
 export type OrchestrationV2ThreadStanding = typeof OrchestrationV2ThreadStanding.Type;
 
@@ -4652,6 +4708,15 @@ const OrchestrationV2InternalCommand = Schema.Union([
     threadId: ThreadId,
     watchId: TrimmedNonEmptyString,
     waitsOnPerson: Schema.optional(OrchestrationV2WatchWaitsOnPerson),
+  }),
+  /** Updates non-firing wait metadata (overdue flag or live SlipJay landing stage). */
+  Schema.Struct({
+    type: Schema.Literal("thread.thread-watch.update-status"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    watchId: TrimmedNonEmptyString,
+    overdueAt: Schema.optional(IsoDateTime),
+    landingStage: Schema.optional(TrimmedNonEmptyString),
   }),
   /** Marks the thread as waiting on a stalled delegated child, or clears the mark. */
   Schema.Struct({

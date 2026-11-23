@@ -1,7 +1,9 @@
 import { CommandId, type OrchestrationV2ThreadStalled, ThreadId } from "@t3tools/contracts";
+import { STUCK_WORKING_AFTER_MS } from "@t3tools/shared/threadStanding";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schedule from "effect/Schedule";
@@ -12,7 +14,12 @@ import * as SqlClient from "effect/sql/SqlClient";
 import { forkParked } from "../serverActivation.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
-import { decideStalledThreads, type StalledChildCandidate } from "./stalledChildren.ts";
+import {
+  BACKGROUND_STALLED_PREFIX,
+  DELIVERY_STALLED_PREFIX,
+  decideStalledThreads,
+  type StalledChildCandidate,
+} from "./stalledChildren.ts";
 
 const SWEEP_INTERVAL = "1 minute";
 const MAX_LINEAGE_DEPTH = 16;
@@ -114,6 +121,120 @@ const make = Effect.gen(function* () {
     return found;
   });
 
+  const completionCandidates = Effect.fn("StalledChildReactor.completionCandidates")(function* (
+    now: number,
+  ) {
+    const cutoff = DateTime.formatIso(DateTime.makeUnsafe(now - STUCK_WORKING_AFTER_MS));
+    const parents = yield* sql<{ thread_id: string; last_run_at: string | null }>`
+      SELECT parent.thread_id, (
+        SELECT MAX(COALESCE(run.completed_at, run.requested_at))
+        FROM orchestration_v2_projection_runs run WHERE run.thread_id = parent.thread_id
+      ) AS last_run_at
+      FROM orchestration_v2_projection_threads parent
+      WHERE parent.deleted_at IS NULL AND parent.archived_at IS NULL
+        AND json_extract(parent.payload_json, '$.lineage.relationshipToParent') IS NOT 'subagent'
+        AND json_extract(parent.payload_json, '$.settledOverride') IS NOT 'settled'
+        AND (
+          EXISTS (
+            SELECT 1 FROM orchestration_v2_projection_subagents task
+            WHERE task.thread_id = parent.thread_id AND task.origin = 'app_owned'
+              AND (task.completion_delivery_state IN ('pending', 'claimed')
+                OR task.status IN ('pending', 'running'))
+              AND task.updated_at <= ${cutoff}
+          ) OR EXISTS (
+            SELECT 1 FROM orchestration_v2_projection_provider_threads provider
+            WHERE provider.thread_id = parent.thread_id
+              AND json_array_length(provider.payload_json, '$.pendingBackgroundTasks') > 0
+              AND provider.updated_at <= ${cutoff}
+          )
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM orchestration_v2_projection_runs run
+          WHERE run.thread_id = parent.thread_id
+            AND run.status IN ('preparing', 'queued', 'starting', 'running', 'waiting')
+        )`;
+    const found: Array<StalledChildCandidate> = [];
+    for (const parent of parents) {
+      const threadId = ThreadId.make(parent.thread_id);
+      const busy = yield* sql<{ busy: number }>`
+        WITH RECURSIVE descendants(id) AS (
+          SELECT task.child_thread_id FROM orchestration_v2_projection_subagents task
+          WHERE task.thread_id = ${threadId} AND task.origin = 'app_owned' AND task.child_thread_id IS NOT NULL
+          UNION
+          SELECT task.child_thread_id FROM orchestration_v2_projection_subagents task
+          JOIN descendants d ON task.thread_id = d.id
+          WHERE task.origin = 'app_owned' AND task.child_thread_id IS NOT NULL
+        )
+        SELECT EXISTS (
+          SELECT 1 FROM descendants d JOIN orchestration_v2_projection_runs run ON run.thread_id = d.id
+          WHERE run.status IN ('preparing', 'queued', 'starting', 'running', 'waiting')
+        ) OR EXISTS (
+          SELECT 1 FROM descendants d JOIN orchestration_v2_effect_outbox effect ON effect.thread_id = d.id
+          WHERE effect.effect_type = 'delegated-task.recover' AND effect.status IN ('pending', 'running')
+        ) AS busy`;
+      if (busy[0]?.busy === 1) continue;
+      const projection = yield* projections.getThreadRecords(threadId, [
+        "subagents",
+        "providerThreads",
+      ]);
+      for (const task of projection.subagents) {
+        if (
+          task.origin !== "app_owned" ||
+          task.childThreadId === null ||
+          !["completed", "failed", "cancelled", "interrupted"].includes(task.status) ||
+          (task.completionDelivery?.state !== "pending" &&
+            task.completionDelivery?.state !== "claimed")
+        )
+          continue;
+        found.push({
+          topLevelThreadId: threadId,
+          childThreadId: task.childThreadId,
+          title:
+            DELIVERY_STALLED_PREFIX +
+            (task.title ?? (yield* projections.getThread(task.childThreadId)).title),
+          lastProviderActivityAt: Math.max(
+            DateTime.toEpochMillis(task.updatedAt),
+            task.completedAt === null ? 0 : DateTime.toEpochMillis(task.completedAt),
+          ),
+          holdingCompletion: true,
+        });
+      }
+      const shell = yield* projections.getThreadShell(threadId);
+      for (const task of shell?.pendingBackgroundTasks ?? []) {
+        if (task.kind !== "subagent" && task.kind !== "background_task") continue;
+        const delegated = projection.subagents.find(
+          (row) =>
+            row.id === task.taskId ||
+            (task.kind === "subagent" &&
+              task.childThreadId !== undefined &&
+              row.childThreadId === task.childThreadId),
+        );
+        if (delegated?.status === "waiting") continue;
+        const childId = task.kind === "subagent" ? task.childThreadId : undefined;
+        if (childId !== undefined) {
+          const child = yield* projections.getThread(childId);
+          if ((child.parkedWaits?.length ?? 0) > 0) continue;
+        }
+        const roster = projection.providerThreads.find((row) =>
+          row.pendingBackgroundTasks?.some((entry) => entry.taskId === task.taskId),
+        );
+        if (delegated === undefined && roster === undefined) continue;
+        found.push({
+          topLevelThreadId: threadId,
+          childThreadId: childId ?? threadId,
+          title: BACKGROUND_STALLED_PREFIX + (task.description ?? task.taskId),
+          lastProviderActivityAt: Math.max(
+            parent.last_run_at === null ? 0 : Date.parse(parent.last_run_at),
+            delegated === undefined ? 0 : DateTime.toEpochMillis(delegated.updatedAt),
+            roster === undefined ? 0 : DateTime.toEpochMillis(roster.updatedAt),
+          ),
+          holdingCompletion: true,
+        });
+      }
+    }
+    return found;
+  });
+
   const setMark = Effect.fnUntraced(function* (
     threadId: ThreadId,
     stalled: OrchestrationV2ThreadStalled | undefined,
@@ -136,7 +257,10 @@ const make = Effect.gen(function* () {
         scannedMarks = true;
       }
       const now = yield* Clock.currentTimeMillis;
-      const stalled = decideStalledThreads(now, yield* candidates());
+      const stalled = decideStalledThreads(now, [
+        ...(yield* candidates()),
+        ...(yield* completionCandidates(now)),
+      ]);
       for (const [threadId, mark] of stalled) {
         yield* setMark(threadId, mark).pipe(
           Effect.tap(() => Effect.sync(() => marked.add(threadId))),

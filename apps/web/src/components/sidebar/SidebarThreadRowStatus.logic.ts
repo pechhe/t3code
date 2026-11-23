@@ -9,10 +9,19 @@ import type { SidebarSweepAction } from "./SidebarThreadRow";
 import { SUBAGENT_STATUS_PRESENTATION } from "../chat/subagentStatusPresentation";
 import {
   hasPlanReadyPrompt,
+  isReleasingWaits,
   shouldRecedeSidebarThread,
   threadStandingAttention,
+  waitsOnPersonDetail,
   type resolveSidebarRowStatus,
 } from "../Sidebar.logic";
+
+type WaitsOnPerson = NonNullable<SidebarThreadSummary["standing"]>["waitsOnPerson"];
+
+function needsYouLabel(waits: WaitsOnPerson, resolve: MessageResolver): string {
+  if (waits === undefined) return resolve(msg("Needs you"));
+  return resolve(msg("Needs you · {detail}", { detail: resolve(waitsOnPersonDetail(waits)) }));
+}
 
 export function resolveSidebarThreadRowStatus(input: {
   thread: SidebarThreadSummary;
@@ -24,6 +33,8 @@ export function resolveSidebarThreadRowStatus(input: {
   variantAction: SidebarSweepAction;
   subagentActivity: ReturnType<typeof useSubagentActivity>;
   resolve: MessageResolver;
+  /** The owner's last visit, which clears a Check wait or Wait gave up flag before the server's does. */
+  lastVisitedAt?: string | null | undefined;
 }) {
   const { thread, status, isUnread, isWoke, subagentActivity, variantAction, resolve } = input;
   // Own requests come first, so only a thread with none speaks for its subagent.
@@ -40,8 +51,20 @@ export function resolveSidebarThreadRowStatus(input: {
   // Standing adds a stalled child and an owner-only wait; a more specific status still wins.
   const standingAttention =
     thread.standing?.question !== undefined || status === "waiting" || status === "ready"
-      ? threadStandingAttention(thread.standing, thread.parkedWaitGaveUp)
+      ? threadStandingAttention(thread.standing, thread.parkedWaitGaveUp, input.lastVisitedAt)
       : null;
+  const standingWait =
+    thread.standing?.state === "waiting" && (status === "waiting" || status === "ready")
+      ? thread.standing.waitCategory === "landing"
+        ? isReleasingWaits(thread.parkedWaits)
+          ? resolve(msg("Releasing"))
+          : resolve(msg("Landing"))
+        : resolve(msg("Waiting", { $context: "thread status" }))
+      : null;
+  const seenFailure =
+    thread.standing?.state === "finished" &&
+    thread.latestRun?.status === "failed" &&
+    status === "ready";
   const planReady = status === "ready" && hasPlanReadyPrompt(thread);
   const shouldRecede =
     standingAttention === null &&
@@ -67,110 +90,123 @@ export function resolveSidebarThreadRowStatus(input: {
         }
       : standingAttention === "needs_you"
         ? {
-            label:
-              thread.standing?.waitsOnPerson?.need === "acceptance"
-                ? resolve(
-                    msg("Needs you · accept {reference}", {
-                      reference:
-                        thread.standing.waitsOnPerson.ref ??
-                        `#${thread.standing.waitsOnPerson.number}`,
-                    }),
-                  )
-                : resolve(msg("Needs you")),
+            label: needsYouLabel(thread.standing?.waitsOnPerson, resolve),
             icon: "input" as const,
             className: "text-indigo-600 dark:text-indigo-300",
           }
-        : standingAttention === "gave_up"
+        : standingAttention === "check_wait"
           ? {
-              label: resolve(msg("Wait gave up")),
+              label: resolve(msg("Check wait")),
               icon: "waiting" as const,
               className: "text-warning-foreground",
             }
-          : standingAttention === "stalled"
+          : standingAttention === "gave_up"
             ? {
-                label: resolve(msg("Stalled")),
+                label: resolve(msg("Wait gave up")),
                 icon: "waiting" as const,
                 className: "text-warning-foreground",
               }
-            : status === "waiting" && subagentActivity !== null
+            : standingAttention === "stalled"
               ? {
-                  label: subagentActivityLabel(subagentActivity),
-                  icon:
-                    subagentActivity.status === "working"
-                      ? ("working" as const)
-                      : ("waiting" as const),
-                  className: SUBAGENT_STATUS_PRESENTATION[subagentActivity.status].className,
+                  label: resolve(msg("Stalled")),
+                  icon: "waiting" as const,
+                  className: "text-warning-foreground",
                 }
-              : status === "waiting"
+              : status === "waiting" && subagentActivity !== null
                 ? {
-                    label: backgroundWorkIsOnlyWatches(thread.pendingBackgroundTasks ?? [])
-                      ? resolve(msg("Watching"))
-                      : resolve(msg("Waiting", { $context: "thread status" })),
-                    icon: "waiting" as const,
-                    className: "text-muted-foreground",
+                    label: subagentActivityLabel(subagentActivity),
+                    icon:
+                      subagentActivity.status === "working"
+                        ? ("working" as const)
+                        : ("waiting" as const),
+                    className: SUBAGENT_STATUS_PRESENTATION[subagentActivity.status].className,
                   }
-                : status === "approval"
+                : standingWait !== null
                   ? {
-                      label:
-                        delegatedRequestLabel ??
-                        resolve(msg("Approval", { $context: "thread status: needs approval" })),
-                      icon: "approval" as const,
-                      className: "text-warning-foreground",
+                      label: standingWait,
+                      icon: "waiting" as const,
+                      className: "text-muted-foreground",
                     }
-                  : status === "input"
+                  : status === "waiting"
                     ? {
-                        label:
-                          delegatedRequestLabel ??
-                          resolve(msg("Input", { $context: "thread status: needs user input" })),
-                        icon: "input" as const,
+                        label: backgroundWorkIsOnlyWatches(thread.pendingBackgroundTasks ?? [])
+                          ? resolve(msg("Watching"))
+                          : resolve(msg("Waiting", { $context: "thread status" })),
+                        icon: "waiting" as const,
+                        className: "text-muted-foreground",
                       }
-                    : status === "request"
+                    : status === "approval"
                       ? {
-                          label: resolve(
-                            msg("Request", { $context: "thread status: guest request" }),
-                          ),
-                          icon: "request" as const,
+                          label:
+                            delegatedRequestLabel ??
+                            resolve(msg("Approval", { $context: "thread status: needs approval" })),
+                          icon: "approval" as const,
+                          className: "text-warning-foreground",
                         }
-                      : status === "limited"
+                      : status === "input"
                         ? {
-                            label: resolve(
-                              msg("Limited", { $context: "thread status: usage limited" }),
-                            ),
-                            icon: "failed" as const,
-                            className: "text-warning-foreground",
+                            label:
+                              delegatedRequestLabel ??
+                              resolve(
+                                msg("Input", { $context: "thread status: needs user input" }),
+                              ),
+                            icon: "input" as const,
                           }
-                        : status === "failed"
+                        : status === "request"
                           ? {
-                              label: resolve(msg("Failed", { $context: "thread status" })),
-                              icon: "failed" as const,
-                              className: "text-error-foreground",
+                              label: resolve(
+                                msg("Request", { $context: "thread status: guest request" }),
+                              ),
+                              icon: "request" as const,
                             }
-                          : planReady
+                          : status === "limited"
                             ? {
                                 label: resolve(
-                                  msg("Plan ready", {
-                                    $context: "thread status: a plan awaits review",
-                                  }),
+                                  msg("Limited", { $context: "thread status: usage limited" }),
                                 ),
-                                icon: "input" as const,
-                                className: "text-violet-600 dark:text-violet-300",
+                                icon: "failed" as const,
+                                className: "text-warning-foreground",
                               }
-                            : isWoke
+                            : status === "failed"
                               ? {
-                                  label: resolve(
-                                    msg("Woke", {
-                                      $context: "thread status: woke from snooze",
-                                    }),
-                                  ),
-                                  icon: "woke" as const,
-                                  className: "text-warning-foreground",
+                                  label: resolve(msg("Failed", { $context: "thread status" })),
+                                  icon: "failed" as const,
+                                  className: "text-error-foreground",
                                 }
-                              : isUnread && variantAction !== "unsnooze"
+                              : seenFailure
                                 ? {
-                                    label: resolve(msg("Done", { $context: "thread status" })),
-                                    icon: "done" as const,
-                                    className: "text-success",
+                                    label: resolve(msg("Failed", { $context: "thread status" })),
+                                    icon: "failed" as const,
+                                    className: "text-muted-foreground",
                                   }
-                                : null;
+                                : planReady
+                                  ? {
+                                      label: resolve(
+                                        msg("Plan ready", {
+                                          $context: "thread status: a plan awaits review",
+                                        }),
+                                      ),
+                                      icon: "input" as const,
+                                      className: "text-violet-600 dark:text-violet-300",
+                                    }
+                                  : isWoke
+                                    ? {
+                                        label: resolve(
+                                          msg("Woke", {
+                                            $context: "thread status: woke from snooze",
+                                          }),
+                                        ),
+                                        icon: "woke" as const,
+                                        className: "text-warning-foreground",
+                                      }
+                                    : isUnread && variantAction !== "unsnooze"
+                                      ? {
+                                          label: resolve(
+                                            msg("Done", { $context: "thread status" }),
+                                          ),
+                                          icon: "done" as const,
+                                          className: "text-success",
+                                        }
+                                      : null;
   return { delegatedRequestLabel, standingAttention, planReady, shouldRecede, topStatus };
 }

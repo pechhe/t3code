@@ -277,6 +277,28 @@ describe("createThreadNotificationGate with the server's standing", () => {
     expect(notify.mock.calls).toEqual([["thread", "completion"]]);
   });
 
+  it("notifies once when a wait is flagged for review and never for waiting itself", () => {
+    const { notify, observe, elapse } = heldHarness();
+    const flagged = { ...standing("needs_you"), standingReason: "check_wait" as const };
+    observe(standing("working"));
+    observe(standing("waiting"));
+    elapse();
+    expect(notify).not.toHaveBeenCalled();
+    observe(flagged);
+    observe(flagged);
+    expect(notify.mock.calls).toEqual([["thread", "input"]]);
+    observe(standing("waiting"));
+    observe(flagged);
+    expect(notify).toHaveBeenCalledTimes(2);
+  });
+
+  it("notifies when a needs-you thread's reason becomes a flagged wait", () => {
+    const { notify, observe } = heldHarness();
+    observe({ ...standing("needs_you"), standingReason: "failed" });
+    observe({ ...standing("needs_you"), standingReason: "check_wait" });
+    expect(notify.mock.calls).toEqual([["thread", "input"]]);
+  });
+
   it("drops a finished notification when a wake starts inside the hold", () => {
     const { notify, observe, elapse } = heldHarness();
     observe(standing("working"));

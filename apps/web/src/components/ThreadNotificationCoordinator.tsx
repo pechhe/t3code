@@ -164,9 +164,13 @@ export function startThreadNotifications(
                 ? m(msg("Guest request"))
                 : state.standing === "stalled"
                   ? m(msg("Thread stalled"))
-                  : state.waitsOn !== null
-                    ? m(msg("Needs you"))
-                    : m(msg("Input needed"));
+                  : state.standingReason === "check_wait"
+                    ? m(msg("Check wait"))
+                    : state.standingReason === "wait_gave_up"
+                      ? m(msg("Wait gave up"))
+                      : state.waitsOn !== null
+                        ? m(msg("Needs you"))
+                        : m(msg("Input needed"));
     if (hasNotificationSound(mode)) {
       void playNotificationSound(kind, () =>
         hasNotificationSound(getClientSettings().notificationMode),
@@ -319,7 +323,9 @@ export function startThreadNotifications(
         requestId,
         settled,
         completedAt: settled ? completedAt : null,
-        ...(standing === undefined ? {} : { standing: standing.state }),
+        ...(standing === undefined
+          ? {}
+          : { standing: standing.state, standingReason: standing.reason }),
         waitsOn,
         backgroundWake: rawThread.latestRunBackgroundWake === true,
       };

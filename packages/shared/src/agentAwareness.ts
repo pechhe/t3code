@@ -174,7 +174,7 @@ function resolveThreadAwarenessPhaseV2(
   if (subagentRequest !== null) {
     return subagentRequest.waitsForInput === true ? "waiting_for_input" : "waiting_for_approval";
   }
-  if (thread.standing !== undefined) return phaseFromStanding(thread, thread.standing.state);
+  if (thread.standing !== undefined) return phaseFromStanding(thread, thread.standing);
   switch (thread.activityRunStatus ?? thread.status) {
     case "preparing":
     case "starting":
@@ -201,9 +201,9 @@ function resolveThreadAwarenessPhaseV2(
 /** The server's standing decides; no phase is added, so a stalled thread uses the nearest attention one. */
 function phaseFromStanding(
   thread: ProjectThreadAwarenessV2Input["thread"],
-  state: NonNullable<ProjectThreadAwarenessV2Input["thread"]["standing"]>["state"],
+  standing: NonNullable<ProjectThreadAwarenessV2Input["thread"]["standing"]>,
 ): AgentAwarenessPhase | null {
-  switch (state) {
+  switch (standing.state) {
     case "working":
       return (thread.activityRunStatus ?? thread.status) === "preparing" ||
         (thread.activityRunStatus ?? thread.status) === "starting"
@@ -215,7 +215,10 @@ function phaseFromStanding(
     case "stalled":
       return "waiting_for_input";
     case "needs_you":
-      return thread.status === "failed" ? "failed" : "waiting_for_input";
+      return standing.reason === "failed" ||
+        (standing.reason === undefined && thread.status === "failed")
+        ? "failed"
+        : "waiting_for_input";
     case "finished":
       return thread.status === "completed" ? "completed" : null;
   }
