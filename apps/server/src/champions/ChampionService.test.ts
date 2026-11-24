@@ -7912,6 +7912,35 @@ describe("Champion folders in agent-config", () => {
 });
 
 it.effect(
+  "skips waking the agent when all collected readings are in target and the only open finding awaits its Spec or decision",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        const reading = NodePath.join(f.realProjectRoot(), "reading");
+        NodeFS.writeFileSync(reading, "5");
+        yield* accepted(service, [collectedMetric(printsFile(reading))]);
+        yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
+        const breached = yield* service.runCheck({ id: config.id });
+        const finding = breached.findings[0]!;
+        assert.equal(f.counts().launches, 1);
+        yield* service.report(f.caller(), { samples: [], findings: [], summary: "Breach seen" });
+        yield* diagnose(f, service, finding, "spec");
+        yield* service.updateDelivery(f.caller(), {
+          findingId: finding.id,
+          action: "spec",
+          specUrl: "https://weave.yardsmith.co.uk/forge/9999",
+          evidence: "Filed Spec #9999",
+        });
+        NodeFS.writeFileSync(reading, "1");
+        yield* TestClock.adjust("1 second");
+        const rested = yield* service.runCheck({ id: config.id });
+        assert.equal(f.counts().launches, 1);
+        assert.isNull(rested.champion.outstandingCheckId);
+      }),
+    ),
+);
+
+it.effect(
   "runs the agent on an all-collected in-target check when the Champion works while in target",
   () =>
     withFixture((f, service) =>

@@ -2221,13 +2221,23 @@ const make = Effect.gen(function* () {
           if (delivered >= 0 && reading.value !== null && !outside(metric, reading.value))
             findings[delivered] = { ...findings[delivered]!, status: "verified", updatedAt: at };
         }
+        const awaitingExternal = (finding: ChampionFinding) =>
+          settled(finding) ||
+          finding.specUrl !== null ||
+          finding.decision?.status === "requested" ||
+          (finding.status === "working" && finding.repairAttention == null);
+        const allReadingsInTarget = commands.every((metric, index) => {
+          const value = samples[index]?.value ?? null;
+          return !targeted(metric) || value === null || !outside(metric, value);
+        });
         const finished =
           collectsEverything(doc, check) &&
           doc.champion.whenInTarget !== "work" &&
           commands.length === check.metrics.length &&
           samples.every((sample) => sample.status === "measured") &&
+          allReadingsInTarget &&
           !findingsLimited &&
-          findings.every(settled);
+          findings.every(awaitingExternal);
         const saved = { ...check, samples, reported: finished };
         yield* saveCheck(saved);
         yield* write({
@@ -2254,7 +2264,9 @@ const make = Effect.gen(function* () {
           yield* activity(
             check.championId,
             "check-reported",
-            `The server read ${samples.length === 1 ? "the one metric" : `all ${samples.length} metrics`} by command; every reading is inside its target and no finding is open, so no agent ran.`,
+            findings.every(settled)
+              ? `The server read ${samples.length === 1 ? "the one metric" : `all ${samples.length} metrics`} by command; every reading is inside its target and no finding is open, so no agent ran.`
+              : `The server read ${samples.length === 1 ? "the one metric" : `all ${samples.length} metrics`} by command; every reading is inside its target and open findings await their Spec, decision or active repair, so no agent ran.`,
           );
         for (const finding of findings)
           if (!doc.findings.some((old) => old.id === finding.id))
