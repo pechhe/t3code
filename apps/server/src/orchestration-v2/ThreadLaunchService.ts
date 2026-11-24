@@ -1242,6 +1242,7 @@ const make = Effect.gen(function* () {
                 projectId: input.projectId,
                 projectCwd: project.workspaceRoot,
                 worktreePath,
+                ...(createdBySlipJay ? { workspaceDepsReady: true } : {}),
                 ...(tracked
                   ? {
                       observeCompletion: {

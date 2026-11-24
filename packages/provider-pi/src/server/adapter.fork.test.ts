@@ -1338,6 +1338,78 @@ describe("PiAdapterV2", () => {
       }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 
+  it.effect("coalesces streamed text deltas over the 400 ms flush window", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      const { runtime, takeEvent } = yield* openRuntime(fake);
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("default"),
+        runtimePolicy,
+      });
+      yield* startTurn(runtime, providerThread);
+      yield* fake.takeRequest("prompt");
+      yield* fake.emit({ type: "agent_start" });
+      yield* fake.emit({ type: "message_start", message: { role: "assistant" } });
+      for (const delta of ["Hel", "lo ", "there"]) {
+        yield* fake.emit({
+          type: "message_update",
+          assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta },
+        });
+      }
+      yield* fake.emit({
+        type: "extension_ui_request",
+        method: "notify",
+        message: "deltas-processed",
+      });
+      yield* takeEvent(
+        (event) => event.type === "turn_item.updated" && event.turnItem.type === "system_notice",
+      );
+      yield* TestClock.adjust(Duration.millis(399));
+      yield* fake.emit({
+        type: "extension_ui_request",
+        method: "notify",
+        message: "before-window-end",
+      });
+      const beforeWindow = yield* takeEvent(
+        (event) =>
+          event.type === "turn_item.updated" &&
+          (event.turnItem.type === "system_notice" ||
+            (event.turnItem.type === "assistant_message" && event.turnItem.status === "running")),
+      );
+      assert.equal(
+        beforeWindow.type === "turn_item.updated" ? beforeWindow.turnItem.type : null,
+        "system_notice",
+      );
+      yield* TestClock.adjust(Duration.millis(1));
+      const flushed = yield* takeEvent(
+        (event) =>
+          event.type === "turn_item.updated" &&
+          event.turnItem.type === "assistant_message" &&
+          event.turnItem.status === "running",
+      );
+      assert.equal(
+        flushed.type === "turn_item.updated" && flushed.turnItem.type === "assistant_message"
+          ? flushed.turnItem.text
+          : null,
+        "Hello there",
+      );
+      yield* fake.emit({
+        type: "message_update",
+        assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "!" },
+      });
+      yield* fake.emit({
+        type: "message_update",
+        assistantMessageEvent: { type: "text_end", contentIndex: 0, content: "Hello there!" },
+      });
+      yield* fake.emit({ type: "message_end", message: { role: "assistant" } });
+      const done = yield* takeEvent(
+        (event) => event.type === "message.updated" && !event.message.streaming,
+      );
+      assert.equal(done.type === "message.updated" ? done.message.text : null, "Hello there!");
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
   it.effect(
     "ignores an empty text_delta that outlives the stream flush window before text_end",
     () =>
@@ -1369,7 +1441,7 @@ describe("PiAdapterV2", () => {
         yield* takeEvent(
           (event) => event.type === "turn_item.updated" && event.turnItem.type === "system_notice",
         );
-        yield* TestClock.adjust(Duration.millis(60));
+        yield* TestClock.adjust(Duration.millis(400));
         yield* fake.emit({
           type: "message_update",
           assistantMessageEvent: { type: "text_end", contentIndex: 2, content: "" },

@@ -195,6 +195,30 @@ it.layer(layerJjWithSlipJay)("Jujutsu VCS driver", (it) => {
       }),
   );
 
+  it.effect("lists authored paths across a moved parent without reflogs", () =>
+    Effect.gen(function* () {
+      const cwd = yield* makeRepo;
+      const driver = yield* VcsDriver.VcsDriver;
+      const checkpoints = driver.checkpoints!;
+      const before = CheckpointRef.make("refs/t3/checkpoints/test/moved-before");
+      const after = CheckpointRef.make("refs/t3/checkpoints/test/moved-after");
+      yield* writeFile(cwd, "base.ts", "base\n");
+      yield* runJj(cwd, ["commit", "-m", "base"]);
+      yield* checkpoints.captureCheckpoint({ cwd, checkpointRef: before });
+      yield* writeFile(cwd, "committed.ts", "committed\n");
+      yield* runJj(cwd, ["commit", "-m", "during the turn"]);
+      yield* writeFile(cwd, "pending.ts", "pending\n");
+      yield* checkpoints.captureCheckpoint({ cwd, checkpointRef: after });
+      const paths = yield* checkpoints.listAuthoredPaths({
+        cwd,
+        fromCheckpointRef: before,
+        toCheckpointRef: after,
+      });
+      assert.isNotNull(paths);
+      assert.includeMembers([...paths!], ["committed.ts", "pending.ts"]);
+    }),
+  );
+
   it.effect(
     "reports the configured integration base, changed files and movement behind integration",
     () =>

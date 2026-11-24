@@ -92,6 +92,34 @@ it.layer(layer)("ProjectChampionGit", (it) => {
     }).pipe(Effect.scoped),
   );
 
+  it.effect("skips the mirror fetch while the remote tips are unchanged", () =>
+    Effect.gen(function* () {
+      const { fs, path, seed, input, mirrorsRoot } = yield* setup({
+        slipjay: '{"integrationBranch":"trunk"}',
+      });
+      const first = yield* ProjectChampionGit.readPublished(input);
+      const [mirrorName] = (yield* fs.readDirectory(mirrorsRoot)).filter((name) =>
+        name.endsWith(".git"),
+      );
+      const mirror = path.join(mirrorsRoot, mirrorName!);
+      // A fetch would repoint the mirror at the remote, so a stale URL proves none ran.
+      yield* git(mirror, "config", "remote.origin.url", "/nonexistent");
+      const again = yield* ProjectChampionGit.readPublished(input);
+      assert.deepEqual(again, first);
+      assert.equal(yield* git(mirror, "config", "remote.origin.url"), "/nonexistent");
+
+      yield* fs.writeFileString(path.join(seed, ".agents/champions/two.md"), "trunk two v2\n");
+      yield* git(seed, "commit", "-am", "trunk v2");
+      yield* git(seed, "push", "origin", "HEAD:trunk");
+      const next = yield* ProjectChampionGit.readPublished(input);
+      assert.equal(next?.commit, yield* git(seed, "rev-parse", "trunk"));
+      assert.deepEqual(summarize(next?.files ?? []), [
+        [".agents/champions/a/one.md", "one\n"],
+        [".agents/champions/two.md", "trunk two v2\n"],
+      ]);
+    }).pipe(Effect.scoped),
+  );
+
   it.effect("ignores uncommitted edits and leaves the checkout untouched", () =>
     Effect.gen(function* () {
       const { fs, path, checkout, input } = yield* setup();

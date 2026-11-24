@@ -109,7 +109,7 @@ const DEFAULT_PI_SETTINGS = Schema.decodeSync(PiSettings)({});
 // Inherit Pi's configured defaultProvider/defaultModel without calling set_model.
 const PI_INHERIT_MODEL_SLUG = "default";
 
-const STREAM_FLUSH_MS = 50;
+const STREAM_FLUSH_MS = 400;
 
 interface PiPromptCache {
   readonly ttlMs: number;

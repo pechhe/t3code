@@ -266,6 +266,8 @@ export class ManagedAgentService extends Context.Service<
         readonly caller?: ModelSelection;
         readonly selection?: Resolver.RequestedModel;
         readonly requireExplicitSelection?: boolean;
+        /** Only for callers that always validate before dispatch. */
+        readonly deferWriterWorkspacePreflight?: boolean;
       },
     ) => Effect.Effect<{ binding: AgentTaskBinding; brief: string }, ManagedAgentError>;
     readonly validate: (
@@ -475,6 +477,7 @@ const make = Effect.gen(function* () {
     request: AgentTaskRequest,
     authority: Authority,
     writes: boolean,
+    deferWriterWorkspacePreflight = false,
   ) {
     const assignment = request.workspaceAssignment ?? "lead";
     // A pinned reader cannot change a checkout and is proven below to see exactly the pinned
@@ -599,7 +602,7 @@ const make = Effect.gen(function* () {
       return yield* refuse(`workspacePath must be the real path ${actual}, without symlinks`);
     const stat = yield* fs.stat(actual).pipe(Effect.mapError((cause) => refuse(missing, cause)));
     if (stat.type !== "Directory") return yield* refuse(`${expected} is not a directory`);
-    if (writes)
+    if (writes && !deferWriterWorkspacePreflight)
       yield* local(checkWriterWorkspace(actual)).pipe(
         Effect.mapError((cause) =>
           cause.reason === "hard-link"
@@ -1220,6 +1223,7 @@ const make = Effect.gen(function* () {
         input.request,
         input,
         input.request.readOnly !== true && role.sourceAccess === "scoped-write",
+        input.deferWriterWorkspacePreflight,
       );
       if (input.recordedBinding === undefined) yield* verifyRecordedReview(input.request);
       const context = yield* execution(

@@ -61,18 +61,41 @@ const run = Effect.fn("ProjectChampionGit.run")(function* (
 const fileError = (operation: string) => (cause: unknown) =>
   new AgentConfigGitError({ operation, detail: String(cause) });
 
-const defaultBranch = Effect.fn("ProjectChampionGit.defaultBranch")(function* (
+// A remote whose tips still match the last read has the same Champions; skip the mirror work.
+const MAX_CACHED_READS = 64;
+const cachedReads = new Map<
+  string,
+  { readonly name: string; readonly tip: string; readonly published: PublishedChampions }
+>();
+
+const remoteHeads = Effect.fn("ProjectChampionGit.remoteHeads")(function* (
   cwd: string,
   url: string,
+  extraBranch: string | undefined,
 ) {
-  const output = yield* run(cwd, "ls-remote", ["ls-remote", "--symref", url, "HEAD"]);
-  const match = /^ref: refs\/heads\/(\S+)\tHEAD$/m.exec(output ?? "");
-  if (match?.[1] === undefined)
+  const output = yield* run(cwd, "ls-remote", [
+    "ls-remote",
+    "--symref",
+    url,
+    "HEAD",
+    ...(extraBranch === undefined ? [] : [`refs/heads/${extraBranch}`]),
+  ]);
+  const text = output ?? "";
+  const name = /^ref: refs\/heads\/(\S+)\tHEAD$/m.exec(text)?.[1];
+  if (name === undefined)
     return yield* new AgentConfigGitError({
       operation: "ls-remote",
       detail: "the remote has no default branch",
     });
-  return match[1];
+  const tipOf = (ref: string) =>
+    new RegExp(`^([0-9a-f]{40,64})\\t${ref.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "m").exec(
+      text,
+    )?.[1];
+  return {
+    name,
+    tip: tipOf("HEAD"),
+    branchTip: extraBranch === undefined ? undefined : tipOf(`refs/heads/${extraBranch}`),
+  };
 });
 
 const prepareMirror = Effect.fn("ProjectChampionGit.prepareMirror")(function* (
@@ -167,8 +190,30 @@ const readMirror = Effect.fn("ProjectChampionGit.readMirror")(function* (
   url: string,
   mirrorsRoot: string,
 ) {
+  const key = `${mirror}\0${url}`;
+  const cached = cachedReads.get(key);
+  const heads = yield* remoteHeads(
+    mirrorsRoot,
+    url,
+    cached?.published.branch === cached?.name ? undefined : cached?.published.branch,
+  );
+  if (
+    cached !== undefined &&
+    heads.tip !== undefined &&
+    heads.name === cached.name &&
+    heads.tip === cached.tip &&
+    (cached.published.branch === cached.name || heads.branchTip === cached.published.commit) &&
+    (yield* Effect.promise(() =>
+      NodeFSP.stat(NodePath.join(mirror, "HEAD")).then(
+        () => true,
+        () => false,
+      ),
+    ))
+  )
+    return cached.published;
+  cachedReads.delete(key);
   yield* prepareMirror(mirror, url);
-  const defaultName = yield* defaultBranch(mirrorsRoot, url);
+  const defaultName = heads.name;
   let filtered = true;
   let defaultTip = yield* fetchBranch(mirror, defaultName, true);
   if (defaultTip === null) {
@@ -187,7 +232,13 @@ const readMirror = Effect.fn("ProjectChampionGit.readMirror")(function* (
   }
   if (filtered) yield* fetchBlobs(mirror, commit, [CHAMPIONS_IN_REPO]);
   const files = yield* readFiles(mirror, commit, CHAMPIONS_IN_REPO);
-  return { commit, branch, files } satisfies PublishedChampions;
+  const published = { commit, branch, files } satisfies PublishedChampions;
+  if (heads.tip === defaultTip) {
+    if (cachedReads.size >= MAX_CACHED_READS)
+      cachedReads.delete(cachedReads.keys().next().value as string);
+    cachedReads.set(key, { name: defaultName, tip: defaultTip, published });
+  }
+  return published;
 });
 
 export const readPublished = Effect.fn("ProjectChampionGit.readPublished")(function* (input: {

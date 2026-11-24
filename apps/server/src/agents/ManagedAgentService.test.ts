@@ -704,6 +704,8 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         expect(error.reason).toBe("hard-link");
         expect(error.message).toContain(alias);
         expect((yield* f.validate(accepted.binding).pipe(Effect.flip)).reason).toBe("hard-link");
+        const deferred = yield* f.prepare({ deferWriterWorkspacePreflight: true });
+        expect((yield* f.validate(deferred.binding).pipe(Effect.flip)).reason).toBe("hard-link");
         yield* f.prepare({ request: request({ workspacePath: f.workspacePath, readOnly: true }) });
       }),
   );

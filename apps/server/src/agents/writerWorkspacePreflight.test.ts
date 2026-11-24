@@ -62,10 +62,10 @@ it.layer(NodeServices.layer)("writer workspace alias guard", (it) => {
         expect((yield* checkWriterWorkspace(workspace).pipe(Effect.flip)).path).toBe(source);
       }),
   );
-  it.effect("does not count links reached through a symlinked store or store entry", () =>
+  it.effect("does not count links reached through symlinked pnpm directories", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
-      for (const symlinked of ["entry", "store"] as const) {
+      for (const symlinked of ["nested", "entry", "store"] as const) {
         const root = yield* fs.makeTempDirectoryScoped();
         const workspace = `${root}/workspace`;
         const source = `${workspace}/src.ts`;
@@ -73,7 +73,11 @@ it.layer(NodeServices.layer)("writer workspace alias guard", (it) => {
         yield* fs.makeDirectory(`${workspace}/node_modules`, { recursive: true });
         yield* fs.writeFileString(source, "source");
         yield* fs.link(source, `${root}/outside/native/index.ts`);
-        if (symlinked === "entry") {
+        if (symlinked === "nested") {
+          const entry = `${workspace}/node_modules/.pnpm/native@file+native`;
+          yield* fs.makeDirectory(entry, { recursive: true });
+          yield* fs.symlink(`${root}/outside/native`, `${entry}/native`);
+        } else if (symlinked === "entry") {
           yield* fs.makeDirectory(`${workspace}/node_modules/.pnpm`);
           yield* fs.symlink(
             `${root}/outside/native`,

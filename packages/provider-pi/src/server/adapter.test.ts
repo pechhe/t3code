@@ -6401,7 +6401,7 @@ describe("PiAdapterV2", () => {
       const abandonedReasoning = yield* takeEvent(
         (event) => event.type === "turn_item.updated" && event.turnItem.type === "reasoning",
       );
-      yield* TestClock.adjust(Duration.millis(60));
+      yield* TestClock.adjust(Duration.millis(400));
       const abandonedAssistant = yield* takeEvent(
         (event) =>
           event.type === "turn_item.updated" && event.turnItem.type === "assistant_message",

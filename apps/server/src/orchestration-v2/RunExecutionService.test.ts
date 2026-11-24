@@ -1025,18 +1025,21 @@ it.effect("fails the run when its ownership check cannot be read before calling 
       const fs = yield* FileSystem.FileSystem;
       const cwd = yield* fs.realPath(yield* fs.makeTempDirectoryScoped());
       const lostRunId = "run:before-restart";
-      yield* custody.admit({ runId: lostRunId, projectRoot: cwd, workspacePath: cwd });
-      yield* custody.register(lostRunId, {
-        id: "provider",
-        kind: "provider-turn",
-        processIds: [{ pid: 456 }],
-      });
-      yield* custody.register(lostRunId, {
-        id: "checkpoint",
-        kind: "checkpoint",
-        processIds: [{ pid: 123 }],
-      });
-      yield* custody.acknowledge(lostRunId, "admission", "provider-started");
+      yield* Effect.gen(function* () {
+        const previous = yield* RunCustody.RunWorkspaceCustody;
+        yield* previous.admit({ runId: lostRunId, projectRoot: cwd, workspacePath: cwd });
+        yield* previous.register(lostRunId, {
+          id: "provider",
+          kind: "provider-turn",
+          processIds: [{ pid: 456 }],
+        });
+        yield* previous.register(lostRunId, {
+          id: "checkpoint",
+          kind: "checkpoint",
+          processIds: [{ pid: 123 }],
+        });
+        yield* previous.acknowledge(lostRunId, "admission", "provider-started");
+      }).pipe(Effect.provide(Layer.fresh(RunCustody.layer.pipe(Layer.provide(Custody.layer)))));
       yield* Ref.set(f.controllerStart, "after-restart");
       yield* Ref.set(f.processStarts, new Map([[456, "first-start"]]));
       const guardCalls = yield* Ref.make(0);
@@ -1152,10 +1155,9 @@ it.effect("fails the run when its ownership check cannot be read before calling 
       assert.isTrue(claims.every((epoch) => epoch.phase === "released"));
       const workspaceCustody = yield* Custody.WorkspaceCustody;
       yield* workspaceCustody.reconcile;
-      assert.isTrue(
-        (yield* journal.forScope(`run:${lostRunId}:workspace:`)).every(
-          (epoch) => epoch.phase === "recovery-required",
-        ),
+      assert.deepEqual(
+        (yield* journal.forScope(`run:${lostRunId}:workspace:`)).map((epoch) => epoch.phase),
+        ["recovery-required"],
       );
       yield* Ref.set(f.processStarts, new Map([[456, null]]));
       yield* workspaceCustody.reconcile;
@@ -1163,9 +1165,9 @@ it.effect("fails the run when its ownership check cannot be read before calling 
     }).pipe(
       Effect.provide(
         RunCustody.layer.pipe(
+          Layer.provideMerge(f.layer),
           Layer.provideMerge(
             Layer.mergeAll(
-              f.layer,
               NodeServices.layer,
               Layer.mock(Workspaces.WorkspaceProvider)({
                 resolve: () => Effect.succeed("slipjay"),

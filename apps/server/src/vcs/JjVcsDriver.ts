@@ -10,6 +10,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as Hex from "effect/encoding/Hex";
+import { ChildProcessSpawner } from "effect/process";
 
 import {
   VcsProcessExitError,
@@ -494,7 +495,10 @@ const makeVcsDriverShape = Effect.fn("makeJjVcsDriverShape")(function* () {
   const checkpointGit = Effect.fn("JjVcsDriver.checkpoints.git")(function* (
     cwd: string,
     args: ReadonlyArray<string>,
-    options?: Pick<VcsProcess.VcsProcessInput, "env" | "allowNonZeroExit" | "outputMode">,
+    options?: Pick<
+      VcsProcess.VcsProcessInput,
+      "env" | "allowNonZeroExit" | "outputMode" | "timeoutMs" | "stdin" | "maxOutputBytes"
+    >,
   ) {
     const store = yield* jj("JjVcsDriver.checkpoints.gitRoot", cwd, [
       "git",
@@ -635,9 +639,24 @@ const makeVcsDriverShape = Effect.fn("makeJjVcsDriverShape")(function* () {
         { outputMode: "error" },
       )).stdout;
     }),
+    // jj never writes reflogs, so the reflog probes would only scan the shared store until they
+    // time out; an empty answer counts every commit in the moved range as authored, as before.
     listAuthoredPaths: (input) =>
       listGitCheckpointAuthoredPaths(input, (read) =>
-        checkpointGit(read.cwd, read.args, { outputMode: "error" }),
+        read.args.includes("--walk-reflogs")
+          ? Effect.succeed({
+              exitCode: ChildProcessSpawner.ExitCode(0),
+              stdout: "",
+              stderr: "",
+              stdoutTruncated: false,
+              stderrTruncated: false,
+            })
+          : checkpointGit(read.cwd, read.args, {
+              outputMode: "error",
+              ...(read.stdin === undefined ? {} : { stdin: read.stdin }),
+              ...(read.timeoutMs === undefined ? {} : { timeoutMs: read.timeoutMs }),
+              ...(read.maxOutputBytes === undefined ? {} : { maxOutputBytes: read.maxOutputBytes }),
+            }),
       ),
 
     deleteCheckpointRefs: Effect.fn("JjVcsDriver.checkpoints.delete")(function* (input) {

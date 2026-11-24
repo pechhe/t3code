@@ -2,6 +2,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as FileSystem from "effect/FileSystem";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
 import * as Ref from "effect/Ref";
 import * as Journal from "../persistence/WorkspaceCustody.ts";
@@ -66,6 +67,16 @@ it.effect(
           kind: "checkpoint",
           processIds: [{ pid: 123 }],
         });
+        yield* custody.reconcile;
+        yield* custody.reconcile;
+        const allocation = yield* custody.prepare({
+          ownerRef: "allocation:attempt",
+          projectRoot: "/source",
+        });
+        yield* custody.register(allocation.id, { id: "allocation:attempt", kind: "allocation" });
+        yield* custody.acquireExisting(allocation.id, "/source/allocation");
+        yield* custody.finishAllocation("attempt");
+        assert.equal(yield* Ref.get(f.releases), 1);
         assert.deepEqual(yield* probes, { capability: 1, activate: 1, controller: 1 });
         assert.deepEqual(
           (yield* (yield* Journal.WorkspaceCustody).get(
@@ -520,7 +531,9 @@ it.effect(
           processIds: [{ pid: 456 }],
         });
         yield* Ref.set(f.processStarts, new Map([[123, null]]));
-        yield* custody.reconcile;
+        yield* WorkspaceCustody.WorkspaceCustody.use((fresh) => fresh.reconcile).pipe(
+          Effect.provide(Layer.fresh(WorkspaceCustody.layer)),
+        );
         assert.equal((yield* journal.get(epoch.id)).phase, "open");
         yield* Ref.set(f.processStarts, new Map());
         yield* custody.register(epoch.id, {
@@ -584,24 +597,52 @@ it.effect.each([
             [789, "first-start"],
           ]),
         );
-        yield* custody.reconcile;
-        const released = scenario === "absent" || scenario === "replaced";
-        assert.equal(
-          (yield* journal.get(epoch.id)).phase,
-          released ? "released" : "recovery-required",
+        yield* Ref.set(
+          f.procStarts,
+          new Map([
+            [456, "900"],
+            [789, "901"],
+          ]),
         );
-        assert.equal(yield* Ref.get(f.releases), released ? 1 : 0);
-        if (scenario === "replacement" || scenario === "shared") {
-          yield* Ref.set(
-            f.processStarts,
-            new Map([
-              [456, null],
-              [789, null],
-            ]),
+        yield* Effect.gen(function* () {
+          const recovered = yield* WorkspaceCustody.WorkspaceCustody;
+          yield* recovered.reconcile;
+          const released = scenario === "absent" || scenario === "replaced";
+          assert.equal(
+            (yield* journal.get(epoch.id)).phase,
+            released ? "released" : "recovery-required",
           );
-          yield* custody.reconcile;
-          assert.equal((yield* journal.get(epoch.id)).phase, "released");
-        }
+          assert.equal(yield* Ref.get(f.releases), released ? 1 : 0);
+
+          if (scenario === "live") {
+            const count = Effect.map(
+              Ref.get(f.argumentsUsed),
+              (args) => args.filter((arg) => arg === "controller").length,
+            );
+            const before = yield* count;
+            yield* recovered.reconcile;
+            assert.equal(yield* count, before);
+            assert.equal((yield* journal.get(epoch.id)).phase, "recovery-required");
+
+            yield* Ref.set(f.procStarts, new Map([[456, "902"]]));
+            yield* Ref.set(f.processStarts, new Map([[456, "reused-pid"]]));
+            yield* recovered.reconcile;
+            assert.equal(yield* count, before + 1);
+            assert.equal((yield* journal.get(epoch.id)).phase, "released");
+          }
+          if (scenario === "replacement" || scenario === "shared") {
+            yield* Ref.set(f.procStarts, new Map());
+            yield* Ref.set(
+              f.processStarts,
+              new Map([
+                [456, null],
+                [789, null],
+              ]),
+            );
+            yield* recovered.reconcile;
+            assert.equal((yield* journal.get(epoch.id)).phase, "released");
+          }
+        }).pipe(Effect.provide(Layer.fresh(WorkspaceCustody.layer)));
         assert.isFalse((yield* Ref.get(f.argumentsUsed)).some((arg) => /kill|terminate/.test(arg)));
       }).pipe(Effect.provide(f.layer));
     }),
@@ -633,7 +674,9 @@ it.effect.each(["admission-only", "with-execution"] as const)(
           f.processStarts,
           new Map([[456, scenario === "with-execution" ? "first-start" : null]]),
         );
-        yield* custody.reconcile;
+        yield* WorkspaceCustody.WorkspaceCustody.use((fresh) => fresh.reconcile).pipe(
+          Effect.provide(Layer.fresh(WorkspaceCustody.layer)),
+        );
         const settled = yield* journal.get(epoch.id);
         const admission = settled.obligations.find((item) => item.id === "admission");
         assert.isNotNull(admission?.acknowledgement);

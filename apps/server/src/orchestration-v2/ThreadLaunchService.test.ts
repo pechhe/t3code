@@ -1763,6 +1763,7 @@ it.effect(
       assert.match(projection.thread.branch!, /^t3\/[0-9a-f]{8}$/);
       assert.equal(harness.createWorktree.mock.calls[0]?.[0]?.newRefName, projection.thread.branch);
       assert.equal(harness.runSetup.mock.calls.length, 1);
+      assert.isUndefined(harness.runSetup.mock.calls[0]?.[0]?.workspaceDepsReady);
       assert.equal(harness.renameBranch.mock.calls.length, 0);
       assert.isFalse(projection.turnItems.some((item) => item.type === "error"));
     }).pipe(Effect.provide(harness.layer));
@@ -1942,6 +1943,7 @@ it.effect(
         });
         const launched = yield* launches.launch(input);
         yield* Deferred.await(setupEntered);
+        assert.isTrue(harness.runSetup.mock.calls[0]?.[0]?.workspaceDepsReady);
         const projection = yield* threads.getThreadProjection(launched.threadId);
         assert.equal(projection.thread.worktreePath, "/slipjay/workspaces/build-the-feature");
         assert.equal(projection.runs[0]?.status, "preparing");

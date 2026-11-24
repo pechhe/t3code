@@ -43,6 +43,7 @@ const openSnapshot = (history: string): TerminalSessionSnapshot => ({
 });
 
 const makeHarness = Effect.fn(function* (options: {
+  readonly workspaceDepsReady?: boolean;
   readonly command?: string;
   readonly history?: string;
   readonly opening?: Deferred.Deferred<void>;
@@ -91,6 +92,7 @@ const makeHarness = Effect.fn(function* (options: {
   const start = runner.runForThread({
     threadId,
     worktreePath: "/repo/.t3/worktrees/feature",
+    ...(options.workspaceDepsReady ? { workspaceDepsReady: true } : {}),
     observeCompletion: { onOutputLine: (line) => Queue.offer(outputLines, line) },
     project: {
       id: ProjectId.make("project-1"),
@@ -113,6 +115,7 @@ const makeHarness = Effect.fn(function* (options: {
 
 const setup = Effect.fn(function* (
   options: {
+    readonly workspaceDepsReady?: boolean;
     readonly command?: string;
     readonly history?: string;
     readonly shell?: string | null;
@@ -131,6 +134,17 @@ describe("ProjectSetupScriptRunner", () => {
       const { opens } = yield* setup();
       expect(opens[0]?.env?.T3CODE_TERMINAL_SHELL).toBe("");
     }),
+  );
+
+  it.effect.each([false, true])(
+    "exposes the provider dependency hint only when supplied (%s)",
+    (workspaceDepsReady) =>
+      Effect.gen(function* () {
+        const { opens } = yield* setup({ workspaceDepsReady });
+        expect(opens[0]?.env?.T3CODE_WORKSPACE_DEPS_READY).toBe(
+          workspaceDepsReady ? "1" : undefined,
+        );
+      }),
   );
 
   it.effect("writes immediately when the spawned fallback is PowerShell", () =>

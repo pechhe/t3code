@@ -124,10 +124,14 @@ it.effect(
           assert.equal(result._tag, "Failure");
           assert.equal((yield* journal.list).length, 2);
           assert.isTrue((yield* journal.list).some((epoch) => epoch.phase === "recovery-required"));
-        }).pipe(Effect.provide(RunCustody.layer));
-        yield* Ref.set(f.processStarts, new Map([[456, null]]));
-        yield* (yield* WorkspaceCustody.WorkspaceCustody).reconcile;
-        assert.isTrue((yield* journal.list).every((epoch) => epoch.phase === "released"));
+          yield* Ref.set(f.processStarts, new Map([[456, null]]));
+          yield* (yield* WorkspaceCustody.WorkspaceCustody).reconcile;
+          assert.isTrue((yield* journal.list).every((epoch) => epoch.phase === "released"));
+        }).pipe(
+          Effect.provide(
+            Layer.fresh(RunCustody.layer.pipe(Layer.provideMerge(WorkspaceCustody.layer))),
+          ),
+        );
       }).pipe(
         Effect.provide(
           Layer.mergeAll(

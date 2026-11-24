@@ -66,6 +66,7 @@ export interface ProjectSetupScriptRunnerInput {
   readonly projectCwd?: string;
   readonly worktreePath: string;
   readonly trigger?: "setup" | "settle";
+  readonly workspaceDepsReady?: boolean;
   readonly project?: {
     readonly id: ProjectId;
     readonly workspaceRoot: string;
@@ -501,6 +502,7 @@ export const make = Effect.gen(function* () {
         project: { cwd: project.workspaceRoot },
         worktreePath: input.worktreePath,
       }),
+      ...(input.workspaceDepsReady ? { T3CODE_WORKSPACE_DEPS_READY: "1" } : {}),
       // Before client attachment, truecolor probes wait for terminal replies nobody can send.
       COLORTERM: "",
       // Project scripts keep the default shell; the preference is for interactive terminals only.

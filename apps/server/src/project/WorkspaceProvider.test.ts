@@ -112,65 +112,75 @@ const harness = Effect.fn("test.harness")(function* (handlers: Partial<Record<st
   return { intents, service, commands, named };
 });
 
-const layerIntents = Layer.mergeAll(WorkspaceAllocationIntents.layer, Custody.layer).pipe(
-  Layer.provideMerge(SqlitePersistence.layerMemory),
-  Layer.provide(
-    Layer.mock(Processes.ProcessRunner)({
-      run: (input) =>
-        Effect.sync(() => {
-          const args = input.command === "bun" ? input.args.slice(1) : input.args;
-          switch (args[1]) {
-            case "capability":
-              return output(
-                JSON.stringify({
-                  ok: true,
-                  capability: "generation-bound-custody",
-                  protocol: 1,
-                  supported: true,
-                  producerEntry: "/producer/cli.ts",
-                }),
-              );
-            case "activate":
-              return output(JSON.stringify({ ok: true, version: 1, activationId: "activation" }));
-            case "controller":
-              return output(
-                JSON.stringify({
-                  ok: true,
-                  controller: { platform: "linux", pid: process.pid, boot: "boot", start: "start" },
-                }),
-              );
-            case "acquire": {
-              const request = JSON.parse(input.stdin ?? "{}");
-              return output(
-                JSON.stringify({
-                  ok: true,
-                  version: 1,
-                  ownerId: request.ownerId,
-                  path: args[2],
-                  generation: "generation",
-                  claimId: request.ownerId,
-                }),
-              );
+const makeIntentsLayer = (allowAcquire: boolean) =>
+  Layer.mergeAll(WorkspaceAllocationIntents.layer, Custody.layer).pipe(
+    Layer.provideMerge(SqlitePersistence.layerMemory),
+    Layer.provide(
+      Layer.mock(Processes.ProcessRunner)({
+        run: (input) =>
+          Effect.sync(() => {
+            const args = input.command === "bun" ? input.args.slice(1) : input.args;
+            switch (args[1]) {
+              case "capability":
+                return output(
+                  JSON.stringify({
+                    ok: true,
+                    capability: "generation-bound-custody",
+                    protocol: 1,
+                    supported: true,
+                    producerEntry: "/producer/cli.ts",
+                  }),
+                );
+              case "activate":
+                return output(JSON.stringify({ ok: true, version: 1, activationId: "activation" }));
+              case "controller":
+                return output(
+                  JSON.stringify({
+                    ok: true,
+                    controller: {
+                      platform: "linux",
+                      pid: process.pid,
+                      boot: "boot",
+                      start: "start",
+                    },
+                  }),
+                );
+              case "acquire": {
+                if (!allowAcquire)
+                  throw new Error("An atomic start claim needs no second acquisition");
+                const request = JSON.parse(input.stdin ?? "{}");
+                return output(
+                  JSON.stringify({
+                    ok: true,
+                    version: 1,
+                    ownerId: request.ownerId,
+                    path: args[2],
+                    generation: "generation",
+                    claimId: request.ownerId,
+                  }),
+                );
+              }
+              case "release": {
+                const request = JSON.parse(input.stdin ?? "{}");
+                return output(
+                  JSON.stringify({
+                    ok: true,
+                    version: 1,
+                    released: true,
+                    generation: request.generation,
+                    claimId: request.claimId,
+                  }),
+                );
+              }
+              default:
+                return output(JSON.stringify({ ok: true }));
             }
-            case "release": {
-              const request = JSON.parse(input.stdin ?? "{}");
-              return output(
-                JSON.stringify({
-                  ok: true,
-                  version: 1,
-                  released: true,
-                  generation: request.generation,
-                  claimId: request.claimId,
-                }),
-              );
-            }
-            default:
-              return output(JSON.stringify({ ok: true }));
-          }
-        }),
-    }),
-  ),
-);
+          }),
+      }),
+    ),
+  );
+
+const layerIntents = makeIntentsLayer(true);
 
 const request = {
   projectRoot: "/project",
@@ -306,7 +316,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
         });
         const allocation = yield* service.allocate(request);
         expect(allocation.workspacePath).toBe(checkout);
-      }).pipe(Effect.provide(layerIntents)),
+      }).pipe(Effect.provide(makeIntentsLayer(false))),
     );
 
     it.effect.each([

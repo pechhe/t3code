@@ -1301,6 +1301,8 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
                   callerModel: parent.thread.modelSelection.model,
                   caller: parent.thread.modelSelection,
                   requireExplicitSelection: true,
+                  // Launch validates the workspace again immediately before dispatch.
+                  deferWriterWorkspacePreflight: true,
                   ...selectionOf(input.target),
                 })
                 .pipe(

@@ -5656,20 +5656,22 @@ const make = Effect.gen(function* () {
   ) {
     const found: Array<{ folder: FolderOnMain; commit: string; where: string }> = [];
     if (mirrorsRoot === null) return found;
-    for (const [canonicalKey, checkout] of yield* localRepositories()) {
-      const published = yield* ProjectChampionGit.readPublished({
-        mirrorsRoot,
-        canonicalKey,
-        checkout,
-      }).pipe(
-        Effect.catchTags({
-          AgentConfigGitError: (error) =>
-            Effect.logWarning("champions.repository-read-failed", {
-              repository: canonicalKey,
-              error,
-            }).pipe(Effect.as(null)),
-        }),
-      );
+    const reads = yield* Effect.forEach(
+      yield* localRepositories(),
+      ([canonicalKey, checkout]) =>
+        ProjectChampionGit.readPublished({ mirrorsRoot, canonicalKey, checkout }).pipe(
+          Effect.catchTags({
+            AgentConfigGitError: (error) =>
+              Effect.logWarning("champions.repository-read-failed", {
+                repository: canonicalKey,
+                error,
+              }).pipe(Effect.as(null)),
+          }),
+          Effect.map((published) => ({ canonicalKey, published })),
+        ),
+      { concurrency: 4 },
+    );
+    for (const { canonicalKey, published } of reads) {
       if (published === null) continue;
       for (const folder of hostedFolders(canonicalKey, published.files, agentConfig))
         found.push({

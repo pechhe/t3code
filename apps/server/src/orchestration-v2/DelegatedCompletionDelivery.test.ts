@@ -1834,7 +1834,10 @@ it.effect.each(["accept", "finalize", "cancelled", "restart"] as const)(
           assert.equal((yield* journal.list)[0]!.phase, "closing");
           assert.equal(yield* Ref.get(f.releases), 0);
         }
-        yield* (yield* WorkspaceCustody.WorkspaceCustody).reconcile;
+        // Restart reconciliation with an empty controller cache and the same journal.
+        yield* WorkspaceCustody.WorkspaceCustody.use((custody) => custody.reconcile).pipe(
+          Effect.provide(Layer.fresh(WorkspaceCustody.layer)),
+        );
         const remaining = (yield* journal.list)[0]!;
         assert.equal(remaining.phase, route === "cancelled" ? "recovery-required" : "released");
         assert.equal(yield* Ref.get(f.releases), route === "cancelled" ? 0 : 1);

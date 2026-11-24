@@ -46,40 +46,43 @@ if (!projectRoot) {
   throw new Error("T3CODE_PROJECT_ROOT is not set. Run this through the t3.json setup action.");
 }
 
-// Use the shell for Windows vp shims. Unattended installs need pnpm's confirmation
-// flag and closed stdin so other prompts fail. A stale lockfile must fail, not be rewritten.
-// Pipe output so the failure marker can keep its tail.
-const install = NodeChildProcess.spawn("vp i --frozen-lockfile -- --yes", {
-  cwd: worktree,
-  shell: true,
-  stdio: ["ignore", "pipe", "pipe"],
-});
-activeInstall = install;
-let installOutput = "";
-for (const [source, target] of [
-  [install.stdout, process.stdout],
-  [install.stderr, process.stderr],
-] as const) {
-  source.setEncoding("utf8");
-  source.on("data", (chunk: string) => {
-    target.write(chunk);
-    installOutput = (installOutput + chunk).slice(-8_000);
+const modulesManifest = NodePath.join(worktree, "node_modules", ".modules.yaml");
+if (process.env.T3CODE_WORKSPACE_DEPS_READY === "1" && NodeFS.existsSync(modulesManifest)) {
+  process.stdout.write("Skipping vp i: dependencies already prepared by workspace provider.\n");
+} else {
+  // Use the shell for Windows vp shims. Unattended installs need pnpm's confirmation
+  // flag and closed stdin so other prompts fail. A stale lockfile must fail, not be rewritten.
+  // Pipe output so the failure marker can keep its tail.
+  const install = NodeChildProcess.spawn("vp i --frozen-lockfile -- --yes", {
+    cwd: worktree,
+    shell: true,
+    stdio: ["ignore", "pipe", "pipe"],
   });
-}
-const installStatus = await new Promise<number | null>((resolve) => install.on("close", resolve));
-activeInstall = undefined;
-if (installStatus !== 0 || cancelSignal) {
-  failureDetail = cancelSignal
-    ? `Cancelled by ${cancelSignal}.`
-    : installOutput.trimEnd().split("\n").slice(-30).join("\n");
-  process.exit(installStatus || 1);
+  activeInstall = install;
+  let installOutput = "";
+  for (const [source, target] of [
+    [install.stdout, process.stdout],
+    [install.stderr, process.stderr],
+  ] as const) {
+    source.setEncoding("utf8");
+    source.on("data", (chunk: string) => {
+      target.write(chunk);
+      installOutput = (installOutput + chunk).slice(-8_000);
+    });
+  }
+  const installStatus = await new Promise<number | null>((resolve) => install.on("close", resolve));
+  activeInstall = undefined;
+  if (installStatus !== 0 || cancelSignal) {
+    failureDetail = cancelSignal
+      ? `Cancelled by ${cancelSignal}.`
+      : installOutput.trimEnd().split("\n").slice(-30).join("\n");
+    process.exit(installStatus || 1);
+  }
 }
 
 // pnpm cannot clone or hardlink across filesystems, so a store on another
 // device silently turns every worktree install into a full copy.
-const storeDir: unknown = JSON.parse(
-  NodeFS.readFileSync(NodePath.join(worktree, "node_modules", ".modules.yaml"), "utf8"),
-).storeDir;
+const storeDir: unknown = JSON.parse(NodeFS.readFileSync(modulesManifest, "utf8")).storeDir;
 if (
   typeof storeDir === "string" &&
   NodeFS.statSync(storeDir).dev !== NodeFS.statSync(NodePath.join(worktree, "node_modules")).dev

@@ -15,6 +15,8 @@ export class WriterWorkspacePreflightError extends Schema.TaggedError<WriterWork
   },
 ) {}
 
+const isWriterWorkspacePreflightError = Schema.is(WriterWorkspacePreflightError);
+
 /**
  * Version-control and package stores hard-link by design (`git clone --local`, pnpm's
  * store on Linux), and a writer edits source, not these; scanning them would refuse
@@ -24,49 +26,66 @@ const TOOL_OWNED_DIRECTORIES = new Set([".git", ".jj", "node_modules"]);
 
 const inode = (stat: NodeFS.Stats) => `${stat.dev}:${stat.ino}`;
 
-/** Visits every regular file below `root` with its lstat, without following symlinks. */
+/** Visits multiply linked regular files below `root` with its lstat, without following symlinks. */
 const walk = Effect.fn("walkWriterWorkspace")(function* (
   root: string,
   descend: (name: string) => boolean,
-  visit: (file: string, stat: NodeFS.Stats) => Effect.Effect<void, WriterWorkspacePreflightError>,
+  visit: (file: string, stat: NodeFS.Stats) => void,
 ) {
-  const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const directories = [root];
-  while (directories.length > 0) {
-    const dir = directories.pop()!;
-    const names = yield* fs
-      .readDirectory(dir)
-      .pipe(
-        Effect.mapError(
-          (cause) => new WriterWorkspacePreflightError({ reason: "unavailable", path: dir, cause }),
-        ),
-      );
-    const next = yield* Effect.forEach(
-      names,
-      (name) =>
-        Effect.gen(function* () {
-          const file = path.join(dir, name);
-          const stat = yield* Effect.tryPromise({
-            try: () => NodeFSP.lstat(file),
-            catch: (cause) =>
-              new WriterWorkspacePreflightError({ reason: "unavailable", path: file, cause }),
-          });
-          if (stat.isFile()) yield* visit(file, stat);
-          return stat.isDirectory() && descend(name) ? file : undefined;
-        }),
-      { concurrency: 16 },
-    );
-    directories.push(...next.filter((dir): dir is string => dir !== undefined));
-  }
+  yield* Effect.tryPromise({
+    try: async (signal) => {
+      const directories = [root];
+      while (directories.length > 0) {
+        signal.throwIfAborted();
+        const dir = directories.pop()!;
+        let entries;
+        try {
+          entries = await NodeFSP.readdir(dir, { withFileTypes: true });
+        } catch (cause) {
+          throw new WriterWorkspacePreflightError({ reason: "unavailable", path: dir, cause });
+        }
+        let index = 0;
+        let failed = false;
+        const worker = async () => {
+          try {
+            while (index < entries.length) {
+              if (failed || signal.aborted) return;
+              const entry = entries[index++]!;
+              if (entry.isSymbolicLink()) continue;
+              const file = path.join(dir, entry.name);
+              let stat;
+              try {
+                stat = await NodeFSP.lstat(file);
+              } catch (cause) {
+                throw new WriterWorkspacePreflightError({
+                  reason: "unavailable",
+                  path: file,
+                  cause,
+                });
+              }
+              if (failed || signal.aborted) return;
+              if (stat.isFile() && stat.nlink > 1) visit(file, stat);
+              if (stat.isDirectory() && descend(entry.name)) directories.push(file);
+            }
+          } catch (error) {
+            failed = true;
+            throw error;
+          }
+        };
+        await Promise.all(Array.from({ length: Math.min(16, entries.length) }, worker));
+      }
+    },
+    catch: (cause) =>
+      isWriterWorkspacePreflightError(cause)
+        ? cause
+        : new WriterWorkspacePreflightError({ reason: "unavailable", path: root, cause }),
+  });
 });
 
 /**
- * pnpm installs a `file:` directory dependency by hard-linking its sources into
- * `node_modules/.pnpm/<name>@file+…`, so those sources legitimately carry extra links
- * inside the same workspace. Counts those links per inode; an unreadable store counts none.
- * Only real directories count: a symlinked store or entry could reach files outside the
- * workspace and pass their aliases off as local.
+ * pnpm hard-links `file:` dependencies into `node_modules/.pnpm/<name>@file+…`.
+ * Count only real directories so outside aliases cannot be mistaken for local links.
  */
 const localDependencyLinks = Effect.fn("localDependencyLinks")(function* (root: string) {
   const fs = yield* FileSystem.FileSystem;
@@ -89,8 +108,10 @@ const localDependencyLinks = Effect.fn("localDependencyLinks")(function* (root: 
         yield* walk(
           entry,
           () => true,
-          (_file, stat) =>
-            Effect.sync(() => links.set(inode(stat), (links.get(inode(stat)) ?? 0) + 1)),
+          (_file, stat) => {
+            const key = inode(stat);
+            links.set(key, (links.get(key) ?? 0) + 1);
+          },
         ).pipe(Effect.ignore);
       }),
   );
@@ -103,9 +124,9 @@ export const checkWriterWorkspace = Effect.fn("checkWriterWorkspace")(function* 
   yield* walk(
     root,
     (name) => !TOOL_OWNED_DIRECTORIES.has(name),
-    (file, stat) =>
-      stat.nlink > 1 + (dependencyLinks.get(inode(stat)) ?? 0)
-        ? Effect.fail(new WriterWorkspacePreflightError({ reason: "hard-link", path: file }))
-        : Effect.void,
+    (file, stat) => {
+      if (stat.nlink > 1 + (dependencyLinks.get(inode(stat)) ?? 0))
+        throw new WriterWorkspacePreflightError({ reason: "hard-link", path: file });
+    },
   );
 });

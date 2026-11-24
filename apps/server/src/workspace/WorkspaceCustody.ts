@@ -470,32 +470,45 @@ const make = Effect.gen(function* () {
       Effect.orElseSucceed(() => null),
     );
 
-  const processController = Effect.fn("WorkspaceCustody.processController")(function* (
+  const observeController = Effect.fn("WorkspaceCustody.observeController")(function* (
     projectRoot: string,
     entry: string,
     processPid: number,
-  ) {
+  ): Effect.fn.Return<typeof Controller.Type, WorkspaceCustodyError> {
+    const own = processPid === pid ? ownControllers.get(entry) : undefined;
+    if (own !== undefined) return { ok: true, controller: own };
     const key = `${entry}:${processPid}`;
-    const start = yield* processStart(processPid);
+    const start = processPid === pid ? null : yield* processStart(processPid);
     const known = processControllers.get(key);
-    if (start !== null && known?.start === start) return known.controller;
-    const controller = yield* call({
+    if (start !== null && known?.start === start) return { ok: true, controller: known.controller };
+    processControllers.delete(key);
+    const observed = yield* call({
       projectRoot,
       entry,
       args: ["claims", "controller", String(processPid)],
     }).pipe(
       Effect.flatMap(Schema.decodeUnknownEffect(Controller)),
-      Effect.map((reply) =>
-        reply.ok && reply.controller !== null && reply.controller.pid === processPid
-          ? reply.controller
-          : null,
-      ),
-      Effect.orElseSucceed(() => null),
+      Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "controller", cause })),
     );
-    if (controller !== null && start !== null) processControllers.set(key, { start, controller });
-    else processControllers.delete(key);
-    return controller;
+    if (observed.ok && observed.controller !== null) {
+      if (observed.controller.pid !== processPid)
+        return yield* new WorkspaceCustodyError({
+          stage: "controller",
+          cause: "Controller identity did not match the requested process.",
+        });
+      if (processPid === pid) ownControllers.set(entry, observed.controller);
+      else if (start !== null)
+        processControllers.set(key, { start, controller: observed.controller });
+    }
+    return observed;
   });
+  const processController = Effect.fn("WorkspaceCustody.processController")(
+    (projectRoot: string, entry: string, processPid: number) =>
+      observeController(projectRoot, entry, processPid).pipe(
+        Effect.map((reply) => (reply.ok ? reply.controller : null)),
+        Effect.orElseSucceed(() => null),
+      ),
+  );
 
   return WorkspaceCustody.of({
     prepare: Effect.fn("WorkspaceCustody.prepare")((input) =>
@@ -592,8 +605,6 @@ const make = Effect.gen(function* () {
     register: Effect.fn("WorkspaceCustody.register")(function* (id, obligation) {
       const epoch = yield* get(id);
       const identities = yield* Effect.forEach(obligation.processIds ?? [], (process) => {
-        const own = process.pid === pid ? ownControllers.get(epoch.producer.entry) : undefined;
-        if (own !== undefined) return Effect.succeed({ ...own, shared: process.shared });
         return processController(epoch.projectRoot, epoch.producer.entry, process.pid).pipe(
           Effect.map((controller) =>
             controller === null ? null : { ...controller, shared: process.shared },
@@ -646,13 +657,10 @@ const make = Effect.gen(function* () {
         const key = `${epoch.producer.entry}:${processPid}`;
         const cached = identities.get(key);
         if (cached !== undefined) return cached;
-        const observed = yield* call({
-          projectRoot: epoch.projectRoot,
-          entry: epoch.producer.entry,
-          args: ["claims", "controller", String(processPid)],
-        }).pipe(
-          Effect.flatMap(Schema.decodeUnknownEffect(Controller)),
-          Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "controller", cause })),
+        const observed = yield* observeController(
+          epoch.projectRoot,
+          epoch.producer.entry,
+          processPid,
         );
         identities.set(key, observed);
         return observed;
@@ -784,14 +792,7 @@ const make = Effect.gen(function* () {
           .pipe(Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "journal", cause })));
         return;
       }
-      const current = yield* call({
-        projectRoot: epoch.projectRoot,
-        entry: epoch.producer.entry,
-        args: ["claims", "controller", String(pid)],
-      }).pipe(
-        Effect.flatMap(Schema.decodeUnknownEffect(Controller)),
-        Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "controller", cause })),
-      );
+      const current = yield* observeController(epoch.projectRoot, epoch.producer.entry, pid);
       const previous = epoch.producer.controller;
       if (
         !current.ok ||
