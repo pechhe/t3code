@@ -869,6 +869,11 @@ export const layer: Layer.Layer<
         resumeSource !== undefined
           ? projection.messages.find((source) => source.id === resumeSource.userMessageId)
           : undefined;
+      const needsNativeResume =
+        manualResume &&
+        unsentResumeMessage === undefined &&
+        message.text.trim().length === 0 &&
+        message.attachments.length === 0;
       const providerMessage = unsentResumeMessage ?? message;
       const settleStartFailure = Effect.fn("ProviderTurnStartService.settleStartFailure")(
         function* (failed: {
@@ -2173,7 +2178,7 @@ export const layer: Layer.Layer<
         legacyInputRunIds,
         budget,
       } = handoffContext;
-      if (manualResume && unsentResumeMessage === undefined && session.resumeTurn === undefined) {
+      if (needsNativeResume && session.resumeTurn === undefined) {
         yield* settleStartFailure({
           signal: "resume-unsupported",
           title: "Native resume is unavailable",
@@ -2655,7 +2660,7 @@ export const layer: Layer.Layer<
                   .filter((turn) => turn.providerThreadId === providerThread.id)
                   .map((turn) => turn.ordinal),
               ) + 1,
-            resume: manualResume && unsentResumeMessage === undefined,
+            resume: needsNativeResume,
             nativeThreadHasTurns:
               nativeInputRunIds.size > 0 ||
               (legacyInputRunIds.size > 0 &&

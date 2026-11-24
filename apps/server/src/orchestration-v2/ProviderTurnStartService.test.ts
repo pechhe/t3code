@@ -2747,6 +2747,26 @@ effectIt.effect("sends new steering text when restarting a manual continuation",
   }),
 );
 
+effectIt.effect(
+  "sends a continuation message instead of failing when native resume is unavailable",
+  () =>
+    Effect.gen(function* () {
+      const harness = makeLocalCommandHarness({
+        text: "Continue where you left off.",
+        manualContinuation: true,
+        nativeResumeUnsupported: true,
+        sideChat: { contextRun: "delivered" },
+      });
+      yield* harness.start;
+      expect(harness.settledRuns).toEqual([]);
+      expect(harness.startRootRun).toHaveBeenCalledTimes(1);
+      expect(harness.startRootRun.mock.calls[0]?.[0].resume).toBe(false);
+      expect(harness.startTurn.mock.calls[0]?.[0].message.text).toBe(
+        withInlineContext(delegationStanceNote("implement"), "Continue where you left off."),
+      );
+    }),
+);
+
 effectIt.effect("refuses unsupported resume instead of manufacturing a user prompt", () =>
   Effect.gen(function* () {
     const harness = makeLocalCommandHarness({
