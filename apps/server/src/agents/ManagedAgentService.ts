@@ -3,7 +3,7 @@ import * as Projections from "../orchestration-v2/ProjectionStore.ts";
 import * as PhiBrowser from "../preview/PhiBrowser.ts";
 import * as Settings from "../serverSettings.ts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
-import { pooledModels } from "@t3tools/shared/accountPools";
+import { pooledModelOfBinding, pooledModels } from "@t3tools/shared/accountPools";
 import { RUNNABLE_CANDIDATE_REASONS, roleModelAvailability } from "./roleModelAvailability.ts";
 import { defaultChildMode, exceedsCaller } from "./delegationRuntime.ts";
 import { checkWriterWorkspace } from "./writerWorkspacePreflight.ts";
@@ -1386,11 +1386,13 @@ const make = Effect.gen(function* () {
         "resume",
         input.binding,
       );
+      const routing = yield* configuredRouting;
       yield* resolver
         .resolve({
           ...input,
           ...context,
           snapshot,
+          ...(routing === undefined ? {} : { routing }),
           ignoreAvailability: true,
           ...(treatment === undefined ? {} : { treatment }),
           ...(browser === undefined ? {} : { browser }),
@@ -1405,6 +1407,23 @@ const make = Effect.gen(function* () {
         (input.binding.role === "ui-verifier" ? current.manifest.roles.browser : undefined);
       if (role === undefined) return yield* new ManagedAgentError({ reason: "revoked" });
       const allowed = (current.manifest.lists[role.list] ?? []).map((entry) => entry.model);
+      const pools = routing === undefined ? [] : pooledModels(input.providers, routing);
+      const selectionAllowedByAlias = (alias: string) => {
+        const model = current.manifest.models[alias];
+        if (model === undefined) return false;
+        if (model.driverKind === provider?.driver && model.model === input.selection.model)
+          return true;
+        const pool =
+          routing === undefined ? undefined : pooledModelOfBinding(pools, routing, model);
+        return (
+          pool?.accounts.some(
+            (account) =>
+              account.tier !== "off" &&
+              account.provider.instanceId === input.selection.instanceId &&
+              account.model === input.selection.model,
+          ) === true
+        );
+      };
       const offPolicyAllowed =
         input.binding.offPolicyReason !== undefined &&
         input.selection.model === input.binding.requested.model &&
@@ -1414,10 +1433,7 @@ const make = Effect.gen(function* () {
         (input.binding.sourceAccess === "scoped-write" && role.sourceAccess === "read-only") ||
         (treatment?.model !== input.selection.model &&
           !offPolicyAllowed &&
-          !allowed.some((alias) => {
-            const model = current.manifest.models[alias];
-            return model?.driverKind === provider?.driver && model?.model === input.selection.model;
-          }))
+          !allowed.some(selectionAllowedByAlias))
       )
         return yield* new ManagedAgentError({ reason: "revoked" });
     }),

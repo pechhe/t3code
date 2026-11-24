@@ -94,6 +94,7 @@ describe("readPiUsageSlots", () => {
             }
             if (request.url.includes("api.anthropic.com")) {
               expect(request.headers.authorization).toBe("Bearer claude-token");
+              expect(request.headers["user-agent"]).toMatch(/^claude-code\//);
               return Effect.succeed(
                 HttpClientResponse.fromWeb(
                   request,

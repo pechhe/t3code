@@ -815,7 +815,10 @@ export const probePiUsageSlots = Effect.fn("PiUsageSlots.probePiUsageSlots")(fun
         .execute(
           HttpClientRequest.get(ANTHROPIC_USAGE).pipe(
             HttpClientRequest.bearerToken(access),
-            HttpClientRequest.setHeaders({ "anthropic-beta": "oauth-2025-04-20" }),
+            HttpClientRequest.setHeaders({
+              "anthropic-beta": "oauth-2025-04-20",
+              "User-Agent": "claude-code/2.1.0",
+            }),
           ),
         )
         .pipe(

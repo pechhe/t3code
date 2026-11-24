@@ -340,6 +340,122 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
       }),
   );
   it.effect(
+    "validates a routed model dispatched or failed over onto another account of the same model",
+    () =>
+      Effect.gen(function* () {
+        const f = yield* fixture;
+        const models = [
+          "acct-a/claude-sonnet-5-5",
+          "acct-b/claude-sonnet-5-5",
+          "acct-overflow/claude-sonnet-5-5",
+        ];
+        const pi: ServerProvider = {
+          ...provider("pi", "pi-test", models),
+          models: models.map((slug) => ({
+            slug,
+            name: "Claude Sonnet 5.5",
+            isCustom: false,
+            capabilities: { optionDescriptors: [] },
+          })),
+          usageSlots: [
+            {
+              accountKey: "acct-a",
+              label: "acct-a",
+              providerFamily: "claude-subscription",
+              usageLimits: {
+                checkedAt: "2026-11-24T13:00:00.000Z",
+                windows: [
+                  {
+                    id: "seven_day",
+                    kind: "weekly",
+                    label: "Weekly",
+                    usedPercent: 100,
+                    resetsAt: "2026-11-29T11:00:00.000Z",
+                  },
+                ],
+              },
+            },
+            {
+              accountKey: "acct-b",
+              label: "acct-b",
+              providerFamily: "claude-subscription",
+              usageLimits: {
+                checkedAt: "2026-11-24T13:00:00.000Z",
+                windows: [
+                  {
+                    id: "seven_day",
+                    kind: "weekly",
+                    label: "Weekly",
+                    usedPercent: 20,
+                    resetsAt: "2026-11-29T03:00:00.000Z",
+                  },
+                ],
+              },
+            },
+          ],
+        };
+        yield* f.writeManifest({
+          ...f.manifest,
+          models: {
+            ...f.manifest.models,
+            "pooled-sonnet": {
+              driverKind: ProviderDriverKind.make("pi"),
+              model: "acct-a/claude-sonnet-5-5",
+            },
+          },
+          lists: {
+            ...f.manifest.lists,
+            workhorse: [{ model: "pooled-sonnet" }],
+          },
+        });
+        const routingLayer = Settings.layerTest({
+          pooledModelKeys: ["claude-sonnet-5-5"],
+          modelRouting: {
+            "claude-sonnet-5-5": {
+              primary: ["pi-test:acct-a", "pi-test:acct-b"],
+              overflow: ["pi-test:acct-overflow"],
+              primaryOrder: "soonest",
+            },
+          },
+        });
+        const accepted = yield* f
+          .prepare({
+            providers: [pi],
+            selection: { model: "claude-sonnet-5-5" },
+          })
+          .pipe(Effect.provide(routingLayer));
+        expect(accepted.binding.effective.model).toBe("acct-b/claude-sonnet-5-5");
+        yield* f.service
+          .validate({
+            workspacePath: f.workspacePath,
+            providers: [pi],
+            ceiling: "full-access",
+            binding: accepted.binding,
+            selection: accepted.binding.effective,
+          })
+          .pipe(
+            Effect.provideService(HostProcess.Environment, f.environment),
+            Effect.provide(routingLayer),
+          );
+        yield* f.service
+          .validate({
+            workspacePath: f.workspacePath,
+            providers: [pi],
+            ceiling: "full-access",
+            binding: accepted.binding,
+            selection: {
+              ...accepted.binding.effective,
+              model: "acct-overflow/claude-sonnet-5-5",
+            },
+          })
+          .pipe(
+            Effect.provideService(HostProcess.Environment, f.environment),
+            Effect.provide(routingLayer),
+          );
+      }),
+  );
+
+  it.effect(
     "a block on its account does not revoke a previously created managed conversation",
     () =>
       Effect.gen(function* () {
