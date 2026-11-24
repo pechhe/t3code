@@ -26,6 +26,7 @@ import {
   buildPiRpcLaunch,
   materializePiT3McpExtension,
   resolvePiLaunchArgs,
+  PI_SUBAGENT_CHILD_ENV,
 } from "./mcpInjection.ts";
 
 const threadId = ThreadId.make("thread-pi-t3-mcp");
@@ -186,13 +187,14 @@ describe("pi T3 MCP injection", () => {
     ({ readOnlyTools, readOnlyShell, shell }) => {
       const launch = buildPiRpcLaunch({
         launchArgs: [],
-        environment: { [T3_PI_READ_ONLY_SHELL_ENV]: "stale" },
+        environment: { [T3_PI_READ_ONLY_SHELL_ENV]: "stale", [PI_SUBAGENT_CHILD_ENV]: "stale" },
         mcpSession: { ...mcpSession, delegated: true },
         extensionPath: "/tmp/cache/pi-t3-mcp-extension.ts",
         readOnlyTools,
         readOnlyShell,
       });
       assert.equal(launch.env[T3_PI_READ_ONLY_SHELL_ENV], shell ? "1" : undefined);
+      assert.equal(launch.env[PI_SUBAGENT_CHILD_ENV], readOnlyTools ? "1" : undefined);
       assert.equal(
         launch.env[T3_PI_INSTRUCTIONS_ENV]?.includes("cannot change the assigned checkout"),
         shell,
@@ -221,6 +223,17 @@ describe("pi T3 MCP injection", () => {
       }
     },
   );
+
+  it("strips an inherited PI_SUBAGENT_CHILD from non-delegated sessions", () => {
+    const launch = buildPiRpcLaunch({
+      launchArgs: [],
+      environment: { [PI_SUBAGENT_CHILD_ENV]: "1" },
+      mcpSession,
+      extensionPath: "/tmp/cache/pi-t3-mcp-extension.ts",
+      readOnlyTools: true,
+    });
+    assert.isUndefined(launch.env[PI_SUBAGENT_CHILD_ENV]);
+  });
 
   it("forces tools and user extensions off for unattended text generation", () => {
     const launch = buildPiRpcLaunch({

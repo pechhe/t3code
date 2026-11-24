@@ -55,6 +55,9 @@ const RESERVED_PI_LAUNCH_ARGUMENTS = new Set([
   "-v",
 ]);
 
+/** pi-blackhole's Tier-1 subagent marker; with subagentMemory "off" it skips observational memory. */
+export const PI_SUBAGENT_CHILD_ENV = "PI_SUBAGENT_CHILD";
+
 export const PI_ARGUMENTS_WITH_VALUES = new Set([
   "--api-key",
   "--append-system-prompt",
@@ -403,6 +406,7 @@ export function buildPiRpcLaunch(input: {
   delete environment[T3_PI_AGENT_CONFIG_ROOT_ENV];
   delete environment[BROWSER_RUN_URL_ENV];
   delete environment[BROWSER_RUN_TOKEN_ENV];
+  delete environment[PI_SUBAGENT_CHILD_ENV];
 
   return {
     args,
@@ -421,6 +425,9 @@ export function buildPiRpcLaunch(input: {
         : {}),
       ...(hasT3Mcp && input.mcpSession?.pullRequestLinking === false
         ? { [T3_PI_NO_PR_LINKING_ENV]: "1" }
+        : {}),
+      ...(hasT3Mcp && input.mcpSession?.delegated === true && input.readOnlyTools === true
+        ? { [PI_SUBAGENT_CHILD_ENV]: "1" }
         : {}),
       ...(hasT3Mcp && delegatedRole !== undefined ? { [T3_PI_AGENT_ROLE_ENV]: delegatedRole } : {}),
       ...(hasT3Mcp && input.mcpSession?.agentConfigRoot !== undefined
