@@ -149,7 +149,12 @@ export const toolFamily = (name: string): ToolFamily => {
   if (name.startsWith("t3_queue_")) return "queue";
   if (CONTROL_EXTRA_TOOLS.has(name)) return "control";
   if (name.startsWith("t3_worktree_")) return "worktree";
-  if (name.startsWith("t3_project_") || name === WEAVE_NAMES.connectionTool) return "project";
+  if (
+    name.startsWith("t3_project_") ||
+    name.startsWith("t3_forge_") ||
+    name === WEAVE_NAMES.connectionTool
+  )
+    return "project";
   if (PULL_REQUEST_TOOLS.has(name)) return "workspace";
   if (name.startsWith("html_")) return "control";
   if (name.startsWith("t3_attachment_") || name === "t3_thread_send_attachments")
@@ -200,6 +205,7 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "t3_fleet_summary",
   "t3_project_list",
   "t3_project_read",
+  "t3_forge_read",
   "t3_terminal_read",
   "t3_thread_list",
   "t3_thread_read",

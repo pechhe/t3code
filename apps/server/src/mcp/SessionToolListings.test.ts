@@ -45,6 +45,7 @@ import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as SourceControlRepositoryService from "../sourceControl/SourceControlRepositoryService.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import * as ForgeReadService from "../weave/ForgeReadService.ts";
 import * as WeaveAgentConnections from "../weave/WeaveAgentConnections.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProviderAdapterRegistryV2 from "../orchestration-v2/ProviderAdapterRegistry.ts";
@@ -88,6 +89,20 @@ import * as BrowserLogins from "../secrets/BrowserLogins.ts";
  * empty mock. This is the seam where a toolkit can be dropped from an endpoint
  * without any other test noticing.
  */
+const weaveConnection = Layer.mock(WeaveAgentConnections.WeaveAgentConnections)({
+  observe: (tool, args) =>
+    Effect.sync(() => {
+      const origin = "https://weave.example.test";
+      if (tool === "weave_forge_query") {
+        expect(args).toEqual({ action: "read", ref: "WV-143" });
+        return { origin, connection: "test", value: { id: "spec", kind: "spec", bodyRevision: 3 } };
+      }
+      expect(tool).toBe("weave_docs_get_revision");
+      expect(args).toEqual({ recordId: "spec", revision: 2 });
+      return { origin, connection: "test", value: { content: "# Pinned Spec", revision: 2 } };
+    }),
+});
+
 const serviceMocks = Layer.mergeAll(
   Layer.mock(AssetSigner.AssetSigner)({}),
   Layer.mock(DecisionRouter.DecisionRouter)({}),
@@ -120,7 +135,8 @@ const serviceMocks = Layer.mergeAll(
   Layer.mock(HandoffImport.HandoffImport)({}),
   Layer.mock(ThreadHandoff.ThreadHandoff)({}),
   Layer.mock(ThreadImportService.ThreadImportService)({}),
-  Layer.mock(WeaveAgentConnections.WeaveAgentConnections)({}),
+  weaveConnection,
+  ForgeReadService.layer.pipe(Layer.provide(weaveConnection)),
   Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/tmp/projects" }),
   Layer.mock(ProviderAdapterRegistryV2.ProviderAdapterRegistryV2)({}),
   Layer.mock(ProviderRegistry.ProviderRegistry)({}),
@@ -233,6 +249,7 @@ it.effect("registers only the tool families each session endpoint declares", () 
         names.filter((name) => !families.has(toolFamily(name))),
         key,
       ).toEqual([]);
+      expect(names.includes("t3_forge_read"), key).toBe(key === "editor" || key === "reader");
       expect(names.includes("web_search"), key).toBe(key === "editor" || key === "research");
       expect(
         names.filter((name) =>
@@ -326,15 +343,17 @@ it.effect("loads editor tools through its own deferred HTTP catalogue", () =>
         capabilities: new Set(["orchestration"]),
         issuedAt: 1,
       };
+      const keys = ["editor", "reader", "research", "preview"] as const;
+      const endpoint = (key: SessionEndpointKey) =>
+        McpHttpServer.layerSessionTransport(
+          key,
+          McpHttpServer.layerSessionToolkits(SESSION_TOOL_ENDPOINTS[key].families),
+        );
       const endpoints = Layer.mergeAll(
-        McpHttpServer.layerSessionTransport(
-          "editor",
-          McpHttpServer.layerSessionToolkits(SESSION_TOOL_ENDPOINTS.editor.families),
-        ),
-        McpHttpServer.layerSessionTransport(
-          "reader",
-          McpHttpServer.layerSessionToolkits(SESSION_TOOL_ENDPOINTS.reader.families),
-        ),
+        endpoint("editor"),
+        endpoint("reader"),
+        endpoint("research"),
+        endpoint("preview"),
       ).pipe(
         Layer.provide(serviceMocks),
         Layer.provide(contextServices),
@@ -354,7 +373,7 @@ it.effect("loads editor tools through its own deferred HTTP catalogue", () =>
                       capabilities: new Set(["device" as const]),
                     }
                   : {}),
-                endpointKey: token.startsWith("reader") ? "reader" : "editor",
+                endpointKey: keys.find((key) => token.startsWith(key)) ?? "editor",
               }),
           }),
         ),
@@ -364,7 +383,7 @@ it.effect("loads editor tools through its own deferred HTTP catalogue", () =>
         Layer.build,
       );
       const client = yield* HttpClient.HttpClient;
-      const connect = (key: "editor" | "reader", token: string = key, deferred = true) =>
+      const connect = (key: SessionEndpointKey, token: string = key, deferred = true) =>
         Effect.gen(function* () {
           const path = SESSION_TOOL_ENDPOINTS[key].path;
           const headers = {
@@ -423,6 +442,7 @@ it.effect("loads editor tools through its own deferred HTTP catalogue", () =>
       const champion = yield* (yield* connect("editor", "champion", false)).listed;
       const ordinaryReader = yield* (yield* connect("reader", "reader", false)).listed;
       for (const names of [ordinary, ordinaryReader]) {
+        expect(names).toContain("t3_forge_read");
         expect(names).toContain("t3_champions_learning_search");
         expect(names).toContain("t3_champions_learning_read");
         expect(names).not.toContain("t3_background_wait");
@@ -465,6 +485,40 @@ it.effect("loads editor tools through its own deferred HTTP catalogue", () =>
       });
       expect(yield* editor.listed).toContain("html_render");
       expect(yield* reader.listed).toEqual(core);
+      for (const session of [editor, reader]) {
+        const found = yield* session.rpc("tools/call", {
+          name: "tool_search",
+          arguments: { query: "forge spec acceptance" },
+        });
+        expect(found.result?.structuredContent).toMatchObject({
+          tools: expect.arrayContaining([expect.objectContaining({ name: "t3_forge_read" })]),
+        });
+      }
+      for (const key of ["research", "preview"] as const) {
+        const session = yield* connect(key);
+        const found = yield* session.rpc("tools/call", {
+          name: "tool_search",
+          arguments: { query: "t3_forge_read" },
+        });
+        expect(found.result?.structuredContent).toMatchObject({ tools: [] });
+        expect(yield* session.listed).not.toContain("t3_forge_read");
+        const denied = yield* session.rpc("tools/call", {
+          name: "t3_forge_read",
+          arguments: { ref: "WV-143" },
+        });
+        expect(denied.error?.message).toContain("not found");
+      }
+      const forgeRead = yield* reader.rpc("tools/call", {
+        name: "t3_forge_read",
+        arguments: { ref: " WV-143 ", bodyRevision: 2, includeContext: false },
+      });
+      expect(forgeRead.result?.structuredContent).toMatchObject({
+        origin: "https://weave.example.test",
+        item: { id: "spec", kind: "spec" },
+        body: "# Pinned Spec",
+        bodyRevision: 2,
+        currentBodyRevision: 3,
+      });
       yield* reader.rpc("tools/call", { name: "tool_search", arguments: { query: "html_render" } });
       expect(yield* reader.listed).toContain("html_render");
       yield* reader.rpc("tools/call", {

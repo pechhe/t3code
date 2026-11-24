@@ -30,6 +30,23 @@ describe("permission classes", () => {
       expect(isToolListedForSession(name, reader)).toBe(false);
   });
 
+  it("gives editors and readers the Forge read without exposing it to web-facing roles", () => {
+    const name = "t3_forge_read";
+    expect(toolFamily(name)).toBe("project");
+    expect(isToolListedForSession(name, worker)).toBe(true);
+    expect(isToolListedForSession(name, reader)).toBe(true);
+    expect(
+      isToolListedForSession(name, {
+        toolProfile: "web-research",
+        agentRole: "scout",
+        readOnly: true,
+      }),
+    ).toBe(false);
+    expect(
+      isToolListedForSession(name, { toolProfile: "phi", agentRole: "browser", readOnly: true }),
+    ).toBe(false);
+  });
+
   it("keeps browser agents and web-reading scouts on their own narrow endpoints", () => {
     expect(sessionEndpointKey({ toolProfile: "phi", agentRole: "browser", readOnly: true })).toBe(
       "preview",

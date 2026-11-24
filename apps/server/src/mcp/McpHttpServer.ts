@@ -7,6 +7,9 @@ import * as DecisionHandlers from "./toolkits/decisions/handlers.ts";
 import { ChampionsToolkit } from "./toolkits/champions/tools.ts";
 import * as ChampionsHandlers from "./toolkits/champions/handlers.ts";
 import { WebToolkit } from "./toolkits/web/tools.ts";
+import { ForgeToolkit } from "./toolkits/forge/tools.ts";
+import * as ForgeHandlers from "./toolkits/forge/handlers.ts";
+import * as ForgeReadService from "../weave/ForgeReadService.ts";
 import * as WebHandlers from "./toolkits/web/handlers.ts";
 import * as WebResearch from "./WebResearch.ts";
 import { ExperimentsToolkit } from "./toolkits/experiments/tools.ts";
@@ -1696,6 +1699,7 @@ export const layerDeviceToolkit = Layer.mergeAll(
  * so an endpoint composes them once and a test can supply mocks instead.
  */
 const layerSessionToolkitServices = Layer.mergeAll(
+  ForgeReadService.layer,
   layerAdviceMcpService.pipe(Layer.provide(layerOrchestratorMcpService)),
   layerOrchestratorMcpService,
   ThreadMetadataMcpService.layer,
@@ -1764,6 +1768,7 @@ export const layerSessionToolkits = (families: ReadonlySet<ToolFamily>) =>
     layerSessionOrchestrator(families),
     layerSessionThread(families),
     layerSessionProject(families),
+    families.has("project") ? toolkitRegistration(ForgeToolkit, ForgeHandlers.layer) : Layer.empty,
     layerSessionWorktree(families),
     families.has("leaf") ? layerSessionHtml() : Layer.empty,
     layerSessionBrowser(families),
@@ -1978,7 +1983,12 @@ export const layerMcpTransport = <RA, RE, RR>(registrations: Layer.Layer<RA, RE,
   }).pipe(Layer.provide(layerMcpAuthMiddleware));
 
 /** Every tool the T3 MCP server advertises. AgentContextBudget.test.ts measures this set. */
+const layerForgeToolkit = toolkitRegistration(ForgeToolkit, ForgeHandlers.layer).pipe(
+  Layer.provide(ForgeReadService.layer),
+);
+
 export const layerTools = Layer.mergeAll(
+  layerForgeToolkit,
   toolkitRegistration(DecisionToolkit, DecisionHandlers.layer),
   layerGuardToolkit,
   layerPreviewToolkit,

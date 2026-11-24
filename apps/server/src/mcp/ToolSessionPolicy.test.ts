@@ -36,6 +36,7 @@ import { AttachmentToolkit } from "./toolkits/attachment/tools.ts";
 import { EnvironmentToolkit } from "./toolkits/environment/tools.ts";
 import { FleetToolkit } from "./toolkits/fleet/tools.ts";
 import { TerminalToolkit } from "./toolkits/terminal/tools.ts";
+import { ForgeToolkit } from "./toolkits/forge/tools.ts";
 import { ProjectToolkit } from "./toolkits/project/tools.ts";
 import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
 import { ThreadToolkit } from "./toolkits/thread/tools.ts";
@@ -61,6 +62,7 @@ const tools = [
   ...Object.values(FleetToolkit.tools),
   ...Object.values(TerminalToolkit.tools),
   ...Object.values(ProjectToolkit.tools),
+  ...Object.values(ForgeToolkit.tools),
   ...Object.values(PullRequestsToolkit.tools),
   ...Object.values(ThreadToolkit.tools),
   ...Object.values(WebToolkit.tools),
