@@ -4,8 +4,10 @@ import { type AgentTaskBinding, isConsultingRole } from "@t3tools/contracts";
 export const followupPrompt = (
   followup: { readonly sourceRevision?: string | undefined; readonly changes: string },
   task: string | undefined,
+  /** Set when the follow-up moved the agent to a new checkout. */
+  movedTo?: string,
 ) => {
-  const header = `${followup.sourceRevision === undefined ? "" : `Source revision: ${followup.sourceRevision}\n`}Changes since your previous task: ${followup.changes}`;
+  const header = `${movedTo === undefined ? "" : `Workspace moved to: ${movedTo} (previous checkout was cleaned up; read files from this path).\n`}${followup.sourceRevision === undefined ? "" : `Source revision: ${followup.sourceRevision}\n`}Changes since your previous task: ${followup.changes}`;
   // The changes alone often say what to do next, so a follow-up may carry no task text.
   return task === undefined || task.trim().length === 0 ? header : `${header}\n\n${task}`;
 };

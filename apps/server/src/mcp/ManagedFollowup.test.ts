@@ -433,3 +433,218 @@ it.effect(
       Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
     ),
 );
+
+const rebindCases = [
+  {
+    name: "a cleaned-up checkout moves to the lead's current one",
+    reason: "workspace",
+    lead: "/lead-now",
+    role: "advisor",
+    expected: "/lead-now",
+  },
+  {
+    name: "a cleaned-up checkout moves to the project root when the lead has no worktree",
+    reason: "workspace",
+    lead: null,
+    role: "advisor",
+    expected: "/project-root",
+  },
+  {
+    name: "a stale checkout moves to the lead's newer one",
+    reason: "source",
+    lead: "/lead-now",
+    role: "advisor",
+    expected: "/lead-now",
+  },
+  { name: "a writer stays put", reason: "workspace", lead: "/lead-now", role: "implementer" },
+  {
+    name: "an isolated helper stays put",
+    reason: "workspace",
+    lead: "/lead-now",
+    role: "advisor",
+    isolated: true,
+  },
+] as const;
+
+it.effect.each(rebindCases)("follow-up rebinds read-only helpers: $name", (scenario) =>
+  Effect.gen(function* () {
+    const parentId = ThreadId.make("rebind-parent");
+    const childId = ThreadId.make("rebind-child");
+    const originalId = NodeId.make("rebind-original");
+    const oldWorkspace = "/gone";
+    const writer = scenario.role === "implementer";
+    const binding: AgentTaskBinding = {
+      ...request({ role: scenario.role, workspacePath: oldWorkspace }),
+      ...("isolated" in scenario ? { workspaceAssignment: "isolated" as const } : {}),
+      policyHash: snapshot().hash,
+      policyRevision: "policy",
+      briefHash: "b".repeat(64),
+      requestFingerprint: "c".repeat(64),
+      sourceAccess: writer ? "scoped-write" : "read-only",
+      toolProfile: writer ? "implementation" : "source-reader",
+      requested: { instanceId: codex.instanceId, model: "gpt-astra-test" },
+      assigned: null,
+      effective: { instanceId: codex.instanceId, model: "gpt-astra-test" },
+    };
+    let parent = idleThreadProjection(liveThreadShell(parentId));
+    parent = {
+      ...parent,
+      thread: { ...parent.thread, worktreePath: scenario.lead },
+      runs: [
+        {
+          id: RunId.make("parent-running"),
+          status: "running",
+          providerInstanceId: codex.instanceId,
+          ordinal: 1,
+          rootNodeId: NodeId.make("parent-node"),
+        } as never,
+      ],
+      subagents: [
+        {
+          id: originalId,
+          threadId: parentId,
+          origin: "app_owned",
+          childThreadId: childId,
+          status: "completed",
+          result: "Initial advice",
+          completionDelivery: { state: "acknowledged" },
+          providerInstanceId: codex.instanceId,
+          model: binding.effective.model,
+        } as never,
+      ],
+    };
+    let child = idleThreadProjection(liveThreadShell(childId));
+    child = {
+      ...child,
+      thread: { ...child.thread, agentTask: binding, archivedAt: null },
+      runs: [
+        {
+          id: RunId.make("rebind-first"),
+          status: "completed",
+          ordinal: 1,
+          delegatedTaskId: originalId,
+        } as never,
+      ],
+    };
+    const validated: Array<string> = [];
+    const updates: Array<unknown> = [];
+    const sent: Array<string> = [];
+    const lock = yield* Semaphore.make(1);
+    const scope: McpInvocationScope = {
+      environmentId: EnvironmentId.make("rebind-env"),
+      requestNamespace: "rebind-test",
+      capabilities: new Set(["orchestration"]),
+      issuedAt: 1,
+      thread: {
+        threadId: parentId,
+        providerSessionId: "parent",
+        providerInstanceId: codex.instanceId,
+      },
+      client: undefined,
+    };
+    const dependencies = Layer.mergeAll(
+      Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
+      Settings.layerTest(),
+      Layer.mock(Managed.ManagedAgentService)({
+        exclusive: (effect) => lock.withPermit(effect),
+        validate: (input) =>
+          Effect.gen(function* () {
+            validated.push(input.binding.workspacePath);
+            if (input.binding.workspacePath === oldWorkspace)
+              return yield* new Managed.ManagedAgentError({ reason: scenario.reason });
+          }),
+        handoff: () => Effect.undefined,
+      }),
+      Layer.mock(Threads.ThreadManagementService)({
+        getThreadRecords: (id) => Effect.succeed(id === parentId ? parent : child),
+        listProjectThreads: () => Effect.succeed([]),
+        getShellSnapshot: () =>
+          Effect.succeed({
+            schemaVersion: 1,
+            snapshotSequence: 0,
+            threads: [],
+            archivedThreads: [],
+          }),
+        isProviderInstanceEnabledForProject: () => Effect.succeed(true),
+        delegatedTaskResultPending: () => Effect.succeed(false),
+        dispatch: (command) =>
+          Effect.sync(() => {
+            updates.push(command);
+            return {} as never;
+          }),
+        sendToThread: (input) =>
+          Effect.sync(() => {
+            sent.push(input.text);
+            parent = {
+              ...parent,
+              subagents: [
+                ...parent.subagents,
+                {
+                  ...parent.subagents[0]!,
+                  id: derive.delegatedTaskNode({ commandId: input.commandId }),
+                  result: null,
+                  prompt: input.text,
+                  status: "running",
+                  completionDelivery: { state: "pending", observedByRunId: null },
+                },
+              ],
+            };
+            return {} as never;
+          }),
+      }),
+      Layer.mock(Providers.ProviderRegistry)({ getProviders: Effect.succeed([codex]) }),
+      Layer.mock(Adapters.ProviderAdapterRegistryV2)({
+        list: () => Effect.succeed([codex.instanceId]),
+      }),
+      Layer.mock(Projects.ProjectService)({
+        getById: () => Effect.succeedSome({ workspaceRoot: "/project-root" } as never),
+        listShells: () => Effect.succeed([{ workspaceRoot: "/project-root" } as never]),
+      }),
+      Layer.mock(Secrets.SecretRequests)({}),
+      Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
+      Layer.mock(Scheduled.ScheduledTaskService)({}),
+      Layer.mock(Launch.ThreadLaunchService)({}),
+      Layer.mock(Git.GitVcsDriver)({}),
+      Layer.mock(Experiments.ExperimentService)({ assignments: () => Effect.succeed([]) }),
+    );
+    yield* Effect.gen(function* () {
+      const service = yield* Mcp.OrchestratorMcpService;
+      const attempt = service
+        .delegateTask(scope, {
+          clientRequestId: "rebind",
+          task: "Look again.",
+          followup: { taskId: originalId, changes: "Moved on." },
+        })
+        .pipe(Effect.result);
+      const outcome = yield* attempt;
+      if ("expected" in scenario) {
+        expect(outcome).toMatchObject({ _tag: "Success" });
+        expect(validated).toEqual([oldWorkspace, scenario.expected]);
+        expect(
+          updates.filter((c) => (c as { type: string }).type === "thread.metadata.update"),
+        ).toMatchObject([
+          { type: "thread.metadata.update", threadId: childId, worktreePath: scenario.expected },
+        ]);
+        expect(sent).toHaveLength(1);
+        expect(sent[0]).toContain(`Workspace moved to: ${scenario.expected}`);
+      } else {
+        expect(outcome._tag).toBe("Failure");
+        if (outcome._tag === "Failure") expect(outcome.failure.code).toBe("capability_denied");
+        expect(validated).toEqual([oldWorkspace]);
+        expect(updates).toEqual([]);
+        expect(sent).toEqual([]);
+      }
+    }).pipe(
+      Effect.provide(
+        Layer.merge(
+          Mcp.layer.pipe(
+            Layer.provide(Layer.mock(ForgeWorkItems.ForgeWorkItems)({})),
+            Layer.provide(dependencies),
+            Layer.provide(WorkspaceProvider.layerGitWorktree),
+          ),
+          dependencies,
+        ),
+      ),
+    );
+  }).pipe(Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({})))),
+);

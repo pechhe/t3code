@@ -6333,8 +6333,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 : {
                     worktreePath: command.worktreePath,
                     ...(command.worktreePath !== null &&
-                    thread.agentTask?.role === "lead" &&
-                    (command.workspaceIssue !== undefined || thread.workspaceIssue !== undefined)
+                    ((thread.agentTask?.role === "lead" &&
+                      (command.workspaceIssue !== undefined ||
+                        thread.workspaceIssue !== undefined)) ||
+                      (thread.agentTask?.sourceAccess === "read-only" &&
+                        (thread.agentTask.workspaceAssignment ?? "lead") === "lead"))
                       ? { agentTask: { ...thread.agentTask, workspacePath: command.worktreePath } }
                       : {}),
                     // A thread on the project checkout keeps its Build item, which only a failed

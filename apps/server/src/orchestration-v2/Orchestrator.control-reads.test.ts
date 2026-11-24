@@ -1399,6 +1399,25 @@ it.effect("keeps delegated child pull-request links independent of the parent", 
     assert.equal(other.thread.projectId, otherProject);
     assert.equal(other.thread.worktreePath, "/other-helper");
 
+    // Moving a read-only helper on the lead's workspace keeps its policy path with its cwd;
+    // an isolated writer's own workspace is never rewritten by a path update.
+    for (const [helper, moved] of [
+      [here, "/repo-moved"],
+      [other, "/other-moved"],
+    ] as const)
+      yield* orchestrator.dispatch({
+        type: "thread.metadata.update",
+        commandId: CommandId.make(`move-${moved}`),
+        threadId: helper.thread.id,
+        worktreePath: moved,
+      });
+    const movedReader = yield* projections.getThreadProjection(here.thread.id);
+    assert.equal(movedReader.thread.worktreePath, "/repo-moved");
+    assert.equal(movedReader.thread.agentTask?.workspacePath, "/repo-moved");
+    const movedWriter = yield* projections.getThreadProjection(other.thread.id);
+    assert.equal(movedWriter.thread.worktreePath, "/other-moved");
+    assert.equal(movedWriter.thread.agentTask?.workspacePath, "/other-helper");
+
     const childPullRequest = {
       ...parentPullRequest,
       number: 456,

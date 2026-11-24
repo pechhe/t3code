@@ -779,6 +779,11 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
           operation: "followup",
         });
         const text = followupPrompt(followup, input.task);
+        // A retry after a rebind finds the helper already on its new checkout.
+        const acceptedTexts = [
+          text,
+          followupPrompt(followup, input.task, followupTarget.workspacePath),
+        ];
         const priorTask = parent.subagents.find(
           (task) => task.id === deriveIds.delegatedTaskNode({ commandId }),
         );
@@ -786,7 +791,7 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
           priorTask !== undefined &&
           (priorTask.childThreadId !== current.childThreadId ||
             // Retention emptied an expired parent's prompt; the child's message is checked below.
-            (priorTask.detailRemoved === undefined && priorTask.prompt !== text))
+            (priorTask.detailRemoved === undefined && !acceptedTexts.includes(priorTask.prompt)))
         )
           return yield* failure(
             "invalid_request",
@@ -794,7 +799,7 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
           );
         const prior = child.messages.find((message) => message.id === messageId);
         if (prior !== undefined) {
-          if (prior.text !== text)
+          if (!acceptedTexts.includes(prior.text))
             return yield* failure(
               "invalid_request",
               "This follow-up identity already belongs to a different question.",
@@ -845,9 +850,11 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
               instanceId: provider.instanceId,
             }),
           );
-          yield* managed.value
-            .validate({
-              binding: followupTarget,
+          const projectRoot = (yield* requireProject(taskProjectId)).workspaceRoot;
+          const occupants = yield* occupantsEverywhere;
+          const validateAt = (target: typeof followupTarget) =>
+            managed.value.validate({
+              binding: target,
               runtimeMode: child.thread.runtimeMode,
               selection: binding.effective,
               projectId: taskProjectId,
@@ -855,12 +862,63 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
               ceiling: parent.thread.runtimeMode,
               workspacePath: leadCheckout ?? null,
               owner: threadOwner(parent.thread),
-              projectRoot: (yield* requireProject(taskProjectId)).workspaceRoot,
+              projectRoot,
               retainsWorkspace: true,
               ...(foreign ? { foreignProject: true } : {}),
-              occupants: yield* occupantsEverywhere,
-            })
-            .pipe(Effect.mapError((error) => failure("capability_denied", error.message)));
+              occupants,
+            });
+          // A read-only helper on the lead's checkout moves with the lead when its own was
+          // cleaned up or left behind; writers and isolated tasks never move silently.
+          let target = followupTarget;
+          let reboundFrom: string | undefined;
+          yield* validateAt(followupTarget).pipe(
+            Effect.catch((error) => {
+              const movable =
+                (error.reason === "workspace" || error.reason === "source") &&
+                followupTarget.sourceAccess === "read-only" &&
+                (followupTarget.workspaceAssignment ?? "lead") === "lead";
+              const replacement = !movable
+                ? undefined
+                : error.reason === "workspace"
+                  ? (leadCheckout ?? projectRoot)
+                  : (leadCheckout ?? undefined);
+              if (replacement === undefined || replacement === followupTarget.workspacePath)
+                return Effect.fail(failure("capability_denied", error.message));
+              const rebound = { ...followupTarget, workspacePath: replacement };
+              return validateAt(rebound).pipe(
+                Effect.tap(() =>
+                  Effect.sync(() => {
+                    target = rebound;
+                    reboundFrom = followupTarget.workspacePath;
+                  }),
+                ),
+                Effect.mapError((e) => failure("capability_denied", e.message)),
+              );
+            }),
+          );
+          const sentText =
+            reboundFrom === undefined
+              ? text
+              : followupPrompt(followup, input.task, target.workspacePath);
+          if (reboundFrom !== undefined)
+            yield* threadManagement
+              .dispatch({
+                type: "thread.metadata.update",
+                commandId: stableCommandId({
+                  scope,
+                  requestKey: key,
+                  operation: "followup-rebind",
+                }),
+                threadId: child.thread.id,
+                worktreePath: target.workspacePath,
+              })
+              .pipe(
+                Effect.mapError((error) =>
+                  isThreadManagementError(error)
+                    ? threadManagementFailure(error)
+                    : failure("orchestration_error", "Unable to move the agent's workspace."),
+                ),
+              );
           if (binding.workUnitId !== undefined)
             yield* experiments
               .workDispatchPolicy({
@@ -880,9 +938,9 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
               .admitInvestigation({
                 ownerThreadId: parent.thread.id,
                 parentRunId: parentRun.id,
-                binding: followupTarget,
+                binding: target,
                 projectId: taskProjectId,
-                workspacePath: followupTarget.workspacePath,
+                workspacePath: target.workspacePath,
                 selection: binding.effective,
                 commandId,
                 taskId: deriveIds.delegatedTaskNode({ commandId }),
@@ -913,7 +971,7 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
               ...(followup.sourceRevision === undefined
                 ? {}
                 : { followupSourceRevision: followup.sourceRevision }),
-              text,
+              text: sentText,
               attachments: [],
               mode: "queue",
               createdBy: "agent",
