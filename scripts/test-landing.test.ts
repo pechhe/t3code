@@ -26,6 +26,8 @@ import {
   readWorkspaces,
   runCommands as runLandingCommands,
   selectLandingTests,
+  staticLandingCommands,
+  undeclaredWorkspaceImports,
   versionOnlyChange,
   writeBudgetReports,
   writeManifest,
@@ -1530,6 +1532,101 @@ describe("test reports", () => {
     } finally {
       NodeFS.rmSync(directory, { recursive: true, force: true });
     }
+  });
+});
+
+describe("gate static checks and undeclared import guard", () => {
+  const typedFixture: ReadonlyArray<LandingWorkspace> = [
+    { ...workspace("packages/shared", "@t3tools/shared"), typecheck: true },
+    {
+      ...workspace("packages/contracts", "@t3tools/contracts", ["@t3tools/shared"]),
+      typecheck: true,
+    },
+    { ...workspace("apps/server", "t3", ["@t3tools/contracts"]), typecheck: true },
+    { ...workspace("apps/web", "@t3tools/web", ["@t3tools/shared"]), typecheck: true },
+  ];
+
+  it("undeclaredWorkspaceImports flags undeclared package, relative cross-workspace, and build-only imports", () => {
+    const files: Record<string, string> = {
+      "packages/shared/src/badPkg.ts": 'import { x } from "@t3tools/contracts/foo";\n',
+      "packages/shared/src/badRel.ts": 'import { y } from "../../contracts/src/foo.ts";\n',
+      "apps/server/src/badBuildOnly.ts": 'import { z } from "../../web/src/main.tsx";\n',
+      "apps/server/src/ok.ts": 'import { ok } from "@t3tools/contracts";\n',
+    };
+    const problems = undeclaredWorkspaceImports(
+      Object.keys(files),
+      [...typedFixture],
+      (file) => files[file]!,
+    );
+    assert.deepStrictEqual(problems, [
+      "packages/shared/src/badPkg.ts imports @t3tools/contracts without declaring it",
+      "packages/shared/src/badRel.ts imports packages/contracts by relative path",
+      "apps/server/src/badBuildOnly.ts imports ../../web/src/main.tsx across build-only edge apps/server -> apps/web",
+    ]);
+  });
+
+  it("staticLandingCommands runs format, lint, i18n, and unscheduled dependent typechecks on changed files", () => {
+    const commands = staticLandingCommands(
+      {
+        changed: [
+          "packages/shared/src/index.ts",
+          "apps/web/src/i18n/translations/fr.ts",
+          "README.md",
+        ],
+        deleted: ["README.md"],
+      },
+      typedFixture,
+    );
+    assert.deepStrictEqual(
+      commands.map((entry) => [entry.suite, entry.command]),
+      [
+        [
+          "format",
+          [
+            "pnpm",
+            "exec",
+            "vp",
+            "fmt",
+            "--check",
+            "--no-error-on-unmatched-pattern",
+            "packages/shared/src/index.ts",
+            "apps/web/src/i18n/translations/fr.ts",
+          ],
+        ],
+        [
+          "lint",
+          [
+            "pnpm",
+            "exec",
+            "vp",
+            "lint",
+            "--report-unused-disable-directives",
+            "--no-error-on-unmatched-pattern",
+            "packages/shared/src/index.ts",
+            "apps/web/src/i18n/translations/fr.ts",
+          ],
+        ],
+        ["i18n", [process.execPath, "scripts/i18n-check.ts"]],
+        [
+          "typecheck",
+          [
+            "pnpm",
+            "exec",
+            "vp",
+            "run",
+            "--cache",
+            "--parallel",
+            "--concurrency-limit",
+            "4",
+            "--filter",
+            "@t3tools/contracts",
+            "--filter",
+            "@t3tools/shared",
+            "typecheck",
+          ],
+        ],
+      ],
+    );
   });
 });
 

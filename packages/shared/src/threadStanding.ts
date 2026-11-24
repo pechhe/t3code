@@ -11,7 +11,7 @@ import { backgroundWorkHoldsCompletion } from "./orchestrationV2PendingBackgroun
 /** How long a delegated child's live run may go without a provider event before it is stalled. */
 export const THREAD_STALLED_AFTER_MS = 30 * 60 * 1000;
 /** Agent-set waits longer than this surface to Active as Check wait until visited. */
-export const LONG_WAIT_REVIEW_MS = 2 * 60 * 60 * 1000;
+const LONG_WAIT_REVIEW_MS = 2 * 60 * 60 * 1000;
 /** How long a finished thread may sit in working without a live own or child run before watchdog intervention. */
 export const STUCK_WORKING_AFTER_MS = 2 * 60 * 1000;
 

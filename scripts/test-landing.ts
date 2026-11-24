@@ -176,6 +176,7 @@ export interface LandingWorkspace {
   readonly directory: string;
   /** Names of the workspace packages this one declares. */
   readonly dependencies: ReadonlyArray<string>;
+  readonly typecheck?: boolean;
   /** Its `test` script's primary `vp test run` flags, plus any runs it chains after them; "opaque" when the script is not that shape. */
   readonly test:
     | {
@@ -260,6 +261,176 @@ export function invariantGuards(change: LandingChange): ReadonlyArray<string> {
   return [...(change.added ?? []), ...change.deleted].some((file) => TEST_FILE.test(file))
     ? INVARIANT_GUARDS
     : [];
+}
+
+const IMPORT_SPECIFIER =
+  /(?:\bfrom\s+|\bimport\s*\(\s*|\brequire\s*\(\s*|(?:^|[;\n])\s*import\s+)["']([^"']+)["']/g;
+const MAX_ARGV_CHARS = 30_000;
+
+function chunkPaths(files: ReadonlyArray<string>, maxChars = MAX_ARGV_CHARS): Array<Array<string>> {
+  const chunks: Array<Array<string>> = [];
+  let current: Array<string> = [];
+  let chars = 0;
+  for (const file of files) {
+    if (current.length > 0 && chars + file.length + 1 > maxChars) {
+      chunks.push(current);
+      current = [];
+      chars = 0;
+    }
+    current.push(file);
+    chars += file.length + 1;
+  }
+  if (current.length > 0) chunks.push(current);
+  return chunks;
+}
+const LINTABLE = /\.(?:[cm]?[jt]sx?|astro)$/;
+const I18N_INPUT = /(?:^|\/)i18n\/|^scripts\/i18n-check\.ts$/;
+const POLICY_TYPECHECKED = new Set(["t3", "@t3tools/web", "@t3tools/mobile"]);
+
+/** Undeclared package/relative cross-workspace imports and build-only edge violations in `files`. */
+export function undeclaredWorkspaceImports(
+  files: ReadonlyArray<string>,
+  workspaces: ReadonlyArray<LandingWorkspace>,
+  readFile: (file: string) => string,
+): ReadonlyArray<string> {
+  const problems: string[] = [];
+  for (const file of files) {
+    const from = ownerOf(file, workspaces);
+    if (!from || !CODE.test(file) || /(?:^|\/)vite[^/]*\.config\.[cm]?[jt]s$/.test(file)) continue;
+    const declared = new Set(from.dependencies);
+    const buildOnlyTargets = BUILD_ONLY_EDGES.filter(([source]) => source === from.directory).map(
+      ([, targetDir]) => ({
+        directory: targetDir,
+        name: workspaces.find((entry) => entry.directory === targetDir)?.name,
+      }),
+    );
+    for (const match of readFile(file).matchAll(IMPORT_SPECIFIER)) {
+      const specifier = match[1]!;
+      if (specifier.endsWith("package.json")) continue;
+      const resolved = specifier.startsWith(".")
+        ? NodePath.posix.normalize(NodePath.posix.join(NodePath.posix.dirname(file), specifier))
+        : specifier;
+      const buildOnly = buildOnlyTargets.find(
+        (target) =>
+          (target.name !== undefined &&
+            (specifier === target.name || specifier.startsWith(`${target.name}/`))) ||
+          resolved.startsWith(`${target.directory}/`),
+      );
+      if (buildOnly) {
+        problems.push(
+          `${file} imports ${specifier} across build-only edge ${from.directory} -> ${buildOnly.directory}`,
+        );
+        continue;
+      }
+      if (specifier.startsWith(".")) {
+        const to = ownerOf(`${resolved}/`, workspaces);
+        if (specifier.endsWith(".json") && INPUT_RULES.some((rule) => rule.when.test(resolved)))
+          continue;
+        if (
+          to &&
+          to.directory !== from.directory &&
+          !declared.has(to.name) &&
+          !EXTRA_EDGES.some(([a, b]) => a === from.directory && b === to.directory)
+        ) {
+          problems.push(`${file} imports ${to.directory} by relative path`);
+        }
+      } else {
+        const to = workspaces.find(
+          (entry) => specifier === entry.name || specifier.startsWith(`${entry.name}/`),
+        );
+        if (
+          to &&
+          to.directory !== from.directory &&
+          !declared.has(to.name) &&
+          !EXTRA_EDGES.some(([a, b]) => a === from.directory && b === to.directory)
+        ) {
+          problems.push(`${file} imports ${to.name} without declaring it`);
+        }
+      }
+    }
+  }
+  return problems;
+}
+
+/** Changed-file formatting, lint, i18n, and dependent workspace typechecks slipjay.json does not list separately. */
+export function staticLandingCommands(
+  change: LandingChange,
+  workspaces: ReadonlyArray<LandingWorkspace>,
+): ReadonlyArray<LandingCommand> {
+  const deleted = new Set(change.deleted);
+  const present = change.changed.filter((file) => !deleted.has(file));
+  const lintFiles = present.filter((file) => LINTABLE.test(file));
+  const typecheckedDirs = new Set<string>();
+  for (const file of change.changed) {
+    if (isHarmless(file)) continue;
+    const owner = ownerOf(file, workspaces);
+    if (!owner) continue;
+    for (const dir of TEST_FILE.test(file)
+      ? [owner.directory]
+      : dependentClosure(owner.directory, workspaces)) {
+      typecheckedDirs.add(dir);
+    }
+  }
+  const extraTypechecks = workspaces
+    .filter(
+      (ws) =>
+        ws.typecheck === true &&
+        typecheckedDirs.has(ws.directory) &&
+        !POLICY_TYPECHECKED.has(ws.name),
+    )
+    .map((ws) => ws.name)
+    .toSorted();
+  return [
+    ...chunkPaths(present).map((batch) => ({
+      suite: "format",
+      cwd: ".",
+      command: [
+        "pnpm",
+        "exec",
+        "vp",
+        "fmt",
+        "--check",
+        "--no-error-on-unmatched-pattern",
+        ...batch,
+      ],
+    })),
+    ...chunkPaths(lintFiles).map((batch) => ({
+      suite: "lint",
+      cwd: ".",
+      command: [
+        "pnpm",
+        "exec",
+        "vp",
+        "lint",
+        "--report-unused-disable-directives",
+        "--no-error-on-unmatched-pattern",
+        ...batch,
+      ],
+    })),
+    ...(change.changed.some((file) => I18N_INPUT.test(file))
+      ? [{ suite: "i18n", cwd: ".", command: [process.execPath, "scripts/i18n-check.ts"] }]
+      : []),
+    ...(extraTypechecks.length > 0
+      ? [
+          {
+            suite: "typecheck",
+            cwd: ".",
+            command: [
+              "pnpm",
+              "exec",
+              "vp",
+              "run",
+              "--cache",
+              "--parallel",
+              "--concurrency-limit",
+              "4",
+              ...extraTypechecks.flatMap((name) => ["--filter", name]),
+              "typecheck",
+            ],
+          },
+        ]
+      : []),
+  ];
 }
 
 export function selectLandingTests(
@@ -573,6 +744,7 @@ function parseWorkspace(directory: string, manifestText: string): LandingWorkspa
       ...manifest.peerDependencies,
       ...manifest.optionalDependencies,
     }),
+    ...(manifest.scripts?.typecheck ? { typecheck: true } : {}),
     test,
   };
 }
@@ -1110,6 +1282,21 @@ async function run(args: ReadonlyArray<string>) {
   }
   console.log("Landing quarantine exclusions:", JSON.stringify(quarantine));
   const workspaces = snapshot?.workspaces ?? checkoutWorkspaces();
+  if (!audit && snapshot) {
+    const deleted = new Set(snapshot.deleted);
+    const present = snapshot.changed.filter(
+      (file) => !deleted.has(file) && NodeFS.existsSync(NodePath.join(ROOT, file)),
+    );
+    const undeclared = undeclaredWorkspaceImports(present, workspaces, (file) =>
+      NodeFS.readFileSync(NodePath.join(ROOT, file), "utf8"),
+    );
+    if (undeclared.length > 0) {
+      console.error(
+        `Undeclared cross-workspace imports (declare in package.json or EXTRA_EDGES):\n${undeclared.join("\n")}`,
+      );
+      return 1;
+    }
+  }
   let runs: ReadonlyArray<TestRun> = plannedRuns(plan, workspaces);
   let summary: string | undefined;
   const retained: LandingReport[] = [];
@@ -1129,7 +1316,19 @@ async function run(args: ReadonlyArray<string>) {
     if (budget.deferred.length > 0)
       console.log(`Deferred: ${budget.deferred.map((test) => test.file).join(" ")}`);
   }
-  const commands = landingCommands(runs, workspaces, quarantine, reportDir);
+  if (!audit && !snapshot) {
+    console.log(
+      "Candidate diff unavailable (merge or unreadable candidate); skipping per-file format/lint and running full suite + i18n.",
+    );
+  }
+  const commands = [
+    ...(!audit
+      ? snapshot
+        ? staticLandingCommands(snapshot, workspaces)
+        : [{ suite: "i18n", cwd: ".", command: [process.execPath, "scripts/i18n-check.ts"] }]
+      : []),
+    ...landingCommands(runs, workspaces, quarantine, reportDir),
+  ];
   if (args.includes("--plan")) {
     console.log(
       commands
