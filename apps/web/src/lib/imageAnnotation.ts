@@ -1,9 +1,10 @@
 /**
- * Screenshot annotation for composer images. The model receives one image with numbered
- * marks drawn on it, and an `image-annotation` context record that pairs each number with
- * the user's note and its position as fractions (0–1) of the image width and height.
+ * Screenshot annotation for composer images. The model receives one image with
+ * marks drawn on it and an `image-annotation` context record with the user's notes
+ * and positions as fractions (0–1) of the image width and height.
  */
 
+import { fitImageAttachmentSize } from "@t3tools/client-runtime/image-attachment-size";
 import {
   type ImageAnnotationMark,
   type ImageAnnotationSize,
@@ -103,36 +104,117 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-/**
- * Draws the marks at the image's natural size. Mark sizes follow the long edge, so a tall
- * phone screenshot a provider scales down still carries readable numbers.
- */
+export interface ComputedImageMarkBadge {
+  readonly x: number;
+  readonly y: number;
+  readonly radius: number;
+  readonly stroke: number;
+  readonly halo: number;
+}
+
+function pointRadius(badgeRadius: number): number {
+  return Math.max(7, Math.round(badgeRadius * 0.6));
+}
+
+export function computeImageMarkBadges(
+  marks: ReadonlyArray<ImageAnnotationMark | ImageMark>,
+  width: number,
+  height: number,
+): ComputedImageMarkBadge[] {
+  const longEdge = Math.max(width, height);
+  const shortEdge = Math.min(width, height);
+  const radius = Math.max(
+    10,
+    Math.min(Math.round(longEdge * 0.013), Math.round(shortEdge * 0.055)),
+  );
+  const stroke = Math.max(2.5, Math.round(radius * 0.22));
+  const halo = Math.max(1.5, stroke * 0.6);
+  const inset = radius + 2;
+  const minX = Math.min(inset, width / 2);
+  const minY = Math.min(inset, height / 2);
+  const clampX = (x: number) => clamp(x, minX, width - minX);
+  const clampY = (y: number) => clamp(y, minY, height - minY);
+  const badges = marks.map((mark) => {
+    const x = mark.x * width;
+    const y = mark.y * height;
+    let badgeX: number;
+    let badgeY: number;
+    switch (mark.kind) {
+      case "box": {
+        const gap = radius + stroke + halo + 2;
+        badgeX = x + radius;
+        badgeY = y - gap - radius < 0 ? y + mark.height * height + gap : y - gap;
+        break;
+      }
+      case "arrow": {
+        const angle = Math.atan2(mark.toY * height - y, mark.toX * width - x);
+        badgeX = x - Math.cos(angle) * (radius + 6);
+        badgeY = y - Math.sin(angle) * (radius + 6);
+        break;
+      }
+      case "point": {
+        const offset = (pointRadius(radius) + radius + stroke + halo) * Math.SQRT1_2;
+        badgeX = x + (x + offset > width - minX ? -offset : offset);
+        badgeY = y + (y - offset < minY ? offset : -offset);
+        break;
+      }
+    }
+    return { x: clampX(badgeX), y: clampY(badgeY), radius, stroke, halo };
+  });
+
+  const separation = radius * 2.25;
+  for (let pass = 0; pass < 6; pass += 1) {
+    let moved = false;
+    for (const [index, a] of badges.entries()) {
+      for (let other = index + 1; other < badges.length; other += 1) {
+        const b = badges[other]!;
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const distance = Math.hypot(dx, dy);
+        if (distance >= separation) continue;
+        const angle = distance > 0 ? Math.atan2(dy, dx) : width >= height ? 0 : Math.PI / 2;
+        const ux = Math.cos(angle);
+        const uy = Math.sin(angle);
+        const gap = separation - distance;
+        const oldX = a.x;
+        const oldY = a.y;
+        const oldBX = b.x;
+        const oldBY = b.y;
+        a.x = clampX(oldX - (ux * gap) / 2);
+        a.y = clampY(oldY - (uy * gap) / 2);
+        // Give the other badge any movement that the edge blocked.
+        const remainder = gap - (oldX - a.x) * ux - (oldY - a.y) * uy;
+        b.x = clampX(oldBX + ux * remainder);
+        b.y = clampY(oldBY + uy * remainder);
+        const shortfall = Math.max(
+          0,
+          gap - (oldX - a.x + b.x - oldBX) * ux - (oldY - a.y + b.y - oldBY) * uy,
+        );
+        a.x = clampX(a.x - ux * shortfall);
+        a.y = clampY(a.y - uy * shortfall);
+        moved ||= a.x !== oldX || a.y !== oldY || b.x !== oldBX || b.y !== oldBY;
+      }
+    }
+    if (!moved) break;
+  }
+  return badges;
+}
+
 export function drawImageMarks(
   context: CanvasRenderingContext2D,
   marks: ReadonlyArray<ImageAnnotationMark>,
   width: number,
   height: number,
 ): void {
-  const badge = Math.max(14, Math.round(Math.max(width, height) * 0.013));
-  const stroke = Math.max(3, Math.round(badge * 0.22));
-  const placeBadge = (x: number, y: number, label: string) =>
-    drawBadge(
-      context,
-      clamp(x, badge, width - badge),
-      clamp(y, badge, height - badge),
-      badge,
-      label,
-    );
-
+  const badges = computeImageMarkBadges(marks, width, height);
   marks.forEach((mark, index) => {
-    const label = String(index + 1);
+    const { radius, stroke, halo } = badges[index]!;
     const x = mark.x * width;
     const y = mark.y * height;
     if (mark.kind === "box") {
       const boxWidth = mark.width * width;
       const boxHeight = mark.height * height;
       // No fill, and the strokes sit outside the edge, so the boxed pixels stay untouched.
-      const halo = Math.max(2, stroke * 0.6);
       const ring = stroke / 2;
       context.lineWidth = stroke + halo;
       context.strokeStyle = "rgba(255,255,255,0.9)";
@@ -145,19 +227,15 @@ export function drawImageMarks(
       context.lineWidth = stroke;
       context.strokeStyle = ANNOTATION_MARK_COLOR;
       context.strokeRect(x - ring, y - ring, boxWidth + stroke, boxHeight + stroke);
-      // The badge sits just above the top-left corner, or below the box when there is no room,
-      // so it never covers what the box points at.
-      const gap = badge + stroke + halo;
-      placeBadge(x + badge, y - gap - badge >= 0 ? y - gap : y + boxHeight + gap, label);
       return;
     }
     if (mark.kind === "arrow") {
       const toX = mark.toX * width;
       const toY = mark.toY * height;
       const angle = Math.atan2(toY - y, toX - x);
-      const head = badge * 1.25;
+      const head = radius * 1.25;
       context.lineCap = "round";
-      context.lineWidth = stroke + Math.max(2, stroke * 0.6);
+      context.lineWidth = stroke + halo;
       context.strokeStyle = "rgba(255,255,255,0.9)";
       context.beginPath();
       context.moveTo(x, y);
@@ -182,25 +260,26 @@ export function drawImageMarks(
       context.closePath();
       context.fillStyle = ANNOTATION_MARK_COLOR;
       context.fill();
-      placeBadge(x, y, label);
       return;
     }
     // A hollow ring, so the pixel being pointed at stays visible in its middle.
-    const radius = Math.max(7, Math.round(badge * 0.6));
-    context.lineWidth = stroke + Math.max(2, stroke * 0.6);
+    const ring = pointRadius(radius);
+    context.lineWidth = stroke + halo;
     context.strokeStyle = "rgba(255,255,255,0.92)";
     context.beginPath();
-    context.arc(x, y, radius, 0, Math.PI * 2);
+    context.arc(x, y, ring, 0, Math.PI * 2);
     context.stroke();
     context.lineWidth = stroke;
     context.strokeStyle = ANNOTATION_MARK_COLOR;
     context.beginPath();
-    context.arc(x, y, radius, 0, Math.PI * 2);
+    context.arc(x, y, ring, 0, Math.PI * 2);
     context.stroke();
-    // The badge sits up and to the right of the dot, or flips inward near an edge.
-    const offset = (radius + badge + stroke) * Math.SQRT1_2;
-    placeBadge(x + (mark.x > 0.9 ? -offset : offset), y + (mark.y < 0.1 ? offset : -offset), label);
   });
+  if (marks.length > 1) {
+    badges.forEach(({ x, y, radius }, index) =>
+      drawBadge(context, x, y, radius, String(index + 1)),
+    );
+  }
 }
 
 function loadImage(file: Blob): Promise<HTMLImageElement> {
@@ -215,23 +294,34 @@ function loadImage(file: Blob): Promise<HTMLImageElement> {
   }).finally(() => URL.revokeObjectURL(url));
 }
 
-/** Returns a PNG copy of `source` with the marks drawn on at full resolution. */
 async function flattenAnnotatedImage(
   source: File,
   marks: ReadonlyArray<ImageAnnotationMark>,
-): Promise<File> {
-  const image = await loadImage(source);
+): Promise<{ file: File; size: ImageAnnotationSize }> {
   const canvas = document.createElement("canvas");
-  canvas.width = image.naturalWidth;
-  canvas.height = image.naturalHeight;
-  const context = canvas.getContext("2d");
-  if (!context) throw new Error("Canvas is unavailable.");
-  context.drawImage(image, 0, 0);
-  drawImageMarks(context, marks, canvas.width, canvas.height);
+  const bitmap = typeof createImageBitmap === "function" ? await createImageBitmap(source) : null;
+  let size: ImageAnnotationSize;
+  try {
+    const image = bitmap ?? (await loadImage(source));
+    const naturalSize =
+      "naturalWidth" in image
+        ? { width: image.naturalWidth, height: image.naturalHeight }
+        : { width: image.width, height: image.height };
+    size = fitImageAttachmentSize(naturalSize) ?? naturalSize;
+    canvas.width = size.width;
+    canvas.height = size.height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Canvas is unavailable.");
+    context.imageSmoothingQuality = "high";
+    context.drawImage(image, 0, 0, size.width, size.height);
+    drawImageMarks(context, marks, size.width, size.height);
+  } finally {
+    bitmap?.close();
+  }
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
   if (!blob) throw new Error("The annotated image could not be encoded.");
   const baseName = (source.name || "image").replace(/\.[^.]+$/, "");
-  return new File([blob], `${baseName}-annotated.png`, { type: "image/png" });
+  return { file: new File([blob], `${baseName}-annotated.png`, { type: "image/png" }), size };
 }
 
 /**
@@ -242,13 +332,9 @@ export async function markedImageFile(
   original: File,
   marks: ReadonlyArray<ImageAnnotationMark>,
 ): Promise<{ file: File; size: ImageAnnotationSize }> {
-  const prepared = await prepareImageForAttachment(
-    await flattenAnnotatedImage(original, marks),
-    PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
-  );
+  const marked = await flattenAnnotatedImage(original, marks);
+  if (marked.file.size <= PROVIDER_SEND_TURN_MAX_IMAGE_BYTES) return marked;
+  const prepared = await prepareImageForAttachment(marked.file, PROVIDER_SEND_TURN_MAX_IMAGE_BYTES);
   if (!prepared.ok) throw new Error(prepared.reason);
-  const bitmap = await createImageBitmap(prepared.file);
-  const size = { width: bitmap.width, height: bitmap.height };
-  bitmap.close();
-  return { file: prepared.file, size };
+  return { file: prepared.file, size: prepared.imageSize ?? marked.size };
 }

@@ -309,24 +309,38 @@ function formatImageAnnotationMarkPosition(mark: ImageAnnotationMark): string {
 /** The numbered notes, after a line telling the agent the marks are the user's. */
 export function formatImageAnnotationNotes(record: ImageAnnotationContextRecord): string {
   return [
-    "The numbered marks drawn on this image are the user's, not part of the UI. Positions are fractions of the image width and height.",
+    record.marks.length === 1
+      ? "The mark drawn on this image is the user's, not part of the UI. Positions are fractions of the image width and height."
+      : "The numbered marks drawn on this image are the user's, not part of the UI. Positions are fractions of the image width and height.",
     ...record.marks.map(
       (mark, index) =>
-        `${index + 1}. ${mark.note.trim()} [${formatImageAnnotationMarkPosition(mark)}]`,
+        `${index + 1}. ${mark.note.trim() || "(no note, referenced in message)"} [${formatImageAnnotationMarkPosition(mark)}]`,
     ),
   ].join("\n");
 }
 
-/** What the agent reads for an image annotation. */
-function formatImageAnnotationBody(record: ImageAnnotationContextRecord): string {
+type ComposerContextRecordsById = ReadonlyMap<ComposerContextId, ComposerContextRecord | undefined>;
+
+function formatImageAnnotationBody(
+  record: ImageAnnotationContextRecord,
+  recordsById: ComposerContextRecordsById,
+): string {
+  const image = recordsById.get(record.imageContextId);
+  const attachment =
+    image?.kind === "image" && "attachmentId" in image
+      ? `, attachmentId=${image.attachmentId}`
+      : "";
   return [
-    `image: ${record.imageName} (ref=${record.imageContextId}${record.imageSize ? `, ${record.imageSize.width}x${record.imageSize.height}px` : ""})`,
+    `image: ${record.imageName} (ref=${record.imageContextId}${attachment}${record.imageSize ? `, ${record.imageSize.width}x${record.imageSize.height}px` : ""})`,
     formatImageAnnotationNotes(record),
   ].join("\n");
 }
 
 /** Body lines for one payload, including authoritative paths and names behind display labels. */
-function formatComposerContextProviderPayload(record: KnownComposerContextRecord): string {
+function formatComposerContextProviderPayload(
+  record: KnownComposerContextRecord,
+  recordsById: ComposerContextRecordsById,
+): string {
   switch (record.kind) {
     case "image":
     case "file":
@@ -366,7 +380,7 @@ function formatComposerContextProviderPayload(record: KnownComposerContextRecord
       return lines.join("\n");
     }
     case "image-annotation":
-      return formatImageAnnotationBody(record);
+      return formatImageAnnotationBody(record, recordsById);
     case "review-comment": {
       const lines = [
         `file: ${record.filePath}`,
@@ -420,14 +434,15 @@ function formatComposerContextProviderPayload(record: KnownComposerContextRecord
 function formatEnvelopeEntry(
   kind: ComposerContextKind,
   contextId: ComposerContextId,
-  record: ComposerContextRecord | undefined,
+  recordsById: ComposerContextRecordsById,
 ): string {
+  const record = recordsById.get(contextId);
   const open = `<${CONTEXT_ENTRY_TAG} kind="${escapeAttribute(kind)}" id="${escapeAttribute(contextId)}"`;
   if (!record) return `${open} unavailable="true"/>`;
   const body =
     "payload" in record
       ? JSON.stringify(record.payload)
-      : formatComposerContextProviderPayload(record);
+      : formatComposerContextProviderPayload(record, recordsById);
   return `${open}>\n${escapeComposerContextPayloadText(body)}\n</${CONTEXT_ENTRY_TAG}>`;
 }
 
@@ -459,7 +474,7 @@ export function projectComposerContextForProvider(input: {
     const entry = formatEnvelopeEntry(
       record?.kind ?? occurrence.kind,
       occurrence.contextId,
-      record,
+      recordsById,
     );
     entries.push(entry);
   }

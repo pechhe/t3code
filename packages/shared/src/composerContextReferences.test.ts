@@ -213,7 +213,7 @@ describe("provider projection", () => {
       imageContextId: "image_shot" as ComposerContextId,
       imageName: "shot.png",
       marks: [
-        { kind: "box", note: "label is off-centre", x: 0.1, y: 0.2, width: 0.3, height: 0.05 },
+        { kind: "box", note: " ", x: 0.1, y: 0.2, width: 0.3, height: 0.05 },
         { kind: "arrow", note: "move here", x: 0.5, y: 0.5, toX: 0.75, toY: 0.25 },
       ],
     };
@@ -222,14 +222,29 @@ describe("provider projection", () => {
       records: [annotation],
     });
     expect(projected).toContain("image: shot.png (ref=image_shot)");
-    expect(projected).toContain("1. label is off-centre [box x=0.10 y=0.20 w=0.30 h=0.05]");
+    expect(projected).toContain("The numbered marks drawn on this image are the user's");
+    expect(projected).toContain(
+      "1. (no note, referenced in message) [box x=0.10 y=0.20 w=0.30 h=0.05]",
+    );
     expect(projected).toContain("2. move here [arrow from x=0.50 y=0.50 to x=0.75 y=0.25]");
   });
 
-  it("gives the sent image's pixel size when it is known", () => {
+  it("binds an annotation to its own image attachment and gives its pixel size", () => {
+    const image = {
+      version: 1,
+      contextId: ctx("image_other"),
+      kind: "image",
+      label: "shot.png",
+      name: "shot.png",
+      mimeType: "image/png",
+      sizeBytes: 100,
+      attachmentId: "att_other",
+    } satisfies ComposerContextRecord;
     const projected = projectComposerContextForProvider({
       text: "Fix [shot.png · 1 note](t3-context://v1/image-annotation/ctx_n)",
       records: [
+        image,
+        { ...image, contextId: ctx("image_shot"), attachmentId: "att_123" },
         {
           version: 1,
           contextId: "ctx_n" as ComposerContextId,
@@ -242,7 +257,10 @@ describe("provider projection", () => {
         },
       ],
     });
-    expect(projected).toContain("image: shot.png (ref=image_shot, 1440x900px)");
+    expect(projected).toContain(
+      "image: shot.png (ref=image_shot, attachmentId=att_123, 1440x900px)",
+    );
+    expect(projected).toContain("The mark drawn on this image is the user's");
   });
 
   it("expands assistant citations with and without context references", () => {

@@ -150,16 +150,17 @@ describe("serializeLegacyContextMessage", () => {
       version: 1,
       contextId: ComposerContextId.make("image-annotation_shot"),
       kind: "image-annotation",
-      label: "shot.png · 1 note",
+      label: "shot.png · 1 mark",
       imageContextId: ComposerContextId.make("image_shot"),
       imageName: "shot.png",
-      marks: [{ kind: "point", note: "too dark", x: 0.25, y: 0.75 }],
+      marks: [{ kind: "point", note: "", x: 0.25, y: 0.75 }],
     } satisfies ComposerContextRecord;
     const text = `Fix ${formatComposerContextReference(notes)} and ${formatComposerContextReference(annotation)}`;
     const serialized = serializeLegacyContextMessage({ text, records: [notes, annotation] });
 
     expect(serialized).toContain("Notes on shot.png:");
-    expect(serialized).toContain("1. too dark [point x=0.25 y=0.75]");
+    expect(serialized).toContain("The mark drawn on this image is the user's");
+    expect(serialized).toContain("1. (no note, referenced in message) [point x=0.25 y=0.75]");
     expect(serialized).not.toContain("ref=");
     expect(serialized).not.toContain("<image_annotation>");
     expect(upgradeLegacyContextMessage(serialized).records).toEqual([

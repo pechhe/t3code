@@ -236,7 +236,7 @@ function ImageContextChip(props: {
             previewUrl={props.record.previewUrl}
             size={formatAttachmentSize(props.record.sizeBytes, messages)}
             suffix={suffix}
-            onClick={() => actions.expandImage(props.record.id)}
+            onClick={() => actions.annotateImage(props.record.id)}
           />
         }
       />

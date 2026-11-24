@@ -390,7 +390,13 @@ export function ImageAnnotationDetails(props: {
           // oxlint-disable-next-line react/no-array-index-key -- marks have no id; order is their number.
           <li key={index} className="flex gap-2">
             <span className="shrink-0 font-medium tabular-nums">{index + 1}.</span>
-            <span className="whitespace-pre-wrap wrap-break-word">{mark.note}</span>
+            {mark.note.trim() ? (
+              <span className="whitespace-pre-wrap wrap-break-word">{mark.note}</span>
+            ) : (
+              <span className="text-muted-foreground italic">
+                <T>No note</T>
+              </span>
+            )}
           </li>
         ))}
       </ol>
