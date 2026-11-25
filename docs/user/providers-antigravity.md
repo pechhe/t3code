@@ -103,7 +103,15 @@ wins in this order: `.gemini/skills`, `.agents/skills`, `.agent/skills`. See
 
 Skills for every project go in `~/.gemini/config/skills` or
 `~/.gemini/antigravity-cli/skills`. Antigravity does not read `~/.agents/skills`,
-so a skill there only appears when the project itself is your home directory.
+so a skill there only appears when the project itself is your home directory; link
+`~/.gemini/config/skills` to it to share those skills.
+
+### MCP servers, hooks and plugins
+
+Antigravity threads use the MCP servers, hooks and plugins in `~/.gemini/config`,
+such as servers added with `agy mcp add` or the `rtk` plugin, alongside T3 Code's own
+tools. Start a new thread after changing them. While any are set up, Antigravity is
+not offered as the Utility model, which writes titles and other generated text.
 
 Antigravity receives images and audio directly, and reads PDFs and text files as
 documents. Other attachments, including videos, are passed as a saved file path for

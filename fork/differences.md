@@ -1904,3 +1904,13 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** `packages/provider-pi/src/server/maintenance.test.ts`; `maintenanceResolver.fork.test.ts`; `providerMaintenanceRunner.fork.test.ts`; `providerCompatibility.fork.test.ts`; a dev-server pass on peach-box against the real Pi-Bolt 1.2.1 (`~/runs/T3-867/`).
 - **Upstream:** none; upstream ships no Pi-Bolt support.
 - **Retire when:** upstream checks Pi wrappers and Pi packages itself.
+
+### antigravity-user-tooling
+
+- **Kind:** deliberate behaviour change
+- **Why:** Google disabled an account for reaching Antigravity through Pi (25 Nov 2026), so Henry's Gemini work moves to the Antigravity provider and needs the tooling his Pi sessions had: hosted Executor over MCP, his skills and rules, and `rtk`'s command-output condensing. Upstream links only skills and global rules from `~/.gemini` into each instance's private profile, so `agy mcp add` servers, hooks and plugins (`rtk init --agent antigravity -g` installs one at `~/.gemini/config/plugins/rtk`) never reached a T3 thread.
+- **Requirements:** each profile launch links `config/mcp_config.json`, `config/hooks.json` and `config/plugins` to the user's `~/.gemini/config` entries that exist, replacing only the agy CLI's empty `mcp_config.json`/`hooks.json` placeholder and never a profile file with content, and removes the link when the user's entry goes; credentials stay in the profile. Windows links only `plugins` (file links need elevation). Text generation stays unavailable while the profile has any plugin, as it already is with MCP servers or hooks. A user MCP tool call asks permission like any non-read request, so a managed read-only task's runtime-policy disposition answers it as it does an edit or command.
+- **Integration points:** `antigravityUserToolingLinks`, `removeEmptyConfigPlaceholder` and `antigravityProfileHasPlugins` in `apps/server/src/provider/antigravityUserTooling.ts`; one spread in `linkAntigravityUserConfig` and the placeholder clause in its link replacement (`antigravityAuthSupport.ts`); one call in `isAntigravityTextGenerationAvailable` (`AntigravityTextGeneration.ts`). The agy CLI reads these under `--gemini-dir`, verified with 1.5.17 (a symlinked `mcp_config.json` server called, the `rtk` plugin's `PreToolUse` hook rewriting `run_command`).
+- **Proof:** apps/server/src/provider/antigravityUserTooling.test.ts.
+- **Upstream:** none; upstream keeps MCP servers and hooks out of the profile (`antigravityAuthSupport.ts`, #39531 for rules).
+- **Retire when:** upstream links or passes the user's own Antigravity MCP servers, hooks and plugins.

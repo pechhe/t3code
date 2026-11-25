@@ -13,6 +13,7 @@ import { type AcpError, AcpRequestError } from "effect-acp/errors";
 
 import { applyAntigravityAcpModelSelection } from "../provider/acp/AntigravityAcpSupport.ts";
 import { removeAntigravitySessionFiles } from "../provider/acp/AntigravitySessionFiles.ts";
+import { antigravityProfileHasPlugins } from "../provider/antigravityUserTooling.ts";
 import {
   ANTIGRAVITY_SIGN_IN_REQUIRED_MESSAGE,
   isAntigravitySignInRequiredError,
@@ -64,7 +65,7 @@ export interface AntigravityTextGenerationOptions {
   ) => Effect.Effect<A, E | ProviderSetupError, R | Scope.Scope>;
 }
 
-/** Global hooks and MCP servers can run before a helper can deny a tool request. */
+/** Global hooks, MCP servers and plugins can run before a helper can deny a tool request. */
 export const isAntigravityTextGenerationAvailable = Effect.fn(
   "isAntigravityTextGenerationAvailable",
 )(function* (profileDirectory: string) {
@@ -97,7 +98,7 @@ export const isAntigravityTextGenerationAvailable = Effect.fn(
     );
     if (!empty) return false;
   }
-  return true;
+  return !(yield* antigravityProfileHasPlugins(profileDirectory));
 });
 
 export const makeAntigravityTextGeneration = Effect.fn("makeAntigravityTextGeneration")(function* (

@@ -23,6 +23,10 @@ import {
   antigravityUserSkillDirectories,
   resolveAntigravityUserHome,
 } from "./Drivers/AntigravitySkills.ts";
+import {
+  antigravityUserToolingLinks,
+  removeEmptyConfigPlaceholder,
+} from "./antigravityUserTooling.ts";
 
 export const ANTIGRAVITY_AUTH_STDOUT_PREFIX =
   "Open the following link to authenticate the ACP server: ";
@@ -255,7 +259,7 @@ class AntigravitySkillLinkError extends Schema.TaggedError<AntigravitySkillLinkE
 
 const antigravityUserRuleFiles = ["AGENTS.md", "GEMINI.md"] as const;
 
-/** Private GEMINI_HOME isolates credentials/hooks/MCP; link global skills and rules from the real ~/.gemini. */
+/** Private GEMINI_HOME isolates credentials; link global skills, rules and tooling from the real ~/.gemini. */
 const linkAntigravityUserConfig = Effect.fn("linkAntigravityUserConfig")(function* (input: {
   readonly profileDirectory: string;
   readonly userHome: string;
@@ -277,6 +281,7 @@ const linkAntigravityUserConfig = Effect.fn("linkAntigravityUserConfig")(functio
           (name) =>
             [path.join(input.profileDirectory, name), path.join(userGemini, name), "file"] as const,
         )),
+    ...antigravityUserToolingLinks(path, input.profileDirectory, userGemini, input.platform),
   ] as const) {
     yield* Effect.gen(function* () {
       // The harness creates these folders itself, and mkdir fails on a dangling link.
@@ -294,10 +299,15 @@ const linkAntigravityUserConfig = Effect.fn("linkAntigravityUserConfig")(functio
         // An empty folder is the harness's placeholder from a launch without the link.
         // rmdir refuses a non-empty folder, so content added meanwhile is never deleted.
         Effect.catch((error) =>
-          Effect.tryPromise({
-            try: () => NodeFSP.rmdir(link),
-            catch: (cause) => new AntigravitySkillLinkError({ link, cause }),
-          }).pipe(
+          removeEmptyConfigPlaceholder(link).pipe(
+            Effect.flatMap((removed) =>
+              removed
+                ? Effect.void
+                : Effect.tryPromise({
+                    try: () => NodeFSP.rmdir(link),
+                    catch: (cause) => new AntigravitySkillLinkError({ link, cause }),
+                  }),
+            ),
             Effect.as(undefined),
             Effect.mapError(() => error),
           ),
