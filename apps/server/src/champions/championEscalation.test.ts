@@ -67,6 +67,10 @@ describe("stuckState", () => {
       stuck: true,
       trigger: "Folder error blocking save",
     });
+    assert.deepEqual(stuckState({ attention: [], consecutiveCheckFailures: 0 }), {
+      stuck: false,
+      trigger: "No longer stuck",
+    });
   });
 });
 

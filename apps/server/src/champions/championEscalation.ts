@@ -80,13 +80,16 @@ export const stuckState = (
 ) => {
   const failures = champion.consecutiveCheckFailures ?? 0;
   const folder = champion.attention.some((line) => line.startsWith(NOT_SAVED_PREFIX));
+  // A retired Champion runs no checks, so nothing is stuck.
+  const stuck = champion.lifecycle !== "retired" && (failures >= STUCK_AFTER_FAILURES || folder);
   return {
-    // A retired Champion runs no checks, so nothing is stuck.
-    stuck: champion.lifecycle !== "retired" && (failures >= STUCK_AFTER_FAILURES || folder),
+    stuck,
     trigger:
       failures >= STUCK_AFTER_FAILURES
         ? `Failed ${failures} checks in a row`
-        : "Folder error blocking save",
+        : folder
+          ? "Folder error blocking save"
+          : "No longer stuck",
   };
 };
 
