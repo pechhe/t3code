@@ -1,5 +1,6 @@
 import type { ModelSelection, ProjectId, TextGenerationError } from "@t3tools/contracts";
 import type { Runner } from "./textGenerationOperations.ts";
+import { toJsonSchemaObject } from "./textGenerationUtils.ts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
@@ -53,9 +54,13 @@ export interface BlackholeMemoryGenerationInput {
 export type BlackholeMemoryGenerationResult =
   (typeof BlackholeWorkerOutputs)[BlackholeWorkerStage]["Type"];
 
-/** One reply stands in for Pi's tool loop, so the worker gives its final batch whole. */
-function buildBlackholeWorkerPrompt(
-  input: Pick<BlackholeMemoryGenerationInput, "system" | "prompt" | "toolName">,
+/**
+ * One reply stands in for Pi's tool loop, so the worker gives its final batch whole. The schema
+ * is spelled out because runners without native structured output (Pi, OpenCode, Antigravity)
+ * never see it otherwise, and pi-blackhole's own prompts leave `supersedes` optional.
+ */
+export function buildBlackholeWorkerPrompt(
+  input: Pick<BlackholeMemoryGenerationInput, "system" | "prompt" | "toolName" | "stage">,
 ): string {
   return [
     input.system,
@@ -64,7 +69,9 @@ function buildBlackholeWorkerPrompt(
     "---",
     `Answer with exactly one ${input.toolName} call, written as its JSON arguments and nothing else. ` +
       "Put the whole batch in it and set complete to true when the arguments have that field. " +
-      "Use an empty list for any list you have nothing for.",
+      "Use an empty list for any list you have nothing for. The arguments must match this " +
+      "JSON Schema, every listed field included:\n" +
+      JSON.stringify(toJsonSchemaObject(BlackholeWorkerOutputs[input.stage])),
   ].join("\n\n");
 }
 

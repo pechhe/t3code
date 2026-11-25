@@ -142,7 +142,10 @@ export const make = Effect.gen(function* () {
       const records = yield* Effect.tryPromise({
         try: (signal) => runMemoryCycle({ entries, runWorker, signal }),
         catch: (cause) => new BlackholeMemoryPassError({ cause }),
-      });
+      }).pipe(
+        // A failed worker must not leave its running marker on the context bar.
+        Effect.tapError(() => publishStatus(threadId, entries)),
+      );
       yield* store.append({
         threadId,
         anchorItemId: lastItemId,

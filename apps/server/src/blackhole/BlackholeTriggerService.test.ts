@@ -1,5 +1,5 @@
 import type { SessionEntry } from "@t3tools/blackhole";
-import { RunId, ThreadId } from "@t3tools/contracts";
+import { RunId, TextGenerationError, ThreadId } from "@t3tools/contracts";
 import { it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -50,23 +50,32 @@ function harness(input: {
   readonly usedTokens: number;
   readonly text?: string;
   readonly memory?: boolean;
+  readonly workerFails?: boolean;
 }) {
   const dispatch = vi.fn(() => Effect.succeed({} as never));
   const append = vi.fn<BlackholeMemoryStore.BlackholeMemoryStore["Service"]["append"]>(
     () => Effect.void,
   );
+  const written: Array<{ readonly events: ReadonlyArray<{ readonly payload: unknown }> }> = [];
   const generateBlackholeMemory = vi.fn(() =>
-    Effect.succeed({
-      observations: [
-        {
-          content: "Billing release r-512 is on staging.",
-          relevance: "high" as const,
-          sourceEntryIds: ["a1"],
-          supersedes: [],
-        },
-      ],
-      complete: true,
-    }),
+    input.workerFails
+      ? Effect.fail(
+          new TextGenerationError({
+            operation: "generateBlackholeMemory",
+            detail: "Pi returned invalid structured output.",
+          }),
+        )
+      : Effect.succeed({
+          observations: [
+            {
+              content: "Billing release r-512 is on staging.",
+              relevance: "high" as const,
+              sourceEntryIds: ["a1"],
+              supersedes: [],
+            },
+          ],
+          complete: true,
+        }),
   );
   const layer = Layer.mergeAll(
     Layer.mock(Orchestrator.OrchestratorV2)({ dispatch }),
@@ -78,33 +87,48 @@ function harness(input: {
           deletedAt: null,
           compactAt: null,
           lineage: { relationshipToParent: null },
+          activeProviderThreadId: "provider-thread-1",
+          modelSelection: { instanceId: "codex", model: "gpt-6" },
         } as never),
       getThreadRecords: ((_thread: ThreadId, fields: ReadonlyArray<string>) =>
         Effect.succeed(
-          fields.includes("providerTurns")
+          fields.includes("providerSessions")
             ? {
-                providerTurns: [
+                providerThreads: [
                   {
-                    tokenUsage: {
-                      usedTokens: input.usedTokens,
-                      maxTokens: window,
-                      updatedAt: "2026-11-25T10:02:00.000Z",
-                    },
+                    id: "provider-thread-1",
+                    providerSessionId: "session-1",
+                    contextUsage: { usedTokens: input.usedTokens, maxTokens: window },
                   },
+                ],
+                providerSessions: [
+                  { id: "session-1", driver: "codex", providerInstanceId: "codex" },
                 ],
               }
-            : ({
-                runs: [
-                  {
-                    id: runId,
-                    status: "completed",
-                    activeAttemptId: "attempt-1",
-                    userMessageId: "message-1",
-                    modelSelection: { instanceId: "codex", model: "gpt-6" },
-                  },
-                ],
-                messages: [{ id: "message-1", text: input.text ?? "Ship it" }],
-              } as never),
+            : fields.includes("providerTurns")
+              ? {
+                  providerTurns: [
+                    {
+                      tokenUsage: {
+                        usedTokens: input.usedTokens,
+                        maxTokens: window,
+                        updatedAt: "2026-11-25T10:02:00.000Z",
+                      },
+                    },
+                  ],
+                }
+              : ({
+                  runs: [
+                    {
+                      id: runId,
+                      status: "completed",
+                      activeAttemptId: "attempt-1",
+                      userMessageId: "message-1",
+                      modelSelection: { instanceId: "codex", model: "gpt-6" },
+                    },
+                  ],
+                  messages: [{ id: "message-1", text: input.text ?? "Ship it" }],
+                } as never),
         )) as never,
     }),
     ServerSettings.layerTest({
@@ -122,7 +146,12 @@ function harness(input: {
     Layer.mock(TextGeneration.TextGeneration)({ generateBlackholeMemory }),
     Layer.mock(BlackholeMemoryStore.BlackholeMemoryStore)({ append }),
     BlackholeStatusBoard.layer,
-    Layer.mock(EventSink.EventSinkV2)({ write: () => Effect.succeed([]) }),
+    Layer.mock(EventSink.EventSinkV2)({
+      write: (batch) => {
+        written.push(batch as never);
+        return Effect.succeed([]);
+      },
+    }),
     IdAllocator.layer,
   );
   const use = <A, E>(
@@ -130,7 +159,17 @@ function harness(input: {
   ) =>
     BlackholeTriggerService.make.pipe(Effect.flatMap(body), Effect.scoped, Effect.provide(layer));
   const run = use((service) => service.afterRun(threadId, runId));
-  return { run, use, dispatch, append, generateBlackholeMemory };
+  const statusTexts = () =>
+    written
+      .flatMap((batch) =>
+        batch.events.flatMap(
+          (event) =>
+            (event.payload as { extensionStatuses?: ReadonlyArray<{ text: string }> })
+              .extensionStatuses ?? [],
+        ),
+      )
+      .map((status) => status.text);
+  return { run, use, dispatch, append, generateBlackholeMemory, statusTexts };
 }
 
 it.effect("queues /compact behind any work once a run's context crosses the point", () =>
@@ -188,5 +227,16 @@ it.effect("runs no memory workers when memory is off, and still compacts", () =>
     yield* off.run;
     expect(off.generateBlackholeMemory).not.toHaveBeenCalled();
     expect(off.dispatch).toHaveBeenCalled();
+  }),
+);
+
+it.effect("clears the worker's running marker when the Utility model's reply fails", () =>
+  Effect.gen(function* () {
+    const failing = harness({ usedTokens: 10_000, workerFails: true });
+    yield* failing.use((service) => service.rememberNow(threadId));
+    expect(failing.append).not.toHaveBeenCalled();
+    const texts = failing.statusTexts();
+    expect(texts[0]).toContain("[observer]");
+    expect(texts.at(-1)).not.toContain("[observer]");
   }),
 );
