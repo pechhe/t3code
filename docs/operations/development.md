@@ -333,6 +333,14 @@ one row whose suite name is the budget summary, which says when the mandatory te
 the budget. The summary is also the output's last line.
 `budgets` in `slipjay.json` holds the verification time targets.
 
+The gate also formats and lints every changed file whole (`staticLandingCommands`), so touching a
+web file that predates `t3code/no-untranslated-copy` fails on its old copy: the Champions page's
+`ChampionActivityList.tsx` and `champions.logic.ts` still carry about 90 untranslated strings.
+Translate the file or leave it untouched. When a failed landing's summary shows only noisy
+diagnostics (terminal `ps` timeouts, `OrchestrationEffectExecutionError` logs), read the gate's
+full output with `slipjay runner artifact <operation> <runId>` and find the
+`landing tests <suite>: exit 1` line.
+
 ### What a workspace may leave behind
 
 SlipJay refuses to retire a landed workspace that still holds a file no history has. `generatedPaths`
