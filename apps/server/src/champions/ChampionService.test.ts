@@ -7830,6 +7830,37 @@ describe("Champion folders in agent-config", () => {
   );
 
   it.effect(
+    "activates an active-by-file Champion once a fixed metrics.json gives it its first metrics",
+    () =>
+      withFolders((_f, service, world) =>
+        Effect.gen(function* () {
+          const files = folderFiles({});
+          const champion = files[`${FOLDER}/champion.md`]!.replace(
+            /lifecycle: \w+/,
+            "lifecycle: active",
+          );
+          world.push({
+            ...files,
+            [`${FOLDER}/champion.md`]: champion,
+            [`${FOLDER}/metrics.json`]: JSON.stringify([{ id: folderMetric.id }]),
+          });
+          yield* service.syncFolders;
+          const broken = yield* service.get({ id: config.id });
+          assert.equal(broken.metrics.length, 0);
+          assert.equal(broken.champion.lifecycle, "paused");
+          assert.isNull(broken.champion.nextCheckAt);
+
+          world.push({ [`${FOLDER}/metrics.json`]: files[`${FOLDER}/metrics.json`]! });
+          yield* service.syncFolders;
+          const fixed = yield* service.get({ id: config.id });
+          assert.equal(fixed.metrics.length, 1);
+          assert.equal(fixed.champion.lifecycle, "active");
+          assert.isNotNull(fixed.champion.nextCheckAt);
+        }),
+      ),
+  );
+
+  it.effect(
     "starts no work on a machine the folder does not name, even for a Champion it holds",
     () =>
       withFolders((f, service, world) =>

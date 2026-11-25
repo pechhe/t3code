@@ -5541,7 +5541,35 @@ const make = Effect.gen(function* () {
     const problems = [...parsed.problems];
     const changed = (path: string) => blobs[path] !== known[path];
     const doc = yield* read(id);
+    let gainedFirstMetrics = false;
+    if (changed("metrics.json") && parsed.metrics !== null) {
+      const current = yield* read(id);
+      const inputs = parsed.metrics.map(metricInputOf);
+      const retires = current.metrics
+        .filter((metric) => !inputs.some((input) => input.id === metric.id))
+        .map((metric) => metric.id);
+      const differs =
+        retires.length > 0 ||
+        inputs.some((input) => {
+          const stored = current.metrics.find((metric) => metric.id === input.id);
+          return stored === undefined || !sameDefinition(stored, input);
+        });
+      if (differs)
+        yield* applyMetricChange({
+          id,
+          metrics: inputs,
+          ...(retires.length > 0 ? { retires } : {}),
+          reason,
+        }).pipe(
+          Effect.catch((error) =>
+            Effect.sync(() => problems.push(`metrics.json not applied: ${error.message}`)),
+          ),
+        );
+      if (current.metrics.length === 0 && (yield* read(id)).metrics.length > 0)
+        gainedFirstMetrics = true;
+    }
     if (
+      gainedFirstMetrics ||
       changed("champion.md") ||
       doc.champion.folder?.path !== folder.path ||
       doc.champion.folder?.definedIn !== folder.definedIn
@@ -5617,30 +5645,6 @@ const make = Effect.gen(function* () {
           );
         }),
       );
-    }
-    if (changed("metrics.json") && parsed.metrics !== null) {
-      const current = yield* read(id);
-      const inputs = parsed.metrics.map(metricInputOf);
-      const retires = current.metrics
-        .filter((metric) => !inputs.some((input) => input.id === metric.id))
-        .map((metric) => metric.id);
-      const differs =
-        retires.length > 0 ||
-        inputs.some((input) => {
-          const stored = current.metrics.find((metric) => metric.id === input.id);
-          return stored === undefined || !sameDefinition(stored, input);
-        });
-      if (differs)
-        yield* applyMetricChange({
-          id,
-          metrics: inputs,
-          ...(retires.length > 0 ? { retires } : {}),
-          reason,
-        }).pipe(
-          Effect.catch((error) =>
-            Effect.sync(() => problems.push(`metrics.json not applied: ${error.message}`)),
-          ),
-        );
     }
     const contribution: ChampionLearningContributor = {
       environmentId: null,
