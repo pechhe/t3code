@@ -746,6 +746,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     };
   };
   const isRegeneratingTitle = thread.titleRegeneration != null;
+  // A Champion escalation leads with its Champion; the finding moves to the sub-line.
+  const rowTitle =
+    thread.champion?.kind === "escalation" && thread.champion.name
+      ? thread.champion.name
+      : thread.title;
   const localLastVisitedAt = useUiStateStore((state) => state.threadLastVisitedAtById[threadKey]);
   const lastVisitedAt = resolveThreadLastVisitedAt(thread.lastVisitedAt, localLastVisitedAt);
   const isSelected = useThreadSelectionStore((state) => state.selectedThreadKeys.has(threadKey));
@@ -1079,11 +1084,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                       : "text-secondary-label/70",
               ),
       )}
-      dir={textDirection(thread.title)}
+      dir={textDirection(rowTitle)}
     >
-      {thread.title}
+      {rowTitle}
       {isRegeneratingTitle ? (
-        <ActivityShimmerOverlay className="truncate">{thread.title}</ActivityShimmerOverlay>
+        <ActivityShimmerOverlay className="truncate">{rowTitle}</ActivityShimmerOverlay>
       ) : null}
     </span>
   );
@@ -1321,10 +1326,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       <ShieldCheckIcon aria-hidden className="size-3" />
     </span>
   ) : null;
+  // The title names the Champion, so the sub-line says why: the trigger, then the finding.
   const championSubtitle = escalation
-    ? escalation.name && escalation.trigger
-      ? `${escalation.name}: ${escalation.trigger}`
-      : (escalation.name ?? escalation.trigger ?? null)
+    ? escalation.name && escalation.findingId
+      ? escalation.trigger
+        ? `${escalation.trigger}: ${thread.title}`
+        : thread.title
+      : (escalation.trigger ?? null)
     : null;
   const effectiveSubtitle = parkedSubtitle ?? championSubtitle;
   const subtitleLine =
