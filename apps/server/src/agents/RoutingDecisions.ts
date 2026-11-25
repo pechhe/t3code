@@ -26,7 +26,7 @@ export interface RoutedCandidate {
 const isoOf = (ms: number) => DateTime.formatIso(DateTime.makeUnsafe(ms));
 
 /** One candidate as the decision saw it; only T3's own account ids and usage figures, no secrets. */
-export const routingCandidate = (
+const routingCandidate = (
   candidate: RoutedCandidate,
   nowMs: number,
   chosen: boolean,
@@ -127,7 +127,7 @@ export const routingSnapshot = (input: {
 };
 
 /** How far a decision may precede its run's start and still be that run's. */
-export const DECISION_MAX_AGE_MS = 2 * 60 * 1000;
+const DECISION_MAX_AGE_MS = 2 * 60 * 1000;
 const CLOCK_SKEW_MS = 1000;
 
 const sameTurn = (earlier: string, later: string) =>
