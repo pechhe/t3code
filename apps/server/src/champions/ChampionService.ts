@@ -48,6 +48,7 @@ import { collectReading, type CollectedReading } from "./metricCollection.ts";
 import * as SlipJayLandings from "../project/SlipJayLandings.ts";
 import { invalidOptionSelections } from "../provider/modelSelectionValidation.ts";
 import * as ChampionModels from "./ChampionModels.ts";
+import * as Escalation from "./championEscalation.ts";
 import { isUsageLimitFailure } from "../orchestration-v2/AccountFailover.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as AccountAvailability from "../provider/AccountAvailability.ts";
@@ -164,6 +165,8 @@ const Check = Schema.Struct({
   skipped: Schema.optional(Schema.String),
   /** Retries the server started on its own for this claim; manual retries are not counted. */
   automaticRetries: Schema.optional(Schema.Number),
+  /** Set once this check's failure has counted towards the Champion being stuck. */
+  failureCounted: Schema.optional(Schema.Boolean),
 });
 type Check = typeof Check.Type;
 /** A claim's own retries stop here, so a lasting outage cannot keep spending on it. */
@@ -521,8 +524,22 @@ function presentLatest(doc: Document, at: string): ChampionLatestSample[] {
   });
 }
 
+/** Escalation thread work a committed write implies; it runs after the commit, never inside it. */
+type EscalationIntent = {
+  readonly threadId: ThreadId;
+  readonly championId: string;
+  readonly target: Escalation.EscalationStep["target"];
+  readonly action: Escalation.EscalationStep["action"];
+};
 class ChangeBatch extends Context.Reference<
-  { changed: boolean; owners: Set<ThreadId> } | undefined
+  | {
+      changed: boolean;
+      owners: Set<ThreadId>;
+      escalations: EscalationIntent[];
+      /** Findings the user reopened: reopening is a fresh reason to escalate. */
+      reopened: Set<string>;
+    }
+  | undefined
 >("t3/champions/ChangeBatch", { defaultValue: () => undefined }) {}
 const phaseForRole = (role: string) =>
   (
@@ -593,21 +610,44 @@ const make = Effect.gen(function* () {
       : `This champion's definition, metrics and learnings live in ${champion.folder.repository} at ${champion.folder.definedIn}/, which T3 only reads: t3_champions_metrics submit and t3_champions_record_learning are refused for it. Write learnings and metric changes as files there (format: ~/.agents/champions/README.md), or in the area's knowledge home its AGENTS.md names, and land them through SlipJay with the repair that found them or as one landing per check.`;
   const mutate = <A, R>(effect: Effect.Effect<A, ChampionError, R>) =>
     Effect.suspend(() => {
-      const batch = { changed: false, owners: new Set<ThreadId>() };
-      return lock.withPermits(1)(
-        sql.withTransaction(effect.pipe(Effect.provideService(ChangeBatch, batch))).pipe(
-          Effect.mapError((cause) => (isChampionError(cause) ? cause : failure(cause))),
+      const batch = {
+        changed: false,
+        owners: new Set<ThreadId>(),
+        escalations: [] as EscalationIntent[],
+        reopened: new Set<string>(),
+      };
+      return lock
+        .withPermits(1)(
+          sql.withTransaction(effect.pipe(Effect.provideService(ChangeBatch, batch))).pipe(
+            Effect.mapError((cause) => (isChampionError(cause) ? cause : failure(cause))),
+            Effect.tap(() =>
+              Effect.gen(function* () {
+                if (batch.changed) {
+                  folderDirty = true;
+                  yield* PubSub.publish(changes, undefined);
+                }
+              }),
+            ),
+          ),
+        )
+        .pipe(
+          // After the commit and outside the lock: launching or settling a thread must not hold Champion writes.
           Effect.tap(() =>
             Effect.gen(function* () {
-              if (batch.changed) {
-                folderDirty = true;
-                yield* PubSub.publish(changes, undefined);
-              }
+              for (const intent of batch.escalations)
+                yield* runEscalation(intent).pipe(
+                  Effect.catchCause((cause) =>
+                    Effect.logWarning("champions.escalation-failed", {
+                      championId: intent.championId,
+                      threadId: intent.threadId,
+                      cause,
+                    }),
+                  ),
+                );
               for (const owner of batch.owners) yield* PubSub.publish(shellChanges, owner);
             }),
           ),
-        ),
-      );
+        );
     });
 
   const read = Effect.fn("ChampionService.read")(function* (id: string) {
@@ -637,7 +677,7 @@ const make = Effect.gen(function* () {
       ),
     };
     const latestSamples = presentLatest(doc, yield* now);
-    const champion = {
+    const draft = {
       ...doc.champion,
       latestSamples,
       attention: [
@@ -663,8 +703,58 @@ const make = Effect.gen(function* () {
         .length,
       updatedAt: yield* now,
     };
-    const active = doc.findings.filter((f) => !["verified", "dismissed"].includes(f.status));
-    const settled = doc.findings
+    const batch = yield* ChangeBatch;
+    const priorRows = yield* sql<{
+      document_json: string;
+    }>`SELECT document_json FROM champions WHERE id = ${draft.id}`.pipe(Effect.mapError(failure));
+    const prior =
+      priorRows[0] === undefined
+        ? undefined
+        : yield* decodeDocument(priorRows[0].document_json).pipe(
+            Effect.option,
+            Effect.map(Option.getOrUndefined),
+          );
+    // Escalation threads get their ids here, in the same commit as the state that needs them; the
+    // threads themselves are made after it (runEscalation).
+    let stuckThreadId = draft.stuckEscalationThreadId ?? null;
+    const findingThreadIds = new Map<string, ThreadId>();
+    const intents: EscalationIntent[] = [];
+    if (batch !== undefined)
+      for (const step of Escalation.planEscalation(
+        prior,
+        { champion: draft, findings: doc.findings },
+        batch.reopened,
+      )) {
+        const target = step.target;
+        let threadId =
+          target.kind === "stuck"
+            ? stuckThreadId
+            : (doc.findings.find((f) => f.id === target.findingId)?.escalationThreadId ?? null);
+        if (threadId !== null && step.action === "ensure") {
+          // A thread the user archived or deleted is not reused; the finding gets a fresh one.
+          const existing = yield* threads.getThreadShell(threadId).pipe(Effect.option);
+          if (
+            Option.isSome(existing) &&
+            existing.value !== null &&
+            (existing.value.deletedAt !== null || existing.value.archivedAt !== null)
+          )
+            threadId = null;
+        }
+        if (threadId === null) {
+          if (step.action === "settle") continue;
+          threadId = ThreadId.make(yield* uuid);
+          if (target.kind === "stuck") stuckThreadId = threadId;
+          else findingThreadIds.set(target.findingId, threadId);
+        }
+        intents.push({ threadId, championId: draft.id, target, action: step.action });
+      }
+    const champion =
+      stuckThreadId === null ? draft : { ...draft, stuckEscalationThreadId: stuckThreadId };
+    const threadedFindings = doc.findings.map((f) =>
+      findingThreadIds.has(f.id) ? { ...f, escalationThreadId: findingThreadIds.get(f.id)! } : f,
+    );
+    const active = threadedFindings.filter((f) => !["verified", "dismissed"].includes(f.status));
+    const settled = threadedFindings
       .filter((f) => ["verified", "dismissed"].includes(f.status))
       .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     for (const finding of settled.slice(Math.max(0, 100 - active.length))) {
@@ -678,25 +768,26 @@ const make = Effect.gen(function* () {
       findings: [...active, ...settled.slice(0, Math.max(0, 100 - active.length))],
       champion,
     };
-    const prior = yield* sql<{
-      attention: number;
-    }>`SELECT json_array_length(json_extract(document_json, '$.champion.attention')) AS attention FROM champions WHERE id = ${champion.id}`.pipe(
-      Effect.mapError(failure),
-    );
     yield* sql`INSERT INTO champions (id, project_id, document_json) VALUES (${champion.id}, ${champion.projectId}, ${yield* encodeDocument(next).pipe(Effect.mapError(failure))})
       ON CONFLICT(id) DO UPDATE SET document_json = excluded.document_json`.pipe(
       Effect.mapError(failure),
     );
-    const batch = yield* ChangeBatch;
     if (batch !== undefined) {
       batch.changed = true;
       if (
-        (prior[0]?.attention !== undefined && prior[0].attention > 0) !==
+        (prior !== undefined && prior.champion.attention.length > 0) !==
         champion.attention.length > 0
       ) {
         batch.owners.add(champion.ownerThreadId);
         if (champion.setupThreadId !== null) batch.owners.add(champion.setupThreadId);
       }
+      batch.escalations.push(...intents);
+      // An escalation thread's shell follows its finding or the Champion's stuck state.
+      const before = prior === undefined ? new Map() : Escalation.escalationShells(prior);
+      const after = Escalation.escalationShells({ champion, findings: threadedFindings });
+      for (const id of new Set([...before.keys(), ...after.keys()]))
+        if (!Escalation.sameShell(before.get(id), after.get(id)))
+          batch.owners.add(ThreadId.make(id));
     }
     return { ...next, latestSamples };
   });
@@ -1348,6 +1439,7 @@ const make = Effect.gen(function* () {
               input.advance && doc.champion.lifecycle === "active"
                 ? yield* nextDue(doc.champion)
                 : doc.champion.nextCheckAt,
+            // A skip (no model could take the run) is not a failed check: it never makes a Champion stuck.
             attention: [...doc.champion.attention.filter((line) => !ended(line)), input.message],
           },
         });
@@ -1473,6 +1565,7 @@ const make = Effect.gen(function* () {
                   let retry: Check = {
                     ...outstanding,
                     automaticRetries,
+                    failureCounted: false,
                     dispatchKind: "send",
                     dispatched: false,
                     launchStarted: false,
@@ -2256,6 +2349,7 @@ const make = Effect.gen(function* () {
                   outstandingCheckId: null,
                   lastCheckAt: at as ChampionSample["collectedAt"],
                   attention: [],
+                  consecutiveCheckFailures: 0,
                 }
               : {}),
           },
@@ -2449,6 +2543,10 @@ const make = Effect.gen(function* () {
                   ],
                   lastCheckAt: collectedAt,
                   attention,
+                  consecutiveCheckFailures:
+                    journeyCheck?.status === "incomplete"
+                      ? (doc.champion.consecutiveCheckFailures ?? 0) + 1
+                      : 0,
                 },
               });
               yield* activity(
@@ -2530,6 +2628,97 @@ const make = Effect.gen(function* () {
         });
       }),
     );
+  });
+  /** The strong interactive model an escalation thread runs on: the lead role, else the advice model, never the checks model. */
+  const escalationModel = Effect.fn("ChampionService.escalationModel")(function* (doc: Document) {
+    const lead = yield* resolveRankedClass(doc.champion.projectId, "non-ui", "lead").pipe(
+      Effect.option,
+    );
+    if (Option.isSome(lead) && lead.value.selection != null && lead.value.refusal === null)
+      return lead.value.selection;
+    const advice = yield* slotOf(doc, "advice");
+    return advice === null
+      ? null
+      : (ChampionModels.pickSlot(advice.slot, yield* modelSource).use?.selection ?? null);
+  });
+  /**
+   * Makes, unsettles or settles one escalation thread (fork/differences.md `champions`). A new thread is
+   * idle: no message is sent, so no model turn is paid for until the person opens it and replies, and
+   * that first message carries the Champion's brief (ProviderTurnStartService).
+   */
+  const runEscalation = Effect.fn("ChampionService.runEscalation")(function* (
+    intent: EscalationIntent,
+  ) {
+    // Effects run after their commit and outside the lock, so a later write may already have changed
+    // the state: act on the Champion as it is now, never undo what a newer intent asked for.
+    const doc = yield* read(intent.championId);
+    const current = Escalation.escalationShells(doc).get(intent.threadId);
+    if (intent.action === "ensure" && current?.resolved === true) return;
+    if (
+      intent.action === "settle" &&
+      current !== undefined &&
+      !current.resolved &&
+      (current.severity === "decision" || intent.target.kind === "stuck")
+    )
+      return;
+    const shell = yield* threads.getThreadShell(intent.threadId).pipe(Effect.mapError(failure));
+    const live = shell !== null && shell.deletedAt === null && shell.archivedAt === null;
+    const dispatchId = `champion-escalation:${intent.action}:${intent.threadId}:${yield* uuid}`;
+    if (intent.action === "settle") {
+      if (live && shell.settledOverride !== "settled")
+        yield* threads
+          .dispatch({
+            type: "thread.settle",
+            commandId: CommandId.make(dispatchId),
+            threadId: intent.threadId,
+            ...(shell.latestRunId == null ? {} : { expectedLatestRunId: shell.latestRunId }),
+          })
+          .pipe(Effect.mapError(failure));
+      return;
+    }
+    if (live) {
+      if (shell.settledOverride === "settled")
+        yield* threads
+          .dispatch({
+            type: "thread.unsettle",
+            commandId: CommandId.make(dispatchId),
+            threadId: intent.threadId,
+            reason: "user",
+          })
+          .pipe(Effect.mapError(failure));
+      return;
+    }
+    if (shell !== null) return;
+    const target = intent.target;
+    const finding =
+      target.kind === "finding" ? doc.findings.find((f) => f.id === target.findingId) : undefined;
+    if (target.kind === "finding" && finding === undefined) return;
+    const modelSelection = yield* escalationModel(doc);
+    if (modelSelection === null)
+      return yield* Effect.logWarning("champions.escalation-no-model", {
+        championId: intent.championId,
+        threadId: intent.threadId,
+      });
+    const failures = doc.champion.consecutiveCheckFailures ?? 0;
+    yield* launch
+      .launch({
+        commandId: CommandId.make(`champion-escalation:${intent.threadId}`),
+        threadId: intent.threadId,
+        projectId: doc.champion.projectId,
+        title:
+          finding !== undefined
+            ? finding.title
+            : failures >= Escalation.STUCK_AFTER_FAILURES
+              ? `${doc.champion.name}: failed ${failures} checks in a row`
+              : `${doc.champion.name}: folder error blocking save`,
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        workspaceStrategy: { type: "root" },
+        createdBy: "agent",
+        creationSource: "mcp",
+      })
+      .pipe(Effect.mapError(failure));
   });
   const startMetricsLead: ChampionService["Service"]["startMetricsLead"] = Effect.fn(
     "ChampionService.startMetricsLead",
@@ -2639,6 +2828,7 @@ const make = Effect.gen(function* () {
         }
         const at = yield* now;
         let updated: ChampionFinding = { ...finding, updatedAt: at };
+        if (input.action === "reopen") (yield* ChangeBatch)?.reopened.add(finding.id);
         if (input.action === "decision") {
           const routed = routeRefusal(finding, "decision");
           if (routed !== null)
@@ -4541,13 +4731,26 @@ const make = Effect.gen(function* () {
                 current.champion.lifecycle === "active" &&
                 current.champion.nextCheckAt !== null &&
                 current.champion.nextCheckAt <= timestamp;
-              if (release) yield* saveCheck({ ...latest, cancelled: true });
-              if (!current.champion.attention.includes(attention) || release)
+              // Each ended check counts once towards the Champion being stuck.
+              const counts = check.kind === "check" && latest.failureCounted !== true;
+              if (release || counts)
+                yield* saveCheck({
+                  ...latest,
+                  ...(release ? { cancelled: true } : {}),
+                  ...(counts ? { failureCounted: true } : {}),
+                });
+              if (!current.champion.attention.includes(attention) || release || counts)
                 yield* write({
                   ...current,
                   champion: {
                     ...current.champion,
                     ...(release ? { outstandingCheckId: null } : {}),
+                    ...(counts
+                      ? {
+                          consecutiveCheckFailures:
+                            (current.champion.consecutiveCheckFailures ?? 0) + 1,
+                        }
+                      : {}),
                     attention: current.champion.attention.includes(attention)
                       ? current.champion.attention
                       : [...current.champion.attention, attention],
@@ -4884,7 +5087,7 @@ const make = Effect.gen(function* () {
   // Hosted repositories are read over the network; a save soon after a change reuses the last read.
   const HOSTED_POLL_MS = 300_000;
   const FOLDER_PROBLEM = "agent-config folder: ";
-  const NOT_SAVED = "Not saved to agent-config: ";
+  const NOT_SAVED = Escalation.NOT_SAVED_PREFIX;
   const folderLock = yield* Semaphore.make(1);
   let folderSyncedAt = Number.NEGATIVE_INFINITY;
   const hereLabel = Option.isSome(serverEnvironment)

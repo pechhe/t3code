@@ -6,7 +6,7 @@ import type {
 /**
  * Champion threads are kept out of the lists of clients that don't announce `championThreads`, such
  * as the shipped App Store app: they have no Champion screen, and every check would crowd the list.
- * A Champion thread that waits on the person stays listed.
+ * A Champion thread that waits on the person stays listed, and so does an escalation thread.
  */
 export function championThreadHiddenFromList(
   thread: Pick<
@@ -20,6 +20,7 @@ export function championThreadHiddenFromList(
 ): boolean {
   return (
     thread.champion !== undefined &&
+    thread.champion.kind !== "escalation" &&
     thread.pendingRuntimeRequest === null &&
     (thread.pendingReleaseApprovals?.length ?? 0) === 0 &&
     !thread.hasActionableProposedPlan &&

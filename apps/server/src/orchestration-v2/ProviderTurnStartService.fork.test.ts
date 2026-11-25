@@ -139,6 +139,8 @@ function makeLocalCommandHarness(input: {
   readonly backgroundTasks?: number;
   /** What the Forge cache holds for the thread's linked item; absent runs without Forge links. */
   readonly forgeSummary?: ForgeWorkItemSummary | null;
+  /** The Champion brief the store holds for this thread, when it is an escalation thread. */
+  readonly escalationBrief?: string;
   /** Another account that can summarise this thread's compaction. */
   readonly summariser?: {
     readonly instanceId: ProviderInstanceId;
@@ -1248,6 +1250,7 @@ function makeLocalCommandHarness(input: {
           getTurnStartContext,
           getRuntimeRecoveryProjection,
           getRun,
+          getChampionEscalationBrief: () => Effect.succeed(input.escalationBrief ?? ""),
           getTurnStartHistory: () =>
             input.sideChat !== undefined
               ? Effect.succeed([])
@@ -1484,6 +1487,29 @@ effectIt.effect(
           failure: { message: "The workspace is not at the stated sourceRevision." },
         },
       ]);
+    }),
+);
+
+effectIt.effect.each([
+  { name: "a first message", previousMessages: undefined, framed: true },
+  { name: "a later message", previousMessages: ["Earlier reply"], framed: false },
+])(
+  "frames $name in a Champion escalation thread with the Champion's brief",
+  ({ previousMessages, framed }) =>
+    Effect.gen(function* () {
+      const brief =
+        "Champion escalation context:\nQuality opened this because: Decision requested.";
+      const harness = makeLocalCommandHarness({
+        text: "Approved",
+        previousNativeSession: true,
+        deliverTurn: true,
+        escalationBrief: brief,
+        ...(previousMessages === undefined ? {} : { previousMessages }),
+      });
+      yield* harness.start;
+      const text = harness.startTurn.mock.calls[0]![0].message.text;
+      expect(text.includes(brief)).toBe(framed);
+      expect(text.endsWith("User message:\nApproved")).toBe(true);
     }),
 );
 

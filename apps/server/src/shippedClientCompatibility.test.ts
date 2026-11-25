@@ -1,6 +1,7 @@
 import {
   DEFAULT_SERVER_SETTINGS,
   ChampionRelayedApproval,
+  OrchestrationV2ThreadChampion,
   Experiment,
   EnvironmentId,
   ExperimentAssignment,
@@ -197,6 +198,31 @@ it("a shipped client reads a Pi usage slot that names its provider family", () =
   });
   assert.notProperty(decoded, "providerFamily");
   assert.equal(decoded.accountKey, "antigravity-hfpetch");
+});
+
+const {
+  kind: _kind,
+  name: _name,
+  findingId: _findingId,
+  severity: _severity,
+  trigger: _trigger,
+  resolved: _resolved,
+  ...shippedChampionFields
+} = OrchestrationV2ThreadChampion.fields;
+const decodeShippedChampion = Schema.decodeUnknownSync(Schema.Struct(shippedChampionFields));
+
+it("a shipped client reads an escalation thread's Champion as id and attention only", () => {
+  const decoded = decodeShippedChampion({
+    id: "quality",
+    attention: true,
+    kind: "escalation",
+    name: "Quality",
+    findingId: null,
+    severity: "stuck",
+    trigger: "Failed 3 checks in a row",
+    resolved: false,
+  });
+  assert.deepEqual(decoded, { id: "quality", attention: true });
 });
 
 const { sourceEnvironment: _source, ...shippedApprovalFields } = ChampionRelayedApproval.fields;

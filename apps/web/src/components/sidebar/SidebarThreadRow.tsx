@@ -49,6 +49,7 @@ import {
 import type { TimestampFormat } from "@t3tools/contracts/settings";
 import {
   AlarmClockIcon,
+  AlertTriangleIcon,
   AnchorIcon,
   AlarmClockOffIcon,
   ArrowRightLeftIcon,
@@ -61,6 +62,7 @@ import {
   MessageCircleQuestionIcon,
   PinIcon,
   PinOffIcon,
+  ShieldCheckIcon,
   ShieldQuestionIcon,
   SquarePenIcon,
   TerminalIcon,
@@ -584,6 +586,7 @@ const TOP_STATUS_ICONS = {
   input: MessageCircleQuestionIcon,
   request: UserRoundIcon,
   approval: ShieldQuestionIcon,
+  alert: AlertTriangleIcon,
   failed: CircleAlertIcon,
   done: CircleCheckIcon,
   woke: AlarmClockIcon,
@@ -1286,9 +1289,49 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     </span>
   ) : null;
 
+  const escalation = thread.champion?.kind === "escalation" ? thread.champion : null;
+  const championAccentBar = escalation ? (
+    <span
+      aria-hidden
+      className={cn(
+        "pointer-events-none absolute inset-y-0 left-0 z-20 w-[2.5px]",
+        escalation.resolved
+          ? "bg-success/65"
+          : escalation.severity === "incident"
+            ? "bg-destructive"
+            : "bg-warning",
+      )}
+    />
+  ) : null;
+  const championShieldBadge = escalation ? (
+    <span
+      role="img"
+      aria-label={
+        escalation.name ? gt("Champion: {name}", { name: escalation.name }) : gt("Champion")
+      }
+      className={cn(
+        "inline-flex size-[18px] shrink-0 items-center justify-center rounded",
+        escalation.resolved
+          ? "bg-success/12 text-success-foreground"
+          : escalation.severity === "incident"
+            ? "bg-destructive/12 text-destructive-foreground"
+            : "bg-warning/14 text-warning-foreground",
+      )}
+    >
+      <ShieldCheckIcon aria-hidden className="size-3" />
+    </span>
+  ) : null;
+  const championSubtitle = escalation
+    ? escalation.name && escalation.trigger
+      ? `${escalation.name}: ${escalation.trigger}`
+      : (escalation.name ?? escalation.trigger ?? null)
+    : null;
+  const effectiveSubtitle = parkedSubtitle ?? championSubtitle;
   const subtitleLine =
-    parkedSubtitle === null ? null : (
-      <div className="mt-0.5 min-w-0 truncate text-xs text-secondary-label">{parkedSubtitle}</div>
+    effectiveSubtitle === null ? null : (
+      <div className="mt-0.5 min-w-0 truncate text-xs text-secondary-label">
+        {effectiveSubtitle}
+      </div>
     );
   if (variant !== "card") {
     const multiline = variant === "folder-multiline";
@@ -1332,6 +1375,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               />
             }
           >
+            {championAccentBar}
             {/* `contents` keeps one-line rows a single flex row. */}
             <div className={twoLine ? "flex h-6 min-w-0 items-center gap-2.5" : "contents"}>
               {inFolder ? null : (
@@ -1347,6 +1391,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                   ) : null}
                 </span>
               )}
+              {championShieldBadge}
               {draftIndicator}
               {title}
               {multiline ? titleLineIcons : null}
@@ -1530,10 +1575,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             />
           }
         >
+          {championAccentBar}
           <div
             className={cn(
               "relative z-10 h-[4.875rem] px-(--sidebar-row-content-inset) py-(--sidebar-content-inset)",
-              metaLineEmpty && "h-auto",
+              (metaLineEmpty || subtitleLine !== null) && "h-auto",
             )}
           >
             <div className="flex h-5 min-w-0 items-center gap-1.5">
@@ -1552,6 +1598,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                   {props.projectDisplayName}
                 </span>
               ) : null}
+              {championShieldBadge}
               <span className="flex-1" />
               {sortable?.isDragging ? (
                 dragDestination

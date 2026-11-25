@@ -32,6 +32,21 @@ describe("withoutChampionThreads", () => {
     hasActionableProposedPlan: true,
   });
   const ordinary = shellFixture({ id: ThreadId.make("ordinary"), ...quiet });
+  const withKind = (id: string, kind: "owner" | "setup" | "escalation") =>
+    shellFixture({ id: ThreadId.make(id), champion: { ...champion, kind }, ...quiet });
+
+  it("lists escalation threads for shipped clients while owner and setup threads stay hidden", () => {
+    const item = withoutChampionThreads({
+      kind: "snapshot",
+      snapshot: {
+        ...emptyShellSnapshot,
+        threads: [withKind("o", "owner"), withKind("s", "setup"), withKind("e", "escalation")],
+      },
+    });
+    expect(item.kind === "snapshot" && item.snapshot.threads.map((thread) => thread.id)).toEqual([
+      "e",
+    ]);
+  });
 
   it("keeps a quiet Champion thread out of a snapshot, and one that waits on the person in", () => {
     const item = withoutChampionThreads({

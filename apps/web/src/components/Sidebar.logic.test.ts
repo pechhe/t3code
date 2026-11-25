@@ -38,7 +38,9 @@ import {
   type SidebarListMarker,
   type SidebarSection,
   resolveSidebarDropVerb,
+  filterThreadsByInboxFilter,
   groupSidebarThreadsByProject,
+  isChampionEscalationThread,
   resolveSidebarFolderDot,
   sidebarFolderExpansionKeys,
 } from "./Sidebar.logic";
@@ -1934,5 +1936,27 @@ describe("shouldCreateNewThreadInCurrentProject", () => {
     expect(shouldCreateNewThreadInCurrentProject(false, 1, 3)).toBe(true);
     expect(shouldCreateNewThreadInCurrentProject(false, 0, 0)).toBe(true);
     expect(shouldCreateNewThreadInCurrentProject(true, 2, 2)).toBe(true);
+  });
+});
+
+describe("filterThreadsByInboxFilter", () => {
+  it("isolates Champion escalation threads when filtering to champions", () => {
+    const ordinary = { id: "ordinary", champion: undefined };
+    const owner = { id: "owner", champion: { id: "c1", attention: false, kind: "owner" as const } };
+    const escalation = {
+      id: "esc",
+      champion: { id: "c1", attention: true, kind: "escalation" as const },
+    };
+    const all = [ordinary, owner, escalation];
+
+    expect(isChampionEscalationThread(ordinary)).toBe(false);
+    expect(isChampionEscalationThread(owner)).toBe(false);
+    expect(isChampionEscalationThread(escalation)).toBe(true);
+    expect(filterThreadsByInboxFilter(all, "all").map((t) => t.id)).toEqual([
+      "ordinary",
+      "owner",
+      "esc",
+    ]);
+    expect(filterThreadsByInboxFilter(all, "champions").map((t) => t.id)).toEqual(["esc"]);
   });
 });

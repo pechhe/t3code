@@ -2880,9 +2880,22 @@ export const OrchestrationV2LatestVisibleMessageSummary = Schema.Struct({
 export type OrchestrationV2LatestVisibleMessageSummary =
   typeof OrchestrationV2LatestVisibleMessageSummary.Type;
 
+/** The Champion a thread belongs to; the optional fields are additive for shipped clients. */
+export const OrchestrationV2ThreadChampion = Schema.Struct({
+  id: Schema.String,
+  attention: Schema.Boolean,
+  kind: Schema.optional(Schema.Literals(["owner", "setup", "escalation"])),
+  name: Schema.optional(Schema.String),
+  findingId: Schema.optional(Schema.NullOr(Schema.String)),
+  severity: Schema.optional(Schema.Literals(["decision", "incident", "stuck"])),
+  trigger: Schema.optional(Schema.String),
+  resolved: Schema.optional(Schema.Boolean),
+});
+export type OrchestrationV2ThreadChampion = typeof OrchestrationV2ThreadChampion.Type;
+
 export const OrchestrationV2ThreadShell = Schema.Struct({
   stanceChoice: Schema.optional(DelegationStanceChoice),
-  champion: Schema.optional(Schema.Struct({ id: Schema.String, attention: Schema.Boolean })),
+  champion: Schema.optional(OrchestrationV2ThreadChampion),
   followupSourceRevision: Schema.optional(TrimmedNonEmptyString),
   advisorClosedAt: Schema.optional(Schema.DateTimeUtc),
   agentTask: Schema.optional(AgentTaskBinding),

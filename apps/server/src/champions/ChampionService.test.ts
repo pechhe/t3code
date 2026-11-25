@@ -87,6 +87,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as AccountAvailability from "../provider/AccountAvailability.ts";
 import * as ServerConfig from "../config.ts";
 import * as ChampionModels from "./ChampionModels.ts";
+import { readChampionShellRows, readEscalationBrief, withChampions } from "./championShell.ts";
 
 const decodeBinding = Schema.decodeSync(AgentTaskBinding);
 const json = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
@@ -176,6 +177,9 @@ const fixture = Effect.fn("test.championFixture")(() =>
       creationSource: string;
     }> = [];
     const children = new Map<ThreadId, OrchestrationV2ThreadShell>();
+    /** Idle escalation threads the server opened (a launch with no message), and every command it dispatched. */
+    const escalationLaunches: Array<{ threadId: ThreadId; title: string; model: string }> = [];
+    const commands: Array<{ type: string; threadId?: ThreadId }> = [];
     /** One-shot barriers on the owner's thread reads: the first matching read waits to be released. */
     const holds: Array<{
       readonly matches: (kinds: ReadonlyArray<string>) => boolean;
@@ -297,6 +301,26 @@ const fixture = Effect.fn("test.championFixture")(() =>
       Layer.mock(ThreadLaunch.ThreadLaunchService)({
         launch: (input) =>
           Effect.gen(function* () {
+            if (input.initialMessage === undefined) {
+              const escalationId =
+                input.threadId ??
+                ThreadId.make(`escalation:${launches}:${escalationLaunches.length}`);
+              escalationLaunches.push({
+                threadId: escalationId,
+                title: input.title ?? "",
+                model: input.modelSelection.model,
+              });
+              children.set(escalationId, {
+                id: escalationId,
+                title: input.title,
+                projectId,
+                archivedAt: null,
+                deletedAt: null,
+                settledOverride: null,
+                latestRunId: null,
+              } as unknown as OrchestrationV2ThreadShell);
+              return { threadId: escalationId, projection: {} as never, resumed: false };
+            }
             launches += 1;
             owner = input.threadId;
             activeRun = true;
@@ -368,6 +392,15 @@ const fixture = Effect.fn("test.championFixture")(() =>
         dispatch: (command) =>
           Effect.sync(() => {
             dispatches.push(command.type);
+            commands.push({
+              type: command.type,
+              ...("threadId" in command ? { threadId: command.threadId } : {}),
+            });
+            const child = "threadId" in command ? children.get(command.threadId) : undefined;
+            if (child !== undefined && command.type === "thread.settle")
+              children.set(child.id, { ...child, settledOverride: "settled" });
+            if (child !== undefined && command.type === "thread.unsettle")
+              children.set(child.id, { ...child, settledOverride: null });
             return { sequence: 1 } as never;
           }),
         cancelDelegatedTask: (input) =>
@@ -696,6 +729,8 @@ const fixture = Effect.fn("test.championFixture")(() =>
         return workspaceRoot;
       },
       launchRequests,
+      escalationLaunches,
+      commands,
       endRun: () => {
         activeRun = false;
         queuedRun = false;
@@ -8207,6 +8242,232 @@ describe("Repository-hosted Champions", () => {
             line.startsWith("Defined twice: "),
           ),
         );
+      }),
+    ),
+  );
+});
+
+describe("escalation threads", () => {
+  const shellOf = Effect.fn("test.escalationShell")(function* (threadId: ThreadId) {
+    const sql = yield* SqlClient.SqlClient;
+    const rows = yield* readChampionShellRows(sql, json([threadId])).pipe(Effect.orDie);
+    return withChampions(rows)({ id: threadId } as OrchestrationV2ThreadShell).champion;
+  });
+  const openedFinding = Effect.fn("test.openedQualitativeFinding")(function* (
+    f: Effect.Success<ReturnType<typeof fixture>>,
+    service: Champions.ChampionService["Service"],
+  ) {
+    yield* definitions(service);
+    yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
+    yield* service.runCheck({ id: config.id });
+    const report = yield* service.report(f.caller(), {
+      samples: [{ ...sample, value: 1 }],
+      findings: [{ title: "Checkout fails", evidence: "The pay button does nothing" }],
+      summary: "One bug",
+    });
+    return report.findings.find((x) => x.title === "Checkout fails")!;
+  });
+
+  it.effect("opens an idle thread on the advice model for a new qualitative finding", () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        const finding = yield* openedFinding(f, service);
+        assert.equal(f.escalationLaunches.length, 1);
+        const [thread] = f.escalationLaunches;
+        // Only the check's own thread was sent a message; the escalation thread starts no turn.
+        assert.equal(f.launchRequests.length, 1);
+        assert.equal(thread!.threadId, finding.escalationThreadId);
+        assert.equal(thread!.title, "Checkout fails");
+        assert.equal(thread!.model, "strong");
+        assert.deepEqual(yield* shellOf(thread!.threadId), {
+          id: config.id,
+          attention: true,
+          kind: "escalation",
+          name: "Quality",
+          findingId: finding.id,
+          severity: "incident",
+          trigger: "New finding",
+          resolved: false,
+        });
+        // The same finding on the next check opens no second thread.
+        yield* service.runCheck({ id: config.id });
+        yield* service.report(f.caller(), {
+          samples: [{ ...sample, value: 1 }],
+          findings: [{ title: "Checkout fails", evidence: "Still broken" }],
+          summary: "Still there",
+        });
+        assert.equal(f.escalationLaunches.length, 1);
+      }),
+    ),
+  );
+
+  it.effect("keeps a chronic metric finding quiet until a decision is requested", () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        const finding = yield* activeFinding(f, service, "decision");
+        assert.equal(f.escalationLaunches.length, 0);
+        assert.isUndefined(finding.escalationThreadId);
+        const asked = yield* service.findingAction({
+          id: config.id,
+          findingId: finding.id,
+          action: "decision",
+          reason: "Use a tighter limit?",
+        });
+        const threadId = asked.findings[0]!.escalationThreadId!;
+        assert.equal(f.escalationLaunches.length, 1);
+        assert.equal(f.escalationLaunches[0]!.threadId, threadId);
+        assert.equal((yield* shellOf(threadId))?.severity, "decision");
+        yield* service.findingAction({
+          id: config.id,
+          findingId: finding.id,
+          action: "resolve_decision",
+          decisionId: asked.findings[0]!.decision!.id,
+          reason: "Keep the existing limit.",
+        });
+        assert.deepEqual(
+          f.commands
+            .filter((c) => c.threadId === threadId && c.type !== "thread.metadata.update")
+            .map((c) => c.type),
+          ["thread.settle"],
+        );
+        assert.equal((yield* shellOf(threadId))?.resolved, true);
+        yield* service.findingAction({
+          id: config.id,
+          findingId: finding.id,
+          action: "reopen",
+          reason: "It came back.",
+        });
+        assert.deepEqual(
+          f.commands
+            .filter((c) => c.threadId === threadId && c.type !== "thread.metadata.update")
+            .map((c) => c.type),
+          ["thread.settle", "thread.unsettle"],
+        );
+        assert.equal(f.escalationLaunches.length, 1);
+      }),
+    ),
+  );
+
+  it.effect("settles a dismissed finding's thread and keeps its metadata once archived", () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        const finding = yield* openedFinding(f, service);
+        const threadId = finding.escalationThreadId!;
+        const dismissed = yield* service.findingAction({
+          id: config.id,
+          findingId: finding.id,
+          action: "dismiss",
+          reason: "Not a bug",
+        });
+        assert.deepEqual(
+          f.commands
+            .filter((c) => c.threadId === threadId && c.type !== "thread.metadata.update")
+            .map((c) => c.type),
+          ["thread.settle"],
+        );
+        const sql = yield* SqlClient.SqlClient;
+        const settled = dismissed.findings.find((x) => x.id === finding.id)!;
+        yield* sql`INSERT INTO champion_finding_archive (id,champion_id,at,document_json) VALUES (${settled.id},${config.id},${settled.updatedAt},${json(settled)})`.pipe(
+          Effect.orDie,
+        );
+        yield* sql`UPDATE champions SET document_json = json_set(document_json, '$.findings', json('[]')) WHERE id = ${config.id}`.pipe(
+          Effect.orDie,
+        );
+        const archived = yield* shellOf(threadId);
+        assert.equal(archived?.kind, "escalation");
+        assert.equal(archived?.resolved, true);
+        assert.equal(archived?.attention, false);
+        assert.equal(archived?.findingId, finding.id);
+      }),
+    ),
+  );
+
+  it.effect(
+    "escalates a Champion only on its third failed check, once, and settles on recovery",
+    () =>
+      withFixture((f, service) =>
+        Effect.gen(function* () {
+          yield* definitions(service);
+          yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
+          const failCheck = Effect.gen(function* () {
+            yield* service.runCheck({ id: config.id });
+            f.completeRun(true);
+            f.endRun();
+            yield* service.runDue;
+            return (yield* service.get({ id: config.id })).champion;
+          });
+          const first = yield* failCheck;
+          assert.equal(first.consecutiveCheckFailures, 1);
+          const second = yield* failCheck;
+          assert.equal(second.consecutiveCheckFailures, 2);
+          assert.equal(f.escalationLaunches.length, 0);
+          const third = yield* failCheck;
+          assert.equal(third.consecutiveCheckFailures, 3);
+          assert.equal(f.escalationLaunches.length, 1);
+          const threadId = third.stuckEscalationThreadId!;
+          assert.equal(f.escalationLaunches[0]!.title, "Quality: failed 3 checks in a row");
+          assert.equal(f.escalationLaunches[0]!.model, "strong");
+          assert.deepEqual(yield* shellOf(threadId), {
+            id: config.id,
+            attention: true,
+            kind: "escalation",
+            name: "Quality",
+            findingId: null,
+            severity: "stuck",
+            trigger: "Failed 3 checks in a row",
+            resolved: false,
+          });
+          const fourth = yield* failCheck;
+          assert.equal(fourth.consecutiveCheckFailures, 4);
+          assert.equal(f.escalationLaunches.length, 1);
+          assert.equal(fourth.stuckEscalationThreadId, threadId);
+          yield* service.runCheck({ id: config.id });
+          f.completeRun(false);
+          yield* service.report(f.caller(), {
+            samples: [{ ...sample, value: 1 }],
+            findings: [],
+            summary: "Healthy again",
+          });
+          assert.equal(
+            (yield* service.get({ id: config.id })).champion.consecutiveCheckFailures,
+            0,
+          );
+          assert.deepEqual(
+            f.commands
+              .filter((c) => c.threadId === threadId && c.type !== "thread.metadata.update")
+              .map((c) => c.type),
+            ["thread.settle"],
+          );
+          assert.equal((yield* shellOf(threadId))?.resolved, true);
+        }),
+      ),
+  );
+
+  it.effect("briefs the person's first message with the Champion's finding and decision", () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        const finding = yield* activeFinding(f, service, "decision");
+        const asked = yield* service.findingAction({
+          id: config.id,
+          findingId: finding.id,
+          action: "decision",
+          reason: "Use a tighter limit?",
+          proposal: { action: "Tighten it.", why: "Errors are rising." },
+        });
+        const threadId = asked.findings[0]!.escalationThreadId!;
+        const sql = yield* SqlClient.SqlClient;
+        const brief = yield* readEscalationBrief(sql, threadId).pipe(Effect.orDie);
+        for (const part of [
+          "Quality",
+          config.id,
+          finding.id,
+          "Use a tighter limit?",
+          "Tighten it.",
+          "t3_champions_finding",
+          "approvalQuote",
+        ])
+          assert.include(brief, part);
+        assert.equal(yield* readEscalationBrief(sql, "thread:unrelated").pipe(Effect.orDie), "");
       }),
     ),
   );

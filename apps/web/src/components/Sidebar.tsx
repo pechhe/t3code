@@ -80,6 +80,7 @@ import {
   ListFilterIcon,
   PlusIcon,
   SettingsIcon,
+  ShieldCheckIcon,
 } from "lucide-react";
 import {
   useEffect,
@@ -194,6 +195,9 @@ import {
 import {
   applySidebarThreadDrop,
   filterSidebarV2VisibleThreads,
+  filterThreadsByInboxFilter,
+  isChampionEscalationThread,
+  type SidebarInboxFilter,
   groupSidebarThreadsByProject,
   sidebarFolderExpansionKeys,
   buildBulkTitleRegenerationContextMenuItem,
@@ -270,6 +274,7 @@ import {
 import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
+import { Toggle, ToggleGroup } from "./ui/toggle-group";
 import { TooltipProvider } from "./ui/tooltip";
 import {
   composerDraftHasUserContent,
@@ -379,6 +384,7 @@ interface SidebarThreadPartitionInput {
   readonly workingShelfEnabled: boolean;
   /** Boring mode: folders list active threads by the user's latest message. */
   readonly sortActiveBySend: boolean;
+  readonly inboxFilter: SidebarInboxFilter;
   // Snooze wakes, the queued-turn grace and the Working shelf's exit grace depend
   // on the clock, so the minute tick, the precise snooze-wake tick and the inbox
   // tracker's expiry version are inputs: a new key repartitions.
@@ -450,6 +456,7 @@ function useSidebarThreads(input: {
   readonly folderGroups: readonly SidebarProjectSnapshot[] | null;
   // Keeps folders with no active threads, so a project the user filtered to or pinned can start one.
   readonly keepEmptyFolders: (group: SidebarProjectSnapshot) => boolean;
+  readonly inboxFilter: SidebarInboxFilter;
 }) {
   const {
     projectScopeKey,
@@ -462,6 +469,7 @@ function useSidebarThreads(input: {
     routeRowThreadKey,
     folderGroups,
     keepEmptyFolders: keepEmpty,
+    inboxFilter,
   } = input;
   // Folders already separate the work, so boring mode has no Working shelf.
   const workingShelfEnabled =
@@ -515,6 +523,7 @@ function useSidebarThreads(input: {
     optimisticDrop,
     workingShelfEnabled,
     sortActiveBySend: folderGroups !== null,
+    inboxFilter,
     clockKey: `${nowMinute}:${snoozeWakeClock}:${inboxReturnsVersion}`,
   });
 
@@ -665,9 +674,17 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     optimisticDrop,
     workingShelfEnabled,
     sortActiveBySend,
+    inboxFilter,
   } = input;
   const preciseNow = new Date().toISOString();
-  const visible = filterSidebarV2VisibleThreads(threads, scopedProjectKeys, delegatedUnderParent);
+  const visibleAll = filterSidebarV2VisibleThreads(
+    threads,
+    scopedProjectKeys,
+    delegatedUnderParent,
+  );
+  const championEscalationCount = visibleAll.filter(isChampionEscalationThread).length;
+  const visible =
+    championEscalationCount > 0 ? filterThreadsByInboxFilter(visibleAll, inboxFilter) : visibleAll;
   const inboxObservation = inboxReturns.observe(workingShelfEnabled ? threads : null);
   const pinned: EnvironmentThreadShell[] = [];
   const active: EnvironmentThreadShell[] = [];
@@ -757,6 +774,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     ),
     settledThreads: sortSettledThreads(settled),
     visibleThreads: visible,
+    championEscalationCount,
     snoozeNow: preciseNow,
   };
 }
@@ -1342,8 +1360,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     },
   );
 
+  const [inboxFilter, setInboxFilter] = useState<SidebarInboxFilter>("all");
   const {
     workingShelfEnabled,
+    championEscalationCount,
     pinnedThreads,
     draggableThreadKeys,
     activeReorderableThreadKeys,
@@ -1399,6 +1419,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       : null,
     keepEmptyFolders: (group) =>
       scopedProjectGroups.length > 0 || (group.pinned && !group.archived),
+    inboxFilter,
   });
 
   // Ranked across environments as the palette ranks them, so one
@@ -3327,6 +3348,32 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               activeSearchResultIndex={activeSearchResultIndex}
               onClearSearch={clearThreadSearch}
             />
+            {championEscalationCount > 0 && !isSearchingThreads ? (
+              <div className="mt-1.5 flex items-center">
+                <ToggleGroup
+                  variant="segmented"
+                  size="segmented"
+                  className="w-full"
+                  aria-label={gt("Filter inbox threads")}
+                  value={[inboxFilter]}
+                  onValueChange={(values) => {
+                    const next = values[0];
+                    if (next === "all" || next === "champions") {
+                      setInboxFilter(next);
+                    }
+                  }}
+                >
+                  <Toggle value="all" className="flex-1">
+                    <T>All</T>
+                  </Toggle>
+                  <Toggle value="champions" className="flex-1">
+                    <ShieldCheckIcon aria-hidden className="size-3" />
+                    <T>Champions</T>
+                    <span className="tabular-nums opacity-70">{championEscalationCount}</span>
+                  </Toggle>
+                </ToggleGroup>
+              </div>
+            ) : null}
           </SidebarGroup>
         }
       >

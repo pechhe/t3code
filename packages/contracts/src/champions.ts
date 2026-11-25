@@ -190,6 +190,9 @@ export const ChampionSummary = Schema.Struct({
   openFindingCount: Schema.Int,
   updatedAt: IsoDateTime,
   folder: Schema.optional(ChampionFolderState),
+  /** Checks in a row that ended without a clean report; three open a stuck escalation. */
+  consecutiveCheckFailures: Schema.optional(Schema.Int),
+  stuckEscalationThreadId: Schema.optional(Schema.NullOr(ThreadId)),
 });
 export type ChampionSummary = typeof ChampionSummary.Type;
 /** Henry's own words, typed in the agent thread that completed an approval for him. */
@@ -279,6 +282,8 @@ export const ChampionFinding = Schema.Struct({
   baselineValue: Schema.optional(Schema.NullOr(Schema.Finite)),
   baselineMetric: Schema.optional(Schema.NullOr(ChampionMetric)),
   deliveredAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+  /** The idle Inbox thread opened for this finding when it needs the person. */
+  escalationThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   childThreadId: Schema.NullOr(ThreadId),
   workId: ChampionText,
   attemptId: ChampionText,

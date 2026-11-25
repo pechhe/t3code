@@ -14,6 +14,7 @@ type NeedsYouInput = Pick<
   | "latestRun"
   | "runtime"
   | "hasActionableProposedPlan"
+  | "champion"
 >;
 
 /**
@@ -24,6 +25,13 @@ export function isThreadNeedsYouForActiveSort(thread: NeedsYouInput): boolean {
   const standing = thread.standing;
   if (standing?.state === "stalled") return true;
   if (standing?.state === "needs_you" && standing.waitsOnPerson?.need !== "hold") return true;
+  if (
+    thread.champion?.kind === "escalation" &&
+    thread.champion.severity === "decision" &&
+    !thread.champion.resolved
+  ) {
+    return true;
+  }
   return (
     thread.hasPendingApprovals ||
     thread.hasPendingUserInput ||

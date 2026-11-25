@@ -106,7 +106,11 @@ import * as Layer from "effect/Layer";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
-import { readChampionShellRows, withChampions } from "../champions/championShell.ts";
+import {
+  readChampionShellRows,
+  readEscalationBrief,
+  withChampions,
+} from "../champions/championShell.ts";
 import type * as Statement from "effect/sql/Statement";
 
 import { MCP_APP_OUTPUT_KEY } from "@t3tools/shared/mcpApp";
@@ -678,6 +682,10 @@ export interface ProjectionStoreV2Shape {
   readonly getThreadShell: (
     threadId: ThreadId,
   ) => Effect.Effect<OrchestrationV2ThreadShell | null, ProjectionStoreV2Error>;
+  /** A Champion escalation thread's brief for its first message; "" for any other thread. */
+  readonly getChampionEscalationBrief: (
+    threadId: ThreadId,
+  ) => Effect.Effect<string, ProjectionStoreV2Error>;
   /** The thread whose current guest share has this id. Scans thread rows; only redeem uses it. */
   readonly findGuestShareThreadId: (
     shareId: GuestShareId,
@@ -10171,6 +10179,13 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         Effect.mapError((error) => new ProjectionStoreReadError({ threadId, cause: error.cause })),
       );
 
+    const getChampionEscalationBrief: ProjectionStoreV2Shape["getChampionEscalationBrief"] = (
+      threadId,
+    ) =>
+      readEscalationBrief(sql, threadId).pipe(
+        Effect.mapError((cause) => new ProjectionStoreReadError({ threadId, cause })),
+      );
+
     const readOnReader =
       <Args extends ReadonlyArray<unknown>, A, E, R>(
         method: (...args: Args) => Effect.Effect<A, E, R>,
@@ -10190,6 +10205,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       readShellSnapshot: readOnReader(readShellSnapshot),
       listOlderSettledThreads: readOnReader(listOlderSettledThreads),
       getThreadShell: readOnReader(getThreadShell),
+      getChampionEscalationBrief: readOnReader(getChampionEscalationBrief),
       findGuestShareThreadId: readOnReader(findGuestShareThreadId),
       getThread: readOnReader(getThread),
       listArcRunThreads: readOnReader(listArcRunThreads),

@@ -53,8 +53,6 @@ import { observeResize } from "~/lib/observeResize";
 import { useAllScheduledTasks, useSeenScheduledFailures } from "~/state/scheduledTasks";
 import { relativeLabel } from "../scheduled/scheduledTaskParts";
 import { groupScheduledTasks, scheduledSignal } from "../scheduled/scheduledTasks.logic";
-import { useAllChampions } from "~/state/champions";
-import { championsNeedingAttention } from "../champions/champions.logic";
 
 export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   isElectron,
@@ -282,34 +280,6 @@ function useScheduledSignal() {
   return { indicator, hint };
 }
 
-/** Only what needs someone earns a mark; a quiet champion leaves the footer as it is. */
-function useChampionsSignal() {
-  const gt = useGT();
-  const sources = useAllChampions();
-  const needing = championsNeedingAttention(
-    sources.flatMap((source) =>
-      (source.champions ?? []).map((champion) => ({
-        environmentId: source.environmentId,
-        champion,
-      })),
-    ),
-  );
-  return {
-    indicator:
-      needing > 0 ? (
-        <span className="flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-warning px-1 font-medium text-2xs text-warning-foreground leading-none">
-          {needing}
-        </span>
-      ) : null,
-    hint:
-      needing === 0
-        ? null
-        : gt("{count, plural, one {{count} needs attention} other {{count} need attention}}", {
-            count: needing,
-          }),
-  };
-}
-
 export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const navigate = useNavigate();
   const navigateToMainApp = useNavigateToMainApp();
@@ -354,7 +324,6 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
     void navigate({ to: "/scheduled" });
   };
 
-  const championsSignalView = useChampionsSignal();
   const handleChampionsClick = () => {
     closeMobileSidebar();
     void navigate({ to: "/champions" });
@@ -412,8 +381,6 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
           <SidebarUtilityItem
             icon={<ShieldCheckIcon />}
             label={gt("Champions")}
-            hint={championsSignalView.hint}
-            indicator={championsSignalView.indicator}
             onClick={handleChampionsClick}
           />
         </>

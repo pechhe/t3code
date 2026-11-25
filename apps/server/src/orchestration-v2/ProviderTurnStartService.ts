@@ -2421,6 +2421,16 @@ export const layer: Layer.Layer<
               thread: projection.thread,
               modelSelection: run.modelSelection,
             });
+        // A Champion escalation thread starts idle; its first message carries the Champion's brief.
+        const escalationNote =
+          slashCommand ||
+          projection.messages.some(
+            (candidate) => candidate.role === "user" && candidate.id !== message.id,
+          )
+            ? ""
+            : yield* Effect.suspend(() =>
+                projectionStore.getChampionEscalationBrief(projection.thread.id),
+              ).pipe(Effect.catchCause(() => Effect.succeed("")));
         const workItem = projection.thread.workItem ?? null;
         const workItemSummary =
           slashCommand || workItem === null || Option.isNone(forgeWorkItems)
@@ -2501,6 +2511,7 @@ export const layer: Layer.Layer<
                 ? { note: "", delivered: Effect.void }
                 : turnRoleRecovery;
             const context = [
+              compact ? "" : escalationNote,
               compact ? "" : stanceNote,
               roleRecovery.note,
               compact ? "" : workItemNote,
@@ -2608,6 +2619,7 @@ export const layer: Layer.Layer<
           ),
         );
         const deliverySession =
+          escalationNote === "" &&
           stanceNote === "" &&
           turnRoleRecovery.note === "" &&
           workItemNote === "" &&

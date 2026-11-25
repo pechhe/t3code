@@ -1715,3 +1715,19 @@ export function sortScopedProjectsForSidebar<
       left.id.localeCompare(right.id),
   );
 }
+
+export type SidebarInboxFilter = "all" | "champions";
+
+export function isChampionEscalationThread(
+  thread: Pick<SidebarThreadSummary, "champion">,
+): boolean {
+  return thread.champion?.kind === "escalation";
+}
+
+export function filterThreadsByInboxFilter<T extends Pick<SidebarThreadSummary, "champion">>(
+  threads: readonly T[],
+  filter: SidebarInboxFilter,
+): T[] {
+  if (filter === "all") return [...threads];
+  return threads.filter(isChampionEscalationThread);
+}

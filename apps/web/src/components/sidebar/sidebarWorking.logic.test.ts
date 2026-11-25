@@ -23,6 +23,21 @@ describe("isThreadNeedsYouForActiveSort", () => {
     [{ pendingSubagentRequest: "approval" }, true],
     [{ parkedWaitGaveUp: { at: "2026-06-01T00:00:00.000Z" } }, true],
     [{ standing: { state: "finished" }, parkedWaitGaveUp: { at: "x" } }, false],
+    [{ champion: { id: "c1", attention: true, kind: "escalation", severity: "decision" } }, true],
+    [
+      {
+        champion: {
+          id: "c1",
+          attention: false,
+          kind: "escalation",
+          severity: "decision",
+          resolved: true,
+        },
+      },
+      false,
+    ],
+    [{ champion: { id: "c1", attention: true, kind: "escalation", severity: "incident" } }, false],
+    [{ champion: { id: "c1", attention: true, kind: "owner" } }, false],
   ])("reads %j as %s", (change, expected) => {
     expect(isThreadNeedsYouForActiveSort(thread("a", change))).toBe(expected);
   });

@@ -66,9 +66,40 @@ export function resolveSidebarThreadRowStatus(input: {
     thread.latestRun?.status === "failed" &&
     status === "ready";
   const planReady = status === "ready" && hasPlanReadyPrompt(thread);
+  const championEscalation =
+    status === "ready" && thread.champion?.kind === "escalation" ? thread.champion : null;
+  const championEscalationStatus =
+    championEscalation === null
+      ? null
+      : championEscalation.resolved === true
+        ? {
+            label: resolve(msg("Done", { $context: "thread status" })),
+            icon: "done" as const,
+            className: "text-success",
+          }
+        : championEscalation.severity === "decision"
+          ? {
+              label: resolve(msg("Needs you")),
+              icon: "input" as const,
+              className: "text-indigo-600 dark:text-indigo-300",
+            }
+          : championEscalation.severity === "incident"
+            ? {
+                label: resolve(msg("Alert", { $context: "thread status: champion incident" })),
+                icon: "alert" as const,
+                className: "text-error-foreground",
+              }
+            : championEscalation.severity === "stuck"
+              ? {
+                  label: resolve(msg("Stuck", { $context: "thread status: champion stuck" })),
+                  icon: "waiting" as const,
+                  className: "text-warning-foreground",
+                }
+              : null;
   const shouldRecede =
     standingAttention === null &&
     !planReady &&
+    !(championEscalation !== null && !championEscalation.resolved) &&
     shouldRecedeSidebarThread({
       status,
       isUnread,
@@ -199,14 +230,16 @@ export function resolveSidebarThreadRowStatus(input: {
                                         icon: "woke" as const,
                                         className: "text-warning-foreground",
                                       }
-                                    : isUnread && variantAction !== "unsnooze"
-                                      ? {
-                                          label: resolve(
-                                            msg("Done", { $context: "thread status" }),
-                                          ),
-                                          icon: "done" as const,
-                                          className: "text-success",
-                                        }
-                                      : null;
+                                    : championEscalationStatus !== null
+                                      ? championEscalationStatus
+                                      : isUnread && variantAction !== "unsnooze"
+                                        ? {
+                                            label: resolve(
+                                              msg("Done", { $context: "thread status" }),
+                                            ),
+                                            icon: "done" as const,
+                                            className: "text-success",
+                                          }
+                                        : null;
   return { delegatedRequestLabel, standingAttention, planReady, shouldRecede, topStatus };
 }

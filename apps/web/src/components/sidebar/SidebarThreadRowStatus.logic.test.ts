@@ -110,4 +110,91 @@ describe("resolveSidebarThreadRowStatus", () => {
     expect(waitingOnAcceptance({ ref: "T3-789", number: 8335 })).toBe("Needs you · accept T3-789");
     expect(waitingOnAcceptance({ number: 8335 })).toBe("Needs you · accept #8335");
   });
+
+  it("maps idle Champion escalation threads to Needs you, Alert, Stuck, or Done", () => {
+    expect(
+      rowStatus(
+        { champion: { id: "c1", attention: true, kind: "escalation", severity: "decision" } },
+        "ready",
+      ),
+    ).toMatchObject({
+      label: "Needs you",
+      icon: "input",
+      className: "text-indigo-600 dark:text-indigo-300",
+    });
+    expect(
+      rowStatus(
+        { champion: { id: "c1", attention: true, kind: "escalation", severity: "incident" } },
+        "ready",
+      ),
+    ).toMatchObject({
+      label: "Alert",
+      icon: "alert",
+      className: "text-error-foreground",
+    });
+    expect(
+      rowStatus(
+        { champion: { id: "c1", attention: true, kind: "escalation", severity: "stuck" } },
+        "ready",
+      ),
+    ).toMatchObject({
+      label: "Stuck",
+      icon: "waiting",
+      className: "text-warning-foreground",
+    });
+    expect(
+      rowStatus(
+        {
+          champion: {
+            id: "c1",
+            attention: false,
+            kind: "escalation",
+            severity: "decision",
+            resolved: true,
+          },
+        },
+        "ready",
+      ),
+    ).toMatchObject({
+      label: "Done",
+      icon: "done",
+      className: "text-success",
+    });
+  });
+
+  it("keeps unresolved Champion escalation rows prominent and lets active runtime status win", () => {
+    const idleResult = resolveSidebarThreadRowStatus({
+      thread: {
+        hasPendingApprovals: false,
+        hasPendingUserInput: false,
+        champion: { id: "c1", attention: true, kind: "escalation", severity: "incident" },
+      } as never,
+      status: "ready",
+      isUnread: false,
+      isWoke: false,
+      isActive: false,
+      isSelected: false,
+      variantAction: "settle",
+      subagentActivity: null,
+      resolve: m,
+    });
+    expect(idleResult.shouldRecede).toBe(false);
+
+    const workingResult = resolveSidebarThreadRowStatus({
+      thread: {
+        hasPendingApprovals: false,
+        hasPendingUserInput: false,
+        champion: { id: "c1", attention: true, kind: "escalation", severity: "decision" },
+      } as never,
+      status: "working",
+      isUnread: false,
+      isWoke: false,
+      isActive: false,
+      isSelected: false,
+      variantAction: "settle",
+      subagentActivity: null,
+      resolve: m,
+    });
+    expect(workingResult.topStatus).toMatchObject({ label: "Working", icon: "working" });
+  });
 });

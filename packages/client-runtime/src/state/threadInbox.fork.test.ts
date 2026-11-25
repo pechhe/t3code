@@ -50,4 +50,12 @@ it("lists a champion's thread only when the thread itself waits on someone", () 
   expect(championNeedsInbox({ ...quiet, hasPendingApprovals: true })).toBe(true);
   expect(championNeedsInbox({ ...quiet, pendingSubagentRequest: "user_input" })).toBe(true);
   expect(championNeedsInbox(ordinary)).toBe(true);
+  const kind = (value: "owner" | "setup" | "escalation" | undefined) => ({
+    ...quiet,
+    champion: { id: "quality", attention: false, kind: value },
+  });
+  expect(championNeedsInbox(kind("escalation"))).toBe(true);
+  expect(championNeedsInbox(kind("owner"))).toBe(false);
+  expect(championNeedsInbox(kind("setup"))).toBe(false);
+  expect(championNeedsInbox(kind(undefined))).toBe(false);
 });

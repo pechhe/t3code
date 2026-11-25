@@ -47,6 +47,7 @@ import { useProjectSuggestionBannerItem } from "./chat/ProjectSuggestionBanner";
 import { useSelectedWorkspace } from "../hooks/useSelectedWorkspace";
 import { ReleaseButton } from "./ReleaseButton";
 import { SlipJayRunnerControl } from "./SlipJayRunnerControl";
+import { ChampionEscalationCard } from "./champions/ChampionEscalationCard";
 import { ForgeHomeButton } from "./forgeItem/ForgeHomeButton";
 import { DeviceEnvironmentSwitch } from "./chat/device/DeviceEnvironmentSwitch";
 import { ThreadMoveDialog } from "./chat/ThreadMoveDialog";
@@ -3865,6 +3866,16 @@ export default function ChatView(props: ChatViewProps) {
                 overlayPresentation ? "invisible" : "bg-background",
               )}
             >
+              {isServerThread && activeThreadShell?.champion?.kind === "escalation" ? (
+                <ChampionEscalationCard
+                  environmentId={environmentId}
+                  champion={activeThreadShell.champion}
+                  canInvestigate={
+                    canOperateThread && threadHandoffSendBlockReason(activeThreadShell) === null
+                  }
+                  onInvestigate={sendAppMessageStable}
+                />
+              ) : null}
               <WorkspaceMutationIdContext value={workspaceMutationId}>
                 <ThreadTimeline
                   pendingApprovals={pendingApprovals}
