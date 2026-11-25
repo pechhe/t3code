@@ -115,6 +115,110 @@ describe("Blackhole memory in a T3 session", () => {
     expect(compaction?.text).not.toContain("## Observations");
   });
 
+  it("repeated compactions stay bounded when the stored summary is the whole handoff text", async () => {
+    // T3 stores `compaction.text` (summary + memory) on the compaction item and feeds it back.
+    let round = 0;
+    const runWorker: RunWorker = async (request) =>
+      request.stage === "observer"
+        ? {
+            observations: [
+              {
+                content: `Round ${round} fact about the billing service.`,
+                relevance: "high",
+                sourceEntryIds: [`u${round}`],
+              },
+            ],
+            complete: true,
+          }
+        : null;
+    const session: SessionEntry[] = [];
+    const sizes: number[] = [];
+    let text = "";
+    for (round = 1; round <= 6; round++) {
+      session.push(
+        user(`u${round}`, `Round ${round}: keep working on the billing service.`),
+        assistant(`a${round}`, `Round ${round}: done, details follow. `.repeat(20)),
+      );
+      const records = await runMemoryCycle({ entries: session, runWorker, config: LOW });
+      records.forEach((record, index) =>
+        session.push({
+          type: "custom",
+          id: `m${round}-${index}`,
+          timestamp: at(),
+          customType: record.customType,
+          data: record.data,
+        }),
+      );
+      const compaction = compileCompaction({ entries: session, cwd: "/repo", memory: true });
+      expect(compaction).toBeDefined();
+      text = compaction!.text;
+      sizes.push(text.length);
+      session.push({
+        type: "compaction",
+        id: `c${round}`,
+        timestamp: at(),
+        summary: text,
+        firstKeptEntryId: "",
+      });
+      expect(text.match(/^## Observations/gm)?.length ?? 0).toBeLessThanOrEqual(1);
+      expect(text.match(/The\s+conversation\s+before\s+this\s+point/g)?.length).toBe(1);
+      for (let n = 1; n <= round; n++) {
+        // once in the goals, once in the transcript
+        expect(text.match(new RegExp(`Round ${n}:\\s+keep working`, "g"))?.length).toBe(2);
+      }
+      for (let n = 1; n <= round; n++) {
+        expect(text.split(`Round ${n} fact about`).length - 1).toBe(1);
+      }
+    }
+    // Growth is linear in new content, not compounding.
+    expect(sizes[5]! - sizes[4]!).toBeLessThanOrEqual((sizes[1]! - sizes[0]!) * 2);
+  });
+
+  it.each([
+    ["a stance paragraph, then a short request line", true],
+    ["a single long paragraph with no short line", false],
+  ])("keeps the transcript across compactions when the first message is %s", (_name, shortLine) => {
+    const stance =
+      "Delegation stance: implement. Build everything yourself; read-only helpers are fine. ".repeat(
+        8,
+      );
+    const first = shortLine
+      ? `${stance.trim()}\n\nUser message:\nFix the billing webhook retry bug.`
+      : stance.trim();
+    const session: SessionEntry[] = [
+      user("u1", first),
+      assistant("a1", "Looking at the retry code now."),
+    ];
+    const one = compileCompaction({ entries: session, cwd: "/repo", memory: false })!;
+    session.push(
+      { type: "compaction", id: "c1", timestamp: at(), summary: one.text, firstKeptEntryId: "" },
+      user("u2", "Also add a regression test."),
+      assistant("a2", "Added the regression test."),
+    );
+    const two = compileCompaction({ entries: session, cwd: "/repo", memory: false })!;
+    expect(two.summary).toContain("Looking at the retry code now.");
+    expect(two.summary).toContain("Added the regression test.");
+  });
+
+  it("keeps a headerless fresh transcript merged into a summary that has goals", () => {
+    const session: SessionEntry[] = [
+      user("u1", "Fix the billing webhook retry bug."),
+      assistant("a1", "On it."),
+    ];
+    const one = compileCompaction({ entries: session, cwd: "/repo", memory: false })!;
+    session.push(
+      { type: "compaction", id: "c1", timestamp: at(), summary: one.text, firstKeptEntryId: "" },
+      user(
+        "u2",
+        "Please also review the retry backoff settings in the worker configuration. ".repeat(6),
+      ),
+      assistant("a2", "Reviewed the backoff settings."),
+    );
+    const two = compileCompaction({ entries: session, cwd: "/repo", memory: false })!;
+    expect(two.summary).toContain("On it.");
+    expect(two.summary).toContain("Reviewed the backoff settings.");
+  });
+
   it("stays idle below the observe threshold", async () => {
     const runWorker: RunWorker = async () => {
       throw new Error("no worker should run");

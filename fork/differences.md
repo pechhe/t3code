@@ -103,6 +103,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** packages/blackhole/src/compile.test.ts (golden: pi-blackhole's own output for a fixed transcript), memory.test.ts; apps/server/src/blackhole/BlackholeSession.test.ts, BlackholeService.test.ts (fork lineage), BlackholeTriggerService.test.ts; ProviderTurnStartService.fork.test.ts ("compacts a Codex thread with Blackhole…", "refuses a Blackhole compaction…"); ToolSessionPolicy.test.ts, SessionToolListings.test.ts; apps/web blackholeStatus.logic.test.ts.
 - **Upstream:** none; upstream compacts with each harness's own summary.
 - **Retire when:** Pi threads move to T3's engine too (follow-on), or upstream ships harness-independent compaction and memory with recall.
+- **Divergence:** `briefOf` in `upstream/core/summarize.ts` treats a summary with no header section (every goal line over 200 characters) as all transcript; pi-blackhole's drops the transcript on the next merge. Follow the upstream issue and drop the edit once fixed.
 - **Sync:** to take a newer pi-blackhole, re-copy the files listed by `src/upstream`, re-apply the `T3:` edits and shims, and regenerate `golden/compile.golden.json` from the new release's own `compile`/`renderSummary`.
 
 ### utility-model

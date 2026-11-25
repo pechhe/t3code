@@ -127,6 +127,9 @@ export const extractSection = (text: string, header: string): string => {
 
 /** Extract the brief transcript part (everything after ---) */
 const briefOf = (text: string): string => {
+  // T3: a summary with no header section (no goal line short enough to keep) is only the brief
+  // transcript; its first separator is between transcript segments, not after the headers.
+  if (!HEADER_NAMES.some((header) => text.startsWith(`[${header}]`))) return text.trim();
   const idx = text.indexOf(SEPARATOR);
   if (idx < 0) return "";
   return text.slice(idx + SEPARATOR.length).trim();
