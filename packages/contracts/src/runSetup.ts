@@ -7,6 +7,7 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
+import { AccountBlockReason } from "./accountPools.ts";
 import { ProviderOptionSelection } from "./model.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import { OrchestrationV2RunStatus } from "./orchestrationV2.ts";
@@ -42,6 +43,70 @@ export const RunSetupComposedPrompt = Schema.Struct({
 });
 export type RunSetupComposedPrompt = typeof RunSetupComposedPrompt.Type;
 
+/** Most candidates one routing decision records. */
+export const RUN_SETUP_ROUTING_MAX_CANDIDATES = 20;
+
+/**
+ * One account and model a routing decision could have chosen, as T3 knew it at decision time.
+ * Accounts are named by T3's own account id, never by credentials or email.
+ */
+export const RunSetupRoutingCandidate = Schema.Struct({
+  model: TrimmedNonEmptyString,
+  instanceId: TrimmedNonEmptyString,
+  account: TrimmedNonEmptyString,
+  /** False when usage, a reserve or a runtime block held it back. */
+  eligible: Schema.Boolean,
+  /** `not-preferred` is an eligible candidate ranked below the chosen one. */
+  heldBackReason: Schema.optional(
+    Schema.Literals(["exhausted", "reserved", "cooldown", "blocked", "not-preferred"]),
+  ),
+  /** Remaining percent of the governing window with the least left; absent without a reading. */
+  remainingPercent: Schema.optional(Schema.Number),
+  windowId: Schema.optional(TrimmedNonEmptyString),
+  windowKind: Schema.optional(Schema.Literals(["session", "weekly", "monthly", "other"])),
+  /** When that window resets, as the reading said then. */
+  resetsAt: Schema.optional(Schema.String),
+  /** The reset Soonest-reset ranking used: that of the longest governing window. */
+  rankingResetsAt: Schema.optional(Schema.String),
+  /** When the usage reading was taken, and how old it was at the decision. */
+  readingCheckedAt: Schema.optional(Schema.String),
+  readingAgeSeconds: Schema.optional(NonNegativeInt),
+  /** The in-memory runtime block on the account for the model, when one held it. */
+  block: Schema.optional(
+    Schema.Struct({
+      reason: AccountBlockReason,
+      since: Schema.String,
+      until: Schema.String,
+      reportedReset: Schema.Boolean,
+      attempts: NonNegativeInt,
+    }),
+  ),
+});
+export type RunSetupRoutingCandidate = typeof RunSetupRoutingCandidate.Type;
+
+/** The routing decision that produced a run's model and account. */
+export const RunSetupRouting = Schema.Struct({
+  decidedAt: Schema.String,
+  /** `both` when a role decision is followed by a pool placement on the same thread (a follow-up on a delegated thread, say); a delegated launch alone is `role-candidates`. */
+  kind: Schema.Literals(["role-candidates", "account-pool", "both"]),
+  /** The delegated role, when the choice was a role's. */
+  role: Schema.optional(TrimmedNonEmptyString),
+  /** The caller named the instance or account: not a routing-quality signal. */
+  pinned: Schema.Boolean,
+  /** The caller named the model, or an experiment's treatment fixed it. */
+  modelNamed: Schema.Boolean,
+  chosen: Schema.Struct({
+    model: TrimmedNonEmptyString,
+    instanceId: TrimmedNonEmptyString,
+    account: TrimmedNonEmptyString,
+  }),
+  /** In the order ranked, at most `RUN_SETUP_ROUTING_MAX_CANDIDATES`. */
+  candidates: Schema.Array(RunSetupRoutingCandidate),
+  /** True when more candidates existed than were kept. */
+  truncated: Schema.optional(Schema.Boolean),
+});
+export type RunSetupRouting = typeof RunSetupRouting.Type;
+
 /**
  * The setup a run started with, as T3 observed it just after the run started. Values T3
  * could not observe are null, and a capture that failed outright keeps only the run's
@@ -75,6 +140,8 @@ export const RunSetupRecord = Schema.Struct({
     Schema.Struct({ policyHash: Sha256, policyRevision: TrimmedNonEmptyString }),
   ),
   modelSelection: ModelSelection,
+  /** The routing decision behind `modelSelection`; absent when none was recorded or the record predates it. */
+  routing: Schema.optional(RunSetupRouting),
   /** Every model option the run used, provider defaults included; null when the model's options are unknown. */
   effectiveOptions: Schema.NullOr(Schema.Array(ProviderOptionSelection)),
   /** Whether Away was on as the run started; absent when capture failed or the record predates it. */

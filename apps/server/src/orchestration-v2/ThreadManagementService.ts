@@ -81,6 +81,7 @@ import { cancelledBeforeStart } from "./RestartBackgroundNote.ts";
 import * as LegacyV1ThreadImporter from "./legacy/LegacyV1ThreadImporter.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
+import * as RoutingDecisions from "../agents/RoutingDecisions.ts";
 import * as AccountRouting from "./AccountRouting.ts";
 import * as AccountAvailability from "../provider/AccountAvailability.ts";
 import { ThreadWorktreeRestore } from "../workspace/restoreMissingWorktree.ts";
@@ -871,6 +872,7 @@ const make = Effect.gen(function* () {
   const accountRouting = AccountRouting.make({
     providerRegistry,
     availability: yield* Effect.serviceOption(AccountAvailability.AccountAvailability),
+    decisions: yield* Effect.serviceOption(RoutingDecisions.RoutingDecisions),
     serverSettings,
     getThreadShell: orchestrator.getThreadShell,
   });

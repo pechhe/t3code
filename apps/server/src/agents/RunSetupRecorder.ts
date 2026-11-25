@@ -41,6 +41,7 @@ import { ServerSettingsService } from "../serverSettings.ts";
 import * as AgentConfigCheckout from "./AgentConfigCheckout.ts";
 import { agentPolicyRoot } from "./agentPolicyRoot.ts";
 import * as Policy from "./AgentPolicyService.ts";
+import * as RoutingDecisions from "./RoutingDecisions.ts";
 
 /** The provider tool that loads a skill; its calls are the skills a run actually invoked. */
 const SKILL_TOOL_NAME = "Skill";
@@ -455,6 +456,7 @@ export const make = Effect.gen(function* () {
   const providers = yield* ProviderRegistry.ProviderRegistry;
   const instructionOverlay = yield* InstructionOverlay.InstructionOverlay;
   const settings = yield* ServerSettingsService;
+  const routingDecisions = yield* Effect.serviceOption(RoutingDecisions.RoutingDecisions);
   const sql = yield* SqlClient.SqlClient;
   const context = yield* Effect.context<
     FileSystem.FileSystem | Path.Path | ProcessRunner.ProcessRunner | Digest.Digest
@@ -612,6 +614,15 @@ export const make = Effect.gen(function* () {
                   MAX_CAPTURE_DELAY_MS)
             );
           });
+          // Taken first so a decision never waits for a later run of the thread to claim it.
+          const decision = Option.isSome(routingDecisions)
+            ? yield* routingDecisions.value.take(run.threadId)
+            : undefined;
+          const routing = RoutingDecisions.decisionForRun(
+            decision,
+            run,
+            DateTime.formatIso(run.startedAt ?? (yield* DateTime.now)),
+          );
           const capturedAt = DateTime.formatIso(yield* startedAt);
           const unobserved = uncapturedRunSetup(run, capturedAt);
           // Checked again once the files are read: a slow read may have spanned a change.
@@ -629,7 +640,8 @@ export const make = Effect.gen(function* () {
               );
           // After a restart a running run is captured again from today's files; its stored
           // record stands, and the new one must not mark a cut.
-          if (yield* insert(captured)) yield* markCutPoints(captured);
+          const withRouting = routing === undefined ? captured : { ...captured, routing };
+          if (yield* insert(withRouting)) yield* markCutPoints(withRouting);
         }),
       )
       .pipe(

@@ -20,6 +20,7 @@ import * as EnvironmentKeys from "./cloud/environmentKeys.ts";
 import * as AssetSigner from "./assets/AssetSigner.ts";
 import * as DatabaseStorage from "./persistence/DatabaseStorage.ts";
 import * as StorageCleanup from "./storageCleanup.ts";
+import * as RoutingDecisions from "./agents/RoutingDecisions.ts";
 import * as RunSetupRecorder from "./agents/RunSetupRecorder.ts";
 import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReactor.ts";
 import * as PullRequestWatchReactor from "./orchestration-v2/PullRequestWatchReactor.ts";
@@ -993,6 +994,8 @@ const layerRuntimeCoreDependencies = layerRuntimeCoreDependenciesBase.pipe(
   ),
   // One memory of failed runs shared by routing, role resolution, failover and Champions.
   Layer.provideMerge(AccountAvailability.layer),
+  // Routing decisions wait here for the run setup recorder, which reads them as the run starts.
+  Layer.provideMerge(RoutingDecisions.layer),
 );
 
 const layerRuntimeDependencies = layerRuntimeCoreDependencies.pipe(

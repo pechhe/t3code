@@ -260,9 +260,9 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 - **Kind:** durable extension
 - **Why:** Each run's agent setup (role, model, skills, instructions) is recorded so experiments and reviews can read it.
-- **Requirements:** `t3_thread_setup` answers small by default, reaches every run (including never-started and beyond the newest 50), reports invoked skills truthfully, and is readable by read-only Claude. Each record says whether Away was on as the run started (`away`); records written before it kept that in `workflow.unattended`, which the report still reads.
-- **Integration points:** `RunSetupRecorder`; thread MCP toolkit; migration 071; `runSetup` contract.
-- **Proof:** apps/server/src/agents/RunSetupRecorder.test.ts.
+- **Requirements:** `t3_thread_setup` answers small by default, reaches every run (including never-started and beyond the newest 50), reports invoked skills truthfully, and is readable by read-only Claude. Each record says whether Away was on as the run started (`away`); records written before it kept that in `workflow.unattended`, which the report still reads. An optional `routing` field holds the decision that chose the run's model and account (role candidates, account-pool alternatives, usage and reset as known then); the decision is held in memory by thread until the recorder claims it (only for the same model, made within two minutes before the run started), and records without it stay valid.
+- **Integration points:** `RunSetupRecorder`; `RoutingDecisions`; `AgentRoleResolver.decide`; `AccountRouting`; thread MCP toolkit; migration 071; `runSetup` contract.
+- **Proof:** apps/server/src/agents/RunSetupRecorder.test.ts; AgentRoleResolver.routing.test.ts; orchestration-v2/AccountRouting.test.ts.
 - **Upstream:** none known.
 - **Retire when:** upstream ships an equivalent run-setup record.
 - **Decision:** `retain` (seed, 2026-10-19).

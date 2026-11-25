@@ -949,6 +949,28 @@ export const blockClearedByReading = (
   return windows.length > 0 && windows.every((window) => remainingOf(window) > floor);
 };
 
+/**
+ * What the usage reading behind an account's state says now: when it was taken and the current
+ * governing window with the least left. Read-only, for recording a routing decision.
+ */
+export const usageReadingOf = (
+  entry: Pick<PooledAccount, "provider" | "model">,
+  nowMs: number,
+):
+  | { readonly checkedAt: string; readonly tightest: ServerProviderUsageWindow | undefined }
+  | undefined => {
+  const limits = slotUsageLimits(entry.provider, entry.model);
+  if (limits === undefined) return undefined;
+  const tightest = governingUsageWindows(entry.provider, entry.model)
+    .filter((window) => isCurrent(window, nowMs))
+    .reduce<ServerProviderUsageWindow | undefined>(
+      (least, window) =>
+        least === undefined || remainingOf(window) < remainingOf(least) ? window : least,
+      undefined,
+    );
+  return { checkedAt: limits.checkedAt, tightest };
+};
+
 /** The block still holding an account back for `key`. */
 const activeBlock = (
   key: PooledModelKey,

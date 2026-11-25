@@ -7,6 +7,7 @@ import * as ExternalWork from "../agents/ExternalAgentWorkService.ts";
 import { assertBelowDelegationLimit } from "./delegationLimits.ts";
 import * as Hex from "effect/encoding/Hex";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
+import * as RoutingDecisions from "../agents/RoutingDecisions.ts";
 import { AgentRoleError } from "../agents/AgentRoleResolver.ts";
 import * as Experiments from "../experiments/ExperimentService.ts";
 import { derive as deriveIds } from "@t3tools/provider-core/server/IdAllocator";
@@ -407,6 +408,7 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
   const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
   const champions = yield* Effect.serviceOption(Champions.ChampionService);
   const modelShadow = yield* Effect.serviceOption(DelegationModelShadow.DelegationModelShadow);
+  const routingDecisions = yield* Effect.serviceOption(RoutingDecisions.RoutingDecisions);
   const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
   const gitDriver = yield* GitVcsDriver.GitVcsDriver;
   const workspaces = yield* WorkspaceProvider.WorkspaceProvider;
@@ -1570,6 +1572,16 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
               commandId,
             })
             .pipe(Effect.mapError((e) => failure("orchestration_error", e.message)));
+        // The run this task starts is recorded with the choice that picked its model.
+        if (
+          prepared?.routing !== undefined &&
+          Option.isSome(routingDecisions) &&
+          !isRetryOfAcceptedDelegation
+        )
+          yield* routingDecisions.value.note(
+            deriveIds.delegatedTaskThread({ commandId }),
+            prepared.routing,
+          );
         return yield* threadManagement
           .dispatch({
             type: "delegated_task.request",

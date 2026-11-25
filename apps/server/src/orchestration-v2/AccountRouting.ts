@@ -7,6 +7,7 @@ import type {
 } from "@t3tools/contracts";
 import {
   pickAccount,
+  rankAccounts,
   pooledModelOfSelection,
   pooledModels,
   routedModelIds,
@@ -17,6 +18,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
+import { routingSnapshot, type RoutingDecisions } from "../agents/RoutingDecisions.ts";
 import type * as AccountAvailability from "../provider/AccountAvailability.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import type * as ServerSettings from "../serverSettings.ts";
@@ -47,6 +49,8 @@ const londonTime = (iso: string) =>
 export const make = (input: {
   readonly providerRegistry: Option.Option<ProviderRegistry.ProviderRegistry["Service"]>;
   readonly availability: Option.Option<AccountAvailability.AccountAvailability["Service"]>;
+  /** Where the decision is kept for the run it starts; absent where nothing records setups. */
+  readonly decisions?: Option.Option<RoutingDecisions["Service"]> | undefined;
   readonly serverSettings: ServerSettings.ServerSettingsService["Service"];
   readonly getThreadShell: (
     threadId: ThreadId,
@@ -74,18 +78,49 @@ export const make = (input: {
     const blocks = Option.isSome(input.availability)
       ? (yield* input.availability.value.state).blocks
       : [];
-    const pick = pickAccount(
-      pool,
-      { blocks, nowMs: DateTime.toEpochMillis(yield* DateTime.now) },
-      {
-        readOnly: shell?.agentTask?.sourceAccess === "read-only",
-        current:
-          shell !== null &&
-          pooledModelOfSelection(pools, providers, settings, shell.modelSelection, seen) === pool
-            ? selectionAccountId(providers, shell.modelSelection)
-            : undefined,
-      },
-    );
+    const context = { blocks, nowMs: DateTime.toEpochMillis(yield* DateTime.now) };
+    const routeOptions = {
+      readOnly: shell?.agentTask?.sourceAccess === "read-only",
+      current:
+        shell !== null &&
+        pooledModelOfSelection(pools, providers, settings, shell.modelSelection, seen) === pool
+          ? selectionAccountId(providers, shell.modelSelection)
+          : undefined,
+    };
+    const pick = pickAccount(pool, context, routeOptions);
+    // The run this turn starts is recorded with the alternatives as they stood now.
+    const decisions = input.decisions;
+    if (
+      startsTurn &&
+      command.type === "message.dispatch" &&
+      decisions !== undefined &&
+      Option.isSome(decisions)
+    ) {
+      const target = pick.type === "account" ? pick.target : pick.coolingDown;
+      const ranked = rankAccounts(pool, context, routeOptions).map(({ entry, availability }) => ({
+        provider: entry.provider,
+        model: entry.model,
+        availability,
+      }));
+      const chosen = ranked.find(
+        (candidate) =>
+          target !== undefined &&
+          candidate.provider.instanceId === target.provider.instanceId &&
+          candidate.model === target.model,
+      );
+      if (chosen !== undefined)
+        yield* decisions.value.note(
+          command.threadId,
+          routingSnapshot({
+            kind: "account-pool",
+            nowMs: context.nowMs,
+            pinned: false,
+            modelNamed: command.modelSelection !== undefined,
+            chosen,
+            ranked,
+          }),
+        );
+    }
     if (pick.type === "account") return selectionOnAccount(pick.target, selection.options);
     // A cool-down is a guess, so the turn is tried there rather than refused.
     if (pick.coolingDown !== undefined)

@@ -13,6 +13,7 @@ import * as Option from "effect/Option";
 import * as DateTime from "effect/DateTime";
 import {
   AGENT_ROLE_GUIDANCE,
+  type RunSetupRouting,
   type AgentRole,
   type AgentTaskBrowser,
   type AgentTaskClass,
@@ -269,7 +270,10 @@ export class ManagedAgentService extends Context.Service<
         /** Only for callers that always validate before dispatch. */
         readonly deferWriterWorkspacePreflight?: boolean;
       },
-    ) => Effect.Effect<{ binding: AgentTaskBinding; brief: string }, ManagedAgentError>;
+    ) => Effect.Effect<
+      { binding: AgentTaskBinding; brief: string; routing?: RunSetupRouting },
+      ManagedAgentError
+    >;
     readonly validate: (
       input: Authority & {
         readonly binding: AgentTaskBinding;
@@ -1239,8 +1243,8 @@ const make = Effect.gen(function* () {
         context.request,
       );
       const routing = yield* configuredRouting;
-      const selection = yield* resolver
-        .resolve({
+      const { selection, routing: decision } = yield* resolver
+        .decide({
           ...input,
           ...context,
           snapshot,
@@ -1295,6 +1299,10 @@ const make = Effect.gen(function* () {
           context.request.role === "implementer" && context.request.taskClass !== "non-ui"
             ? `${brief.text}\n\n${UI_TASK_INSTRUCTION}`
             : brief.text,
+        // A resumed task keeps its accepted selection; only a fresh choice is a routing decision.
+        ...(input.recordedBinding === undefined && decision !== undefined
+          ? { routing: decision }
+          : {}),
       };
     }),
     validate: Effect.fn("ManagedAgentService.validate")(function* (input) {

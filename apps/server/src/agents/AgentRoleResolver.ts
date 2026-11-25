@@ -8,6 +8,7 @@ import type {
   RuntimeMode,
   ServerProvider,
   AgentPolicyPreview,
+  RunSetupRouting,
 } from "@t3tools/contracts";
 import {
   AgentPolicyCandidate,
@@ -22,6 +23,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
+import { routingSnapshot, type RoutedCandidate } from "./RoutingDecisions.ts";
 import {
   pooledKeyIn,
   pooledModelOfBinding,
@@ -121,6 +123,13 @@ export class AgentRoleResolver extends Context.Service<
   AgentRoleResolver,
   {
     readonly resolve: (input: ResolutionInput) => Effect.Effect<ModelSelection, AgentRoleError>;
+    /** `resolve`, with the routing decision behind it as the run's setup record keeps it. */
+    readonly decide: (
+      input: ResolutionInput,
+    ) => Effect.Effect<
+      { readonly selection: ModelSelection; readonly routing?: RunSetupRouting },
+      AgentRoleError
+    >;
     /** The resolution without failing, plus every eligible selection in `resolve`'s order. */
     readonly preview: (
       input: ResolutionInput,
@@ -798,8 +807,29 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
   // A caller that names the account pins it: the task stays there rather than moving on a limit.
   const pin = (value: ModelSelection): ModelSelection =>
     input.selection?.instanceId === undefined ? value : { ...value, pinned: true };
+  const routed = (candidate: Candidate): RoutedCandidate => ({
+    provider: candidate.provider,
+    model: candidate.selection.model,
+    availability: candidate.availability,
+  });
+  // Built only for `decide`: ranking and previews never pay for the snapshot.
+  const routingDecision = () => {
+    // The served ones in the order tried, then the ones held back, in route order.
+    const ordered = [...candidates, ...eligible.filter((entry) => !candidates.includes(entry))];
+    const routedOrdered = ordered.map(routed);
+    return routingSnapshot({
+      kind: "role-candidates",
+      nowMs: context.nowMs,
+      role: request.role,
+      pinned: input.selection?.instanceId !== undefined,
+      modelNamed: input.selection?.model !== undefined || input.treatment !== undefined,
+      chosen: routedOrdered[ordered.indexOf(chosen)]!,
+      ranked: routedOrdered,
+    });
+  };
   return {
     selection: pin(chosen.selection),
+    routing: routingDecision,
     ranked: candidates.map((candidate) => pin(candidate.selection)),
     executionRequirement: admission.executionRequirement,
     executionBoundary: admission.executionBoundary,
@@ -811,6 +841,19 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
 export const layer = Layer.succeed(AgentRoleResolver, {
   resolve: Effect.fn("AgentRoleResolver.resolve")((input) =>
     inspect(input).pipe(Effect.map((result) => result.selection)),
+  ),
+  decide: Effect.fn("AgentRoleResolver.decide")((input) =>
+    inspect(input).pipe(
+      Effect.flatMap(({ selection, routing }) =>
+        // A snapshot that cannot be built never fails the choice it describes.
+        Effect.sync(routing).pipe(
+          Effect.map((snapshot) => ({ selection, routing: snapshot })),
+          Effect.catchCause((cause) =>
+            Effect.logDebug("Routing snapshot failed", { cause }).pipe(Effect.as({ selection })),
+          ),
+        ),
+      ),
+    ),
   ),
   rank: Effect.fn("AgentRoleResolver.rank")((input) =>
     inspect(input).pipe(Effect.map((result) => result.ranked)),
