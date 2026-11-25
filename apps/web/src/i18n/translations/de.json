@@ -7325,9 +7325,11 @@
   "fd1d2853467e6195": "Version kopieren",
   "4f54addf079e7b1b": "Reserve",
   "737d22fa2245e7aa": "Reserve für {account}",
+  "d261e7e974b93885": "Gemischt",
   "d1ed2f841b0db5fa": "Aus",
   "698829397241dfda": "In die Reserve von {account} zugelassene Modelle",
   "3ed69e0cb0e5dc53": "In der Reserve erlaubt:",
+  "bef625eb41e28e11": "Die Reserve unterscheidet sich zwischen Umgebungen. Wähle einen Wert, um ihn auf alle ausgewählten Umgebungen anzuwenden.",
   "71d430a68440e1f6": "Keine Reserve: Jedes geroutete Modell kann dieses Konto bis 0% nutzen.",
   "200ea263ec012f78": "Bei höchstens {percent}% Rest nutzen geroutete Modelle dieses Konto nicht mehr. Noch nutzt es kein geroutetes Modell.",
   "bae8bd09ce3b02dd": "Bei höchstens {percent}% Rest wird dieses Konto allen gerouteten Modellen vorenthalten (nur manuell angeheftet).",
@@ -7371,6 +7373,14 @@
   "f5994977bbccb284": "{model} aus den Modellen entfernen, für die T3 Code ein Konto wählt",
   "fa2dbbb67dcfc16a": "Modelle suchen",
   "0c23f35872aa172b": "Verbinde eine Umgebung, um ihre Konten zu verwalten.",
+  "a8a87a8c254cd076": [
+    "Alle Umgebungen · zeigt ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
   "e53981dd27ca71a4": [
     "Umgebung: ",
     {
@@ -7381,6 +7391,7 @@
   ],
   "be7fdeb6b9556a99": "Die Abos und API-Schlüssel, mit denen diese Umgebung Modelle ausführt. Eine Reserve hält die letzten Prozent des Kontingents oder Monatsbudgets eines Kontos für die Modelle zurück, die du zulässt; jedes andere geroutete Modell, auch später hinzugefügte, wechselt zu seinem nächsten Konto.",
   "99410a33acc61ac7": "Neue Threads, delegierte Aufgaben und Champions führen jedes Modell auf seinem ersten verfügbaren Primary-Konto aus und auf Overflow erst, wenn kein Primary-Konto verfügbar ist. Die oben festgelegte Reserve eines Kontos hält es von Modellen fern, die sie nicht zulässt. Ein Thread behält sein Konto, solange es verfügbar bleibt, damit sich sein Prompt-Cache weiter lohnt. Modelle, die du nicht hinzugefügt hast, laufen auf dem gewählten Konto.",
+  "181811b09600dcbb": "Das Modell-Routing unterscheidet sich zwischen Umgebungen. Änderungen gelten für alle ausgewählten Umgebungen.",
   "981cc7ad094d8d71": "Noch keine Modelle hinzugefügt. Füge eines hinzu, damit T3 Code zwischen den Konten wählen kann, die es bedienen.",
   "05823499e4db2b4d": "Frühester Reset",
   "19d61932d5e157ac": "Manuelle Reihenfolge",
@@ -7714,7 +7725,6 @@
   "93aab53ee797f5d2": "Diese gemeinsame Richtlinie steuert Hintergrundarbeit wie Git-Aktualisierungen und Zustandsprüfungen der Anbieter, nachdem ihre einzelnen Intervalle abgelaufen sind.",
   "23c719d08e321660": "Hintergrundaktivität auf Standard zurücksetzen",
   "bc7f7296e3b67ed8": "Profil für Hintergrundaktivität",
-  "d261e7e974b93885": "Gemischt",
   "0b08bebc02283ea0": "Erweitert (eine Umgebung)",
   "b180c8706ae5567b": "Erweiterte Hintergrundaktivität konfigurieren",
   "af663e8520bb5888": "Hintergrundaktivität",
@@ -12333,6 +12343,31 @@
   "37069a5ef57ee9fa": "Kosten pro Stunde nach Anbieter",
   "aa73a1b4208bc912": "Verarbeitete Tokens pro Tag nach Anbieter",
   "5c3c0e3a9f3e4717": "Kosten pro Tag nach Anbieter",
+  "fd834caeab406b9f": "${used} von ${limit} in diesem Zyklus",
+  "33a76b7da43bf2c3": "Monatsbudget festlegen",
+  "b8abbcbe322b837a": "Budget bearbeiten",
+  "8bff0cca3bc2bca8": "Monatsbudget (USD)",
+  "db44addf796f8e4c": "Zurücksetzen am Tag",
+  "7022feb462b4f008": "Bisher in diesem Zyklus ausgegeben",
+  "03396f66b2db9024": "Budget speichern",
+  "7ba1620117b24abf": "Ausgaben korrigieren",
+  "fbb7fc5a05d41996": "Budget entfernen",
+  "5033ac57e3bb0e4a": [
+    "$",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " von $",
+    {
+      "i": 2,
+      "k": "_gt_value_2",
+      "v": "v"
+    },
+    " in diesem Zyklus"
+  ],
+  "b67c77ca7e77d0e3": "Gib ein, was die Konsole des Anbieters anzeigt, und T3 macht ab diesem Wert weiter und addiert, was danach erfasst wird.",
   "0bd41ff995d36a66": "Cache-Lesen",
   "3f0dfe0cb15a3272": "Cache-Schreiben",
   "1c9d860be42b1c02": "Ausgabe",

@@ -188,7 +188,9 @@ function SettingsRouteLayout() {
       singleEnvironment={
         (pathname === "/settings/providers" || pathname === "/settings/secrets") && !isSearching
       }
-      environmentOnly={pathname === "/settings/delegation" && !isSearching}
+      environmentOnly={
+        (pathname === "/settings/delegation" || pathname === "/settings/accounts") && !isSearching
+      }
       preferredEnvironmentId={pathname === "/settings/providers" ? editingEnvironmentId : null}
       deviceOnly={SETTINGS_DEVICE_ONLY_PATHS.has(pathname)}
       onChange={(next) => {

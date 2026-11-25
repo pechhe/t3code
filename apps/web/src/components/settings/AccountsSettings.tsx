@@ -39,7 +39,6 @@ import {
   useClientSettings,
   useEnvironmentSettings,
   usePrimarySettings,
-  useUpdateEnvironmentSettings,
 } from "../../hooks/useSettings";
 import { selectModelSlotLabels, withPooledModelLabels } from "../chat/modelLabels";
 import { cn } from "~/lib/utils";
@@ -73,12 +72,13 @@ import {
   SettingsSearchTarget,
   SettingsSection,
 } from "./settingsLayout";
-import { useSettingsScope } from "./SettingsScopeContext";
+import { useOptionalSettingsScope, useSettingsScope } from "./SettingsScopeContext";
+import { useScopedSettingsMixed, useUpdateEnvironmentScopedSettings } from "./useScopedSettings";
 import { useInstanceEntries } from "./useInstanceEntries";
 
 /** Settings → Accounts: each Pi credential, and the models T3 picks the account for. */
 export function AccountsSettings() {
-  const { environments, environment } = useSettingsScope();
+  const { scope, environments, connectedEnvironments, environment } = useSettingsScope();
   const target = environment ?? environments[0];
   const environmentId = target?.environmentId;
   return (
@@ -92,6 +92,7 @@ export function AccountsSettings() {
           key={environmentId}
           environmentId={environmentId}
           environmentLabel={target?.label}
+          allEnvironments={scope.kind === "all" && connectedEnvironments.length > 1}
         />
       )}
     </SettingsPageContainer>
@@ -105,12 +106,15 @@ export function AccountsSettings() {
 function AccountsViews({
   environmentId,
   environmentLabel,
+  allEnvironments,
 }: {
   environmentId: EnvironmentId;
   environmentLabel: string | undefined;
+  allEnvironments: boolean;
 }) {
   const gt = useGT();
-  const { settings, providers } = useInstanceEntries(environmentId);
+  const { settings: environmentSettings, providers } = useInstanceEntries(environmentId);
+  const settings = useOptionalSettingsScope()?.target?.settings ?? environmentSettings;
   const slotLabels = useClientSettings(selectModelSlotLabels);
   const canManage = useEnvironmentScope(environmentId, AuthProvidersManageScope);
   const routedModels = withPooledModelLabels(pooledModels(providers, settings), slotLabels);
@@ -122,9 +126,15 @@ function AccountsViews({
           headerAction={
             environmentLabel ? (
               <span className="text-xs text-muted-foreground">
-                <T>
-                  Environment: <Var>{environmentLabel}</Var>
-                </T>
+                {allEnvironments ? (
+                  <T>
+                    All environments · showing <Var>{environmentLabel}</Var>
+                  </T>
+                ) : (
+                  <T>
+                    Environment: <Var>{environmentLabel}</Var>
+                  </T>
+                )}
               </span>
             ) : undefined
           }
@@ -166,7 +176,9 @@ function ProviderAccountReserves(props: {
   disabled: boolean;
 }) {
   const gt = useGT();
-  const reserves = useEnvironmentSettings(props.environmentId, (s) => s.accountReserves);
+  const environmentReserves = useEnvironmentSettings(props.environmentId, (s) => s.accountReserves);
+  const scoped = useOptionalSettingsScope()?.target;
+  const reserves = scoped ? scoped.settings.accountReserves : environmentReserves;
   const now = Date.parse(`${useNowMinute()}Z`);
   const accounts = props.providers.filter(
     (provider) =>
@@ -229,8 +241,12 @@ function AccountIcon({ account }: { account: AccountInfo }) {
 
 function EnvironmentAccounts({ environmentId }: { environmentId: EnvironmentId }) {
   const gt = useGT();
-  const { settings, providers } = useInstanceEntries(environmentId);
-  const update = useUpdateEnvironmentSettings(environmentId);
+  const { settings: environmentSettings, providers } = useInstanceEntries(environmentId);
+  const settings = useOptionalSettingsScope()?.target?.settings ?? environmentSettings;
+  const allScope = useSettingsScope().scope.kind === "all";
+  const mixed = useScopedSettingsMixed(["pooledModelKeys", "modelRouting", "modelLinks"]);
+  const showMixed = mixed && allScope;
+  const update = useUpdateEnvironmentScopedSettings(environmentId);
   const canManage = useEnvironmentScope(environmentId, AuthProvidersManageScope);
   const routing = useRoutingContext(environmentId);
   const listed = settings.pooledModelKeys ?? [];
@@ -280,6 +296,13 @@ function EnvironmentAccounts({ environmentId }: { environmentId: EnvironmentId }
             Models you haven&apos;t added run on the account you pick.
           </T>
         </p>
+        {showMixed ? (
+          <p className="px-3 pb-2.5 text-xs text-muted-foreground sm:px-4">
+            <T>
+              Model routing differs across environments. Edits apply to all selected environments.
+            </T>
+          </p>
+        ) : null}
         {models.length === 0 ? (
           <p className="px-3 pb-2.5 text-sm text-muted-foreground sm:px-4">
             <T>

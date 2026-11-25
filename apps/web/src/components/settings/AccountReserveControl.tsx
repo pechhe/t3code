@@ -8,9 +8,12 @@ import {
 import { CheckIcon, PlusIcon } from "lucide-react";
 import { useGT } from "gt-react";
 
-import { useEnvironmentSettings, useUpdateEnvironmentSettings } from "../../hooks/useSettings";
+import { useEnvironmentSettings } from "../../hooks/useSettings";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Toggle } from "../ui/toggle";
+import { accountReserveIsMixed } from "./accountScope";
+import { useOptionalSettingsScope } from "./SettingsScopeContext";
+import { useUpdateEnvironmentScopedSettings } from "./useScopedSettings";
 
 const RESERVE_CHOICES: ReadonlyArray<number> = [0, 5, 10, 15, 20, 30];
 
@@ -29,12 +32,13 @@ export function AccountReserveControl(props: {
   disabled: boolean;
 }) {
   const gt = useGT();
-  const reserve = useEnvironmentSettings(
-    props.environmentId,
-    (settings) => settings.accountReserves?.[props.account],
-  );
-  const links = useEnvironmentSettings(props.environmentId, (settings) => settings.modelLinks);
-  const update = useUpdateEnvironmentSettings(props.environmentId);
+  const context = useOptionalSettingsScope();
+  const environmentSettings = useEnvironmentSettings(props.environmentId);
+  const settings = context?.target?.settings ?? environmentSettings;
+  const reserve = settings.accountReserves?.[props.account];
+  const links = settings.modelLinks;
+  const update = useUpdateEnvironmentScopedSettings(props.environmentId);
+  const mixed = context !== null && accountReserveIsMixed(context.targets, props.account);
   const percent = reserve?.percent ?? 0;
   const allowed = reserve?.allowedModels ?? [];
   const allows = (key: PooledModelKey) =>
@@ -56,7 +60,7 @@ export function AccountReserveControl(props: {
     .filter((model) => allows(model.key))
     .map((model) => model.displayName);
   // Nothing measures a reserve on an unmetered account, but one already set stays removable.
-  if (!props.metered && reserve === undefined) return null;
+  if (!props.metered && reserve === undefined && !mixed) return null;
   return (
     <div className="flex flex-col gap-1.5 rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
@@ -64,7 +68,7 @@ export function AccountReserveControl(props: {
           {gt("Reserve", { $context: "account reserve setting" })}
         </span>
         <Select
-          value={String(percent)}
+          value={mixed ? null : String(percent)}
           disabled={props.disabled}
           onValueChange={(value) => {
             if (value === null) return;
@@ -78,7 +82,11 @@ export function AccountReserveControl(props: {
             aria-label={gt("Reserve for {account}", { account: props.accountLabel })}
           >
             <SelectValue>
-              {percent === 0 ? gt("Off", { $context: "reserve setting" }) : `${percent}%`}
+              {mixed
+                ? gt("Mixed", { $context: "values differ across targets" })
+                : percent === 0
+                  ? gt("Off", { $context: "reserve setting" })
+                  : `${percent}%`}
             </SelectValue>
           </SelectTrigger>
           <SelectPopup>
@@ -89,7 +97,7 @@ export function AccountReserveControl(props: {
             ))}
           </SelectPopup>
         </Select>
-        {percent > 0 && models.length > 0 ? (
+        {!mixed && percent > 0 && models.length > 0 ? (
           <span
             role="group"
             aria-label={gt("Models allowed into {account}'s reserve", {
@@ -118,22 +126,26 @@ export function AccountReserveControl(props: {
         ) : null}
       </div>
       <p className="text-xs text-muted-foreground">
-        {percent === 0
-          ? gt("No reserve: every routed model can use this account down to 0%.")
-          : models.length === 0
-            ? gt(
-                "At or below {percent}% left, routed models stop using this account. No routed model uses it yet.",
-                { percent },
-              )
-            : allowedNames.length === 0
+        {mixed
+          ? gt(
+              "Reserve differs across environments. Choose a value to apply it to all selected environments.",
+            )
+          : percent === 0
+            ? gt("No reserve: every routed model can use this account down to 0%.")
+            : models.length === 0
               ? gt(
-                  "At or below {percent}% left, this account is held back from every routed model (manual pin only).",
+                  "At or below {percent}% left, routed models stop using this account. No routed model uses it yet.",
                   { percent },
                 )
-              : gt(
-                  "At or below {percent}% left, only {models} can still use this account; other models spill over to their next account.",
-                  { percent, models: allowedNames.join(", ") },
-                )}
+              : allowedNames.length === 0
+                ? gt(
+                    "At or below {percent}% left, this account is held back from every routed model (manual pin only).",
+                    { percent },
+                  )
+                : gt(
+                    "At or below {percent}% left, only {models} can still use this account; other models spill over to their next account.",
+                    { percent, models: allowedNames.join(", ") },
+                  )}
       </p>
     </div>
   );

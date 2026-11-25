@@ -7326,9 +7326,11 @@
   "fd1d2853467e6195": "Copiar versão",
   "4f54addf079e7b1b": "Reserva",
   "737d22fa2245e7aa": "Reserva de {account}",
+  "d261e7e974b93885": "Misto",
   "d1ed2f841b0db5fa": "Desativada",
   "698829397241dfda": "Modelos permitidos na reserva de {account}",
   "3ed69e0cb0e5dc53": "Permitidos na reserva:",
+  "bef625eb41e28e11": "A reserva difere entre ambientes. Escolha um valor para aplicá-lo a todos os ambientes selecionados.",
   "71d430a68440e1f6": "Sem reserva: qualquer modelo roteado pode usar esta conta até 0%.",
   "200ea263ec012f78": "Com {percent}% ou menos restante, os modelos roteados deixam de usar esta conta. Nenhum modelo roteado a usa ainda.",
   "bae8bd09ce3b02dd": "Com {percent}% ou menos restante, esta conta fica retida para todos os modelos roteados (apenas fixação manual).",
@@ -7372,6 +7374,14 @@
   "f5994977bbccb284": "Remover {model} dos modelos para os quais o T3 Code escolhe uma conta",
   "fa2dbbb67dcfc16a": "Pesquisar modelos",
   "0c23f35872aa172b": "Conecte um ambiente para gerenciar as contas dele.",
+  "a8a87a8c254cd076": [
+    "Todos os ambientes · mostrando ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
   "e53981dd27ca71a4": [
     "Ambiente: ",
     {
@@ -7382,6 +7392,7 @@
   ],
   "be7fdeb6b9556a99": "As assinaturas e chaves de API com que este ambiente executa modelos. Uma reserva guarda os últimos pontos percentuais da cota ou do orçamento mensal de uma conta para os modelos que você permitir; qualquer outro modelo roteado, inclusive os adicionados depois, passa para a próxima conta.",
   "99410a33acc61ac7": "Novos threads, tarefas delegadas e Champions executam cada modelo na primeira conta Primary disponível, e em Overflow só quando nenhuma conta Primary está disponível. A reserva de uma conta, definida acima, a retém para os modelos que ela não permite. Um thread mantém sua conta enquanto ela estiver disponível, para que o cache de prompts continue valendo a pena. Modelos que você não adicionou rodam na conta escolhida.",
+  "181811b09600dcbb": "O roteamento de modelos difere entre ambientes. As edições se aplicam a todos os ambientes selecionados.",
   "981cc7ad094d8d71": "Nenhum modelo adicionado ainda. Adicione um para o T3 Code escolher entre as contas que o oferecem.",
   "05823499e4db2b4d": "Redefinição mais próxima",
   "19d61932d5e157ac": "Ordem manual",
@@ -7715,7 +7726,6 @@
   "93aab53ee797f5d2": "Esta política compartilhada controla o trabalho em segundo plano, como atualizações do Git e verificações de saúde dos provedores, depois que os respectivos intervalos passam.",
   "23c719d08e321660": "Redefinir a atividade em segundo plano para o padrão",
   "bc7f7296e3b67ed8": "Perfil de atividade em segundo plano",
-  "d261e7e974b93885": "Misto",
   "0b08bebc02283ea0": "Avançado (um ambiente)",
   "b180c8706ae5567b": "Configurar a atividade em segundo plano avançada",
   "af663e8520bb5888": "Atividade em segundo plano",
@@ -12331,6 +12341,31 @@
   "37069a5ef57ee9fa": "Custo por hora, por provedor",
   "aa73a1b4208bc912": "Tokens processados por dia, por provedor",
   "5c3c0e3a9f3e4717": "Custo por dia, por provedor",
+  "fd834caeab406b9f": "${used} de ${limit} neste ciclo",
+  "33a76b7da43bf2c3": "Definir orçamento mensal",
+  "b8abbcbe322b837a": "Editar orçamento",
+  "8bff0cca3bc2bca8": "Orçamento mensal (USD)",
+  "db44addf796f8e4c": "Reinicia no dia",
+  "7022feb462b4f008": "Gasto até agora neste ciclo",
+  "03396f66b2db9024": "Salvar orçamento",
+  "7ba1620117b24abf": "Corrigir gasto",
+  "fbb7fc5a05d41996": "Remover orçamento",
+  "5033ac57e3bb0e4a": [
+    "$",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " de $",
+    {
+      "i": 2,
+      "k": "_gt_value_2",
+      "v": "v"
+    },
+    " neste ciclo"
+  ],
+  "b67c77ca7e77d0e3": "Digite o que o console do provedor mostra e o T3 continua a partir desse valor, somando o que registrar depois.",
   "0bd41ff995d36a66": "Leitura de cache",
   "3f0dfe0cb15a3272": "Gravação de cache",
   "1c9d860be42b1c02": "Saída",

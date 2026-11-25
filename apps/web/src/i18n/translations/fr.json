@@ -7327,9 +7327,11 @@
   "fd1d2853467e6195": "Copier la version",
   "4f54addf079e7b1b": "Réserve",
   "737d22fa2245e7aa": "Réserve de {account}",
+  "d261e7e974b93885": "Mixte",
   "d1ed2f841b0db5fa": "Désactivée",
   "698829397241dfda": "Modèles autorisés dans la réserve de {account}",
   "3ed69e0cb0e5dc53": "Autorisés dans la réserve :",
+  "bef625eb41e28e11": "La réserve diffère selon les environnements. Choisissez une valeur pour l'appliquer à tous les environnements sélectionnés.",
   "71d430a68440e1f6": "Pas de réserve : tout modèle routé peut utiliser ce compte jusqu’à 0 %.",
   "200ea263ec012f78": "À {percent} % restant ou moins, les modèles routés cessent d’utiliser ce compte. Aucun modèle routé ne l’utilise encore.",
   "bae8bd09ce3b02dd": "À {percent} % restant ou moins, ce compte est retenu pour tous les modèles routés (épinglage manuel uniquement).",
@@ -7373,6 +7375,14 @@
   "f5994977bbccb284": "Retirer {model} des modèles dont T3 Code choisit le compte",
   "fa2dbbb67dcfc16a": "Rechercher des modèles",
   "0c23f35872aa172b": "Connectez un environnement pour gérer ses comptes.",
+  "a8a87a8c254cd076": [
+    "Tous les environnements · affichage de ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
   "e53981dd27ca71a4": [
     "Environnement : ",
     {
@@ -7383,6 +7393,7 @@
   ],
   "be7fdeb6b9556a99": "Les abonnements et clés d’API avec lesquels cet environnement exécute des modèles. Une réserve garde les derniers pourcents du quota ou du budget mensuel d’un compte pour les modèles que vous autorisez ; tout autre modèle routé, y compris ceux ajoutés plus tard, passe à son compte suivant.",
   "99410a33acc61ac7": "Les nouveaux fils, les tâches déléguées et les Champions exécutent chaque modèle sur son premier compte Primary disponible, et sur Overflow seulement quand aucun compte Primary n’est disponible. La réserve d’un compte, définie plus haut, le retient pour les modèles qu’elle n’autorise pas. Un fil garde son compte tant qu’il reste disponible, pour que son cache de prompts reste utile. Les modèles que vous n’avez pas ajoutés s’exécutent sur le compte choisi.",
+  "181811b09600dcbb": "Le routage des modèles diffère selon les environnements. Les modifications s'appliquent à tous les environnements sélectionnés.",
   "981cc7ad094d8d71": "Aucun modèle ajouté pour l’instant. Ajoutez-en un pour que T3 Code choisisse parmi les comptes qui le proposent.",
   "05823499e4db2b4d": "Réinitialisation la plus proche",
   "19d61932d5e157ac": "Ordre manuel",
@@ -7716,7 +7727,6 @@
   "93aab53ee797f5d2": "Cette politique partagée encadre le travail en arrière-plan, comme les actualisations Git et les sondages de santé des fournisseurs, une fois leurs intervalles respectifs écoulés.",
   "23c719d08e321660": "Réinitialiser l’activité en arrière-plan à la valeur par défaut",
   "bc7f7296e3b67ed8": "Profil d’activité en arrière-plan",
-  "d261e7e974b93885": "Mixte",
   "0b08bebc02283ea0": "Avancé (un environnement)",
   "b180c8706ae5567b": "Configurer l’activité en arrière-plan avancée",
   "af663e8520bb5888": "Activité en arrière-plan",
@@ -12332,6 +12342,31 @@
   "37069a5ef57ee9fa": "Coût par heure et par fournisseur",
   "aa73a1b4208bc912": "Tokens traités par jour et par fournisseur",
   "5c3c0e3a9f3e4717": "Coût par jour et par fournisseur",
+  "fd834caeab406b9f": "${used} sur ${limit} ce cycle",
+  "33a76b7da43bf2c3": "Définir un budget mensuel",
+  "b8abbcbe322b837a": "Modifier le budget",
+  "8bff0cca3bc2bca8": "Budget mensuel (USD)",
+  "db44addf796f8e4c": "Réinitialisation le jour",
+  "7022feb462b4f008": "Dépensé jusqu'ici ce cycle",
+  "03396f66b2db9024": "Enregistrer le budget",
+  "7ba1620117b24abf": "Corriger la dépense",
+  "fbb7fc5a05d41996": "Supprimer le budget",
+  "5033ac57e3bb0e4a": [
+    "$",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " sur $",
+    {
+      "i": 2,
+      "k": "_gt_value_2",
+      "v": "v"
+    },
+    " ce cycle"
+  ],
+  "b67c77ca7e77d0e3": "Saisissez ce qu'indique la console du fournisseur et T3 repart de ce chiffre, en ajoutant ce qu'il enregistre ensuite.",
   "0bd41ff995d36a66": "Lecture du cache",
   "3f0dfe0cb15a3272": "Écriture du cache",
   "1c9d860be42b1c02": "Sortie",

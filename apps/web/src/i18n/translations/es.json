@@ -7326,9 +7326,11 @@
   "fd1d2853467e6195": "Copiar versión",
   "4f54addf079e7b1b": "Reserva",
   "737d22fa2245e7aa": "Reserva de {account}",
+  "d261e7e974b93885": "Mixto",
   "d1ed2f841b0db5fa": "Desactivada",
   "698829397241dfda": "Modelos permitidos en la reserva de {account}",
   "3ed69e0cb0e5dc53": "Permitidos en la reserva:",
+  "bef625eb41e28e11": "La reserva difiere entre entornos. Elige un valor para aplicarlo a todos los entornos seleccionados.",
   "71d430a68440e1f6": "Sin reserva: cualquier modelo enrutado puede usar esta cuenta hasta el 0%.",
   "200ea263ec012f78": "Con un {percent}% o menos restante, los modelos enrutados dejan de usar esta cuenta. Aún no la usa ningún modelo enrutado.",
   "bae8bd09ce3b02dd": "Con un {percent}% o menos restante, esta cuenta se retiene para todos los modelos enrutados (solo fijación manual).",
@@ -7372,6 +7374,14 @@
   "f5994977bbccb284": "Quitar {model} de los modelos para los que T3 Code elige una cuenta",
   "fa2dbbb67dcfc16a": "Buscar modelos",
   "0c23f35872aa172b": "Conecta un entorno para gestionar sus cuentas.",
+  "a8a87a8c254cd076": [
+    "Todos los entornos · mostrando ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
   "e53981dd27ca71a4": [
     "Entorno: ",
     {
@@ -7382,6 +7392,7 @@
   ],
   "be7fdeb6b9556a99": "Las suscripciones y claves de API con las que este entorno ejecuta modelos. Una reserva guarda el último porcentaje de la cuota o del presupuesto mensual de una cuenta para los modelos que permitas; cualquier otro modelo enrutado, incluidos los que añadas después, pasa a su siguiente cuenta.",
   "99410a33acc61ac7": "Los hilos nuevos, las tareas delegadas y los Champions ejecutan cada modelo en su primera cuenta Primary disponible, y en Overflow solo cuando no queda ninguna cuenta Primary disponible. La reserva de una cuenta, definida arriba, la retiene para los modelos que no permite. Un hilo conserva su cuenta mientras siga disponible, para que su caché de prompts siga rindiendo. Los modelos que no hayas añadido se ejecutan en la cuenta que elijas.",
+  "181811b09600dcbb": "El enrutamiento de modelos difiere entre entornos. Los cambios se aplican a todos los entornos seleccionados.",
   "981cc7ad094d8d71": "Aún no hay modelos añadidos. Añade uno para que T3 Code elija entre las cuentas que lo ofrecen.",
   "05823499e4db2b4d": "Restablecimiento más próximo",
   "19d61932d5e157ac": "Orden manual",
@@ -7715,7 +7726,6 @@
   "93aab53ee797f5d2": "Esta política compartida controla el trabajo en segundo plano, como las actualizaciones de Git y las comprobaciones de estado de los proveedores, cuando pasan sus intervalos.",
   "23c719d08e321660": "Restablecer la actividad en segundo plano al valor predeterminado",
   "bc7f7296e3b67ed8": "Perfil de actividad en segundo plano",
-  "d261e7e974b93885": "Mixto",
   "0b08bebc02283ea0": "Avanzado (un entorno)",
   "b180c8706ae5567b": "Configurar la actividad en segundo plano avanzada",
   "af663e8520bb5888": "Actividad en segundo plano",
@@ -12327,6 +12337,31 @@
   "37069a5ef57ee9fa": "Coste por hora y proveedor",
   "aa73a1b4208bc912": "Tokens procesados por día y proveedor",
   "5c3c0e3a9f3e4717": "Coste por día y proveedor",
+  "fd834caeab406b9f": "${used} de ${limit} en este ciclo",
+  "33a76b7da43bf2c3": "Establecer presupuesto mensual",
+  "b8abbcbe322b837a": "Editar presupuesto",
+  "8bff0cca3bc2bca8": "Presupuesto mensual (USD)",
+  "db44addf796f8e4c": "Se restablece el día",
+  "7022feb462b4f008": "Gastado hasta ahora este ciclo",
+  "03396f66b2db9024": "Guardar presupuesto",
+  "7ba1620117b24abf": "Corregir gasto",
+  "fbb7fc5a05d41996": "Quitar presupuesto",
+  "5033ac57e3bb0e4a": [
+    "$",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " de $",
+    {
+      "i": 2,
+      "k": "_gt_value_2",
+      "v": "v"
+    },
+    " en este ciclo"
+  ],
+  "b67c77ca7e77d0e3": "Escribe lo que indica la consola del proveedor y T3 continúa desde esa cifra, sumando lo que registre después.",
   "0bd41ff995d36a66": "Lectura de caché",
   "3f0dfe0cb15a3272": "Escritura de caché",
   "1c9d860be42b1c02": "Salida",

@@ -7332,9 +7332,11 @@
   "fd1d2853467e6195": "Kopiera version",
   "4f54addf079e7b1b": "Reserv",
   "737d22fa2245e7aa": "Reserv för {account}",
+  "d261e7e974b93885": "Blandat",
   "d1ed2f841b0db5fa": "Av",
   "698829397241dfda": "Modeller som får använda reserven för {account}",
   "3ed69e0cb0e5dc53": "Tillåtna i reserven:",
+  "bef625eb41e28e11": "Reserven skiljer sig mellan miljöer. Välj ett värde för att tillämpa det på alla valda miljöer.",
   "71d430a68440e1f6": "Ingen reserv: alla routade modeller kan använda kontot ner till 0 %.",
   "200ea263ec012f78": "Vid {percent} % kvar eller mindre slutar routade modeller använda kontot. Ingen routad modell använder det ännu.",
   "bae8bd09ce3b02dd": "Vid {percent} % kvar eller mindre hålls kontot tillbaka från alla routade modeller (endast manuell fästning).",
@@ -7378,6 +7380,14 @@
   "f5994977bbccb284": "Ta bort {model} från modellerna som T3 Code väljer konto för",
   "fa2dbbb67dcfc16a": "Sök modeller",
   "0c23f35872aa172b": "Anslut en miljö för att hantera dess konton.",
+  "a8a87a8c254cd076": [
+    "Alla miljöer · visar ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
   "e53981dd27ca71a4": [
     "Miljö: ",
     {
@@ -7388,6 +7398,7 @@
   ],
   "be7fdeb6b9556a99": "Prenumerationerna och API-nycklarna som den här miljön kör modeller med. En reserv sparar de sista procenten av ett kontos kvot eller månadsbudget åt modellerna du tillåter; alla andra routade modeller, även sådana du lägger till senare, går vidare till sitt nästa konto.",
   "99410a33acc61ac7": "Nya trådar, delegerade uppgifter och Champions kör varje modell på dess första tillgängliga Primary-konto, och på Overflow först när inget Primary-konto är tillgängligt. Ett kontos reserv, som ställs in ovan, håller kontot borta från modeller den inte tillåter. En tråd behåller sitt konto så länge det är tillgängligt, så att promptcachen fortsätter att löna sig. Modeller du inte har lagt till körs på kontot du väljer.",
+  "181811b09600dcbb": "Modellroutningen skiljer sig mellan miljöer. Ändringar gäller alla valda miljöer.",
   "981cc7ad094d8d71": "Inga modeller har lagts till än. Lägg till en så att T3 Code kan välja mellan kontona som erbjuder den.",
   "05823499e4db2b4d": "Tidigast återställning",
   "19d61932d5e157ac": "Manuell ordning",
@@ -7721,7 +7732,6 @@
   "93aab53ee797f5d2": "Den här delade policyn styr bakgrundsarbete som Git-uppdateringar och kontroller av leverantörshälsa när deras individuella intervall har löpt ut.",
   "23c719d08e321660": "Återställ bakgrundsaktivitet till standard",
   "bc7f7296e3b67ed8": "Profil för bakgrundsaktivitet",
-  "d261e7e974b93885": "Blandat",
   "0b08bebc02283ea0": "Avancerat (en miljö)",
   "b180c8706ae5567b": "Konfigurera avancerad bakgrundsaktivitet",
   "af663e8520bb5888": "Bakgrundsaktivitet",
@@ -12340,6 +12350,31 @@
   "37069a5ef57ee9fa": "Kostnad per timme per leverantör",
   "aa73a1b4208bc912": "Bearbetade token per dag per leverantör",
   "5c3c0e3a9f3e4717": "Kostnad per dag per leverantör",
+  "fd834caeab406b9f": "${used} av ${limit} denna cykel",
+  "33a76b7da43bf2c3": "Ange månadsbudget",
+  "b8abbcbe322b837a": "Redigera budget",
+  "8bff0cca3bc2bca8": "Månadsbudget (USD)",
+  "db44addf796f8e4c": "Återställs dag",
+  "7022feb462b4f008": "Spenderat hittills denna cykel",
+  "03396f66b2db9024": "Spara budget",
+  "7ba1620117b24abf": "Korrigera utgift",
+  "fbb7fc5a05d41996": "Ta bort budget",
+  "5033ac57e3bb0e4a": [
+    "$",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " av $",
+    {
+      "i": 2,
+      "k": "_gt_value_2",
+      "v": "v"
+    },
+    " denna cykel"
+  ],
+  "b67c77ca7e77d0e3": "Ange vad leverantörens konsol visar så fortsätter T3 från det beloppet och lägger till det som registreras efteråt.",
   "0bd41ff995d36a66": "Cacheläsning",
   "3f0dfe0cb15a3272": "Cacheskrivning",
   "1c9d860be42b1c02": "Utdata",

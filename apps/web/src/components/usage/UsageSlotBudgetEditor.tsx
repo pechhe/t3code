@@ -1,7 +1,9 @@
 import type { EnvironmentId } from "@t3tools/contracts";
+import { T, useGT, Var } from "gt-react";
 import { useState } from "react";
 
-import { useEnvironmentSettings, useUpdateEnvironmentSettings } from "../../hooks/useSettings";
+import { useEnvironmentSettings } from "../../hooks/useSettings";
+import { useUpdateEnvironmentScopedSettings } from "../settings/useScopedSettings";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import {
@@ -26,12 +28,16 @@ export function UsageSlotBudgetEditor({
   readonly usedUsd?: number | undefined;
   readonly limitUsd?: number | undefined;
 }) {
+  const gt = useGT();
   if (slotId === undefined || environmentId === null) {
     return (
       <p className="text-xs text-muted-foreground tabular-nums">
         {usedUsd === undefined || limitUsd === undefined
           ? ""
-          : `$${usedUsd.toFixed(2)} of $${limitUsd.toFixed(2)} this cycle`}
+          : gt("${used} of ${limit} this cycle", {
+              used: usedUsd.toFixed(2),
+              limit: limitUsd.toFixed(2),
+            })}
       </p>
     );
   }
@@ -56,11 +62,12 @@ function UsageSlotBudgetEditorForm({
   readonly usedUsd?: number | undefined;
   readonly limitUsd?: number | undefined;
 }) {
+  const gt = useGT();
   const budget = useEnvironmentSettings(
     environmentId,
     (settings) => settings.usageSlotBudgets?.[slotId],
   );
-  const updateSettings = useUpdateEnvironmentSettings(environmentId);
+  const updateSettings = useUpdateEnvironmentScopedSettings(environmentId);
   const [form, setForm] = useState(() => usageSlotBudgetForm(budget));
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -71,7 +78,9 @@ function UsageSlotBudgetEditorForm({
       <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground tabular-nums">
         {usedUsd === undefined || limitUsd === undefined ? null : (
           <span>
-            ${usedUsd.toFixed(2)} of ${limitUsd.toFixed(2)} this cycle
+            <T>
+              $<Var>{usedUsd.toFixed(2)}</Var> of $<Var>{limitUsd.toFixed(2)}</Var> this cycle
+            </T>
           </span>
         )}
         <Button
@@ -83,7 +92,7 @@ function UsageSlotBudgetEditorForm({
             setEditing(true);
           }}
         >
-          {budget === undefined ? "Set monthly budget" : "Edit budget"}
+          {budget === undefined ? gt("Set monthly budget") : gt("Edit budget")}
         </Button>
       </div>
     );
@@ -125,40 +134,42 @@ function UsageSlotBudgetEditorForm({
     <div className="flex flex-col gap-3 rounded-lg border border-dashed border-border/70 p-3">
       <div className="grid grid-cols-3 gap-3">
         {field(
-          "Monthly budget (USD)",
+          gt("Monthly budget (USD)"),
           form.monthlyBudgetUsd,
           (next) => setForm({ ...form, monthlyBudgetUsd: next }),
           "40",
         )}
         {field(
-          "Resets on day",
+          gt("Resets on day"),
           form.resetDayOfMonth,
           (next) => setForm({ ...form, resetDayOfMonth: next }),
           "1",
         )}
         {field(
-          "Spent so far this cycle",
+          gt("Spent so far this cycle"),
           form.cycleSpendUsd,
           (next) => setForm({ ...form, cycleSpendUsd: next }),
           "0",
         )}
       </div>
       <p className="text-3xs text-muted-foreground">
-        Type what the provider console says and T3 carries on from that figure, adding what it
-        records after it.
+        <T>
+          Type what the provider console says and T3 carries on from that figure, adding what it
+          records after it.
+        </T>
       </p>
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
       <div className="flex gap-2">
         <Button size="xs" disabled={saving} onClick={() => void save()}>
-          {saving ? "Saving…" : "Save budget"}
+          {saving ? gt("Saving…") : gt("Save budget")}
         </Button>
         {budget === undefined ? null : (
           <Button size="xs" variant="outline" disabled={saving} onClick={() => void save(true)}>
-            {saving ? "Saving…" : "Correct spend"}
+            {saving ? gt("Saving…") : gt("Correct spend")}
           </Button>
         )}
         <Button size="xs" variant="ghost" disabled={saving} onClick={() => setEditing(false)}>
-          Cancel
+          {gt("Cancel")}
         </Button>
         {budget === undefined ? null : (
           <Button
@@ -172,7 +183,7 @@ function UsageSlotBudgetEditorForm({
                 .finally(() => setSaving(false));
             }}
           >
-            Remove budget
+            {gt("Remove budget")}
           </Button>
         )}
       </div>

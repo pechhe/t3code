@@ -20,6 +20,7 @@ import { ExternalLinkIcon, PlusIcon, XIcon } from "lucide-react";
 import { useState } from "react";
 
 import { useEnvironmentSettings } from "../../hooks/useSettings";
+import { useOptionalSettingsScope } from "./SettingsScopeContext";
 import { useEnvironmentHttpBaseUrl } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
@@ -342,10 +343,14 @@ function AccountRow({
   const signIn = isSignInFamily(account.providerFamily);
   // Routing names a Pi credential by its instance and provider ID.
   const accountId: AccountId = `${provider.instanceId}:${account.providerId}`;
-  const reserve = useEnvironmentSettings(
+  const environmentReserve = useEnvironmentSettings(
     environmentId,
     (settings) => settings.accountReserves?.[accountId]?.percent,
   );
+  const scoped = useOptionalSettingsScope()?.target;
+  const reserve = scoped
+    ? scoped.settings.accountReserves?.[accountId]?.percent
+    : environmentReserve;
   return (
     <SettingsRow
       title={account.label}

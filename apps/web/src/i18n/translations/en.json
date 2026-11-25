@@ -7333,9 +7333,11 @@
   "fd1d2853467e6195": "Copy version",
   "4f54addf079e7b1b": "Reserve",
   "737d22fa2245e7aa": "Reserve for {account}",
+  "d261e7e974b93885": "Mixed",
   "d1ed2f841b0db5fa": "Off",
   "698829397241dfda": "Models allowed into {account}'s reserve",
   "3ed69e0cb0e5dc53": "Allowed in reserve:",
+  "bef625eb41e28e11": "Reserve differs across environments. Choose a value to apply it to all selected environments.",
   "71d430a68440e1f6": "No reserve: every routed model can use this account down to 0%.",
   "200ea263ec012f78": "At or below {percent}% left, routed models stop using this account. No routed model uses it yet.",
   "bae8bd09ce3b02dd": "At or below {percent}% left, this account is held back from every routed model (manual pin only).",
@@ -7379,6 +7381,14 @@
   "f5994977bbccb284": "Remove {model} from the models T3 Code picks an account for",
   "fa2dbbb67dcfc16a": "Search models",
   "0c23f35872aa172b": "Connect an environment to manage its accounts.",
+  "a8a87a8c254cd076": [
+    "All environments · showing ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
   "e53981dd27ca71a4": [
     "Environment: ",
     {
@@ -7389,6 +7399,7 @@
   ],
   "be7fdeb6b9556a99": "The subscriptions and API keys this environment runs models on. A reserve keeps an account's last few percent of quota or monthly budget for the models you allow into it; every other routed model, including any you add later, moves on to its next account.",
   "99410a33acc61ac7": "New threads, delegated tasks and Champions run each model on its first available Primary account, and on Overflow only once no Primary account is available. An account's reserve, set above, holds it back from the models it doesn't allow. A thread keeps its account while that account stays available, so its prompt cache keeps paying off. Models you haven't added run on the account you pick.",
+  "181811b09600dcbb": "Model routing differs across environments. Edits apply to all selected environments.",
   "981cc7ad094d8d71": "No models are added yet. Add one to let T3 Code choose between the accounts that serve it.",
   "05823499e4db2b4d": "Soonest reset",
   "19d61932d5e157ac": "Manual order",
@@ -7722,7 +7733,6 @@
   "93aab53ee797f5d2": "This shared policy gates background work such as Git refreshes and provider health probes after their individual intervals elapse.",
   "23c719d08e321660": "Reset background activity to default",
   "bc7f7296e3b67ed8": "Background activity profile",
-  "d261e7e974b93885": "Mixed",
   "0b08bebc02283ea0": "Advanced (one environment)",
   "b180c8706ae5567b": "Configure advanced background activity",
   "af663e8520bb5888": "Background Activity",
@@ -12342,6 +12352,31 @@
   "37069a5ef57ee9fa": "Hourly cost by provider",
   "aa73a1b4208bc912": "Daily processed tokens by provider",
   "5c3c0e3a9f3e4717": "Daily cost by provider",
+  "fd834caeab406b9f": "${used} of ${limit} this cycle",
+  "33a76b7da43bf2c3": "Set monthly budget",
+  "b8abbcbe322b837a": "Edit budget",
+  "8bff0cca3bc2bca8": "Monthly budget (USD)",
+  "db44addf796f8e4c": "Resets on day",
+  "7022feb462b4f008": "Spent so far this cycle",
+  "03396f66b2db9024": "Save budget",
+  "7ba1620117b24abf": "Correct spend",
+  "fbb7fc5a05d41996": "Remove budget",
+  "5033ac57e3bb0e4a": [
+    "$",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " of $",
+    {
+      "i": 2,
+      "k": "_gt_value_2",
+      "v": "v"
+    },
+    " this cycle"
+  ],
+  "b67c77ca7e77d0e3": "Type what the provider console says and T3 carries on from that figure, adding what it records after it.",
   "0bd41ff995d36a66": "Cache read",
   "3f0dfe0cb15a3272": "Cache write",
   "1c9d860be42b1c02": "Output",

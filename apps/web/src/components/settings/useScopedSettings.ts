@@ -164,6 +164,24 @@ export function useUpdateScopedSettings() {
 }
 
 /**
+ * Saves a server-settings patch to every environment an "all" or "environment" scope covers.
+ * Outside a scope, or under a project scope (which cannot hold machine settings), it saves to
+ * this environment only.
+ */
+export function useUpdateEnvironmentScopedSettings(environmentId: EnvironmentId) {
+  const context = useOptionalSettingsScope();
+  const run = useRunScopedPlan();
+  const updateEnvironmentSettings = useUpdateEnvironmentSettings(environmentId);
+  return (patch: ServerSettingsPatch) => {
+    if (context === null || context.scope.kind === "project" || context.scope.kind === "checkout") {
+      return updateEnvironmentSettings(patch);
+    }
+    run(context.environments, (current) => planScopedSettingsPatch(context.scope, current, patch));
+    return undefined;
+  };
+}
+
+/**
  * Saves the per-model compact points. Under a settings scope they go to every environment the
  * scope covers (a model's point is a preference, not machine state); outside one, to this environment.
  */
