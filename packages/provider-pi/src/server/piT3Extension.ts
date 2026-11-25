@@ -682,6 +682,9 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
 
   const helper = delegatedTask && env(ROLE_ENV) !== "lead";
   const directTools = helper ? ["ask_advice", "task_status"] : ["agent_roles", "delegate_task", "task_status"];
+  // A Champion check prompt names its tools directly, so they are declared rather than found through
+  // codemode; the server lists them only to Champion threads.
+  const directPatterns = ["t3_champions_*"];
   // Without Pi's own tool_search or codemode nothing can reach undeclared tools, as on a
   // completions gateway, so every tool is declared.
   const exposureNow = () =>
@@ -699,7 +702,7 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
         timeout: TOOL_TIMEOUT_SECONDS,
         exposure,
         ...(exposure !== "direct" && !server.agent
-          ? { toolExposure: Object.fromEntries(directTools.map((name) => [name, "direct"])) }
+          ? { toolExposure: Object.fromEntries([...directTools, ...directPatterns].map((name) => [name, "direct"])) }
           : {}),
       });
     }

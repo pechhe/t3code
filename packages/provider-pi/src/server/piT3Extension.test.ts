@@ -225,9 +225,15 @@ describe("Pi MCP server registration", () => {
       authorizationHeader: "Bearer weave-token",
     },
   ];
+  const championDirect = { "t3_champions_*": "direct" };
   const direct = {
-    lead: { agent_roles: "direct", delegate_task: "direct", task_status: "direct" },
-    helper: { ask_advice: "direct", task_status: "direct" },
+    lead: {
+      agent_roles: "direct",
+      delegate_task: "direct",
+      task_status: "direct",
+      ...championDirect,
+    },
+    helper: { ask_advice: "direct", task_status: "direct", ...championDirect },
   };
 
   it.each([
