@@ -547,6 +547,46 @@ it.effect(
     }),
 );
 
+it.effect("keeps a controller without a recorded identity in recovery without reprobing", () =>
+  Effect.gen(function* () {
+    const f = yield* fixture;
+    yield* Effect.gen(function* () {
+      const journal = yield* Journal.WorkspaceCustody;
+      const epoch = yield* journal.reserve({
+        id: "no-controller",
+        ownerRef: "no-controller",
+        projectRoot: "/source",
+        credential: Redacted.make("claim-credential"),
+        producer: {
+          entry: yield* Ref.get(f.producerEntry),
+          activationId: "activation-one",
+          controller: null,
+        },
+      });
+      yield* journal.acquired(epoch.id, {
+        path: "/source/worktree",
+        generation: "allocation-one",
+        claimId: "claim-one",
+      });
+      const tick = WorkspaceCustody.WorkspaceCustody.use((fresh) => fresh.reconcile).pipe(
+        Effect.provide(Layer.fresh(WorkspaceCustody.layer)),
+        Effect.provideService(Journal.WorkspaceCustody, {
+          ...journal,
+          list: Effect.die("Reconciliation must not load released custody history"),
+        }),
+      );
+      yield* tick;
+      assert.equal((yield* journal.get(epoch.id)).recoveryReason, "controller-identity-unrecorded");
+      yield* Ref.set(f.argumentsUsed, []);
+      yield* tick;
+      assert.notInclude(yield* Ref.get(f.argumentsUsed), "controller");
+      const retained = yield* journal.get(epoch.id);
+      assert.equal(retained.phase, "recovery-required");
+      assert.equal(retained.recoveryReason, "controller-identity-unrecorded");
+    }).pipe(Effect.provide(f.layer));
+  }),
+);
+
 // Each scenario probes identities without signalling the provider, including shared runtimes.
 it.effect.each([
   "absent",
@@ -614,7 +654,23 @@ it.effect.each([
           );
           assert.equal(yield* Ref.get(f.releases), released ? 1 : 0);
 
+          if (scenario === "unknown" || scenario === "capture-failed" || scenario === "partial") {
+            assert.equal(
+              (yield* journal.get(epoch.id)).recoveryReason,
+              "stop-identity-unrecorded:execution",
+            );
+            yield* Ref.set(f.argumentsUsed, []);
+            yield* WorkspaceCustody.WorkspaceCustody.use((fresh) => fresh.reconcile).pipe(
+              Effect.provide(Layer.fresh(WorkspaceCustody.layer)),
+            );
+            assert.notInclude(yield* Ref.get(f.argumentsUsed), "controller");
+            assert.equal((yield* journal.get(epoch.id)).phase, "recovery-required");
+          }
           if (scenario === "live") {
+            assert.equal(
+              (yield* journal.get(epoch.id)).recoveryReason,
+              "process-stop-unproved:execution:456",
+            );
             const count = Effect.map(
               Ref.get(f.argumentsUsed),
               (args) => args.filter((arg) => arg === "controller").length,

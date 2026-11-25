@@ -339,9 +339,18 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
       snapshotForCwd: (workspaceCwd) =>
         !effectiveConfig.enabled
           ? snapshot.getSnapshot
-          : Effect.all([
-              snapshot.getSnapshot,
-              discoverPiCommandsForCwd(effectiveConfig, processEnv, workspaceCwd).pipe(
+          : Effect.gen(function* () {
+              const machineSnapshot = yield* snapshot.getSnapshot;
+              // SlipJay housekeeping can delete a workspace a thread still references; that must not fail the registry refresh.
+              const workspaceExists = yield* fileSystem
+                .exists(workspaceCwd)
+                .pipe(Effect.orElseSucceed(() => true));
+              if (!workspaceExists) return { ...machineSnapshot, slashCommandsPending: false };
+              const commands = yield* discoverPiCommandsForCwd(
+                effectiveConfig,
+                processEnv,
+                workspaceCwd,
+              ).pipe(
                 Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
                 Effect.mapError(
                   (cause) =>
@@ -352,15 +361,9 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
                       cause,
                     }),
                 ),
-              ),
-            ]).pipe(
-              Effect.map(([machineSnapshot, commands]) => ({
-                ...machineSnapshot,
-                ...commands,
-
-                slashCommandsPending: false,
-              })),
-            ),
+              );
+              return { ...machineSnapshot, ...commands, slashCommandsPending: false };
+            }),
       orchestrationAdapter,
       textGeneration,
       refreshUsage,

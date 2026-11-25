@@ -98,6 +98,7 @@ export class WorkspaceCustody extends Context.Service<
       ownerRef: string,
     ) => Effect.Effect<CustodyEpoch | null, PersistenceSqlError>;
     readonly list: Effect.Effect<ReadonlyArray<CustodyEpoch>, PersistenceSqlError>;
+    readonly listActive: Effect.Effect<ReadonlyArray<CustodyEpoch>, PersistenceSqlError>;
     readonly forScope: (
       prefix: string,
     ) => Effect.Effect<ReadonlyArray<CustodyEpoch>, PersistenceSqlError>;
@@ -189,6 +190,13 @@ const make = Effect.gen(function* () {
       readonly document_json: string;
     }>`SELECT document_json FROM workspace_custody ORDER BY id`.pipe(
       Effect.mapError(toPersistenceSqlError("listWorkspaceCustody")),
+      Effect.flatMap((rows) => Effect.forEach(rows, (row) => readDocument(row.document_json))),
+    ),
+    listActive: sql<{ readonly document_json: string }>`
+      SELECT document_json FROM workspace_custody
+      WHERE json_extract(document_json, '$.phase') != 'released' ORDER BY id
+    `.pipe(
+      Effect.mapError(toPersistenceSqlError("listActiveWorkspaceCustody")),
       Effect.flatMap((rows) => Effect.forEach(rows, (row) => readDocument(row.document_json))),
     ),
     reserve: Effect.fn("WorkspaceCustody.reserve")(function* (input) {

@@ -646,7 +646,7 @@ const make = Effect.gen(function* () {
     ),
     releaseSettled,
     reconcile: Effect.gen(function* () {
-      const epochs = yield* journal.list.pipe(
+      const epochs = yield* journal.listActive.pipe(
         Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "journal", cause })),
       );
       const identities = new Map<string, typeof Controller.Type>();
@@ -672,8 +672,22 @@ const make = Effect.gen(function* () {
         a.platform === b.platform &&
         a.boot === b.boot &&
         a.start === b.start;
+      const lacksStopIdentity = (obligation: Journal.CustodyObligation) =>
+        obligation.stopIdentityUnknown || !obligation.stopProcesses?.length;
       for (const epoch of epochs) {
-        if (epoch.phase === "released" || epoch.receipt === null) continue;
+        if (epoch.receipt === null) continue;
+        // Probes cannot recover identities that were never recorded.
+        if (
+          epoch.phase === "recovery-required" &&
+          (epoch.producer.controller === null ||
+            epoch.obligations.some(
+              (item) =>
+                item.acknowledgement === null &&
+                item.kind !== "allocation" &&
+                lacksStopIdentity(item),
+            ))
+        )
+          continue;
         yield* Effect.gen(function* () {
           const current = yield* observe(epoch, pid);
           // Without this server's own identity nothing is proved either way; never demote an epoch,
@@ -713,7 +727,7 @@ const make = Effect.gen(function* () {
                   );
                 continue;
               }
-              if (obligation.stopIdentityUnknown || (obligation.stopProcesses ?? []).length === 0) {
+              if (lacksStopIdentity(obligation)) {
                 reason = `stop-identity-unrecorded:${obligation.id}`;
                 continue;
               }

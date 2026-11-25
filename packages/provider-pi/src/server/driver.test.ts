@@ -37,6 +37,17 @@ const layerTest = Layer.mergeAll(
   ),
 ).pipe(Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
 
+const DELETED_WORKSPACE = "/deleted-workspace";
+// Fixture workspaces like "/first" are not on disk; only DELETED_WORKSPACE reports as missing.
+const layerWithFixtureWorkspaces = Layer.effect(
+  FileSystem.FileSystem,
+  Effect.map(FileSystem.FileSystem, (fs) => ({
+    ...fs,
+    exists: (path: string) =>
+      path === DELETED_WORKSPACE ? Effect.succeed(false) : Effect.succeed(true),
+  })),
+).pipe(Layer.provideMerge(layerTest));
+
 const decodeRequest = Schema.decodeSync(
   Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
 );
@@ -126,7 +137,7 @@ const create = (config: Partial<PiSettings> = {}, enabled = true) =>
     config: { ...PiDriver.defaultConfig(), binaryPath: "custom-pi", ...config },
   });
 
-it.layer(layerTest)("PiDriver workspace discovery", (it) => {
+it.layer(layerWithFixtureWorkspaces)("PiDriver workspace discovery", (it) => {
   it.effect("keeps each workspace's skills and commands separate from the machine catalog", () =>
     Effect.gen(function* () {
       const { spawner, launches } = yield* makePiSpawner();
@@ -338,5 +349,23 @@ it.layer(layerTest)("PiDriver workspace discovery", (it) => {
           ["personal"],
         );
       }),
+  );
+
+  it.effect("returns the machine snapshot without spawning Pi when the workspace was deleted", () =>
+    Effect.gen(function* () {
+      const { spawner, launches } = yield* makePiSpawner();
+      const instance = yield* create().pipe(
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+      );
+      yield* instance.snapshot.refresh;
+      const launchesBefore = launches.length;
+      const workspace = yield* instance.snapshotForCwd!(DELETED_WORKSPACE);
+      assert.equal(launches.length, launchesBefore);
+      assert.isFalse(workspace.slashCommandsPending);
+      assert.deepEqual(
+        workspace.skills.map((skill) => skill.name),
+        ["personal"],
+      );
+    }),
   );
 });

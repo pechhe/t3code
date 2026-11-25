@@ -4879,8 +4879,10 @@ const make = Effect.gen(function* () {
   // Champion folders in agent-config (T3-839). The folder on main is the record and the
   // database the working copy: the runner applies edits it did not write, then saves its
   // own state back, reading and writing git objects only, never the checkout's working tree.
-  const FOLDER_EVERY_MS = 60_000;
+  const FOLDER_EVERY_MS = 300_000;
   const FOLDER_SOON_MS = 15_000;
+  // Hosted repositories are read over the network; a save soon after a change reuses the last read.
+  const HOSTED_POLL_MS = 300_000;
   const FOLDER_PROBLEM = "agent-config folder: ";
   const NOT_SAVED = "Not saved to agent-config: ";
   const folderLock = yield* Semaphore.make(1);
@@ -5651,26 +5653,46 @@ const make = Effect.gen(function* () {
     return repositories;
   });
   /** Repository-hosted Champions on each local repository's published integration branch. */
+  let hostedRead: {
+    readonly at: number;
+    readonly key: string;
+    readonly reads: ReadonlyArray<{
+      canonicalKey: string;
+      published: Effect.Success<ReturnType<typeof ProjectChampionGit.readPublished>>;
+    }>;
+  } | null = null;
   const hostedOnMain = Effect.fn("ChampionService.hostedOnMain")(function* (
     agentConfig: ReadonlyMap<string, ReadonlyArray<AgentConfigGit.FolderFile>>,
+    reuse: boolean,
   ) {
     const found: Array<{ folder: FolderOnMain; commit: string; where: string }> = [];
     if (mirrorsRoot === null) return found;
-    const reads = yield* Effect.forEach(
-      yield* localRepositories(),
-      ([canonicalKey, checkout]) =>
-        ProjectChampionGit.readPublished({ mirrorsRoot, canonicalKey, checkout }).pipe(
-          Effect.catchTags({
-            AgentConfigGitError: (error) =>
-              Effect.logWarning("champions.repository-read-failed", {
-                repository: canonicalKey,
-                error,
-              }).pipe(Effect.as(null)),
-          }),
-          Effect.map((published) => ({ canonicalKey, published })),
-        ),
-      { concurrency: 4 },
-    );
+    const repositories = yield* localRepositories();
+    const key = json([...repositories]);
+    const at = yield* Clock.currentTimeMillis;
+    const cached = hostedRead;
+    const fetched =
+      reuse && cached !== null && cached.key === key && at - cached.at < HOSTED_POLL_MS
+        ? cached.reads
+        : null;
+    const reads =
+      fetched ??
+      (yield* Effect.forEach(
+        repositories,
+        ([canonicalKey, checkout]) =>
+          ProjectChampionGit.readPublished({ mirrorsRoot, canonicalKey, checkout }).pipe(
+            Effect.catchTags({
+              AgentConfigGitError: (error) =>
+                Effect.logWarning("champions.repository-read-failed", {
+                  repository: canonicalKey,
+                  error,
+                }).pipe(Effect.as(null)),
+            }),
+            Effect.map((published) => ({ canonicalKey, published })),
+          ),
+        { concurrency: 4 },
+      ));
+    if (fetched === null) hostedRead = { at, key, reads };
     for (const { canonicalKey, published } of reads) {
       if (published === null) continue;
       for (const folder of hostedFolders(canonicalKey, published.files, agentConfig))
@@ -5709,97 +5731,103 @@ const make = Effect.gen(function* () {
       );
     }
   });
-  const syncFolders: ChampionService["Service"]["syncFolders"] = Effect.gen(function* () {
-    const root = yield* agentPolicyRoot;
-    if (Option.isNone(root) || here === null) return;
-    yield* folderLock.withPermits(1)(
-      Effect.gen(function* () {
-        const commit = yield* AgentConfigGit.fetchMain(root.value).pipe(Effect.mapError(failure));
-        const files = yield* AgentConfigGit.readFiles(root.value, commit, CHAMPIONS_PREFIX).pipe(
-          Effect.mapError(failure),
-        );
-        const byFolder = filesByFolder(files);
-        const hosted = yield* hostedOnMain(byFolder);
-        const folders = [
-          ...foldersOnMain(files).map((folder) => ({
-            folder,
-            commit,
-            where: `agent-config ${folder.path}`,
-          })),
-          ...hosted,
-        ];
-        const twice = new Map<string, string>();
-        const firstWhere = new Map<string, string>();
-        for (const { folder, where } of folders) {
-          const other = firstWhere.get(folder.id);
-          if (other === undefined) firstWhere.set(folder.id, where);
-          else
-            twice.set(
-              folder.id,
-              `${folder.id} is defined in ${other} and in ${where}; it runs on no machine until one is removed.`,
-            );
-        }
-        for (const [id, note] of twice)
-          yield* Effect.logWarning("champions.folder-defined-twice", { id, note });
-        yield* noteDefinedTwice(twice);
-        const seen = new Set(firstWhere.keys());
-        // A folder with a file that does not parse is left as the agent wrote it until they fix it.
-        const unsettled = new Set<string>(twice.keys());
-        for (const { folder, commit: base } of folders) {
-          if (twice.has(folder.id)) continue;
-          const settled = yield* importFolder(folder, base).pipe(
-            Effect.catch((error) =>
-              Effect.logWarning("champions.folder-import-failed", {
-                path: folder.path,
-                error,
-              }).pipe(Effect.as(false)),
-            ),
+  const syncFoldersWith = Effect.fn("ChampionService.syncFolders")(function* (
+    reuseHosted: boolean,
+  ) {
+    yield* Effect.gen(function* () {
+      const root = yield* agentPolicyRoot;
+      if (Option.isNone(root) || here === null) return;
+      yield* folderLock.withPermits(1)(
+        Effect.gen(function* () {
+          const commit = yield* AgentConfigGit.fetchMain(root.value).pipe(Effect.mapError(failure));
+          const files = yield* AgentConfigGit.readFiles(root.value, commit, CHAMPIONS_PREFIX).pipe(
+            Effect.mapError(failure),
           );
-          if (!settled) unsettled.add(folder.id);
-        }
-        const onMain = byFolder;
-        const base = { commit };
-        const rows = yield* sql<{
-          document_json: string;
-        }>`SELECT document_json FROM champions ORDER BY id`.pipe(Effect.mapError(failure));
-        for (const row of rows) {
-          const doc = yield* decodeDocument(row.document_json).pipe(Effect.mapError(failure));
-          if (!runsHere(doc.champion) || twice.has(doc.champion.id)) continue;
-          if (unsettled.has(doc.champion.id)) {
-            yield* mutate(
-              Effect.gen(function* () {
-                const current = yield* read(doc.champion.id);
-                const attention = withNotes(current.champion.attention, NOT_SAVED, [
-                  "a file in its folder could not be applied; saving resumes once it is fixed.",
-                ]);
-                if (attention.join("\n") !== current.champion.attention.join("\n"))
-                  yield* write({ ...current, champion: { ...current.champion, attention } });
-              }),
-            );
-            continue;
+          const byFolder = filesByFolder(files);
+          const hosted = yield* hostedOnMain(byFolder, reuseHosted);
+          const folders = [
+            ...foldersOnMain(files).map((folder) => ({
+              folder,
+              commit,
+              where: `agent-config ${folder.path}`,
+            })),
+            ...hosted,
+          ];
+          const twice = new Map<string, string>();
+          const firstWhere = new Map<string, string>();
+          for (const { folder, where } of folders) {
+            const other = firstWhere.get(folder.id);
+            if (other === undefined) firstWhere.set(folder.id, where);
+            else
+              twice.set(
+                folder.id,
+                `${folder.id} is defined in ${other} and in ${where}; it runs on no machine until one is removed.`,
+              );
           }
-          if (
-            doc.champion.folder === undefined &&
-            (doc.champion.lifecycle === "retired" || seen.has(doc.champion.id))
-          )
-            continue;
-          yield* saveFolder(root.value, base, onMain, doc).pipe(
-            Effect.catch((error) =>
-              Effect.logWarning("champions.folder-save-failed", { id: doc.champion.id, error }),
-            ),
-          );
-        }
-      }),
-    );
-  }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processes));
+          for (const [id, note] of twice)
+            yield* Effect.logWarning("champions.folder-defined-twice", { id, note });
+          yield* noteDefinedTwice(twice);
+          const seen = new Set(firstWhere.keys());
+          // A folder with a file that does not parse is left as the agent wrote it until they fix it.
+          const unsettled = new Set<string>(twice.keys());
+          for (const { folder, commit: base } of folders) {
+            if (twice.has(folder.id)) continue;
+            const settled = yield* importFolder(folder, base).pipe(
+              Effect.catch((error) =>
+                Effect.logWarning("champions.folder-import-failed", {
+                  path: folder.path,
+                  error,
+                }).pipe(Effect.as(false)),
+              ),
+            );
+            if (!settled) unsettled.add(folder.id);
+          }
+          const onMain = byFolder;
+          const base = { commit };
+          const rows = yield* sql<{
+            document_json: string;
+          }>`SELECT document_json FROM champions ORDER BY id`.pipe(Effect.mapError(failure));
+          for (const row of rows) {
+            const doc = yield* decodeDocument(row.document_json).pipe(Effect.mapError(failure));
+            if (!runsHere(doc.champion) || twice.has(doc.champion.id)) continue;
+            if (unsettled.has(doc.champion.id)) {
+              yield* mutate(
+                Effect.gen(function* () {
+                  const current = yield* read(doc.champion.id);
+                  const attention = withNotes(current.champion.attention, NOT_SAVED, [
+                    "a file in its folder could not be applied; saving resumes once it is fixed.",
+                  ]);
+                  if (attention.join("\n") !== current.champion.attention.join("\n"))
+                    yield* write({ ...current, champion: { ...current.champion, attention } });
+                }),
+              );
+              continue;
+            }
+            if (
+              doc.champion.folder === undefined &&
+              (doc.champion.lifecycle === "retired" || seen.has(doc.champion.id))
+            )
+              continue;
+            yield* saveFolder(root.value, base, onMain, doc).pipe(
+              Effect.catch((error) =>
+                Effect.logWarning("champions.folder-save-failed", { id: doc.champion.id, error }),
+              ),
+            );
+          }
+        }),
+      );
+    }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processes));
+  });
+  const syncFolders: ChampionService["Service"]["syncFolders"] = syncFoldersWith(false);
   yield* scheduler.register(
     "champion-folders",
     Effect.gen(function* () {
       const at = yield* Clock.currentTimeMillis;
       if (at - folderSyncedAt < (folderDirty ? FOLDER_SOON_MS : FOLDER_EVERY_MS)) return;
+      const soon = folderDirty;
       folderSyncedAt = at;
       folderDirty = false;
-      yield* syncFolders.pipe(
+      yield* syncFoldersWith(soon).pipe(
         Effect.catchCause((cause) => Effect.logWarning("champions.folder-sync-failed", { cause })),
       );
     }),

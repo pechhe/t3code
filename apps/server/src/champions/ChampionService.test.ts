@@ -197,6 +197,7 @@ const fixture = Effect.fn("test.championFixture")(() =>
     };
     const childRuns = new Map<ThreadId, OrchestrationV2Run[]>();
     const dispatches: string[] = [];
+    const scheduled = new Map<string, Effect.Effect<void>>();
     let ownerMode: RuntimeMode = "full-access";
     let providerOverride: ReadonlyArray<ServerProvider> | undefined;
     const disabledProviders = new Set<string>();
@@ -423,7 +424,13 @@ const fixture = Effect.fn("test.championFixture")(() =>
       Layer.mock(Projects.ProjectService)({
         getById: () => Effect.succeedSome({ id: projectId, workspaceRoot } as Project),
       }),
-      Layer.mock(Scheduler.Scheduler)({ register: () => Effect.void }),
+      Layer.mock(Scheduler.Scheduler)({
+        register: <E, R>(name: string, task: Effect.Effect<void, E, R>) =>
+          Effect.gen(function* () {
+            const context = yield* Effect.context<R>();
+            scheduled.set(name, task.pipe(Effect.provideContext(context), Effect.orDie));
+          }),
+      }),
       Layer.mock(Landings.SlipJayLandings)({
         repositoryOf: () => Effect.succeed("test/repo"),
         readDetail: () => landingLookup.pipe(Effect.andThen(Effect.sync(() => landing))),
@@ -441,6 +448,8 @@ const fixture = Effect.fn("test.championFixture")(() =>
       layer: Champions.layer.pipe(Layer.provide(dependencies)),
       dependencies,
       dispatches,
+      /** Work registered with the scheduler, by name. */
+      scheduled,
       providerAllowed: (instanceId: string, allowed: boolean) => {
         if (allowed) disabledProviders.delete(instanceId);
         else disabledProviders.add(instanceId);
@@ -8034,6 +8043,70 @@ describe("Repository-hosted Champions", () => {
           assert.isNull(world.onMain(`${FOLDER}/champion.md`));
         }),
       ),
+  );
+
+  it.effect(
+    "reuses the last hosted read for dirty saves within the poll window and rereads after it",
+    () =>
+      withFolders((f, service, world) =>
+        Effect.gen(function* () {
+          const project = projectRepository();
+          const sql = yield* SqlClient.SqlClient;
+          yield* sql`UPDATE projection_projects SET workspace_root = ${project.checkout}`.pipe(
+            Effect.orDie,
+          );
+          const files = folderFiles({});
+          project.land(hostedFiles(files));
+          const tick = f.scheduled.get("champion-folders")!;
+          const purpose = () =>
+            service.get({ id: config.id }).pipe(Effect.map((detail) => detail.champion.purpose));
+          yield* tick;
+          assert.equal(yield* purpose(), config.purpose);
+
+          project.land({
+            [`${HOSTED}/champion.md`]: files[`${FOLDER}/champion.md`]!.replace(
+              `purpose: ${config.purpose}`,
+              "purpose: Edited in the repository",
+            ),
+          });
+          yield* service.upsert({ ...config, id: "champion:other", name: "Other" });
+          yield* TestClock.adjust("20 seconds");
+          yield* tick;
+          assert.equal(yield* purpose(), config.purpose);
+
+          yield* service.upsert({ ...config, id: "champion:another", name: "Another" });
+          yield* TestClock.adjust("20 seconds");
+          yield* tick;
+          assert.equal(yield* purpose(), config.purpose);
+
+          yield* TestClock.adjust("5 minutes");
+          yield* tick;
+          assert.equal(yield* purpose(), "Edited in the repository");
+          assert.isNotNull(world.onMain("README.md"));
+        }),
+      ),
+  );
+
+  it.effect("does not re-arm the dirty save when a sync finds nothing to change", () =>
+    withFolders((f, service, world) =>
+      Effect.gen(function* () {
+        world.push(folderFiles({}));
+        const tick = f.scheduled.get("champion-folders")!;
+        yield* tick;
+        const sql = yield* SqlClient.SqlClient;
+        const stored = sql<{
+          document_json: string;
+        }>`SELECT document_json FROM champions ORDER BY id`.pipe(Effect.orDie);
+        const settled = world.commits();
+        const before = yield* stored;
+        yield* TestClock.adjust("20 seconds");
+        yield* tick;
+        yield* TestClock.adjust("20 seconds");
+        yield* tick;
+        assert.equal(world.commits(), settled);
+        assert.deepEqual(yield* stored, before);
+      }),
+    ),
   );
 
   it.effect("runs a Champion defined both in a repository and in agent-config nowhere", () =>

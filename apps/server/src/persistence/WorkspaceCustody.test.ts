@@ -90,13 +90,27 @@ it.effect("preserves unknown custody and rejects changed identity on replay", ()
       .released(request.id, "logical-cancellation-only")
       .pipe(Effect.result);
     assert.isTrue(release._tag === "Failure");
-    assert.equal((yield* custody.list).length, 1);
-    assert.equal((yield* custody.get(request.id)).phase, "recovery-required");
+    assert.deepEqual(
+      (yield* custody.listActive).map(({ phase }) => phase),
+      ["recovery-required"],
+    );
     const prematureClosure = yield* custody.close(request.id).pipe(Effect.result);
     assert.isTrue(prematureClosure._tag === "Failure");
+    yield* custody.reserve({ ...request, id: "epoch-open", ownerRef: "run-open" });
     yield* custody.acknowledge(request.id, "provider-survivor", "provider-stop-acknowledgement");
     yield* custody.close(request.id);
+    assert.deepEqual(
+      (yield* custody.listActive).map(({ phase }) => phase),
+      ["open", "closing"],
+    );
     yield* custody.released(request.id, "closed-recovery-proof");
-    assert.equal((yield* custody.get(request.id)).phase, "released");
+    assert.deepEqual(
+      (yield* custody.listActive).map(({ phase }) => phase),
+      ["open"],
+    );
+    assert.deepEqual(
+      (yield* custody.list).map(({ phase }) => phase),
+      ["open", "released"],
+    );
   }).pipe(Effect.provide(testLayer)),
 );
