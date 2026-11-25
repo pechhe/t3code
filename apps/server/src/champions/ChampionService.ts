@@ -165,10 +165,15 @@ const Check = Schema.Struct({
   skipped: Schema.optional(Schema.String),
   /** Retries the server started on its own for this claim; manual retries are not counted. */
   automaticRetries: Schema.optional(Schema.Number),
+  /** The message of the one follow-up the server sent after a run ended without a report; it is sent once per check. */
+  repromptMessageId: Schema.optional(MessageId),
   /** Set once this check's failure has counted towards the Champion being stuck. */
   failureCounted: Schema.optional(Schema.Boolean),
 });
 type Check = typeof Check.Type;
+/** Opens the follow-up that tells an owner its run ended with no report on the server. */
+const missingReportReminder = (checkId: string) =>
+  `The server has no report for check claim ${checkId}. Saying it was reported does not record one. Call t3_champions_check_context and then t3_champions_report now, before anything else. End the turn only after the report call succeeds.`;
 /** A claim's own retries stop here, so a lasting outage cannot keep spending on it. */
 const MAX_AUTOMATIC_CHECK_RETRIES = 3;
 /** Opens the attention line and activity entry a skipped run leaves. */
@@ -1261,10 +1266,15 @@ const make = Effect.gen(function* () {
     ]
       .filter((line) => line !== null)
       .join("\n\n");
-  const prompt = (doc: Document, check: Check) =>
-    doc.champion.journeys !== undefined && check.kind === "check"
-      ? journeyPrompt(doc, check)
-      : routinePrompt(doc, check);
+  const prompt = (doc: Document, check: Check) => {
+    const body =
+      doc.champion.journeys !== undefined && check.kind === "check"
+        ? journeyPrompt(doc, check)
+        : routinePrompt(doc, check);
+    return check.repromptMessageId === check.messageId
+      ? `${missingReportReminder(check.id)}\n\n${body}`
+      : body;
+  };
   /**
    * The model an attempt runs on, resolved now: the main model, else the backup. With neither able to run it fails
    * with the skip message, which the caller records.
@@ -1460,6 +1470,7 @@ const make = Effect.gen(function* () {
     scheduled = false,
     automatic = false,
     afterLimit: { readonly until: string | null } | undefined = undefined,
+    reprompt = false,
   ) {
     if (kind === "check") {
       const champion = (yield* read(id)).champion;
@@ -1537,7 +1548,8 @@ const make = Effect.gen(function* () {
                       checkRunMessages(run, runsById).includes(outstanding.messageId) &&
                       !ThreadManagement.isTerminalRunStatus(run.status),
                   ) ?? false;
-                const automaticRetries = (outstanding.automaticRetries ?? 0) + (automatic ? 1 : 0);
+                const automaticRetries =
+                  (outstanding.automaticRetries ?? 0) + (automatic && !reprompt ? 1 : 0);
                 // A claim keeps the definitions it froze, so retrying one made before they changed
                 // would measure what is no longer accepted, and never by command.
                 superseded =
@@ -1572,6 +1584,13 @@ const make = Effect.gen(function* () {
                   let retry: Check = {
                     ...outstanding,
                     automaticRetries,
+                    ...(reprompt
+                      ? {
+                          repromptMessageId: MessageId.make(
+                            `champion:${outstanding.id}:retry:${retryId}`,
+                          ),
+                        }
+                      : {}),
                     failureCounted: false,
                     dispatchKind: "send",
                     dispatched: false,
@@ -1612,11 +1631,13 @@ const make = Effect.gen(function* () {
                   yield* activity(
                     id,
                     "check-retry",
-                    automatic
-                      ? afterLimit === undefined
-                        ? "The provider was overloaded, so the server retried the check. The retry retains the check definitions and owner."
-                        : `The model reached its usage limit, so the server retried the check once on ${retry.executionAttempt?.slot === "backup" ? "the backup model" : "another account of the main model"}. The retry retains the check definitions and owner.`
-                      : "The previous run ended without an authenticated report. A manual retry retains the check definitions and owner.",
+                    reprompt
+                      ? "The run ended without an authenticated report, so the server asked the owner once more to report it."
+                      : automatic
+                        ? afterLimit === undefined
+                          ? "The provider was overloaded, so the server retried the check. The retry retains the check definitions and owner."
+                          : `The model reached its usage limit, so the server retried the check once on ${retry.executionAttempt?.slot === "backup" ? "the backup model" : "another account of the main model"}. The retry retains the check definitions and owner.`
+                        : "The previous run ended without an authenticated report. A manual retry retains the check definitions and owner.",
                     undefined,
                     retry.threadId,
                   );
@@ -4751,6 +4772,30 @@ const make = Effect.gen(function* () {
             shell.updatedAt,
           );
           if (handled) continue;
+        }
+        // A model that ends a run claiming a report it never made gets one pointed follow-up per check.
+        if (
+          endedWithoutReport &&
+          check.kind === "check" &&
+          check.repromptMessageId === undefined &&
+          !endedOnOverload &&
+          shell !== null &&
+          shell.lastErrorCode !== "overloaded" &&
+          shell.usageLimitResetAt == null
+        ) {
+          const reprompted = yield* start(
+            doc.champion.id,
+            "check",
+            false,
+            true,
+            undefined,
+            true,
+          ).pipe(
+            Effect.andThen(readCheck(check.id)),
+            Effect.map((latest) => latest.repromptMessageId === latest.messageId),
+            Effect.orElseSucceed(() => false),
+          );
+          if (reprompted) continue;
         }
         const ownershipLost =
           check.dispatched &&

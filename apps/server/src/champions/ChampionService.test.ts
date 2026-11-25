@@ -1059,7 +1059,7 @@ it.effect(
         assert.equal(f.counts().sends, 0);
         f.completeRun(true);
         f.endRun();
-        yield* service.runDue;
+        yield* runDueThroughReprompt(f, service);
         const ended = yield* service.get({ id: config.id });
         assert.isTrue(
           ended.champion.attention.some(
@@ -1070,7 +1070,7 @@ it.effect(
         assert.equal((yield* service.history({ id: config.id })).samples.length, 0);
         yield* service.runCheck({ id: config.id });
         f.completeRun(false);
-        assert.equal(f.counts().sends, 1);
+        assert.equal(f.counts().sends, 2);
         const retry = yield* service.checkContext(f.caller());
         assert.equal(retry.checkId, context.checkId);
         assert.notEqual(retry.messageId, context.messageId);
@@ -1880,7 +1880,7 @@ it.effect.each(["another message", "another thread"] as const)(
             : { thread: ThreadId.make("other-thread") },
         );
         yield* refused(service.checkContext(f.caller()));
-        yield* service.runDue;
+        yield* runDueThroughReprompt(f, service);
         assert.isTrue(
           (yield* service.get({ id: config.id })).champion.attention.some((a) =>
             a.includes("ended without"),
@@ -1932,7 +1932,7 @@ it.effect("releases a check whose run ended without a report, and starts the nex
       yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
       const claim = (yield* service.runCheck({ id: config.id })).champion.outstandingCheckId;
       f.endRun();
-      yield* service.runDue;
+      yield* runDueThroughReprompt(f, service);
       // Before its next check is due, Check now still retries the claim in place.
       assert.equal((yield* service.get({ id: config.id })).champion.outstandingCheckId, claim);
       yield* TestClock.adjust("2 days");
@@ -1974,7 +1974,7 @@ it.effect.each([
           : {}),
       });
       yield* refused(service.checkContext(f.caller()));
-      yield* service.runDue;
+      yield* runDueThroughReprompt(f, service);
       assert.isTrue(
         (yield* service.get({ id: config.id })).champion.attention.some((a) =>
           a.includes("ended without"),
@@ -3032,18 +3032,105 @@ it.effect(
     ),
 );
 
-it.effect("leaves a check that ended without a report for any other reason to a person", () =>
-  withFixture((f, service) =>
-    Effect.gen(function* () {
-      yield* definitions(service);
-      yield* service.runCheck({ id: config.id });
-      f.completeRun(true);
-      f.endRun();
-      yield* service.runDue;
-      assert.equal(f.counts().sends, 0);
-    }),
-  ),
-);
+describe("a check run that ends without a report", () => {
+  it.effect("gets one pointed follow-up on the same claim before it is flagged", () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        yield* definitions(service);
+        const claim = (yield* service.runCheck({ id: config.id })).champion.outstandingCheckId;
+        f.completeRun(true);
+        f.endRun();
+        yield* service.runDue;
+        assert.equal(f.counts().sends, 1);
+        const text = f.sent[0]!.text;
+        assert.include(text, `check claim ${claim}`);
+        assert.include(text, "no report");
+        assert.include(text, "t3_champions_check_context");
+        assert.include(text, "t3_champions_report");
+        const waiting = (yield* service.get({ id: config.id })).champion;
+        assert.equal(waiting.outstandingCheckId, claim);
+        assert.deepEqual(waiting.attention, []);
+        f.completeRun(false);
+        assert.equal(waiting.consecutiveCheckFailures ?? 0, 0);
+        const context = yield* service.checkContext(f.caller());
+        assert.equal(context.checkId, claim);
+      }),
+    ),
+  );
+
+  it.effect("completes normally when the follow-up reports", () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        yield* definitions(service);
+        yield* service.runCheck({ id: config.id });
+        f.completeRun(true);
+        f.endRun();
+        yield* service.runDue;
+        f.completeRun(false);
+        yield* service.checkContext(f.caller());
+        const reported = yield* service.report(f.caller(), {
+          samples: [sample],
+          findings: [],
+          summary: "Measured after the follow-up",
+        });
+        assert.isNull(reported.champion.outstandingCheckId);
+        f.completeRun(true);
+        f.endRun();
+        yield* service.runDue;
+        const done = (yield* service.get({ id: config.id })).champion;
+        assert.deepEqual(done.attention, []);
+        assert.equal(done.consecutiveCheckFailures ?? 0, 0);
+        assert.equal(f.counts().sends, 1);
+      }),
+    ),
+  );
+
+  it.effect("is flagged and counted as before when the follow-up also ends unreported, once", () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        yield* definitions(service);
+        yield* service.runCheck({ id: config.id });
+        for (let end = 0; end < 3; end++) {
+          f.completeRun(true);
+          f.endRun();
+          yield* service.runDue;
+        }
+        assert.equal(f.counts().sends, 1);
+        const flagged = (yield* service.get({ id: config.id })).champion;
+        assert.equal(flagged.consecutiveCheckFailures, 1);
+        assert.equal(
+          flagged.attention.filter((a) => a.startsWith("Check run ended without")).length,
+          1,
+        );
+      }),
+    ),
+  );
+
+  it.effect("is not followed up when the run ended on a usage limit", () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        yield* definitions(service);
+        yield* service.runCheck({ id: config.id });
+        f.limitRun("1970-01-01T00:30:00.000Z");
+        yield* service.runDue;
+        assert.isFalse(f.sent.some((m) => m.text.includes("has no report")));
+      }),
+    ),
+  );
+});
+
+/** Lets the server's one follow-up for a run that ended without a report come and go unanswered. */
+const runDueThroughReprompt = Effect.fn("test.runDueThroughReprompt")(function* (
+  f: Effect.Success<ReturnType<typeof fixture>>,
+  service: Champions.ChampionService["Service"],
+) {
+  const before = f.sent.length;
+  yield* service.runDue;
+  if (f.sent.length === before) return;
+  f.completeRun(true);
+  f.endRun();
+  yield* service.runDue;
+});
 
 /** Completes the advisor a metric breach must have and records the route it recommends. */
 const diagnose = Effect.fn("test.championDiagnose")(function* (
@@ -6232,7 +6319,7 @@ describe("a journey check", () => {
           yield* service.runCheck({ id: config.id });
           const plan = yield* service.journeysStart(f.caller());
           f.endRun();
-          yield* service.runDue;
+          yield* runDueThroughReprompt(f, service);
           const early = yield* service.journeyRecord({ checkId: plan.checkId });
           assert.equal(early.record.status, "running");
           yield* TestClock.adjust("6 minutes");
@@ -8482,7 +8569,7 @@ describe("escalation threads", () => {
             yield* service.runCheck({ id: config.id });
             f.completeRun(true);
             f.endRun();
-            yield* service.runDue;
+            yield* runDueThroughReprompt(f, service);
             return (yield* service.get({ id: config.id })).champion;
           });
           const first = yield* failCheck;
