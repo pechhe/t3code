@@ -43,6 +43,8 @@ export function ChampionEscalationCard(props: {
   readonly environmentId: EnvironmentId;
   readonly champion: OrchestrationV2ThreadChampion;
   readonly canInvestigate: boolean;
+  /** The thread already has a message or run; the first-conversation button is then hidden. */
+  readonly started?: boolean;
   readonly onInvestigate: (prompt: string) => Promise<void>;
 }) {
   const gt = useGT();
@@ -74,6 +76,7 @@ export function ChampionEscalationCard(props: {
     champion: props.champion,
     detail,
     finding,
+    started: props.started,
   });
 
   const championName = detail?.champion.name ?? props.champion.name ?? gt("Champion");

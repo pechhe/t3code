@@ -3873,6 +3873,7 @@ export default function ChatView(props: ChatViewProps) {
                   canInvestigate={
                     canOperateThread && threadHandoffSendBlockReason(activeThreadShell) === null
                   }
+                  started={activeMessageCount > 0 || activeLatestRun !== null}
                   onInvestigate={sendAppMessageStable}
                 />
               ) : null}

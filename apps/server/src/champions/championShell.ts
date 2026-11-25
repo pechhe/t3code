@@ -192,10 +192,37 @@ export const readEscalationBrief = Effect.fn("Champions.readEscalationBrief")(fu
           trigger: stuck.trigger,
           resolved: !stuck.stuck,
         };
+  // The current streak's checks (failureCounted stays set after recovery, so the streak length bounds
+  // the read); each one's ending leaves no activity row.
+  const streak = Math.min(5, doc.champion.consecutiveCheckFailures ?? 0);
+  const failures =
+    finding === undefined && streak > 0
+      ? (yield* sql<{ document_json: string }>`
+          SELECT document_json FROM champion_checks
+          WHERE champion_id = ${doc.champion.id}
+            AND json_extract(document_json, '$.failureCounted') = 1
+          ORDER BY started_at DESC LIMIT ${streak}`).map((row) => {
+          const check = parseJson(row.document_json) as {
+            id: string;
+            startedAt: string;
+            cancelled?: boolean;
+            reported?: boolean;
+            skipped?: string;
+          };
+          const status = check.cancelled ? "cancelled" : check.reported ? "reported" : "pending";
+          return {
+            at: check.startedAt,
+            text: `check ${check.id.slice(0, 8)} (${status})${check.skipped === undefined ? "" : `: ${check.skipped}`}`,
+          };
+        })
+      : undefined;
   return formatEscalationBrief({
     champion: doc.champion,
     shell,
     finding,
     attention: doc.champion.attention,
+    ownerThreadId: doc.champion.ownerThreadId,
+    repository: doc.champion.folder?.repository,
+    failures,
   });
 });

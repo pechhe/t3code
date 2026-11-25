@@ -828,6 +828,13 @@ const make = Effect.gen(function* () {
     threadId: ThreadId,
   ) {
     if ((yield* byThread(threadId)) !== undefined) return true;
+    // The Champion's current stuck escalation thread, or any open finding's, reads its own Champion's state (same match as the brief).
+    const escalations = yield* sql`SELECT 1 FROM champions
+      WHERE json_extract(document_json, '$.champion.stuckEscalationThreadId') = ${threadId}
+        OR EXISTS (SELECT 1 FROM json_each(document_json, '$.findings') f
+          WHERE json_extract(f.value, '$.escalationThreadId') = ${threadId})
+      LIMIT 1`.pipe(Effect.mapError(failure));
+    if (escalations.length > 0) return true;
     const checks =
       yield* sql`SELECT 1 FROM champion_checks WHERE thread_id = ${threadId} AND status = 'pending' LIMIT 1`.pipe(
         Effect.mapError(failure),

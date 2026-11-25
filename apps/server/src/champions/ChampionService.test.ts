@@ -8414,6 +8414,36 @@ describe("escalation threads", () => {
           const threadId = third.stuckEscalationThreadId!;
           assert.equal(f.escalationLaunches[0]!.title, "Quality: failed 3 checks in a row");
           assert.equal(f.escalationLaunches[0]!.model, "strong");
+          const sql = yield* SqlClient.SqlClient;
+          const seeded = JSON.stringify({
+            id: "f04b42fb-0000",
+            championId: config.id,
+            startedAt: "2030-01-01T00:00:00.000Z",
+            cancelled: true,
+            reported: false,
+            failureCounted: true,
+            skipped: "ended without a report",
+          });
+          yield* sql`INSERT INTO champion_checks (id, champion_id, thread_id, message_id, started_at, status, document_json) VALUES ('f04b42fb-0000', ${config.id}, ${third.ownerThreadId}, 'message:seeded', '2030-01-01T00:00:00.000Z', 'cancelled', ${seeded})`.pipe(
+            Effect.orDie,
+          );
+          yield* sql`INSERT INTO champion_checks (id, champion_id, thread_id, message_id, started_at, status, document_json) VALUES ('f04b42fc-0000', ${config.id}, ${third.ownerThreadId}, 'message:seeded2', '2029-01-01T00:00:00.000Z', 'cancelled', ${seeded.replace("f04b42fb", "f04b42fc").replace("2030", "2029")})`.pipe(
+            Effect.orDie,
+          );
+          yield* sql`INSERT INTO champion_checks (id, champion_id, thread_id, message_id, started_at, status, document_json) VALUES ('0ldstreak-0000', ${config.id}, ${third.ownerThreadId}, 'message:old', '1969-12-31T00:00:00.000Z', 'cancelled', ${JSON.stringify({ id: "0ldstreak-0000", championId: config.id, startedAt: "1969-12-31T00:00:00.000Z", cancelled: true, reported: false, failureCounted: true })})`.pipe(
+            Effect.orDie,
+          );
+          const stuckBrief = yield* readEscalationBrief(sql, threadId).pipe(Effect.orDie);
+          for (const part of [
+            `Its checks run in thread ${third.ownerThreadId}`,
+            "- 2030-01-01T00:00:00.000Z check f04b42fb (cancelled): ended without a report",
+            "T3 Peach (pechhe/t3code)",
+            "Never edit a shared main checkout",
+          ])
+            assert.include(stuckBrief, part);
+          assert.notInclude(stuckBrief, "0ldstrea");
+          assert.isTrue(yield* service.hasThreadContext(threadId as ThreadId));
+          assert.isFalse(yield* service.hasThreadContext("thread:unrelated" as ThreadId));
           assert.deepEqual(yield* shellOf(threadId), {
             id: config.id,
             attention: true,
@@ -8475,6 +8505,8 @@ describe("escalation threads", () => {
         ])
           assert.include(brief, part);
         assert.equal(yield* readEscalationBrief(sql, "thread:unrelated").pipe(Effect.orDie), "");
+        assert.include(brief, "To change code, work in a SlipJay workspace");
+        assert.isTrue(yield* service.hasThreadContext(threadId as ThreadId));
       }),
     ),
   );

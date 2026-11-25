@@ -198,15 +198,31 @@ export const formatEscalationBrief = (input: {
       >
     | undefined;
   readonly attention: ReadonlyArray<string>;
+  /** The thread the Champion's checks run in; absent when it has none. */
+  readonly ownerThreadId?: string | null | undefined;
+  /** Where the Champion's definition lives, for the workspace line. */
+  readonly repository?: string | undefined;
+  /** Recent checks that counted as failed, newest first; read for a stuck escalation only. */
+  readonly failures?: ReadonlyArray<{ readonly at: string; readonly text: string }> | undefined;
 }) => {
   const { champion, shell, finding } = input;
   const lines = [
     `This thread was opened by the ${champion.name} Champion (id ${champion.id}) because: ${shell.trigger} (${shell.severity}).`,
     ...(champion.purpose ? [`Its goal: ${champion.purpose}`] : []),
+    ...(input.ownerThreadId
+      ? [
+          `Its checks run in thread ${input.ownerThreadId}; read it with t3_thread_read to see what recent runs did.`,
+        ]
+      : []),
   ];
   if (finding === undefined) {
     lines.push(
       `Champion attention:\n${input.attention.map((line) => `- ${line}`).join("\n") || "- none recorded"}`,
+      ...(input.failures === undefined || input.failures.length === 0
+        ? []
+        : [
+            `Recent checks that ended without a report:\n${input.failures.map((entry) => `- ${entry.at} ${entry.text}`).join("\n")}`,
+          ]),
       "Read its current state with t3_champions_get before acting.",
     );
   } else {
@@ -232,6 +248,9 @@ export const formatEscalationBrief = (input: {
       );
     }
   }
+  lines.push(
+    `To change code, work in a SlipJay workspace in the repository that owns the cause: ${input.repository ?? "the Champion's repository"} or, when the check pipeline itself fails, T3 Peach (pechhe/t3code). Never edit a shared main checkout.`,
+  );
   return `Champion escalation context:\n${lines.join("\n")}`;
 };
 

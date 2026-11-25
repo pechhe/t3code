@@ -166,6 +166,17 @@ describe("resolveEscalationCardState", () => {
     });
   });
 
+  it("hides Investigate once the thread's conversation has started", () => {
+    expect(
+      resolveEscalationCardState({
+        champion: { ...baseChampion, severity: "incident" },
+        detail: detail(),
+        finding: finding(),
+        started: true,
+      }).canInvestigate,
+    ).toBe(false);
+  });
+
   it("exposes dismissed state with Reopen enabled", () => {
     const f = finding({ status: "dismissed" });
     expect(

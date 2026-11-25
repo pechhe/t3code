@@ -80,6 +80,8 @@ export function resolveEscalationCardState(input: {
   readonly champion: OrchestrationV2ThreadChampion;
   readonly detail: ChampionDetail | null | undefined;
   readonly finding: ChampionFinding | null;
+  /** The thread already has a message or run, so its first conversation is under way. */
+  readonly started?: boolean | undefined;
 }): EscalationCardState {
   const { champion, detail, finding } = input;
   const severity: "decision" | "incident" | "stuck" =
@@ -112,7 +114,7 @@ export function resolveEscalationCardState(input: {
   const canApproveProposal = unresolved && pendingDecision?.proposal !== undefined;
   const canDismiss = unresolved && finding !== null && canDismissChampionFinding(finding);
   const canReopen = finding !== null && canReopenChampionFinding(finding);
-  const canInvestigate = unresolved && !canApproveProposal;
+  const canInvestigate = unresolved && !canApproveProposal && input.started !== true;
 
   return {
     severity,
