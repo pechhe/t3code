@@ -8,7 +8,10 @@ import * as Path from "effect/Path";
 import { symlinksSupported } from "@t3tools/shared/testing/symlinks";
 
 import { isAntigravityTextGenerationAvailable } from "../textGeneration/AntigravityTextGeneration.ts";
-import { prepareAntigravityProfile } from "./antigravityAuthSupport.ts";
+import {
+  buildAntigravityAcpSpawnInput,
+  prepareAntigravityProfile,
+} from "./antigravityAuthSupport.ts";
 
 it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("Antigravity user tooling", (it) => {
   const setup = Effect.fn(function* () {
@@ -25,7 +28,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("Antigravity user
   });
 
   it.effect.skipIf(!symlinksSupported)(
-    "links the user's MCP servers, hooks and plugins over the CLI's empty placeholder only",
+    "links the user's MCP servers, hooks, plugins and agents over the CLI's empty placeholder only",
     () =>
       Effect.gen(function* () {
         const { fs, path, userConfig, profileConfig, prepare } = yield* setup();
@@ -33,6 +36,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("Antigravity user
         yield* fs.writeFileString(path.join(userConfig, "mcp_config.json"), servers);
         yield* fs.writeFileString(path.join(userConfig, "hooks.json"), '{"hooks":{}}');
         yield* fs.makeDirectory(path.join(userConfig, "plugins", "rtk"), { recursive: true });
+        yield* fs.makeDirectory(path.join(userConfig, "agents"));
         yield* fs.makeDirectory(profileConfig, { recursive: true });
         yield* fs.writeFileString(path.join(profileConfig, "mcp_config.json"), "");
         yield* fs.writeFileString(path.join(profileConfig, "hooks.json"), '{"own":{}}');
@@ -43,11 +47,31 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("Antigravity user
         expect(yield* fs.readLink(path.join(profileConfig, "plugins"))).toBe(
           path.join(userConfig, "plugins"),
         );
+        expect(yield* fs.readLink(path.join(profileConfig, "agents"))).toBe(
+          path.join(userConfig, "agents"),
+        );
 
         yield* fs.remove(path.join(userConfig, "mcp_config.json"));
         yield* prepare;
         expect(yield* fs.exists(path.join(profileConfig, "mcp_config.json"))).toBe(false);
       }),
+  );
+
+  it.effect("runs the configured custom agent as the main agent", () =>
+    Effect.gen(function* () {
+      const { prepare } = yield* setup();
+      const profile = yield* prepare;
+      const args = (agent?: string) =>
+        buildAntigravityAcpSpawnInput({
+          installation: { executablePath: "/usr/bin/agy" },
+          profile,
+          cwd: "/work",
+          ...(agent === undefined ? {} : { agent }),
+        }).args;
+      expect(args("lean").slice(-2)).toEqual(["--agent", "lean"]);
+      expect(args()).not.toContain("--agent");
+      expect(args("")).not.toContain("--agent");
+    }),
   );
 
   it.effect.skipIf(!symlinksSupported)(

@@ -113,6 +113,16 @@ such as servers added with `agy mcp add` or the `rtk` plugin, alongside T3 Code'
 tools. Start a new thread after changing them. While any are set up, Antigravity is
 not offered as the Utility model, which writes titles and other generated text.
 
+### Custom agent
+
+To replace Antigravity's built-in system prompt and tools, put a custom agent in
+`~/.gemini/config/agents/<name>.md` and enter its name in **Agent** under the
+instance's settings in **Settings > Providers**. The file's body becomes the system
+prompt and its `tools` list the only built-in tools. A custom agent reaches MCP servers
+only by name: list `t3-code` (and any other servers T3 Code adds to the thread) under
+`mcpServers`, and set `inheritMcp: true` for servers in `~/.gemini/config`. New threads
+use the agent; leave **Agent** empty for Antigravity's default.
+
 Antigravity receives images and audio directly, and reads PDFs and text files as
 documents. Other attachments, including videos, are passed as a saved file path for
 the agent to inspect with its tools.

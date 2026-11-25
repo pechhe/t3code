@@ -1017,12 +1017,21 @@ export const AntigravitySettings = makeProviderSettingsSchema(
         providerSettingsForm: { placeholder: "Automatic", clearWhenEmpty: "persist" },
       }),
     ),
+    agent: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "Agent",
+        description:
+          "Custom agent from ~/.gemini/config/agents to run instead of Antigravity's default.",
+        providerSettingsForm: { placeholder: "Default", clearWhenEmpty: "omit" },
+      }),
+    ),
     customModels: Schema.Array(CustomModelSetting).pipe(
       Schema.withDecodingDefault(Effect.succeed([])),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
   },
-  { order: ["authMethod", "apiKey", "gcpProject", "gcpLocation", "binaryPath"] },
+  { order: ["authMethod", "apiKey", "gcpProject", "gcpLocation", "binaryPath", "agent"] },
 );
 export type AntigravitySettings = typeof AntigravitySettings.Type;
 

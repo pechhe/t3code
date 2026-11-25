@@ -258,6 +258,12 @@ const PACKAGE_FIELD_TEXT: ReadonlyMap<string, string> = new Map([
   ["Optional", msg("Optional", { $context: "placeholder of an optional settings field" })],
   ["Automatic", msg("Automatic", { $context: "placeholder, chosen automatically when empty" })],
   ["Registry default", msg("Registry default")],
+  ["Agent", msg("Agent", { $context: "setting, the custom agent Antigravity runs" })],
+  [
+    "Custom agent from ~/.gemini/config/agents to run instead of Antigravity's default.",
+    msg("Custom agent from ~/.gemini/config/agents to run instead of Antigravity's default."),
+  ],
+  ["Default", msg("Default", { $context: "placeholder, Antigravity's default agent" })],
   ["When you return", msg("When you return")],
   ["Before the cache expires (beta)", msg("Before the cache expires (beta)")],
   ["Never", msg("Never", { $context: "option, never compact idle threads" })],

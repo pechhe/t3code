@@ -548,6 +548,8 @@ export function buildAntigravityAcpSpawnInput(input: {
   readonly baseEnv?: NodeJS.ProcessEnv;
   readonly auth?: AntigravityAuthConfig;
   readonly runtimeTempDirectory?: string;
+  /** A custom agent's Markdown body replaces the default system prompt and its tools. */
+  readonly agent?: string;
 }): AcpSessionRuntime.AcpSpawnInput {
   return {
     command: input.installation.executablePath,
@@ -558,6 +560,7 @@ export function buildAntigravityAcpSpawnInput(input: {
       "--app-data-dir",
       // The CLI joins this beneath gemini-dir, including when the value is absolute.
       "antigravity-acp",
+      ...(input.agent ? ["--agent", input.agent] : []),
     ],
     cwd: input.cwd,
     env: antigravityEnvironment(

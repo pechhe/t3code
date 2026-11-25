@@ -287,6 +287,7 @@ export const AntigravityDriver: ProviderDriver<
           baseEnv,
           auth,
           runtimeTempDirectory,
+          agent: settings.agent,
         }),
       };
     });

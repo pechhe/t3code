@@ -3,7 +3,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 
 /**
- * The user's own MCP servers, hooks and plugins (`agy mcp add`, `rtk init --agent antigravity`)
+ * The user's own MCP servers, hooks, plugins and custom agents (`agy mcp add`, `rtk init --agent antigravity`)
  * live in `~/.gemini/config`; profiles link them as Pi, Claude and Codex read their own.
  */
 export function antigravityUserToolingLinks(
@@ -24,6 +24,7 @@ export function antigravityUserToolingLinks(
       ? []
       : [entry("mcp_config.json", "file"), entry("hooks.json", "file")]),
     entry("plugins", platform === "win32" ? "junction" : "dir"),
+    entry("agents", platform === "win32" ? "junction" : "dir"),
   ];
 }
 
