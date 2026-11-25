@@ -7,6 +7,8 @@ import type {
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  isSlipJayLandingOperation,
+  resolveSlipJayOperationLabel,
   resolveSlipJayLandingTimes,
   formatSlipJayDuration,
   resolveSlipJayBaseLabel,
@@ -206,6 +208,31 @@ describe("SlipJay runner", () => {
     expect(
       resolveSlipJayRunnerSummary(overview({ serial: [operation({ operationId: "op_b" })] })),
     ).toMatchObject({ lead: null, others: 1 });
+  });
+
+  it("labels background checks and keeps a running landing as the lead", () => {
+    const lanes = overview({
+      serial: [
+        operation({
+          operationId: "op_v",
+          kind: "verification",
+          status: "running",
+          commitId: "abcdef123",
+        }),
+        operation({ operationId: "op_l", status: "running" }),
+      ],
+    });
+    expect(resolveSlipJayRunnerSummary(lanes)).toMatchObject({ lead: { operationId: "op_l" } });
+    expect(resolveSlipJayRunnerSummary(overview({ serial: [lanes.serial[0]!] }))).toMatchObject({
+      lead: { operationId: "op_v" },
+    });
+    expect(resolveSlipJayOperationLabel(lanes.serial[0]!)).toBe("Release check abcdef1");
+    expect(resolveSlipJayOperationLabel(operation({ kind: "audit", commitId: "abcdef123" }))).toBe(
+      "Audit abcdef1",
+    );
+    expect(isSlipJayLandingOperation({})).toBe(true);
+    expect(isSlipJayLandingOperation({ kind: "landing" })).toBe(true);
+    expect(isSlipJayLandingOperation({ kind: "verification" })).toBe(false);
   });
 
   it("names a thread's workspace after its directory", () => {

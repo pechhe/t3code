@@ -1829,7 +1829,7 @@
   "scripts/build-desktop-artifact.test.ts": 5.9,
   "scripts/build-npm-launcher.test.ts": 4,
   "scripts/dev-runner.test.ts": 4.3,
-  "scripts/fork-nightly.test.ts": 26.3,
+  "scripts/fork-nightly.test.ts": 136.8,
   "scripts/fork-upstream-receipt.test.ts": 10.4,
   "scripts/fork-vps-runtime.test.ts": 4.1,
   "scripts/install.test.ts": 3.6,

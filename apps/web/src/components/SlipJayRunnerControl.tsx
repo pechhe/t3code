@@ -1,6 +1,8 @@
+/* oxlint-disable t3code/no-untranslated-copy -- Fork-only SlipJay runner UI predates the rule and has no translations yet. */
 import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
+  isSlipJayLandingOperation,
   resolveSlipJayFixPrompt,
   resolveSlipJayOperationElapsed,
   resolveSlipJayOperationLabel,
@@ -131,6 +133,9 @@ export function SlipJayRunnerControl({
     landing === null
       ? operations
       : operations.filter((operation) => operation.operationId !== landing.operationId);
+  const serial = overview?.serial ?? [];
+  const landingOperations = withoutLanding(serial.filter(isSlipJayLandingOperation));
+  const checkOperations = serial.filter((operation) => !isSlipJayLandingOperation(operation));
 
   return (
     <>
@@ -198,12 +203,24 @@ export function SlipJayRunnerControl({
                   environmentId={environmentId}
                   lookupRef={threadRef}
                   overview={overview}
-                  operations={withoutLanding(overview.serial)}
+                  operations={landingOperations}
                   threadsByWorkspace={threadsByWorkspace}
                   showRepository={showRepository}
                   open={open}
                   onOpenThread={openThread}
                 />
+                {checkOperations.length === 0 ? null : (
+                  <RunnerLane
+                    title="Checks"
+                    environmentId={environmentId}
+                    lookupRef={threadRef}
+                    operations={checkOperations}
+                    threadsByWorkspace={threadsByWorkspace}
+                    showRepository={showRepository}
+                    open={open}
+                    onOpenThread={openThread}
+                  />
+                )}
                 {overview.deploy.length === 0 ? null : (
                   <RunnerLane
                     title="Deploys"
@@ -392,7 +409,8 @@ function RunnerTag({
   threadsByWorkspace: ReadonlyMap<string, { id: ThreadId; title: string }>;
 }) {
   const lead = summary.lead;
-  const leadLanding = lead?.kind === "landing" ? lead : null;
+  const leadLanding =
+    lead !== null && lead !== undefined && isSlipJayLandingOperation(lead) ? lead : null;
   // Before SlipJay 3.40 an operation carries no Spec, so name it by its submitting thread's.
   const submitter =
     leadLanding?.workspaceName === undefined
@@ -499,7 +517,7 @@ function LandingsSection({
   open: boolean;
   onOpenThread: (threadId: ThreadId) => void;
 }) {
-  const now = useNow(open && overview.serial.length > 0);
+  const now = useNow(open && operations.length > 0);
   const { lanes, busy } = resolveScreeningLanes(overview);
   const publish = resolveSlipJayPublishLane(overview);
   return (
@@ -659,7 +677,7 @@ function RunnerOperationRow({
   now: number;
   onOpenThread: (threadId: ThreadId) => void;
 }) {
-  const isLanding = operation.kind === "landing";
+  const isLanding = isSlipJayLandingOperation(operation);
   const spec = useSlipJaySpec(
     isLanding && thread !== undefined ? scopeThreadRef(environmentId, thread.id) : null,
     isLanding ? operation.spec : undefined,
@@ -764,8 +782,9 @@ function RunnerOperationRow({
           )}
         </span>
       </span>
-      {operation.status === "queued" ||
-      (operation.status === "running" && isSlipJayKillableStage(operation.stage)) ? (
+      {operation.kind === "verification" || operation.kind === "audit" ? null : operation.status ===
+          "queued" ||
+        (operation.status === "running" && isSlipJayKillableStage(operation.stage)) ? (
         <span className="shrink-0 pe-1">
           <SlipJayCancelButton environmentId={environmentId} operationId={operation.operationId} />
         </span>

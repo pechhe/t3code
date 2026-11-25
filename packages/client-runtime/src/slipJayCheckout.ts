@@ -1,3 +1,4 @@
+/* oxlint-disable t3code/no-untranslated-copy -- Fork-only SlipJay runner UI predates the rule and has no translations yet. */
 import type {
   SlipJayRunnerOperation,
   SlipJayRunnerOverview,
@@ -144,7 +145,12 @@ export function resolveSlipJayRunnerSummary(
     (operation) => operation.operationId !== excludeOperationId,
   );
   if (!overview.connected && open.length === 0 && overview.deploys.length === 0) return null;
-  const lead = open.find((operation) => operation.status === "running") ?? null;
+  const runningOps = open.filter((operation) => operation.status === "running");
+  const lead =
+    runningOps.find(isSlipJayLandingOperation) ??
+    runningOps.find((operation) => operation.kind === "deploy") ??
+    runningOps[0] ??
+    null;
   const others = open.length - (lead === null ? 0 : 1);
   if (!overview.connected) return { label: "reconnecting", tone: "attention", lead, others };
   if (overview.paused) return { label: "paused", tone: "attention", lead, others };
@@ -159,6 +165,13 @@ export function resolveSlipJayRunnerSummary(
     : { label: parts.join(" · "), tone: "busy", lead, others };
 }
 
+/** A landing, including legacy operations that carry no kind. */
+export function isSlipJayLandingOperation(
+  operation: Partial<Pick<SlipJayRunnerOperation, "kind">>,
+): boolean {
+  return operation.kind === undefined || operation.kind === "landing";
+}
+
 /** What a runner row is, in the words a lane shows it with. */
 export function resolveSlipJayOperationLabel(operation: SlipJayRunnerOperation): string {
   const commit = operation.commitId === undefined ? "" : ` ${operation.commitId.slice(0, 7)}`;
@@ -169,6 +182,10 @@ export function resolveSlipJayOperationLabel(operation: SlipJayRunnerOperation):
       return `Release${commit}`;
     case "reset":
       return "Reset";
+    case "verification":
+      return `Release check${commit}`;
+    case "audit":
+      return `Audit${commit}`;
     default:
       return operation.workspaceName ?? `Landing${commit}`;
   }
