@@ -1726,6 +1726,57 @@ it.effect(
     ),
 );
 
+it.effect(
+  "closes a collected metric's unrepaired finding when the server reads it back in target",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        const reading = NodePath.join(f.realProjectRoot(), "reading");
+        NodeFS.writeFileSync(reading, "5");
+        yield* accepted(service, [collectedMetric(printsFile(reading))]);
+        yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
+        const breached = yield* service.runCheck({ id: config.id });
+        assert.equal(breached.findings[0]!.status, "open");
+        yield* service.report(f.caller(), { samples: [], findings: [], summary: "Breach seen" });
+        NodeFS.writeFileSync(reading, "1");
+        yield* TestClock.adjust("1 second");
+        const recovered = yield* service.runCheck({ id: config.id });
+        assert.equal(recovered.findings[0]!.status, "dismissed");
+        assert.isTrue(
+          (yield* service.history({ id: config.id })).activity.some(
+            (a) => a.kind === "finding-recovered",
+          ),
+        );
+      }),
+    ),
+);
+
+it.effect("records a breach the open-finding limit refuses as activity and attention", () =>
+  withFixture((f, service) =>
+    Effect.gen(function* () {
+      const reading = NodePath.join(f.realProjectRoot(), "reading");
+      NodeFS.writeFileSync(reading, "5");
+      const ids = Array.from({ length: 11 }, (_, i) => `errors${i}`);
+      yield* accepted(
+        service,
+        ids.map((id) => collectedMetric(printsFile(reading), id)),
+      );
+      yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
+      const checked = yield* service.runCheck({ id: config.id });
+      assert.equal(checked.findings.length, 10);
+      assert.isFalse(checked.findings.some((x) => x.metricId === "errors10"));
+      assert.isTrue(
+        checked.champion.attention.some((a) => a.includes("Open finding limit reached")),
+      );
+      const limited = (yield* service.history({ id: config.id })).activity.filter(
+        (a) => a.kind === "finding-limited",
+      );
+      assert.equal(limited.length, 1);
+      assert.include(limited[0]!.text, "errors10");
+    }),
+  ),
+);
+
 it.effect("retains setup authentication through repeated verified server restarts", () =>
   withFixture((f, service) =>
     Effect.gen(function* () {

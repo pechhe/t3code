@@ -2271,6 +2271,8 @@ const make = Effect.gen(function* () {
         const at = yield* now;
         const findings = [...doc.findings];
         let findingsLimited = false;
+        const limited: string[] = [];
+        const recoveredIds = new Set<string>();
         const samples: ChampionSample[] = [];
         for (const [index, metric] of commands.entries()) {
           const reading = readings[index]!;
@@ -2309,7 +2311,23 @@ const make = Effect.gen(function* () {
                 8000,
               ),
           };
-          if (!(yield* raiseBreach(findings, check, metric, breach, at))) findingsLimited = true;
+          if (!(yield* raiseBreach(findings, check, metric, breach, at))) {
+            findingsLimited = true;
+            limited.push(metric.name);
+          }
+          // A finding with no repair in flight has nothing left to repair once the server reads its metric in target.
+          const recovered = findings.findIndex(
+            (f) =>
+              f.id === `${check.championId}:metric:${metric.seriesId}` &&
+              f.status === "open" &&
+              f.childThreadId === null &&
+              reading.value !== null &&
+              !outside(metric, reading.value),
+          );
+          if (recovered >= 0) {
+            findings[recovered] = { ...findings[recovered]!, status: "dismissed", updatedAt: at };
+            recoveredIds.add(findings[recovered]!.id);
+          }
           const delivered = findings.findIndex(
             (f) =>
               f.id === `${check.championId}:metric:${metric.seriesId}` &&
@@ -2358,9 +2376,24 @@ const make = Effect.gen(function* () {
                   attention: [],
                   consecutiveCheckFailures: 0,
                 }
-              : {}),
+              : limited.length > 0
+                ? {
+                    attention: [
+                      ...new Set([
+                        ...doc.champion.attention,
+                        "Open finding limit reached. Reconcile existing findings before opening more.",
+                      ]),
+                    ],
+                  }
+                : {}),
           },
         });
+        for (const name of limited)
+          yield* activity(
+            check.championId,
+            "finding-limited",
+            `${name} is outside its target, but ${MAX_OPEN_FINDINGS} findings are already open, so no finding was recorded for it.`,
+          );
         if (finished)
           yield* activity(
             check.championId,
@@ -2372,6 +2405,13 @@ const make = Effect.gen(function* () {
         for (const finding of findings)
           if (!doc.findings.some((old) => old.id === finding.id))
             yield* activity(check.championId, "finding-opened", finding.evidence, finding);
+          else if (recoveredIds.has(finding.id))
+            yield* activity(
+              check.championId,
+              "finding-recovered",
+              `The server's reading is back inside the target with no repair under way, so the finding closed: ${samples.find((s) => s.seriesId === finding.seriesId)?.evidence ?? ""}`,
+              finding,
+            );
           else if (
             finding.status === "verified" &&
             doc.findings.find((old) => old.id === finding.id)?.status !== "verified"
