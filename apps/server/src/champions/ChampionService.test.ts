@@ -5447,6 +5447,13 @@ it.effect(
         assert.equal(approval.threadId, agentThread);
         assert.equal(approval.model, "agent-model");
         yield* service.findingAction(answer, relay);
+        // An answer already on record needs no fresh approval: the owner repeating it is a no-op,
+        // so it never mistakes the delivered answer for one still waiting on the user.
+        yield* service.findingAction(answer, unquotedAgent);
+        yield* refusedWith(
+          service.findingAction({ ...answer, reason: "Exclude weekends." }, unquotedAgent),
+          "already answered differently",
+        );
         const sends = f.sent.filter((x) => x.commandId === `champion-decision:${decision.id}`);
         assert.equal(sends.length, 1);
         assert.include(sends[0]!.text, `relayed by an agent in thread ${agentThread}`);

@@ -2791,14 +2791,20 @@ const make = Effect.gen(function* () {
   const findingAction: ChampionService["Service"]["findingAction"] = Effect.fn(
     "ChampionService.findingAction",
   )(function* (input, actor = "user") {
+    const answering =
+      input.action === "resolve_decision" && actor !== "user"
+        ? (yield* read(input.id)).findings.find((f) => f.id === input.findingId)?.decision
+        : undefined;
+    // An answer already on record needs no approval to repeat; the mutation below decides it.
     const approval =
-      input.action !== "resolve_decision" || actor === "user"
+      input.action !== "resolve_decision" ||
+      actor === "user" ||
+      (answering != null && answering.id === input.decisionId && answering.status === "resolved")
         ? undefined
         : yield* relayedApproval(
             actor,
             "The decision waits for them on the Champion page: ask them to answer it there, or pass approvalQuote with their exact words from a message they typed in this thread.",
-            (yield* read(input.id)).findings.find((f) => f.id === input.findingId)?.decision
-              ?.requestedAt,
+            answering?.requestedAt,
           );
     const result = yield* mutate(
       Effect.gen(function* () {
