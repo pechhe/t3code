@@ -7070,6 +7070,24 @@ describe("observe and score (T3-928)", () => {
       ),
   );
 
+  it.effect("accepts a goal review's score sent through submitReport and returns it", () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        yield* definitions(service);
+        yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
+        yield* service.runCheck({ id: config.id });
+        yield* service.report(f.caller(), { samples: [sample], findings: [], summary: "x" });
+        yield* service.runReview({ id: config.id });
+        yield* service.submitReport(f.caller(), goal(8, "Coverage is thin."));
+        const detail = yield* service.get({ id: config.id });
+        assert.deepEqual(
+          detail.goalScores?.map(({ score, reasons }) => ({ score, reasons })),
+          [{ score: 8, reasons: "Coverage is thin." }],
+        );
+      }),
+    ),
+  );
+
   it.effect(
     "opens one goal finding below target, keeps it on a lower score, and closes it back at target while its case never ran",
     () =>

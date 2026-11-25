@@ -490,6 +490,7 @@ export class ChampionService extends Context.Service<
         readonly samples?: ChampionReportInput["samples"];
         readonly findings?: ChampionReportInput["findings"];
         readonly journeys?: ChampionReportInput["journeys"];
+        readonly goalScore?: ChampionReportInput["goalScore"];
       },
     ) => Effect.Effect<ChampionDetail, ChampionError>;
     readonly journeysStart: (caller: Caller) => Effect.Effect<ChampionJourneyPlan, ChampionError>;
@@ -2241,6 +2242,7 @@ const make = Effect.gen(function* () {
       findings: input.findings ?? [],
       summary: input.summary,
       ...(input.journeys === undefined ? {} : { journeys: input.journeys }),
+      ...(input.goalScore === undefined ? {} : { goalScore: input.goalScore }),
     });
   });
   const cancelSetup: ChampionService["Service"]["cancelSetup"] = Effect.fn(
