@@ -169,6 +169,8 @@ export class WorkspaceProvider extends Context.Service<
     readonly release: (input: {
       readonly projectRoot: string;
       readonly path: string;
+      /** Finishes this allocation's custody claim first, so SlipJay does not see the checkout in use. */
+      readonly attemptId?: string;
     }) => Effect.Effect<void, WorkspaceProviderError>;
   }
 >()("t3/project/WorkspaceProvider") {}
@@ -715,7 +717,15 @@ export const make = Effect.gen(function* () {
   });
 
   const release: WorkspaceProvider["Service"]["release"] = Effect.fn("WorkspaceProvider.release")(
-    function* ({ projectRoot, path: workspacePath }) {
+    function* ({ projectRoot, path: workspacePath, attemptId }) {
+      if (attemptId !== undefined)
+        yield* custody
+          .finishAllocation(attemptId)
+          .pipe(
+            Effect.mapError(
+              (cause) => new WorkspaceProviderError({ operation: "release", projectRoot, cause }),
+            ),
+          );
       yield* slipjay("release", projectRoot, ["remove", workspacePath]);
     },
   );

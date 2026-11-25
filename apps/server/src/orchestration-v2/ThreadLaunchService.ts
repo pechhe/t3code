@@ -676,6 +676,9 @@ const make = Effect.gen(function* () {
     let setupTerminalId: string | null = null;
     let workspaceRecorded = false;
     let runReleased = false;
+    let preparationRegistered = false;
+    // False while a setup script may still run without proof that it stopped.
+    let setupAcknowledged = true;
     // Stop background renames before forgetting worktrees; completed renames record them again.
     let branchRename: Fiber.Fiber<unknown> | null = null;
     if (input.workspaceStrategy.type === "worktree") {
@@ -1052,11 +1055,17 @@ const make = Effect.gen(function* () {
       if (reused === undefined) {
         if (runId !== null && worktreePath !== null) {
           yield* custody
-            .admit({ runId, projectRoot: project.workspaceRoot, workspacePath: worktreePath })
+            .admit({
+              runId,
+              projectRoot: project.workspaceRoot,
+              workspacePath: worktreePath,
+              admissionId: input.commandId,
+            })
             .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
           yield* custody
             .register(runId, { id: `preparation:${input.commandId}`, kind: "background" })
             .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
+          preparationRegistered = true;
         }
         yield* threads
           .dispatch({
@@ -1094,6 +1103,7 @@ const make = Effect.gen(function* () {
                         .release({
                           projectRoot: project.workspaceRoot,
                           path: createdWorktreePath,
+                          ...(redundant === null ? {} : { attemptId: redundant }),
                         })
                         .pipe(
                           Effect.andThen(
@@ -1233,6 +1243,7 @@ const make = Effect.gen(function* () {
       yield* setupTracker.stageStatus(threadId, "setup-script", "running");
       // Managed tasks use an already prepared, exact workspace. A project setup
       // script runs outside the provider sandbox and must never widen that grant.
+      if (worktreePath !== null && input.agentTask === undefined) setupAcknowledged = false;
       const setup =
         worktreePath === null || input.agentTask !== undefined
           ? ({ status: "no-script" } as const)
@@ -1259,7 +1270,7 @@ const make = Effect.gen(function* () {
               })
               .pipe(Effect.mapError(mapError(input, "run-setup-script", threadId)));
 
-      let setupAcknowledged = setup.status !== "started";
+      setupAcknowledged = setup.status !== "started";
       let awaitAsyncSetup = Effect.void;
       if (setup.status === "started") {
         setupTerminalId = setup.terminalId;
@@ -1355,10 +1366,26 @@ const make = Effect.gen(function* () {
       Effect.onError((cause) =>
         Effect.gen(function* () {
           const cancelled = Cause.hasInterruptsOnly(cause);
-          if (runId !== null)
-            yield* custody
-              .recover(runId, "workspace-preparation-stop-proof-unavailable")
-              .pipe(Effect.ignore);
+          if (runId !== null && preparationRegistered) {
+            if (!setupAcknowledged)
+              yield* custody
+                .recover(runId, "workspace-preparation-stop-proof-unavailable")
+                .pipe(Effect.ignore);
+            else {
+              yield* custody
+                .acknowledge(
+                  runId,
+                  `preparation:${input.commandId}`,
+                  `preparation-stopped:${input.commandId}`,
+                )
+                .pipe(Effect.ignore);
+              if (!runReleased)
+                yield* custody
+                  .acknowledge(runId, "admission", `preparation-failed:${input.commandId}`)
+                  .pipe(Effect.ignore);
+              yield* custody.settle(runId).pipe(Effect.ignore);
+            }
+          }
           yield* setupTracker.finish(
             threadId,
             cancelled ? "cancelled" : "failed",
@@ -1381,7 +1408,11 @@ const make = Effect.gen(function* () {
               void,
               WorkspaceProvider.WorkspaceProviderError | GitCommandError
             > = createdBySlipJay
-              ? workspaces.release({ projectRoot: project.workspaceRoot, path: removedPath })
+              ? workspaces.release({
+                  projectRoot: project.workspaceRoot,
+                  path: removedPath,
+                  ...(allocationAttemptId === null ? {} : { attemptId: allocationAttemptId }),
+                })
               : git.removeWorktree({ cwd: project.workspaceRoot, path: removedPath, force: true });
             yield* removal.pipe(
               Effect.andThen(
@@ -2270,6 +2301,7 @@ const make = Effect.gen(function* () {
                   .release({
                     projectRoot: released.project.workspaceRoot,
                     path: worktreePath,
+                    attemptId,
                   })
                   .pipe(Effect.andThen(workspaces.settled(attemptId)))
               : workspaces.abandon(attemptId)

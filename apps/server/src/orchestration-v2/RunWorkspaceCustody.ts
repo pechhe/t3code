@@ -25,6 +25,8 @@ export class RunWorkspaceCustodyError extends Schema.TaggedError<RunWorkspaceCus
   }
 }
 
+const isRunWorkspaceCustodyError = Schema.is(RunWorkspaceCustodyError);
+
 export class RunWorkspaceCustody extends Context.Service<
   RunWorkspaceCustody,
   {
@@ -70,7 +72,11 @@ const make = Effect.gen(function* () {
     journal.forScope(prefix(runId)),
   );
   const mapError = (runId: string, operation: RunWorkspaceCustodyError["operation"]) =>
-    Effect.mapError((cause: unknown) => new RunWorkspaceCustodyError({ runId, operation, cause }));
+    Effect.mapError((cause: unknown) =>
+      isRunWorkspaceCustodyError(cause)
+        ? cause
+        : new RunWorkspaceCustodyError({ runId, operation, cause }),
+    );
   const closeSettled = Effect.fn("RunWorkspaceCustody.closeSettled")(function* (runId: string) {
     const claims = (yield* epochs(runId)).filter((epoch) => epoch.phase !== "released");
     if (claims.some((epoch) => epoch.obligations.some((item) => item.acknowledgement === null)))
@@ -79,8 +85,17 @@ const make = Effect.gen(function* () {
         operation: "settle",
         cause: "Registered workspace obligations still require acknowledgement.",
       });
-    yield* Effect.forEach(claims, (epoch) => custody.close(epoch.id), { discard: true });
-    return claims;
+    // An epoch that never acquired its checkout has no receipt to close; it stays retained.
+    const acquired = claims.filter((epoch) => epoch.receipt !== null);
+    yield* Effect.forEach(
+      claims.filter(
+        (epoch) => epoch.receipt === null && (epoch.phase === "open" || epoch.phase === "closing"),
+      ),
+      (epoch) => custody.recover(epoch.id, "acquisition-receipt-unavailable"),
+      { discard: true },
+    );
+    yield* Effect.forEach(acquired, (epoch) => custody.close(epoch.id), { discard: true });
+    return acquired;
   });
   const finish = Effect.fn("RunWorkspaceCustody.finish")(function* (runId: string) {
     const claims = yield* closeSettled(runId);
@@ -98,7 +113,8 @@ const make = Effect.gen(function* () {
         });
         const previous = yield* epochs(input.runId);
         let siblings = previous.filter((epoch) => epoch.phase !== "released");
-        if (siblings.some((epoch) => epoch.phase === "closing")) return yield* closed;
+        if (siblings.some((epoch) => epoch.phase === "closing" && epoch.receipt !== null))
+          return yield* closed;
         // Only a new admitted command can start another epoch after held-queue settlement.
         if (previous.length > 0 && siblings.length === 0 && input.admissionId === undefined)
           return yield* closed;
@@ -158,9 +174,11 @@ const make = Effect.gen(function* () {
           projectRoot: matching?.projectRoot ?? input.projectRoot,
         });
         const known = new Map(
-          siblings.flatMap((sibling) =>
-            sibling.obligations.map((obligation) => [obligation.id, obligation] as const),
-          ),
+          siblings
+            .filter((sibling) => sibling.phase === "open")
+            .flatMap((sibling) =>
+              sibling.obligations.map((obligation) => [obligation.id, obligation] as const),
+            ),
         );
         if (known.size === 0)
           known.set("admission", { id: "admission", kind: "allocation", acknowledgement: null });
@@ -169,7 +187,15 @@ const make = Effect.gen(function* () {
           if (obligation.acknowledgement !== null)
             yield* custody.acknowledge(epoch.id, obligation.id, obligation.acknowledgement);
         }
-        yield* custody.acquireExisting(epoch.id, canonical);
+        yield* custody
+          .acquireExisting(epoch.id, canonical)
+          .pipe(
+            Effect.tapError(() =>
+              epoch.receipt === null
+                ? custody.recover(epoch.id, "acquisition-failed").pipe(Effect.ignore)
+                : Effect.void,
+            ),
+          );
         validated.add(epoch.id);
       },
       (effect, input) => locks.withLock(input.runId, effect).pipe(mapError(input.runId, "admit")),
@@ -205,7 +231,11 @@ const make = Effect.gen(function* () {
           (yield* epochs(runId)).filter(
             (epoch) =>
               epoch.phase !== "released" &&
-              epoch.obligations.some((item) => item.id === obligationId),
+              epoch.obligations.some(
+                (item) =>
+                  item.id === obligationId &&
+                  !(epoch.phase === "recovery-required" && item.acknowledgement !== null),
+              ),
           ),
           (epoch) => custody.acknowledge(epoch.id, obligationId, evidenceRef),
           { discard: true },
@@ -232,7 +262,12 @@ const make = Effect.gen(function* () {
           claims,
           (epoch) =>
             Effect.gen(function* () {
-              yield* custody.acknowledge(epoch.id, "admission", evidenceRef);
+              if (
+                epoch.obligations.some(
+                  (item) => item.id === "admission" && item.acknowledgement === null,
+                )
+              )
+                yield* custody.acknowledge(epoch.id, "admission", evidenceRef);
               for (const obligation of epoch.obligations)
                 if (obligation.kind === "delivery" && obligation.acknowledgement === null)
                   yield* custody.acknowledge(epoch.id, obligation.id, evidenceRef);

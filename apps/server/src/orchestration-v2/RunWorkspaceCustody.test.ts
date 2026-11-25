@@ -225,3 +225,92 @@ it.effect(
       );
     }),
 );
+
+const withCustody = <A, E>(
+  body: (
+    f: Effect.Success<typeof fixture>,
+    root: string,
+  ) => Effect.Effect<
+    A,
+    E,
+    RunCustody.RunWorkspaceCustody | Journal.WorkspaceCustody | WorkspaceCustody.WorkspaceCustody
+  >,
+) =>
+  Effect.gen(function* () {
+    const f = yield* fixture;
+    yield* Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.realPath(yield* fs.makeTempDirectoryScoped());
+      return yield* body(f, root);
+    }).pipe(
+      Effect.provide(
+        RunCustody.layer.pipe(
+          Layer.provideMerge(
+            Layer.mergeAll(
+              f.layer,
+              NodeServices.layer,
+              Layer.mock(Workspaces.WorkspaceProvider)({
+                resolve: () => Effect.succeed("slipjay"),
+              }),
+            ),
+          ),
+        ),
+      ),
+    );
+  });
+
+it.effect("a refused acquisition does not wedge the run: the retry admits and settles", () =>
+  withCustody((f, root) =>
+    Effect.gen(function* () {
+      const custody = yield* RunCustody.RunWorkspaceCustody;
+      const journal = yield* Journal.WorkspaceCustody;
+      const input = { runId: "refused", projectRoot: root, workspacePath: root };
+      yield* Ref.set(f.acquisitionRefusal, { code: "busy", reason: "transient" });
+      const failed = yield* custody.admit({ ...input, admissionId: "first" }).pipe(Effect.flip);
+      // The refusal is reported once, not wrapped in a second custody error.
+      assert.equal(failed._tag, "RunWorkspaceCustodyError");
+      assert.notInstanceOf(failed.cause, RunCustody.RunWorkspaceCustodyError);
+      yield* custody.endAdmission("refused", "preparation-failed:first").pipe(Effect.ignore);
+      yield* Ref.set(f.acquisitionRefusal, null);
+      yield* custody.admit({ ...input, admissionId: "retry" });
+      yield* custody.register("refused", { id: "execution", kind: "provider-turn" });
+      yield* custody.acknowledge("refused", "admission", "run-execution-registered:retry");
+      yield* custody.acknowledge("refused", "execution", "provider-terminal-ack");
+      yield* custody.settle("refused");
+      assert.equal(yield* Ref.get(f.releases), 1);
+      const active = (yield* journal.list).filter((epoch) => epoch.phase !== "released");
+      assert.deepEqual(
+        active.map((epoch) => epoch.phase),
+        ["recovery-required"],
+      );
+      assert.equal(active[0]!.receipt, null);
+    }),
+  ),
+);
+
+it.effect("a retained epoch with no receipt and a spent admission does not block the retry", () =>
+  withCustody((f, root) =>
+    Effect.gen(function* () {
+      const custody = yield* RunCustody.RunWorkspaceCustody;
+      const journal = yield* Journal.WorkspaceCustody;
+      const input = { runId: "poisoned", projectRoot: root, workspacePath: root };
+      yield* Ref.set(f.acquisitionRefusal, { code: "busy", reason: "transient" });
+      yield* custody.admit({ ...input, admissionId: "first" }).pipe(Effect.flip);
+      const [stuck] = (yield* journal.list).filter((epoch) => epoch.phase !== "released");
+      yield* (yield* WorkspaceCustody.WorkspaceCustody).acknowledge(
+        stuck!.id,
+        "admission",
+        "admission-ended:first",
+      );
+      yield* Ref.set(f.acquisitionRefusal, null);
+      yield* custody.admit({ ...input, admissionId: "retry" });
+      yield* custody.register("poisoned", { id: "execution", kind: "provider-turn" });
+      yield* custody.acknowledge("poisoned", "admission", "run-execution-registered:retry");
+      yield* custody.acknowledge("poisoned", "execution", "provider-terminal-ack");
+      yield* custody.settle("poisoned");
+      assert.equal(yield* Ref.get(f.releases), 1);
+      const epochs = yield* journal.list;
+      assert.isTrue(epochs.every((epoch) => epoch.phase === "released" || epoch.id === stuck!.id));
+    }),
+  ),
+);

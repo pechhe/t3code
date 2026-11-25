@@ -9,6 +9,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as Journal from "../persistence/WorkspaceCustody.ts";
 import * as WorkspaceAllocationIntents from "../persistence/WorkspaceAllocationIntents.ts";
 import * as Processes from "../processRunner.ts";
 import * as Custody from "../workspace/WorkspaceCustody.ts";
@@ -113,7 +114,7 @@ const harness = Effect.fn("test.harness")(function* (handlers: Partial<Record<st
 });
 
 const makeIntentsLayer = (allowAcquire: boolean) =>
-  Layer.mergeAll(WorkspaceAllocationIntents.layer, Custody.layer).pipe(
+  Layer.mergeAll(WorkspaceAllocationIntents.layer, Custody.layer, Journal.layer).pipe(
     Layer.provideMerge(SqlitePersistence.layerMemory),
     Layer.provide(
       Layer.mock(Processes.ProcessRunner)({
@@ -787,6 +788,31 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
             expect(named("attempt release")).toHaveLength(1);
             expect(yield* intents.list).toEqual([]);
           }).pipe(Effect.provide(layerIntents)),
+      );
+
+      it.effect("finishes the allocation's custody before SlipJay removes its checkout", () =>
+        Effect.gen(function* () {
+          const journal = yield* Journal.WorkspaceCustody;
+          const live: Array<number> = [];
+          const { service, named } = yield* harness({
+            start: () => output(JSON.stringify({ workspacePath: "/ws", created: true })),
+            remove: () =>
+              journal.list.pipe(
+                Effect.map((epochs) => {
+                  live.push(epochs.filter((epoch) => epoch.phase !== "released").length);
+                  return output();
+                }),
+                Effect.orDie,
+              ),
+          });
+          const { attemptId } = yield* service.allocate(request);
+          expect((yield* journal.list).filter((epoch) => epoch.phase !== "released")).toHaveLength(
+            1,
+          );
+          yield* service.release({ projectRoot: "/project", path: "/ws", attemptId });
+          expect(named("remove")).toHaveLength(1);
+          expect(live).toEqual([0]);
+        }).pipe(Effect.provide(layerIntents)),
       );
 
       it.effect("releases an unbound checkout a terminal or tool call asked for", () =>

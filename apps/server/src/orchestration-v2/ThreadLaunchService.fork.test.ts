@@ -115,6 +115,8 @@ interface HarnessOptions {
   readonly warmupCalls?: Array<string>;
   /** Records custody admissions and endings, in order. */
   readonly custodyCalls?: Array<string>;
+  /** Overrides individual custody operations; every other one succeeds. */
+  readonly custody?: Partial<RunCustody.RunWorkspaceCustody["Service"]>;
   /** Signals each custody admission as it starts, and holds it until `gate` opens. */
   readonly admitHold?: {
     readonly started: Deferred.Deferred<void>;
@@ -293,6 +295,7 @@ function makeHarness(options: HarnessOptions = {}) {
         folderForThread: () => Effect.succeedNone,
       }),
   );
+  const custodyLog = options.custodyCalls ?? [];
   const interceptDispatch = options.dispatch;
   const layerLaunchThreads =
     interceptDispatch === undefined
@@ -309,11 +312,11 @@ function makeHarness(options: HarnessOptions = {}) {
         ).pipe(Layer.provide(layerThreadManagement));
   const layerLaunch = ThreadLaunch.layer.pipe(
     Layer.provide(
-      options.custodyCalls === undefined
+      options.custodyCalls === undefined && options.custody === undefined
         ? layerNonSlipJay
         : Layer.succeed(RunCustody.RunWorkspaceCustody, {
             admit: ({ runId }) =>
-              Effect.sync(() => void options.custodyCalls!.push(`admit:${runId}`)).pipe(
+              Effect.sync(() => void custodyLog.push(`admit:${runId}`)).pipe(
                 Effect.andThen(
                   options.admitHold === undefined
                     ? Effect.void
@@ -325,13 +328,13 @@ function makeHarness(options: HarnessOptions = {}) {
             register: () => Effect.void,
             acknowledge: () => Effect.void,
             settle: (runId) =>
-              Effect.sync(() => void options.custodyCalls!.push(`settle:${runId}`)).pipe(
+              Effect.sync(() => void custodyLog.push(`settle:${runId}`)).pipe(
                 Effect.andThen(options.onSettle ?? Effect.void),
               ),
-            endAdmission: (runId) =>
-              Effect.sync(() => void options.custodyCalls!.push(`end:${runId}`)),
+            endAdmission: (runId) => Effect.sync(() => void custodyLog.push(`end:${runId}`)),
             recover: () => Effect.void,
             reconcileDeliveries: Effect.void,
+            ...options.custody,
           }),
     ),
     Layer.provide(
@@ -847,3 +850,116 @@ it.effect(
     }).pipe(Effect.provide(harness.layer));
   },
 );
+
+const failedRun = (threads: ThreadManagement.ThreadManagementService["Service"], id: ThreadId) =>
+  waitForThreadProjection(threads, id, () =>
+    threads
+      .getThreadProjection(id)
+      .pipe(Effect.map((projection) => projection.runs[0]?.status === "failed")),
+  );
+
+it.effect(
+  "retries a preparation whose custody admission failed, under the retry's own command",
+  () => {
+    const admissions: Array<string | undefined> = [];
+    const recovered: Array<string> = [];
+    const harness = makeHarness({
+      slipjay: true,
+      allocateWorkspace: allocateInTurn("/slipjay/workspaces/first", "/slipjay/workspaces/second"),
+      custody: {
+        admit: ({ admissionId }) => {
+          admissions.push(admissionId);
+          return admissions.length === 1
+            ? Effect.fail(
+                new RunCustody.RunWorkspaceCustodyError({
+                  runId: "run",
+                  operation: "admit",
+                  cause: "SlipJay refused",
+                }),
+              )
+            : Effect.void;
+        },
+        recover: (_runId, reason) => Effect.sync(() => void recovered.push(reason)),
+      },
+    });
+    return Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const launched = yield* launches.launch(
+        launchInput({
+          command: "command:launch:admit-retry",
+          thread: "thread:launch:admit-retry",
+          message: "Start",
+          workspace: { type: "worktree", baseRef: "main" },
+        }),
+      );
+      yield* failedRun(threads, launched.threadId);
+      // The abandoned checkout is released through its attempt, so SlipJay sees no live claim.
+      assert.deepEqual(
+        harness.releaseWorkspace.mock.calls.map(([input]) => [input.path, input.attemptId]),
+        [["/slipjay/workspaces/first", "attempt:/slipjay/workspaces/first"]],
+      );
+      harness.releasedPaths.add("/slipjay/workspaces/first");
+      const failed = yield* threads.getThreadProjection(launched.threadId);
+      yield* launches.retryPreparation({
+        commandId: CommandId.make("command:launch:admit-retry:1"),
+        threadId: launched.threadId,
+        runId: failed.runs[0]!.id,
+      });
+      yield* waitForThreadProjection(threads, launched.threadId, () =>
+        threads
+          .getThreadProjection(launched.threadId)
+          .pipe(Effect.map((projection) => projection.runs[0]?.status === "starting")),
+      );
+      assert.deepEqual(admissions, ["command:launch:admit-retry", "command:launch:admit-retry:1"]);
+      // Nothing was registered before the admission failed, so nothing needs stop proof.
+      assert.isEmpty(recovered);
+    }).pipe(Effect.provide(harness.layer));
+  },
+);
+
+it.effect.each([
+  { name: "stopped", completion: Effect.succeed({ exitCode: 1, durationMs: 1 }) },
+  { name: "unproven", completion: Effect.die("lost completion") },
+])("fails preparation when the setup script is $name", ({ name, completion }) => {
+  const calls: Array<string> = [];
+  const harness = makeHarness({
+    slipjay: true,
+    runSetup: () =>
+      Effect.succeed({
+        status: "started" as const,
+        async: false,
+        scriptId: "setup",
+        scriptName: "Setup",
+        scriptCommand: "vp install",
+        terminalId: "setup",
+        cwd: "/slipjay/workspaces/build-the-feature",
+        completion,
+      }),
+    custody: {
+      acknowledge: (_runId, id) => Effect.sync(() => void calls.push(`ack:${id.split(":")[0]}`)),
+      settle: () => Effect.sync(() => void calls.push("settle")),
+      recover: (_runId, reason) => Effect.sync(() => void calls.push(`recover:${reason}`)),
+    },
+  });
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const launched = yield* launches.launch(
+      launchInput({
+        command: `command:launch:setup-${name}`,
+        thread: `thread:launch:setup-${name}`,
+        message: "Start",
+        workspace: { type: "worktree", baseRef: "main" },
+      }),
+    );
+    yield* failedRun(threads, launched.threadId);
+    // Proof the script stopped settles the run's custody; without it protection stays.
+    assert.deepEqual(
+      calls,
+      name === "stopped"
+        ? ["ack:preparation", "ack:admission", "settle"]
+        : ["recover:workspace-preparation-stop-proof-unavailable"],
+    );
+  }).pipe(Effect.provide(harness.layer));
+});
