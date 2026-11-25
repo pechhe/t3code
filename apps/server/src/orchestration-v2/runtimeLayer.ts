@@ -50,7 +50,7 @@ import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProjectionMaintenance from "./ProjectionMaintenance.ts";
 import * as ProjectStore from "./ProjectStore.ts";
-import * as RunSetupRecorder from "../agents/RunSetupRecorder.ts";
+import * as RunSetupStore from "../agents/RunSetupStore.ts";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
 import * as ProviderContinuationService from "./ProviderContinuationService.ts";
@@ -172,6 +172,7 @@ export const layerProviderSessionManagerProvided = ProviderSessionManager.layer.
       layerProviderEventIngestorProvided,
       ProjectionStore.layer,
       ProviderInstallationGate.layer,
+      RunSetupStore.storeLayer,
     ),
   ),
 );
@@ -514,7 +515,7 @@ export const layerProduction = Layer.mergeAll(
   layerScheduledTaskProvided,
   layerChampionsProvided,
   layerThreadProjectMoveProvided,
-  RunSetupRecorder.storeLayer,
+  RunSetupStore.storeLayer,
   layerScratchThreadPromotionProvided,
   layerSecretRequestsProvided,
   layerSavedSecrets,

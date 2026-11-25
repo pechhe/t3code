@@ -13,7 +13,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import { McpSchema, McpServer } from "effect/ai";
 
-import * as RunSetupRecorder from "../../../agents/RunSetupRecorder.ts";
+import * as RunSetupStoreModule from "../../../agents/RunSetupStore.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as ThreadProjectMove from "../../../orchestration-v2/ThreadProjectMoveService.ts";
 import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
@@ -110,7 +110,7 @@ const layerFor = (
     ),
     Layer.provide(Layer.mock(ThreadSearch.ThreadSearch)({})),
     Layer.provide(Layer.mock(ScheduledTaskService.ScheduledTaskService)({})),
-    Layer.provide(Layer.mock(RunSetupRecorder.RunSetupStore)({})),
+    Layer.provide(Layer.mock(RunSetupStoreModule.RunSetupStore)({})),
     Layer.provide(Layer.mock(ProviderRegistry.ProviderRegistry)({})),
     Layer.provide(
       Layer.mock(ProjectService.ProjectService)({

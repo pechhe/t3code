@@ -905,6 +905,7 @@ it.effect("ProviderSessionManagerV2 gives a Spec lead a top-level thread's MCP l
           providerSessionId: _providerSessionId,
           authorizationHeader: _authorizationHeader,
           hasPendingWake,
+          reportRunSetup: _reportRunSetup,
           ...listing
         } = config!;
         listings.push({

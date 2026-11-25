@@ -25,6 +25,7 @@ import {
   unavailable,
 } from "../../threadAccess.ts";
 import * as RunSetupRecorder from "../../../agents/RunSetupRecorder.ts";
+import * as RunSetupStoreModule from "../../../agents/RunSetupStore.ts";
 import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
 import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
@@ -397,7 +398,7 @@ export const handlers = {
         beforeOrdinal: input.beforeOrdinal,
         runOrdinal: input.runOrdinal,
       });
-      const store = yield* RunSetupRecorder.RunSetupStore;
+      const store = yield* RunSetupStoreModule.RunSetupStore;
       const providers = yield* ProviderRegistry.ProviderRegistry;
       const records = yield* store
         .list(runs.map((run) => run.id))

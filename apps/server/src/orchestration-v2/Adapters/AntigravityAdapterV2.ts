@@ -79,7 +79,11 @@ const AntigravityProviderCapabilitiesV2 = {
 export type AntigravityAdapterV2RuntimeInput = Omit<
   AntigravityAcpRuntimeInput,
   "spawn" | "childProcessSpawner"
-> & { readonly processEnvironment?: NodeJS.ProcessEnv };
+> &
+  Pick<
+    AcpAdapterV2RuntimeInput,
+    "delegated" | "delegatedRole" | "agentConfigRoot" | "reportRunSetup"
+  > & { readonly processEnvironment?: NodeJS.ProcessEnv };
 
 export interface AntigravityAdapterV2Options {
   readonly instanceId: ProviderInstanceId;

@@ -52,7 +52,7 @@ import * as ProviderRegistryMock from "../provider/testUtils/providerRegistryMoc
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
-import * as RunSetupRecorder from "../agents/RunSetupRecorder.ts";
+import * as RunSetupStoreModule from "../agents/RunSetupStore.ts";
 import * as ReleaseApprovals from "../releases/ReleaseApprovals.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as RemoteDelegation from "../peer/RemoteDelegation.ts";
@@ -296,7 +296,7 @@ describe("orchestrator MCP toolkit", () => {
         Layer.provide(layerProviderRegistry),
         Layer.provide(ServerSettings.layerTest()),
         Layer.provide(layerUnusedScheduledTaskStub),
-        Layer.provide(Layer.mock(RunSetupRecorder.RunSetupStore)({})),
+        Layer.provide(Layer.mock(RunSetupStoreModule.RunSetupStore)({})),
         Layer.provide(Layer.mock(PeerForwarding.PeerForwarding)({})),
         Layer.provide(Layer.mock(PeerLinkRequests.PeerLinkRequests)({})),
         Layer.provide(Layer.mock(PeerLinks.PeerLinks)({})),

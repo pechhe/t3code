@@ -28,7 +28,7 @@ import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
 
-import * as RunSetupRecorder from "../../../agents/RunSetupRecorder.ts";
+import * as RunSetupStoreModule from "../../../agents/RunSetupStore.ts";
 import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
 import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
@@ -168,7 +168,7 @@ const ThreadSetupTool = Tool.make("t3_thread_setup", {
   ...commandTool,
   dependencies: [
     ...commandTool.dependencies,
-    RunSetupRecorder.RunSetupStore,
+    RunSetupStoreModule.RunSetupStore,
     Digest.Digest,
     ProviderRegistry.ProviderRegistry,
   ],

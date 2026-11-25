@@ -35,6 +35,7 @@ import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as Policy from "./AgentPolicyService.ts";
 import * as RunSetup from "./RunSetupRecorder.ts";
+import * as RunSetupStoreModule from "./RunSetupStore.ts";
 
 const encodeRunSetupRecord = Schema.encodeEffect(Schema.fromJsonString(RunSetupRecord));
 
@@ -228,7 +229,7 @@ describe("setupReport", () => {
     run: OrchestrationV2Run,
     skills: ReadonlyArray<ReturnType<typeof skill>>,
   ) => ({
-    ...RunSetup.uncapturedRunSetup(run, "2026-10-16T00:00:01.000Z"),
+    ...RunSetupStoreModule.uncapturedRunSetup(run, "2026-10-16T00:00:01.000Z"),
     instructions: [{ path: "/config/AGENTS.md", sha256: "a".repeat(64) }],
     skills,
   });
@@ -296,14 +297,17 @@ describe("setupReport", () => {
       const runs = [runOf(3, "codex"), runOf(2, "codex"), runOf(1, "codex")];
       const legacy = decodeStored(
         JSON.stringify({
-          ...RunSetup.uncapturedRunSetup(runs[1]!, "2026-10-16T00:00:01.000Z"),
+          ...RunSetupStoreModule.uncapturedRunSetup(runs[1]!, "2026-10-16T00:00:01.000Z"),
           workflow: { kind: "chat", unattended: true },
         }),
       );
       const report = yield* RunSetup.setupReport({
         runs,
         records: [
-          { ...RunSetup.uncapturedRunSetup(runs[0]!, "2026-10-16T00:00:01.000Z"), away: false },
+          {
+            ...RunSetupStoreModule.uncapturedRunSetup(runs[0]!, "2026-10-16T00:00:01.000Z"),
+            away: false,
+          },
           legacy,
         ],
         turnItems: [],
@@ -367,7 +371,7 @@ describe("setupReport size", () => {
           }) as never as OrchestrationV2Run,
       );
       const records = runs.map((run) => ({
-        ...RunSetup.uncapturedRunSetup(run, "2026-10-16T00:00:01.000Z"),
+        ...RunSetupStoreModule.uncapturedRunSetup(run, "2026-10-16T00:00:01.000Z"),
         instructions: [{ path: "/Users/someone/.agents/AGENTS.md", sha256: "a".repeat(64) }],
         skills: Array.from({ length: 30 }, (_, skill) => ({
           name: `skill-${skill}`,
@@ -423,7 +427,7 @@ describe("ComposedRunSetupRecorder", () => {
                       providerTurn: undefined,
                     })),
                 }),
-                Layer.mock(RunSetup.RunSetupStore)({
+                Layer.mock(RunSetupStoreModule.RunSetupStore)({
                   recordComposed: (run) =>
                     Effect.sync(() => {
                       stored.push(run.id);
@@ -452,7 +456,7 @@ describe("ComposedRunSetupRecorder", () => {
 describe("RunSetupStore", () => {
   it.effect("keeps the first composed request even when it arrives before the file scan", () =>
     Effect.gen(function* () {
-      const store = yield* RunSetup.RunSetupStore;
+      const store = yield* RunSetupStoreModule.RunSetupStore;
       const composed = {
         systemPromptCharacters: 123,
         instructions: [{ path: "/repo/AGENTS.md", characters: 12 }],
@@ -482,7 +486,7 @@ describe("RunSetupStore", () => {
       assert.deepEqual(entries[0]?.composedPrompt, composed);
     }).pipe(
       Effect.provide(
-        RunSetup.storeLayer.pipe(
+        RunSetupStoreModule.storeLayer.pipe(
           Layer.provideMerge(Sqlite.layerMemory),
           Layer.provideMerge(NodeCrypto.layer),
         ),
@@ -492,7 +496,7 @@ describe("RunSetupStore", () => {
   it.effect("lists the stored records of the runs asked for", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      const store = yield* RunSetup.RunSetupStore;
+      const store = yield* RunSetupStoreModule.RunSetupStore;
       const recordAt = (id: string, capturedAt: string) => ({
         runId: id,
         threadId,
@@ -517,7 +521,9 @@ describe("RunSetupStore", () => {
         ["run:b"],
       );
       assert.deepEqual(yield* store.list([]), []);
-    }).pipe(Effect.provide(RunSetup.storeLayer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
+    }).pipe(
+      Effect.provide(RunSetupStoreModule.storeLayer.pipe(Layer.provideMerge(Sqlite.layerMemory))),
+    ),
   );
 });
 
@@ -551,7 +557,7 @@ const recorderLayer = (
         }),
       ),
     ),
-    Layer.provideMerge(RunSetup.storeLayer),
+    Layer.provideMerge(RunSetupStoreModule.storeLayer),
     Layer.provideMerge(Sqlite.layerMemory),
     Layer.provide(layer),
     Layer.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({}))),
@@ -568,7 +574,7 @@ describe("RunSetupRecorder.record", () => {
   it.effect("gives each run its own record once", () =>
     Effect.gen(function* () {
       const recorder = yield* RunSetup.RunSetupRecorder;
-      const store = yield* RunSetup.RunSetupStore;
+      const store = yield* RunSetupStoreModule.RunSetupStore;
       const composed = {
         systemPromptCharacters: 123,
         instructions: [],
@@ -638,7 +644,7 @@ describe("RunSetupRecorder.record", () => {
       const [record] = yield* storedSetups(threadId, 10);
       assert.deepEqual(
         { ...record, capturedAt: "" },
-        { ...RunSetup.uncapturedRunSetup(runAt(3), ""), capturedAt: "" },
+        { ...RunSetupStoreModule.uncapturedRunSetup(runAt(3), ""), capturedAt: "" },
       );
     }).pipe(Effect.provide(recorderLayer(() => Effect.die("projection unavailable")))),
   );
@@ -647,7 +653,7 @@ describe("RunSetupRecorder.record", () => {
 describe("setup cut points", () => {
   const record = (runId: string, revision: string | null, hash: string | null) =>
     ({
-      ...RunSetup.uncapturedRunSetup(
+      ...RunSetupStoreModule.uncapturedRunSetup(
         {
           id: RunId.make(runId),
           threadId,

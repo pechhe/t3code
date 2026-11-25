@@ -11,7 +11,7 @@ import * as ContextExperimentResults from "../experiments/ExperimentResults.ts";
 import * as ContextForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as ContextWeaveAgentConnections from "../weave/WeaveAgentConnections.ts";
 import * as ContextReleaseApprovals from "../releases/ReleaseApprovals.ts";
-import * as ContextRunSetupStore from "../agents/RunSetupRecorder.ts";
+import * as RunSetupStoreModule from "../agents/RunSetupStore.ts";
 import * as ContextThreadProjectMoveService from "../orchestration-v2/ThreadProjectMoveService.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -177,7 +177,7 @@ it.effect("only request_secret and send_to_user ask Claude Code to load them up 
             Layer.mock(ContextForgeWorkItems.ForgeWorkItems)({}),
             Layer.mock(ContextWeaveAgentConnections.WeaveAgentConnections)({}),
             Layer.mock(ContextReleaseApprovals.ReleaseApprovals)({}),
-            Layer.mock(ContextRunSetupStore.RunSetupStore)({}),
+            Layer.mock(RunSetupStoreModule.RunSetupStore)({}),
             Layer.mock(ContextThreadProjectMoveService.ThreadProjectMoveService)({}),
           ),
         ),
@@ -233,7 +233,7 @@ it.effect("agent context matches the committed budget", () =>
             Layer.mock(ContextForgeWorkItems.ForgeWorkItems)({}),
             Layer.mock(ContextWeaveAgentConnections.WeaveAgentConnections)({}),
             Layer.mock(ContextReleaseApprovals.ReleaseApprovals)({}),
-            Layer.mock(ContextRunSetupStore.RunSetupStore)({}),
+            Layer.mock(RunSetupStoreModule.RunSetupStore)({}),
             Layer.mock(ContextThreadProjectMoveService.ThreadProjectMoveService)({}),
           ),
         ),

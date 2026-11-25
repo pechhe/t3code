@@ -78,6 +78,11 @@ import {
 } from "@t3tools/provider-core/server/driver";
 import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
 import { withInstanceIdentity } from "@t3tools/provider-core/server/instanceIdentity";
+import {
+  describeAntigravitySetup,
+  isAntigravityHelper,
+  prepareAntigravityHelperProfile,
+} from "../antigravityHelperProfile.ts";
 import { discoverAntigravitySkills, resolveAntigravityUserHome } from "./AntigravitySkills.ts";
 
 const DRIVER = ProviderDriverKind.make("antigravity");
@@ -207,10 +212,16 @@ export const AntigravityDriver: ProviderDriver<
     const prepareSpawn = Effect.fn("AntigravityDriver.prepareSpawn")(function* (
       cwd: string,
       baseEnv: NodeJS.ProcessEnv,
+      helper?: {
+        readonly role: string | undefined;
+        readonly agentConfigRoot: string | undefined;
+      },
     ): Effect.fn.Return<
       {
         readonly executable: AntigravityInstallation.AntigravityExecutable;
         readonly spawn: AcpSessionRuntime.AcpSpawnInput;
+        /** The directory agy runs against: the instance profile, or a helper's trimmed copy of it. */
+        readonly launchedProfileDirectory: string;
       },
       AcpErrors.AcpError | ProviderSetupError,
       Scope.Scope
@@ -278,11 +289,34 @@ export const AntigravityDriver: ProviderDriver<
               ),
             ),
       );
+      // A helper gets a trimmed copy of the instance profile, removed with its runtime temp directory.
+      const launchedProfile =
+        helper === undefined
+          ? profile
+          : yield* prepareAntigravityHelperProfile({
+              instance: profile,
+              directory: path.join(runtimeTempDirectory, "h"),
+              role: helper.role,
+              agentConfigRoot: helper.agentConfigRoot,
+            }).pipe(
+              Effect.provideService(FileSystem.FileSystem, fileSystem),
+              Effect.provideService(Path.Path, path),
+              Effect.mapError(
+                (cause) =>
+                  new ProviderSetupError({
+                    instanceId,
+                    operation: "start",
+                    detail: "Could not prepare the Antigravity helper profile.",
+                    cause,
+                  }),
+              ),
+            );
       return {
         executable,
+        launchedProfileDirectory: launchedProfile.geminiHome,
         spawn: buildAntigravityAcpSpawnInput({
           installation: executable,
-          profile,
+          profile: launchedProfile,
           cwd,
           baseEnv,
           auth,
@@ -301,12 +335,22 @@ export const AntigravityDriver: ProviderDriver<
     > {
       // `buildAntigravityAcpSpawnInput` sets `extendEnv: false`, so thread variables only reach the
       // agent's shell through `baseEnv`.
-      const { processEnvironment: threadEnvironment, ...runtimeInput } = input;
-      const { executable, spawn } = yield* prepareSpawn(
+      const {
+        processEnvironment: threadEnvironment,
+        delegated,
+        delegatedRole,
+        agentConfigRoot,
+        reportRunSetup,
+        ...runtimeInput
+      } = input;
+      const { executable, spawn, launchedProfileDirectory } = yield* prepareSpawn(
         runtimeInput.cwd,
         threadEnvironment === undefined
           ? processEnvironment
           : { ...processEnvironment, ...threadEnvironment },
+        isAntigravityHelper({ delegated, delegatedRole })
+          ? { role: delegatedRole, agentConfigRoot }
+          : undefined,
       );
       const runtime = yield* makeAntigravityAcpRuntime({
         ...runtimeInput,
@@ -336,8 +380,34 @@ export const AntigravityDriver: ProviderDriver<
         }
         return yield* runtime.start();
       });
+      // T3 cannot see agy's own prompt, so each run's setup record keeps what T3 gave it. Each prompt
+      // looks up the running run; the record is written once per run, and a prompt that found no
+      // running run tries again.
+      let recordedRunId: string | undefined;
+      const describedSetup = yield* Effect.cached(
+        describeAntigravitySetup({
+          profileDirectory: launchedProfileDirectory,
+          agent: settings.agent,
+          appendedSystemPrompt: runtimeInput.sessionSystemPromptAppend,
+        }).pipe(
+          Effect.provideService(FileSystem.FileSystem, fileSystem),
+          Effect.provideService(Path.Path, path),
+        ),
+      );
+      const reportSetup =
+        reportRunSetup === undefined
+          ? Effect.void
+          : describedSetup.pipe(
+              Effect.flatMap((composed) => reportRunSetup(composed, recordedRunId)),
+              Effect.tap((runId) =>
+                Effect.sync(() => void (recordedRunId = runId ?? recordedRunId)),
+              ),
+              Effect.ignore,
+            );
       return {
         ...runtime,
+        prompt: (payload, options) =>
+          reportSetup.pipe(Effect.andThen(runtime.prompt(payload, options))),
         setMode: (modeId: string) =>
           runtime.getModeState.pipe(
             Effect.flatMap((modeState) =>

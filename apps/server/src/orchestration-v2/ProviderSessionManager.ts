@@ -39,6 +39,7 @@ import * as FiberSet from "effect/FiberSet";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as RunSetupStore from "../agents/RunSetupStore.ts";
 import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
@@ -476,6 +477,7 @@ export const layerWithOptions = (
       const fs = yield* Effect.serviceOption(FileSystem.FileSystem);
       const path = yield* Effect.serviceOption(Path.Path);
       const processes = yield* Effect.serviceOption(ProcessRunner.ProcessRunner);
+      const runSetupStore = yield* Effect.serviceOption(RunSetupStore.RunSetupStore);
       const isSlipJayThread = Effect.fn("ProviderSessionManagerV2.isSlipJayThread")(
         function* (threadId: ThreadId) {
           if (
@@ -822,6 +824,23 @@ export const layerWithOptions = (
                       Effect.map(delegatedTaskWillWake),
                       Effect.orElseSucceed(() => false),
                     ),
+                  // A provider that cannot see its own prompt reports what T3 gave it for the thread's running run.
+                  reportRunSetup: (composed, recordedRunId) =>
+                    Option.isNone(runSetupStore)
+                      ? Effect.undefined
+                      : projectionStore.getRunningTurnContext(threadId).pipe(
+                          Effect.flatMap(({ run }) =>
+                            run === undefined ||
+                            run.modelSelection.instanceId !== providerInstanceId
+                              ? Effect.undefined
+                              : run.id === recordedRunId
+                                ? Effect.succeed(run.id)
+                                : runSetupStore.value
+                                    .recordComposed(run, composed)
+                                    .pipe(Effect.as(run.id)),
+                          ),
+                          Effect.orElseSucceed(() => undefined),
+                        ),
                 });
                 reserveMcpCredential(threadId, credential.config.providerSessionId);
                 return { mcpCredentialId: credential.config.providerSessionId, issued: true };

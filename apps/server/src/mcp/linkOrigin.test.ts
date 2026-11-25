@@ -3,7 +3,7 @@ import * as Experiments from "../experiments/ExperimentService.ts";
 import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as WeaveAgentConnections from "../weave/WeaveAgentConnections.ts";
 import * as ReleaseApprovals from "../releases/ReleaseApprovals.ts";
-import * as RunSetupRecorder from "../agents/RunSetupRecorder.ts";
+import * as RunSetupStoreModule from "../agents/RunSetupStore.ts";
 import * as ThreadProjectMove from "../orchestration-v2/ThreadProjectMoveService.ts";
 import * as DocumentText from "../provider/DocumentText.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
@@ -138,7 +138,7 @@ const layerTools = Layer.mergeAll(
       Layer.mock(ForgeWorkItems.ForgeWorkItems)({}),
       Layer.mock(WeaveAgentConnections.WeaveAgentConnections)({}),
       Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
-      Layer.mock(RunSetupRecorder.RunSetupStore)({}),
+      Layer.mock(RunSetupStoreModule.RunSetupStore)({}),
       Layer.mock(ThreadProjectMove.ThreadProjectMoveService)({}),
     ),
   ),

@@ -1,4 +1,9 @@
-import type { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  ProviderInstanceId,
+  RunSetupComposedPrompt,
+  ThreadId,
+} from "@t3tools/contracts";
 import type * as Effect from "effect/Effect";
 
 /**
@@ -53,6 +58,15 @@ export interface McpProviderSessionConfig {
   readonly browserRunEnvironment?: Readonly<Record<string, string>>;
   /** True while a delegated task this thread started will wake it with its result. */
   readonly hasPendingWake?: Effect.Effect<boolean>;
+  /**
+   * Records what the provider composed for the thread's running run; a provider that cannot see its
+   * own prompt reports what T3 knows. Returns the run it is recorded against, or undefined when no
+   * run was running; passing that id back skips the write for the same run.
+   */
+  readonly reportRunSetup?: (
+    composed: RunSetupComposedPrompt,
+    recordedRunId?: string,
+  ) => Effect.Effect<string | undefined>;
 }
 
 /** Where `t3 browser run` in an agent's command reaches the server, and as whom. */

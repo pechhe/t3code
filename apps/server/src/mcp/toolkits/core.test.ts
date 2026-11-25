@@ -63,7 +63,7 @@ import * as SecretRequests from "../../secrets/SecretRequests.ts";
 import * as ReleaseApprovals from "../../releases/ReleaseApprovals.ts";
 import * as RemoteDelegation from "../../peer/RemoteDelegation.ts";
 import * as ScheduledTaskService from "../../scheduledTasks/ScheduledTaskService.ts";
-import * as RunSetupRecorder from "../../agents/RunSetupRecorder.ts";
+import * as RunSetupStoreModule from "../../agents/RunSetupStore.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import * as SqlitePersistence from "../../persistence/Sqlite.ts";
 import * as McpHttpServer from "../McpHttpServer.ts";
@@ -112,7 +112,7 @@ const layerThreadToolkitWith = (
     Layer.provide(Layer.mock(ThreadProjectMove.ThreadProjectMoveService)({})),
     Layer.provide(Layer.mock(ThreadSearch.ThreadSearch)({})),
     Layer.provide(Layer.mock(ScheduledTaskService.ScheduledTaskService)({})),
-    Layer.provide(Layer.mock(RunSetupRecorder.RunSetupStore)({})),
+    Layer.provide(Layer.mock(RunSetupStoreModule.RunSetupStore)({})),
     Layer.provide(providers),
     Layer.provide(Layer.mock(PeerForwarding.PeerForwarding)({})),
     Layer.provide(Layer.mock(PeerLinkRequests.PeerLinkRequests)({})),
@@ -970,7 +970,7 @@ it.effect("search names the calling thread, so an agent can tell its own match a
         Layer.provide(
           Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
         ),
-        Layer.provide(Layer.mock(RunSetupRecorder.RunSetupStore)({})),
+        Layer.provide(Layer.mock(RunSetupStoreModule.RunSetupStore)({})),
         Layer.provide(
           Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/unused" }),
         ),
@@ -1147,7 +1147,7 @@ it.effect(
             }),
           ),
           Layer.provide(Layer.mock(ScheduledTaskService.ScheduledTaskService)({})),
-          Layer.provide(Layer.mock(RunSetupRecorder.RunSetupStore)({})),
+          Layer.provide(Layer.mock(RunSetupStoreModule.RunSetupStore)({})),
           Layer.provide(Layer.mock(ProviderRegistry.ProviderRegistry)({})),
           Layer.provide(Layer.mock(ProjectService.ProjectService)({})),
           Layer.provide(
@@ -1360,7 +1360,7 @@ it.effect.each([
         Layer.provide(
           Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
         ),
-        Layer.provide(Layer.mock(RunSetupRecorder.RunSetupStore)({})),
+        Layer.provide(Layer.mock(RunSetupStoreModule.RunSetupStore)({})),
         Layer.provide(
           Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/unused" }),
         ),
@@ -1379,7 +1379,7 @@ it.effect.each([
         ),
         Layer.provideMerge(
           Layer.mergeAll(
-            Layer.mock(RunSetupRecorder.RunSetupStore)({}),
+            Layer.mock(RunSetupStoreModule.RunSetupStore)({}),
             Layer.mock(ThreadProjectMove.ThreadProjectMoveService)({}),
           ),
         ),
@@ -1428,7 +1428,7 @@ it.effect("run_scheduled_task_now reports why a started run failed to dispatch",
         Layer.provide(Layer.mock(ThreadProjectMove.ThreadProjectMoveService)({})),
         Layer.provide(Layer.mock(ProjectService.ProjectService)({})),
         Layer.provide(Layer.mock(ProviderRegistry.ProviderRegistry)({})),
-        Layer.provide(Layer.mock(RunSetupRecorder.RunSetupStore)({})),
+        Layer.provide(Layer.mock(RunSetupStoreModule.RunSetupStore)({})),
         Layer.provide(
           Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/unused" }),
         ),

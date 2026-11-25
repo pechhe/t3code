@@ -37,7 +37,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as Layer from "effect/Layer";
 import { McpServer } from "effect/ai";
 
-import * as RunSetupRecorder from "../agents/RunSetupRecorder.ts";
+import * as RunSetupStoreModule from "../agents/RunSetupStore.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as ReleaseApprovals from "../releases/ReleaseApprovals.ts";
@@ -123,7 +123,7 @@ const serviceMocks = Layer.mergeAll(
   Layer.mock(WorktreeMcpService.WorktreeMcpService)({}),
   Layer.mock(HtmlRender.HtmlRender)({}),
   Layer.mock(ForgeWorkItems.ForgeWorkItems)({}),
-  Layer.mock(RunSetupRecorder.RunSetupStore)({}),
+  Layer.mock(RunSetupStoreModule.RunSetupStore)({}),
   Layer.mock(ServerSecretStore.ServerSecretStore)({}),
   Layer.mock(ServerEnvironment.ServerEnvironment)({}),
   Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),

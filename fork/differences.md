@@ -1889,6 +1889,17 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Upstream:** upstream keeps its own client because an `mcp.json` server overrides an extension's registration (its comment in `mcpExtensionSource.ts`). Henry chose a fork-only change (20 Nov 2026).
 - **Retire when:** upstream moves its Pi extension onto Pi's own MCP, or Effect's MCP server streams progress for long calls itself (the heartbeat alone).
 
+### antigravity-context-loadout
+
+- **Kind:** durable extension
+- **Why:** Henry moved his Gemini work from Pi to Antigravity, and `pi-context-loadout` (measure the first request, trim what a helper loads) had no Antigravity counterpart: every thread on an instance shared one profile, so a scout read the lead's rules and the whole skills index, and a run recorded nothing about its setup.
+- **Requirements:** a delegated task whose role is not `lead` (an unknown role counts as a helper, as for Pi) launches `agy` with `--gemini-dir` pointing at a per-launch helper profile, `h/` inside the launch's runtime temp directory (removed with it, swept at driver start). Every entry of the instance profile is a link (so the OAuth token, sessions and the user's MCP servers, hooks, plugins and agents are shared and agy's session logs stay where T3 watches them) except `AGENTS.md`/`GEMINI.md`, which are copies cut at the `<!-- lead-only-below -->` line, and `config/skills`, `antigravity-cli/skills`, which hold links to the individual skills outside the agent-config root (none for `scout`, `advisor` and `browser`; a `browser` keeps only the agent-config `AGENTS.md`). A top-level thread and a `lead` use the shared profile unchanged. Each run's setup record gets `composedPrompt` as for Pi: the instruction files of the profile agy was launched with (so trimmed sizes), the custom agent's file (`config/agents/<agent>.md`), the skills listed, and the characters of T3's appended system prompt; `tools` is zero because agy's own prompt and tool declarations are hidden from T3. It is reported at each prompt and the first report for a run wins.
+- **Integration points:** `apps/server/src/provider/antigravityHelperProfile.ts` (fork-owned: trimming, helper profile, setup description); `prepareSpawn`/`makeRuntime` in `AntigravityDriver.ts`; `McpProviderSessionConfig.reportRunSetup` (provider-core) supplied by `ProviderSessionManager` through the optional `RunSetupStore` (`runtimeLayer.ts` provides `RunSetupRecorder.storeLayer` to it) and passed by `acpMcpContext`/`AcpAdapterV2RuntimeInput` (provider-acp) with `delegated`, `delegatedRole` and `agentConfigRoot`; `RunSetupStore.recordComposed`. The trimming marker is a contract with agent-config's `AGENTS.md`, and the same regex lives in the Pi extension source (`piT3Extension.ts`), which is a string run inside Pi and cannot import it.
+- **Limits:** the working directory's own `AGENTS.md`/`GEMINI.md` and its `.agents/skills` are read by agy itself and are not trimmed. T3 disables agy's native `start_subagent`, so no native sub-agent inherits or escapes the helper profile. The first turn's input tokens are not attached; usage already lands on the provider turn.
+- **Proof:** `antigravityHelperProfile.test.ts` (trimming, helper vs shared profile contents, shared credentials, role cuts, the setup description).
+- **Upstream:** none found.
+- **Retire when:** agy takes instruction and skill selection per session, or T3 can read agy's composed prompt.
+
 ### usage-only-providers
 
 - **Kind:** durable extension

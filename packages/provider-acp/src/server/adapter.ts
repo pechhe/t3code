@@ -221,6 +221,11 @@ const ACP_PROMPT_ACTIVITY_UPDATES: ReadonlySet<string> = new Set([
 
 export interface AcpAdapterV2RuntimeInput {
   readonly pullRequestLinking?: boolean;
+  /** The thread's delegated-task facts, for providers that load a role's own instructions. */
+  readonly delegated?: boolean;
+  readonly delegatedRole?: McpProviderSession.McpProviderSessionConfig["delegatedRole"];
+  readonly agentConfigRoot?: string;
+  readonly reportRunSetup?: McpProviderSession.McpProviderSessionConfig["reportRunSetup"];
   readonly cwd: string;
   readonly runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
   readonly mcpServers: ReadonlyArray<EffectAcpSchema.McpServer>;
@@ -1000,6 +1005,10 @@ function negotiatedCapabilities(
 
 interface AcpMcpContext {
   readonly pullRequestLinking?: boolean;
+  readonly delegated?: boolean;
+  readonly delegatedRole?: McpProviderSession.McpProviderSessionConfig["delegatedRole"];
+  readonly agentConfigRoot?: string;
+  readonly reportRunSetup?: McpProviderSession.McpProviderSessionConfig["reportRunSetup"];
   readonly servers: ReadonlyArray<EffectAcpSchema.McpServer>;
   readonly acpServers: ReadonlyArray<EffectAcpSchema.McpServer>;
   readonly httpServers: ReadonlyArray<EffectAcpSchema.McpServer>;
@@ -1032,6 +1041,10 @@ export function acpMcpContext(
     ...(session?.pullRequestLinking === false || session?.delegated === true
       ? { pullRequestLinking: false }
       : {}),
+    ...(session?.delegated === true ? { delegated: true } : {}),
+    ...(session?.delegatedRole === undefined ? {} : { delegatedRole: session.delegatedRole }),
+    ...(session?.agentConfigRoot === undefined ? {} : { agentConfigRoot: session.agentConfigRoot }),
+    ...(session?.reportRunSetup === undefined ? {} : { reportRunSetup: session.reportRunSetup }),
     servers: bridgeServers.map((server) => ({
       name: server.serverId,
       command: self.command,
@@ -2802,6 +2815,16 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             cwd: input.runtimePolicy.cwd ?? process.cwd(),
             runtimePolicy: input.runtimePolicy,
             ...(mcpContext.pullRequestLinking === false ? { pullRequestLinking: false } : {}),
+            ...(mcpContext.delegated === true ? { delegated: true } : {}),
+            ...(mcpContext.delegatedRole === undefined
+              ? {}
+              : { delegatedRole: mcpContext.delegatedRole }),
+            ...(mcpContext.agentConfigRoot === undefined
+              ? {}
+              : { agentConfigRoot: mcpContext.agentConfigRoot }),
+            ...(mcpContext.reportRunSetup === undefined
+              ? {}
+              : { reportRunSetup: mcpContext.reportRunSetup }),
             mcpServers: mcpContext.servers,
             acpMcpServers: mcpContext.acpServers,
             httpMcpServers: mcpContext.httpServers,
