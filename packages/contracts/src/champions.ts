@@ -19,7 +19,15 @@ import { ScheduledTaskUpsertSchedule } from "./scheduledTask.ts";
 export const ChampionText = Schema.String.check(Schema.isMaxLength(8000));
 export const ChampionLabel = TrimmedNonEmptyString.check(Schema.isMaxLength(500));
 export const DEFAULT_CHAMPION_INSTRUCTIONS =
-  "Inspect and measure without editing the shared root. Delegate bounded repairs into isolated workspaces, independently review their pinned handoff with the appropriate reviewer (and a browser task when needed), apply fixes, then adopt and land once through normal SlipJay. A returned worker commit is a handoff, not delivery. Record the confirmed landing operation before verification; verify a fresh observation on the running revision. Use an advisor on the configured stronger selection for larger work, then shape a Forge Spec and delegate its lead; the lead allocates its own Spec workspace. Record unavailable tools and failures honestly.";
+  "Observe and score; never repair. Read and measure in the project's main checkout without editing it. Raise what needs work as a finding with evidence a stranger can act on: the server opens a case for it in Henry's Inbox, where an agent diagnoses, fixes, files a Spec or asks Henry. Record unavailable tools and failures honestly.";
+/** Earlier defaults; stored instructions equal to one of them read as the current default. */
+export const PAST_DEFAULT_CHAMPION_INSTRUCTIONS: ReadonlyArray<string> = [
+  "Inspect and measure without editing the shared root. Delegate bounded repairs into isolated workspaces, independently review their pinned handoff with the appropriate reviewer (and UI verifier when needed), apply fixes, then adopt and land once through normal SlipJay. A returned worker commit is a handoff, not delivery. Record the confirmed landing operation before verification; verify a fresh observation on the running revision. Use an advisor on the configured stronger selection for larger work, then shape a Forge Spec and delegate its lead; the lead allocates its own Spec workspace. Record unavailable tools and failures honestly.",
+  "Inspect and measure without editing the shared root. Delegate bounded repairs into isolated workspaces, independently review their pinned handoff with the appropriate reviewer (and a browser task when needed), apply fixes, then adopt and land once through normal SlipJay. A returned worker commit is a handoff, not delivery. Record the confirmed landing operation before verification; verify a fresh observation on the running revision. Use an advisor on the configured stronger selection for larger work, then shape a Forge Spec and delegate its lead; the lead allocates its own Spec workspace. Record unavailable tools and failures honestly.",
+];
+/** The reserved series a goal review's score is stored under, beside the Champion's readings; never a metric id. */
+export const GOAL_SCORE_SERIES = "goal-score";
+export const DEFAULT_GOAL_SCORE_TARGET = 7;
 
 export const ChampionLifecycle = Schema.Literals(["active", "paused", "retired"]);
 export type ChampionLifecycle = typeof ChampionLifecycle.Type;
@@ -41,6 +49,8 @@ export const ChampionMetricInput = Schema.Struct({
   maximum: Schema.NullOr(Schema.Finite),
   /** Argument list the server runs, without a shell, to read this metric; absent means an agent measures it. */
   collect: Schema.optional(ChampionMetricCommand),
+  /** A value beyond the target that starts a case at once; only for direction higher or lower. Changing it keeps the version. */
+  alarm: Schema.optional(Schema.Finite),
 });
 export type ChampionMetricInput = typeof ChampionMetricInput.Type;
 export const ChampionMetric = Schema.Struct({
@@ -53,8 +63,6 @@ export const ChampionMetric = Schema.Struct({
 });
 export type ChampionMetric = typeof ChampionMetric.Type;
 export const ChampionCharter = Schema.Struct({
-  maxConcurrentRepairs: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 4 })),
-  maxRepairsPerDay: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 20 })),
   instructions: ChampionText.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_CHAMPION_INSTRUCTIONS)),
   ),
@@ -70,7 +78,7 @@ export const ChampionModelSlot = Schema.Struct({
   backup: Schema.optional(ModelSelection),
 });
 export type ChampionModelSlot = typeof ChampionModelSlot.Type;
-/** The models a machine's Champions run on: `checks` for checks, `advice` for metric setup and finding diagnosis. A slot not chosen yet is absent. */
+/** The models a machine's Champions run on: `checks` for readings, `advice` for goal reviews, metric setup and the case fallback. A slot not chosen yet is absent. */
 export const ChampionModelDefaults = Schema.Struct({
   checks: Schema.optional(ChampionModelSlot),
   advice: Schema.optional(ChampionModelSlot),
@@ -115,22 +123,31 @@ export const ChampionJourneyConfig = Schema.Struct({
   control: Schema.optional(Schema.Boolean),
 });
 export type ChampionJourneyConfig = typeof ChampionJourneyConfig.Type;
+export const ChampionSchedule = Schema.Union([
+  ScheduledTaskUpsertSchedule.members[0],
+  ScheduledTaskUpsertSchedule.members[1],
+]);
+export type ChampionSchedule = typeof ChampionSchedule.Type;
+export const ChampionGoalScoreValue = Schema.Int.check(
+  Schema.isBetween({ minimum: 0, maximum: 10 }),
+);
+/** A Champion's goal review: its own schedule (UTC; default weekly on Mondays at a spread time) and its score target (default 7). */
+export const ChampionGoalReviewConfig = Schema.Struct({
+  schedule: Schema.optional(ChampionSchedule),
+  target: Schema.optional(ChampionGoalScoreValue),
+});
+export type ChampionGoalReviewConfig = typeof ChampionGoalReviewConfig.Type;
 export const ChampionConfig = Schema.Struct({
   id: ChampionId,
   projectId: ProjectId,
   name: ChampionLabel,
   purpose: ChampionLabel,
-  schedule: Schema.Union([
-    ScheduledTaskUpsertSchedule.members[0],
-    ScheduledTaskUpsertSchedule.members[1],
-  ]),
+  /** When readings are taken. */
+  schedule: ChampionSchedule,
   models: Schema.optional(ChampionModelOverrides),
   charter: ChampionCharter,
   journeys: Schema.optional(ChampionJourneyConfig),
-  /** The champion in this project that repairs what this journey champion confirms; null clears it. */
-  repairsVia: Schema.optional(Schema.NullOr(ChampionId)),
-  /** `work` runs the agent even when every metric is server-collected and in target; absent means `rest`. */
-  whenInTarget: Schema.optional(Schema.Literals(["rest", "work"])),
+  goalReview: Schema.optional(ChampionGoalReviewConfig),
 });
 export type ChampionConfig = typeof ChampionConfig.Type;
 /** The agent-config folder a Champion lives in, and the one machine that runs it (T3-839). */
@@ -173,6 +190,17 @@ export const ChampionLatestSample = Schema.Struct({
   staleAt: Schema.NullOr(IsoDateTime),
 });
 export type ChampionLatestSample = typeof ChampionLatestSample.Type;
+/** One goal review's score: how well the area meets the Champion's whole goal. */
+export const ChampionGoalScore = Schema.Struct({
+  score: ChampionGoalScoreValue,
+  target: ChampionGoalScoreValue,
+  /** The main reasons the score is not higher. */
+  reasons: ChampionText,
+  /** What changed since the previous score, citing readings. */
+  change: ChampionText,
+  at: IsoDateTime,
+});
+export type ChampionGoalScore = typeof ChampionGoalScore.Type;
 export const ChampionSummary = Schema.Struct({
   ...ChampionConfig.fields,
   /** Filled in when read: the models the next check and advice will use. */
@@ -189,9 +217,17 @@ export const ChampionSummary = Schema.Struct({
   openFindingCount: Schema.Int,
   updatedAt: IsoDateTime,
   folder: Schema.optional(ChampionFolderState),
-  /** Checks in a row that ended without a clean report; three open a stuck escalation. */
+  /** Readings runs in a row that ended without a clean report; three make the Champion stuck. */
   consecutiveCheckFailures: Schema.optional(Schema.Int),
   stuckEscalationThreadId: Schema.optional(Schema.NullOr(ThreadId)),
+  nextReviewAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+  lastReviewAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+  outstandingReviewId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  /** Goal reviews in a row that ended without a clean report; three make the Champion stuck. */
+  consecutiveReviewFailures: Schema.optional(Schema.Int),
+  /** The UTC Monday time this Champion's default review runs at, spread apart from the others'. */
+  reviewTime: Schema.optional(Schema.String.check(Schema.isMaxLength(5))),
+  goalScore: Schema.optional(ChampionGoalScore),
 });
 export type ChampionSummary = typeof ChampionSummary.Type;
 /** Henry's own words, typed in the agent thread that completed an approval for him. */
@@ -205,38 +241,54 @@ export const ChampionRelayedApproval = Schema.Struct({
   sourceEnvironment: Schema.optional(Schema.Struct({ id: EnvironmentId, label: Schema.String })),
 });
 export type ChampionRelayedApproval = typeof ChampionRelayedApproval.Type;
-/** The path a champion asks the user to approve, kept short enough to decide from at a glance. */
+/** The path a champion asked the user to approve, kept short enough to decide from at a glance. */
 export const ChampionDecisionProposal = Schema.Struct({
   action: ChampionLabel,
   why: ChampionLabel,
   otherOptions: Schema.optional(ChampionLabel),
 });
 export type ChampionDecisionProposal = typeof ChampionDecisionProposal.Type;
-/** What a diagnosis says to do about a breach. */
-export const ChampionRoute = Schema.Literals(["repair", "spec", "decision"]);
-export type ChampionRoute = typeof ChampionRoute.Type;
+/**
+ * A finding is open until it is verified fixed or dismissed. Repair statuses stored before cases
+ * replaced the repair pipeline read as open.
+ */
+const ChampionFindingStatus = Schema.String.check(
+  Schema.makeFilter(
+    (status) =>
+      [
+        "open",
+        "working",
+        "handed_back",
+        "delivered",
+        "verified",
+        "inconclusive",
+        "dismissed",
+      ].includes(status),
+    {
+      expected: "open, verified or dismissed",
+      toJsonSchema: () => ({ enum: ["open", "verified", "dismissed"] }),
+    },
+  ),
+).pipe(
+  Schema.decodeTo(Schema.Literals(["open", "verified", "dismissed"]), {
+    decode: SchemaGetter.transform((status) =>
+      status === "verified" || status === "dismissed" ? status : "open",
+    ),
+    encode: SchemaGetter.transform((status) => status),
+  }),
+);
 export const ChampionFinding = Schema.Struct({
   id: ChampionLabel,
   metricId: Schema.NullOr(Schema.String),
   seriesId: Schema.NullOr(Schema.String),
   title: ChampionLabel,
   evidence: ChampionText,
-  status: Schema.Literals([
-    "open",
-    "working",
-    "handed_back",
-    "delivered",
-    "verified",
-    "inconclusive",
-    "dismissed",
-  ]),
+  status: ChampionFindingStatus,
+  /** A decision requested before cases replaced decision requests; it still resolves through the card. */
   decision: Schema.optional(
     Schema.NullOr(
       Schema.Struct({
         id: ChampionLabel,
-        recommendationId: Schema.optional(ChampionLabel),
-        findingAttemptId: Schema.optional(ChampionText),
-        proposedScope: Schema.optional(ChampionText),
         question: ChampionText,
         proposal: Schema.optional(ChampionDecisionProposal),
         status: Schema.Literals(["requested", "resolved"]),
@@ -247,47 +299,14 @@ export const ChampionFinding = Schema.Struct({
       }),
     ),
   ),
-  delivery: Schema.optional(
-    Schema.NullOr(
-      Schema.Struct({
-        operationId: ChampionLabel,
-        revision: ChampionLabel,
-        confirmedAt: IsoDateTime,
-        provenance: Schema.Literal("slipjay-runner"),
-      }),
-    ),
-  ),
-  /** The stronger model's reading of one occurrence of a breach; `attemptId` names that occurrence. */
-  diagnosis: Schema.optional(
-    Schema.NullOr(
-      Schema.Struct({
-        attemptId: ChampionText,
-        text: ChampionText,
-        route: ChampionRoute,
-        why: ChampionLabel,
-        recordedAt: IsoDateTime,
-        /** A route taken against the diagnosis, with the reason given for it. */
-        departure: Schema.optional(
-          Schema.Struct({ route: ChampionRoute, reason: ChampionLabel, at: IsoDateTime }),
-        ),
-      }),
-    ),
-  ),
-  /** Set when no eligible model could diagnose this occurrence, so work on it went ahead without one. */
-  undiagnosed: Schema.optional(
-    Schema.NullOr(Schema.Struct({ attemptId: ChampionText, reason: ChampionLabel })),
-  ),
-  repairAttention: Schema.optional(Schema.NullOr(ChampionText)),
-  baselineValue: Schema.optional(Schema.NullOr(Schema.Finite)),
-  baselineMetric: Schema.optional(Schema.NullOr(ChampionMetric)),
-  deliveredAt: Schema.optional(Schema.NullOr(IsoDateTime)),
-  /** The idle Inbox thread opened for this finding when it needs the person. */
+  /** Set once a reading reached the metric's alarm value; its case starts at once. */
+  alarm: Schema.optional(Schema.Boolean),
+  /** When this occurrence opened, and when a check last confirmed it. */
+  firstSeenAt: Schema.optional(IsoDateTime),
+  lastConfirmedAt: Schema.optional(IsoDateTime),
+  /** The Inbox thread working this finding: its case. */
   escalationThreadId: Schema.optional(Schema.NullOr(ThreadId)),
-  childThreadId: Schema.NullOr(ThreadId),
-  workId: ChampionText,
-  attemptId: ChampionText,
   revision: Schema.NullOr(Schema.String),
-  specUrl: Schema.NullOr(Schema.String),
   updatedAt: IsoDateTime,
 });
 export type ChampionFinding = typeof ChampionFinding.Type;
@@ -369,6 +388,8 @@ export const ChampionDetail = Schema.Struct({
   latestSamples: Schema.optional(Schema.Array(ChampionLatestSample).check(Schema.isMaxLength(32))),
   metrics: Schema.Array(ChampionMetric),
   findings: Schema.Array(ChampionFinding).check(Schema.isMaxLength(100)),
+  /** The goal-score series, newest first. */
+  goalScores: Schema.optional(Schema.Array(ChampionGoalScore).check(Schema.isMaxLength(20))),
 });
 export type ChampionDetail = typeof ChampionDetail.Type;
 export const ChampionListInput = Schema.Struct({ projectId: Schema.optional(ProjectId) });
@@ -409,10 +430,9 @@ export const ChampionHistoryResult = Schema.Struct({
 export const ChampionFindingActionInput = Schema.Struct({
   id: ChampionId,
   findingId: ChampionText,
-  action: Schema.Literals(["dismiss", "reopen", "decision", "resolve_decision"]),
+  /** `verify` closes a finding confirmed fixed; `resolve_decision` answers a decision requested before cases. */
+  action: Schema.Literals(["dismiss", "reopen", "verify", "resolve_decision"]),
   decisionId: Schema.optional(ChampionLabel),
-  recommendationId: Schema.optional(ChampionLabel),
-  proposal: Schema.optional(ChampionDecisionProposal),
   reason: ChampionLabel,
 });
 export const ChampionAgentFindingActionInput = Schema.Struct({
@@ -428,16 +448,8 @@ export const ChampionCheckContext = Schema.Struct({
   metrics: Schema.Array(ChampionMetric),
   /** What the server's commands read for this check, failures included. */
   collected: Schema.optional(Schema.Array(ChampionSample)),
-  /** Open findings journey champions in this project have handed to this champion to repair. */
-  handedOff: Schema.optional(
-    Schema.Array(
-      Schema.Struct({
-        championId: ChampionId,
-        championName: ChampionLabel,
-        findings: Schema.Array(ChampionFinding),
-      }),
-    ),
-  ),
+  /** `readings` measures; `review` scores the goal and measures nothing. */
+  rhythm: Schema.optional(Schema.Literals(["readings", "review"])),
   measureOnly: Schema.Boolean,
 });
 export const ChampionReportInput = Schema.Struct({
@@ -450,6 +462,14 @@ export const ChampionReportInput = Schema.Struct({
     }),
   ).check(Schema.isMaxLength(20)),
   summary: ChampionText,
+  /** A goal review's score, required on a review and refused on a readings run. */
+  goalScore: Schema.optional(
+    Schema.Struct({
+      score: ChampionGoalScoreValue,
+      reasons: ChampionText.check(Schema.isMinLength(1)),
+      change: ChampionText.check(Schema.isMinLength(1)),
+    }),
+  ),
   /** A journey check's own account of its journeys; the server compares it with what it recorded. */
   journeys: Schema.optional(
     Schema.Struct({
@@ -711,24 +731,6 @@ export const ChampionJourneyRecordResult = Schema.Struct({
   journeys: Schema.optional(Schema.Array(ChampionJourney)),
 });
 export type ChampionJourneyRecordResult = typeof ChampionJourneyRecordResult.Type;
-export const ChampionFindingDeliveryInput = Schema.Struct({
-  findingId: ChampionText,
-  action: Schema.Literals([
-    "handed_back",
-    "delivered",
-    "verify",
-    "inconclusive",
-    "spec",
-    "diagnosis",
-    "reroute",
-  ]),
-  route: Schema.optional(ChampionRoute),
-  diagnosis: Schema.optional(ChampionText.check(Schema.isMinLength(1))),
-  operationId: Schema.optional(ChampionLabel),
-  revision: Schema.optional(Schema.String),
-  specUrl: Schema.optional(Schema.String),
-  evidence: ChampionLabel,
-});
 export class ChampionError extends Schema.TaggedError<ChampionError>()("ChampionError", {
   reason: Schema.Literals(["not-found", "invalid", "conflict", "unauthorized", "unavailable"]),
   cause: Schema.optional(Schema.Defect()),
@@ -772,7 +774,7 @@ export class ChampionError extends Schema.TaggedError<ChampionError>()("Champion
 export const ChampionExecutionAttempt = Schema.Struct({
   id: ChampionLabel,
   checkId: ChampionText,
-  kind: Schema.Literals(["setup", "check"]),
+  kind: Schema.Literals(["setup", "check", "review"]),
   /** Written by builds that resolved a role class; no longer set. */
   selectionClass: Schema.optional(Schema.NullOr(ChampionSelectionClass)),
   policyHash: Schema.optional(Schema.NullOr(ChampionText)),
@@ -886,80 +888,6 @@ export const ChampionLearningQueryResult = Schema.Struct({
   admissibleForInvestigation: Schema.optional(Schema.Boolean),
 });
 export type ChampionLearningQueryResult = typeof ChampionLearningQueryResult.Type;
-/**
- * The consulting roles an investigation branch runs. A branch saved before `scout` took over web
- * research names `researcher`, which reads as `scout`.
- */
-const ChampionInvestigationRole = Schema.String.check(
-  Schema.makeFilter((role) => ["advisor", "researcher", "scout"].includes(role), {
-    expected: "advisor or scout",
-    toJsonSchema: () => ({ enum: ["advisor", "scout"] }),
-  }),
-).pipe(
-  Schema.decodeTo(Schema.Literals(["advisor", "scout"]), {
-    decode: SchemaGetter.transform((role) => (role === "advisor" ? "advisor" : "scout")),
-    encode: SchemaGetter.transform((role) => role),
-  }),
-);
-export const ChampionInvestigationAlternative = Schema.Struct({
-  id: ChampionLabel,
-  hypothesis: ChampionText,
-  evidenceNeeds: ChampionText,
-  role: ChampionInvestigationRole,
-});
-export const ChampionInvestigationStartInput = Schema.Struct({
-  id: ChampionId,
-  findingId: ChampionLabel,
-  investigationId: ChampionLabel,
-  question: ChampionText,
-  topic: ChampionLabel,
-  retrievalReceiptId: ChampionLabel,
-  alternatives: Schema.Array(ChampionInvestigationAlternative).check(
-    Schema.isMinLength(1),
-    Schema.isMaxLength(3),
-  ),
-});
-export type ChampionInvestigationStartInput = typeof ChampionInvestigationStartInput.Type;
-export const ChampionInvestigationBranchAttempt = Schema.Struct({
-  id: ChampionLabel,
-  branchId: ChampionLabel,
-  clientRequestId: ChampionLabel,
-  commandId: CommandId,
-  taskId: NodeId,
-  childThreadId: ThreadId,
-  messageId: MessageId,
-  role: ChampionInvestigationRole,
-  workId: ChampionText,
-  attemptId: ChampionText,
-  workspacePath: ChampionText,
-  policyHash: ChampionText,
-  policyRevision: ChampionText,
-  binding: AgentTaskBinding,
-  resolvedSelection: ModelSelection,
-  actualSelection: Schema.NullOr(ModelSelection),
-  admittedAt: IsoDateTime,
-  state: Schema.Literals(["admitted", "unknown", "accepted", "completed", "failed", "cancelled"]),
-  followup: Schema.Boolean,
-  result: Schema.NullOr(ChampionText),
-});
-export type ChampionInvestigationBranchAttempt = typeof ChampionInvestigationBranchAttempt.Type;
-export const ChampionInvestigation = Schema.Struct({
-  ...ChampionInvestigationStartInput.fields,
-  findingAttemptId: ChampionText,
-  consideredLearningIds: Schema.Array(ChampionLabel).check(Schema.isMaxLength(20)),
-  createdAt: IsoDateTime,
-  status: Schema.Literals(["open", "cancel_requested", "cancelled", "synthesized"]),
-  branches: Schema.Array(
-    Schema.Struct({
-      ...ChampionInvestigationAlternative.fields,
-      workId: ChampionText,
-      attemptId: ChampionText,
-    }),
-  ).check(Schema.isMaxLength(3)),
-  attempts: Schema.Array(ChampionInvestigationBranchAttempt).check(Schema.isMaxLength(6)),
-  attention: Schema.NullOr(ChampionText),
-});
-export type ChampionInvestigation = typeof ChampionInvestigation.Type;
 export const ChampionSourceRevision = Schema.String.check(
   Schema.isPattern(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/),
 );
@@ -1018,45 +946,8 @@ export const ChampionMeasurement = Schema.Struct({
   admission: Schema.NullOr(ChampionMeasurementAdmission),
 });
 export type ChampionMeasurement = typeof ChampionMeasurement.Type;
-export const ChampionInvestigationCancelInput = Schema.Struct({
-  id: ChampionId,
-  investigationId: ChampionLabel,
-  requestId: ChampionLabel,
-  reason: ChampionLabel,
-});
-export type ChampionInvestigationCancelInput = typeof ChampionInvestigationCancelInput.Type;
-export const ChampionSynthesisInput = Schema.Struct({
-  id: ChampionId,
-  investigationId: ChampionLabel,
-  recommendationId: ChampionLabel,
-  expectedCurrentId: Schema.NullOr(ChampionLabel),
-  proposedScope: ChampionText,
-  summary: ChampionText,
-  alternatives: ChampionText,
-  benefits: ChampionText,
-  tradeoffs: ChampionText,
-  uncertainty: ChampionText,
-  recommendation: ChampionText,
-});
-export type ChampionSynthesisInput = typeof ChampionSynthesisInput.Type;
-export const ChampionRecommendation = Schema.Struct({
-  ...ChampionSynthesisInput.fields,
-  findingId: ChampionLabel,
-  findingAttemptId: ChampionText,
-  recordedAt: IsoDateTime,
-});
-export type ChampionRecommendation = typeof ChampionRecommendation.Type;
-export const ChampionRecommendationInput = Schema.Struct({
-  id: ChampionId,
-  findingId: ChampionLabel,
-  findingAttemptId: ChampionText,
-  recommendationId: ChampionLabel,
-});
-export type ChampionRecommendationInput = typeof ChampionRecommendationInput.Type;
 export const ChampionRuntimeState = Schema.Struct({
   attempts: Schema.Array(ChampionExecutionAttempt).check(Schema.isMaxLength(50)),
-  investigations: Schema.Array(ChampionInvestigation).check(Schema.isMaxLength(20)),
-  recommendations: Schema.Array(ChampionRecommendation).check(Schema.isMaxLength(20)),
   measurements: Schema.optional(Schema.Array(ChampionMeasurement).check(Schema.isMaxLength(20))),
 });
 export type ChampionRuntimeState = typeof ChampionRuntimeState.Type;

@@ -7,12 +7,11 @@ import {
   type ChampionMetric,
   type ChampionMetricInput,
   type ChampionSummary,
-  type ChampionInvestigation,
   type ChampionLearningRevision,
-  type ChampionRecommendation,
-  type ChampionRuntimeState,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
+import { mFallback, msg } from "gt-i18n";
+import type { MFunctionType } from "gt-i18n/types";
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 import { RpcClientError } from "effect/rpc";
@@ -174,10 +173,13 @@ export function championReading(
 }
 
 /** What to say beside a value the target cannot judge; null when the target judges it. */
-export function championReadingNote(reading: ChampionReading): string | null {
+export function championReadingNote(
+  reading: ChampionReading,
+  resolve: MFunctionType = mFallback,
+): string | null {
   if (reading.kind !== "measured") return null;
-  if (reading.health === "untargeted") return "No target";
-  if (reading.health === "outdated") return "Earlier definition";
+  if (reading.health === "untargeted") return resolve(msg("No target"));
+  if (reading.health === "outdated") return resolve(msg("Earlier definition"));
   return null;
 }
 
@@ -197,16 +199,11 @@ export function formatChampionCommand(collect: ReadonlyArray<string>): string {
   return text.trimEnd();
 }
 
-export const CHAMPION_ROUTE_LABELS = {
-  repair: "a bounded repair",
-  spec: "a Spec",
-  decision: "your decision",
-} as const;
-
+/** Plain `msg()` text: English as is, translated through the app's resolver where it renders. */
 export const CHAMPION_READING_STATUS_LABELS = {
-  unknown: "Unknown",
-  insufficient: "Not enough data",
-  error: "Couldn't measure",
+  unknown: msg("Unknown", { $context: "a reading's status" }),
+  insufficient: msg("Not enough data"),
+  error: msg("Couldn't measure"),
 } as const;
 
 const VALUE_FORMAT = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
@@ -215,26 +212,28 @@ export function formatChampionValue(value: number, unit: string): string {
   return unit === "%" ? `${VALUE_FORMAT.format(value)}%` : `${VALUE_FORMAT.format(value)} ${unit}`;
 }
 
-export function championReadingLabel(reading: ChampionReading, unit: string): string {
+export function championReadingLabel(
+  reading: ChampionReading,
+  unit: string,
+  resolve: MFunctionType = mFallback,
+): string {
   switch (reading.kind) {
     case "measured":
       return formatChampionValue(reading.value, unit);
     case "unmeasured":
-      return CHAMPION_READING_STATUS_LABELS[reading.status];
+      return resolve(CHAMPION_READING_STATUS_LABELS[reading.status]);
     case "not-yet":
-      return reading.earlier ? "Not measured since it changed" : "Not yet measured";
+      return reading.earlier
+        ? resolve(msg("Not measured since it changed"))
+        : resolve(msg("Not yet measured"));
     case "unavailable":
-      return "Reading unavailable";
+      return resolve(msg("Reading unavailable"));
   }
 }
 
 export const CHAMPION_FINDING_STATUS_LABELS: Record<ChampionFinding["status"], string> = {
   open: "Open",
-  working: "Repair running",
-  handed_back: "Ready to integrate",
-  delivered: "Rechecking",
   verified: "Verified",
-  inconclusive: "Can't tell",
   dismissed: "Dismissed",
 };
 
@@ -245,7 +244,7 @@ export const canDismissChampionFinding = (finding: ChampionFinding) =>
   !championFindingIsClosed(finding);
 
 export const canReopenChampionFinding = (finding: ChampionFinding) =>
-  championFindingIsClosed(finding) || finding.status === "inconclusive";
+  championFindingIsClosed(finding);
 
 const DECISION_ANSWER_LIMIT = 500;
 
@@ -289,7 +288,6 @@ export function championsUnsupportedByServer(cause: Cause.Cause<unknown>): boole
 }
 
 export type ChampionAction =
-  | "investigation"
   | "learning"
   | "load"
   | "save"
@@ -302,194 +300,67 @@ export type ChampionAction =
   | "decision";
 
 const CONFLICT_MESSAGES: Partial<Record<ChampionAction, string>> = {
-  investigation:
-    "The investigation or its available capacity changed. Refresh its evidence before trying again.",
-  learning: "This learning has a newer revision. Read the current revision before replacing it.",
-  finding: "A repair is still running on this. Wait for it to finish, then try again.",
-  decision: "This decision has changed. Check its current state.",
-  "cancel-setup": "Setup is still starting, so it can't be cancelled yet. Try again shortly.",
+  learning: msg(
+    "This learning has a newer revision. Read the current revision before replacing it.",
+  ),
+  decision: msg("This decision has changed. Check its current state."),
+  "cancel-setup": msg("Setup is still starting, so it can't be cancelled yet. Try again shortly."),
 };
 
 const INVALID_MESSAGES: Partial<Record<ChampionAction, string>> = {
-  save: "The chosen project or model can't be used on this machine.",
-  setup: "The chosen project or model can't be used on this machine.",
-  lifecycle: "Add metrics before starting this champion.",
-  metrics: "The machine refused these metrics. Check their targets.",
-  decision: "That answer can't be used. Keep it to 500 characters.",
+  save: msg("The chosen project or model can't be used on this machine."),
+  setup: msg("The chosen project or model can't be used on this machine."),
+  lifecycle: msg("Add metrics before starting this champion."),
+  metrics: msg("The machine refused these metrics. Check their targets."),
+  decision: msg("That answer can't be used. Keep it to 500 characters."),
 };
 
 /** The server's reason is a code rather than a sentence, and its meaning depends on the action; a detail the server wrote for this refusal wins. */
-export function championFailureMessage(failure: unknown, action: ChampionAction): string {
+export function championFailureMessage(
+  failure: unknown,
+  action: ChampionAction,
+  resolve: MFunctionType = mFallback,
+): string {
   if (isChampionError(failure)) {
     if (failure.detail !== undefined && failure.detail.trim()) return failure.detail;
     switch (failure.reason) {
       case "unauthorized":
         return action === "load"
-          ? "This device isn't allowed to see champions on this machine."
-          : "This device isn't allowed to change champions on this machine.";
+          ? resolve(msg("This device isn't allowed to see champions on this machine."))
+          : resolve(msg("This device isn't allowed to change champions on this machine."));
       case "not-found":
-        return "This machine no longer has this champion or its project.";
-      case "conflict":
-        return (
-          CONFLICT_MESSAGES[action] ??
-          "It changed while you were acting on it. Check its state and try again."
+        return resolve(msg("This machine no longer has this champion or its project."));
+      case "conflict": {
+        const known = CONFLICT_MESSAGES[action];
+        return resolve(
+          known ?? msg("It changed while you were acting on it. Check its state and try again."),
         );
+      }
       case "invalid":
-        return INVALID_MESSAGES[action] ?? "The machine refused this request.";
+        return resolve(INVALID_MESSAGES[action] ?? msg("The machine refused this request."));
       case "unavailable":
         return action === "load"
-          ? "This machine couldn't load champions. Try again."
-          : "The chosen model or this machine isn't available right now. Nothing was switched; try again.";
+          ? resolve(msg("This machine couldn't load champions. Try again."))
+          : resolve(
+              msg(
+                "The chosen model or this machine isn't available right now. Nothing was switched; try again.",
+              ),
+            );
     }
   }
   return failure instanceof Error && failure.message.trim()
     ? failure.message
-    : "That didn't work. Try again.";
+    : resolve(msg("That didn't work. Try again."));
 }
 
-export function championLoadFailureMessage(cause: Cause.Cause<unknown>): string {
+export function championLoadFailureMessage(
+  cause: Cause.Cause<unknown>,
+  resolve: MFunctionType = mFallback,
+): string {
   if (championsUnsupportedByServer(cause)) {
-    return "This machine's server needs updating to use Champions.";
+    return resolve(msg("This machine's server needs updating to use Champions."));
   }
-  return championFailureMessage(Cause.squash(cause), "load");
-}
-
-export type ChampionResearchTone = "running" | "done" | "warning" | "failed" | "idle";
-
-interface ChampionResearchBranch {
-  readonly id: string;
-  readonly hypothesis: string;
-  readonly tone: ChampionResearchTone;
-  readonly status: string;
-  readonly result: string | null;
-}
-
-export interface ChampionResearchView {
-  readonly investigationId: string;
-  /** The server hasn't confirmed every task has stopped, so nothing may be dismissed under it. */
-  readonly live: boolean;
-  readonly cancellable: boolean;
-  readonly cancelRequested: boolean;
-  readonly cannotConfirm: boolean;
-  readonly summary: string | null;
-  readonly attention: string | null;
-  readonly branches: ReadonlyArray<ChampionResearchBranch>;
-}
-
-const counted = (count: number, one: string, many: string) =>
-  `${count} ${count === 1 ? one : many}`;
-
-export function championResearchView(investigation: ChampionInvestigation): ChampionResearchView {
-  const requested = investigation.status === "cancel_requested";
-  const branches = investigation.branches.map((branch): ChampionResearchBranch => {
-    const attempt = investigation.attempts
-      .filter((candidate) => candidate.branchId === branch.id)
-      .sort((a, b) => a.admittedAt.localeCompare(b.admittedAt))
-      .at(-1);
-    const view = (tone: ChampionResearchTone, status: string) => ({
-      id: branch.id,
-      hypothesis: branch.hypothesis,
-      tone,
-      status,
-      result: attempt?.result ?? null,
-    });
-    switch (attempt?.state) {
-      case undefined:
-        return view("idle", investigation.status === "open" ? "Not started" : "Never started");
-      case "admitted":
-        return view("running", requested ? "Stop requested" : "Starting");
-      case "accepted":
-        return view("running", requested ? "Stop requested" : "Running");
-      case "unknown":
-        return view("warning", "Can't confirm");
-      case "completed":
-        return view("done", "Finished");
-      case "failed":
-        return view("failed", "Failed");
-      case "cancelled":
-        return view("idle", "Cancelled");
-    }
-  });
-  const running = branches.filter((branch) => branch.tone === "running").length;
-  const unknown = branches.filter((branch) => branch.tone === "warning").length;
-  const unconfirmed =
-    unknown > 0 ? ` · ${counted(unknown, "task", "tasks")} can't be confirmed` : "";
-  const open = investigation.status === "open";
-  const tasks = branches.length;
-  const summary =
-    investigation.status === "synthesized"
-      ? null
-      : investigation.status === "cancelled"
-        ? `Research cancelled${unconfirmed}`
-        : requested
-          ? running + unknown > 0
-            ? `Cancel requested · ${counted(running + unknown, "task", "tasks")} not yet stopped`
-            : "Cancel requested"
-          : running > 0
-            ? `Researching ${counted(tasks, "option", "options")} · ${counted(running, "task", "tasks")} running${unconfirmed}`
-            : unknown > 0
-              ? `Researching ${counted(tasks, "option", "options")}${unconfirmed}`
-              : branches.every((branch) => branch.tone === "idle")
-                ? `Research planned · ${counted(tasks, "option", "options")}`
-                : `Researched ${counted(tasks, "option", "options")} · No recommendation yet`;
-  return {
-    investigationId: investigation.investigationId,
-    live: open || requested || running + unknown > 0,
-    cancellable: open,
-    cancelRequested: requested,
-    cannotConfirm: unknown > 0,
-    summary,
-    attention: investigation.attention,
-    branches,
-  };
-}
-
-export interface ChampionFindingRuntime {
-  readonly research: ChampionResearchView | null;
-  /** What the open or last decision was asked about. Null when it wasn't asked from one. */
-  readonly recommendation: ChampionRecommendation | null;
-  /** The decision names a recommendation this client doesn't have, so it can't be read yet. */
-  readonly recommendationMissing: boolean;
-  readonly earlier: ReadonlyArray<ChampionRecommendation>;
-}
-
-export function championFindingRuntime(
-  finding: ChampionFinding,
-  state: ChampionRuntimeState | null,
-  exact: ChampionRecommendation | null = null,
-): ChampionFindingRuntime {
-  const recommendationId = finding.decision?.recommendationId;
-  const recommendation =
-    recommendationId === undefined
-      ? null
-      : (state?.recommendations.find(
-          (candidate) =>
-            candidate.recommendationId === recommendationId &&
-            candidate.findingId === finding.id &&
-            candidate.findingAttemptId === finding.attemptId,
-        ) ??
-        (exact?.recommendationId === recommendationId &&
-        exact.findingId === finding.id &&
-        exact.findingAttemptId === finding.attemptId
-          ? exact
-          : null));
-  // The server lists pending investigations first, then the newest.
-  const investigation = state?.investigations.find(
-    (candidate) => candidate.findingId === finding.id,
-  );
-  return {
-    research: investigation ? championResearchView(investigation) : null,
-    recommendation,
-    recommendationMissing: recommendationId !== undefined && recommendation === null,
-    earlier: (state?.recommendations ?? [])
-      .filter(
-        (candidate) =>
-          candidate.findingId === finding.id &&
-          candidate.recommendationId !== recommendationId &&
-          (recommendation === null || candidate.recordedAt <= recommendation.recordedAt),
-      )
-      .sort((a, b) => b.recordedAt.localeCompare(a.recordedAt)),
-  };
+  return championFailureMessage(Cause.squash(cause), "load", resolve);
 }
 
 const NOTE_DATE_FORMAT = new Intl.DateTimeFormat(undefined, {
@@ -536,20 +407,25 @@ export function learningNoteProse(revision: ChampionLearningRevision): ReadonlyA
 /** Who recorded a learning: the Champion, or the agent and the machine it ran on. */
 export function championLearningAuthor(
   revision: Pick<ChampionLearningRevision, "contribution">,
+  resolve: MFunctionType = mFallback,
 ): string {
   const from = revision.contribution;
-  if (from === undefined) return "The Champion";
-  const who = from.role === null ? "An agent thread" : AGENT_ROLE_TITLE_LABEL[from.role];
-  return from.environmentLabel === null ? who : `${who} on ${from.environmentLabel}`;
+  if (from === undefined) return resolve(msg("The Champion"));
+  const who =
+    from.role === null ? resolve(msg("An agent thread")) : AGENT_ROLE_TITLE_LABEL[from.role];
+  return from.environmentLabel === null
+    ? who
+    : resolve(msg("{who} on {machine}", { who, machine: from.environmentLabel }));
 }
 
 /** The expanded detail's "Recorded by" line: the author, and the thread a contribution came from. */
 export function championLearningRecordedBy(
   revision: Pick<ChampionLearningRevision, "contribution">,
+  resolve: MFunctionType = mFallback,
 ): string {
   const title = revision.contribution?.threadTitle;
-  const author = championLearningAuthor(revision);
-  return title == null ? author : `${author}, in “${title}”`;
+  const author = championLearningAuthor(revision, resolve);
+  return title == null ? author : resolve(msg("{author}, in “{title}”", { author, title }));
 }
 
 /** The line a learning leads with: its plain sentence, or its conclusion until it has one. */
@@ -558,9 +434,12 @@ export function championLearningHeadline(entry: ChampionLearningEntry): string {
 }
 
 /** Where a contributed learning stands with its Champion; null for the Champion's own. */
-export function championLearningReview(entry: ChampionLearningEntry): string | null {
+export function championLearningReview(
+  entry: ChampionLearningEntry,
+  resolve: MFunctionType = mFallback,
+): string | null {
   if (entry.revision.contribution === undefined) return null;
   return entry.confirmation === null
-    ? "Counts now; the Champion confirms or replaces it on its next check."
-    : `Confirmed by the Champion: ${entry.confirmation.note}`;
+    ? resolve(msg("Counts now; the Champion confirms or replaces it on its next check."))
+    : resolve(msg("Confirmed by the Champion: {note}", { note: entry.confirmation.note }));
 }

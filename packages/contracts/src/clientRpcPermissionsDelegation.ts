@@ -9,8 +9,6 @@ import { WS_METHODS } from "./rpc.ts";
 export const DELEGATION_GUARDED_RPC_SCOPES = {
   [WS_METHODS.agentPolicySave]: AuthSettingsWriteScope,
   [WS_METHODS.delegationStanceResolve]: AuthOrchestrationReadScope,
-  [WS_METHODS.championsStartInvestigation]: AuthOrchestrationOperateScope,
-  [WS_METHODS.championsCancelInvestigation]: AuthOrchestrationOperateScope,
   [WS_METHODS.championsUpsert]: AuthOrchestrationOperateScope,
   [WS_METHODS.championsSetModels]: AuthOrchestrationOperateScope,
   [WS_METHODS.championsSetLifecycle]: AuthOrchestrationOperateScope,

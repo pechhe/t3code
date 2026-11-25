@@ -2,15 +2,10 @@ import {
   canDismissChampionFinding,
   canReopenChampionFinding,
   CHAMPION_FINDING_STATUS_LABELS,
-  CHAMPION_ROUTE_LABELS,
   championApprovalAnswer,
   championApprovalWhen,
   championFailureMessage,
   championFindingIsClosed,
-  type ChampionFindingRuntime,
-  championFindingRuntime,
-  type ChampionResearchTone,
-  type ChampionResearchView,
   learningNoteProse,
   pendingChampionDecision,
 } from "@t3tools/client-runtime/champions";
@@ -29,12 +24,12 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import { Link } from "@tanstack/react-router";
+import { msg, T, useGT, useMessages, Var } from "gt-react";
 import * as Schema from "effect/Schema";
 import { ChevronDownIcon, ChevronRightIcon, ExternalLinkIcon } from "lucide-react";
 import { useState } from "react";
 
 import { readLocalApi } from "../../localApi";
-import { cn, randomUUID } from "../../lib/utils";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -48,11 +43,7 @@ import { Textarea } from "../ui/textarea";
 import {
   activityTitle,
   type ChampionActivityView,
-  championDecisionBinding,
-  type ChampionDecisionBinding,
-  championDecisionBindingChanged,
   championRecentRuns,
-  recommendationSupport,
   safeExternalUrl,
   sameChampionModel,
 } from "./champions.logic";
@@ -62,8 +53,12 @@ import { useChampionCommandAllowed } from "./useChampionAction";
 const QUIET_SHOWN = 5;
 const ENTRIES_SHOWN = 3;
 const DECISION_ANSWER_MAX_LENGTH = 500;
-const CANCEL_REASON_MAX_LENGTH = 500;
 const RUNS_SHOWN = 10;
+const RUN_KIND_LABELS = {
+  readings: msg("Readings", { $context: "a Champion run that takes readings" }),
+  review: msg("Goal review"),
+  setup: msg("Metric setup"),
+} as const;
 const isChampionError = Schema.is(ChampionError);
 
 function ThreadLink(props: {
@@ -88,19 +83,28 @@ function RelayedApproval(props: {
   readonly approval: ChampionRelayedApproval;
 }) {
   const { approval } = props;
+  const gt = useGT();
   const when = championApprovalWhen(approval.approvedAt);
   return (
     <p className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-muted-foreground text-xs">
       <Badge variant="success" size="sm">
-        Approved by you
+        <T>Approved by you</T>
       </Badge>
-      <span>through</span>
+      <span>
+        <T>through</T>
+      </span>
       <ThreadLink
         environmentId={approval.sourceEnvironment?.id ?? props.environmentId}
         threadId={approval.threadId}
-        label={approval.threadTitle.trim() || "an agent thread"}
+        label={approval.threadTitle.trim() || gt("an agent thread")}
       />
-      {approval.sourceEnvironment ? <span>on {approval.sourceEnvironment.label}</span> : null}
+      {approval.sourceEnvironment ? (
+        <span>
+          <T>
+            on <Var>{approval.sourceEnvironment.label}</Var>
+          </T>
+        </span>
+      ) : null}
       {when ? (
         <>
           <span aria-hidden>·</span>
@@ -144,13 +148,18 @@ function WorkLinks(props: {
             void api.shell.openExternal(specUrl);
           }}
         >
-          Spec
+          <T>Spec</T>
           <ExternalLinkIcon aria-hidden className="size-3" />
         </a>
       ) : null}
       {props.revision !== null ? (
         <span className="text-muted-foreground">
-          Revision <span className="font-mono">{props.revision}</span>
+          <T>
+            Revision{" "}
+            <Var>
+              <span className="font-mono">{props.revision}</span>
+            </Var>
+          </T>
         </span>
       ) : null}
     </div>
@@ -186,8 +195,6 @@ function DecisionAnswer(props: {
   readonly championId: string;
   readonly findingId: string;
   readonly decision: NonNullable<ChampionFinding["decision"]>;
-  /** Off while the recommendation this decision is about can't be read. */
-  readonly readable: boolean;
   readonly onChanged: () => void;
 }) {
   const { decision } = props;
@@ -199,17 +206,21 @@ function DecisionAnswer(props: {
     serverEnvironment.championFindingAction,
     props.environmentId,
   );
+  const gt = useGT();
+  const m = useMessages();
   const [answer, setAnswer] = useState("");
   const [writing, setWriting] = useState(false);
-  // What the person was reading when they started writing. An answer is only ever about that.
-  const [drafted, setDrafted] = useState<ChampionDecisionBinding | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   if (decision.status === "resolved") {
     return (
       <div className="flex flex-col gap-0.5 text-sm">
         <p className="text-muted-foreground">{decision.question}</p>
-        <p>Answered: {decision.answer}</p>
+        <p>
+          <T>
+            Answered: <Var>{decision.answer}</Var>
+          </T>
+        </p>
         {decision.approval ? (
           <RelayedApproval environmentId={props.environmentId} approval={decision.approval} />
         ) : null}
@@ -217,16 +228,12 @@ function DecisionAnswer(props: {
     );
   }
   const proposal = decision.proposal;
-  const current = championDecisionBinding(decision);
-  const changed = championDecisionBindingChanged(drafted, current);
   const edit = (value: string) => {
     setAnswer(value);
     setError(null);
-    if (!value.trim()) setDrafted(null);
-    else if (drafted === null) setDrafted(current);
   };
   const submit = async (text: string) => {
-    if (busy || !text.trim() || changed || !props.readable) return;
+    if (busy || !text.trim()) return;
     setBusy(true);
     setError(null);
     const result = await act({
@@ -235,10 +242,7 @@ function DecisionAnswer(props: {
         id: props.championId,
         findingId: props.findingId,
         action: "resolve_decision",
-        decisionId: current.decisionId,
-        ...(current.recommendationId === undefined
-          ? {}
-          : { recommendationId: current.recommendationId }),
+        decisionId: decision.id,
         reason: text.trim(),
       },
     });
@@ -248,8 +252,8 @@ function DecisionAnswer(props: {
       const conflict = isChampionError(failure) && failure.reason === "conflict";
       setError(
         conflict
-          ? "This changed before your answer arrived, so it wasn't sent. It's still here."
-          : championFailureMessage(failure, "decision"),
+          ? gt("This changed before your answer arrived, so it wasn't sent. It's still here.")
+          : championFailureMessage(failure, "decision", m),
       );
       if (conflict) props.onChanged();
     }
@@ -264,30 +268,20 @@ function DecisionAnswer(props: {
     >
       {proposal ? (
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
-          <dt className="text-muted-foreground">Proposed</dt>
+          <dt className="text-muted-foreground">
+            <T>Proposed</T>
+          </dt>
           <dd className="font-medium">{proposal.action}</dd>
-          <dt className="text-muted-foreground">Why</dt>
+          <dt className="text-muted-foreground">
+            <T>Why</T>
+          </dt>
           <dd className="text-muted-foreground">{proposal.why}</dd>
         </dl>
       ) : null}
-      {changed ? (
-        <div
-          role="alert"
-          className="flex flex-col items-start gap-1.5 text-warning-foreground text-xs"
-        >
-          <p>
-            The recommendation changed while you were writing, so your answer wasn't sent. It's
-            still here. Check it still fits what's above.
-          </p>
-          <Button size="xs" variant="outline" onClick={() => setDrafted(current)}>
-            Keep my answer for this version
-          </Button>
-        </div>
-      ) : null}
       {writing ? (
         <Textarea
-          aria-label="Your answer"
-          placeholder="Your answer goes to the champion's owner."
+          aria-label={gt("Your answer")}
+          placeholder={gt("Your answer goes to this finding's case.")}
           maxLength={DECISION_ANSWER_MAX_LENGTH}
           value={answer}
           autoFocus
@@ -297,15 +291,11 @@ function DecisionAnswer(props: {
       <div className="flex flex-wrap gap-2">
         {writing ? (
           <>
-            <Button
-              size="sm"
-              type="submit"
-              disabled={!canAct || busy || !answer.trim() || changed || !props.readable}
-            >
-              {busy ? "Sending…" : "Send my answer"}
+            <Button size="sm" type="submit" disabled={!canAct || busy || !answer.trim()}>
+              {busy ? gt("Sending…") : gt("Send my answer")}
             </Button>
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => setWriting(false)}>
-              Cancel
+              <T>Cancel</T>
             </Button>
           </>
         ) : (
@@ -313,19 +303,19 @@ function DecisionAnswer(props: {
             {proposal ? (
               <Button
                 size="sm"
-                disabled={!canAct || busy || changed || !props.readable}
+                disabled={!canAct || busy}
                 onClick={() => void submit(championApprovalAnswer(proposal.action))}
               >
-                {busy ? "Sending…" : "Approve proposed"}
+                {busy ? gt("Sending…") : gt("Approve proposed")}
               </Button>
             ) : null}
             <Button
               size="sm"
               variant={proposal ? "outline" : "default"}
-              disabled={!canAct || busy || changed || !props.readable}
+              disabled={!canAct || busy}
               onClick={() => setWriting(true)}
             >
-              {proposal ? "Answer differently" : "Answer"}
+              {proposal ? gt("Answer differently") : gt("Answer", { $context: "verb" })}
             </Button>
           </>
         )}
@@ -339,182 +329,13 @@ function DecisionAnswer(props: {
   );
 }
 
-const RESEARCH_DOTS: Record<ChampionResearchTone, string> = {
-  running: "bg-info",
-  done: "bg-success",
-  warning: "bg-warning",
-  failed: "bg-destructive",
-  idle: "bg-muted-foreground/50",
-};
-
-function ResearchList(props: { readonly research: ChampionResearchView }) {
+function HowItGotHere(props: { readonly events: ReadonlyArray<ChampionActivity> }) {
+  const gt = useGT();
+  const m = useMessages();
+  if (props.events.length === 0) return null;
   return (
-    <ul className="flex flex-col gap-1 text-xs">
-      {props.research.branches.map((branch) => (
-        <li key={branch.id} className="flex flex-wrap items-baseline gap-x-2">
-          <span className="flex w-28 shrink-0 items-center gap-1.5">
-            <span aria-hidden className={cn("size-1.5 rounded-full", RESEARCH_DOTS[branch.tone])} />
-            {branch.status}
-          </span>
-          <span className="min-w-0 flex-1 basis-48">
-            {branch.hypothesis}
-            {branch.result ? (
-              <span className="text-muted-foreground"> · {branch.result}</span>
-            ) : null}
-          </span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function ResearchControls(props: {
-  readonly environmentId: EnvironmentId;
-  readonly championId: string;
-  readonly research: ChampionResearchView;
-  readonly paused: boolean;
-  readonly onChanged: () => void;
-}) {
-  const { research } = props;
-  const cancel = useAtomCommand(serverEnvironment.cancelChampionInvestigation, {
-    label: "champion cancel investigation",
-    reportFailure: false,
-  });
-  const canCancel = useChampionCommandAllowed(
-    serverEnvironment.cancelChampionInvestigation,
-    props.environmentId,
-  );
-  // Kept across a failed send, so retrying is the same request rather than a second one.
-  const [requestId, setRequestId] = useState<string | null>(null);
-  const [reason, setReason] = useState("");
-  const [sent, setSent] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const submit = async () => {
-    if (busy || requestId === null || !reason.trim()) return;
-    setBusy(true);
-    setError(null);
-    const result = await cancel({
-      environmentId: props.environmentId,
-      input: {
-        id: props.championId,
-        investigationId: research.investigationId,
-        requestId,
-        reason: reason.trim(),
-      },
-    });
-    setBusy(false);
-    if (result._tag === "Failure") {
-      if (!isAtomCommandInterrupted(result)) {
-        setError(championFailureMessage(squashAtomCommandFailure(result), "investigation"));
-      }
-      return;
-    }
-    setSent(true);
-    setRequestId(null);
-    setReason("");
-    props.onChanged();
-  };
-  return (
-    <div className="flex flex-col gap-2">
-      {research.attention ? <p className="text-warning-foreground">{research.attention}</p> : null}
-      {props.paused && research.live ? (
-        <p className="text-muted-foreground text-xs">
-          Paused, so no new research starts. Anything already running carries on.
-        </p>
-      ) : null}
-      {requestId !== null ? (
-        <form
-          className="flex flex-wrap items-center gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void submit();
-          }}
-        >
-          <Input
-            className="min-w-48 flex-1"
-            nativeInput
-            size="sm"
-            autoFocus
-            maxLength={CANCEL_REASON_MAX_LENGTH}
-            aria-label="Why cancel this?"
-            placeholder="Why cancel this?"
-            value={reason}
-            onChange={(event) => setReason(event.target.value)}
-          />
-          <Button size="xs" type="submit" disabled={!canCancel || busy || !reason.trim()}>
-            {busy ? "Requesting…" : "Request cancel"}
-          </Button>
-          <Button
-            size="xs"
-            variant="ghost-muted"
-            disabled={busy}
-            onClick={() => {
-              setRequestId(null);
-              setError(null);
-            }}
-          >
-            Keep running
-          </Button>
-        </form>
-      ) : (
-        <div className="flex flex-col gap-1.5">
-          <Disclosure label="See research" openLabel="Hide research">
-            <ResearchList research={research} />
-          </Disclosure>
-          {research.cancellable && !sent ? (
-            <Button
-              size="xs"
-              variant="ghost-muted"
-              className="self-start"
-              disabled={!canCancel}
-              onClick={() => setRequestId(randomUUID())}
-            >
-              Cancel research
-            </Button>
-          ) : null}
-        </div>
-      )}
-      {research.cancelRequested || (sent && research.cancellable) ? (
-        <p role="status" className="text-muted-foreground text-xs">
-          Cancel requested. It stays this way until every task is confirmed stopped.
-        </p>
-      ) : null}
-      {error ? (
-        <p role="alert" className="text-destructive-foreground text-xs">
-          {error}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
-function HowItGotHere(props: {
-  readonly runtime: ChampionFindingRuntime;
-  readonly events: ReadonlyArray<ChampionActivity>;
-}) {
-  const { recommendation, earlier, research } = props.runtime;
-  const support = recommendation ? recommendationSupport(recommendation) : [];
-  // Live or cancelled research already has its own "See research" beside the finding.
-  const researchHere = research !== null && !research.live && research.summary === null;
-  if (support.length === 0 && earlier.length === 0 && !researchHere && props.events.length === 0) {
-    return null;
-  }
-  return (
-    <Disclosure label="How it got here">
+    <Disclosure label={gt("How it got here")}>
       <div className="flex flex-col gap-2 text-xs">
-        {support.map((text) => (
-          <p key={text} className="whitespace-pre-wrap">
-            {text}
-          </p>
-        ))}
-        {earlier.map((previous) => (
-          <p key={previous.recommendationId} className="text-muted-foreground">
-            Earlier, <ScheduledRelativeLabel value={previous.recordedAt} />:{" "}
-            {previous.recommendation}
-          </p>
-        ))}
-        {researchHere ? <ResearchList research={research} /> : null}
         {props.events.length > 0 ? (
           <ol className="flex flex-col gap-1">
             {props.events.map((event) => (
@@ -523,7 +344,7 @@ function HowItGotHere(props: {
                   <ScheduledRelativeLabel value={event.at} />
                 </span>
                 <span className="min-w-0 flex-1">
-                  {activityTitle(event.kind)}
+                  {activityTitle(event.kind, m)}
                   {event.text ? (
                     <span className="text-muted-foreground"> · {event.text}</span>
                   ) : null}
@@ -543,6 +364,8 @@ function FindingControls(props: {
   readonly finding: ChampionFinding;
 }) {
   const { finding } = props;
+  const gt = useGT();
+  const m = useMessages();
   const act = useAtomCommand(serverEnvironment.championFindingAction, {
     label: "champion finding action",
     reportFailure: false,
@@ -572,7 +395,7 @@ function FindingControls(props: {
     setBusy(false);
     if (result._tag === "Failure") {
       if (!isAtomCommandInterrupted(result)) {
-        setError(championFailureMessage(squashAtomCommandFailure(result), "finding"));
+        setError(championFailureMessage(squashAtomCommandFailure(result), "finding", m));
       }
       return;
     }
@@ -591,7 +414,7 @@ function FindingControls(props: {
               disabled={!canAct}
               onClick={() => setAsking("dismiss")}
             >
-              Dismiss
+              <T>Dismiss</T>
             </Button>
           ) : null}
           {canReopenChampionFinding(finding) ? (
@@ -601,7 +424,7 @@ function FindingControls(props: {
               disabled={!canAct}
               onClick={() => setAsking("reopen")}
             >
-              Reopen
+              <T>Reopen</T>
             </Button>
           ) : null}
         </div>
@@ -618,13 +441,13 @@ function FindingControls(props: {
             nativeInput
             size="sm"
             autoFocus
-            aria-label={asking === "dismiss" ? "Why dismiss this?" : "Why reopen this?"}
-            placeholder={asking === "dismiss" ? "Why dismiss this?" : "Why reopen this?"}
+            aria-label={asking === "dismiss" ? gt("Why dismiss this?") : gt("Why reopen this?")}
+            placeholder={asking === "dismiss" ? gt("Why dismiss this?") : gt("Why reopen this?")}
             value={reason}
             onChange={(event) => setReason(event.target.value)}
           />
           <Button size="xs" type="submit" disabled={!canAct || busy || !reason.trim()}>
-            {asking === "dismiss" ? "Dismiss" : "Reopen"}
+            {asking === "dismiss" ? gt("Dismiss") : gt("Reopen")}
           </Button>
           <Button
             size="xs"
@@ -635,7 +458,7 @@ function FindingControls(props: {
               setError(null);
             }}
           >
-            Cancel
+            <T>Cancel</T>
           </Button>
         </form>
       )}
@@ -688,107 +511,39 @@ function EntryRow(props: {
   );
 }
 
-function FindingDiagnosis({ finding }: { readonly finding: ChampionFinding }) {
-  const diagnosis = finding.diagnosis?.attemptId === finding.attemptId ? finding.diagnosis : null;
-  if (diagnosis === null)
-    return finding.undiagnosed?.attemptId === finding.attemptId ? (
-      <p className="text-muted-foreground text-xs">
-        Not diagnosed, so work on it went ahead without one. {finding.undiagnosed.reason}
-      </p>
-    ) : null;
-  return (
-    <div className="flex flex-col gap-1 rounded-md border px-2.5 py-2">
-      <p className="font-medium text-xs">Diagnosis</p>
-      <p className="wrap-break-word whitespace-pre-wrap">{diagnosis.text}</p>
-      <p className="text-muted-foreground text-xs">
-        Recommends {CHAMPION_ROUTE_LABELS[diagnosis.route]}. {diagnosis.why}
-      </p>
-      {diagnosis.departure ? (
-        <p className="text-xs">
-          Took {CHAMPION_ROUTE_LABELS[diagnosis.departure.route]} instead.{" "}
-          {diagnosis.departure.reason}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
 function FindingEntry(props: {
   readonly environmentId: EnvironmentId;
   readonly championId: string;
   readonly finding: ChampionFinding;
   readonly events: ReadonlyArray<ChampionActivity>;
   readonly archived: boolean;
-  readonly runtimeState: ChampionRuntimeState | null;
-  readonly runtimeFailed: boolean;
-  readonly paused: boolean;
   readonly onChanged: () => void;
 }) {
   const { finding } = props;
+  const gt = useGT();
   const pending = pendingChampionDecision(finding);
   const closed = championFindingIsClosed(finding);
-  const recent = championFindingRuntime(finding, props.runtimeState);
-  const exact = useEnvironmentQuery(
-    recent.recommendationMissing && finding.decision?.recommendationId !== undefined
-      ? serverEnvironment.championRecommendation({
-          environmentId: props.environmentId,
-          input: {
-            id: props.championId,
-            findingId: finding.id,
-            findingAttemptId: finding.attemptId,
-            recommendationId: finding.decision.recommendationId,
-          },
-        })
-      : null,
-  );
-  const runtime = championFindingRuntime(finding, props.runtimeState, exact.data);
-  const { recommendation, research } = runtime;
-  const live = research?.live === true;
-  const changedRecommendation = recommendation !== null && runtime.earlier.length > 0;
   const follow = (
     <>
-      {research !== null && (live || research.summary !== null) ? (
-        <ResearchControls
-          environmentId={props.environmentId}
-          championId={props.championId}
-          research={research}
-          paused={props.paused}
-          onChanged={props.onChanged}
-        />
-      ) : null}
-      {finding.repairAttention ? (
-        <p className="text-warning-foreground">{finding.repairAttention}</p>
-      ) : null}
-      <FindingDiagnosis finding={finding} />
       <WorkLinks
         environmentId={props.environmentId}
-        threadId={finding.childThreadId}
-        threadLabel={closed ? "Repair thread" : "Open repair thread"}
-        specUrl={finding.specUrl}
+        threadId={finding.escalationThreadId ?? null}
+        threadLabel={closed ? gt("Case", { $context: "an Inbox case thread" }) : gt("Open case")}
+        specUrl={null}
         revision={finding.revision}
       />
-      {finding.delivery ? (
-        <p className="text-muted-foreground text-xs">
-          Landed at <span className="font-mono">{finding.delivery.revision}</span>, confirmed by the
-          landing runner <ScheduledRelativeLabel value={finding.delivery.confirmedAt} />
-        </p>
-      ) : finding.status === "handed_back" ? (
-        <p className="text-muted-foreground text-xs">
-          The worker handed this back. It hasn't landed yet.
-        </p>
-      ) : null}
       {props.archived ? (
         <p className="text-muted-foreground text-xs">
-          Older settled finding, kept for reference. It can't be changed from here.
+          <T>Older settled finding, kept for reference. It can&apos;t be changed from here.</T>
         </p>
-      ) : live ? null : (
+      ) : (
         <FindingControls
           environmentId={props.environmentId}
           championId={props.championId}
           finding={finding}
         />
       )}
-      <HowItGotHere runtime={runtime} events={props.events} />
+      <HowItGotHere events={props.events} />
     </>
   );
   const decisionAnswer = finding.decision ? (
@@ -797,7 +552,6 @@ function FindingEntry(props: {
       championId={props.championId}
       findingId={finding.id}
       decision={finding.decision}
-      readable={!runtime.recommendationMissing}
       onChanged={props.onChanged}
     />
   ) : null;
@@ -812,32 +566,20 @@ function FindingEntry(props: {
             <ScheduledRelativeLabel value={pending.requestedAt} />
           </span>
         </div>
-        {recommendation ? (
-          <div className="flex flex-col gap-0.5">
-            <p className="wrap-break-word whitespace-pre-wrap">{recommendation.recommendation}</p>
-            <p className="text-muted-foreground text-xs">
-              {changedRecommendation ? "Changed" : "Recommended"}{" "}
-              <ScheduledRelativeLabel value={recommendation.recordedAt} />
-            </p>
-          </div>
-        ) : runtime.recommendationMissing ? (
-          <p role="status" className="text-muted-foreground text-xs">
-            {props.runtimeFailed || exact.error !== null
-              ? "Its recommendation couldn't load, so answering is off until it does."
-              : "Loading its recommendation…"}
-          </p>
-        ) : null}
         {decisionAnswer}
-        <Disclosure label="Details">
+        <Disclosure label={gt("Details")}>
           <div className="flex flex-col gap-3 text-xs">
             <p>
-              <span className="text-muted-foreground">Found: </span>
-              {finding.title}
+              <T>
+                <span className="text-muted-foreground">Found:</span> <Var>{finding.title}</Var>
+              </T>
             </p>
             {pending.proposal?.otherOptions ? (
               <p>
-                <span className="text-muted-foreground">Other options: </span>
-                {pending.proposal.otherOptions}
+                <T>
+                  <span className="text-muted-foreground">Other options:</span>{" "}
+                  <Var>{pending.proposal.otherOptions}</Var>
+                </T>
               </p>
             ) : null}
             {finding.evidence ? <p className="whitespace-pre-wrap">{finding.evidence}</p> : null}
@@ -850,32 +592,15 @@ function FindingEntry(props: {
   return (
     <EntryRow
       title={finding.title}
-      subtitle={research?.summary ?? finding.evidence}
-      badge={
-        research?.cancelRequested
-          ? { label: "Cancel requested", variant: "info" }
-          : research?.cannotConfirm
-            ? { label: "Can't confirm", variant: "warning" }
-            : live
-              ? { label: "Investigating", variant: "info" }
-              : {
-                  label: CHAMPION_FINDING_STATUS_LABELS[finding.status],
-                  variant: FINDING_VARIANTS[finding.status],
-                }
-      }
+      subtitle={finding.evidence}
+      badge={{
+        label: CHAMPION_FINDING_STATUS_LABELS[finding.status],
+        variant: FINDING_VARIANTS[finding.status],
+      }}
       at={finding.updatedAt}
     >
       {finding.evidence ? <p className="whitespace-pre-wrap">{finding.evidence}</p> : null}
       {decisionAnswer}
-      {finding.decision?.status === "resolved" && recommendation ? (
-        <Disclosure label="What it recommended">
-          <p className="whitespace-pre-wrap text-xs">{recommendation.recommendation}</p>
-          <p className="text-muted-foreground text-xs">
-            Your answer was about the version from{" "}
-            <ScheduledRelativeLabel value={recommendation.recordedAt} />
-          </p>
-        </Disclosure>
-      ) : null}
       {follow}
     </EntryRow>
   );
@@ -915,16 +640,22 @@ function LearningDetail(props: {
   if (query.error) {
     return (
       <div className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
-        <p>Its source couldn't load.</p>
+        <p>
+          <T>Its source couldn&apos;t load.</T>
+        </p>
         <Button size="xs" variant="ghost-muted" onClick={() => query.refresh()}>
-          Try again
+          <T>Try again</T>
         </Button>
       </div>
     );
   }
   return (
     <p role="status" className="text-muted-foreground text-xs">
-      {query.data === null ? "Loading its source…" : "Its source isn't available on this machine."}
+      {query.data === null ? (
+        <T>Loading its source…</T>
+      ) : (
+        <T>Its source isn&apos;t available on this machine.</T>
+      )}
     </p>
   );
 }
@@ -948,13 +679,18 @@ function RecentRuns(props: {
   readonly state: ChampionRuntimeState | null;
 }) {
   const [all, setAll] = useState(false);
+  const gt = useGT();
+  const m = useMessages();
   if (props.state === null) return null;
   const runs = championRecentRuns(props.state);
   if (runs.length === 0) return null;
   return (
-    <Disclosure label="Recent runs and models">
+    <Disclosure label={gt("Recent runs and models")}>
       <p className="text-muted-foreground text-xs">
-        Each run keeps the model it started with. Changing Champion models only affects later runs.
+        <T>
+          Each run keeps the model it started with. Changing Champion models only affects later
+          runs.
+        </T>
       </p>
       <ul className="flex flex-col divide-y overflow-hidden rounded-lg border bg-card text-xs">
         {(all ? runs : runs.slice(0, RUNS_SHOWN)).map((run) => (
@@ -963,36 +699,48 @@ function RecentRuns(props: {
               <span className="text-muted-foreground">
                 <ScheduledRelativeLabel value={run.at} />
               </span>
-              <span>{run.kind}</span>
+              <span>{m(RUN_KIND_LABELS[run.kind])}</span>
               {run.role ? (
                 <AgentRoleChip role={run.role} />
               ) : (
-                <Badge variant="outline">Fixed model</Badge>
+                <Badge variant="outline">
+                  <T>Fixed model</T>
+                </Badge>
               )}
               <span className="flex-1" />
               <ThreadLink
                 environmentId={props.environmentId}
                 threadId={run.threadId}
-                label="Open"
+                label={gt("Open", { $context: "verb, opens a thread" })}
               />
             </span>
             <span className="flex flex-wrap items-center gap-x-1 text-muted-foreground">
               {run.actual !== null && sameChampionModel(run.resolved, run.actual) ? (
-                <>
-                  Started and ran on
-                  <RunModel environmentId={props.environmentId} selection={run.resolved} />
-                </>
+                <T>
+                  Started and ran on{" "}
+                  <Var>
+                    <RunModel environmentId={props.environmentId} selection={run.resolved} />
+                  </Var>
+                </T>
+              ) : run.actual === null ? (
+                <T>
+                  Started on{" "}
+                  <Var>
+                    <RunModel environmentId={props.environmentId} selection={run.resolved} />
+                  </Var>{" "}
+                  · Ran on not confirmed
+                </T>
               ) : (
-                <>
-                  Started on
-                  <RunModel environmentId={props.environmentId} selection={run.resolved} />
-                  {" · Ran on "}
-                  {run.actual === null ? (
-                    "not confirmed"
-                  ) : (
+                <T>
+                  Started on{" "}
+                  <Var>
+                    <RunModel environmentId={props.environmentId} selection={run.resolved} />
+                  </Var>{" "}
+                  · Ran on{" "}
+                  <Var>
                     <RunModel environmentId={props.environmentId} selection={run.actual} />
-                  )}
-                </>
+                  </Var>
+                </T>
               )}
             </span>
           </li>
@@ -1000,7 +748,9 @@ function RecentRuns(props: {
       </ul>
       {!all && runs.length > RUNS_SHOWN ? (
         <Button size="xs" variant="ghost-muted" className="self-start" onClick={() => setAll(true)}>
-          Show {runs.length - RUNS_SHOWN} more
+          <T>
+            Show <Var>{runs.length - RUNS_SHOWN}</Var> more
+          </T>
         </Button>
       ) : null}
     </Disclosure>
@@ -1013,8 +763,10 @@ function EventEntry(props: {
   readonly event: ChampionActivity;
 }) {
   const { event } = props;
+  const gt = useGT();
+  const m = useMessages();
   return (
-    <EntryRow title={activityTitle(event.kind)} subtitle={event.text} at={event.at}>
+    <EntryRow title={activityTitle(event.kind, m)} subtitle={event.text} at={event.at}>
       {event.text ? <p className="whitespace-pre-wrap">{event.text}</p> : null}
       {event.learningRef ? (
         <LearningDetail
@@ -1029,7 +781,7 @@ function EventEntry(props: {
         <WorkLinks
           environmentId={props.environmentId}
           threadId={event.threadId}
-          threadLabel="Open thread"
+          threadLabel={gt("Open thread")}
           specUrl={event.specUrl}
           revision={event.revision}
         />
@@ -1044,8 +796,6 @@ type ActivityListProps = {
   readonly view: ChampionActivityView;
   readonly loading: boolean;
   readonly runtimeState: ChampionRuntimeState | null;
-  readonly runtimeFailed: boolean;
-  readonly paused: boolean;
   readonly onChanged: () => void;
 };
 
@@ -1063,9 +813,6 @@ function Entry(
       finding={entry.finding}
       events={entry.events}
       archived={entry.archived}
-      runtimeState={props.runtimeState}
-      runtimeFailed={props.runtimeFailed}
-      paused={props.paused}
       onChanged={props.onChanged}
     />
   ) : (
@@ -1100,6 +847,7 @@ export function ChampionActivityList(props: ActivityListProps) {
   const [allShown, setAllShown] = useState(false);
   const shown = allShown ? entries : entries.slice(0, ENTRIES_SHOWN);
   const [quietOpen, setQuietOpen] = useState(false);
+  const gt = useGT();
   const QuietChevron = quietOpen ? ChevronDownIcon : ChevronRightIcon;
   return (
     <>
@@ -1113,7 +861,7 @@ export function ChampionActivityList(props: ActivityListProps) {
         ))}
         {entries.length === 0 ? (
           <p className="px-3 py-2.5 text-muted-foreground text-sm">
-            {props.loading ? "Loading activity…" : "Nothing else has happened yet."}
+            {props.loading ? <T>Loading activity…</T> : <T>Nothing else has happened yet.</T>}
           </p>
         ) : null}
       </div>
@@ -1125,7 +873,7 @@ export function ChampionActivityList(props: ActivityListProps) {
           onClick={() => setAllShown(true)}
         >
           <ChevronRightIcon aria-hidden />
-          {`${entries.length - shown.length} older`}
+          {gt("{count} older", { count: entries.length - shown.length })}
         </Button>
       ) : null}
       {view.quiet.length > 0 ? (
@@ -1138,7 +886,9 @@ export function ChampionActivityList(props: ActivityListProps) {
             onClick={() => setQuietOpen((value) => !value)}
           >
             <QuietChevron aria-hidden />
-            {view.quiet.length === 1 ? "1 quiet check" : `${view.quiet.length} quiet checks`}
+            {gt("{count, plural, =1 {1 quiet check} other {{count} quiet checks}}", {
+              count: view.quiet.length,
+            })}
           </Button>
           {quietOpen ? (
             <ul className="flex flex-col gap-1 text-xs">
@@ -1147,12 +897,12 @@ export function ChampionActivityList(props: ActivityListProps) {
                   <span className="w-24 shrink-0 text-muted-foreground">
                     <ScheduledRelativeLabel value={event.at} />
                   </span>
-                  <span className="min-w-0 flex-1">{event.text || "Check reported."}</span>
+                  <span className="min-w-0 flex-1">{event.text || gt("Check reported.")}</span>
                   {event.threadId !== null ? (
                     <ThreadLink
                       environmentId={props.environmentId}
                       threadId={event.threadId}
-                      label="Open"
+                      label={gt("Open", { $context: "verb, opens a thread" })}
                     />
                   ) : null}
                 </li>

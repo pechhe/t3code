@@ -50,7 +50,7 @@ export const RetiredWriterRole = Schema.Literals([
   "ui-worker",
 ]);
 export type RetiredWriterRole = typeof RetiredWriterRole.Type;
-export const isRetiredWriterRole = Schema.is(RetiredWriterRole);
+const isRetiredWriterRole = Schema.is(RetiredWriterRole);
 /** How a managed task's thread title names its role: `<label> · <topic>`. */
 export const AGENT_ROLE_TITLE_LABEL = {
   implementer: "Implementer",

@@ -9,20 +9,25 @@ import {
 } from "@t3tools/client-runtime/champions";
 import type { EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
 import {
+  DEFAULT_GOAL_SCORE_TARGET,
   EnvironmentId,
+  GOAL_SCORE_SERIES,
   type AgentRole,
   type ChampionActivity,
+  type ChampionLatestSample,
   type ChampionFinding,
   type ChampionId,
   type ChampionMetric,
   type ChampionMetricInput,
-  type ChampionRecommendation,
   type ChampionRuntimeState,
   type ChampionSample,
   type ChampionSummary,
   type ModelSelection,
   type ThreadId,
 } from "@t3tools/contracts";
+import { msg } from "gt-react";
+
+import { m, type MessageResolver } from "../../i18n/messages";
 import type { ProviderInstanceEntry } from "../../providerInstances";
 
 export type ChampionsView = "new" | "edit" | "metrics";
@@ -146,15 +151,28 @@ export function recentMetricChange(
   return metric.version === 1 ? "new" : "updated";
 }
 
-export function metricTargetLabel(metric: ChampionMetricInput): string {
-  if (metric.direction === "observe") return "Observed only";
+/** A target to show: an observe-only metric, or one with a minimum or maximum. */
+export const metricHasTarget = (metric: ChampionMetricInput) =>
+  metric.direction === "observe" || metric.minimum !== null || metric.maximum !== null;
+
+export function metricTargetLabel(
+  metric: ChampionMetricInput,
+  resolve: MessageResolver = m,
+): string {
+  if (metric.direction === "observe") return resolve(msg("Observed only"));
   const { minimum, maximum, unit } = metric;
   if (minimum !== null && maximum !== null) {
-    return `${formatChampionValue(minimum, unit)} to ${formatChampionValue(maximum, unit)}`;
+    return resolve(
+      msg("{minimum} to {maximum}", {
+        minimum: formatChampionValue(minimum, unit),
+        maximum: formatChampionValue(maximum, unit),
+        $context: "a metric's target range",
+      }),
+    );
   }
   if (maximum !== null) return `≤ ${formatChampionValue(maximum, unit)}`;
   if (minimum !== null) return `≥ ${formatChampionValue(minimum, unit)}`;
-  return "No target yet";
+  return resolve(msg("No target yet"));
 }
 
 export function metricIsOffTarget(metric: ChampionMetricInput, value: number): boolean {
@@ -383,38 +401,49 @@ export function championActivityView(
 }
 
 const ACTIVITY_TITLES: Readonly<Record<string, string>> = {
-  configuration: "Settings changed",
-  lifecycle: "Status changed",
-  "check-retry": "Check retried",
-  "dispatch-unavailable": "A run couldn't start",
-  "metric-proposal": "Metrics proposed",
-  "metrics-accepted": "Metrics accepted",
-  "metrics-changed": "Metrics changed",
-  dismiss: "Finding dismissed",
-  reopen: "Finding reopened",
-  decision: "Decision requested",
-  resolve_decision: "Decision answered",
-  "metrics-lead": "Lead started on metrics",
-  "proposal-discarded": "Proposal discarded",
-  "setup-cancelled": "Setup cancelled",
-  "setup-completed": "Metrics reviewed, no change",
-  "repair-phase-reserved": "Repair reserved",
-  "finding-handed_back": "Ready to integrate",
-  "finding-opened": "Finding opened",
-  "finding-working": "Repair running",
-  "finding-delivered": "Repair delivered",
-  "finding-verified": "Verified",
-  "finding-inconclusive": "Inconclusive",
-  "finding-open": "Finding reopened",
-  "finding-dismissed": "Finding dismissed",
-  "learning-recorded": "Learned",
+  configuration: msg("Settings changed"),
+  lifecycle: msg("Status changed"),
+  "check-retry": msg("Check retried"),
+  "dispatch-unavailable": msg("A run couldn't start"),
+  "metric-proposal": msg("Metrics proposed"),
+  "metrics-accepted": msg("Metrics accepted"),
+  "metrics-changed": msg("Metrics changed"),
+  dismiss: msg("Finding dismissed"),
+  reopen: msg("Finding reopened"),
+  decision: msg("Decision requested"),
+  resolve_decision: msg("Decision answered"),
+  "metrics-lead": msg("Lead started on metrics"),
+  "proposal-discarded": msg("Proposal discarded"),
+  "setup-cancelled": msg("Setup cancelled"),
+  "setup-completed": msg("Metrics reviewed, no change"),
+  "repair-phase-reserved": msg("Repair reserved"),
+  "finding-handed_back": msg("Ready to integrate"),
+  "finding-opened": msg("Finding opened"),
+  "finding-working": msg("Repair running"),
+  "finding-delivered": msg("Repair delivered"),
+  "finding-verified": msg("Verified"),
+  "finding-inconclusive": msg("Inconclusive"),
+  "finding-open": msg("Finding reopened"),
+  "finding-dismissed": msg("Finding dismissed"),
+  "learning-recorded": msg("Learned"),
+  verify: msg("Finding verified"),
+  "check-reported": msg("Readings taken"),
+  "review-reported": msg("Goal reviewed"),
+  "finding-alarm": msg("Alarm reached"),
+  "finding-recovered": msg("Back in target"),
+  "case-started": msg("Case started"),
+  "repair-released": msg("Repair released at upgrade"),
+  "decision-answer-dropped": msg("Answer dropped"),
 };
 
-export function activityTitle(kind: string): string {
+export function activityTitle(kind: string, resolve: MessageResolver = m): string {
   const known = ACTIVITY_TITLES[kind];
-  if (known) return known;
+  if (known) return resolve(known);
+  // An unknown kind is the server's own label, which stays English.
   const words = kind.replace(/[-_]+/g, " ").trim();
-  return words ? `${words.charAt(0).toUpperCase()}${words.slice(1)}` : "Activity";
+  return words
+    ? `${words.charAt(0).toUpperCase()}${words.slice(1)}`
+    : resolve(msg("Activity", { $context: "a Champion activity entry" }));
 }
 
 /** A genuine web link from a report, or null: agent-reported text must not become a script URL. */
@@ -615,14 +644,15 @@ function entryIsUsable(entry: ProviderInstanceEntry): boolean {
 export function modelSelectionProblem(
   selection: ModelSelection | null,
   entries: ReadonlyArray<ProviderInstanceEntry>,
+  resolve: MessageResolver = m,
 ): string | null {
-  if (selection === null) return "Choose a model.";
+  if (selection === null) return resolve(msg("Choose a model."));
   const entry = entries.find((candidate) => candidate.instanceId === selection.instanceId);
-  if (entry === undefined) return "This provider isn't on this machine any more.";
+  if (entry === undefined) return resolve(msg("This provider isn't on this machine any more."));
   if (!entry.models.some((model) => model.slug === selection.model)) {
-    return "This provider no longer lists the chosen model.";
+    return resolve(msg("This provider no longer lists the chosen model."));
   }
-  return entryIsUsable(entry) ? null : "This provider isn't available right now.";
+  return entryIsUsable(entry) ? null : resolve(msg("This provider isn't available right now."));
 }
 
 const WORDS_IN_DERIVED_NAME = 5;
@@ -656,9 +686,16 @@ export function championMachineGap(
     readonly showingLastKnown?: boolean;
     readonly loadingEnvironmentIds?: ReadonlyArray<string>;
   },
+  resolve: MessageResolver = m,
 ): ChampionMachineGap | null {
   const named = (machines: ReadonlyArray<{ readonly label: string }>) =>
-    machines.length === 1 ? machines[0]!.label : `${machines.length} machines`;
+    machines.length === 1
+      ? machines[0]!.label
+      : resolve(
+          msg("{count, plural, one {{count} machine} other {{count} machines}}", {
+            count: machines.length,
+          }),
+        );
   const connecting = environments.filter(
     ({ connection, environmentId }) =>
       connection.phase === "connecting" ||
@@ -671,71 +708,62 @@ export function championMachineGap(
   );
   const waiting = [...reconnecting, ...connecting];
   if (waiting.length > 0) {
-    const verb = reconnecting.length > 0 ? "Reconnecting" : "Connecting";
+    const machine = named(waiting);
+    if (reconnecting.length > 0)
+      return {
+        waiting: true,
+        status: resolve(msg("Reconnecting…")),
+        title: resolve(msg("Reconnecting to {machine}", { machine })),
+        notice: options?.showingLastKnown
+          ? resolve(
+              msg(
+                "Reconnecting to {machine}. Showing its last known champions; changes are off until it's back.",
+                { machine },
+              ),
+            )
+          : resolve(
+              msg(
+                "Reconnecting to {machine}. Champions there aren't shown until the connection returns.",
+                { machine },
+              ),
+            ),
+      };
     return {
       waiting: true,
-      status: `${verb}…`,
-      title: `${verb} to ${named(waiting)}`,
+      status: resolve(msg("Connecting…")),
+      title: resolve(msg("Connecting to {machine}", { machine })),
       notice: options?.showingLastKnown
-        ? `${verb} to ${named(waiting)}. Showing its last known champions; changes are off until it's back.`
-        : `${verb} to ${named(waiting)}. Champions there aren't shown until the connection returns.`,
+        ? resolve(
+            msg(
+              "Connecting to {machine}. Showing its last known champions; changes are off until it's back.",
+              { machine },
+            ),
+          )
+        : resolve(
+            msg(
+              "Connecting to {machine}. Champions there aren't shown until the connection returns.",
+              { machine },
+            ),
+          ),
     };
   }
   const unreachable = environments.filter(({ connection }) =>
     ["error", "unsupported"].includes(connection.phase),
   );
   if (unreachable.length === 0) return null;
+  const machine = named(unreachable);
   return {
     waiting: false,
-    status: "Not connected",
-    title: `Can't reach ${named(unreachable)}`,
-    notice: `Can't reach ${named(unreachable)}, so champions there aren't shown.`,
+    status: resolve(msg("Not connected")),
+    title: resolve(msg("Can't reach {machine}", { machine })),
+    notice: resolve(msg("Can't reach {machine}, so champions there aren't shown.", { machine })),
   };
 }
-
-/** Immutable supporting text, kept out of the recommendation. Owners may repeat themselves. */
-export function recommendationSupport(
-  recommendation: ChampionRecommendation,
-): ReadonlyArray<string> {
-  const seen = new Set([recommendation.recommendation.trim()]);
-  return [
-    recommendation.summary,
-    recommendation.alternatives,
-    recommendation.benefits,
-    recommendation.tradeoffs,
-    recommendation.uncertainty,
-    recommendation.proposedScope,
-  ].flatMap((text) => {
-    const trimmed = text.trim();
-    if (!trimmed || seen.has(trimmed)) return [];
-    seen.add(trimmed);
-    return [trimmed];
-  });
-}
-
-export interface ChampionDecisionBinding {
-  readonly decisionId: string;
-  readonly recommendationId: string | undefined;
-}
-
-export function championDecisionBinding(
-  decision: NonNullable<ChampionFinding["decision"]>,
-): ChampionDecisionBinding {
-  return { decisionId: decision.id, recommendationId: decision.recommendationId };
-}
-
-export const championDecisionBindingChanged = (
-  drafted: ChampionDecisionBinding | null,
-  current: ChampionDecisionBinding,
-) =>
-  drafted !== null &&
-  (drafted.decisionId !== current.decisionId ||
-    drafted.recommendationId !== current.recommendationId);
 
 interface ChampionRunView {
   readonly key: string;
   readonly at: string;
-  readonly kind: "Check" | "Metric setup" | "Research";
+  readonly kind: "readings" | "review" | "setup";
   /** Null for a run made before this champion followed role policy. */
   readonly role: AgentRole | null;
   readonly resolved: ModelSelection;
@@ -744,27 +772,17 @@ interface ChampionRunView {
 }
 
 export function championRecentRuns(state: ChampionRuntimeState): ReadonlyArray<ChampionRunView> {
-  const owner = state.attempts.map((attempt): ChampionRunView => ({
-    key: attempt.id,
-    at: attempt.acceptedAt,
-    kind: attempt.kind === "setup" ? "Metric setup" : "Check",
-    role: attempt.selectionClass?.role ?? null,
-    resolved: attempt.resolvedSelection,
-    actual: attempt.actualSelection,
-    threadId: attempt.threadId,
-  }));
-  const research = state.investigations.flatMap((investigation) =>
-    investigation.attempts.map((attempt): ChampionRunView => ({
+  return state.attempts
+    .map((attempt): ChampionRunView => ({
       key: attempt.id,
-      at: attempt.admittedAt,
-      kind: "Research",
-      role: attempt.role,
+      at: attempt.acceptedAt,
+      kind: attempt.kind === "check" ? "readings" : attempt.kind,
+      role: attempt.selectionClass?.role ?? null,
       resolved: attempt.resolvedSelection,
       actual: attempt.actualSelection,
-      threadId: attempt.childThreadId,
-    })),
-  );
-  return [...owner, ...research].toSorted((a, b) => b.at.localeCompare(a.at));
+      threadId: attempt.threadId,
+    }))
+    .toSorted((a, b) => b.at.localeCompare(a.at));
 }
 
 export const sameChampionModel = (a: ModelSelection, b: ModelSelection) =>
@@ -776,7 +794,10 @@ export function latestGoalProgress(
 ): ChampionActivity | null {
   let latest: ChampionActivity | null = null;
   for (const event of activity)
-    if (event.kind === "check-reported" && (latest === null || event.at > latest.at))
+    if (
+      (event.kind === "check-reported" || event.kind === "review-reported") &&
+      (latest === null || event.at > latest.at)
+    )
       latest = event;
   return latest;
 }
@@ -793,4 +814,59 @@ export function championCurrentThreadId(
     return champion.setupThreadId;
   }
   return champion.lastCheckAt !== null || checkRunning ? champion.ownerThreadId : null;
+}
+
+/**
+ * The goal score as a reading row: a stand-in metric (never one of the Champion's) and its latest
+ * score, so the Champions page shows it first in the same pattern as the readings.
+ */
+export function goalScoreReading(
+  champion: Pick<ChampionSummary, "goalScore" | "goalReview">,
+  resolve: MessageResolver = m,
+): {
+  readonly metric: ChampionMetric;
+  readonly latest: ReadonlyArray<ChampionLatestSample>;
+} {
+  const target =
+    champion.goalScore?.target ?? champion.goalReview?.target ?? DEFAULT_GOAL_SCORE_TARGET;
+  const metric: ChampionMetric = {
+    id: GOAL_SCORE_SERIES,
+    seriesId: GOAL_SCORE_SERIES,
+    version: 1,
+    name: resolve(msg("Goal score")),
+    description: resolve(
+      msg(
+        "How well the area meets the whole goal, from 0 to 10, scored by the latest goal review.",
+      ),
+    ),
+    unit: resolve(msg("score out of 10")),
+    source: resolve(msg("goal review", { $context: "where a goal score comes from" })),
+    context: "",
+    direction: "higher",
+    minimum: target,
+    maximum: null,
+    reason: "",
+  };
+  const score = champion.goalScore;
+  const latest: ReadonlyArray<ChampionLatestSample> =
+    score === undefined
+      ? []
+      : [
+          {
+            metricId: GOAL_SCORE_SERIES,
+            name: metric.name,
+            version: 1,
+            seriesId: GOAL_SCORE_SERIES,
+            unit: metric.unit,
+            required: true,
+            value: score.score,
+            status: "measured",
+            health: score.score >= score.target ? "healthy" : "breached",
+            observedAt: score.at,
+            collectedAt: score.at,
+            revision: null,
+            staleAt: null,
+          },
+        ];
+  return { metric, latest };
 }

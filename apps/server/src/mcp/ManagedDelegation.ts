@@ -582,7 +582,6 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
       let championManagedLaunch = false;
       if (Option.isSome(champions)) {
         let request = input.agentTask;
-        let childThreadId: ThreadId | undefined;
         if (input.followup !== undefined) {
           const task = yield* readTask(scope, input.followup.taskId);
           const child =
@@ -592,7 +591,6 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
                   .getThreadShell(task.childThreadId)
                   .pipe(Effect.mapError(threadManagementFailure));
           request = child?.agentTask;
-          childThreadId = task.childThreadId ?? undefined;
         }
         const championSelection = yield* champions.value
           .guardDelegation({
@@ -601,11 +599,9 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
             clientRequestId: input.clientRequestId,
             followup: input.followup !== undefined,
             task: input.task,
-            forgeItem: input.forgeItem,
             remote:
               input.target?.environmentId !== undefined &&
               PeerForwarding.remoteTarget(callerScope, input.target.environmentId) !== undefined,
-            childThreadId,
           })
           .pipe(Effect.mapError((error) => failure("capability_denied", error.message)));
         if (championSelection !== undefined) {
@@ -937,7 +933,7 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
           );
           if (Option.isSome(champions))
             yield* champions.value
-              .admitInvestigation({
+              .admitDelegation({
                 ownerThreadId: parent.thread.id,
                 parentRunId: parentRun.id,
                 binding: target,
@@ -1183,7 +1179,7 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
       let recordedBinding =
         (Option.isSome(champions)
           ? yield* champions.value
-              .recordedInvestigationBinding(parent.thread.id, input.clientRequestId)
+              .recordedDelegationBinding(parent.thread.id, input.clientRequestId)
               .pipe(Effect.mapError((error) => failure("capability_denied", error.message)))
           : undefined) ??
         priorAssignments.find((assignment) => assignment.agentTask !== undefined)?.agentTask;
@@ -1544,7 +1540,7 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
         }
         if (prepared !== undefined && Option.isSome(champions))
           yield* champions.value
-            .admitInvestigation({
+            .admitDelegation({
               ownerThreadId: parent.thread.id,
               parentRunId: parentRun.id,
               binding: prepared.binding,

@@ -123,8 +123,6 @@ const detail: ChampionDetail = {
     schedule: { type: "interval", everyMs: 3600000 },
     models: { checks: { instanceId: ProviderInstanceId.make("codex"), model: "m" } },
     charter: {
-      maxConcurrentRepairs: 1,
-      maxRepairsPerDay: 3,
       instructions: "Measure responsiveness. ".repeat(300),
     },
     lifecycle: "active",
@@ -181,9 +179,7 @@ const harness = Effect.sync(() => {
   const searched: Array<unknown> = [];
   const queried: Array<unknown> = [];
   const findingActions: Array<unknown> = [];
-  const deliveries: Array<unknown> = [];
   const controls: Array<unknown> = [];
-  const cancelled: Array<unknown> = [];
   const proposed: Array<unknown> = [];
   const measured: Array<{ caller: unknown; input: unknown }> = [];
   const upserted: Array<{ readonly models?: unknown }> = [];
@@ -232,20 +228,10 @@ const harness = Effect.sync(() => {
         findingActions.push({ input, approval });
         return detail;
       }),
-    updateDelivery: (_caller, input) =>
-      Effect.sync(() => {
-        deliveries.push(input);
-        return {} as never;
-      }),
     setLifecycle: (input) =>
       Effect.sync(() => {
         controls.push(input);
         return detail;
-      }),
-    cancelInvestigation: (input) =>
-      Effect.sync(() => {
-        cancelled.push(input);
-        return {} as never;
       }),
     changeMetrics: (input) =>
       Effect.sync(() => {
@@ -276,7 +262,7 @@ const harness = Effect.sync(() => {
         return { ...detail, champion: { ...detail.champion, models: input.models } };
       }),
     verifyApproval: () => Effect.succeed(proof),
-    runtimeState: () => Effect.succeed({ attempts: [], investigations: [], recommendations: [] }),
+    runtimeState: () => Effect.succeed({ attempts: [] }),
   });
   const forwarding = Layer.mock(PeerForwarding.PeerForwarding)({
     call: (_scope, tool, environmentId, params) =>
@@ -304,9 +290,7 @@ const harness = Effect.sync(() => {
     searched,
     queried,
     findingActions,
-    deliveries,
     controls,
-    cancelled,
     proposed,
     measured,
     upserted,
@@ -573,8 +557,6 @@ it.effect(
     Effect.gen(function* () {
       const h = yield* harness;
       yield* Effect.gen(function* () {
-        expect(h.deliveries).toEqual([]);
-
         yield* call("t3_champions_finding_action", threadScope(leadThread), {
           action: "resolve_decision",
           id: "champion:gate",
@@ -593,14 +575,32 @@ it.effect(
           },
         ]);
 
+        // A case closes its finding with verify; dismiss and reopen go through the same path.
         yield* call("t3_champions_finding_action", threadScope(leadThread), {
-          action: "delivered",
+          action: "verify",
+          id: "champion:gate",
           findingId: "finding:1",
-          evidence: "Landed",
+          reason: "Fixed and confirmed on main.",
         });
-        expect(h.deliveries).toEqual([
-          expect.objectContaining({ action: "delivered", evidence: "Landed" }),
-        ]);
+        expect(h.findingActions[1]).toMatchObject({ input: { action: "verify" } });
+
+        // The repair pipeline's actions are refused, naming the case flow.
+        for (const action of ["decision", "diagnosis", "reroute", "spec"]) {
+          const refused = yield* call("t3_champions_finding_action", threadScope(leadThread), {
+            action,
+            id: "champion:gate",
+            findingId: "finding:1",
+            reason: "x",
+          });
+          expect(refused.isError, action).toBe(true);
+          expect(refused.text).toContain("opens a case for it in Henry's Inbox");
+        }
+        expect(h.findingActions).toHaveLength(2);
+        // Removed tools are gone.
+        for (const tool of ["t3_champions_investigation", "t3_champions_synthesize"]) {
+          const gone = yield* Effect.flip(call(tool, threadScope(leadThread), {}));
+          expect(gone).toMatchObject({ message: `Tool '${tool}' not found` });
+        }
       }).pipe(Effect.provide(h.layer));
     }),
 );
@@ -705,11 +705,10 @@ it.effect(
     Effect.gen(function* () {
       const h = yield* harness;
       yield* Effect.gen(function* () {
-        const cancel = {
-          action: "cancel",
+        const dismiss = {
+          action: "dismiss",
           id: "champion:gate",
-          investigationId: "inv:1",
-          requestId: "req:1",
+          findingId: "finding:1",
           reason: "Stale",
         };
         const edit = {
@@ -724,19 +723,19 @@ it.effect(
           client: { ...linkScope.client!, access: "full-access" as const },
         };
         // Over a full-access link a non-owner cancels as the Champion page does; a read-only link is refused.
-        yield* call("t3_champions_investigation", full, cancel);
+        yield* call("t3_champions_finding_action", full, dismiss);
         expect((yield* call("t3_champions_metrics", full, edit)).isError).toBe(false);
-        expect(h.cancelled).toHaveLength(1);
+        expect(h.findingActions).toHaveLength(1);
         expect(h.proposed).toHaveLength(1);
         for (const [tool, args] of [
-          ["t3_champions_investigation", cancel],
+          ["t3_champions_finding_action", dismiss],
           ["t3_champions_metrics", edit],
         ] as const)
           expect((yield* call(tool, linkScope, args)).text).toContain("capability_denied");
-        expect(h.cancelled).toHaveLength(1);
+        expect(h.findingActions).toHaveLength(1);
         // From a thread here, environmentId sends the call on; a Champion's own acts never leave.
-        yield* call("t3_champions_investigation", threadScope(leadThread), {
-          ...cancel,
+        yield* call("t3_champions_finding_action", threadScope(leadThread), {
+          ...dismiss,
           environmentId: box,
         });
         yield* call("t3_champions_metrics", threadScope(leadThread), {
@@ -744,14 +743,10 @@ it.effect(
           environmentId: box,
         });
         expect(h.forwarded.map(({ tool }) => tool)).toEqual([
-          "t3_champions_investigation",
+          "t3_champions_finding_action",
           "t3_champions_metrics",
         ]);
         for (const refused of [
-          {
-            tool: "t3_champions_investigation",
-            args: { action: "start", id: "champion:gate", environmentId: box },
-          },
           {
             tool: "t3_champions_metrics",
             args: { action: "submit", metrics: [], reason: "x", environmentId: box },

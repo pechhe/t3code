@@ -8,14 +8,8 @@ import {
   ChampionLearningTopicsResult,
   ChampionLearningRecordInput,
   ChampionLearningRevision,
-  ChampionInvestigationStartInput,
-  ChampionInvestigationCancelInput,
-  ChampionInvestigation,
   ChampionMeasurement,
   ChampionMeasurementStartInput,
-  ChampionSynthesisInput,
-  ChampionRecommendation,
-  ChampionRecommendationInput,
   ChampionAgentFindingActionInput,
   ChampionCandidateReplay,
   ChampionCandidateReplayInput,
@@ -28,7 +22,6 @@ import {
   ChampionJourneyRecordInput,
   ChampionJourneyRecordResult,
   ChampionDetail,
-  ChampionFindingDeliveryInput,
   ChampionGetInput,
   ChampionHistoryInput,
   ChampionHistoryResult,
@@ -67,7 +60,7 @@ const shared = {
 const models = Tool.make("t3_champions_models", {
   ...shared,
   description:
-    "Read or set this machine's Champion models, the ones every Champion runs on unless it has its own. checks is the model for checks; advice is the model for metric setup and finding diagnosis. Each is a model with an optional backup that takes over when the model hits a usage limit and cannot move to another pooled account. Omit checks and advice to read; pass either to replace that slot as a whole, model and backup (a slot you leave out stays as it is). A Champion's own main model is set with models on t3_champions_upsert; the default's backup still applies. Returns the models now in force.",
+    "Read or set this machine's Champion models, the ones every Champion runs on unless it has its own. checks is the model for readings; advice is the model for goal reviews and metric setup, and the fallback for cases. Each is a model with an optional backup that takes over when the model hits a usage limit and cannot move to another pooled account. Omit checks and advice to read; pass either to replace that slot as a whole, model and backup (a slot you leave out stays as it is). A Champion's own main model is set with models on t3_champions_upsert; the default's backup still applies. Returns the models now in force.",
   parameters: Schema.Struct({
     ...ChampionSetModelsInput.fields,
     environmentId: OrchestratorMcpEnvironmentTarget,
@@ -79,25 +72,30 @@ const models = Tool.make("t3_champions_models", {
 const get = Tool.make("t3_champions_get", {
   ...shared,
   description:
-    "Read champion configuration, metrics and open findings, here or in a linked environment named with environmentId. Set include to runtime_state for bounded execution provenance, investigations and recommendations instead, or to recommendation with findingId, findingAttemptId and recommendationId for one exact retained recommendation.",
+    "Read champion configuration, metrics, open findings (each with its case thread) and the goal-score series, here or in a linked environment named with environmentId. Set include to runtime_state for bounded execution provenance and measurements instead.",
   parameters: Schema.Struct({
     ...ChampionGetInput.fields,
     environmentId: OrchestratorMcpEnvironmentTarget,
-    include: Schema.optional(Schema.Literals(["runtime_state", "recommendation"])),
-    findingId: Schema.optional(ChampionRecommendationInput.fields.findingId),
-    findingAttemptId: Schema.optional(ChampionRecommendationInput.fields.findingAttemptId),
-    recommendationId: Schema.optional(ChampionRecommendationInput.fields.recommendationId),
+    include: Schema.optional(Schema.Literals(["runtime_state"])),
   }),
-  success: Schema.Union([ChampionDetail, ChampionRuntimeState, ChampionRecommendation]),
+  success: Schema.Union([ChampionDetail, ChampionRuntimeState]),
 })
   .annotate(Tool.Readonly, true)
   .annotate(Tool.Destructive, false);
 const control = Tool.make("t3_champions_control", {
   ...shared,
   description:
-    "Control a champion: pause, resume or retire it (in-flight work continues; resume never backfills), run a measurement now (a paused champion measures only; retired champions refuse), start stronger-model setup (which changes the metrics itself), or cancel that setup keeping the current metrics and the draft.",
+    "Control a champion: pause, resume or retire it (in-flight work continues; resume never backfills), take readings now (run_check; a paused champion measures only; retired champions refuse), start a goal review now (run_review), start stronger-model setup (which changes the metrics itself), or cancel that setup keeping the current metrics and the draft.",
   parameters: Schema.Struct({
-    action: Schema.Literals(["pause", "resume", "retire", "run_check", "setup", "cancel_setup"]),
+    action: Schema.Literals([
+      "pause",
+      "resume",
+      "retire",
+      "run_check",
+      "run_review",
+      "setup",
+      "cancel_setup",
+    ]),
     id: ChampionGetInput.fields.id,
     environmentId: OrchestratorMcpEnvironmentTarget,
   }),
@@ -108,7 +106,7 @@ const control = Tool.make("t3_champions_control", {
 const metrics = Tool.make("t3_champions_metrics", {
   ...shared,
   description:
-    'Change a champion\'s metrics. The change applies at once: nobody accepts it, so tell the user what you changed. Use action edit with the champion id from any orchestrating thread, or action submit from your own authenticated setup run or routine check (a check still reports as usual). List only metrics to add or change; ones you do not list stay as they are, and to stop tracking one, name its id in retires. A champion tracks at most 32 metrics. Prove a metric works before adding it. Give a metric that is a plain read (a file, a count, a CLI query) collect: the argument list of a command the server runs itself at each check, with no shell, in the project root, within 30 seconds and with no provider keys or tokens in its environment. It must print a number, or JSON {"value": n, "revision"?: string, "evidence"?: string}. The server runs each new or changed command once before applying the change and refuses the whole change, with the command\'s output, if one fails. A metric without collect is measured by an agent at each check: measure it once yourself first, and put how in its description.',
+    'Change a champion\'s metrics. The change applies at once: nobody accepts it, so tell the user what you changed. Use action edit with the champion id from any orchestrating thread, or action submit from your own authenticated setup run or routine check (a check still reports as usual). List only metrics to add or change; ones you do not list stay as they are, and to stop tracking one, name its id in retires. A champion tracks at most 32 metrics. Prove a metric works before adding it. Give a metric that is a plain read (a file, a count, a CLI query) collect: the argument list of a command the server runs itself at each check, with no shell, in the project root, within 30 seconds and with no provider keys or tokens in its environment. It must print a number, or JSON {"value": n, "revision"?: string, "evidence"?: string}. The server runs each new or changed command once before applying the change and refuses the whole change, with the command\'s output, if one fails. A metric without collect is measured by an agent at each check: measure it once yourself first, and put how in its description. A higher or lower metric may carry alarm, a value beyond its target whose reading starts a case at once; changing it keeps the metric\'s version.',
   parameters: Schema.Struct({
     action: Schema.Literals(["edit", "submit"]),
     id: Schema.optional(ChampionGetInput.fields.id),
@@ -124,11 +122,12 @@ const metrics = Tool.make("t3_champions_metrics", {
 const report = Tool.make("t3_champions_report", {
   ...shared,
   description:
-    "Complete this check using the frozen metric methods from t3_champions_check_context. Copy metricId, version, unit and source verbatim; never paraphrase source. Put execution commands, paths and collection details in evidence. Failed collection uses value null and status error, never a fabricated value. Include every required metric from t3_champions_check_context once and reconcile findings; server-collected metrics are not listed there and reporting one is refused. Omit samples and findings when empty (e.g. an all-collected check). Open summary with one or two plain sentences on progress towards the champion's goal; the Champion page shows it under the goal. Server derives identity and provenance. On a setup run, a summary alone completes it without proposing changes.",
+    "Complete your readings run or goal review. Readings: use the frozen metric methods from t3_champions_check_context; copy metricId, version, unit and source verbatim, never paraphrase source; put execution commands, paths and collection details in evidence; failed collection uses value null and status error, never a fabricated value. Include every required metric it lists once; server-collected metrics are not listed and reporting one is refused. A goal review sends no samples and must send goalScore (score 0-10 for the whole goal, reasons it is not higher, change since the previous score citing readings); a readings run's goalScore is refused. Each new finding opens a case for an agent to work; supply existingFindingId to update an open one. Server derives identity and provenance. On a setup run, a summary alone completes it.",
   parameters: Schema.Struct({
     samples: Schema.optional(ChampionReportInput.fields.samples),
     findings: Schema.optional(ChampionReportInput.fields.findings),
     summary: Schema.optional(ChampionReportInput.fields.summary),
+    goalScore: ChampionReportInput.fields.goalScore,
     journeys: Schema.optional(ChampionReportInput.fields.journeys),
   }),
   success: ChampionDetail,
@@ -139,7 +138,7 @@ const report = Tool.make("t3_champions_report", {
 const learning_search = Tool.make("t3_champions_learning_search", {
   ...shared,
   description:
-    "Search what Champions have learned before working in an area one covers: words match each learning's plain sentence, question and conclusion, ranked by relevance then recency. Omit projectId to search every Champion; name a linked environment with environmentId to search its Champions. Filters: due (review date passed), contributed (from other agents), needs-review. action topics lists the topics Champions hold learnings on instead. action query is the Champion owner's scoped lookup by exact topic before investigating, which retains the retrieval receipt a plain search never writes; it returns at most 20, and a linked environment may not use it. A plain search writes nothing, so it never admits an investigation.",
+    "Search what Champions have learned before working in an area one covers: words match each learning's plain sentence, question and conclusion, ranked by relevance then recency. Omit projectId to search every Champion; name a linked environment with environmentId to search its Champions. Filters: due (review date passed), contributed (from other agents), needs-review. action topics lists the topics Champions hold learnings on instead. action query is the Champion owner's scoped lookup by exact topic, which retains a retrieval receipt a plain search never writes; it returns at most 20, and a linked environment may not use it.",
   parameters: Schema.Struct({
     action: Schema.optional(Schema.Literals(["search", "topics", "query"])),
     ...ChampionLearningSearchInput.fields,
@@ -198,27 +197,6 @@ const confirm_learning = Tool.make("t3_champions_confirm_learning", {
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false)
   .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
-const investigation = Tool.make("t3_champions_investigation", {
-  ...shared,
-  description:
-    "Start or cancel a bounded investigation of a finding. Only action cancel may name a linked environment with environmentId; start is the Champion owner's own call, there. action start records at most three distinct read-only hypotheses after current learning retrieval; returned branches give exact managed workId and attemptId. Delegate through the normal managed task tool; admission enforces capacity and budget. action cancel persists cancellation intent for the exact investigation; managed cancellation is reconciled durably and unknown children continue to hold capacity.",
-  parameters: Schema.Struct({
-    action: Schema.Literals(["start", "cancel"]),
-    id: Schema.optional(ChampionInvestigationStartInput.fields.id),
-    findingId: Schema.optional(ChampionInvestigationStartInput.fields.findingId),
-    investigationId: Schema.optional(ChampionInvestigationStartInput.fields.investigationId),
-    question: Schema.optional(ChampionInvestigationStartInput.fields.question),
-    topic: Schema.optional(ChampionInvestigationStartInput.fields.topic),
-    retrievalReceiptId: Schema.optional(ChampionInvestigationStartInput.fields.retrievalReceiptId),
-    alternatives: Schema.optional(ChampionInvestigationStartInput.fields.alternatives),
-    requestId: Schema.optional(ChampionInvestigationCancelInput.fields.requestId),
-    reason: Schema.optional(ChampionInvestigationCancelInput.fields.reason),
-    environmentId: OrchestratorMcpEnvironmentTarget,
-  }),
-  success: ChampionInvestigation,
-})
-  .annotate(Tool.Readonly, false)
-  .annotate(Tool.Destructive, false);
 const measurement = Tool.make("t3_champions_measurement", {
   ...shared,
   description:
@@ -232,51 +210,30 @@ const measurement = Tool.make("t3_champions_measurement", {
 const finding_action = Tool.make("t3_champions_finding_action", {
   ...shared,
   description:
-    "Dismiss or reopen a finding, request the user's decision on it, or answer that decision for them. For a decision, reason is a one-line question and proposal holds the recommended action, one sentence of why and the other options in a few words each; the user can approve the proposal in one click. To answer (action resolve_decision), pass decisionId, the answer as reason, and approvalQuote: the user's exact words, copied from a message they typed in this thread. Without one it is refused and the decision keeps waiting for them on the Champion page. Actions handed_back, delivered, verify, inconclusive and spec record accepted child delivery with revision, Forge Spec, or comparable improvement verification instead; no child identity supplied by model is trusted. A metric breach is diagnosed first: after its read-only advisor completes, action diagnosis records diagnosis (what it found), route (repair, spec or decision) and evidence (one line of why); a repair, a Spec and a decision request are refused until then and must match that route. Action reroute, with route and the reason as evidence, records taking a different one.",
+    "Close, reopen or answer on a finding, as the agent working its case or for the user. verify closes a finding confirmed fixed and dismiss one that needs no work, each with the evidence as reason; reopen opens it again with a fresh case. To answer a decision requested before cases replaced decision requests (action resolve_decision), pass decisionId, the answer as reason, and approvalQuote: the user's exact words, copied from a message they typed in this thread; without one it is refused and the decision keeps waiting on its card. A readings run or goal review only observes and may not use this tool; decision, diagnosis, reroute and spec are refused, and the case flow does that work.",
   parameters: Schema.Struct({
     action: Schema.Literals([
       "dismiss",
       "reopen",
-      "decision",
-      "resolve_decision",
-      "handed_back",
-      "delivered",
       "verify",
-      "inconclusive",
-      "spec",
+      "resolve_decision",
+      "decision",
       "diagnosis",
       "reroute",
+      "spec",
     ]),
-    route: ChampionFindingDeliveryInput.fields.route,
-    diagnosis: ChampionFindingDeliveryInput.fields.diagnosis,
     id: Schema.optional(ChampionAgentFindingActionInput.fields.id),
-    findingId: Schema.optional(ChampionFindingDeliveryInput.fields.findingId),
+    findingId: Schema.optional(ChampionAgentFindingActionInput.fields.findingId),
     decisionId: Schema.optional(ChampionAgentFindingActionInput.fields.decisionId),
-    recommendationId: Schema.optional(ChampionAgentFindingActionInput.fields.recommendationId),
-    proposal: Schema.optional(ChampionAgentFindingActionInput.fields.proposal),
     reason: Schema.optional(ChampionAgentFindingActionInput.fields.reason),
     approvalQuote: Schema.optional(ChampionAgentFindingActionInput.fields.approvalQuote),
     environmentId: OrchestratorMcpEnvironmentTarget,
     forwardedApproval: Schema.optional(ForwardedChampionApproval),
-    operationId: Schema.optional(ChampionFindingDeliveryInput.fields.operationId),
-    revision: Schema.optional(ChampionFindingDeliveryInput.fields.revision),
-    specUrl: Schema.optional(ChampionFindingDeliveryInput.fields.specUrl),
-    evidence: Schema.optional(ChampionFindingDeliveryInput.fields.evidence),
   }),
   success: ChampionDetail,
 })
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false);
-const synthesize = Tool.make("t3_champions_synthesize", {
-  ...shared,
-  description:
-    "Retain immutable synthesis as the authenticated owner and request a revision-bound decision. Write recommendation as concise, coherent prose covering the action, rationale, benefits, material trade-offs, uncertainty and proposed scope, without labelled sections or a taxonomy. Supporting structured fields remain in history. Approval preserves charter, design, review and release authority.",
-  parameters: ChampionSynthesisInput,
-  success: ChampionRecommendation,
-})
-  .annotate(Tool.Readonly, false)
-  .annotate(Tool.Destructive, false)
-  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 const learning_read = Tool.make("t3_champions_learning_read", {
   ...shared,
   description:
@@ -315,7 +272,7 @@ const history = Tool.make("t3_champions_history", {
 const upsert = Tool.make("t3_champions_upsert", {
   ...shared,
   description:
-    "Create a paused champion draft or edit its name, purpose, schedule, charter and own models (models.checks for its checks, models.advice for its metric setup and finding diagnosis; each is a main model that replaces the machine default, which keeps its backup; omit models to keep what it has, pass models {} to clear both and follow the defaults). On a journey champion, repairsVia names an active champion in the same project that repairs what it confirms; null clears it.",
+    "Create a paused champion draft or edit its name, purpose, readings schedule, charter, goal review and own models (models.checks for its readings, models.advice for its goal reviews and metric setup; each is a main model that replaces the machine default, which keeps its backup; omit models to keep what it has, pass models {} to clear both and follow the defaults). goalReview sets the review's schedule (default weekly on Mondays at a time spread apart from other Champions, in UTC) and its score target (default 7).",
   parameters: Schema.Struct({
     ...ChampionUpsertInput.fields,
     environmentId: OrchestratorMcpEnvironmentTarget,
@@ -327,7 +284,7 @@ const upsert = Tool.make("t3_champions_upsert", {
 const check_context = Tool.make("t3_champions_check_context", {
   ...shared,
   description:
-    "Read the check claim and frozen metric definitions bound to your authenticated live run. metrics lists what you measure; collected holds what the server already read by command for this check; handedOff lists findings a journey champion handed to this champion to repair.",
+    "Read the claim and frozen metric definitions bound to your authenticated live run. rhythm says whether it is a readings run or a goal review; metrics lists what you measure (none on a review); collected holds what the server already read by command for this run.",
   parameters: Tool.EmptyParams,
   success: ChampionCheckContext,
 })
@@ -395,10 +352,8 @@ export const ChampionsToolkit = Toolkit.make(
   learning_search,
   record_learning,
   confirm_learning,
-  investigation,
   measurement,
   finding_action,
-  synthesize,
   learning_read,
   list,
   history,

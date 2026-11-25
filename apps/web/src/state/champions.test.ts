@@ -41,7 +41,7 @@ const champion = (id: string): ChampionSummary => ({
   name: id,
   purpose: "Stay fast",
   schedule: { type: "fixed_time", timeOfDay: "06:00" },
-  charter: { maxConcurrentRepairs: 1, maxRepairsPerDay: 3, instructions: "" },
+  charter: { instructions: "" },
   lifecycle: "active",
   ownerThreadId: ThreadId.make("owner"),
   setupThreadId: null,

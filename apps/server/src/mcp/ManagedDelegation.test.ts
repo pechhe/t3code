@@ -7,7 +7,7 @@ import {
   DecisionRoutingError,
   OrchestratorMcpDelegateTaskInput,
   ProviderThreadId,
-  type ChampionInvestigationBranchAttempt,
+  type ChampionMeasurementAdmission,
   type ChampionFinding,
   type CommandId,
 } from "@t3tools/contracts";
@@ -80,6 +80,8 @@ import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 import type { McpInvocationScope } from "./McpInvocationContext.ts";
 
 /** A full commit id the pinned-reader check also accepts, as the parent of an empty working copy. */
+/** A finished child task: a measurement admission and the id it is filed under. */
+type CompletedChild = ChampionMeasurementAdmission & { readonly id: string };
 const publishedPin = "d".repeat(40);
 const encodeManifest = Schema.encodeEffect(Schema.fromJsonString(AgentPolicyManifest));
 const encodeDelegateTaskFingerprint = Schema.encodeSync(
@@ -681,11 +683,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           name: "Managed health",
           purpose: "Own improvements",
           schedule: { type: "interval", everyMs: 60000 },
-          charter: {
-            maxConcurrentRepairs: 1,
-            maxRepairsPerDay: 3,
-            instructions: "Use normal managed roles",
-          },
+          charter: { instructions: "Use normal managed roles" },
         });
         scope = { ...scope, thread: { ...scope.thread!, threadId: doc.champion.ownerThreadId } };
         parent = { ...parent, thread: { ...parent.thread, id: doc.champion.ownerThreadId } };
@@ -817,7 +815,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         observed,
         champion,
         championSelections,
-        completeBranch: (attempt: ChampionInvestigationBranchAttempt, foreign = false) => {
+        completeBranch: (attempt: CompletedChild, foreign = false) => {
           const shell = {
             ...parent.thread,
             id: attempt.childThreadId,
@@ -927,26 +925,6 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
                 status: "running",
                 result: null,
               } as unknown as OrchestrationV2ThreadProjection["subagents"][number],
-            ],
-          };
-        },
-        addChild: (finding: ChampionFinding, role: string) => {
-          const id = ThreadId.make(`champion-child:${role}`);
-          children.set(id, {
-            id,
-            projectId,
-            agentTask: { workId: finding.workId, attemptId: finding.attemptId, role },
-          } as OrchestrationV2ThreadShell);
-          parent = {
-            ...parent,
-            subagents: [
-              ...parent.subagents,
-              {
-                origin: "app_owned",
-                childThreadId: id,
-                status: "completed",
-                result: "Challenge completed",
-              } as (typeof parent.subagents)[number],
             ],
           };
         },
@@ -1587,71 +1565,29 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
   );
 
   it.effect(
-    "champion advice uses its explicit stronger selection through managed policy, and its Spec lead requests normal isolated allocation",
+    "refuses every repair delegation from a Champion's owner thread, naming the case flow, and dispatches nothing",
     () =>
       Effect.gen(function* () {
         const h = yield* harness(undefined, false, { champion: true });
-        const { service, finding } = h.champion!;
-        const advice = {
-          task: "Challenge this larger improvement",
-          clientRequestId: "champion-advice",
-          agentTask: request({
-            role: "advisor",
-            workId: finding.workId,
-            attemptId: finding.attemptId,
-            workspacePath: h.lead,
-            readOnly: true,
-            sourceRevision: "source-pin",
-          }),
-        };
-        const refused = yield* h.delegate({
-          ...advice,
-          target: { providerInstanceId: codex.instanceId, model: codexModel },
-        });
-        expect(refused.code).toBe("capability_denied");
+        for (const role of ["advisor", "implementer", "reviewer"] as const) {
+          const refused = yield* h.delegate({
+            task: "Work on the finding",
+            clientRequestId: `champion-${role}`,
+            agentTask: request({
+              role,
+              workId: `finding:${role}`,
+              attemptId: "1",
+              workspacePath: h.lead,
+              ...(role === "advisor" || role === "reviewer"
+                ? { readOnly: true, sourceRevision: "source-pin" }
+                : {}),
+              ...(role === "reviewer" ? { review: changeReview } : {}),
+            }),
+          });
+          expect(refused.code, role).toBe("capability_denied");
+          expect(refused.message).toContain(Champions.CASE_FLOW_REFUSAL);
+        }
         expect(h.dispatched).toHaveLength(0);
-        yield* h.delegate(advice);
-        expect(h.dispatched).toHaveLength(1);
-        const advisory = h.dispatched[0] as {
-          modelSelection: ModelSelection;
-          agentTask: AgentTaskBinding;
-        };
-        expect(advisory.modelSelection).toMatchObject({
-          instanceId: claude.instanceId,
-          model: "claude-fable-test",
-        });
-        expect(advisory.agentTask.role).toBe("advisor");
-        h.addChild(finding, "advisor");
-        yield* service.updateDelivery(h.scope.thread, {
-          findingId: finding.id,
-          action: "diagnosis",
-          diagnosis: "The cause spans two services.",
-          route: "spec",
-          evidence: "More than one bounded repair",
-        });
-        yield* service.updateDelivery(h.scope.thread, {
-          findingId: finding.id,
-          action: "spec",
-          specUrl: "forge://9",
-          evidence: "Advisor challenged and owner shaped the Spec",
-        });
-        const leadFailure = yield* h.delegate({
-          task: "Run shaped Spec 9",
-          clientRequestId: "champion-spec",
-          target: { model: codexModel },
-          forgeItem: 9,
-          agentTask: request({
-            role: "lead",
-            taskClass: "mixed",
-            workId: finding.workId,
-            attemptId: finding.attemptId,
-            workspacePath: h.lead,
-          }),
-        });
-        expect(h.dispatched, leadFailure.message).toHaveLength(2);
-        const lead = h.dispatched[1] as { workspaceStrategy: unknown; agentTask: AgentTaskBinding };
-        expect(lead.agentTask.role).toBe("lead");
-        expect(lead.workspaceStrategy).toEqual({ type: "worktree", baseRef: "HEAD", forgeItem: 9 });
       }).pipe(Effect.provide(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
   );
 
@@ -2655,7 +2591,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         h.completeBranch({
           ...first.admission!,
           id: first.measurementId,
-        } as unknown as ChampionInvestigationBranchAttempt);
+        } as unknown as CompletedChild);
         const review = yield* start(reviewBody);
         const confirm = {
           task: "Confirm the audit against the same source",
@@ -2729,153 +2665,5 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           ),
         ),
       ),
-  );
-  it.effect(
-    "admits Champion investigations only after resolved managed validation, freezes unknown replay and keeps refusal free",
-    () =>
-      Effect.gen(function* () {
-        const h = yield* harness(undefined, true, { champion: true, register: ["foreign"] });
-        const { service, finding } = h.champion!;
-        const receipt = yield* service.learningQuery({
-          id: "managed-champion",
-          topic: "errors",
-          observations: [],
-        });
-        const investigation = yield* service.startInvestigation({
-          id: "managed-champion",
-          findingId: finding.id,
-          investigationId: "managed-investigation",
-          question: "Compare collectors",
-          topic: "errors",
-          retrievalReceiptId: receipt.receiptId,
-          alternatives: [
-            {
-              id: "a",
-              role: "advisor",
-              hypothesis: "Structured logs",
-              evidenceNeeds: "Error samples",
-            },
-            {
-              id: "b",
-              role: "advisor",
-              hypothesis: "Runtime counters",
-              evidenceNeeds: "Counter samples",
-            },
-          ],
-        });
-        const branch = investigation.branches[0]!;
-        const input = {
-          task: "Investigate the hypothesis read-only",
-          clientRequestId: "investigation-a",
-          agentTask: request({
-            role: "advisor",
-            workId: branch.workId,
-            attemptId: branch.attemptId,
-            readOnly: true,
-            sourceRevision: "source-pin",
-            workspacePath: h.lead,
-          }),
-        };
-        yield* h.delegate({
-          ...input,
-          clientRequestId: "foreign-investigation",
-          agentTask: { ...input.agentTask, workspacePath: h.foreignHelper },
-        });
-        expect(h.dispatched).toHaveLength(0);
-        expect(
-          (yield* service.runtimeState({ id: "managed-champion" })).investigations[0]!.attempts,
-        ).toHaveLength(0);
-        const admitted = yield* h.delegate(input);
-        expect(h.dispatched, admitted.message).toHaveLength(1);
-        expect(h.locked).toEqual([true]);
-        const first = (yield* service.runtimeState({ id: "managed-champion" })).investigations[0]!
-          .attempts[0]!;
-        expect(first.state).toBe("unknown");
-        expect(first.binding.executionBoundary).toBe("read-only");
-        const fs = yield* FileSystem.FileSystem;
-        const policy = snapshot().manifest;
-        yield* fs.writeFileString(
-          `${h.policyRoot}/roles/policy.json`,
-          yield* encodeManifest({
-            ...policy,
-            lists: {
-              ...policy.lists,
-              advisor: [
-                { model: "sol", effort: "medium" },
-                { model: "fable", effort: "medium" },
-                { model: "astra", effort: "medium" },
-              ],
-            },
-            roles: { ...policy.roles, advisor: { ...policy.roles.advisor!, callers: {} } },
-          }),
-        );
-        const replayResult = yield* h.delegate(input);
-        expect(h.dispatched, replayResult.message).toHaveLength(2);
-        const replay = (yield* service.runtimeState({ id: "managed-champion" })).investigations[0]!
-          .attempts;
-        expect(replay).toHaveLength(1);
-        expect(replay[0]!.admittedAt).toBe(first.admittedAt);
-        expect(replay[0]!.binding.policyHash).toBe(first.binding.policyHash);
-        expect(h.dispatched[1]).toMatchObject({ modelSelection: first.resolvedSelection });
-        h.completeBranch(first);
-        const followup = {
-          task: "Compare one more sample",
-          clientRequestId: "investigation-followup",
-          followup: {
-            taskId: first.taskId,
-            sourceRevision: "source-pin",
-            changes: "More samples available",
-          },
-        };
-        const continued = yield* h.delegate(followup);
-        expect(h.continued, continued.message).toHaveLength(1);
-        expect(h.championSelections.at(-1)).toEqual(first.resolvedSelection);
-        const charged = (yield* service.runtimeState({ id: "managed-champion" })).investigations[0]!
-          .attempts;
-        expect(charged).toHaveLength(2);
-        const followupAttempt = charged.find(
-          (a) => a.clientRequestId === followup.clientRequestId,
-        )!;
-        expect(followupAttempt.followup).toBe(true);
-        expect(followupAttempt.binding.effective).toEqual(first.binding.effective);
-        const repeated = yield* h.delegate(followup);
-        expect(h.continued, repeated.message).toHaveLength(2);
-        expect(
-          (yield* service.runtimeState({ id: "managed-champion" })).investigations[0]!.attempts,
-        ).toHaveLength(2);
-        h.completeBranch(first, true);
-        yield* h.delegate({ ...followup, clientRequestId: "foreign-child-followup" });
-        expect(h.continued).toHaveLength(2);
-        h.completeBranch(first);
-        yield* fs.writeFileString(
-          `${h.policyRoot}/roles/policy.json`,
-          yield* encodeManifest({
-            ...policy,
-            lists: { ...policy.lists, advisor: [{ model: "sol", effort: "medium" }] },
-            roles: { ...policy.roles, advisor: { ...policy.roles.advisor!, callers: {} } },
-          }),
-        );
-        yield* h.delegate({ ...followup, clientRequestId: "revoked-followup" });
-        expect(h.continued).toHaveLength(2);
-        expect(
-          (yield* service.runtimeState({ id: "managed-champion" })).investigations[0]!.attempts,
-        ).toHaveLength(2);
-        const nextBranch = investigation.branches[1]!;
-        yield* h.delegate({
-          ...input,
-          clientRequestId: "new-policy-branch",
-          agentTask: {
-            ...input.agentTask,
-            workId: nextBranch.workId,
-            attemptId: nextBranch.attemptId,
-          },
-        });
-        expect(h.dispatched).toHaveLength(3);
-        const fresh = (yield* service.runtimeState({
-          id: "managed-champion",
-        })).investigations[0]!.attempts.find((a) => a.clientRequestId === "new-policy-branch")!;
-        expect(fresh.resolvedSelection.model).toBe(codexModel);
-        expect(fresh.resolvedSelection).not.toEqual(first.resolvedSelection);
-      }).pipe(Effect.provide(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
   );
 });

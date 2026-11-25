@@ -35,16 +35,17 @@ const peerRefused = (what: string) =>
     code: "capability_denied",
     message: `A linked environment may not ${what}.`,
   });
-const FINDING_DECISION_ACTIONS: ReadonlySet<string> = new Set([
-  "dismiss",
-  "reopen",
+/** Actions the repair pipeline took; refused for everyone, naming the case flow that does that work now. */
+const RETIRED_FINDING_ACTIONS: ReadonlySet<string> = new Set([
   "decision",
-  "resolve_decision",
+  "diagnosis",
+  "reroute",
+  "spec",
 ]);
-const isFindingDecisionAction = (
+const isFindingAction = (
   action: string,
-): action is "dismiss" | "reopen" | "decision" | "resolve_decision" =>
-  FINDING_DECISION_ACTIONS.has(action);
+): action is "dismiss" | "reopen" | "verify" | "resolve_decision" =>
+  !RETIRED_FINDING_ACTIONS.has(action);
 const approvalRefused = (message: string) =>
   new OrchestratorMcpFailure({ code: "capability_denied", message });
 const approvalRelay = Effect.fn("champions.approvalRelay")(function* (
@@ -123,25 +124,10 @@ export const handlers = {
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;
       if (scope.client?.access === "peer-threads" && input.include !== undefined)
-        return yield* peerRefused("read runtime state or a retained recommendation");
+        return yield* peerRefused("read runtime state");
       const service = yield* Champions.ChampionService;
       if (input.include === undefined) return yield* service.get({ id: input.id });
-      if (input.include === "runtime_state") return yield* service.runtimeState({ id: input.id });
-      if (
-        input.findingId === undefined ||
-        input.findingAttemptId === undefined ||
-        input.recommendationId === undefined
-      )
-        return yield* missing(
-          "t3_champions_get",
-          "findingId, findingAttemptId and recommendationId",
-        );
-      return yield* service.recommendation({
-        id: input.id,
-        findingId: input.findingId,
-        findingAttemptId: input.findingAttemptId,
-        recommendationId: input.recommendationId,
-      });
+      return yield* service.runtimeState({ id: input.id });
     }).pipe(Effect.mapError(failure)),
   ),
   t3_champions_control: McpToolAccess.writesEnvironment(
@@ -149,7 +135,7 @@ export const handlers = {
       check.pipe(
         // A check or setup starts an agent thread, so it obeys the delegation limit as a launch does.
         Effect.andThen(
-          input.action === "run_check" || input.action === "setup"
+          input.action === "run_check" || input.action === "run_review" || input.action === "setup"
             ? Effect.flatMap(ThreadAccess.loadCaller(), (caller) =>
                 caller.caller === undefined
                   ? Effect.void
@@ -168,6 +154,8 @@ export const handlers = {
                 return service.setLifecycle({ id: input.id, lifecycle: "retired" });
               case "run_check":
                 return service.runCheck({ id: input.id });
+              case "run_review":
+                return service.runReview({ id: input.id });
               case "setup":
                 return service.setup({ id: input.id });
               case "cancel_setup":
@@ -235,6 +223,7 @@ export const handlers = {
         summary: input.summary,
         ...(input.samples === undefined ? {} : { samples: input.samples }),
         ...(input.findings === undefined ? {} : { findings: input.findings }),
+        ...(input.goalScore === undefined ? {} : { goalScore: input.goalScore }),
         ...(input.journeys === undefined ? {} : { journeys: input.journeys }),
       });
     }).pipe(Effect.mapError(failure)),
@@ -378,65 +367,6 @@ export const handlers = {
       });
     }).pipe(Effect.mapError(failure)),
   ),
-  t3_champions_investigation: McpToolAccess.beforeForwarding(
-    McpToolAccess.writesEnvironment(
-      (input) =>
-        Effect.gen(function* () {
-          const service = yield* Champions.ChampionService;
-          const thread = (yield* McpInvocationContext.McpInvocationContext).thread;
-          if (input.action === "start") {
-            if (
-              input.id === undefined ||
-              input.findingId === undefined ||
-              input.investigationId === undefined ||
-              input.question === undefined ||
-              input.topic === undefined ||
-              input.retrievalReceiptId === undefined ||
-              input.alternatives === undefined
-            )
-              return yield* missing(
-                "t3_champions_investigation",
-                "id, findingId, investigationId, question, topic, retrievalReceiptId and alternatives with action start",
-              );
-            return yield* service.startInvestigationFromOwner(thread, {
-              id: input.id,
-              findingId: input.findingId,
-              investigationId: input.investigationId,
-              question: input.question,
-              topic: input.topic,
-              retrievalReceiptId: input.retrievalReceiptId,
-              alternatives: input.alternatives,
-            });
-          }
-          if (
-            input.id === undefined ||
-            input.investigationId === undefined ||
-            input.requestId === undefined ||
-            input.reason === undefined
-          )
-            return yield* missing(
-              "t3_champions_investigation",
-              "id, investigationId, requestId and reason with action cancel",
-            );
-          // As on the Champion page, any full-access caller may cancel, not only the owner.
-          return yield* service.cancelInvestigation({
-            id: input.id,
-            investigationId: input.investigationId,
-            requestId: input.requestId,
-            reason: input.reason,
-          });
-        }).pipe(Effect.mapError(failure)),
-      { linkedCallers: "allowed" },
-    ),
-    (input) =>
-      input.action === "cancel"
-        ? Effect.succeed(input)
-        : Effect.fail(
-            approvalRefused(
-              "Starting an investigation is the Champion owner's own call. Omit environmentId.",
-            ),
-          ),
-  ),
   t3_champions_measurement: McpToolAccess.actsAsCaller((input) =>
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;
@@ -445,80 +375,36 @@ export const handlers = {
     }).pipe(Effect.mapError(failure)),
   ),
   t3_champions_finding_action: McpToolAccess.beforeForwarding(
-    McpToolAccess.either(
-      (input) => isFindingDecisionAction(input.action),
-      McpToolAccess.writesEnvironment(
-        (input, check) =>
-          Effect.gen(function* () {
-            const context = yield* check;
-            const relay = yield* approvalRelay(input, context.caller?.id);
-            if (
-              input.id === undefined ||
-              input.findingId === undefined ||
-              input.reason === undefined ||
-              !isFindingDecisionAction(input.action)
-            )
-              return yield* missing("t3_champions_finding_action", "id, findingId and reason");
-            const service = yield* Champions.ChampionService;
-            return yield* service.findingAction(
-              {
-                id: input.id,
-                findingId: input.findingId,
-                action: input.action,
-                ...(input.decisionId === undefined ? {} : { decisionId: input.decisionId }),
-                ...(input.recommendationId === undefined
-                  ? {}
-                  : { recommendationId: input.recommendationId }),
-                ...(input.proposal === undefined ? {} : { proposal: input.proposal }),
-                reason: input.reason,
-              },
-              relay,
-            );
-          }).pipe(Effect.mapError(failure)),
-        { linkedCallers: "allowed" },
-      ),
-      McpToolAccess.actsAsCaller((input) =>
+    McpToolAccess.writesEnvironment(
+      (input, check) =>
         Effect.gen(function* () {
-          if (input.environmentId !== undefined || input.forwardedApproval !== undefined)
-            return yield* approvalRefused(
-              "This action acts as the Champion's own calling thread. Omit environmentId and forwardedApproval.",
-            );
-          if (
-            input.findingId === undefined ||
-            input.evidence === undefined ||
-            isFindingDecisionAction(input.action)
-          )
-            return yield* missing(
-              "t3_champions_finding_action",
-              "findingId and evidence for a delivery or verification action",
-            );
-          const scope = yield* McpInvocationContext.McpInvocationContext;
+          if (!isFindingAction(input.action))
+            return yield* new OrchestratorMcpFailure({
+              code: "capability_denied",
+              message: Champions.CASE_FLOW_REFUSAL,
+            });
+          const context = yield* check;
+          const relay = yield* approvalRelay(input, context.caller?.id);
+          if (input.id === undefined || input.findingId === undefined || input.reason === undefined)
+            return yield* missing("t3_champions_finding_action", "id, findingId and reason");
           const service = yield* Champions.ChampionService;
-          return yield* service.updateDelivery(scope.thread, {
-            findingId: input.findingId,
-            action: input.action,
-            ...(input.operationId === undefined ? {} : { operationId: input.operationId }),
-            ...(input.revision === undefined ? {} : { revision: input.revision }),
-            ...(input.specUrl === undefined ? {} : { specUrl: input.specUrl }),
-            ...(input.route === undefined ? {} : { route: input.route }),
-            ...(input.diagnosis === undefined ? {} : { diagnosis: input.diagnosis }),
-            evidence: input.evidence,
-          });
+          const scope = yield* McpInvocationContext.McpInvocationContext;
+          return yield* service.findingAction(
+            {
+              id: input.id,
+              findingId: input.findingId,
+              action: input.action,
+              ...(input.decisionId === undefined ? {} : { decisionId: input.decisionId }),
+              reason: input.reason,
+            },
+            relay,
+            scope.thread?.threadId,
+          );
         }).pipe(Effect.mapError(failure)),
-      ),
+      { linkedCallers: "allowed" },
     ),
     prepareApproval,
   ),
-  t3_champions_synthesize: McpToolAccess.actsAsCaller((input) =>
-    Effect.gen(function* () {
-      const service = yield* Champions.ChampionService;
-      return yield* service.synthesize(
-        (yield* McpInvocationContext.McpInvocationContext).thread,
-        input,
-      );
-    }).pipe(Effect.mapError(failure)),
-  ),
-
   t3_champions_learning_read: McpToolAccess.reads((input) =>
     Effect.flatMap(Champions.ChampionService, (service) => service.learningRead(input)).pipe(
       Effect.mapError(failure),

@@ -5,16 +5,13 @@ import {
   CHAMPION_FINDING_STATUS_LABELS,
   CHAMPION_STATUS_LABELS,
   type ChampionAction,
-  CHAMPION_ROUTE_LABELS,
   championApprovalAnswer,
   championApprovalWhen,
   championFailureMessage,
-  championFindingRuntime,
   championLoadFailureMessage,
   championReading,
   championReadingLabel,
   championReadingNote,
-  type ChampionResearchView,
   championStatus,
   learningNoteProse,
   pendingChampionDecision,
@@ -29,7 +26,6 @@ import type {
   ChampionActivity,
   ChampionFinding,
   ChampionRelayedApproval,
-  ChampionRuntimeState,
   ChampionSummary,
   EnvironmentId,
   ThreadId,
@@ -37,16 +33,17 @@ import type {
 import { resolveEnvironmentMachineKind } from "@t3tools/contracts";
 import { useFocusEffect, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { AsyncResult, type Atom } from "effect/reactivity";
+import { useGT, useMessages } from "gt-react-native";
 import { useState } from "react";
 import { Platform, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { EnvironmentMachineSymbol } from "../../components/EnvironmentMachineSymbol";
+import { m as resolveNow, type MessageResolver } from "../../i18n/messages";
 import { AppText as Text } from "../../components/ui/AppText";
 import { Button } from "../../components/ui/Button";
 import * as Dialog from "../../components/ui/Dialog";
 import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
-import { uuidv4 } from "../../lib/uuid";
 import { useEnvironmentPresentation } from "../../state/presentation";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
@@ -73,8 +70,11 @@ function useCommandAllowed(
   return presentation?.connection.phase === "connected" && granted;
 }
 
-function championFailure(result: AsyncResult.AsyncResult<unknown, unknown>): string | null {
-  return result._tag === "Failure" ? championLoadFailureMessage(result.cause) : null;
+function championFailure(
+  result: AsyncResult.AsyncResult<unknown, unknown>,
+  resolve: MessageResolver,
+): string | null {
+  return result._tag === "Failure" ? championLoadFailureMessage(result.cause, resolve) : null;
 }
 
 function ThreadLinkButton(props: {
@@ -106,19 +106,23 @@ function RelayedApproval(props: {
   readonly approval: ChampionRelayedApproval;
 }) {
   const { approval } = props;
+  const gt = useGT();
   const when = championApprovalWhen(approval.approvedAt);
   return (
     <View className="gap-0.5">
       <Text className="text-sm text-foreground-muted">
-        <Text className="text-sm font-t3-medium text-foreground">Approved by you</Text> through
+        <Text className="text-sm font-t3-medium text-foreground">{gt("Approved by you")}</Text>{" "}
+        {gt("through")}
       </Text>
       <ThreadLinkButton
-        label={approval.threadTitle.trim() || "an agent thread"}
+        label={approval.threadTitle.trim() || gt("an agent thread")}
         environmentId={approval.sourceEnvironment?.id ?? props.environmentId}
         threadId={approval.threadId}
       />
       <Text className="text-sm text-foreground-muted">
-        {approval.sourceEnvironment ? `On ${approval.sourceEnvironment.label} · ` : ""}
+        {approval.sourceEnvironment
+          ? gt("On {machine} · ", { machine: approval.sourceEnvironment.label })
+          : ""}
         {when ? `${when} · ` : ""}
         <Text className="text-sm italic text-foreground">“{approval.quote}”</Text>
       </Text>
@@ -139,10 +143,12 @@ function EnvironmentChampions(props: { readonly environment: SettingsTarget }) {
   const { environmentId } = props.environment;
   const navigation = useNavigation();
   const nowMs = useNowMs();
+  const gt = useGT();
+  const m = useMessages();
   const [showRetired, setShowRetired] = useState(false);
   const atom = serverEnvironment.championsLive({ environmentId, input: {} });
   const champions = useEnvironmentQuery(atom);
-  const failure = championFailure(useAtomValue(atom));
+  const failure = championFailure(useAtomValue(atom), m);
   const retiredCount =
     champions.data?.champions.filter((champion) => champion.lifecycle === "retired").length ?? 0;
   return (
@@ -161,10 +167,10 @@ function EnvironmentChampions(props: { readonly environment: SettingsTarget }) {
       {failure ? (
         <Text className="p-4 text-base text-foreground-muted">{failure}</Text>
       ) : !champions.data ? (
-        <Text className="p-4 text-base text-foreground-muted">Loading champions…</Text>
+        <Text className="p-4 text-base text-foreground-muted">{gt("Loading champions…")}</Text>
       ) : champions.data.champions.length === 0 ? (
         <Text className="p-4 text-base text-foreground-muted">
-          No champions yet. Set one up from the web or desktop app.
+          {gt("No champions yet. Set one up from the web or desktop app.")}
         </Text>
       ) : (
         <>
@@ -173,7 +179,7 @@ function EnvironmentChampions(props: { readonly environment: SettingsTarget }) {
               <Pressable
                 key={champion.id}
                 accessibilityRole="button"
-                accessibilityLabel={`Open ${champion.name}`}
+                accessibilityLabel={gt("Open {name}", { name: champion.name })}
                 onPress={() =>
                   navigation.navigate("SettingsChampionDetail", { environmentId, id: champion.id })
                 }
@@ -195,7 +201,11 @@ function EnvironmentChampions(props: { readonly environment: SettingsTarget }) {
           {retiredCount > 0 ? (
             <View className="border-t border-border-subtle px-4 py-2">
               <Button
-                label={showRetired ? "Hide retired" : `Show retired (${retiredCount})`}
+                label={
+                  showRetired
+                    ? gt("Hide retired")
+                    : gt("Show retired ({count})", { count: retiredCount })
+                }
                 tone="text"
                 size="compact"
                 onPress={() => setShowRetired((current) => !current)}
@@ -217,8 +227,9 @@ export function SettingsChampionsRouteScreen() {
   );
   const insets = useSafeAreaInsets();
   const environmentMenu = useSettingsEnvironmentMenu();
+  const gt = useGT();
   return (
-    <SettingsScreen title="Champions" menus={[environmentMenu]}>
+    <SettingsScreen title={gt("Champions")} menus={[environmentMenu]}>
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
@@ -232,7 +243,7 @@ export function SettingsChampionsRouteScreen() {
           ))
         ) : (
           <Text className="text-base text-foreground-muted">
-            Connect a machine to see its champions.
+            {gt("Connect a machine to see its champions.")}
           </Text>
         )}
       </ScrollView>
@@ -240,91 +251,11 @@ export function SettingsChampionsRouteScreen() {
   );
 }
 
+// Called from command callbacks, outside render, so the message resolves at call time.
 function reportFailure(action: ChampionAction, result: AtomCommandResult<unknown, unknown>) {
   if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-    Dialog.alert(championFailureMessage(squashAtomCommandFailure(result), action));
+    Dialog.alert(championFailureMessage(squashAtomCommandFailure(result), action, resolveNow));
   }
-}
-
-function FindingResearch(props: {
-  readonly environmentId: EnvironmentId;
-  readonly championId: string;
-  readonly research: ChampionResearchView;
-}) {
-  const { environmentId, championId, research } = props;
-  const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  // Kept across a failed send, so retrying is the same request rather than a second one.
-  const [requestId, setRequestId] = useState<string | null>(null);
-  const cancel = useAtomCommand(serverEnvironment.cancelChampionInvestigation, {
-    label: "champion cancel investigation",
-    reportFailure: false,
-  });
-  const canCancel = useCommandAllowed(serverEnvironment.cancelChampionInvestigation, environmentId);
-  if (research.summary === null) return null;
-  const send = (text: string) => {
-    const reason = text.trim();
-    if (!reason) return;
-    if (reason.length > REASON_MAX_LENGTH) {
-      Dialog.alert(`Keep this to ${REASON_MAX_LENGTH} characters.`);
-      return;
-    }
-    const id = requestId ?? uuidv4();
-    setRequestId(id);
-    setBusy(true);
-    void cancel({
-      environmentId,
-      input: {
-        id: championId,
-        investigationId: research.investigationId,
-        requestId: id,
-        reason,
-      },
-    }).then((result) => {
-      setBusy(false);
-      reportFailure("investigation", result);
-      if (result._tag === "Success") setRequestId(null);
-    });
-  };
-  return (
-    <View className="gap-1">
-      <Text className="text-sm text-foreground-muted">{research.summary}</Text>
-      {research.attention ? (
-        <Text className="text-sm text-foreground-muted">{research.attention}</Text>
-      ) : null}
-      {open
-        ? research.branches.map((branch) => (
-            <Text key={branch.id} className="text-sm text-foreground-muted">
-              {branch.status} · {branch.hypothesis}
-            </Text>
-          ))
-        : null}
-      <View className="flex-row flex-wrap gap-2">
-        <Button
-          label={open ? "Hide research" : "See research"}
-          tone="text"
-          onPress={() => setOpen((value) => !value)}
-        />
-        {research.cancellable ? (
-          <Button
-            label="Cancel research"
-            tone="text"
-            disabled={!canCancel || busy}
-            onPress={() =>
-              Dialog.prompt({
-                title: "Cancel research",
-                message:
-                  "Why cancel this? It stays requested until every task is confirmed stopped.",
-                initialValue: "",
-                confirmText: "Request cancel",
-                onConfirm: send,
-              })
-            }
-          />
-        ) : null}
-      </View>
-    </View>
-  );
 }
 
 function LearningNote(props: {
@@ -333,6 +264,7 @@ function LearningNote(props: {
   readonly learningRef: NonNullable<ChampionActivity["learningRef"]>;
 }) {
   const { learningRef } = props;
+  const gt = useGT();
   const query = useEnvironmentQuery(
     serverEnvironment.championLearning({
       environmentId: props.environmentId,
@@ -353,10 +285,10 @@ function LearningNote(props: {
     return (
       <Text className="text-sm text-foreground-muted">
         {query.error
-          ? "Its source couldn't load."
+          ? gt("Its source couldn't load.")
           : query.data === null
-            ? "Loading its source…"
-            : "Its source isn't available on this machine."}
+            ? gt("Loading its source…")
+            : gt("Its source isn't available on this machine.")}
       </Text>
     );
   }
@@ -378,10 +310,11 @@ function LearningRow(props: {
   readonly bordered: boolean;
 }) {
   const { event } = props;
+  const gt = useGT();
   const [open, setOpen] = useState(false);
   const body = (
     <>
-      <Text className="text-base font-t3-medium text-foreground">Learned</Text>
+      <Text className="text-base font-t3-medium text-foreground">{gt("Learned")}</Text>
       <Text className="text-sm text-foreground-muted">
         {new Date(event.at).toLocaleDateString()} · {event.text}
       </Text>
@@ -414,14 +347,11 @@ function FindingActions(props: {
   readonly environmentId: EnvironmentId;
   readonly championId: string;
   readonly finding: ChampionFinding;
-  /** Its recommendation can't be read yet, so it can't be answered yet. */
-  readonly answerable: boolean;
-  /** The server won't let live or unconfirmed research be detached from its finding. */
-  readonly researchLive: boolean;
 }) {
   const { environmentId, championId, finding } = props;
+  const gt = useGT();
   const [busy, setBusy] = useState(false);
-  // Survives a refused answer, so a changed recommendation doesn't cost what was written.
+  // Survives a refused answer, so a failed send doesn't cost what was written.
   const [draft, setDraft] = useState("");
   const act = useAtomCommand(serverEnvironment.championFindingAction, {
     label: "champion finding action",
@@ -433,17 +363,13 @@ function FindingActions(props: {
     failure: ChampionAction,
     action:
       | { readonly action: "dismiss" | "reopen" }
-      | {
-          readonly action: "resolve_decision";
-          readonly decisionId: string;
-          readonly recommendationId?: string;
-        },
+      | { readonly action: "resolve_decision"; readonly decisionId: string },
     text: string,
   ) => {
     const reason = text.trim();
     if (!reason) return;
     if (reason.length > REASON_MAX_LENGTH) {
-      Dialog.alert(`Keep this to ${REASON_MAX_LENGTH} characters.`);
+      Dialog.alert(gt("Keep this to {count} characters.", { count: REASON_MAX_LENGTH }));
       return;
     }
     setBusy(true);
@@ -467,17 +393,14 @@ function FindingActions(props: {
     <View className="flex-row flex-wrap gap-2">
       {pending?.proposal ? (
         <Button
-          label="Approve proposed"
-          disabled={!canAct || busy || !props.answerable}
+          label={gt("Approve proposed")}
+          disabled={!canAct || busy}
           onPress={() =>
             send(
               "decision",
               {
                 action: "resolve_decision",
                 decisionId: pending.id,
-                ...(pending.recommendationId === undefined
-                  ? {}
-                  : { recommendationId: pending.recommendationId }),
               },
               championApprovalAnswer(pending.proposal!.action),
             )
@@ -486,23 +409,19 @@ function FindingActions(props: {
       ) : null}
       {pending ? (
         <Button
-          label={pending.proposal ? "Answer differently" : "Answer"}
-          disabled={!canAct || busy || !props.answerable}
+          label={pending.proposal ? gt("Answer differently") : gt("Answer", { $context: "verb" })}
+          disabled={!canAct || busy}
           onPress={() =>
-            // Bound to what's on screen now: if the owner revises it first, the server refuses this.
             ask(
-              "Answer",
+              gt("Answer", { $context: "verb" }),
               pending.question,
-              "Send",
+              gt("Send"),
               (answer) =>
                 send(
                   "decision",
                   {
                     action: "resolve_decision",
                     decisionId: pending.id,
-                    ...(pending.recommendationId === undefined
-                      ? {}
-                      : { recommendationId: pending.recommendationId }),
                   },
                   answer,
                 ),
@@ -511,26 +430,29 @@ function FindingActions(props: {
           }
         />
       ) : null}
-      {canDismissChampionFinding(finding) && !props.researchLive ? (
+      {canDismissChampionFinding(finding) ? (
         <Button
-          label="Dismiss"
+          label={gt("Dismiss")}
           tone="text"
           disabled={!canAct || busy}
           onPress={() =>
-            ask("Dismiss finding", "Why doesn't this need work?", "Dismiss", (reason) =>
+            ask(gt("Dismiss finding"), gt("Why doesn't this need work?"), gt("Dismiss"), (reason) =>
               send("finding", { action: "dismiss" }, reason),
             )
           }
         />
       ) : null}
-      {canReopenChampionFinding(finding) && !props.researchLive ? (
+      {canReopenChampionFinding(finding) ? (
         <Button
-          label="Reopen"
+          label={gt("Reopen")}
           tone="text"
           disabled={!canAct || busy}
           onPress={() =>
-            ask("Reopen finding", "Why does this need another look?", "Reopen", (reason) =>
-              send("finding", { action: "reopen" }, reason),
+            ask(
+              gt("Reopen finding"),
+              gt("Why does this need another look?"),
+              gt("Reopen"),
+              (reason) => send("finding", { action: "reopen" }, reason),
             )
           }
         />
@@ -546,6 +468,7 @@ function ChampionControls(props: {
 }) {
   const { environmentId, champion } = props;
   const { id } = champion;
+  const gt = useGT();
   const [busy, setBusy] = useState(false);
   const setLifecycle = useAtomCommand(serverEnvironment.setChampionLifecycle, {
     label: "champion lifecycle",
@@ -592,7 +515,7 @@ function ChampionControls(props: {
   if (champion.lifecycle === "retired") {
     return (
       <Button
-        label="Restore"
+        label={gt("Restore")}
         tone="secondary"
         disabled={!canSetLifecycle || busy}
         onPress={() => void act("lifecycle", [lifecycleStep("paused")])}
@@ -604,7 +527,7 @@ function ChampionControls(props: {
     <View className="flex-row flex-wrap gap-2">
       {setupRunning ? (
         <Button
-          label="Cancel setup"
+          label={gt("Cancel setup")}
           tone="secondary"
           disabled={!canCancelSetup || busy}
           onPress={() =>
@@ -613,7 +536,7 @@ function ChampionControls(props: {
         />
       ) : (
         <Button
-          label={props.hasMetrics ? "Ask AI to review metrics" : "Ask AI to set up metrics"}
+          label={props.hasMetrics ? gt("Ask AI to review metrics") : gt("Ask AI to set up metrics")}
           tone="secondary"
           disabled={!canSetup || busy}
           onPress={() => void act("setup", [() => setup({ environmentId, input: { id } })])}
@@ -621,8 +544,10 @@ function ChampionControls(props: {
       )}
       {props.hasMetrics ? (
         <Button
-          label="Fix with a lead"
-          accessibilityHint="Starts a Spec lead thread that plans and builds a fix for these metrics."
+          label={gt("Fix with a lead")}
+          accessibilityHint={gt(
+            "Starts a Spec lead thread that plans and builds a fix for these metrics.",
+          )}
           tone="secondary"
           disabled={!canStartLead || busy}
           onPress={() =>
@@ -645,7 +570,7 @@ function ChampionControls(props: {
       ) : null}
       {props.hasMetrics ? (
         <Button
-          label={champion.lifecycle === "active" ? "Pause" : "Resume"}
+          label={champion.lifecycle === "active" ? gt("Pause") : gt("Resume")}
           tone="secondary"
           disabled={!canSetLifecycle || busy}
           onPress={() =>
@@ -657,12 +582,9 @@ function ChampionControls(props: {
       ) : null}
       {props.hasMetrics ? (
         <Button
-          label={champion.outstandingCheckId !== null ? "Checking…" : "Check now"}
+          label={champion.outstandingCheckId !== null ? gt("Checking…") : gt("Check now")}
           {...(champion.lifecycle === "paused"
-            ? {
-                accessibilityHint:
-                  "Paused, so this only measures and reports. It starts no repairs.",
-              }
+            ? { accessibilityHint: gt("Paused, so this only measures and reports.") }
             : {})}
           tone="secondary"
           disabled={!canRunCheck || busy}
@@ -670,14 +592,14 @@ function ChampionControls(props: {
         />
       ) : null}
       <Button
-        label="Retire"
+        label={gt("Retire")}
         tone="text"
         disabled={!canSetLifecycle || busy}
         onPress={() =>
           Dialog.confirm({
-            title: `Retire ${champion.name}?`,
-            message: "Checks stop. Its metrics and history stay, and you can restore it later.",
-            confirmText: "Retire",
+            title: gt("Retire {name}?", { name: champion.name }),
+            message: gt("Checks stop. Its metrics and history stay, and you can restore it later."),
+            confirmText: gt("Retire"),
             destructive: true,
             onConfirm: () => void act("lifecycle", [lifecycleStep("retired")]),
           })
@@ -691,31 +613,11 @@ function FindingRow(props: {
   readonly environmentId: EnvironmentId;
   readonly championId: string;
   readonly finding: ChampionFinding;
-  readonly runtime: ChampionRuntimeState | null;
-  readonly runtimeFailed: boolean;
   readonly bordered: boolean;
 }) {
   const { finding } = props;
+  const gt = useGT();
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const recent = championFindingRuntime(finding, props.runtime);
-  const exact = useEnvironmentQuery(
-    recent.recommendationMissing && finding.decision?.recommendationId !== undefined
-      ? serverEnvironment.championRecommendation({
-          environmentId: props.environmentId,
-          input: {
-            id: props.championId,
-            findingId: finding.id,
-            findingAttemptId: finding.attemptId,
-            recommendationId: finding.decision.recommendationId,
-          },
-        })
-      : null,
-  );
-  const { recommendation, recommendationMissing, research } = championFindingRuntime(
-    finding,
-    props.runtime,
-    exact.data,
-  );
   return (
     <View
       className={
@@ -725,25 +627,19 @@ function FindingRow(props: {
       <Text className="text-base font-t3-medium text-foreground">{finding.title}</Text>
       <Text className="text-sm text-foreground-muted">
         {pendingChampionDecision(finding)
-          ? "Needs you"
+          ? gt("Needs you")
           : CHAMPION_FINDING_STATUS_LABELS[finding.status]}
         {finding.evidence && !pendingChampionDecision(finding)?.proposal
           ? ` · ${finding.evidence}`
           : ""}
       </Text>
-      {recommendation ? (
-        <Text className="text-sm text-foreground">{recommendation.recommendation}</Text>
-      ) : recommendationMissing ? (
-        <Text className="text-sm text-foreground-muted">
-          {props.runtimeFailed || exact.error !== null
-            ? "Its recommendation couldn't load, so answering is off until it does."
-            : "Loading its recommendation…"}
-        </Text>
-      ) : null}
       {finding.decision ? (
         <Text className="text-sm text-foreground">
           {finding.decision.status === "resolved"
-            ? `${finding.decision.question} Answered: ${finding.decision.answer}`
+            ? gt("{question} Answered: {answer}", {
+                question: finding.decision.question,
+                answer: finding.decision.answer ?? "",
+              })
             : finding.decision.question}
         </Text>
       ) : null}
@@ -753,17 +649,21 @@ function FindingRow(props: {
       {finding.decision?.status === "requested" && finding.decision.proposal ? (
         <View className="gap-0.5">
           <Text className="text-sm font-t3-medium text-foreground">
-            Proposed: {finding.decision.proposal.action}
+            {gt("Proposed: {action}", { action: finding.decision.proposal.action })}
           </Text>
-          <Text className="text-sm text-foreground">Why: {finding.decision.proposal.why}</Text>
+          <Text className="text-sm text-foreground">
+            {gt("Why: {why}", { why: finding.decision.proposal.why })}
+          </Text>
           <Button
-            label={detailsOpen ? "Hide details" : "Details"}
+            label={detailsOpen ? gt("Hide details") : gt("Details")}
             tone="text"
             onPress={() => setDetailsOpen((open) => !open)}
           />
           {detailsOpen && finding.decision.proposal.otherOptions ? (
             <Text className="text-sm text-foreground-muted">
-              Other options: {finding.decision.proposal.otherOptions}
+              {gt("Other options: {options}", {
+                options: finding.decision.proposal.otherOptions,
+              })}
             </Text>
           ) : null}
           {detailsOpen && finding.evidence ? (
@@ -771,47 +671,16 @@ function FindingRow(props: {
           ) : null}
         </View>
       ) : null}
-      {research ? (
-        <FindingResearch
-          environmentId={props.environmentId}
-          championId={props.championId}
-          research={research}
-        />
-      ) : null}
-      {finding.repairAttention ? (
-        <Text className="text-sm text-foreground-muted">{finding.repairAttention}</Text>
-      ) : null}
-      {finding.diagnosis?.attemptId === finding.attemptId ? (
-        <View className="gap-1">
-          <Text className="text-sm font-t3-medium text-foreground">Diagnosis</Text>
-          <Text className="text-sm text-foreground">{finding.diagnosis.text}</Text>
-          <Text className="text-sm text-foreground-muted">
-            Recommends {CHAMPION_ROUTE_LABELS[finding.diagnosis.route]}. {finding.diagnosis.why}
-          </Text>
-          {finding.diagnosis.departure ? (
-            <Text className="text-sm text-foreground">
-              Took {CHAMPION_ROUTE_LABELS[finding.diagnosis.departure.route]} instead.{" "}
-              {finding.diagnosis.departure.reason}
-            </Text>
-          ) : null}
-        </View>
-      ) : finding.undiagnosed?.attemptId === finding.attemptId ? (
-        <Text className="text-sm text-foreground-muted">
-          Not diagnosed, so work on it went ahead without one. {finding.undiagnosed.reason}
-        </Text>
-      ) : null}
       <FindingActions
         environmentId={props.environmentId}
         championId={props.championId}
         finding={finding}
-        answerable={!recommendationMissing}
-        researchLive={research?.live === true}
       />
-      {finding.childThreadId !== null ? (
+      {finding.escalationThreadId != null ? (
         <ThreadLinkButton
-          label="Open repair thread"
+          label={gt("Open case")}
           environmentId={props.environmentId}
-          threadId={finding.childThreadId}
+          threadId={finding.escalationThreadId}
         />
       ) : null}
     </View>
@@ -825,13 +694,12 @@ function ChampionDetailContent(props: {
   const { environmentId, id } = props;
   const insets = useSafeAreaInsets();
   const nowMs = useNowMs();
+  const gt = useGT();
+  const m = useMessages();
   const detailAtom = serverEnvironment.championDetail({ environmentId, input: { id } });
   const detail = useEnvironmentQuery(detailAtom);
-  const failure = championFailure(useAtomValue(detailAtom));
+  const failure = championFailure(useAtomValue(detailAtom), m);
   const data = detail.data;
-  const runtime = useEnvironmentQuery(
-    serverEnvironment.championRuntimeState({ environmentId, input: { id } }),
-  );
   const history = useEnvironmentQuery(
     serverEnvironment.championHistory({ environmentId, input: { id, limit: ACTIVITY_LIMIT } }),
   );
@@ -846,7 +714,7 @@ function ChampionDetailContent(props: {
   const [tab, setTab] = useState<"dashboard" | "learnings">("dashboard");
   const learningCount = useChampionLearningCount(environmentId, id);
   return (
-    <SettingsScreen title={data?.champion.name ?? "Champion"}>
+    <SettingsScreen title={data?.champion.name ?? gt("Champion")}>
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
@@ -855,14 +723,16 @@ function ChampionDetailContent(props: {
         contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
       >
         {data === null ? (
-          <Text className="text-base text-foreground-muted">{failure ?? "Loading…"}</Text>
+          <Text className="text-base text-foreground-muted">{failure ?? gt("Loading…")}</Text>
         ) : (
           <>
             <View className="gap-2">
               <Text className="text-sm font-t3-medium text-foreground-muted">
                 {CHAMPION_STATUS_LABELS[championStatus(data.champion, nowMs)]}
               </Text>
-              <Text className="text-base text-foreground">Goal: {data.champion.purpose}</Text>
+              <Text className="text-base text-foreground">
+                {gt("Goal: {goal}", { goal: data.champion.purpose })}
+              </Text>
               {data.champion.attention.map((line) => (
                 <Text key={line} className="text-sm text-foreground-muted">
                   {line}
@@ -876,14 +746,14 @@ function ChampionDetailContent(props: {
               <View className="flex-row flex-wrap gap-2">
                 {data.champion.lastCheckAt !== null || data.champion.outstandingCheckId !== null ? (
                   <ThreadLinkButton
-                    label="Open owner thread"
+                    label={gt("Open owner thread")}
                     environmentId={environmentId}
                     threadId={data.champion.ownerThreadId}
                   />
                 ) : null}
                 {data.champion.setupThreadId !== null ? (
                   <ThreadLinkButton
-                    label="Open setup thread"
+                    label={gt("Open setup thread")}
                     environmentId={environmentId}
                     threadId={data.champion.setupThreadId}
                   />
@@ -893,10 +763,13 @@ function ChampionDetailContent(props: {
             <SegmentedControl
               role="tab"
               options={[
-                { value: "dashboard", label: "Dashboard" },
+                { value: "dashboard", label: gt("Dashboard") },
                 {
                   value: "learnings",
-                  label: learningCount === undefined ? "Learnings" : `Learnings · ${learningCount}`,
+                  label:
+                    learningCount === undefined
+                      ? gt("Learnings")
+                      : gt("Learnings · {count}", { count: learningCount }),
                 },
               ]}
               selected={tab}
@@ -906,9 +779,11 @@ function ChampionDetailContent(props: {
               <ChampionLearningsSection environmentId={environmentId} championId={id} />
             ) : null}
             {tab === "dashboard" ? (
-              <SettingsSection title="Metrics">
+              <SettingsSection title={gt("Metrics")}>
                 {data.metrics.length === 0 ? (
-                  <Text className="p-4 text-base text-foreground-muted">No metrics yet.</Text>
+                  <Text className="p-4 text-base text-foreground-muted">
+                    {gt("No metrics yet.")}
+                  </Text>
                 ) : (
                   data.metrics.map((metric, index) => (
                     <View
@@ -927,12 +802,17 @@ function ChampionDetailContent(props: {
                           {championReadingLabel(
                             championReading(metric, data.latestSamples, nowMs),
                             metric.unit,
+                            m,
                           )}
                         </Text>
-                        {championReadingNote(championReading(metric, data.latestSamples, nowMs)) ? (
+                        {championReadingNote(
+                          championReading(metric, data.latestSamples, nowMs),
+                          m,
+                        ) ? (
                           <Text className="text-sm text-foreground-muted">
                             {championReadingNote(
                               championReading(metric, data.latestSamples, nowMs),
+                              m,
                             )}
                           </Text>
                         ) : null}
@@ -944,15 +824,13 @@ function ChampionDetailContent(props: {
             ) : null}
             {tab === "dashboard" &&
             (data.findings.length > 0 || notes.length > 0 || relayedAcceptances.length > 0) ? (
-              <SettingsSection title="Activity">
+              <SettingsSection title={gt("Activity", { $context: "a Champion's activity feed" })}>
                 {data.findings.map((finding, index) => (
                   <FindingRow
                     key={finding.id}
                     environmentId={environmentId}
                     championId={id}
                     finding={finding}
-                    runtime={runtime.data}
-                    runtimeFailed={runtime.error !== null}
                     bordered={index > 0}
                   />
                 ))}
@@ -975,7 +853,7 @@ function ChampionDetailContent(props: {
                     }
                   >
                     <Text className="text-base font-t3-medium text-foreground">
-                      Metrics accepted
+                      {gt("Metrics accepted")}
                     </Text>
                     <Text className="text-sm text-foreground-muted">{event.text}</Text>
                     <RelayedApproval environmentId={environmentId} approval={event.approval} />
@@ -984,8 +862,9 @@ function ChampionDetailContent(props: {
               </SettingsSection>
             ) : null}
             <Text className="text-sm text-foreground-muted">
-              Create and edit champions, change their roles, edit metrics, see which model each run
-              used and read older activity from the web or desktop app.
+              {gt(
+                "Create and edit champions, change their models, edit metrics, see which model each run used and read older activity from the web or desktop app.",
+              )}
             </Text>
           </>
         )}

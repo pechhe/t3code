@@ -26,6 +26,7 @@ type ChampionShellRow = {
   readonly setup_attention: number;
   readonly stuck_thread_id: string | null;
   readonly failures: number | null;
+  readonly review_failures: number | null;
   readonly folder_error: number;
   readonly journey: number;
   readonly lifecycle: string | null;
@@ -48,6 +49,7 @@ export const readChampionShellRows = (sql: SqlClient.SqlClient, encodedThreadIds
         THEN 1 ELSE 0 END AS setup_attention,
       json_extract(document_json, '$.champion.stuckEscalationThreadId') AS stuck_thread_id,
       json_extract(document_json, '$.champion.consecutiveCheckFailures') AS failures,
+      json_extract(document_json, '$.champion.consecutiveReviewFailures') AS review_failures,
       CASE WHEN EXISTS (SELECT 1 FROM json_each(document_json, '$.champion.attention') WHERE value LIKE ${`${NOT_SAVED_PREFIX}%`})
         THEN 1 ELSE 0 END AS folder_error,
       json_extract(document_json, '$.champion.lifecycle') AS lifecycle,
@@ -56,7 +58,7 @@ export const readChampionShellRows = (sql: SqlClient.SqlClient, encodedThreadIds
         SELECT json_object('id', json_extract(f.value, '$.id'), 'title', json_extract(f.value, '$.title'),
           'metricId', json_extract(f.value, '$.metricId'), 'status', json_extract(f.value, '$.status'),
           'decisionStatus', json_extract(f.value, '$.decision.status'),
-          'repairAttention', json_extract(f.value, '$.repairAttention'),
+          'alarm', json_extract(f.value, '$.alarm'),
           'escalationThreadId', json_extract(f.value, '$.escalationThreadId')) AS facts
         FROM json_each(champions.document_json, '$.findings') f
         WHERE json_extract(f.value, '$.escalationThreadId') IS NOT NULL
@@ -64,7 +66,7 @@ export const readChampionShellRows = (sql: SqlClient.SqlClient, encodedThreadIds
         SELECT json_object('id', json_extract(a.document_json, '$.id'), 'title', json_extract(a.document_json, '$.title'),
           'metricId', json_extract(a.document_json, '$.metricId'), 'status', json_extract(a.document_json, '$.status'),
           'decisionStatus', json_extract(a.document_json, '$.decision.status'),
-          'repairAttention', json_extract(a.document_json, '$.repairAttention'),
+          'alarm', json_extract(a.document_json, '$.alarm'),
           'escalationThreadId', json_extract(a.document_json, '$.escalationThreadId'))
         FROM champion_finding_archive a
         WHERE a.champion_id = champions.id AND json_extract(a.document_json, '$.escalationThreadId') IS NOT NULL
@@ -85,7 +87,7 @@ type FindingFacts = {
   readonly metricId: string | null;
   readonly status: EscalationFinding["status"];
   readonly decisionStatus: "requested" | "resolved" | null;
-  readonly repairAttention: string | null;
+  readonly alarm: boolean | number | null;
   readonly escalationThreadId: string;
 };
 
@@ -101,6 +103,7 @@ const escalationDocument = (row: ChampionShellRow): EscalationDocument => {
     champion: {
       attention: row.folder_error > 0 ? [NOT_SAVED_PREFIX] : [],
       consecutiveCheckFailures: row.failures ?? 0,
+      consecutiveReviewFailures: row.review_failures ?? 0,
       stuckEscalationThreadId: row.stuck_thread_id,
       journeys: row.journey > 0 ? {} : undefined,
       lifecycle: row.lifecycle ?? undefined,
@@ -110,7 +113,7 @@ const escalationDocument = (row: ChampionShellRow): EscalationDocument => {
       title: f.title,
       metricId: f.metricId,
       status: f.status,
-      repairAttention: f.repairAttention,
+      alarm: f.alarm === true || f.alarm === 1,
       escalationThreadId: f.escalationThreadId,
       decision: f.decisionStatus === null ? null : { status: f.decisionStatus, id: "" },
     })),
@@ -148,8 +151,8 @@ export const withChampions = (rows: ReadonlyArray<ChampionShellRow>) => {
 };
 
 /**
- * The brief for an escalation thread's first message, or "" for any other thread. Read from the full
- * Champion document because it needs the finding's evidence, diagnosis and decision.
+ * The brief for a case's first message, or "" for any other thread. Read from the full Champion
+ * document and its readings because it needs the finding's evidence, history and the goal score.
  */
 export const readEscalationBrief = Effect.fn("Champions.readEscalationBrief")(function* (
   sql: SqlClient.SqlClient,
@@ -192,9 +195,15 @@ export const readEscalationBrief = Effect.fn("Champions.readEscalationBrief")(fu
           trigger: stuck.trigger,
           resolved: !stuck.stuck,
         };
-  // The current streak's checks (failureCounted stays set after recovery, so the streak length bounds
+  // The current streak's runs (failureCounted stays set after recovery, so the streak length bounds
   // the read); each one's ending leaves no activity row.
-  const streak = Math.min(5, doc.champion.consecutiveCheckFailures ?? 0);
+  const streak = Math.min(
+    5,
+    Math.max(
+      doc.champion.consecutiveCheckFailures ?? 0,
+      doc.champion.consecutiveReviewFailures ?? 0,
+    ),
+  );
   const failures =
     finding === undefined && streak > 0
       ? (yield* sql<{ document_json: string }>`
@@ -204,6 +213,7 @@ export const readEscalationBrief = Effect.fn("Champions.readEscalationBrief")(fu
           ORDER BY started_at DESC LIMIT ${streak}`).map((row) => {
           const check = parseJson(row.document_json) as {
             id: string;
+            kind?: string;
             startedAt: string;
             cancelled?: boolean;
             reported?: boolean;
@@ -212,10 +222,41 @@ export const readEscalationBrief = Effect.fn("Champions.readEscalationBrief")(fu
           const status = check.cancelled ? "cancelled" : check.reported ? "reported" : "pending";
           return {
             at: check.startedAt,
-            text: `check ${check.id.slice(0, 8)} (${status})${check.skipped === undefined ? "" : `: ${check.skipped}`}`,
+            text: `${check.kind === "review" ? "goal review" : "readings run"} ${check.id.slice(0, 8)} (${status})${check.skipped === undefined ? "" : `: ${check.skipped}`}`,
           };
         })
       : undefined;
+  // The finding's series, newest first, from the readings the Champion stored.
+  const readings =
+    finding?.seriesId == null
+      ? undefined
+      : (yield* sql<{ document_json: string }>`
+          SELECT json_each.value AS document_json FROM champion_checks, json_each(champion_checks.document_json, '$.samples')
+          WHERE champion_checks.champion_id = ${doc.champion.id}
+            AND json_extract(json_each.value, '$.seriesId') = ${finding.seriesId}
+          ORDER BY json_extract(json_each.value, '$.collectedAt') DESC LIMIT 10`).map((row) => {
+          const sample = parseJson(row.document_json) as {
+            collectedAt: string;
+            value: number | null;
+            status: string;
+            unit: string;
+          };
+          return {
+            at: sample.collectedAt,
+            value: sample.value,
+            status: sample.status,
+            unit: sample.unit,
+          };
+        });
+  const releasedRepairThreadIds =
+    finding === undefined
+      ? undefined
+      : (yield* sql<{ thread_id: string }>`
+          SELECT DISTINCT json_extract(document_json, '$.threadId') AS thread_id FROM champion_activity
+          WHERE champion_id = ${doc.champion.id}
+            AND json_extract(document_json, '$.kind') = 'repair-released'
+            AND json_extract(document_json, '$.findingId') = ${finding.id}
+            AND json_extract(document_json, '$.threadId') IS NOT NULL`).map((row) => row.thread_id);
   return formatEscalationBrief({
     champion: doc.champion,
     shell,
@@ -223,6 +264,9 @@ export const readEscalationBrief = Effect.fn("Champions.readEscalationBrief")(fu
     attention: doc.champion.attention,
     ownerThreadId: doc.champion.ownerThreadId,
     repository: doc.champion.folder?.repository,
+    readings,
+    goalScore: doc.champion.goalScore,
     failures,
+    releasedRepairThreadIds,
   });
 });

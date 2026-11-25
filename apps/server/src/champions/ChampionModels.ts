@@ -252,7 +252,7 @@ const unavailable = (
 
 /** The one line a skipped run leaves for Henry: both models, when each returns, and when the next check starts. */
 export const skipMessage = (input: {
-  readonly what: "check" | "setup" | "advice";
+  readonly what: "check" | "setup" | "advice" | "review";
   readonly slot: SlotChoice;
   readonly assessed: SlotAssessment;
   readonly providers: ReadonlyArray<ServerProvider>;

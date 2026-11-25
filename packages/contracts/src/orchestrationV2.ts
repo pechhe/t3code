@@ -2890,6 +2890,8 @@ export const OrchestrationV2ThreadChampion = Schema.Struct({
   severity: Schema.optional(Schema.Literals(["decision", "incident", "stuck"])),
   trigger: Schema.optional(Schema.String),
   resolved: Schema.optional(Schema.Boolean),
+  /** The case's finding reached an alarm value, so it started at once. */
+  alarm: Schema.optional(Schema.Boolean),
 });
 export type OrchestrationV2ThreadChampion = typeof OrchestrationV2ThreadChampion.Type;
 

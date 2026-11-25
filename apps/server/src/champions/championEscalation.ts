@@ -1,95 +1,101 @@
 import type { ChampionFinding, OrchestrationV2ThreadChampion } from "@t3tools/contracts";
 
 /**
- * Champion escalation threads (fork/differences.md `champions`): the Inbox's bar for a Champion is a
- * decision it needs, a new confirmed incident, or a Champion that is stuck. These pure rules say which
- * state needs a thread, how it reads, and when it is resolved; ChampionService runs the effects.
+ * Champion cases (fork/differences.md `champions`): every finding that needs work gets one escalation
+ * thread in the Inbox, its case, and so does a stuck Champion. These pure rules say which state needs a
+ * thread, how it reads, and when it is over; ChampionService runs the effects.
  */
 
 /** Opens the attention line the agent-config folder sync leaves when a save fails. */
 export const NOT_SAVED_PREFIX = "Not saved to agent-config: ";
-/** Checks in a row that end without a clean report before a Champion is stuck; fewer stay quiet. */
-export const STUCK_AFTER_FAILURES = 3;
+/** Runs of one rhythm in a row that end without a clean report before a Champion is stuck; fewer stay quiet. */
+const STUCK_AFTER_FAILURES = 3;
+/** A goal finding's id ends with this; its score, not a metric, opens it. */
+export const GOAL_FINDING_SUFFIX = ":goal";
+const isGoalFinding = (finding: { readonly id: string }) =>
+  finding.id.endsWith(GOAL_FINDING_SUFFIX);
 
 export type EscalationFinding = {
   readonly id: string;
   readonly title: string;
   readonly metricId: string | null;
-  /** The metric series a metric finding reads; with `latestSamples` it tells a regression from a chronic breach. */
-  readonly seriesId?: string | null | undefined;
   readonly status: ChampionFinding["status"];
   readonly decision?:
     | { readonly status: "requested" | "resolved"; readonly id: string }
     | null
     | undefined;
-  readonly repairAttention?: string | null | undefined;
+  readonly alarm?: boolean | undefined;
   readonly escalationThreadId?: string | null | undefined;
 };
 export type EscalationDocument = {
   readonly champion: {
     readonly attention: ReadonlyArray<string>;
     readonly consecutiveCheckFailures?: number | undefined;
+    readonly consecutiveReviewFailures?: number | undefined;
     readonly stuckEscalationThreadId?: string | null | undefined;
     readonly journeys?: unknown;
     readonly lifecycle?: string | undefined;
-    /** Each series' latest reading as the Champion last presented it. */
-    readonly latestSamples?:
-      | ReadonlyArray<{ readonly seriesId: string; readonly health: string }>
-      | undefined;
+    /** Set once a readings run has finished; a metric breach opens a case only after that. */
+    readonly lastCheckAt?: string | null | undefined;
   };
   readonly findings: ReadonlyArray<EscalationFinding>;
 };
 
 export type EscalationShell = Required<
   Pick<OrchestrationV2ThreadChampion, "findingId" | "severity" | "trigger" | "resolved">
->;
+> &
+  Pick<OrchestrationV2ThreadChampion, "alarm">;
 
 const settledStatus = (finding: Pick<ChampionFinding, "status">) =>
   finding.status === "verified" || finding.status === "dismissed";
 
-/** What a finding's escalation thread says it is, and whether it is over. */
+/** What a finding's case says it is, and whether it is over. */
 export const classifyFinding = (
-  finding: Pick<EscalationFinding, "status" | "metricId" | "decision" | "repairAttention">,
+  finding: Pick<EscalationFinding, "id" | "status" | "metricId" | "decision" | "alarm">,
   journey: boolean,
-): Pick<EscalationShell, "severity" | "trigger" | "resolved"> => {
+): Pick<EscalationShell, "severity" | "trigger" | "resolved" | "alarm"> => {
   const decision = finding.decision?.status === "requested";
-  const repair = finding.repairAttention != null;
-  const resolved =
-    settledStatus(finding) ||
-    (finding.metricId !== null && finding.decision?.status === "resolved" && !repair);
   return {
-    severity: decision ? "decision" : repair ? "stuck" : "incident",
+    severity: decision ? "decision" : "incident",
     trigger: decision
       ? "Decision requested"
-      : repair
-        ? "Repair needs attention"
-        : finding.metricId !== null
-          ? "Metric regressed"
-          : journey
-            ? "Confirmed journey failure"
-            : "New finding",
-    resolved,
+      : finding.alarm === true
+        ? "Alarm reached"
+        : isGoalFinding(finding)
+          ? "Goal score below target"
+          : finding.metricId !== null
+            ? "Metric outside target"
+            : journey
+              ? "Confirmed journey failure"
+              : "New finding",
+    resolved: settledStatus(finding),
+    ...(finding.alarm === true ? { alarm: true } : {}),
   };
 };
 
 export const stuckState = (
   champion: Pick<
     EscalationDocument["champion"],
-    "attention" | "consecutiveCheckFailures" | "lifecycle"
+    "attention" | "consecutiveCheckFailures" | "consecutiveReviewFailures" | "lifecycle"
   >,
 ) => {
-  const failures = champion.consecutiveCheckFailures ?? 0;
+  const readings = champion.consecutiveCheckFailures ?? 0;
+  const reviews = champion.consecutiveReviewFailures ?? 0;
   const folder = champion.attention.some((line) => line.startsWith(NOT_SAVED_PREFIX));
-  // A retired Champion runs no checks, so nothing is stuck.
-  const stuck = champion.lifecycle !== "retired" && (failures >= STUCK_AFTER_FAILURES || folder);
+  // Each rhythm keeps its own streak: a success in one does not clear the other's.
+  const failing = readings >= STUCK_AFTER_FAILURES || reviews >= STUCK_AFTER_FAILURES;
+  // A retired Champion runs nothing, so nothing is stuck.
+  const stuck = champion.lifecycle !== "retired" && (failing || folder);
   return {
     stuck,
     trigger:
-      failures >= STUCK_AFTER_FAILURES
-        ? `Failed ${failures} checks in a row`
-        : folder
-          ? "Folder error blocking save"
-          : "No longer stuck",
+      readings >= STUCK_AFTER_FAILURES
+        ? `Failed ${readings} readings runs in a row`
+        : reviews >= STUCK_AFTER_FAILURES
+          ? `Failed ${reviews} goal reviews in a row`
+          : folder
+            ? "Folder error blocking save"
+            : "No longer stuck",
   };
 };
 
@@ -119,31 +125,18 @@ export type EscalationStep = {
   readonly target:
     | { readonly kind: "finding"; readonly findingId: string }
     | { readonly kind: "stuck" };
-  /** `ensure` makes the thread exist and unsettles it so it returns to the Inbox; `settle` retires it. */
+  /** `ensure` makes the case exist and unsettles it so it returns to the Inbox; `settle` retires it. */
   readonly action: "ensure" | "settle";
+  /** A finding that closed and reopened gets a new case even when its old one was archived or deleted. */
+  readonly fresh?: boolean | undefined;
+  /** An alarm: the case starts at once, attended or not. */
+  readonly start?: boolean | undefined;
 };
 
 /**
- * True when a metric finding just opened over a series whose last reading was in target: a regression.
- * A breach the Champion found on its first reading of a series, or one already off target, is a chronic
- * baseline that stays on the Champions page.
- */
-const regressed = (
-  before: EscalationDocument,
-  finding: EscalationFinding,
-  prior: EscalationFinding | undefined,
-) =>
-  finding.metricId !== null &&
-  finding.seriesId != null &&
-  (prior === undefined || settledStatus(prior)) &&
-  (before.champion.latestSamples ?? []).some(
-    (sample) => sample.seriesId === finding.seriesId && sample.health === "healthy",
-  );
-
-/**
- * The escalation work one Champion write implies: only a new condition escalates (decision request,
- * repair attention, new qualitative finding, metric regression, reopened finding, newly stuck).
- * Routine checks over an unchanged state leave a thread the user settled alone.
+ * The case work one Champion write implies: one case per new, reopened or alarmed finding. A metric
+ * breach waits for a finished readings run, so the first-ever reading opens none. `forced` names
+ * findings that need a case whatever changed (reopened by a person, or left caseless by an upgrade).
  */
 export const planEscalation = (
   before: EscalationDocument | undefined,
@@ -151,27 +144,30 @@ export const planEscalation = (
   forced: ReadonlySet<string> = new Set(),
 ): ReadonlyArray<EscalationStep> => {
   const steps: EscalationStep[] = [];
-  const journey = after.champion.journeys !== undefined;
+  const readingsRan = before?.champion.lastCheckAt != null;
   for (const finding of after.findings) {
     const prior = before?.findings.find((candidate) => candidate.id === finding.id);
-    const now = classifyFinding(finding, journey);
     const target = { kind: "finding", findingId: finding.id } as const;
     const open = !settledStatus(finding);
-    const triggered =
-      open &&
-      ((finding.decision?.status === "requested" &&
-        !(prior?.decision?.status === "requested" && prior.decision.id === finding.decision.id)) ||
-        (finding.repairAttention != null && prior?.repairAttention == null) ||
-        (prior === undefined && before !== undefined && finding.metricId === null) ||
-        (before !== undefined && regressed(before, finding, prior)) ||
-        (prior?.status === "verified" && !now.resolved) ||
-        forced.has(finding.id));
-    if (triggered) steps.push({ target, action: "ensure" });
+    const reopened = prior !== undefined && settledStatus(prior) && open;
+    const isNew =
+      prior === undefined &&
+      before !== undefined &&
+      (finding.metricId === null || readingsRan || finding.alarm === true);
+    const alarmed = finding.alarm === true && prior?.alarm !== true;
+    const wanted = forced.has(finding.id);
+    if (open && (isNew || reopened || alarmed || wanted))
+      steps.push({
+        target,
+        action: "ensure",
+        fresh: reopened || wanted,
+        start: finding.alarm === true,
+      });
     else if (
       finding.escalationThreadId != null &&
       prior !== undefined &&
-      ((now.resolved && !classifyFinding(prior, journey).resolved) ||
-        (prior.decision?.status === "requested" && finding.decision?.status !== "requested"))
+      settledStatus(finding) &&
+      !settledStatus(prior)
     )
       steps.push({ target, action: "settle" });
   }
@@ -183,9 +179,13 @@ export const planEscalation = (
   return steps;
 };
 
+/** The workspace line every case brief carries. */
+export const CASE_WORKSPACE_RULE =
+  "Read and investigate in the project's main checkout without editing it. Only work that changes code allocates a workspace: a SlipJay workspace in the repository that owns the cause";
+
 /**
- * The Champion's brief for the first message in an escalation thread, so the person's reply reaches an
- * interactive model that already knows what is wrong. The thread itself starts idle.
+ * The case's brief for its first message, complete enough for a strong agent to diagnose, fix, file a
+ * Spec or ask Henry. After that the agent reads live state with the Champion tools.
  */
 export const formatEscalationBrief = (input: {
   readonly champion: {
@@ -197,26 +197,58 @@ export const formatEscalationBrief = (input: {
   readonly finding?:
     | Pick<
         ChampionFinding,
-        "id" | "title" | "evidence" | "status" | "decision" | "diagnosis" | "repairAttention"
+        | "id"
+        | "title"
+        | "evidence"
+        | "status"
+        | "decision"
+        | "alarm"
+        | "firstSeenAt"
+        | "lastConfirmedAt"
+        | "updatedAt"
       >
     | undefined;
   readonly attention: ReadonlyArray<string>;
-  /** The thread the Champion's checks run in; absent when it has none. */
+  /** The thread the Champion's readings and reviews run in; absent when it has none. */
   readonly ownerThreadId?: string | null | undefined;
   /** Where the Champion's definition lives, for the workspace line. */
   readonly repository?: string | undefined;
-  /** Recent checks that counted as failed, newest first; read for a stuck escalation only. */
+  /** The finding's metric readings, newest first. */
+  readonly readings?:
+    | ReadonlyArray<{
+        readonly at: string;
+        readonly value: number | null;
+        readonly status: string;
+        readonly unit: string;
+      }>
+    | undefined;
+  /** The latest goal score, with its reasons. */
+  readonly goalScore?:
+    | {
+        readonly score: number;
+        readonly target: number;
+        readonly reasons: string;
+        readonly change: string;
+        readonly at: string;
+      }
+    | undefined;
+  /** Recent runs that counted as failed, newest first; read for a stuck case only. */
   readonly failures?: ReadonlyArray<{ readonly at: string; readonly text: string }> | undefined;
+  /** Repair threads the upgrade to observe-only Champions released for this finding (migration 158). */
+  readonly releasedRepairThreadIds?: ReadonlyArray<string> | undefined;
 }) => {
   const { champion, shell, finding } = input;
   const lines = [
-    `This thread was opened by the ${champion.name} Champion (id ${champion.id}) because: ${shell.trigger} (${shell.severity}).`,
+    `This case was opened by the ${champion.name} Champion (id ${champion.id}) because: ${shell.trigger}.`,
     ...(champion.purpose ? [`Its goal: ${champion.purpose}`] : []),
     ...(input.ownerThreadId
       ? [
-          `Its checks run in thread ${input.ownerThreadId}; read it with t3_thread_read to see what recent runs did.`,
+          `Its readings and goal reviews run in thread ${input.ownerThreadId}, which only observes and scores; read it with t3_thread_read to see what recent runs found.`,
         ]
       : []),
+    input.goalScore === undefined
+      ? "No goal review has scored the goal yet."
+      : `Latest goal score: ${input.goalScore.score}/10 (target ${input.goalScore.target}) at ${input.goalScore.at}. Why not higher: ${input.goalScore.reasons} Changed since the previous score: ${input.goalScore.change}`,
   ];
   if (finding === undefined) {
     lines.push(
@@ -224,21 +256,26 @@ export const formatEscalationBrief = (input: {
       ...(input.failures === undefined || input.failures.length === 0
         ? []
         : [
-            `Recent checks that ended without a report:\n${input.failures.map((entry) => `- ${entry.at} ${entry.text}`).join("\n")}`,
+            `Recent runs that ended without a report:\n${input.failures.map((entry) => `- ${entry.at} ${entry.text}`).join("\n")}`,
           ]),
-      "Read its current state with t3_champions_get before acting.",
     );
   } else {
     lines.push(
-      `Finding ${finding.id} (${finding.status}): ${finding.title}`,
+      `Finding ${finding.id} (${finding.status}${finding.alarm === true ? ", ALARM" : ""}): ${finding.title}`,
+      `First seen ${finding.firstSeenAt ?? finding.updatedAt}; last confirmed ${finding.lastConfirmedAt ?? finding.updatedAt}.`,
+      finding.alarm === true
+        ? "This is an alarm: a reading reached the metric's alarm value, or two readings in a row could not be taken, so this case started at once."
+        : "This is not an alarm.",
       `Evidence: ${finding.evidence}`,
+      ...(input.releasedRepairThreadIds ?? []).map(
+        (threadId) =>
+          `An earlier repair attempt ran in thread ${threadId} before Champions stopped repairing; read it with t3_thread_read and build on what it did rather than repeating it.`,
+      ),
     );
-    if (finding.diagnosis != null)
+    if (input.readings !== undefined && input.readings.length > 0)
       lines.push(
-        `Diagnosis (${finding.diagnosis.route}): ${finding.diagnosis.text} Why: ${finding.diagnosis.why}`,
+        `Its readings, newest first:\n${input.readings.map((reading) => `- ${reading.at} ${reading.status === "measured" ? `${reading.value} ${reading.unit}` : reading.status}`).join("\n")}`,
       );
-    if (finding.repairAttention != null)
-      lines.push(`Repair needs attention: ${finding.repairAttention}`);
     const decision = finding.decision;
     if (decision?.status === "requested") {
       lines.push(`Decision ${decision.id} awaits the user: ${decision.question}`);
@@ -247,14 +284,18 @@ export const formatEscalationBrief = (input: {
           `Proposal: ${decision.proposal.action} Why: ${decision.proposal.why}${decision.proposal.otherOptions === undefined ? "" : ` Other options: ${decision.proposal.otherOptions}`}`,
         );
       lines.push(
-        `Only if the user explicitly approves in this chat, resolve it with t3_champions_finding (action resolve_decision) and approvalQuote set to their exact words; otherwise leave it for the Champion page.`,
+        `Only if the user explicitly approves in this chat, resolve it with t3_champions_finding_action (action resolve_decision) and approvalQuote set to their exact words; otherwise leave it for the card.`,
       );
     }
+    lines.push(
+      `You own this case: diagnose it, fix it, file a Spec, or ask Henry here (an owner wait) when only he can decide. When it is fixed, close the finding with t3_champions_finding_action action verify and the evidence; dismiss it with a reason if it needs no work.`,
+    );
   }
   lines.push(
-    `To change code, work in a SlipJay workspace in the repository that owns the cause: ${input.repository ?? "the Champion's repository"} or, when the check pipeline itself fails, T3 Peach (pechhe/t3code). Never edit a shared main checkout.`,
+    `Workspace rule: ${CASE_WORKSPACE_RULE} (${input.repository ?? "the Champion's repository"}, or T3 Peach (pechhe/t3code) when the Champion pipeline itself fails). Never edit a shared main checkout.`,
+    "Read the Champion's current state with t3_champions_get before acting.",
   );
-  return `Champion escalation context:\n${lines.join("\n")}`;
+  return `Champion case brief:\n${lines.join("\n")}`;
 };
 
 export const sameShell = (a: EscalationShell | undefined, b: EscalationShell | undefined) =>
@@ -264,4 +305,5 @@ export const sameShell = (a: EscalationShell | undefined, b: EscalationShell | u
     a.findingId === b.findingId &&
     a.severity === b.severity &&
     a.trigger === b.trigger &&
-    a.resolved === b.resolved);
+    a.resolved === b.resolved &&
+    a.alarm === b.alarm);

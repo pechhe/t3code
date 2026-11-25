@@ -5,6 +5,7 @@ import {
   type EnvironmentId,
   type ProjectId,
 } from "@t3tools/contracts";
+import { msg, T, useGT, useMessages, Var } from "gt-react";
 import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 import { useState } from "react";
 
@@ -32,19 +33,23 @@ import { useChampionAction, useChampionCommandAllowed } from "./useChampionActio
 
 const DEFAULT_SCHEDULE: ChampionConfig["schedule"] = { type: "fixed_time", timeOfDay: "06:00" };
 const DEFAULT_CHARTER: ChampionConfig["charter"] = {
-  maxConcurrentRepairs: 1,
-  maxRepairsPerDay: 3,
   instructions: DEFAULT_CHAMPION_INSTRUCTIONS,
 };
-const MAX_CONCURRENT_REPAIRS = [0, 1, 2, 3, 4] as const;
-const MAX_REPAIRS_PER_DAY = 20;
 const WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0] as const;
-const WEEKDAY_SHORT = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"] as const;
+const WEEKDAY_SHORT = [
+  msg("Su", { $context: "Sunday, two letters" }),
+  msg("Mo", { $context: "Monday, two letters" }),
+  msg("Tu", { $context: "Tuesday, two letters" }),
+  msg("We", { $context: "Wednesday, two letters" }),
+  msg("Th", { $context: "Thursday, two letters" }),
+  msg("Fr", { $context: "Friday, two letters" }),
+  msg("Sa", { $context: "Saturday, two letters" }),
+] as const;
 const CADENCE_LABELS = {
-  interval: "Every few minutes",
-  daily: "Every day",
-  weekdays: "Every weekday",
-  days: "On chosen days",
+  interval: msg("Every few minutes"),
+  daily: msg("Every day"),
+  weekdays: msg("Every weekday"),
+  days: msg("On chosen days"),
 } as const;
 type CadenceKind = keyof typeof CADENCE_LABELS;
 
@@ -53,44 +58,54 @@ function CadenceField(props: {
   readonly onChange: (patch: Partial<ScheduleDraft>) => void;
 }) {
   const { draft } = props;
+  const m = useMessages();
+  const gt = useGT();
   return (
     <div className="flex flex-col gap-1.5">
-      <Label>Cadence</Label>
+      <Label>
+        <T>Cadence</T>
+      </Label>
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <Select value={draft.kind} onValueChange={(kind) => kind && props.onChange({ kind })}>
-          <SelectTrigger size="sm" className="w-auto" aria-label="How often it checks">
-            <SelectValue>{CADENCE_LABELS[draft.kind as CadenceKind]}</SelectValue>
+          <SelectTrigger size="sm" className="w-auto" aria-label={gt("How often it checks")}>
+            <SelectValue>{m(CADENCE_LABELS[draft.kind as CadenceKind])}</SelectValue>
           </SelectTrigger>
           <SelectPopup>
             {(Object.keys(CADENCE_LABELS) as CadenceKind[]).map((kind) => (
               <SelectItem key={kind} value={kind}>
-                {CADENCE_LABELS[kind]}
+                {m(CADENCE_LABELS[kind])}
               </SelectItem>
             ))}
           </SelectPopup>
         </Select>
         {draft.kind === "interval" ? (
           <>
-            <span className="text-muted-foreground">every</span>
+            <span className="text-muted-foreground">
+              <T>every</T>
+            </span>
             <Input
               type="number"
               nativeInput
               min={1}
               className="w-20"
-              aria-label="Minutes between checks"
+              aria-label={gt("Minutes between checks")}
               value={draft.intervalMinutes}
               onChange={(event) => props.onChange({ intervalMinutes: event.target.value })}
             />
-            <span className="text-muted-foreground">minutes</span>
+            <span className="text-muted-foreground">
+              <T>minutes</T>
+            </span>
           </>
         ) : (
           <>
-            <span className="text-muted-foreground">at</span>
+            <span className="text-muted-foreground">
+              <T>at</T>
+            </span>
             <Input
               type="time"
               nativeInput
               className="w-32"
-              aria-label="Time of day"
+              aria-label={gt("Time of day")}
               value={draft.timeOfDay}
               onChange={(event) => props.onChange({ timeOfDay: event.target.value })}
             />
@@ -113,7 +128,7 @@ function CadenceField(props: {
                 })
               }
             >
-              {WEEKDAY_SHORT[day]}
+              {m(WEEKDAY_SHORT[day])}
             </Toggle>
           ))}
         </div>
@@ -132,10 +147,11 @@ interface ProjectOption {
 function useProjectOptions(): ReadonlyArray<ProjectOption> {
   const projects = useProjects();
   const { environments } = useEnvironments();
+  const gt = useGT();
   const machines = new Set(projects.map((project) => project.environmentId));
   const machineLabel = (environmentId: EnvironmentId) =>
     environments.find((environment) => environment.environmentId === environmentId)?.label ??
-    "Machine";
+    gt("Machine");
   return projects
     .filter((project) => !project.isScratch)
     .map((project) => ({
@@ -181,9 +197,11 @@ export function ChampionForm(props: {
     return (
       <Empty>
         <EmptyHeader>
-          <EmptyTitle>No projects yet</EmptyTitle>
+          <EmptyTitle>
+            <T>No projects yet</T>
+          </EmptyTitle>
           <EmptyDescription>
-            A champion watches one project on one machine. Add a project first.
+            <T>A champion watches one project on one machine. Add a project first.</T>
           </EmptyDescription>
         </EmptyHeader>
       </Empty>
@@ -222,6 +240,7 @@ function ChampionFormFields(props: {
 }) {
   const champion = props.existing?.champion ?? null;
   const { environmentId } = props;
+  const gt = useGT();
   const [firstId] = useState(() => champion?.id ?? randomUUID());
   const [attempted, setAttempted] = useState<{
     readonly key: string;
@@ -233,8 +252,6 @@ function ChampionFormFields(props: {
     scheduleDraftOf(champion?.schedule ?? DEFAULT_SCHEDULE),
   );
   const charter = champion?.charter ?? DEFAULT_CHARTER;
-  const [maxConcurrent, setMaxConcurrent] = useState(charter.maxConcurrentRepairs);
-  const [maxPerDay, setMaxPerDay] = useState(String(charter.maxRepairsPerDay));
   const [instructions, setInstructions] = useState(charter.instructions);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -251,25 +268,19 @@ function ChampionFormFields(props: {
   const projectId = champion?.projectId ?? props.project?.projectId ?? null;
   const configOf = (): ChampionConfig | null => {
     if (!purpose.trim() || projectId === null) {
-      setProblem("Say what should stay true and choose a project.");
+      setProblem(gt("Say what should stay true and choose a project."));
       return null;
     }
     const finalName = name.trim() || deriveChampionName(purpose);
     const timed = timedScheduleOf(schedule);
-    const perDay = Number(maxPerDay);
     if (timed === null) {
       setAdvancedOpen(true);
-      setProblem("Check the cadence. Run every whole number of minutes, at least one.");
+      setProblem(gt("Check the cadence. Run every whole number of minutes, at least one."));
       return null;
     }
     if (timed.type === "once") {
       setAdvancedOpen(true);
-      setProblem("A champion checks on a cadence, so pick an interval or a time of day.");
-      return null;
-    }
-    if (!Number.isInteger(perDay) || perDay < 0 || perDay > MAX_REPAIRS_PER_DAY) {
-      setAdvancedOpen(true);
-      setProblem(`Repairs per day must be a whole number from 0 to ${MAX_REPAIRS_PER_DAY}.`);
+      setProblem(gt("A champion checks on a cadence, so pick an interval or a time of day."));
       return null;
     }
     setProblem(null);
@@ -280,11 +291,7 @@ function ChampionFormFields(props: {
       purpose: purpose.trim(),
       schedule: timed,
       ...(champion?.models === undefined ? {} : { models: champion.models }),
-      charter: {
-        maxConcurrentRepairs: maxConcurrent,
-        maxRepairsPerDay: perDay,
-        instructions,
-      },
+      charter: { instructions },
     };
   };
 
@@ -332,12 +339,20 @@ function ChampionFormFields(props: {
       onSubmit={(event) => event.preventDefault()}
     >
       <h2 className="font-semibold text-lg">
-        {champion ? `Edit ${champion.name}` : "New champion"}
+        {champion ? (
+          <T>
+            Edit <Var>{champion.name}</Var>
+          </T>
+        ) : (
+          <T>New champion</T>
+        )}
       </h2>
       <ChampionMachineNotice environmentId={environmentId} draft />
       {champion ? (
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="champion-name">Name</Label>
+          <Label htmlFor="champion-name">
+            <T>Name</T>
+          </Label>
           <Input
             id="champion-name"
             value={name}
@@ -346,31 +361,37 @@ function ChampionFormFields(props: {
         </div>
       ) : null}
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="champion-purpose">Goal</Label>
+        <Label htmlFor="champion-purpose">
+          <T>Goal</T>
+        </Label>
         <Textarea
           id="champion-purpose"
-          placeholder="What good looks like, in a sentence or two. For example: YardSmith feels instant, with every common screen usable in under 300 ms on Production."
+          placeholder={gt(
+            "What good looks like, in a sentence or two. For example: YardSmith feels instant, with every common screen usable in under 300 ms on Production.",
+          )}
           value={purpose}
           onChange={(event) => setPurpose(event.target.value)}
         />
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label>Project</Label>
+        <Label>
+          <T>Project</T>
+        </Label>
         {champion ? (
           <p className="text-muted-foreground text-sm">
             {props.options.find(
               (option) =>
                 option.environmentId === environmentId && option.projectId === champion.projectId,
-            )?.label ?? "This champion's project isn't loaded here."}{" "}
-            A champion stays with the project it was made for.
+            )?.label ?? gt("This champion's project isn't loaded here.")}{" "}
+            <T>A champion stays with the project it was made for.</T>
           </p>
         ) : (
           <Select
             value={props.projectKey}
             onValueChange={(value) => value && props.onProjectChange(value)}
           >
-            <SelectTrigger aria-label="Project">
-              <SelectValue>{props.project?.label ?? "Choose a project"}</SelectValue>
+            <SelectTrigger aria-label={gt("Project")}>
+              <SelectValue>{props.project?.label ?? gt("Choose a project")}</SelectValue>
             </SelectTrigger>
             <SelectPopup>
               {props.options.map((option) => (
@@ -390,19 +411,21 @@ function ChampionFormFields(props: {
               disabled={disabled || !canSave || !canSetup}
               onClick={() => void submitNew("propose")}
             >
-              {busy === "propose" ? "Starting…" : "Set up metrics with AI"}
+              {busy === "propose" ? gt("Starting…") : gt("Set up metrics with AI")}
             </Button>
             <Button
               variant="ghost"
               disabled={disabled || !canSave}
               onClick={() => void submitNew("manual")}
             >
-              Add metrics myself
+              <T>Add metrics myself</T>
             </Button>
           </div>
           <p className="text-muted-foreground text-xs">
-            Setup reads your remit and the evidence available in this project, then sets what to
-            track and starts the champion.
+            <T>
+              Setup reads your remit and the evidence available in this project, then sets what to
+              track and starts the champion.
+            </T>
           </p>
         </div>
       ) : null}
@@ -416,16 +439,18 @@ function ChampionFormFields(props: {
           onClick={() => setAdvancedOpen((value) => !value)}
         >
           <AdvancedChevron aria-hidden />
-          Advanced settings
+          <T>Advanced settings</T>
         </Button>
         {advancedOpen ? (
           <div className="flex flex-col gap-4 rounded-lg border p-3">
             {champion === null ? (
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="champion-name">Name</Label>
+                <Label htmlFor="champion-name">
+                  <T>Name</T>
+                </Label>
                 <Input
                   id="champion-name"
-                  placeholder={deriveChampionName(purpose) || "Name this champion"}
+                  placeholder={deriveChampionName(purpose) || gt("Name this champion")}
                   value={name}
                   onChange={(event) => setName(event.target.value)}
                 />
@@ -436,52 +461,18 @@ function ChampionFormFields(props: {
               onChange={(patch) => setSchedule((current) => ({ ...current, ...patch }))}
             />
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="champion-charter">Repair charter</Label>
+              <Label htmlFor="champion-charter">
+                <T>Instructions</T>
+              </Label>
               <Textarea
                 id="champion-charter"
-                placeholder="What may be repaired without asking? Anything outside this becomes a Spec."
+                placeholder={gt(
+                  "What should it look at closely? It observes and scores; what needs work opens a case in your Inbox.",
+                )}
                 value={instructions}
                 onChange={(event) => setInstructions(event.target.value)}
               />
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="flex flex-col gap-1.5">
-                <Label>Repairs at once</Label>
-                <Select
-                  value={maxConcurrent}
-                  onValueChange={(value) => value !== null && setMaxConcurrent(value)}
-                >
-                  <SelectTrigger size="sm" aria-label="Repairs at once">
-                    <SelectValue>
-                      {maxConcurrent === 0 ? "None, measure only" : maxConcurrent}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectPopup>
-                    {MAX_CONCURRENT_REPAIRS.map((value) => (
-                      <SelectItem key={value} value={value}>
-                        {value === 0 ? "None, measure only" : value}
-                      </SelectItem>
-                    ))}
-                  </SelectPopup>
-                </Select>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="champion-repairs-per-day">Repairs per day</Label>
-                <Input
-                  id="champion-repairs-per-day"
-                  type="number"
-                  nativeInput
-                  min={0}
-                  max={MAX_REPAIRS_PER_DAY}
-                  value={maxPerDay}
-                  onChange={(event) => setMaxPerDay(event.target.value)}
-                />
-              </div>
-            </div>
-            <p className="text-muted-foreground text-xs">
-              Workers, reviewers, and design and release gates follow normal role policy. See Usage
-              for what this consumes.
-            </p>
           </div>
         ) : null}
       </div>
@@ -493,11 +484,11 @@ function ChampionFormFields(props: {
       ) : null}
       <div className="flex justify-end gap-2">
         <Button variant="ghost" disabled={disabled} onClick={() => props.onDone(null)}>
-          Cancel
+          <T>Cancel</T>
         </Button>
         {champion ? (
           <Button disabled={disabled || !canSave} onClick={() => void saveExisting()}>
-            Save
+            <T>Save</T>
           </Button>
         ) : null}
       </div>

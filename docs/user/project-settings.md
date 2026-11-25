@@ -91,23 +91,37 @@ branch name remains.
 ## Champions
 
 Use **Champions** to give an agent an ongoing responsibility for a project, such
-as keeping page loads fast or tests reliable. Each champion shows the measurements
-it tracks and an activity feed of findings, work and results.
+as keeping page loads fast or tests reliable. A champion observes and scores; it
+never repairs anything itself. Each champion shows its goal score, the measurements
+it tracks and an activity feed of findings and results.
 
 Create a champion with a goal and project, then let AI set up its metrics; the
-champion starts checking once they are in. The goal says what good looks like; each
-check starts from it, treats the metrics as evidence of progress and changes the
-metrics itself when they can't show it. The champion page
-is a one-screen dashboard: the goal, the latest check's progress, when it runs and
-which models do its checks and harder work, then decisions for you beside its metrics
-and recent activity. **How it works** in the Champions list explains what every
-champion does.
+champion starts once they are in. It works in two rhythms. **Readings** follow its
+schedule: the server reads every metric that has a command, and a model wakes only to
+measure what no command can. A **goal review**, weekly on Mondays by default, reads
+the goal, the readings and their trends, recent changes and the code, looks for what
+is weak or could be better, scores how well the area meets the goal from 0 to 10 and
+raises findings. The score shows first among the readings. **How it works** in the
+Champions list explains what every champion does.
+
+Every finding that needs work opens a **case** in your Inbox: a new problem, a
+metric that left its target, a goal score below target (7 unless the definition sets
+another), an alarm, or a champion that is stuck. The case's first turn carries
+everything an agent needs to diagnose it, fix it, write a Spec or ask you. While you
+are attended a case waits for you: choose a model and press **Investigate & fix
+here**, or reply. While you are away, a case starts on its own, and switching to Away
+starts every case that has not run yet. A metric can carry an **alarm** value beyond
+its target: reaching it, or failing to read twice in a row, starts its case at once,
+even while you are attended. A case agent asks you in its own thread when only you
+can decide, and closes the finding when it is fixed. A reading back in target closes
+its finding only if its case never ran; once an agent has worked it, the agent closes
+it.
 
 ### Champion models
 
 **Champion models** at the top of the Champions screen sets the models every
-champion runs on. Choose one for **checks**, and one for **advice**, which sets up
-metrics and diagnoses findings. Each can have a backup. The picker is the one in
+champion runs on. Choose one for **readings**, and one for **goal reviews**, which also
+sets up metrics. Each can have a backup. The picker is the one in
 the composer, and pooled models are included. Changing it updates future checks;
 work already started keeps its model.
 
@@ -119,11 +133,10 @@ is free, the backup runs. When neither can run, the check is skipped instead of
 failing: the page says why and when each model returns, and the next scheduled
 check runs on time. **Check now** still works once a model is back.
 
-Helpers a champion starts for repairs or Specs still follow your role policy, not
-Champion models.
+Cases run on your lead role's model, else the goal-review model.
 
 To set metrics yourself, choose **Add metrics myself**. Advanced settings control
-the cadence and the limits on automatic repairs. Agents can read and change
+the readings cadence and the champion's own instructions. Agents can read and change
 Champion models too.
 
 Metric changes apply at once, whoever makes them: you on the page, the champion's
@@ -139,42 +152,25 @@ lead thread that works out what is wrong with the metrics and plans and builds a
 
 A metric can name a command that produces its value. The server then runs that
 command itself at each check, in the project folder, and records what it printed;
-no agent measures or reports that metric. A check whose metrics are all read this
-way, all inside their targets, with no open finding, finishes without starting an
-agent at all. The server runs a new or changed command once when the metric is
+no agent measures or reports that metric. A readings run whose metrics are all read this
+way finishes without starting an agent at all, whatever the readings say. The server runs a new or changed command once when the metric is
 saved, and refuses the change if it does not print a value, so a metric that cannot
 be read is never added. A command that later fails, runs longer than 30 seconds or
 prints something other than a number is recorded as a failed reading, never as zero. A value whose metric has no target
 reads **No target**, and one read under a definition you have since changed reads
 **Earlier definition**.
 
-When a metric leaves its target, the champion first asks its stronger model for one
-read-only diagnosis, shown on the finding with the route it recommends: a bounded
-repair, a Spec, or your decision. Nothing else happens to that finding until the
-diagnosis is recorded, and taking a different route needs a stated reason. If no
-model is available for it, the finding says so and work continues without one.
-
-A champion can delegate bounded repairs within its instructions and limits.
-Larger work becomes a Forge Spec the champion files through its own Weave
-connection and hands to one Spec lead at a time; the Spec is reviewed and accepted
-under the ordinary rules, never by the champion. A champion's own threads
-stay out of the chat list unless the thread itself waits on you; open one from the
-champion page. Findings that need you are marked on **Champions** in the sidebar. A
-decision shows the proposed path and why: **Approve proposed** answers in one click,
-and **Answer differently** opens a box for your own answer. Other options and the
-evidence are under **Details**. The activity feed links to the
-underlying work. A champion can compare a small set of
-read-only research options and bring you a recommendation with its trade-offs.
-Answer on the finding to authorize the stated scope. If the recommendation changes
-while you type, your draft is kept for you to reconsider.
+A champion's own threads stay out of the chat list unless the thread itself waits on
+you; open one from the champion page. A decision asked before cases replaced decision
+requests still waits on its card: **Approve proposed** answers in one click, and
+**Answer differently** opens a box for your own answer; the answer goes to the
+finding's case.
 
 A champion can also attack a UI through many browser journeys at once, against a
 disposable copy of the app that holds only made-up data. A failing journey tells
 nobody. It becomes a finding only when a stronger agent reproduces it alone on a
-fresh copy, and it closes when that replay passes on a later build. A journey champion
-can name another champion in the same project to repair what it confirms: that
-champion sees the finding in its own check and repairs it within its own limits,
-while the finding stays with the journey champion, whose replay still closes it. These checks
+fresh copy, and it closes when that replay passes on a later build. A confirmed bug
+opens a case like any other finding, and the replay still closes it. These checks
 never repair anything themselves, wait while the machine is busy and say so when they ran
 reduced or could not finish. Set one up through its project's agent, which supplies
 the commands that start and stop the copy.
@@ -197,16 +193,13 @@ history. Agents on a linked environment can search and read these learnings and
 contribute their own, and with a full-access link they can read and act on the
 champions themselves: list them across every linked machine, change their metrics,
 or answer a decision using your approval typed in their own thread. Older conclusions stay available; a learning due for review is
-uncertain, not deleted, and does not start another investigation by itself. A returned change or a landing alone
-does not prove improvement: the champion needs comparable measurements of the
-running version.
+uncertain, not deleted.
 
 When the server can reach your agent-config checkout (`T3CODE_AGENT_POLICY_ROOT`), every champion also lives as a folder in it, `champions/<repository>/<id>/`: its definition and charter in `champion.md`, its metrics, its learnings, its open findings and its readings. The machine named as `runner` in `champion.md` is the only one that runs the champion, and it saves the champion's changes back to the folder. You and your agents can edit the definition, metrics and learnings in the folder directly; once the edit is pushed, the runner applies it within about a minute. To move a champion to another machine, change its `runner`. A new machine that finds a folder naming it takes the champion over, with its learnings and open findings.
 
 A champion can instead live in the repository it watches, at `.agents/champions/<id>/`: its `champion.md`, metrics and learnings change there like any other file, landed through your normal process, and T3 picks up the landing within about a minute. Only its readings and open findings stay in agent-config. T3 never writes to your project repositories, so the champion page shows where such a champion is defined instead of offering to edit it, and an agent that learns something lands it there. Define each champion in one place only: one defined both in a repository and in agent-config runs on no machine until one copy is removed.
 
-Pausing stops new scheduled checks, research and repair dispatch, while existing work
-continues. **Cancel research** requests a stop; the page waits for confirmation.
+Pausing stops new scheduled readings and reviews, while existing work continues.
 **Check now** while paused measures and reports only. Resuming starts from the
 next due time rather than replaying every missed check. Retiring stops future
 checks and preserves the history and any unfinished work.

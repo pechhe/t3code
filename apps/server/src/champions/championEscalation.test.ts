@@ -1,12 +1,15 @@
 import { assert, describe, it } from "@effect/vitest";
 
 import {
+  CASE_WORKSPACE_RULE,
   classifyFinding,
   escalationShells,
+  formatEscalationBrief,
   planEscalation,
   stuckState,
   type EscalationDocument,
   type EscalationFinding,
+  type EscalationStep,
 } from "./championEscalation.ts";
 
 const finding = (overrides: Partial<EscalationFinding> = {}): EscalationFinding => ({
@@ -21,48 +24,68 @@ const doc = (
   champion: Partial<EscalationDocument["champion"]> = {},
 ): EscalationDocument => ({ champion: { attention: [], ...champion }, findings });
 const requested = { status: "requested", id: "d1" } as const;
+/** A Champion whose previous document records a finished readings run. */
+const ran = (findings: ReadonlyArray<EscalationFinding> = []) =>
+  doc(findings, { lastCheckAt: "2026-11-25T10:00:00.000Z" });
+const ensure = (
+  findingId: string,
+  extra: { fresh?: boolean; start?: boolean } = {},
+): EscalationStep => ({
+  target: { kind: "finding", findingId },
+  action: "ensure",
+  fresh: extra.fresh ?? false,
+  start: extra.start ?? false,
+});
 
 describe("classifyFinding", () => {
-  it("names the severity, the trigger and whether the thread is over", () => {
+  it("names the trigger, the alarm and whether the case is over", () => {
     assert.deepEqual(classifyFinding(finding(), false), {
       severity: "incident",
       trigger: "New finding",
       resolved: false,
     });
     assert.equal(classifyFinding(finding(), true).trigger, "Confirmed journey failure");
-    assert.equal(classifyFinding(finding({ metricId: "m" }), false).trigger, "Metric regressed");
+    assert.equal(
+      classifyFinding(finding({ metricId: "m" }), false).trigger,
+      "Metric outside target",
+    );
+    assert.equal(
+      classifyFinding(finding({ id: "c:goal" }), false).trigger,
+      "Goal score below target",
+    );
+    assert.deepEqual(classifyFinding(finding({ metricId: "m", alarm: true }), false), {
+      severity: "incident",
+      trigger: "Alarm reached",
+      resolved: false,
+      alarm: true,
+    });
     assert.deepEqual(classifyFinding(finding({ decision: requested }), false), {
       severity: "decision",
       trigger: "Decision requested",
       resolved: false,
     });
-    assert.deepEqual(classifyFinding(finding({ repairAttention: "Stuck" }), false), {
-      severity: "stuck",
-      trigger: "Repair needs attention",
-      resolved: false,
-    });
   });
 
-  it("resolves on verified or dismissed, and on a metric finding's answered decision", () => {
+  it("resolves only when the finding is verified or dismissed", () => {
     assert.isTrue(classifyFinding(finding({ status: "verified" }), false).resolved);
     assert.isTrue(classifyFinding(finding({ status: "dismissed" }), false).resolved);
     const answered = { status: "resolved", id: "d1" } as const;
-    assert.isTrue(classifyFinding(finding({ metricId: "m", decision: answered }), false).resolved);
-    assert.isFalse(classifyFinding(finding({ decision: answered }), false).resolved);
-    assert.isFalse(
-      classifyFinding(finding({ metricId: "m", decision: answered, repairAttention: "x" }), false)
-        .resolved,
-    );
+    assert.isFalse(classifyFinding(finding({ metricId: "m", decision: answered }), false).resolved);
   });
 });
 
 describe("stuckState", () => {
-  it("stays quiet for two failures, then names the third or a folder error", () => {
+  it("keeps one streak per rhythm: three failures in either is stuck", () => {
     assert.isFalse(stuckState({ attention: [], consecutiveCheckFailures: 2 }).stuck);
     assert.deepEqual(stuckState({ attention: [], consecutiveCheckFailures: 3 }), {
       stuck: true,
-      trigger: "Failed 3 checks in a row",
+      trigger: "Failed 3 readings runs in a row",
     });
+    // Three failed reviews are stuck even while readings succeed.
+    assert.deepEqual(
+      stuckState({ attention: [], consecutiveCheckFailures: 0, consecutiveReviewFailures: 3 }),
+      { stuck: true, trigger: "Failed 3 goal reviews in a row" },
+    );
     assert.deepEqual(stuckState({ attention: ["Not saved to agent-config: no access"] }), {
       stuck: true,
       trigger: "Folder error blocking save",
@@ -72,10 +95,8 @@ describe("stuckState", () => {
       trigger: "No longer stuck",
     });
   });
-});
 
-describe("a retired Champion", () => {
-  it("is never stuck, so its stuck thread is resolved and settles on retirement", () => {
+  it("is never stuck once retired, so its stuck case settles on retirement", () => {
     const active = doc([], { consecutiveCheckFailures: 4, stuckEscalationThreadId: "t" });
     const retired = doc([], {
       consecutiveCheckFailures: 4,
@@ -93,42 +114,50 @@ describe("planEscalation", () => {
   const withThread = (overrides: Partial<EscalationFinding>) =>
     finding({ escalationThreadId: "thread-1", ...overrides });
 
-  it("escalates a new qualitative finding but not a first-reading or chronic metric finding", () => {
-    const before = doc([]);
-    assert.deepEqual(planEscalation(before, doc([finding()])), [
-      { target: { kind: "finding", findingId: "f1" }, action: "ensure" },
+  it("opens exactly one case for a qualitative finding, a regression, a breach after lastCheckAt, a goal finding and an alarm", () => {
+    assert.deepEqual(planEscalation(doc([]), doc([finding()])), [ensure("f1")]);
+    const metric = finding({ id: "m1", metricId: "m" });
+    // A first-reading or chronic breach once a readings run has finished.
+    assert.deepEqual(planEscalation(ran(), ran([metric])), [ensure("m1")]);
+    // A regression: a settled finding that reopens.
+    assert.deepEqual(planEscalation(ran([{ ...metric, status: "verified" }]), ran([metric])), [
+      ensure("m1", { fresh: true }),
     ]);
-    assert.deepEqual(planEscalation(before, doc([finding({ metricId: "m" })])), []);
-    const chronic = doc([finding({ metricId: "m" })]);
-    assert.deepEqual(planEscalation(chronic, chronic), []);
+    assert.deepEqual(planEscalation(doc([]), doc([finding({ id: "c:goal" })])), [ensure("c:goal")]);
+    // An alarm starts at once, even on the first-ever readings run.
+    assert.deepEqual(planEscalation(doc([]), doc([{ ...metric, alarm: true }])), [
+      ensure("m1", { start: true }),
+    ]);
   });
 
-  it("escalates a metric that leaves its target, but not a first reading or a chronic breach", () => {
-    const metric = finding({ id: "m1", metricId: "m", seriesId: "s1" });
-    const reading = (health: string) => doc([], { latestSamples: [{ seriesId: "s1", health }] });
-    assert.deepEqual(planEscalation(reading("healthy"), doc([metric])), [
-      { target: { kind: "finding", findingId: "m1" }, action: "ensure" },
-    ]);
+  it("opens none for a finding still open on a later run or on a Champion's first-ever readings run", () => {
+    const metric = finding({ id: "m1", metricId: "m" });
     assert.deepEqual(planEscalation(doc([]), doc([metric])), []);
-    assert.deepEqual(planEscalation(reading("breached"), doc([metric])), []);
-    assert.deepEqual(planEscalation(reading("unknown"), doc([metric])), []);
-    // A dismissed metric finding that opens again after a healthy reading is a fresh regression.
-    const dismissed = doc([{ ...metric, status: "dismissed" }], {
-      latestSamples: [{ seriesId: "s1", health: "healthy" }],
-    });
-    assert.deepEqual(planEscalation(dismissed, doc([metric])), [
-      { target: { kind: "finding", findingId: "m1" }, action: "ensure" },
-    ]);
-    // Still open from an earlier check: not new.
-    const open = doc([metric], { latestSamples: [{ seriesId: "s1", health: "healthy" }] });
-    assert.deepEqual(planEscalation(open, doc([metric])), []);
+    assert.deepEqual(planEscalation(ran([metric]), ran([metric])), []);
+    assert.deepEqual(planEscalation(ran([finding()]), ran([finding()])), []);
   });
 
-  it("settles open finding threads when the Champion retires and its findings are dismissed", () => {
-    const before = doc([
-      withThread({}),
-      withThread({ id: "f2", escalationThreadId: "thread-2", decision: requested }),
+  it("upgrades an open finding that reaches its alarm, starting its case", () => {
+    const open = withThread({ metricId: "m" });
+    assert.deepEqual(planEscalation(ran([open]), ran([{ ...open, alarm: true }])), [
+      ensure("f1", { start: true }),
     ]);
+    // Already an alarm: nothing new.
+    assert.deepEqual(
+      planEscalation(ran([{ ...open, alarm: true }]), ran([{ ...open, alarm: true }])),
+      [],
+    );
+  });
+
+  it("forces a case for a finding a person reopened or an upgrade left without one", () => {
+    const open = finding({ metricId: "m" });
+    assert.deepEqual(planEscalation(ran([open]), ran([open]), new Set(["f1"])), [
+      ensure("f1", { fresh: true }),
+    ]);
+  });
+
+  it("settles a case when its finding is dismissed or verified, as on retirement", () => {
+    const before = doc([withThread({}), withThread({ id: "f2", escalationThreadId: "thread-2" })]);
     const after = doc(
       before.findings.map((f) => ({ ...f, status: "dismissed" as const })),
       { lifecycle: "retired" },
@@ -139,64 +168,7 @@ describe("planEscalation", () => {
     ]);
   });
 
-  it("escalates a decision request once, and settles when it is answered", () => {
-    const open = doc([withThread({ metricId: "m" })]);
-    const asked = doc([withThread({ metricId: "m", decision: requested })]);
-    assert.deepEqual(planEscalation(open, asked), [
-      { target: { kind: "finding", findingId: "f1" }, action: "ensure" },
-    ]);
-    assert.deepEqual(planEscalation(asked, asked), []);
-    const answered = doc([
-      withThread({ metricId: "m", decision: { status: "resolved", id: "d1" } }),
-    ]);
-    assert.deepEqual(planEscalation(asked, answered), [
-      { target: { kind: "finding", findingId: "f1" }, action: "settle" },
-    ]);
-  });
-
-  it("escalates a repair that needs attention and a verified finding that regresses", () => {
-    const working = doc([withThread({ metricId: "m", status: "working" })]);
-    assert.lengthOf(
-      planEscalation(
-        working,
-        doc([withThread({ metricId: "m", status: "working", repairAttention: "x" })]),
-      ),
-      1,
-    );
-    const verified = doc([withThread({ metricId: "m", status: "verified" })]);
-    assert.deepEqual(
-      planEscalation(verified, doc([withThread({ metricId: "m", status: "open" })])).map(
-        (s) => s.action,
-      ),
-      ["ensure"],
-    );
-    // A dismissed chronic metric finding that breaches again is not a fresh incident.
-    assert.deepEqual(
-      planEscalation(
-        doc([withThread({ metricId: "m", status: "dismissed" })]),
-        doc([withThread({ metricId: "m", status: "open" })]),
-      ),
-      [],
-    );
-    // Unless the user reopened it.
-    assert.lengthOf(
-      planEscalation(
-        doc([withThread({ metricId: "m", status: "dismissed" })]),
-        doc([withThread({ metricId: "m", status: "open" })]),
-        new Set(["f1"]),
-      ),
-      1,
-    );
-  });
-
-  it("settles a finding that is dismissed or verified", () => {
-    assert.deepEqual(
-      planEscalation(doc([withThread({})]), doc([withThread({ status: "dismissed" })])),
-      [{ target: { kind: "finding", findingId: "f1" }, action: "settle" }],
-    );
-  });
-
-  it("escalates the third failed check and a folder error once, and settles on recovery", () => {
+  it("opens the stuck case once and settles it on recovery", () => {
     const at = (n: number, extra: Partial<EscalationDocument["champion"]> = {}) =>
       doc([], { consecutiveCheckFailures: n, ...extra });
     assert.deepEqual(planEscalation(at(1), at(2)), []);
@@ -211,32 +183,81 @@ describe("planEscalation", () => {
       ),
       [{ target: { kind: "stuck" }, action: "settle" }],
     );
-    assert.lengthOf(
-      planEscalation(at(0), at(0, { attention: ["Not saved to agent-config: denied"] })),
-      1,
-    );
   });
 });
 
 describe("escalationShells", () => {
-  it("describes each escalation thread of a Champion", () => {
+  it("describes each case of a Champion, flagging an alarm", () => {
     const shells = escalationShells(
-      doc([finding({ escalationThreadId: "t-f", decision: requested })], {
+      doc([finding({ escalationThreadId: "t-f", metricId: "m", alarm: true })], {
         consecutiveCheckFailures: 3,
         stuckEscalationThreadId: "t-s",
       }),
     );
     assert.deepEqual(shells.get("t-f"), {
       findingId: "f1",
-      severity: "decision",
-      trigger: "Decision requested",
+      severity: "incident",
+      trigger: "Alarm reached",
       resolved: false,
+      alarm: true,
     });
     assert.deepEqual(shells.get("t-s"), {
       findingId: null,
       severity: "stuck",
-      trigger: "Failed 3 checks in a row",
+      trigger: "Failed 3 readings runs in a row",
       resolved: false,
     });
+  });
+});
+
+describe("formatEscalationBrief", () => {
+  it("carries the readings history, the latest score, the times, the alarm, the owner thread and the workspace rule", () => {
+    const brief = formatEscalationBrief({
+      champion: { id: "c1", name: "Production Health", purpose: "Keep production up" },
+      shell: {
+        findingId: "c1:metric:s1",
+        severity: "incident",
+        trigger: "Alarm reached",
+        resolved: false,
+        alarm: true,
+      },
+      finding: {
+        id: "c1:metric:s1",
+        title: "Errors reached their alarm",
+        evidence: "Errors read 40.",
+        status: "open",
+        alarm: true,
+        firstSeenAt: "2026-11-25T09:00:00.000Z",
+        lastConfirmedAt: "2026-11-25T10:00:00.000Z",
+        updatedAt: "2026-11-25T10:00:00.000Z",
+      },
+      attention: [],
+      ownerThreadId: "owner-1",
+      repository: "pechhe/t3code",
+      readings: [
+        { at: "2026-11-25T10:00:00.000Z", value: 40, status: "measured", unit: "errors" },
+        { at: "2026-11-25T09:00:00.000Z", value: null, status: "error", unit: "errors" },
+      ],
+      goalScore: {
+        score: 5,
+        target: 7,
+        reasons: "Error budget burnt.",
+        change: "Down from 6.",
+        at: "2026-11-24T06:00:00.000Z",
+      },
+    });
+    for (const part of [
+      "- 2026-11-25T10:00:00.000Z 40 errors",
+      "- 2026-11-25T09:00:00.000Z error",
+      "Latest goal score: 5/10 (target 7)",
+      "Why not higher: Error budget burnt.",
+      "First seen 2026-11-25T09:00:00.000Z; last confirmed 2026-11-25T10:00:00.000Z.",
+      "(open, ALARM)",
+      "This is an alarm",
+      "thread owner-1",
+      CASE_WORKSPACE_RULE,
+      "Its goal: Keep production up",
+    ])
+      assert.include(brief, part);
   });
 });

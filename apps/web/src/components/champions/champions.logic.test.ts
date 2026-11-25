@@ -8,7 +8,6 @@ import {
   type ChampionActivity,
   type ChampionFinding,
   type ChampionMetric,
-  type ChampionRecommendation,
   type ChampionRuntimeState,
   type ChampionSample,
   type ChampionSummary,
@@ -20,7 +19,6 @@ import type { ProviderInstanceEntry } from "../../providerInstances";
 import {
   latestGoalProgress,
   championActivityView,
-  championDecisionBindingChanged,
   championMachineGap,
   championRecentRuns,
   championsNeedingAttention,
@@ -38,7 +36,6 @@ import {
   metricInputsOf,
   readingFreshness,
   recentMetricChange,
-  recommendationSupport,
   resolveChampionSelection,
   retiredMetrics,
   safeExternalUrl,
@@ -58,7 +55,7 @@ const summary = (patch: Partial<ChampionSummary> = {}): ChampionSummary => ({
   name: "Performance",
   purpose: "Stay fast",
   schedule: { type: "fixed_time", timeOfDay: "06:00" },
-  charter: { maxConcurrentRepairs: 1, maxRepairsPerDay: 3, instructions: "" },
+  charter: { instructions: "" },
   lifecycle: "active",
   ownerThreadId: THREAD,
   setupThreadId: null,
@@ -122,11 +119,7 @@ const finding = (patch: Partial<ChampionFinding>): ChampionFinding => ({
   title: "Slipped",
   evidence: "",
   status: "open",
-  childThreadId: null,
-  workId: "w",
-  attemptId: "a",
   revision: null,
-  specUrl: null,
   updatedAt: "2026-10-05T00:00:00.000Z",
   ...patch,
 });
@@ -612,37 +605,6 @@ describe("championMachineGap", () => {
   });
 });
 
-describe("recommendation binding", () => {
-  const binding = (decisionId: string, recommendationId?: string) => ({
-    decisionId,
-    recommendationId,
-  });
-
-  it("only counts as changed once a draft exists", () => {
-    expect(championDecisionBindingChanged(null, binding("d2", "r2"))).toBe(false);
-    expect(championDecisionBindingChanged(binding("d1", "r1"), binding("d1", "r1"))).toBe(false);
-  });
-
-  it("notices a new decision or a new recommendation", () => {
-    expect(championDecisionBindingChanged(binding("d1", "r1"), binding("d2", "r1"))).toBe(true);
-    expect(championDecisionBindingChanged(binding("d1", "r1"), binding("d1", "r2"))).toBe(true);
-  });
-
-  it("leaves supporting text out when it repeats the recommendation", () => {
-    expect(
-      recommendationSupport({
-        recommendation: "Do it.",
-        summary: "Do it.",
-        alternatives: "Other ways.",
-        benefits: "",
-        tradeoffs: "Other ways.",
-        uncertainty: "Unknown.",
-        proposedScope: "Only here.",
-      } as ChampionRecommendation),
-    ).toEqual(["Other ways.", "Unknown.", "Only here."]);
-  });
-});
-
 describe("championRecentRuns", () => {
   const model = (name: string) => ({
     instanceId: ProviderInstanceId.make("claude"),
@@ -662,29 +624,9 @@ describe("championRecentRuns", () => {
           threadId: THREAD,
         },
       ],
-      investigations: [
-        {
-          attempts: [
-            {
-              id: "branch",
-              role: "scout",
-              admittedAt: "2026-11-05T10:00:00.000Z",
-              resolvedSelection: model("resolved"),
-              actualSelection: model("actual"),
-              childThreadId: THREAD,
-            },
-          ],
-        },
-      ],
-      recommendations: [],
     } as unknown as ChampionRuntimeState);
-    expect(runs.map((run) => [run.kind, run.role])).toEqual([
-      ["Research", "scout"],
-      ["Check", null],
-    ]);
-    expect(runs[0]?.resolved.model).toBe("resolved");
-    expect(runs[0]?.actual?.model).toBe("actual");
-    expect(runs[1]?.actual).toBeNull();
+    expect(runs.map((run) => [run.kind, run.role])).toEqual([["readings", null]]);
+    expect(runs[0]?.actual).toBeNull();
   });
 });
 

@@ -48,10 +48,6 @@ export function createDelegationEnvironmentAtoms<R, E>(
   });
   return {
     championsLive,
-    championRecommendation: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:champions:recommendation",
-      tag: WS_METHODS.championsRecommendation,
-    }),
     championRuntimeState: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:champions:runtime-state",
       tag: WS_METHODS.championsRuntimeState,
@@ -92,14 +88,6 @@ export function createDelegationEnvironmentAtoms<R, E>(
       scheduler: configScheduler,
       concurrency: configConcurrency,
       onSuccess: invalidateDelegationStance,
-    }),
-    startChampionInvestigation: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:champions:start-investigation",
-      tag: WS_METHODS.championsStartInvestigation,
-    }),
-    cancelChampionInvestigation: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:champions:cancel-investigation",
-      tag: WS_METHODS.championsCancelInvestigation,
     }),
     upsertChampion: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:champions:Upsert",

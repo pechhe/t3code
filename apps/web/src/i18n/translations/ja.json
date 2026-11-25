@@ -1,4 +1,34 @@
 {
+  "e9755757b8a9fdc9": "No target",
+  "d6474490e139ea12": "Earlier definition",
+  "e59b1e08136f9673": "Unknown",
+  "43ea3fffe748647c": "Not enough data",
+  "856f768e3c10d619": "Couldn't measure",
+  "714e94ea8b998540": "Not measured since it changed",
+  "f39814a5f4828105": "Not yet measured",
+  "3d0e256af63cb98b": "Reading unavailable",
+  "9b755470de1d75f1": "This learning has a newer revision. Read the current revision before replacing it.",
+  "e1eee87804e7e69a": "This decision has changed. Check its current state.",
+  "44b2dbeacf10cd69": "Setup is still starting, so it can't be cancelled yet. Try again shortly.",
+  "a039f8bb3d0f1dc4": "The chosen project or model can't be used on this machine.",
+  "6f673077d83ad415": "Add metrics before starting this champion.",
+  "118b1340ecca5523": "The machine refused these metrics. Check their targets.",
+  "e3fcced45d2ac9a7": "That answer can't be used. Keep it to 500 characters.",
+  "5c9cecb700206a10": "This device isn't allowed to see champions on this machine.",
+  "4d1192ec0ea61028": "This device isn't allowed to change champions on this machine.",
+  "1a4eaf8b701cf8c1": "This machine no longer has this champion or its project.",
+  "262c1fa6657d26c1": "It changed while you were acting on it. Check its state and try again.",
+  "0f09286e55f1f0f1": "The machine refused this request.",
+  "04c0f4bcc805bd2e": "This machine couldn't load champions. Try again.",
+  "139aee3c9090c082": "The chosen model or this machine isn't available right now. Nothing was switched; try again.",
+  "83246aaebb902219": "That didn't work. Try again.",
+  "d790458377f00a95": "This machine's server needs updating to use Champions.",
+  "2e33edd0ccf8cd74": "The Champion",
+  "53a6aed3be43675b": "An agent thread",
+  "563c2b8682d11cd9": "{who} on {machine}",
+  "65388ac5f7001a35": "{author}, in “{title}”",
+  "f006b3889f749a05": "Counts now; the Champion confirms or replaces it on its next check.",
+  "4e324d028ec20999": "Confirmed by the Champion: {note}",
   "4bcfa3b976a421cf": "サイドチャット",
   "23be753133ae6950": "スレッド",
   "0001ae5846061bb6": "{machine} 上のスレッド",
@@ -3229,6 +3259,141 @@
   "ff5f1c260e87ecde": "バックエンドがこのブラウザーから到達可能で、ホスト型クライアント向けに CORS をサポートしていること、また HTTPS のページから開く場合は HTTPS で提供されていることを確認してください。",
   "08570ee0982df89d": "ペアリングしています...",
   "3bbae7c96b6cbfc3": "アプリを開く",
+  "b8db415622ae3d7a": "Readings",
+  "0ac21e1c8fbc0825": "Goal review",
+  "722072b3175edb2f": "Metric setup",
+  "60638386a0a6fcf9": "an agent thread",
+  "95e3fcb624abb304": "This changed before your answer arrived, so it wasn't sent. It's still here.",
+  "01f1b7ea80a6d537": "Your answer",
+  "9b65197761d2f4ef": "Your answer goes to this finding's case.",
+  "90d2d202109eff30": "送信しています…",
+  "0479e3dc868665f4": "Send my answer",
+  "2827d440c6b08905": "Approve proposed",
+  "be88b6f72f5663ae": "Answer differently",
+  "ecb170addf87319d": "Answer",
+  "4c81316eb692e3c7": "How it got here",
+  "2352e0042217249e": "却下する理由",
+  "1d4b0487ab1aa369": "再開する理由",
+  "30c53f2f85ed34da": "再オープン",
+  "4fea82d6d31e1621": "Case",
+  "0927a532e98642f5": "Open case",
+  "8d712e3b01096e79": "詳細",
+  "b6ab769169c7731f": "Recent runs and models",
+  "e424aa04d80d8281": "Open",
+  "60d9730ff3bf361d": "{count} older",
+  "abffbe89d95ed553": "{count, plural, =1 {1 quiet check} other {{count} quiet checks}}",
+  "9b33f7b8fc56606f": "Check reported.",
+  "ad3893a6cf526fa6": "Approved by you",
+  "fe2d5b0f3edc2c48": "through",
+  "0bc72950072ee1aa": [
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " 上"
+  ],
+  "667e8e1240b3cb64": "Spec",
+  "99bc4a19d27301c7": [
+    "Revision",
+    " ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
+  "cf84573e22244b27": [
+    "Answered: ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
+  "f5869050c3ebb15a": "提案",
+  "7005e256dc4cabe1": "理由",
+  "182049c015041be2": "再開",
+  "de63604f5d18a83e": "Older settled finding, kept for reference. It can't be changed from here.",
+  "7cbbddfc7743e008": [
+    {
+      "t": "span",
+      "i": 1,
+      "c": "Found:"
+    },
+    " ",
+    {
+      "i": 2,
+      "k": "_gt_value_2",
+      "v": "v"
+    }
+  ],
+  "f76d54a0b65363c2": [
+    {
+      "t": "span",
+      "i": 1,
+      "c": "Other options:"
+    },
+    " ",
+    {
+      "i": 2,
+      "k": "_gt_value_2",
+      "v": "v"
+    }
+  ],
+  "dc8a08d56331361e": "Its source couldn't load.",
+  "569a88b7ad8a9d80": "Loading its source…",
+  "c6aaface2f2f306b": "Its source isn't available on this machine.",
+  "a284b5b3d6d11c45": "Each run keeps the model it started with. Changing Champion models only affects later runs.",
+  "8415c1dc0b258a4c": "Fixed model",
+  "6f6f5a61696d4f29": [
+    "Started and ran on",
+    " ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
+  "697d584b0c8d3865": [
+    "Started on",
+    " ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " ",
+    "· Ran on not confirmed"
+  ],
+  "1d703d109cfa41d5": [
+    "Started on",
+    " ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " ",
+    "· Ran on",
+    " ",
+    {
+      "i": 2,
+      "k": "_gt_value_2",
+      "v": "v"
+    }
+  ],
+  "de45b075b016cb14": [
+    "さらに ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " 件を表示"
+  ],
+  "6e978f9ce3bc7ce7": "Loading activity…",
+  "1ee925ba57b01826": "Nothing else has happened yet.",
   "3dace760746c2eb7": "Champion",
   "f08eebffaecee416": "承認が届く前に内容が変更されたため、送信されませんでした。",
   "ae34c16c080eed0a": "この検出結果を調査し、修正案を提案または実装してください。",
@@ -3243,8 +3408,6 @@
   "a4bc90c30b1197b0": "目標",
   "a41b0165fdc7c958": "ベースライン",
   "354a3644e10c1e50": "{count, plural, other {チェックが{count}回連続で失敗}}",
-  "2352e0042217249e": "却下する理由",
-  "1d4b0487ab1aa369": "再開する理由",
   "72a86e0c7a8452cb": "却下を確定",
   "b45bbe42f3012de3": "再開を確定",
   "20bd1184ebde395d": "提案を承認",
@@ -3252,11 +3415,234 @@
   "4518ceeae2a6f8c0": "Champions で開く",
   "43c5fbd02c6f330a": "表示を減らす",
   "58a56cb3f0905132": "もっと見る",
-  "f5869050c3ebb15a": "提案",
-  "7005e256dc4cabe1": "理由",
   "f3043289dd020ee3": "その他の選択肢",
-  "182049c015041be2": "再開",
   "25c4b00c2bd83205": "返信はChampionのコンテキストを添付してこのスレッドのモデルで実行されます。バックグラウンドチェックは別々に継続します。",
+  "3be01c27f4fb7742": "Su",
+  "2a8dd7462a8d052e": "Mo",
+  "59e5c0a2c859a53e": "Tu",
+  "a6954abfab58ab84": "We",
+  "3ec1cafc7f8377cc": "Th",
+  "c159fc2d1944f590": "Fr",
+  "3125860c57627b7f": "Sa",
+  "2cfab8d44df7f9a3": "Every few minutes",
+  "e0226f73554fcc85": "Every day",
+  "7aae6a0845011885": "Every weekday",
+  "0c8def3d52dfaeca": "On chosen days",
+  "48743dc54df69310": "How often it checks",
+  "8646761d1a59996a": "Minutes between checks",
+  "4b32a8cc19fb6b3a": "Time of day",
+  "7fc043db70cdbe3f": "Machine",
+  "1da9537f8a9594ae": "Say what should stay true and choose a project.",
+  "a5b8407834f6a372": "Check the cadence. Run every whole number of minutes, at least one.",
+  "4933d2f9fe5c87a8": "A champion checks on a cadence, so pick an interval or a time of day.",
+  "dc8d7398dc4a41d0": "What good looks like, in a sentence or two. For example: YardSmith feels instant, with every common screen usable in under 300 ms on Production.",
+  "09c13d57107ff669": "This champion's project isn't loaded here.",
+  "a0e0e2640219f1b0": "Choose a project",
+  "89529825580336c4": "Set up metrics with AI",
+  "37b7feb9c682e9f7": "Name this champion",
+  "1cc506652a784508": "What should it look at closely? It observes and scores; what needs work opens a case in your Inbox.",
+  "40fc073912ab957b": "Cadence",
+  "76a1231ee98bf2db": "every",
+  "cb20a44dabc40ee5": "minutes",
+  "70c44e80ea23a977": "at",
+  "2374cbc0b4667de2": "A champion watches one project on one machine. Add a project first.",
+  "0b916d8ecea93b04": [
+    "Edit ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
+  "c36c50fc5e61b005": "New champion",
+  "6db6491ad27026c9": "Goal",
+  "80d58a3fd4e4212a": "プロジェクト",
+  "231c7f5b0e44c268": "A champion stays with the project it was made for.",
+  "7befd6ddec584b0c": "Add metrics myself",
+  "c06066c0bb8d383a": "Setup reads your remit and the evidence available in this project, then sets what to track and starts the champion.",
+  "02dafe1ec9a9f053": "Advanced settings",
+  "d4b3fe97dd0501a8": "Instructions",
+  "22f15e86489219fe": [
+    {
+      "t": "span",
+      "i": 1,
+      "c": "Runs"
+    },
+    " never (retired)"
+  ],
+  "e871da89c9dfc0e9": [
+    {
+      "t": "span",
+      "i": 1,
+      "c": "Runs"
+    },
+    " ",
+    {
+      "i": 2,
+      "k": "_gt_value_2",
+      "v": "v"
+    }
+  ],
+  "9df70745c114b6ee": [
+    {
+      "t": "span",
+      "i": 1,
+      "c": "Runs"
+    },
+    " ",
+    {
+      "i": 2,
+      "k": "_gt_value_2",
+      "v": "v"
+    },
+    " when on"
+  ],
+  "680676a2a07ee068": [
+    " ",
+    "· next",
+    " ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
+  "17004b933e4159d0": [
+    {
+      "t": "span",
+      "i": 1,
+      "c": "Next goal review"
+    },
+    " ",
+    {
+      "i": 2,
+      "k": "_gt_value_2",
+      "v": "v"
+    }
+  ],
+  "2b06f801350921c1": "Project not loaded",
+  "a7dd0b824a02cabe": [
+    "Project not loaded on ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
+  "a07fd9e52e88a7b1": [
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " (",
+    {
+      "i": 2,
+      "k": "_gt_value_2",
+      "v": "v"
+    },
+    ")"
+  ],
+  "c7ea9f2de09ae99b": "How it works",
+  "0826b0f01c6366ab": "How champions work",
+  "bc408bdd93266ad8": "A champion owns one goal for a project. It observes and scores; it never repairs.",
+  "d7d163fd89acdb97": "Readings",
+  "70538d65c68b77f8": "On its schedule, or when you press Check now, the server reads every scripted metric. The readings model wakes only to measure what no script can. Readings run on the checks model you choose under Champion models, with an optional backup.",
+  "dabbce93b1309c79": "Goal reviews",
+  "5238991237ae73e9": "Weekly by default, a goal review on the stronger model reads the goal, the readings, recent changes and the code, scores the goal from 0 to 10 and raises findings. The same model sets up metrics. When a model reaches its usage limit the backup takes over; when neither can run, the run is skipped and the page says why.",
+  "8432e5096cfadb0e": "Cases",
+  "109ff1cce37b6235": "Every finding that needs work opens a case in your Inbox, with a brief an agent can act on. While you are attended a case waits for you to start it; while you are away, and for alarms, it starts on its own.",
+  "6e1cf7870eb5af9c": "Paused",
+  "1015d1e3fed9c020": "A paused champion skips its schedule. Check now still measures and reports.",
+  "6766eb12182104a9": "Metrics",
+  "a841320c89ac368f": [
+    "Metrics are its instruments, not its goal. When they can't show progress, it changes them itself, after checking each new one reads a value, and they show as new here. You can ask for a change from any thread. Fix with a lead starts a",
+    " ",
+    {
+      "t": "AgentRoleChip",
+      "i": 1
+    },
+    " thread to rework them."
+  ],
+  "2a2de1ed695775ee": "Readings run on",
+  "e36a4ce21fef739b": "Goal reviews and setup use",
+  "b8bc729afe629f81": "Models needed",
+  "19d035a6df23eea8": "{models}, backup",
+  "cea97577e56d23d5": "Readings",
+  "84794ad5c75df989": "Reviews",
+  "06a28d5824c81b1a": "Goal reviews and setup",
+  "7fe685dd4a183e83": "Champion models",
+  "04a97d25371e2235": [
+    "On ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
+  "0f058f402ffc6d72": "This machine's server needs updating before you can choose Champion models.",
+  "556706782046f2be": "Choose what readings run on. Until you do, Champions skip their readings.",
+  "c731c56666e3e8f3": "Each opens the same model picker as the composer, pooled models included. A pooled model moves between your accounts first; the backup takes over only when every account for the main model is at its limit. Changes apply from the next run. Cases run on your lead role's model, and measurement helpers keep your delegation roles.",
+  "8c3af95cc80fa632": "Any account",
+  "dab1607c14cbd7c4": "Not set",
+  "a4a6c8914a152eae": "This Champion only",
+  "6ef65a00f70cbd3c": "Champion default",
+  "a678fb7fe9c446cb": "Choose a model for this Champion",
+  "cdabd41788a7e465": "Change models",
+  "6f1d40dd8535f56d": "The default's backup still applies when this model is at its limit.",
+  "cdd16f74921655cf": "Observed only",
+  "ffadafcc39ecefc4": "{minimum} to {maximum}",
+  "eef4db3215f64a5c": "No target yet",
+  "b0ab6acfd4ce67cd": "Settings changed",
+  "f37c98bbc994d3b6": "Status changed",
+  "6508019497bcd823": "Check retried",
+  "baed5b3779755bd6": "A run couldn't start",
+  "be1c0f6ca8c05ab6": "Metrics proposed",
+  "6b6daa126eecf88f": "Metrics accepted",
+  "06562e0c0099ae38": "Metrics changed",
+  "cae0e5059fdd1f69": "Finding dismissed",
+  "2aae35829a88e727": "Finding reopened",
+  "b90ad5bcf68f69e9": "Decision requested",
+  "4a470567d0d9c7f5": "Decision answered",
+  "3db25ac7d988f0df": "Lead started on metrics",
+  "567949ee3b83259e": "Proposal discarded",
+  "5c5dcd52feb040b2": "Setup cancelled",
+  "291435cef178fb24": "Metrics reviewed, no change",
+  "6f98f11658bc29f7": "Repair reserved",
+  "b3e0c13401e88745": "Ready to integrate",
+  "ea0949019dc264d8": "Finding opened",
+  "a0e847d1f0bc839a": "Repair running",
+  "473bd0bcc9ece5fd": "Repair delivered",
+  "ffa4c09a540c2580": "Inconclusive",
+  "b1ce25594dee72dc": "Learned",
+  "0ae1239a6f3c64bb": "Finding verified",
+  "f3117ac2b9e4e1dd": "Readings taken",
+  "9067a87e689c34a1": "Goal reviewed",
+  "168d9fc8c755a96e": "Alarm reached",
+  "fa2069474dd8b2d6": "Back in target",
+  "377e288be330d663": "Case started",
+  "df12bce0c35c82e3": "Repair released at upgrade",
+  "efca4e5fc21eaf8d": "Answer dropped",
+  "62ee21b3c9abc03b": "Activity",
+  "e936107515d713cd": "Choose a model.",
+  "b7358c1843d461e2": "This provider isn't on this machine any more.",
+  "704309045b37cb29": "This provider no longer lists the chosen model.",
+  "0b5cbc6b6b692e73": "This provider isn't available right now.",
+  "9ef4d3c5f7212883": "{count, plural, one {{count} machine} other {{count} machines}}",
+  "aabd9632196ee7e5": "再接続しています…",
+  "18debc4cb72dd281": "Reconnecting to {machine}",
+  "7476339dd4d31f23": "Reconnecting to {machine}. Showing its last known champions; changes are off until it's back.",
+  "fb6fca597fbcfe8c": "Reconnecting to {machine}. Champions there aren't shown until the connection returns.",
+  "445511757fcd365a": "接続しています…",
+  "4397c4720567715e": "Connecting to {machine}",
+  "8af475d6054c02a5": "Connecting to {machine}. Showing its last known champions; changes are off until it's back.",
+  "3b17582d4385e27e": "Connecting to {machine}. Champions there aren't shown until the connection returns.",
+  "b3dacbbd20699b4f": "Can't reach {machine}",
+  "5ad85287d465681a": "Can't reach {machine}, so champions there aren't shown.",
+  "28ea6622fd9341ea": "Goal score",
+  "b9a3f5c0ba0ff9c8": "How well the area meets the whole goal, from 0 to 10, scored by the latest goal review.",
+  "b9042562bd1de45b": "score out of 10",
+  "935abedf83dc6c84": "goal review",
   "803c682ed513b719": "Open champions",
   "49cc06e79f21f85a": "{seconds}秒",
   "8603d41c52392f1d": "{minutes}分{seconds}秒",
@@ -4183,15 +4569,6 @@
     }
   ],
   "e58a1d884fa1d8f2": "スレッドの詳細",
-  "de45b075b016cb14": [
-    "さらに ",
-    {
-      "i": 1,
-      "k": "_gt_value_1",
-      "v": "v"
-    },
-    " 件を表示"
-  ],
   "02d9667ff2c8e0b8": "Issue {key}: {title}",
   "4276743ee60a3c62": "{count, plural, other {{count} 件のコメント}}",
   "42f634397f3960aa": "スレッドの詳細に表示",
@@ -4336,14 +4713,6 @@
       "v": "v"
     },
     " が失敗しました"
-  ],
-  "0bc72950072ee1aa": [
-    {
-      "i": 1,
-      "k": "_gt_value_1",
-      "v": "v"
-    },
-    " 上"
   ],
   "987796c2241442d7": "Closed",
   "3237699bd13dd4bb": "サブエージェントを停止",
@@ -4577,7 +4946,6 @@
   "b3fb8cf724de33c2": "今すぐ再開",
   "51a1a709a4972f7e": "リセットまでスヌーズ",
   "79f13fade1c35ead": "このコンテキストは利用できなくなりました。",
-  "90d2d202109eff30": "送信しています…",
   "11472a9116247cf2": "動画の添付ファイル、{label}、{size}",
   "609e757f18882874": "添付ファイル、{label}、{size}",
   "be4e6fd5b78a1dfe": "ブラウザーの要素、{label}",
@@ -5130,7 +5498,6 @@
   "830103d02a9ac4e2": "リレーはオフライン",
   "0b2dd2fe0a45c628": "リレーの状態を確認しています…",
   "6280ea23e2192d27": "リレーの状態を取得できません",
-  "445511757fcd365a": "接続しています…",
   "7371e41e0852885f": "利用可能",
   "4ba692b01a327ce3": "オフライン",
   "81ca8a49acedf36d": "確認しています…",
@@ -5201,7 +5568,6 @@
   "2851d4a61427a90d": "トンネルを使い切りました (トンネルには費用がかかっています)。",
   "c752acb0b7088295": "接続済み",
   "a097631b7acab9d8": "承認を待っています…",
-  "aabd9632196ee7e5": "再接続しています…",
   "5965b96c7e7ec5f9": "Move to project…",
   "f83a8e1234105a07": "Move to project",
   "a80895f122d7020f": "リンクを開けませんでした",
@@ -6158,7 +6524,6 @@
   "72fc7ba5bac9e666": "更新",
   "a91e7d543039be52": "セットアップ: {agent}",
   "4681c4c9541539a4": "サインイン",
-  "8d712e3b01096e79": "詳細",
   "c193540d6298ce6a": "セットアップ",
   "2ca89fd7bbd7ea94": "この接続ではターミナルを操作できません。",
   "fb41d01d5dadcac0": "この接続ではエージェントを管理できません。",
@@ -6988,7 +7353,6 @@
   "42334ebda4bce9f2": "すぐにマージ",
   "855f6ad4ccc1ff2d": "#{number} をレビューの準備完了にする",
   "4c107073c81d6ab0": "すぐにレビューの準備完了にする",
-  "30c53f2f85ed34da": "再オープン",
   "7bb3f0d9a4e20294": "#{number} を再オープン",
   "5324820e3e38fb37": "すぐに再オープン",
   "8fc977a6e03cf01f": "{term, select, mr {マージリクエスト #{number} のクイック操作} cr {変更リクエスト #{number} のクイック操作} other {プルリクエスト #{number} のクイック操作}}",
@@ -7919,20 +8283,6 @@
   "37c67881813d8bd2": "ChatGPT で続行",
   "6b9b6ebc5d641bc1": "ChatGPT プランが接続されています",
   "8eadb8b01f860f30": "T3 Code での対象となる使用には ChatGPT プランが使われます。共有の使用量とクレジットの設定は ChatGPT で管理してください。",
-  "a07fd9e52e88a7b1": [
-    {
-      "i": 1,
-      "k": "_gt_value_1",
-      "v": "v"
-    },
-    " (",
-    {
-      "i": 2,
-      "k": "_gt_value_2",
-      "v": "v"
-    },
-    ")"
-  ],
   "d0e747ae0c4f68a5": "t3 をインストールできませんでした",
   "ba3ac338f36cba74": "t3 を削除できませんでした",
   "9c942b53b58119b8": "t3 を PATH に追加できませんでした",
@@ -11025,7 +11375,6 @@
   "fe4208562792c313": "古いローテーション済みログを削除",
   "8debac9c8e9cff47": "使われていないローテーション済みのログファイルを、この日数が経過したら削除します。現在のログは保持されます。",
   "8e73b883d41d4102": "オフ",
-  "80d58a3fd4e4212a": "プロジェクト",
   "de770505be25f1ff": "フォルダー",
   "ada7b9a4d96959d2": "スレッド",
   "ceab58aa6cb191f3": [

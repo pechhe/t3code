@@ -12,7 +12,7 @@ import type {
   OrchestrationV2ThreadChampion,
 } from "@t3tools/contracts";
 
-import { metricTargetLabel } from "./champions.logic";
+import { metricHasTarget, metricTargetLabel } from "./champions.logic";
 
 export interface EscalationMetricStrip {
   readonly name: string;
@@ -45,11 +45,9 @@ export function selectEscalationMetricStrip(
   finding: ChampionFinding | null,
 ): EscalationMetricStrip | null {
   if (!finding) return null;
-  const metric =
-    finding.baselineMetric ??
-    (finding.metricId
-      ? (detail?.metrics.find((candidate) => candidate.id === finding.metricId) ?? null)
-      : null);
+  const metric = finding.metricId
+    ? (detail?.metrics.find((candidate) => candidate.id === finding.metricId) ?? null)
+    : null;
   const sample =
     finding.metricId !== null
       ? ((detail?.latestSamples ?? detail?.champion.latestSamples ?? []).find(
@@ -68,10 +66,8 @@ export function selectEscalationMetricStrip(
       : sample.status === "measured" && sample.value !== null
         ? formatChampionValue(sample.value, sample.unit)
         : CHAMPION_READING_STATUS_LABELS[sample.status === "measured" ? "unknown" : sample.status];
-  const targetLabel = metric ? metricTargetLabel(metric) : null;
-  const target = targetLabel === "No target yet" ? null : targetLabel;
-  const baseline =
-    finding.baselineValue != null ? formatChampionValue(finding.baselineValue, unit) : null;
+  const target = metric && metricHasTarget(metric) ? metricTargetLabel(metric) : null;
+  const baseline = metric?.baseline != null ? formatChampionValue(metric.baseline, unit) : null;
 
   return { name, reading, target, baseline };
 }

@@ -18,12 +18,9 @@ export const layerWsChampionsRpc = ServerWsChampionsRpcGroup.toLayer(
     return ServerWsChampionsRpcGroup.of({
       [WS_METHODS.championsSetModels]: (input) => champions.setModels(input),
       [WS_METHODS.championsRuntimeState]: (input) => champions.runtimeState(input),
-      [WS_METHODS.championsRecommendation]: (input) => champions.recommendation(input),
       [WS_METHODS.championsLearningQuery]: (input) => champions.learningQuery(input),
       [WS_METHODS.championsLearningSearch]: (input) => champions.learningSearch(input),
       [WS_METHODS.championsLearningRead]: (input) => champions.learningRead(input),
-      [WS_METHODS.championsStartInvestigation]: (input) => champions.startInvestigation(input),
-      [WS_METHODS.championsCancelInvestigation]: (input) => champions.cancelInvestigation(input),
       [WS_METHODS.championsList]: (input) => champions.list(input),
       [WS_METHODS.championsSubscribe]: (input) => champions.subscribe(input),
       [WS_METHODS.championsGet]: (input) => champions.get(input),

@@ -25,11 +25,7 @@ export const statusBadge = (status: ChampionStatus) => ({
 
 export const FINDING_VARIANTS: Record<ChampionFinding["status"], BadgeVariant> = {
   open: "warning",
-  working: "info",
-  handed_back: "info",
-  delivered: "info",
   verified: "success",
-  inconclusive: "outline",
   dismissed: "outline",
 };
 

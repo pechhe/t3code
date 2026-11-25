@@ -39,11 +39,7 @@ const finding = (overrides: Partial<ChampionFinding> = {}): ChampionFinding => (
   title: "Latency breached target",
   evidence: "P95 rose to 340ms on checkout.",
   status: "open",
-  childThreadId: null,
-  workId: "w-1",
-  attemptId: "a-1",
   revision: null,
-  specUrl: null,
   updatedAt: "2026-06-01T10:00:00.000Z",
   ...overrides,
 });
@@ -54,7 +50,7 @@ const detail = (overrides: Partial<ChampionDetail> = {}): ChampionDetail => ({
     projectId: ProjectId.make("proj-1"),
     name: "Checkout Latency",
     purpose: "Keep checkout fast",
-    charter: { maxConcurrentRepairs: 1, maxRepairsPerDay: 3, instructions: "" },
+    charter: { instructions: "" },
     schedule: { type: "interval", everyMs: 3_600_000 },
     lifecycle: "active",
     ownerThreadId: ThreadId.make("owner-1"),
@@ -99,8 +95,13 @@ describe("selectEscalationFinding", () => {
 
 describe("selectEscalationMetricStrip", () => {
   it("formats metric reading, target, and baseline when present", () => {
-    const f = finding({ baselineValue: 260, baselineMetric: metric() });
-    expect(selectEscalationMetricStrip(detail({ findings: [f] }), f)).toEqual({
+    const f = finding();
+    expect(
+      selectEscalationMetricStrip(
+        detail({ findings: [f], metrics: [metric({ baseline: 260 })] }),
+        f,
+      ),
+    ).toEqual({
       name: "P95 latency",
       reading: "340 ms",
       target: "≤ 200 ms",

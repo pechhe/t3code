@@ -44,6 +44,7 @@ import { ChampionMetricRow } from "./ChampionMetrics";
 import {
   championActivityView,
   championCurrentThreadId,
+  goalScoreReading,
   latestGoalProgress,
   retiredMetrics,
 } from "./champions.logic";
@@ -298,6 +299,7 @@ export function ChampionDetailPage(props: {
   const noLongerTracked = retiredMetrics(metrics, history.definitions);
   const currentThreadId = championCurrentThreadId(champion, checkRunning);
   const goalProgress = latestGoalProgress(history.activity);
+  const goalScore = goalScoreReading(champion);
   const badge = statusBadge(championStatus(champion, nowMs));
   const paused = champion.lifecycle === "paused";
   // A repository-hosted Champion changes only by a landing in its repository.
@@ -375,8 +377,6 @@ export function ChampionDetailPage(props: {
         view={activity}
         loading={history.loading || detail === null}
         runtimeState={runtimeQuery.data}
-        runtimeFailed={runtimeQuery.error !== null}
-        paused={paused}
         onChanged={() => {
           detailQuery.refresh();
           runtimeQuery.refresh();
@@ -474,6 +474,16 @@ export function ChampionDetailPage(props: {
         </div>
       ) : hasMetrics ? (
         <div className="flex flex-col divide-y overflow-hidden rounded-lg border bg-card">
+          <ChampionMetricRow
+            environmentId={environmentId}
+            metric={goalScore.metric}
+            lifecycle={champion.lifecycle}
+            schedule={champion.schedule}
+            latestSamples={goalScore.latest}
+            definitions={[]}
+            samples={history.samples}
+            hasOlder={history.hasOlder}
+          />
           {metrics.map((metric) => (
             <ChampionMetricRow
               key={metric.id}
@@ -535,8 +545,6 @@ export function ChampionDetailPage(props: {
         view={activity}
         loading={history.loading || detail === null}
         runtimeState={runtimeQuery.data}
-        runtimeFailed={runtimeQuery.error !== null}
-        paused={paused}
         onChanged={() => {
           detailQuery.refresh();
           runtimeQuery.refresh();

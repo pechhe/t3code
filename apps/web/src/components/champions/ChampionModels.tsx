@@ -7,6 +7,7 @@ import type {
   EnvironmentId,
   ModelSelection,
 } from "@t3tools/contracts";
+import { msg, T, useGT, useMessages, Var } from "gt-react";
 import { SlidersHorizontalIcon } from "lucide-react";
 import { useState } from "react";
 
@@ -35,8 +36,8 @@ import {
 type Kind = "checks" | "advice";
 
 const KIND_LABELS: Record<Kind, string> = {
-  checks: "Checks run on",
-  advice: "Advice and setup use",
+  checks: msg("Readings run on"),
+  advice: msg("Goal reviews and setup use"),
 };
 
 const omitKey = (models: ChampionModelOverrides | undefined, key: Kind): ChampionModelOverrides =>
@@ -57,6 +58,8 @@ export function ChampionModelDefaultsControl(props: {
   readonly defaults: ChampionModelDefaults | undefined;
 }) {
   const { environmentId, defaults } = props;
+  const m = useMessages();
+  const gt = useGT();
   const setModels = useAtomCommand(serverEnvironment.setChampionModels, {
     label: "champion models",
     reportFailure: false,
@@ -99,9 +102,9 @@ export function ChampionModelDefaultsControl(props: {
         render={
           <Button size="xs" variant="outline">
             <SlidersHorizontalIcon className="size-3" />
-            Champion models
+            <T>Champion models</T>
             {needsModels ? (
-              <span aria-label="Models needed" className="size-1.5 rounded-full bg-warning" />
+              <span aria-label={gt("Models needed")} className="size-1.5 rounded-full bg-warning" />
             ) : null}
           </Button>
         }
@@ -109,30 +112,36 @@ export function ChampionModelDefaultsControl(props: {
       <PopoverPopup align="end" className="w-[22rem] max-w-[calc(100vw-2rem)]">
         <div className="flex flex-col gap-4 p-1">
           {props.machineLabel === null ? null : (
-            <p className="text-muted-foreground text-xs">On {props.machineLabel}</p>
+            <p className="text-muted-foreground text-xs">
+              <T>
+                On <Var>{props.machineLabel}</Var>
+              </T>
+            </p>
           )}
           <ChampionMachineNotice environmentId={environmentId} />
           {defaults === undefined ? (
             connected ? (
               <p className="text-muted-foreground text-xs">
-                This machine's server needs updating before you can choose Champion models.
+                <T>
+                  This machine&apos;s server needs updating before you can choose Champion models.
+                </T>
               </p>
             ) : null
           ) : (
             <>
               {(["checks", "advice"] as const).map((kind) => (
                 <div key={kind} className="flex flex-col gap-1.5">
-                  <span className="font-medium text-xs">{KIND_LABELS[kind]}</span>
+                  <span className="font-medium text-xs">{m(KIND_LABELS[kind])}</span>
                   <ChampionModelPicker
                     environmentId={environmentId}
-                    ariaLabel={KIND_LABELS[kind]}
+                    ariaLabel={m(KIND_LABELS[kind])}
                     selection={defaults[kind]?.model ?? null}
                     disabled={disabled}
                     onChange={(model) => void pick(kind, model)}
                   />
                   <ChampionModelPicker
                     environmentId={environmentId}
-                    ariaLabel={`${KIND_LABELS[kind]}, backup`}
+                    ariaLabel={gt("{models}, backup", { models: m(KIND_LABELS[kind]) })}
                     backup
                     selection={defaults[kind]?.backup ?? null}
                     disabled={disabled || defaults[kind] === undefined}
@@ -142,7 +151,7 @@ export function ChampionModelDefaultsControl(props: {
               ))}
               {needsModels ? (
                 <p role="status" className="text-warning-foreground text-xs">
-                  Choose what checks run on. Until you do, Champions skip their checks.
+                  <T>Choose what readings run on. Until you do, Champions skip their readings.</T>
                 </p>
               ) : null}
             </>
@@ -153,10 +162,12 @@ export function ChampionModelDefaultsControl(props: {
             </p>
           ) : null}
           <p className="text-muted-foreground text-xs">
-            Each opens the same model picker as the composer, pooled models included. A pooled model
-            moves between your accounts first; the backup takes over only when every account for the
-            main model is at its limit. Changes apply from the next check. Helpers a Champion starts
-            (repairs, reviews, browser work) still use your delegation roles.
+            <T>
+              Each opens the same model picker as the composer, pooled models included. A pooled
+              model moves between your accounts first; the backup takes over only when every account
+              for the main model is at its limit. Changes apply from the next run. Cases run on your
+              lead role&apos;s model, and measurement helpers keep your delegation roles.
+            </T>
           </p>
         </div>
       </PopoverPopup>
@@ -189,7 +200,11 @@ function ChampionModelName(props: {
         className="inline-flex"
         {...(pool === undefined ? {} : { name: pool.displayName, hideSource: true })}
       />
-      {pool === undefined ? null : <span className="text-muted-foreground">Any account</span>}
+      {pool === undefined ? null : (
+        <span className="text-muted-foreground">
+          <T>Any account</T>
+        </span>
+      )}
       {effort === null || effort === undefined ? null : (
         <span className="text-muted-foreground">{effort}</span>
       )}
@@ -207,7 +222,9 @@ function NextModel(props: {
     <span className="inline-flex items-center gap-1.5">
       <span className="text-muted-foreground">{props.label}</span>
       {next === undefined ? (
-        <span className="text-warning-foreground">Not set</span>
+        <span className="text-warning-foreground">
+          <T>Not set</T>
+        </span>
       ) : (
         <ChampionModelName environmentId={props.environmentId} selection={next.model} />
       )}
@@ -221,15 +238,24 @@ export function ChampionModelStrip(props: {
   readonly champion: ChampionSummary;
   readonly changeControl: React.ReactNode;
 }) {
+  const gt = useGT();
   const next = props.champion.nextModels;
   const own = next?.checks?.source === "champion" || next?.advice?.source === "champion";
   return (
     <>
-      <NextModel environmentId={props.environmentId} label="Checks" next={next?.checks} />
-      <NextModel environmentId={props.environmentId} label="Advice" next={next?.advice} />
+      <NextModel
+        environmentId={props.environmentId}
+        label={gt("Readings", { $context: "the model a Champion's readings run on" })}
+        next={next?.checks}
+      />
+      <NextModel
+        environmentId={props.environmentId}
+        label={gt("Reviews", { $context: "the model a Champion's goal reviews run on" })}
+        next={next?.advice}
+      />
       {own ? (
         <Badge variant="secondary" size="sm">
-          This Champion only
+          <T>This Champion only</T>
         </Badge>
       ) : null}
       {props.changeControl}
@@ -237,12 +263,13 @@ export function ChampionModelStrip(props: {
   );
 }
 
-/** Lets one Champion follow the machine default or run on a model of its own, for checks and for advice. */
+/** Lets one Champion follow the machine default or run on a model of its own, for readings and for reviews. */
 export function ChampionModelControls(props: {
   readonly environmentId: EnvironmentId;
   readonly champion: ChampionSummary;
 }) {
   const { champion, environmentId } = props;
+  const gt = useGT();
   const upsert = useAtomCommand(serverEnvironment.upsertChampion, {
     label: "champion save",
     reportFailure: false,
@@ -269,7 +296,6 @@ export function ChampionModelControls(props: {
             models: overrides,
             charter: champion.charter,
             ...(champion.journeys === undefined ? {} : { journeys: champion.journeys }),
-            ...(champion.repairsVia === undefined ? {} : { repairsVia: champion.repairsVia }),
           },
         }),
     ]);
@@ -300,7 +326,7 @@ export function ChampionModelControls(props: {
           <label className="flex items-center gap-2">
             <Radio value="default" disabled={disabled} />
             <span className="inline-flex flex-wrap items-center gap-1">
-              Champion default
+              <T>Champion default</T>
               {defaultModel === null ? null : (
                 <ChampionModelName environmentId={environmentId} selection={defaultModel} />
               )}
@@ -308,7 +334,7 @@ export function ChampionModelControls(props: {
           </label>
           <label className="flex items-center gap-2">
             <Radio value="own" disabled={disabled} />
-            Choose a model for this Champion
+            <T>Choose a model for this Champion</T>
           </label>
         </RadioGroup>
         {isOwn ? (
@@ -338,21 +364,24 @@ export function ChampionModelControls(props: {
         render={
           <Button size="xs" variant="ghost-muted">
             <SlidersHorizontalIcon className="size-3" />
-            Change models
+            <T>Change models</T>
           </Button>
         }
       />
       <PopoverPopup align="start" className="w-[22rem] max-w-[calc(100vw-2rem)]">
         <div className="flex flex-col gap-4 p-1">
-          {section("checks", "Checks")}
-          {section("advice", "Advice and setup")}
+          {section(
+            "checks",
+            gt("Readings", { $context: "the model a Champion's readings run on" }),
+          )}
+          {section("advice", gt("Goal reviews and setup"))}
           {error ? (
             <p role="alert" className="text-destructive-foreground text-xs">
               {error}
             </p>
           ) : null}
           <p className="text-muted-foreground text-xs">
-            The default's backup still applies when this model is at its limit.
+            <T>The default&apos;s backup still applies when this model is at its limit.</T>
           </p>
         </div>
       </PopoverPopup>

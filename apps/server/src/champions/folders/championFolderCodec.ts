@@ -8,6 +8,7 @@ import {
   ChampionLifecycle,
   ChampionMetric,
   ChampionSample,
+  PAST_DEFAULT_CHAMPION_INSTRUCTIONS,
 } from "@t3tools/contracts";
 import { Schema } from "effect";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
@@ -23,8 +24,7 @@ export interface ChampionFolderDefinition {
   charter: ChampionConfig["charter"];
   models?: ChampionConfig["models"];
   journeys?: ChampionConfig["journeys"];
-  repairsVia?: ChampionConfig["repairsVia"];
-  whenInTarget?: "rest" | "work";
+  goalReview?: ChampionConfig["goalReview"];
 }
 
 export type ChampionFolderLearning = typeof ChampionLearningContent.Type & {
@@ -42,14 +42,10 @@ export type ChampionFolderFinding = Pick<
   | "title"
   | "evidence"
   | "status"
-  | "diagnosis"
-  | "undiagnosed"
-  | "baselineValue"
-  | "baselineMetric"
-  | "workId"
-  | "attemptId"
+  | "alarm"
+  | "firstSeenAt"
+  | "lastConfirmedAt"
   | "revision"
-  | "specUrl"
   | "updatedAt"
 > & { carriedOver?: { from: string; at: string } };
 
@@ -99,14 +95,9 @@ const DefinitionFrontmatter = Schema.Struct({
   runner: Schema.Struct({ environmentId: Schema.String, label: Schema.String }),
   lifecycle: ChampionLifecycle,
   schedule: ChampionConfig.fields.schedule,
-  limits: Schema.Struct({
-    maxConcurrentRepairs: ChampionCharter.fields.maxConcurrentRepairs,
-    maxRepairsPerDay: ChampionCharter.fields.maxRepairsPerDay,
-  }),
   models: ChampionConfig.fields.models,
   journeys: ChampionConfig.fields.journeys,
-  repairsVia: ChampionConfig.fields.repairsVia,
-  whenInTarget: Schema.optional(Schema.Literals(["rest", "work"])),
+  goalReview: ChampionConfig.fields.goalReview,
 });
 
 const LearningFrontmatter = Schema.Struct({
@@ -123,14 +114,10 @@ const FindingFrontmatter = Schema.Struct({
   seriesId: ChampionFinding.fields.seriesId,
   title: ChampionFinding.fields.title,
   status: ChampionFinding.fields.status,
-  diagnosis: ChampionFinding.fields.diagnosis,
-  undiagnosed: ChampionFinding.fields.undiagnosed,
-  baselineValue: ChampionFinding.fields.baselineValue,
-  baselineMetric: ChampionFinding.fields.baselineMetric,
-  workId: ChampionFinding.fields.workId,
-  attemptId: ChampionFinding.fields.attemptId,
+  alarm: ChampionFinding.fields.alarm,
+  firstSeenAt: ChampionFinding.fields.firstSeenAt,
+  lastConfirmedAt: ChampionFinding.fields.lastConfirmedAt,
   revision: ChampionFinding.fields.revision,
-  specUrl: ChampionFinding.fields.specUrl,
   updatedAt: ChampionFinding.fields.updatedAt,
   carriedOver: Schema.optional(Schema.Struct({ from: Schema.String, at: Schema.String })),
 });
@@ -182,14 +169,10 @@ const FINDING_KEYS = [
   "seriesId",
   "title",
   "status",
-  "diagnosis",
-  "undiagnosed",
-  "baselineValue",
-  "baselineMetric",
-  "workId",
-  "attemptId",
+  "alarm",
+  "firstSeenAt",
+  "lastConfirmedAt",
   "revision",
-  "specUrl",
   "updatedAt",
   "carriedOver",
 ] as const;
@@ -263,14 +246,9 @@ export const renderChampionFolder = (folder: ChampionFolder): ReadonlyArray<Fold
             },
             lifecycle: definition.lifecycle,
             schedule: definition.schedule,
-            limits: {
-              maxConcurrentRepairs: definition.charter.maxConcurrentRepairs,
-              maxRepairsPerDay: definition.charter.maxRepairsPerDay,
-            },
             models: definition.models,
             journeys: definition.journeys,
-            repairsVia: definition.repairsVia,
-            whenInTarget: definition.whenInTarget,
+            goalReview: definition.goalReview,
           },
           [
             "id",
@@ -280,11 +258,9 @@ export const renderChampionFolder = (folder: ChampionFolder): ReadonlyArray<Fold
             "runner",
             "lifecycle",
             "schedule",
-            "limits",
             "models",
             "journeys",
-            "repairsVia",
-            "whenInTarget",
+            "goalReview",
           ],
         ),
         definition.charter.instructions,
@@ -371,12 +347,13 @@ export const parseChampionFolder = (
       attempt(path, () => {
         const { frontmatter, body } = splitDocument(content);
         const front = decodeDefinition(frontmatter);
-        const charter = decodeCharter({
-          ...front.limits,
-          ...(body.length > 0 ? { instructions: decodeBody(body) } : {}),
-        });
-        const { limits: _limits, ...rest } = front;
-        definition = { ...rest, charter } as ChampionFolderDefinition;
+        // A past default reads as the current one; repositories update their copies separately.
+        const charter = decodeCharter(
+          body.length > 0 && !PAST_DEFAULT_CHAMPION_INSTRUCTIONS.includes(body)
+            ? { instructions: decodeBody(body) }
+            : {},
+        );
+        definition = { ...front, charter } as ChampionFolderDefinition;
       });
     } else if (path === "metrics.json") {
       sawMetrics = true;

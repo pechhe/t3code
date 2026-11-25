@@ -28,7 +28,6 @@ import { ModelLabel } from "../ModelLabel";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
-import { championDecisionBinding } from "./champions.logic";
 import {
   resolveEscalationCardState,
   selectEscalationFinding,
@@ -92,17 +91,13 @@ export function ChampionEscalationCard(props: {
     if (!finding || !decision || !proposal || busy !== null) return;
     setBusy("approve");
     setError(null);
-    const binding = championDecisionBinding(decision);
     const result = await act({
       environmentId: props.environmentId,
       input: {
         id: props.champion.id,
         findingId: finding.id,
         action: "resolve_decision",
-        decisionId: binding.decisionId,
-        ...(binding.recommendationId === undefined
-          ? {}
-          : { recommendationId: binding.recommendationId }),
+        decisionId: decision.id,
         reason: championApprovalAnswer(proposal.action),
       },
     });

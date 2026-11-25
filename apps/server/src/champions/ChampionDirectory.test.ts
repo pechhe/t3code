@@ -22,7 +22,7 @@ const summary: ChampionSummary = {
   name: "Performance",
   purpose: "Stay fast",
   schedule: { type: "interval", everyMs: 3600000 },
-  charter: { maxConcurrentRepairs: 1, maxRepairsPerDay: 3, instructions: "" },
+  charter: { instructions: "" },
   lifecycle: "active",
   ownerThreadId: ThreadId.make("owner"),
   setupThreadId: null,

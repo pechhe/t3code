@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
+import {
+  DEFAULT_CHAMPION_INSTRUCTIONS,
+  PAST_DEFAULT_CHAMPION_INSTRUCTIONS,
+} from "@t3tools/contracts";
 
 import {
   championFolderPath,
@@ -33,11 +37,9 @@ const folder = (): ChampionFolder => ({
     lifecycle: "active",
     schedule: { type: "fixed_time", timeOfDay: "07:20" } as never,
     charter: {
-      maxConcurrentRepairs: 1,
-      maxRepairsPerDay: 1,
       instructions: "Henry wants improvement.\n\nMeasure honestly: unknown, never zero.",
     } as never,
-    whenInTarget: "rest",
+    goalReview: { schedule: { type: "fixed_time", timeOfDay: "06:30", weekdays: [1] }, target: 8 },
   },
   metrics: [
     {
@@ -85,10 +87,10 @@ const folder = (): ChampionFolder => ({
       title: "Engine knowledge is behind",
       evidence: "CURRENT_STATE.md is older than the bump.",
       status: "open",
-      workId: "w1",
-      attemptId: "att1",
+      alarm: true,
+      firstSeenAt: "2026-11-19T20:01:14.382Z",
+      lastConfirmedAt: "2026-11-20T20:01:14.382Z",
       revision: null,
-      specUrl: null,
       updatedAt: "2026-11-20T20:01:14.382Z",
       carriedOver: { from: "old-id", at: "2026-11-21T00:00:00.000Z" },
     } as never,
@@ -190,6 +192,21 @@ describe("championFolderCodec", () => {
     const path = files.find((file) => file.path.startsWith("findings/"))!.path;
     expect(path).not.toContain(":");
     expect(parseChampionFolder(files).findings[0]?.id).toBe("engine-knowledge:behind:0.3.91");
+  });
+
+  it("reads instructions equal to a past default as the current default, and keeps custom ones", () => {
+    const withBody = (body: string) =>
+      renderChampionFolder({
+        ...folder(),
+        definition: { ...folder().definition, charter: { instructions: body } as never },
+      });
+    expect(
+      parseChampionFolder(withBody(PAST_DEFAULT_CHAMPION_INSTRUCTIONS[0]!)).definition?.charter
+        .instructions,
+    ).toBe(DEFAULT_CHAMPION_INSTRUCTIONS);
+    expect(parseChampionFolder(withBody("Custom.")).definition?.charter.instructions).toBe(
+      "Custom.",
+    );
   });
 
   it("ignores the Champion's own notes", () => {
