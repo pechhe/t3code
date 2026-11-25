@@ -125,6 +125,7 @@ import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.t
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
+import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import { nextScheduledRunAt, isSameSchedule } from "../scheduledTasks/Schedule.ts";
 import type { McpThreadCaller } from "../mcp/McpInvocationContext.ts";
 import { HARD_STOP_BOUNDARY } from "../orchestration-v2/arcRun.ts";
@@ -621,6 +622,7 @@ const make = Effect.gen(function* () {
   const projects = yield* ProjectService.ProjectService;
   const processes = yield* ProcessRunner.ProcessRunner;
   const scheduler = yield* Scheduler.Scheduler;
+  const scheduledTasks = yield* Effect.serviceOption(ScheduledTaskService.ScheduledTaskService);
   const random = yield* SecureRandom.SecureRandom;
   const evidence = yield* ChampionEvidence.make;
   const learnings = yield* ChampionLearnings.make;
@@ -1376,7 +1378,30 @@ const make = Effect.gen(function* () {
     ]
       .filter((line) => line !== null)
       .join("\n\n");
-  const reviewPrompt = (doc: Document, check: Check) =>
+  /** The enabled routines linked to a Champion; a failed read drops the section rather than the review. */
+  const linkedAutomationsSection = Effect.fn("ChampionService.linkedAutomationsSection")(function* (
+    doc: Document,
+  ) {
+    if (Option.isNone(scheduledTasks)) return null;
+    const listed = yield* scheduledTasks.value.list().pipe(Effect.option);
+    if (Option.isNone(listed)) return null;
+    const linked = listed.value.tasks.filter(
+      (task) => task.enabled && task.championId === doc.champion.id,
+    );
+    if (linked.length === 0) return null;
+    const lines = linked.map((task) => {
+      const run =
+        task.lastRunAt === null
+          ? "never run"
+          : `last run ${task.lastRunAt} ${task.lastRunStatus}${task.lastRunError ? ` (${task.lastRunError})` : ""}`;
+      return `- ${task.title}: ${run}${task.lastRunThreadId ? `, thread ${task.lastRunThreadId}` : ""}`;
+    });
+    return [
+      "LINKED AUTOMATIONS: routines that serve this goal. Read each latest run that is new since the previous goal review with t3_thread_read and treat it as evidence like readings: cite it in your reasons and raise a finding for anything that needs work. Never re-run or redo a routine.",
+      ...lines,
+    ].join("\n");
+  });
+  const reviewPrompt = (doc: Document, check: Check, linkedAutomations: string | null) =>
     [
       `You own champion ${doc.champion.name} in this project. Your goal: ${doc.champion.purpose}`,
       CHAMPION_MODELS_GUIDANCE,
@@ -1388,24 +1413,25 @@ const make = Effect.gen(function* () {
       `WHAT YOU LEARN: a review writes no knowledge home, so report what the next agent needs in your report. Put up to three learnings on the finding they came from, or, when they belong to no finding, in learningCandidates (urgent true only for a trap that can cause harm now). Each is a short statement, its evidence and its home: decision (a product or architectural rule), doc (a behaviour or trap for the owning doc), glossary (a term), research (an experiment or R&D outcome), agents (a tool or harness behaviour in ~/.agents), champion (a measurement quirk) or check (a rule a test or check can enforce). Nothing new is the normal result: report no learnings when there are none. Point-in-time status, counts, changelogs and one-off forensics are never learnings.`,
       "Work for genuine improvement, not metric gaming or rule compliance; you may challenge existing designs. Never fabricate baselines, report stale readings as healthy, or disguise a source change as improvement.",
       `When a metric cannot show progress, change it with t3_champions_metrics action submit. ${METRIC_RULE}`,
+      linkedAutomations,
       openFindingsLine(doc),
       ownInstructions(doc),
     ]
       .filter((line) => line !== null)
       .join("\n\n");
-  const prompt = (doc: Document, check: Check) => {
+  const prompt = Effect.fn("ChampionService.prompt")(function* (doc: Document, check: Check) {
     const body =
       check.kind === "setup"
         ? setupPrompt(doc, check)
         : check.kind === "review"
-          ? reviewPrompt(doc, check)
+          ? reviewPrompt(doc, check, yield* linkedAutomationsSection(doc))
           : doc.champion.journeys !== undefined
             ? journeyPrompt(doc, check)
             : readingsPrompt(doc, check);
     return check.repromptMessageId === check.messageId
       ? `${missingReportReminder(check)}\n\n${body}`
       : body;
-  };
+  });
   /**
    * The model an attempt runs on, resolved now: the main model, else the backup. With neither able to run it fails
    * with the skip message, which the caller records.
@@ -1509,7 +1535,11 @@ const make = Effect.gen(function* () {
           runtimeMode: "full-access",
           interactionMode: "default",
           workspaceStrategy: { type: "root" },
-          initialMessage: { messageId: check.messageId, text: prompt(doc, check), attachments: [] },
+          initialMessage: {
+            messageId: check.messageId,
+            text: yield* prompt(doc, check),
+            attachments: [],
+          },
           createdBy: "agent",
           creationSource: "mcp",
         })
@@ -1528,7 +1558,7 @@ const make = Effect.gen(function* () {
           threadId: check.threadId,
           projectId: doc.champion.projectId,
           messageId: check.messageId,
-          text: prompt(doc, check),
+          text: yield* prompt(doc, check),
           attachments: [],
           modelSelection,
           mode: "queue",

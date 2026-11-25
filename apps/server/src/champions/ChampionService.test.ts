@@ -83,6 +83,7 @@ import * as ThreadLaunch from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as Projects from "../project/ProjectService.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
+import * as ScheduledTasks from "../scheduledTasks/ScheduledTaskService.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as AccountAvailability from "../provider/AccountAvailability.ts";
@@ -210,6 +211,10 @@ const fixture = Effect.fn("test.championFixture")(() =>
     };
     const childRuns = new Map<ThreadId, OrchestrationV2Run[]>();
     const dispatches: string[] = [];
+    const automations: { tasks: ReadonlyArray<unknown>; fails: boolean } = {
+      tasks: [],
+      fails: false,
+    };
     const scheduled = new Map<string, Effect.Effect<void>>();
     let ownerMode: RuntimeMode = "full-access";
     let providerOverride: ReadonlyArray<ServerProvider> | undefined;
@@ -483,6 +488,12 @@ const fixture = Effect.fn("test.championFixture")(() =>
       Layer.mock(Projects.ProjectService)({
         getById: () => Effect.succeedSome({ id: projectId, workspaceRoot } as Project),
       }),
+      Layer.mock(ScheduledTasks.ScheduledTaskService)({
+        list: () =>
+          automations.fails
+            ? Effect.fail({ message: "unreadable" } as never)
+            : Effect.succeed({ tasks: automations.tasks } as never),
+      }),
       Layer.mock(Scheduler.Scheduler)({
         register: <E, R>(name: string, task: Effect.Effect<void, E, R>) =>
           Effect.gen(function* () {
@@ -503,6 +514,8 @@ const fixture = Effect.fn("test.championFixture")(() =>
       layer: Champions.layer.pipe(Layer.provide(dependencies)),
       dependencies,
       dispatches,
+      /** What the scheduled-task list returns, and whether reading it fails. */
+      automations,
       /** Work registered with the scheduler, by name. */
       scheduled,
       providerAllowed: (instanceId: string, allowed: boolean) => {
@@ -6841,6 +6854,72 @@ describe("escalation threads", () => {
 });
 
 describe("observe and score (T3-928)", () => {
+  const routine = (over: Record<string, unknown>) => ({
+    id: "task-x",
+    title: "Routine",
+    enabled: true,
+    championId: config.id,
+    lastRunAt: null,
+    lastRunStatus: "idle",
+    lastRunError: null,
+    ...over,
+  });
+  it.effect("a goal review lists its enabled linked automations; readings never do", () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        yield* definitions(service);
+        yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
+        f.automations.tasks = [
+          routine({
+            title: "Dead-code sweep",
+            lastRunAt: "2026-11-20T09:00:00.000Z",
+            lastRunStatus: "failed",
+            lastRunError: "boom",
+            lastRunThreadId: "thread-sweep",
+          }),
+          routine({ title: "Never run" }),
+          routine({ title: "Switched off", enabled: false }),
+          routine({ title: "Someone else's", championId: "other" }),
+        ];
+        yield* service.runCheck({ id: config.id });
+        const readings = f.launchRequests.at(-1)!.text;
+        yield* service.report(f.caller(), { samples: [sample], findings: [], summary: "x" });
+        yield* service.runReview({ id: config.id });
+        const review = f.sent.at(-1)!.text;
+        assert.notInclude(readings, "LINKED AUTOMATIONS");
+        assert.include(review, "LINKED AUTOMATIONS");
+        assert.include(review, "t3_thread_read");
+        assert.include(
+          review,
+          "- Dead-code sweep: last run 2026-11-20T09:00:00.000Z failed (boom), thread thread-sweep",
+        );
+        assert.include(review, "- Never run: never run");
+        assert.notInclude(review, "Switched off");
+        assert.notInclude(review, "Someone else's");
+      }),
+    ),
+  );
+  it.effect(
+    "a goal review has no automations section without linked tasks or when the read fails",
+    () =>
+      withFixture((f, service) =>
+        Effect.gen(function* () {
+          yield* definitions(service);
+          yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
+          yield* service.runCheck({ id: config.id });
+          yield* service.report(f.caller(), { samples: [sample], findings: [], summary: "x" });
+          yield* service.runReview({ id: config.id });
+          assert.notInclude(f.sent.at(-1)!.text, "LINKED AUTOMATIONS");
+          f.automations.tasks = [routine({ title: "Linked" })];
+          f.automations.fails = true;
+          yield* service.report(f.caller(), goal(8));
+          yield* service.runReview({ id: config.id });
+          const review = f.sent.at(-1)!.text;
+          assert.include(review, "GOAL REVIEW");
+          assert.notInclude(review, "LINKED AUTOMATIONS");
+        }),
+      ),
+  );
   const goal = (score: number, reasons = "Errors keep breaching.") => ({
     samples: [],
     findings: [],

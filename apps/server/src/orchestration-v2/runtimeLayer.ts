@@ -380,9 +380,11 @@ const layerScheduledTaskProvided = ScheduledTaskService.layer.pipe(
 );
 const layerChampionsProvided = Champions.layer.pipe(
   Layer.provide(
-    Layer.mergeAll(layerThreadLaunchProvided, layerThreadManagementProvided).pipe(
-      Layer.provideMerge(layerProjectService),
-    ),
+    Layer.mergeAll(
+      layerThreadLaunchProvided,
+      layerThreadManagementProvided,
+      layerScheduledTaskProvided,
+    ).pipe(Layer.provideMerge(layerProjectService)),
   ),
 );
 const layerThreadProjectMoveProvided = ThreadProjectMoveService.layer.pipe(
