@@ -224,6 +224,9 @@ export const handlers = {
         ...(input.samples === undefined ? {} : { samples: input.samples }),
         ...(input.findings === undefined ? {} : { findings: input.findings }),
         ...(input.goalScore === undefined ? {} : { goalScore: input.goalScore }),
+        ...(input.learningCandidates === undefined
+          ? {}
+          : { learningCandidates: input.learningCandidates }),
         ...(input.journeys === undefined ? {} : { journeys: input.journeys }),
       });
     }).pipe(Effect.mapError(failure)),

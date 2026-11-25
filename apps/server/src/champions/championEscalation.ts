@@ -1,4 +1,8 @@
-import type { ChampionFinding, OrchestrationV2ThreadChampion } from "@t3tools/contracts";
+import type {
+  ChampionFinding,
+  ChampionReportedLearning,
+  OrchestrationV2ThreadChampion,
+} from "@t3tools/contracts";
 
 /**
  * Champion cases (fork/differences.md `champions`): every finding that needs work gets one escalation
@@ -14,6 +18,11 @@ const STUCK_AFTER_FAILURES = 3;
 export const GOAL_FINDING_SUFFIX = ":goal";
 const isGoalFinding = (finding: { readonly id: string }) =>
   finding.id.endsWith(GOAL_FINDING_SUFFIX);
+
+/** A Champion's one tidy-up finding ends with this; it carries learning candidates no finding owns. */
+export const TIDY_UP_FINDING_SUFFIX = ":tidy-up";
+export const isTidyUpFinding = (finding: { readonly id: string }) =>
+  finding.id.endsWith(TIDY_UP_FINDING_SUFFIX);
 
 export type EscalationFinding = {
   readonly id: string;
@@ -63,11 +72,13 @@ export const classifyFinding = (
         ? "Alarm reached"
         : isGoalFinding(finding)
           ? "Goal score below target"
-          : finding.metricId !== null
-            ? "Metric outside target"
-            : journey
-              ? "Confirmed journey failure"
-              : "New finding",
+          : isTidyUpFinding(finding)
+            ? "Learnings to record"
+            : finding.metricId !== null
+              ? "Metric outside target"
+              : journey
+                ? "Confirmed journey failure"
+                : "New finding",
     resolved: settledStatus(finding),
     ...(finding.alarm === true ? { alarm: true } : {}),
   };
@@ -183,6 +194,18 @@ export const planEscalation = (
 export const CASE_WORKSPACE_RULE =
   "Read and investigate in the project's main checkout without editing it. Only work that changes code allocates a workspace: a SlipJay workspace in the repository that owns the cause";
 
+/** How a case records the learnings its brief lists, by the home each belongs in. */
+const LEARNINGS_TO_RECORD = [
+  "Learnings to record: a goal review reported these. Verify each against the code. Record each one that holds in its canonical home, in the same change as the fix (or as one change when there is no fix), following the learnings map in ~/.agents/references/learnings.md. Delete any Champion copy you promote in the same change. Say what you did with each, including any that did not hold. Homes:",
+  "- decision: a product or architectural rule becomes a Decision proposal.",
+  "- doc: a behaviour or trap goes in the owning doc.",
+  "- glossary: a term goes in the glossary.",
+  "- research: an experiment or R&D outcome goes in the area's research ledger.",
+  "- agents: a tool or harness behaviour goes in ~/.agents, which is plain git: commit and push there directly.",
+  "- champion: a measurement quirk goes in the Champion's own learnings: t3_champions_record_learning for a local Champion, or the repository's .agents/champions/<id>/learnings/ by landing for a repository-hosted one.",
+  "- check: a rule a test or check can enforce becomes that test or check, not prose.",
+].join("\n");
+
 /**
  * The case's brief for its first message, complete enough for a strong agent to diagnose, fix, file a
  * Spec or ask Henry. After that the agent reads live state with the Champion tools.
@@ -234,6 +257,8 @@ export const formatEscalationBrief = (input: {
     | undefined;
   /** Recent runs that counted as failed, newest first; read for a stuck case only. */
   readonly failures?: ReadonlyArray<{ readonly at: string; readonly text: string }> | undefined;
+  /** The learnings the case records: the finding's own, or the candidates a tidy-up finding carries. */
+  readonly learnings?: ReadonlyArray<ChampionReportedLearning> | undefined;
   /** Repair threads the upgrade to observe-only Champions released for this finding (migration 158). */
   readonly releasedRepairThreadIds?: ReadonlyArray<string> | undefined;
 }) => {
@@ -287,8 +312,14 @@ export const formatEscalationBrief = (input: {
         `Only if the user explicitly approves in this chat, resolve it with t3_champions_finding_action (action resolve_decision) and approvalQuote set to their exact words; otherwise leave it for the card.`,
       );
     }
+    if (input.learnings !== undefined && input.learnings.length > 0)
+      lines.push(
+        `${LEARNINGS_TO_RECORD}\n${input.learnings.map((learning, index) => `${index + 1}. [${learning.home}] ${learning.statement} Evidence: ${learning.evidence}`).join("\n")}`,
+      );
     lines.push(
-      `You own this case: diagnose it, fix it, file a Spec, or ask Henry here (an owner wait) when only he can decide. When it is fixed, close the finding with t3_champions_finding_action action verify and the evidence; dismiss it with a reason if it needs no work.`,
+      isTidyUpFinding(finding)
+        ? `You own this case: it only records the learnings above. When each is recorded or found not to hold, close the finding with t3_champions_finding_action action verify and say what you did with each; dismiss it with a reason if none needs recording.`
+        : `You own this case: diagnose it, fix it, file a Spec, or ask Henry here (an owner wait) when only he can decide. When it is fixed, close the finding with t3_champions_finding_action action verify and the evidence; dismiss it with a reason if it needs no work.`,
     );
   }
   lines.push(

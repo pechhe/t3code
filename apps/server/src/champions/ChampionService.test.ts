@@ -42,6 +42,7 @@ import {
   RunId,
   ProviderThreadId,
   type ChampionConfig,
+  type ChampionFinding,
   type ChampionMetricInput,
   type ChampionSampleInput,
   type OrchestrationV2ThreadShell,
@@ -7325,5 +7326,600 @@ describe("observe and score (T3-928)", () => {
         assert.equal(dismissed.findings[0]!.status, "dismissed");
       }),
     ),
+  );
+});
+
+describe("learnings reach their home (T3-937)", () => {
+  const candidate = (n: number, extra: Record<string, unknown> = {}) => ({
+    statement: `Trap ${n}`,
+    evidence: `Seen ${n} times`,
+    home: "doc" as const,
+    ...extra,
+  });
+  const goal = (extra: Record<string, unknown> = {}) => ({
+    samples: [],
+    findings: [],
+    summary: "Angles: reliability, tests.",
+    goalScore: { score: 9, reasons: "Mostly fine.", change: "No change." },
+    ...extra,
+  });
+  const review = Effect.fn("test.learningReview")(function* (
+    f: Effect.Success<ReturnType<typeof fixture>>,
+    service: Champions.ChampionService["Service"],
+    extra: Record<string, unknown> = {},
+  ) {
+    yield* service.runReview({ id: config.id });
+    return yield* service.report(f.caller(), goal(extra) as never);
+  });
+  const activeChampion = Effect.fn("test.learningChampion")(function* (
+    service: Champions.ChampionService["Service"],
+  ) {
+    yield* definitions(service);
+    yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
+  });
+  const stored = Effect.fn("test.storedCandidates")(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    return yield* sql<{ statement: string; carried_by: string | null }>`
+      SELECT statement, carried_by FROM champion_learning_candidates ORDER BY rowid`.pipe(
+      Effect.orDie,
+    );
+  });
+  const tidy = (detail: { readonly findings: ReadonlyArray<ChampionFinding> }) =>
+    detail.findings.find((finding) => finding.id === `${config.id}:tidy-up`);
+  const briefOf = Effect.fn("test.learningBrief")(function* (threadId: string) {
+    const sql = yield* SqlClient.SqlClient;
+    return yield* readEscalationBrief(sql, threadId).pipe(Effect.orDie);
+  });
+  const decodeReport = Schema.decodeUnknownExit(ChampionReportInput);
+  const shellOfCase = Effect.fn("test.learningCaseShell")(function* (threadId: ThreadId) {
+    const sql = yield* SqlClient.SqlClient;
+    const rows = yield* readChampionShellRows(sql, json([threadId])).pipe(Effect.orDie);
+    return withChampions(rows)({ id: threadId } as OrchestrationV2ThreadShell).champion;
+  });
+
+  it.effect(
+    "tells a goal review to read its knowledge home first, and a readings run nothing of it",
+    () =>
+      withFixture((f, service) =>
+        Effect.gen(function* () {
+          yield* activeChampion(service);
+          yield* service.runCheck({ id: config.id });
+          const readings = f.launchRequests.at(-1)!.text;
+          yield* service.report(f.caller(), { samples: [sample], findings: [], summary: "x" });
+          yield* service.runReview({ id: config.id });
+          const text = f.sent.at(-1)!.text;
+          for (const part of [
+            "Before judging, read the area's knowledge home",
+            "Known traps & rejected approaches",
+            "the Decisions that govern it",
+            `t3_champions_learning_search with championId ${config.id}`,
+            "Never raise a known trap or a rejected approach as a new finding",
+            "Nothing new is the normal result",
+            "point-in-time status, counts, changelogs and one-off forensics are never learnings".replace(
+              "point",
+              "Point",
+            ),
+            "LEARNING REVIEW",
+          ])
+            assert.include(text, part);
+          assert.notInclude(text, "durable product or engineering knowledge belongs in");
+          for (const part of ["Known traps", "learningCandidates", "Nothing new", "WHAT YOU LEARN"])
+            assert.notInclude(readings, part);
+        }),
+      ),
+  );
+
+  it.effect(
+    "caps learnings and candidates, checks their fields, and refuses them on a readings run",
+    () =>
+      withFixture((f, service) =>
+        Effect.gen(function* () {
+          const learning = { statement: "A trap", evidence: "Seen", home: "doc" };
+          const finding = (learnings: unknown) => ({ title: "T", evidence: "E", learnings });
+          const accepts = (input: object) =>
+            Exit.isSuccess(decodeReport({ samples: [], findings: [], summary: "s", ...input }));
+          assert.isTrue(accepts({ findings: [finding([learning, learning, learning])] }));
+          assert.isFalse(
+            accepts({ findings: [finding([learning, learning, learning, learning])] }),
+          );
+          assert.isFalse(accepts({ findings: [finding([{ ...learning, statement: "" }])] }));
+          assert.isFalse(accepts({ findings: [finding([{ ...learning, evidence: " " }])] }));
+          assert.isFalse(accepts({ findings: [finding([{ ...learning, home: "wiki" }])] }));
+          assert.isFalse(
+            accepts({ findings: [finding([{ ...learning, statement: "x".repeat(401) }])] }),
+          );
+          for (const home of [
+            "decision",
+            "doc",
+            "glossary",
+            "research",
+            "agents",
+            "champion",
+            "check",
+          ])
+            assert.isTrue(accepts({ learningCandidates: [{ ...learning, home, urgent: true }] }));
+          assert.isFalse(
+            accepts({ learningCandidates: Array.from({ length: 6 }, () => learning) }),
+          );
+          assert.isFalse(accepts({ learningCandidates: [{ ...learning, urgent: "yes" }] }));
+
+          yield* activeChampion(service);
+          yield* service.runCheck({ id: config.id });
+          yield* refusedWith(
+            service.report(f.caller(), {
+              samples: [sample],
+              findings: [],
+              summary: "x",
+              learningCandidates: [candidate(1)],
+            }),
+            "A readings run reports no learnings",
+          );
+          yield* refusedWith(
+            service.report(f.caller(), {
+              samples: [sample],
+              findings: [{ title: "T", evidence: "E", learnings: [learning as never] }],
+              summary: "x",
+            }),
+            "A readings run reports no learnings",
+          );
+          assert.deepEqual(yield* stored(), []);
+        }),
+      ),
+  );
+
+  it.effect("lists a finding's learnings in its case brief, and nothing when it has none", () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        yield* activeChampion(service);
+        const reported = yield* review(f, service, {
+          findings: [
+            {
+              title: "Search is slow",
+              evidence: "Ten seconds.",
+              learnings: [
+                { statement: "The index is rebuilt on boot", evidence: "boot log", home: "doc" },
+                { statement: "Pick lists never page", evidence: "ui test", home: "glossary" },
+              ],
+            },
+            { title: "Checkout fails", evidence: "The button does nothing." },
+          ],
+        });
+        const withLearnings = reported.findings.find((x) => x.title === "Search is slow")!;
+        const without = reported.findings.find((x) => x.title === "Checkout fails")!;
+        assert.lengthOf(withLearnings.learnings ?? [], 2);
+        const brief = yield* briefOf(withLearnings.escalationThreadId!);
+        for (const part of [
+          "Learnings to record",
+          "1. [doc] The index is rebuilt on boot Evidence: boot log",
+          "2. [glossary] Pick lists never page Evidence: ui test",
+          "Verify each against the code",
+          "same change as the fix",
+          "Delete any Champion copy you promote in the same change",
+          "Say what you did with each",
+        ])
+          assert.include(brief, part);
+        assert.notInclude(yield* briefOf(without.escalationThreadId!), "Learnings to record");
+      }),
+    ),
+  );
+
+  it.effect(
+    "batches candidates into one tidy-up finding at three or one urgent, joins it until its case runs, and reopens it for a later batch",
+    () =>
+      withFixture((f, service) =>
+        Effect.gen(function* () {
+          yield* activeChampion(service);
+          const two = yield* review(f, service, {
+            learningCandidates: [candidate(1), candidate(2)],
+          });
+          assert.isUndefined(tidy(two));
+          assert.lengthOf(f.escalationLaunches, 0);
+          const opened = tidy(yield* review(f, service, { learningCandidates: [candidate(3)] }))!;
+          assert.equal(opened.status, "open");
+          assert.lengthOf(f.escalationLaunches, 1);
+          assert.equal(f.escalationLaunches[0]!.threadId, opened.escalationThreadId);
+          const caseThread = opened.escalationThreadId!;
+          const brief = yield* briefOf(caseThread);
+          for (const n of [1, 2, 3])
+            assert.include(brief, `[doc] Trap ${n} Evidence: Seen ${n} times`);
+          assert.deepEqual((yield* shellOfCase(caseThread))?.trigger, "Learnings to record");
+
+          // Joins while its case has not run, with no second finding or case.
+          const joined = yield* review(f, service, { learningCandidates: [candidate(4)] });
+          assert.lengthOf(
+            joined.findings.filter((x) => x.id.endsWith(":tidy-up")),
+            1,
+          );
+          assert.lengthOf(f.escalationLaunches, 1);
+          assert.include(yield* briefOf(caseThread), "4. [doc] Trap 4");
+
+          // Once its case has run, a new candidate waits.
+          f.updateCase(caseThread, { latestRunId: RunId.make("run:case") } as never);
+          yield* review(f, service, { learningCandidates: [candidate(5)] });
+          assert.notInclude(yield* briefOf(caseThread), "Trap 5");
+          assert.deepEqual(
+            (yield* stored()).map((row) => [row.statement, row.carried_by]),
+            [
+              ["Trap 1", opened.id],
+              ["Trap 2", opened.id],
+              ["Trap 3", opened.id],
+              ["Trap 4", opened.id],
+              ["Trap 5", null],
+            ],
+          );
+
+          // Closing it after it ran clears only what it carried.
+          const closed = yield* service.findingAction({
+            id: config.id,
+            findingId: opened.id,
+            action: "verify",
+            reason: "Recorded.",
+          });
+          assert.equal(tidy(closed)!.status, "verified");
+          assert.deepEqual(
+            (yield* stored()).map((row) => [row.statement, row.carried_by]),
+            [["Trap 5", null]],
+          );
+
+          // Two more make three waiting: the same finding reopens with a fresh case.
+          const again = tidy(
+            yield* review(f, service, { learningCandidates: [candidate(6), candidate(7)] }),
+          )!;
+          assert.equal(again.id, opened.id);
+          assert.equal(again.status, "open");
+          // Its first case already took its brief, so the reopened finding gets a fresh one (Attended: idle).
+          assert.lengthOf(f.escalationLaunches, 2);
+          assert.notEqual(again.escalationThreadId, caseThread);
+          assert.equal(f.escalationLaunches[1]!.threadId, again.escalationThreadId);
+          assert.isFalse(f.escalationLaunches[1]!.started);
+          const second = yield* briefOf(again.escalationThreadId!);
+          for (const n of [5, 6, 7]) assert.include(second, `Trap ${n}`);
+          assert.notInclude(second, "Trap 4");
+        }),
+      ),
+  );
+
+  it.effect(
+    "returns the candidates to waiting when a tidy-up case closes before it ran, and dismiss after it ran clears them",
+    () =>
+      withFixture((f, service) =>
+        Effect.gen(function* () {
+          yield* activeChampion(service);
+          const opened = tidy(
+            yield* review(f, service, {
+              learningCandidates: [candidate(1), candidate(2), candidate(3)],
+            }),
+          )!;
+          const early = yield* service.findingAction({
+            id: config.id,
+            findingId: opened.id,
+            action: "dismiss",
+            reason: "Not now.",
+          });
+          assert.equal(tidy(early)!.status, "dismissed");
+          assert.deepEqual(
+            (yield* stored()).map((row) => row.carried_by),
+            [null, null, null],
+          );
+          // The next review finds three waiting and reopens the same finding.
+          const reopened = tidy(yield* review(f, service))!;
+          assert.equal(reopened.id, opened.id);
+          assert.equal(reopened.status, "open");
+          f.updateCase(reopened.escalationThreadId!, {
+            latestRunId: RunId.make("run:case"),
+          } as never);
+          yield* service.findingAction({
+            id: config.id,
+            findingId: opened.id,
+            action: "dismiss",
+            reason: "None hold.",
+          });
+          assert.deepEqual(yield* stored(), []);
+        }),
+      ),
+  );
+
+  it.effect("starts a fresh tidy-up case while Away when a closed one that ran is reopened", () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        yield* activeChampion(service);
+        yield* f.settings.setAway(true).pipe(Effect.orDie);
+        const first = tidy(
+          yield* review(f, service, {
+            learningCandidates: [candidate(1), candidate(2), candidate(3)],
+          }),
+        )!;
+        assert.isTrue(f.escalationLaunches[0]!.started);
+        yield* service.findingAction({
+          id: config.id,
+          findingId: first.id,
+          action: "verify",
+          reason: "Recorded.",
+        });
+        const again = tidy(
+          yield* review(f, service, {
+            learningCandidates: [candidate(4), candidate(5), candidate(6)],
+          }),
+        )!;
+        assert.equal(again.id, first.id);
+        assert.notEqual(again.escalationThreadId, first.escalationThreadId);
+        assert.lengthOf(f.escalationLaunches, 2);
+        assert.isTrue(f.escalationLaunches[1]!.started);
+        assert.equal(f.escalationLaunches[1]!.threadId, again.escalationThreadId);
+        const brief = yield* briefOf(again.escalationThreadId!);
+        for (const n of [4, 5, 6]) assert.include(brief, `Trap ${n}`);
+        assert.notInclude(brief, "Trap 1");
+      }),
+    ),
+  );
+
+  it.effect("lets a candidate join only while its case has no message and no run", () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        yield* activeChampion(service);
+        const opened = tidy(
+          yield* review(f, service, {
+            learningCandidates: [candidate(1), candidate(2), candidate(3)],
+          }),
+        )!;
+        // The first message exists but its run row does not yet.
+        f.addMessage(opened.escalationThreadId as ThreadId, "Start this case.");
+        yield* review(f, service, { learningCandidates: [candidate(4)] });
+        assert.notInclude(yield* briefOf(opened.escalationThreadId!), "Trap 4");
+        assert.deepEqual(
+          (yield* stored()).map((row) => row.carried_by),
+          [opened.id, opened.id, opened.id, null],
+        );
+      }),
+    ),
+  );
+
+  it.effect(
+    "turns learnings added to a finding whose case already took its brief into waiting candidates",
+    () =>
+      withFixture((f, service) =>
+        Effect.gen(function* () {
+          yield* activeChampion(service);
+          const learning = (statement: string) => ({
+            statement,
+            evidence: "Seen",
+            home: "doc" as const,
+          });
+          const raised = yield* review(f, service, {
+            findings: [
+              { title: "Search is slow", evidence: "Ten seconds." },
+              { title: "Checkout fails", evidence: "The button does nothing." },
+            ],
+          });
+          const ran = raised.findings.find((x) => x.title === "Search is slow")!;
+          const idle = raised.findings.find((x) => x.title === "Checkout fails")!;
+          f.updateCase(
+            ran.escalationThreadId as ThreadId,
+            { latestRunId: RunId.make("run:case") } as never,
+          );
+          const next = yield* review(f, service, {
+            findings: [
+              {
+                existingFindingId: ran.id,
+                title: ran.title,
+                evidence: "Still",
+                learnings: [learning("Late one")],
+              },
+              {
+                existingFindingId: idle.id,
+                title: idle.title,
+                evidence: "Still",
+                learnings: [learning("Early one")],
+              },
+            ],
+          });
+          assert.isUndefined(next.findings.find((x) => x.id === ran.id)!.learnings);
+          assert.deepEqual(next.findings.find((x) => x.id === idle.id)!.learnings, [
+            learning("Early one"),
+          ]);
+          assert.deepEqual(
+            (yield* stored()).map((row) => [row.statement, row.carried_by]),
+            [["Late one", null]],
+          );
+          assert.notInclude(yield* briefOf(ran.escalationThreadId!), "Late one");
+          assert.include(yield* briefOf(idle.escalationThreadId!), "Early one");
+          // Two more reach three waiting and the tidy-up case delivers all of them.
+          const tidied = tidy(
+            yield* review(f, service, { learningCandidates: [candidate(1), candidate(2)] }),
+          )!;
+          assert.include(yield* briefOf(tidied.escalationThreadId!), "Late one");
+        }),
+      ),
+  );
+
+  it.effect(
+    "counts only waiting candidates toward the cap of 20 and tells the review what it dropped",
+    () =>
+      withFixture((f, service) =>
+        Effect.gen(function* () {
+          yield* activeChampion(service);
+          const opened = tidy(
+            yield* review(f, service, {
+              learningCandidates: [candidate(1), candidate(2), candidate(3)],
+            }),
+          )!;
+          f.updateCase(
+            opened.escalationThreadId as ThreadId,
+            {
+              latestRunId: RunId.make("run:case"),
+            } as never,
+          );
+          for (let batch = 0; batch < 4; batch += 1)
+            yield* review(f, service, {
+              learningCandidates: Array.from({ length: 5 }, (_, n) =>
+                candidate(10 + batch * 5 + n),
+              ),
+            });
+          const rows = yield* stored();
+          // Three carried plus twenty waiting: the carried ones do not count.
+          assert.lengthOf(rows, 23);
+          assert.isFalse(
+            (yield* service.get({ id: config.id })).champion.attention.some((line) =>
+              line.startsWith("Review dropped"),
+            ),
+          );
+          const full = yield* review(f, service, {
+            learningCandidates: [candidate(90), candidate(91)],
+          });
+          assert.lengthOf(yield* stored(), 23);
+          assert.isTrue(
+            full.champion.attention.includes(
+              "Review dropped 2 learning candidates: 20 already wait to be recorded.",
+            ),
+          );
+          // The next review that drops nothing clears the note.
+          const quiet = yield* review(f, service);
+          assert.isFalse(
+            quiet.champion.attention.some((line) => line.startsWith("Review dropped")),
+          );
+        }),
+      ),
+  );
+
+  it.effect("returns carried candidates to waiting when retiring closes the tidy-up finding", () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        yield* activeChampion(service);
+        yield* review(f, service, {
+          learningCandidates: [candidate(1), candidate(2), candidate(3)],
+        });
+        yield* service.setLifecycle({ id: config.id, lifecycle: "retired" });
+        assert.deepEqual(
+          (yield* stored()).map((row) => row.carried_by),
+          [null, null, null],
+        );
+      }),
+    ),
+  );
+
+  it.effect(
+    "opens the tidy-up finding at once for an urgent candidate, even at the open-findings limit",
+    () =>
+      withFixture((f, service) =>
+        Effect.gen(function* () {
+          yield* activeChampion(service);
+          const full = yield* review(f, service, {
+            findings: Array.from({ length: 12 }, (_, n) => ({
+              title: `Weakness number ${n}`,
+              evidence: "Weak.",
+            })),
+          });
+          assert.equal(full.findings.filter((x) => x.status === "open").length, 10);
+          const urgent = tidy(
+            yield* review(f, service, { learningCandidates: [candidate(1, { urgent: true })] }),
+          )!;
+          assert.equal(urgent.status, "open");
+          assert.equal(urgent.escalationThreadId, f.escalationLaunches.at(-1)!.threadId);
+          assert.include(yield* briefOf(urgent.escalationThreadId!), "Trap 1");
+        }),
+      ),
+  );
+
+  it.effect("opens a third waiting candidate's tidy-up finding at the open-findings limit", () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        yield* activeChampion(service);
+        yield* review(f, service, {
+          findings: Array.from({ length: 12 }, (_, n) => ({
+            title: `Weakness number ${n}`,
+            evidence: "Weak.",
+          })),
+        });
+        yield* review(f, service, { learningCandidates: [candidate(1), candidate(2)] });
+        const third = tidy(yield* review(f, service, { learningCandidates: [candidate(3)] }))!;
+        assert.equal(third.status, "open");
+        const brief = yield* briefOf(third.escalationThreadId!);
+        for (const n of [1, 2, 3]) assert.include(brief, `Trap ${n}`);
+      }),
+    ),
+  );
+
+  it.effect(
+    "starts the tidy-up case at once while Away, with the workspace rule and every learnings route",
+    () =>
+      withFixture((f, service) =>
+        Effect.gen(function* () {
+          yield* activeChampion(service);
+          const attended = tidy(
+            yield* review(f, service, {
+              learningCandidates: [candidate(1), candidate(2), candidate(3)],
+            }),
+          )!;
+          assert.isFalse(f.escalationLaunches[0]!.started);
+          yield* f.settings.setAway(true).pipe(Effect.orDie);
+          yield* service.runDue;
+          assert.equal(
+            f.sent.filter((message) => message.threadId === attended.escalationThreadId).length,
+            1,
+          );
+          const brief = yield* briefOf(attended.escalationThreadId!);
+          for (const part of [
+            CASE_WORKSPACE_RULE,
+            "decision: a product or architectural rule becomes a Decision proposal",
+            "agents: a tool or harness behaviour goes in ~/.agents, which is plain git",
+            `.agents/champions/<id>/learnings/ by landing`,
+            "check: a rule a test or check can enforce",
+            "~/.agents/references/learnings.md",
+          ])
+            assert.include(brief, part);
+        }),
+      ),
+  );
+
+  it.effect("starts a tidy-up case opened while Away in its launch", () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        yield* activeChampion(service);
+        yield* f.settings.setAway(true).pipe(Effect.orDie);
+        yield* review(f, service, {
+          learningCandidates: [candidate(1), candidate(2), candidate(3)],
+        });
+        assert.isTrue(f.escalationLaunches.at(-1)!.started);
+      }),
+    ),
+  );
+
+  it.effect(
+    "keeps a hosted Champion's candidates through a folder re-import and batches them",
+    () =>
+      withFolders((f, service, world) =>
+        Effect.gen(function* () {
+          const files = folderFiles({});
+          world.push({
+            ...files,
+            [`${FOLDER}/champion.md`]: files[`${FOLDER}/champion.md`]!.replace(
+              /lifecycle: \w+/,
+              "lifecycle: active",
+            ),
+          });
+          yield* service.syncFolders;
+          assert.isDefined((yield* service.get({ id: config.id })).champion.folder);
+          yield* review(f, service, { learningCandidates: [candidate(1), candidate(2)] });
+          assert.lengthOf(yield* stored(), 2);
+          // The folder changes and is read again.
+          world.push({ [`${FOLDER}/notes.md`]: "Edited notes.\n" });
+          yield* service.syncFolders;
+          yield* service.syncFolders;
+          assert.deepEqual(
+            (yield* stored()).map((row) => [row.statement, row.carried_by]),
+            [
+              ["Trap 1", null],
+              ["Trap 2", null],
+            ],
+          );
+          assert.isUndefined(tidy(yield* service.get({ id: config.id })));
+          const opened = tidy(yield* review(f, service, { learningCandidates: [candidate(3)] }))!;
+          assert.equal(opened.status, "open");
+          const brief = yield* briefOf(opened.escalationThreadId!);
+          for (const n of [1, 2, 3]) assert.include(brief, `Trap ${n}`);
+          yield* service.syncFolders;
+          assert.lengthOf(yield* stored(), 3);
+        }),
+      ),
   );
 });

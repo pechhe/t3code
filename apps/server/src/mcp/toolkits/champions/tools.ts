@@ -60,7 +60,7 @@ const shared = {
 const models = Tool.make("t3_champions_models", {
   ...shared,
   description:
-    "Read or set this machine's Champion models, the ones every Champion runs on unless it has its own. checks is the model for readings; advice is the model for goal reviews and metric setup, and the fallback for cases. Each is a model with an optional backup that takes over when the model hits a usage limit and cannot move to another pooled account. Omit checks and advice to read; pass either to replace that slot as a whole, model and backup (a slot you leave out stays as it is). A Champion's own main model is set with models on t3_champions_upsert; the default's backup still applies. Returns the models now in force.",
+    "Read or set this machine's Champion models, the ones every Champion runs on unless it has its own. checks is the model for readings; advice is the model for goal reviews and metric setup, and the fallback for cases. Each is a model with an optional backup for when it hits a usage limit and no pooled account can take over. Omit checks and advice to read; pass either to replace that slot as a whole, model and backup (a slot you leave out stays as it is). A Champion's own main model is set by models on t3_champions_upsert. Returns the models now in force.",
   parameters: Schema.Struct({
     ...ChampionSetModelsInput.fields,
     environmentId: OrchestratorMcpEnvironmentTarget,
@@ -122,12 +122,13 @@ const metrics = Tool.make("t3_champions_metrics", {
 const report = Tool.make("t3_champions_report", {
   ...shared,
   description:
-    "Complete your readings run or goal review. Readings: use the frozen metric methods from t3_champions_check_context; copy metricId, version, unit and source verbatim, never paraphrase source; put execution commands, paths and collection details in evidence; failed collection uses value null and status error, never a fabricated value. Include every required metric it lists once; server-collected metrics are not listed and reporting one is refused. A goal review sends no samples and must send goalScore (score 0-10 for the whole goal, reasons it is not higher, change since the previous score citing readings); a readings run's goalScore is refused. Each new finding opens a case for an agent to work; supply existingFindingId to update an open one. Server derives identity and provenance. On a setup run, a summary alone completes it.",
+    "Complete your readings run or goal review. Readings: use the frozen methods from t3_champions_check_context; copy metricId, version, unit and source verbatim; put commands, paths and collection details in evidence; failed collection is value null, status error, never invented. Include every required metric it lists once; server-collected ones are refused. A goal review sends no samples and must send goalScore (0-10 for the whole goal, reasons it is not higher, change since the previous score citing readings), and may add at most 3 learnings per finding and learningCandidates (statement, evidence, home) for learnings no finding owns; a readings run's goalScore, learnings and candidates are refused. Each new finding opens a case; supply existingFindingId to update an open one. A setup run's summary alone completes it.",
   parameters: Schema.Struct({
     samples: Schema.optional(ChampionReportInput.fields.samples),
     findings: Schema.optional(ChampionReportInput.fields.findings),
     summary: Schema.optional(ChampionReportInput.fields.summary),
     goalScore: ChampionReportInput.fields.goalScore,
+    learningCandidates: ChampionReportInput.fields.learningCandidates,
     journeys: Schema.optional(ChampionReportInput.fields.journeys),
   }),
   success: ChampionDetail,
@@ -138,7 +139,7 @@ const report = Tool.make("t3_champions_report", {
 const learning_search = Tool.make("t3_champions_learning_search", {
   ...shared,
   description:
-    "Search what Champions have learned before working in an area one covers: words match each learning's plain sentence, question and conclusion, ranked by relevance then recency. Omit projectId to search every Champion; name a linked environment with environmentId to search its Champions. Filters: due (review date passed), contributed (from other agents), needs-review. action topics lists the topics Champions hold learnings on instead. action query is the Champion owner's scoped lookup by exact topic, which retains a retrieval receipt a plain search never writes; it returns at most 20, and a linked environment may not use it.",
+    "Search what Champions have learned before working in an area one covers: words match each learning's plain sentence, question and conclusion, ranked by relevance then recency. Omit projectId to search every Champion; environmentId names a linked environment. Filters: due (review date passed), contributed (from other agents), needs-review. action topics lists the topics Champions hold learnings on instead. action query is the Champion owner's scoped lookup by exact topic, which retains a retrieval receipt a plain search never writes; at most 20, not for a linked environment.",
   parameters: Schema.Struct({
     action: Schema.optional(Schema.Literals(["search", "topics", "query"])),
     ...ChampionLearningSearchInput.fields,
@@ -162,7 +163,7 @@ const learning_search = Tool.make("t3_champions_learning_search", {
 const record_learning = Tool.make("t3_champions_record_learning", {
   ...shared,
   description:
-    "Retain an immutable learning revision. As the authenticated Champion owner (the calling thread is that Champion's owner), include failed attempts, dated evidence, applicability and review conditions; leaves return evidence to their owner. As an orchestrating thread that is not that Champion, record what you learned in an area a Champion covers; name its environment with environmentId when it runs elsewhere. Same content and rules either way: plainSummary first, dated evidence, failed or inconclusive attempts, and a review condition. A contribution counts at once, marked as contributed by you; the Champion confirms or supersedes it on its next check. id is the existing Champion's id (championId in a learning search result), never a new one; a new learning takes a fresh learningId and expectedCurrentId null.",
+    "Retain an immutable learning revision. As the authenticated Champion owner include plainSummary first, dated evidence, failed attempts, applicability and review conditions. As an orchestrating thread that is not that Champion, record what you learned in an area a Champion covers; name its environment with environmentId when it runs elsewhere. A contribution counts at once, marked as contributed by you; the Champion confirms or supersedes it on its next check. id is the existing Champion's id (championId in a learning search result), never a new one; a new learning takes a fresh learningId and expectedCurrentId null.",
   parameters: Schema.Struct({
     ...ChampionLearningRecordInput.fields,
     environmentId: Schema.optional(
@@ -183,7 +184,7 @@ const record_learning = Tool.make("t3_champions_record_learning", {
 const confirm_learning = Tool.make("t3_champions_confirm_learning", {
   ...shared,
   description:
-    "As the authenticated Champion owner, confirm a learning another agent contributed (action confirm: learningId, revisionId and a note) after checking it. It records a confirmation on that revision and makes no new revision. To disagree, supersede it with t3_champions_record_learning and a reason instead. action note adds the plain sentence to a current learning recorded without one: one sentence someone outside engineering understands, saying what was learned; revision, conclusion and retrieval receipts stay as they are.",
+    "As the authenticated Champion owner, confirm a learning another agent contributed (action confirm: learningId, revisionId and a note) after checking it. It records a confirmation and makes no new revision. To disagree, supersede it with t3_champions_record_learning and a reason instead. action note adds the plain sentence to a current learning recorded without one: one sentence someone outside engineering understands, saying what was learned; nothing else changes.",
   parameters: Schema.Struct({
     action: Schema.Literals(["confirm", "note"]),
     id: Schema.optional(ChampionLearningConfirmInput.fields.id),
@@ -210,7 +211,7 @@ const measurement = Tool.make("t3_champions_measurement", {
 const finding_action = Tool.make("t3_champions_finding_action", {
   ...shared,
   description:
-    "Close, reopen or answer on a finding, as the agent working its case or for the user. verify closes a finding confirmed fixed and dismiss one that needs no work, each with the evidence as reason; reopen opens it again with a fresh case. To answer a decision requested before cases replaced decision requests (action resolve_decision), pass decisionId, the answer as reason, and approvalQuote: the user's exact words, copied from a message they typed in this thread; without one it is refused and the decision keeps waiting on its card. A readings run or goal review only observes and may not use this tool; decision, diagnosis, reroute and spec are refused, and the case flow does that work.",
+    "Close, reopen or answer on a finding, as the agent working its case or for the user. verify closes a finding confirmed fixed and dismiss one that needs no work, each with the evidence as reason; reopen opens it again with a fresh case. To answer a decision requested before cases replaced decision requests (action resolve_decision), pass decisionId, the answer as reason, and approvalQuote: the user's exact words, copied from a message they typed in this thread; without one it is refused and the decision keeps waiting on its card. A readings run or goal review only observes and may not use this tool; the case flow does that work.",
   parameters: Schema.Struct({
     action: Schema.Literals([
       "dismiss",
@@ -249,7 +250,7 @@ const learning_read = Tool.make("t3_champions_learning_read", {
 const list = Tool.make("t3_champions_list", {
   ...shared,
   description:
-    "Read compact Champion summaries from here and every linked environment, stamped with environmentId and environmentLabel. environments reports unreachable peers without failing the call. There is no paging: every summary is returned once. Omits charter, samples and execution configuration; use t3_champions_get with id (and environmentId for a peer) for full configuration and latest samples. projectId filters this environment only. Set environmentId to read just that environment.",
+    "Read compact Champion summaries from here and every linked environment, stamped with environmentId and environmentLabel. environments lists unreachable peers. Omits charter, samples and execution configuration: use t3_champions_get with id (and environmentId for a peer). projectId filters this environment only. Set environmentId to read just that environment.",
   parameters: Schema.Struct({
     ...ChampionListInput.fields,
     environmentId: Schema.optional(EnvironmentId),
@@ -272,7 +273,7 @@ const history = Tool.make("t3_champions_history", {
 const upsert = Tool.make("t3_champions_upsert", {
   ...shared,
   description:
-    "Create a paused champion draft or edit its name, purpose, readings schedule, charter, goal review and own models (models.checks for its readings, models.advice for its goal reviews and metric setup; each is a main model that replaces the machine default, which keeps its backup; omit models to keep what it has, pass models {} to clear both and follow the defaults). goalReview sets the review's schedule (default weekly on Mondays at a time spread apart from other Champions, in UTC) and its score target (default 7).",
+    "Create a paused champion draft or edit its name, purpose, readings schedule, charter, goal review and own models (models.checks for its readings, models.advice for its goal reviews and metric setup; each replaces the machine default, which keeps its backup; omit models to keep them, pass {} to clear both). goalReview sets the review's schedule (default weekly on Mondays at a time spread apart from other Champions, in UTC) and its score target (default 7).",
   parameters: Schema.Struct({
     ...ChampionUpsertInput.fields,
     environmentId: OrchestratorMcpEnvironmentTarget,

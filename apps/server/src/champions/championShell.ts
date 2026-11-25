@@ -1,5 +1,6 @@
 import type {
   ChampionFinding,
+  ChampionReportedLearning,
   ChampionSummary,
   OrchestrationV2ThreadShell,
 } from "@t3tools/contracts";
@@ -12,6 +13,7 @@ import {
   NOT_SAVED_PREFIX,
   escalationShells,
   formatEscalationBrief,
+  isTidyUpFinding,
   stuckState,
   type EscalationDocument,
   type EscalationFinding,
@@ -257,8 +259,23 @@ export const readEscalationBrief = Effect.fn("Champions.readEscalationBrief")(fu
             AND json_extract(document_json, '$.kind') = 'repair-released'
             AND json_extract(document_json, '$.findingId') = ${finding.id}
             AND json_extract(document_json, '$.threadId') IS NOT NULL`).map((row) => row.thread_id);
+  // A tidy-up finding's learnings are the candidates it carries; any other finding carries its own.
+  const learnings =
+    finding === undefined
+      ? undefined
+      : isTidyUpFinding(finding)
+        ? yield* sql<{
+            statement: string;
+            evidence: string;
+            home: ChampionReportedLearning["home"];
+          }>`
+            SELECT statement, evidence, home FROM champion_learning_candidates
+            WHERE champion_id = ${doc.champion.id} AND carried_by = ${finding.id}
+            ORDER BY rowid`
+        : finding.learnings;
   return formatEscalationBrief({
     champion: doc.champion,
+    learnings,
     shell,
     finding,
     attention: doc.champion.attention,

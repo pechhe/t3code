@@ -277,6 +277,31 @@ const ChampionFindingStatus = Schema.String.check(
     encode: SchemaGetter.transform((status) => status),
   }),
 );
+/** The kinds of home a learning belongs in, as `~/.agents/references/learnings.md` maps them. */
+export const ChampionLearningHome = Schema.Literals([
+  "decision",
+  "doc",
+  "glossary",
+  "research",
+  "agents",
+  "champion",
+  "check",
+]);
+export type ChampionLearningHome = typeof ChampionLearningHome.Type;
+/** What a goal review reports it learned; the case agent verifies it and records it in its home. */
+export const ChampionReportedLearning = Schema.Struct({
+  statement: TrimmedNonEmptyString.check(Schema.isMaxLength(400)),
+  evidence: TrimmedNonEmptyString.check(Schema.isMaxLength(600)),
+  home: ChampionLearningHome,
+});
+export type ChampionReportedLearning = typeof ChampionReportedLearning.Type;
+/** A learning that belongs to no finding; waiting candidates batch into one tidy-up case. */
+export const ChampionLearningCandidateInput = Schema.Struct({
+  ...ChampionReportedLearning.fields,
+  urgent: Schema.optional(Schema.Boolean),
+});
+export type ChampionLearningCandidateInput = typeof ChampionLearningCandidateInput.Type;
+
 export const ChampionFinding = Schema.Struct({
   id: ChampionLabel,
   metricId: Schema.NullOr(Schema.String),
@@ -304,6 +329,8 @@ export const ChampionFinding = Schema.Struct({
   /** When this occurrence opened, and when a check last confirmed it. */
   firstSeenAt: Schema.optional(IsoDateTime),
   lastConfirmedAt: Schema.optional(IsoDateTime),
+  /** Learnings the review reported with this finding; its case brief lists them. */
+  learnings: Schema.optional(Schema.Array(ChampionReportedLearning).check(Schema.isMaxLength(3))),
   /** The Inbox thread working this finding: its case. */
   escalationThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   revision: Schema.NullOr(Schema.String),
@@ -459,8 +486,15 @@ export const ChampionReportInput = Schema.Struct({
       existingFindingId: Schema.optional(Schema.String),
       title: ChampionLabel,
       evidence: ChampionText,
+      learnings: Schema.optional(
+        Schema.Array(ChampionReportedLearning).check(Schema.isMaxLength(3)),
+      ),
     }),
   ).check(Schema.isMaxLength(20)),
+  /** A goal review's learnings that belong to no finding; refused on a readings run. */
+  learningCandidates: Schema.optional(
+    Schema.Array(ChampionLearningCandidateInput).check(Schema.isMaxLength(5)),
+  ),
   summary: ChampionText,
   /** A goal review's score, required on a review and refused on a readings run. */
   goalScore: Schema.optional(

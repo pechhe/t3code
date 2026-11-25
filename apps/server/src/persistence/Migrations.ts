@@ -171,6 +171,7 @@ import Migration0155 from "./Migrations/155_WorkspaceCustodyActiveIndex.ts";
 import Migration0156 from "./Migrations/156_BlackholeMemory.ts";
 import Migration0157 from "./Migrations/157_ScheduledTaskChampion.ts";
 import Migration0158 from "./Migrations/158_ChampionsObserveOnly.ts";
+import Migration0159 from "./Migrations/159_ChampionLearningCandidates.ts";
 
 const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -332,6 +333,7 @@ const migrationEntries = [
   [156, "BlackholeMemory", Migration0156],
   [157, "ScheduledTaskChampion", Migration0157],
   [158, "ChampionsObserveOnly", Migration0158],
+  [159, "ChampionLearningCandidates", Migration0159],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

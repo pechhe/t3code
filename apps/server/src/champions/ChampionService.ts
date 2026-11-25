@@ -105,6 +105,7 @@ import {
   ChampionLearningRevision,
   EnvironmentId,
   ProjectId,
+  type ChampionLearningCandidateInput,
 } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -198,6 +199,7 @@ const missingReportReminder = (check: Pick<Check, "id" | "kind">) =>
 /** The one refusal every removed repair action gives a check, review or setup thread. */
 export const CASE_FLOW_REFUSAL =
   "Champion readings and goal reviews only observe and score: they never delegate repairs or advice, record a diagnosis or route, file a Spec, start an investigation, request a decision or hand a finding on. Report it as a finding with t3_champions_report; the server opens a case for it in Henry's Inbox, where an agent diagnoses, fixes, files a Spec or asks Henry.";
+const tidyUpFindingId = (championId: string) => `${championId}${Escalation.TIDY_UP_FINDING_SUFFIX}`;
 const goalFindingId = (championId: string) => `${championId}${Escalation.GOAL_FINDING_SUFFIX}`;
 /** The default review: weekly on Mondays at the Champion's spread time, in UTC like every schedule. */
 const reviewScheduleOf = (
@@ -364,6 +366,9 @@ const outside = (metric: ChampionMetricInput, value: number) =>
 const settled = (finding: ChampionFinding) =>
   finding.status === "verified" || finding.status === "dismissed";
 const MAX_OPEN_FINDINGS = 10;
+/** Waiting learning candidates that open a Champion's tidy-up finding, and the most a Champion keeps. */
+const TIDY_UP_AT = 3;
+const MAX_LEARNING_CANDIDATES = 20;
 const sameDefinition = (a: ChampionMetricInput, b: ChampionMetricInput) =>
   JSON.stringify(metricInputOf(a)) === JSON.stringify(metricInputOf(b));
 const sameSeries = (a: ChampionMetricInput, b: ChampionMetricInput) =>
@@ -489,8 +494,9 @@ export class ChampionService extends Context.Service<
         readonly summary: string;
         readonly samples?: ChampionReportInput["samples"];
         readonly findings?: ChampionReportInput["findings"];
-        readonly journeys?: ChampionReportInput["journeys"];
         readonly goalScore?: ChampionReportInput["goalScore"];
+        readonly learningCandidates?: ChampionReportInput["learningCandidates"];
+        readonly journeys?: ChampionReportInput["journeys"];
       },
     ) => Effect.Effect<ChampionDetail, ChampionError>;
     readonly journeysStart: (caller: Caller) => Effect.Effect<ChampionJourneyPlan, ChampionError>;
@@ -730,6 +736,15 @@ const make = Effect.gen(function* () {
     };
     const latestSamples = presentLatest(doc, yield* now);
     const batch = yield* ChangeBatch;
+    // A tidy-up finding closed any way but its case's verify or dismiss hands its candidates back.
+    const tidyId = tidyUpFindingId(doc.champion.id);
+    if (
+      input.findings.some(
+        (f) => f.id === tidyId && !["verified", "dismissed"].includes(f.status),
+      ) &&
+      doc.findings.some((f) => f.id === tidyId && ["verified", "dismissed"].includes(f.status))
+    )
+      yield* releaseCandidates(tidyId, false);
     const priorRows = yield* sql<{
       document_json: string;
     }>`SELECT document_json FROM champions WHERE id = ${doc.champion.id}`.pipe(
@@ -1367,9 +1382,10 @@ const make = Effect.gen(function* () {
       CHAMPION_MODELS_GUIDANCE,
       hostedGuidance(doc.champion),
       OBSERVE_ONLY_RULES,
-      `GOAL REVIEW (claim ${check.id}): attack the goal. You do not measure: readings are taken separately, so read them with t3_champions_get and their trends with t3_champions_history. Name the angles you considered (for example reliability, performance, security, tests, user experience, docs and operations, as they apply to this goal) and, for each, read the relevant code and docs in the project's main checkout and its recent changes, as well as the readings. Look for what is weak, untested, fragile or could be better, not just for breaches.`,
+      `GOAL REVIEW (claim ${check.id}): attack the goal. You do not measure: readings are taken separately, so read them with t3_champions_get and their trends with t3_champions_history. Name the angles you considered (for example reliability, performance, security, tests, user experience, docs and operations, as they apply to this goal) and, for each, read the relevant code and docs in the project's main checkout and its recent changes, as well as the readings. Before judging, read the area's knowledge home: the repository's AGENTS.md area map row for this goal and the docs it names, including their \`## Known traps & rejected approaches\`; the Decisions that govern it; and this champion's own learnings (t3_champions_learning_search with championId ${doc.champion.id}). Never raise a known trap or a rejected approach as a new finding. Look for what is weak, untested, fragile or could be better, not just for breaches.`,
       `Then call t3_champions_report with goalScore: score, a whole number from 0 to 10 for how well the area meets the whole goal, covering both keeping things working and improving them; reasons, the main reasons the score is not higher; change, what changed since the previous score, citing readings. Add a finding for each weakness or opportunity that needs work (it opens a case), samples: [], and a summary that opens with the angles you considered. Previous score: ${doc.champion.goalScore === undefined ? "none yet" : `${doc.champion.goalScore.score}/10 at ${doc.champion.goalScore.at}: ${doc.champion.goalScore.reasons}`}. Target: ${goalTargetOf(doc.champion)}; a score below it opens the goal finding.`,
-      `LEARNING REVIEW: call t3_champions_learning_search with championId ${doc.champion.id} and filter needs-review. For each learning another agent contributed, check it: confirm it with t3_champions_confirm_learning, or supersede it with t3_champions_record_learning (expectedCurrentId its revision) and a reason. Give each learning with no plain sentence one with t3_champions_confirm_learning action note. Keep this champion's learnings short and operational (at most about 15 notes on measurement quirks, false positives or run mechanics); durable product or engineering knowledge belongs in the repository's docs, Decisions, AGENTS.md or tests.`,
+      `LEARNING REVIEW: call t3_champions_learning_search with championId ${doc.champion.id} and filter needs-review. For each learning another agent contributed, check it: confirm it with t3_champions_confirm_learning, or supersede it with t3_champions_record_learning (expectedCurrentId its revision) and a reason. Give each learning with no plain sentence one with t3_champions_confirm_learning action note. Keep this champion's learnings short and operational (at most about 15 notes on measurement quirks, false positives or run mechanics).`,
+      `WHAT YOU LEARN: a review writes no knowledge home, so report what the next agent needs in your report. Put up to three learnings on the finding they came from, or, when they belong to no finding, in learningCandidates (urgent true only for a trap that can cause harm now). Each is a short statement, its evidence and its home: decision (a product or architectural rule), doc (a behaviour or trap for the owning doc), glossary (a term), research (an experiment or R&D outcome), agents (a tool or harness behaviour in ~/.agents), champion (a measurement quirk) or check (a rule a test or check can enforce). Nothing new is the normal result: report no learnings when there are none. Point-in-time status, counts, changelogs and one-off forensics are never learnings.`,
       "Work for genuine improvement, not metric gaming or rule compliance; you may challenge existing designs. Never fabricate baselines, report stale readings as healthy, or disguise a source change as improvement.",
       `When a metric cannot show progress, change it with t3_champions_metrics action submit. ${METRIC_RULE}`,
       openFindingsLine(doc),
@@ -2241,8 +2257,11 @@ const make = Effect.gen(function* () {
       samples: input.samples ?? [],
       findings: input.findings ?? [],
       summary: input.summary,
-      ...(input.journeys === undefined ? {} : { journeys: input.journeys }),
       ...(input.goalScore === undefined ? {} : { goalScore: input.goalScore }),
+      ...(input.learningCandidates === undefined
+        ? {}
+        : { learningCandidates: input.learningCandidates }),
+      ...(input.journeys === undefined ? {} : { journeys: input.journeys }),
     });
   });
   const cancelSetup: ChampionService["Service"]["cancelSetup"] = Effect.fn(
@@ -2350,6 +2369,105 @@ const make = Effect.gen(function* () {
       Effect.map((shell) => shell !== null && shell.latestRunId != null),
       Effect.orElseSucceed(() => true),
     );
+  });
+  /**
+   * Whether a case can still take its brief: it exists, has no run and no user message. The brief is read
+   * at its first turn's start, before that turn's run row exists, so a message alone closes the window.
+   * A case that can't be read counts as touched.
+   */
+  const caseUntouched = Effect.fn("ChampionService.caseUntouched")(function* (
+    finding: ChampionFinding,
+  ) {
+    if (finding.escalationThreadId == null) return false;
+    const threadId = finding.escalationThreadId;
+    return yield* Effect.gen(function* () {
+      const shell = yield* threads.getThreadShell(threadId);
+      if (shell === null || shell.latestRunId != null) return false;
+      const { messages } = yield* threads.getThreadRecords(threadId, ["messages"], {
+        messageRoles: ["user"],
+      });
+      return messages.length === 0;
+    }).pipe(Effect.orElseSucceed(() => false));
+  });
+  /** Hands every waiting candidate of a Champion to its tidy-up finding; the brief reads them from there. */
+  const carryCandidates = Effect.fn("ChampionService.carryCandidates")(function* (
+    championId: string,
+    findingId: string,
+  ) {
+    yield* sql`UPDATE champion_learning_candidates SET carried_by = ${findingId} WHERE champion_id = ${championId} AND carried_by IS NULL`.pipe(
+      Effect.mapError(failure),
+    );
+  });
+  /** Closing a tidy-up finding: its candidates are cleared when its case ran, else they wait again. */
+  const releaseCandidates = Effect.fn("ChampionService.releaseCandidates")(function* (
+    findingId: string,
+    clear: boolean,
+  ) {
+    yield* (
+      clear
+        ? sql`DELETE FROM champion_learning_candidates WHERE carried_by = ${findingId}`
+        : sql`UPDATE champion_learning_candidates SET carried_by = NULL WHERE carried_by = ${findingId}`
+    ).pipe(Effect.mapError(failure));
+  });
+  /**
+   * After a goal review: stores its candidates, then opens, reopens or feeds the Champion's one tidy-up
+   * finding. Three waiting candidates, or an urgent one, open it; a candidate joins it only while its case
+   * has not run. Never refused by the open-findings limit.
+   */
+  const batchCandidates = Effect.fn("ChampionService.batchCandidates")(function* (
+    findings: ChampionFinding[],
+    champion: ChampionSummary,
+    candidates: ReadonlyArray<ChampionLearningCandidateInput>,
+    at: string,
+  ) {
+    const held = yield* sql<{
+      n: number;
+    }>`SELECT COUNT(*) AS n FROM champion_learning_candidates WHERE champion_id = ${champion.id} AND carried_by IS NULL`.pipe(
+      Effect.mapError(failure),
+    );
+    const room = Math.max(0, MAX_LEARNING_CANDIDATES - (held[0]?.n ?? 0));
+    const dropped = Math.max(0, candidates.length - room);
+    for (const candidate of candidates.slice(0, room))
+      yield* sql`INSERT INTO champion_learning_candidates (id, champion_id, at, statement, evidence, home, urgent) VALUES (${yield* uuid}, ${champion.id}, ${at}, ${candidate.statement}, ${candidate.evidence}, ${candidate.home}, ${candidate.urgent === true ? 1 : 0})`.pipe(
+        Effect.mapError(failure),
+      );
+    const waiting = yield* sql<{
+      n: number;
+      urgent: number | null;
+    }>`SELECT COUNT(*) AS n, MAX(urgent) AS urgent FROM champion_learning_candidates WHERE champion_id = ${champion.id} AND carried_by IS NULL`.pipe(
+      Effect.mapError(failure),
+    );
+    const count = waiting[0]?.n ?? 0;
+    if (count === 0) return dropped;
+    const id = tidyUpFindingId(champion.id);
+    const index = findings.findIndex((f) => f.id === id);
+    const existing = findings[index];
+    const open = existing !== undefined && !settled(existing);
+    if (open) {
+      if (!(yield* caseUntouched(existing))) return dropped;
+    } else if (count < TIDY_UP_AT && (waiting[0]?.urgent ?? 0) === 0) return dropped;
+    const evidence = `Goal reviews reported learnings that belong in the places the next agent looks: the case brief lists them.`;
+    if (existing === undefined)
+      findings.push(
+        yield* makeFinding(
+          champion.id,
+          `${champion.name}: learnings to record`,
+          evidence,
+          undefined,
+          {
+            findingId: id,
+          },
+        ),
+      );
+    else if (settled(existing))
+      // A case that took its brief never sees later candidates, so a reopened finding gets a fresh one.
+      findings[index] = {
+        ...reopened(existing, at, evidence, false),
+        ...((yield* caseUntouched(existing)) ? {} : { escalationThreadId: null }),
+      };
+    else findings[index] = { ...existing, lastConfirmedAt: at, updatedAt: at };
+    yield* carryCandidates(champion.id, id);
+    return dropped;
   });
   const similar = (a: string, b: string) => {
     const ignored = new Set([
@@ -2679,6 +2797,18 @@ const make = Effect.gen(function* () {
                   "A readings run does not score the goal: send no goalScore. The goal review scores it.",
               }),
             );
+          if (
+            check.kind === "check" &&
+            ((input.learningCandidates?.length ?? 0) > 0 ||
+              input.findings.some((finding) => (finding.learnings?.length ?? 0) > 0))
+          )
+            return Effect.fail(
+              new ChampionError({
+                reason: "invalid",
+                detail:
+                  "A readings run reports no learnings or learning candidates: the goal review does.",
+              }),
+            );
           const config = doc.champion.journeys;
           if (config === undefined || check.kind !== "check" || check.reported)
             return Effect.undefined;
@@ -2864,7 +2994,12 @@ const make = Effect.gen(function* () {
                     validation: { field: "samples" },
                   });
               }
+              const lateLearnings: ChampionLearningCandidateInput[] = [];
               for (const qualitative of input.findings) {
+                const learnings =
+                  qualitative.learnings === undefined || qualitative.learnings.length === 0
+                    ? undefined
+                    : qualitative.learnings;
                 const existing =
                   qualitative.existingFindingId === undefined
                     ? findings.find((f) => !settled(f) && similar(f.title, qualitative.title))
@@ -2872,8 +3007,13 @@ const make = Effect.gen(function* () {
                 if (qualitative.existingFindingId !== undefined && existing === undefined)
                   return yield* new ChampionError({ reason: "invalid" });
                 if (existing !== undefined) {
+                  // A case that already took its brief never sees these, so they wait for a tidy-up.
+                  const reaches = learnings !== undefined && (yield* caseUntouched(existing));
+                  if (learnings !== undefined && !reaches)
+                    lateLearnings.push(...learnings.map((learning) => ({ ...learning })));
                   findings[findings.indexOf(existing)] = {
                     ...existing,
+                    ...(reaches ? { learnings } : {}),
                     evidence: qualitative.evidence,
                     lastConfirmedAt: collectedAt,
                     updatedAt: collectedAt,
@@ -2883,11 +3023,25 @@ const make = Effect.gen(function* () {
                     findingsLimited = true;
                     continue;
                   }
-                  findings.push(
-                    yield* makeFinding(check.championId, qualitative.title, qualitative.evidence),
-                  );
+                  findings.push({
+                    ...(yield* makeFinding(
+                      check.championId,
+                      qualitative.title,
+                      qualitative.evidence,
+                    )),
+                    ...(learnings === undefined ? {} : { learnings }),
+                  });
                 }
               }
+              const learningsDropped =
+                check.kind === "review"
+                  ? yield* batchCandidates(
+                      findings,
+                      doc.champion,
+                      [...(input.learningCandidates ?? []), ...lateLearnings],
+                      collectedAt,
+                    )
+                  : 0;
               const stored = [...(check.samples ?? []), ...samples];
               yield* saveCheck({
                 ...check,
@@ -2900,6 +3054,11 @@ const make = Effect.gen(function* () {
                   ? [`The last journey check did not finish: ${journeyCheck.reason}`]
                   : []),
                 ...(findingsLimited ? [FINDING_LIMIT_NOTE] : []),
+                ...(learningsDropped > 0
+                  ? [
+                      `Review dropped ${learningsDropped} learning candidate${learningsDropped === 1 ? "" : "s"}: ${MAX_LEARNING_CANDIDATES} already wait to be recorded.`,
+                    ]
+                  : []),
                 ...(check.kind === "check" &&
                 stored.some(
                   (s) =>
@@ -3366,12 +3525,15 @@ const make = Effect.gen(function* () {
         } else if (input.action === "reopen") {
           (yield* ChangeBatch)?.forced.add(finding.id);
           updated = reopened(finding, at, finding.evidence, false);
-        } else
+        } else {
           updated = {
             ...updated,
             status: input.action === "dismiss" ? "dismissed" : "verified",
             decision: null,
           };
+          if (Escalation.isTidyUpFinding(finding) && !settled(finding))
+            yield* releaseCandidates(finding.id, yield* caseHasRun(finding));
+        }
         yield* activity(
           input.id,
           input.action,
