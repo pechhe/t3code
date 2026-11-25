@@ -107,7 +107,8 @@ export const resolve = Effect.fn("RuntimePolicyV2.resolveManaged")(function* <E>
     ...(modelCompactAt == null ? {} : { modelCompactAt }),
     ...(utilityModel === undefined ? {} : { utilityModel }),
     ...(agentTask.toolProfile === "web-research" ? { webResearch: true } : {}),
-    ...(agentTask.sourceAccess === "read-only" && agentTask.toolProfile === "source-reader"
+    ...(agentTask.sourceAccess === "read-only" &&
+    (agentTask.toolProfile === "source-reader" || agentTask.toolProfile === "web-research")
       ? { readOnlyShell: true }
       : {}),
     approvalPolicy: "never",

@@ -180,7 +180,7 @@ describe("pi T3 MCP injection", () => {
     { role: "reviewer", readOnlyTools: true, readOnlyShell: true, shell: true },
     { role: "advisor", readOnlyTools: true, readOnlyShell: true, shell: true },
     { role: "browser", readOnlyTools: true, readOnlyShell: false, shell: false },
-    { role: "scout", readOnlyTools: true, readOnlyShell: false, shell: false },
+    { role: "scout", readOnlyTools: true, readOnlyShell: true, shell: true },
     { role: "editor", readOnlyTools: false, readOnlyShell: false, shell: false },
   ])(
     "gives only shell-bearing readers sandbox guidance and bash: $role",

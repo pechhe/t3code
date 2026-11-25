@@ -293,7 +293,7 @@ it.layer(layerTest)("managed RuntimePolicyV2", (it) => {
               ),
             ),
           );
-        assert.isUndefined(narrow.readOnlyShell);
+        assert.equal(narrow.readOnlyShell, toolProfile === "web-research" ? true : undefined);
       }
     }),
   );

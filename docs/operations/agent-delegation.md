@@ -133,7 +133,7 @@ its revision and the role names, or the reason the policy is refused.
   output in ignored directories: the composite TypeScript projects write their
   `tsconfig.tsbuildinfo` under `node_modules/.cache` for this reason. Python 3 and a working host sandbox are required;
   an unavailable sandbox blocks the shell rather than running without protection.
-  Browser and scout tasks, which read the web, have no shell. Codemode stays available: each tool
+  Browser tasks have no shell. Codemode stays available: each tool
   a script calls reaches the same tool-call guard, including sandboxing bash.
   Edit, write, powershell and MCP resource tools stay withheld.
   The user's own installed extensions still
