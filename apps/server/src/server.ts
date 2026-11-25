@@ -267,6 +267,11 @@ import * as ThreadSearch from "./orchestration-v2/ThreadSearch.ts";
 import * as PeerEnvironments from "./peers/PeerEnvironments.ts";
 import * as ThreadSettlementService from "./orchestration-v2/ThreadSettlementService.ts";
 import * as IdleCompactionService from "./orchestration-v2/IdleCompactionService.ts";
+import * as BlackholeTriggerService from "./blackhole/BlackholeTriggerService.ts";
+import * as BlackholeMemoryStore from "./blackhole/BlackholeMemoryStore.ts";
+import * as BlackholeStatusBoard from "./blackhole/BlackholeStatusBoard.ts";
+import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
+import { layerBlackhole } from "./blackhole/layer.ts";
 import * as ThreadPullRequestService from "./orchestration-v2/ThreadPullRequestService.ts";
 import * as ThreadIssueService from "./orchestration-v2/ThreadIssueService.ts";
 import * as RunFinalizationService from "./orchestration-v2/RunFinalizationService.ts";
@@ -701,6 +706,18 @@ const layerIdleCompactionWorker = Layer.effectDiscard(
   IdleCompactionService.make.pipe(Effect.flatMap((service) => service.start())),
 ).pipe(Layer.provide(ProjectionStoreV2.layer));
 
+const layerBlackholeTriggerWorker = Layer.effectDiscard(
+  BlackholeTriggerService.make.pipe(Effect.flatMap((service) => service.start())),
+).pipe(
+  Layer.provide(layerBlackhole),
+  Layer.provide(BlackholeMemoryStore.layer),
+  Layer.provide(BlackholeStatusBoard.layer),
+  Layer.provide(RuntimeLayer.layerEventSink),
+  Layer.provide(IdAllocator.layer),
+  Layer.provide(TextGeneration.layer.pipe(Layer.provide(ProviderInstallationGate.layer))),
+  Layer.provide(ProjectionStoreV2.layer),
+);
+
 const layerThreadPullRequestWorker = Layer.effectDiscard(
   ThreadPullRequestService.make.pipe(Effect.flatMap((service) => service.start())),
 ).pipe(Layer.provide(layerPullRequestService), Layer.provide(ProjectionStoreV2.layer));
@@ -767,6 +784,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   HeldHooksWaker.layer,
   layerThreadSettlementWorker,
   layerIdleCompactionWorker,
+  layerBlackholeTriggerWorker,
   StorageCleanup.layer.pipe(Layer.provide(ProjectionStoreV2.layer)),
   DatabaseStorage.layer.pipe(
     Layer.provide(ProjectionMaintenance.layer),
@@ -1042,6 +1060,7 @@ const layerMakeRoutes = Layer.mergeAll(
     ),
     Layer.provide(ProviderAdapterRegistry.layerFromProviderInstanceRegistry),
     Layer.provide(McpOAuth.layerMcpClientAuthenticator),
+    Layer.provide(layerBlackhole),
     Layer.provide(ProjectionStoreV2.layer),
   ),
   Layer.effectDiscard(AdviceService.AdviceService.pipe(Effect.flatMap((advice) => advice.start()))),

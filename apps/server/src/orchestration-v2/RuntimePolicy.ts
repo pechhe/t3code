@@ -1,5 +1,6 @@
 import * as ServerConfig from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import { blackholeCompactPolicy } from "../blackhole/blackholeRuntimePolicy.ts";
 import {
   isRuntimeModeAbove,
   managedRuntimeModeCeilingMessage,
@@ -184,10 +185,8 @@ export const layerFromProjectStore: Layer.Layer<
       resolve: Effect.fn("RuntimePolicyV2.resolve")(function* (input) {
         yield* refuseAboveCeiling(managedPolicy, input.thread);
         const instance = yield* providerInstances.getInstance(input.modelSelection.instanceId);
-        const supportedRuntimeModes =
-          instance === undefined
-            ? undefined
-            : (yield* instance.snapshot.getSnapshot).supportedRuntimeModes;
+        const snapshot = instance === undefined ? undefined : yield* instance.snapshot.getSnapshot;
+        const supportedRuntimeModes = snapshot?.supportedRuntimeModes;
         const cwd =
           input.thread.worktreePath ??
           (yield* projects.get(input.thread.projectId).pipe(
@@ -226,8 +225,15 @@ export const layerFromProjectStore: Layer.Layer<
         // The point set for this thread's model in the server settings.
         const modelCompactAt = serverSettings?.modelCompactAt[input.modelSelection.model] ?? null;
         const utilityModel = serverSettings === null ? undefined : utilityModelOf(serverSettings);
-        // The thread's own point, else the one set for its model in the server settings.
-        const compactAt = input.thread.compactAt ?? modelCompactAt;
+        // The thread's own point, else the one set for its model in the server settings; on a
+        // thread Blackhole compacts, the native point is its backstop (fork: T3-916).
+        const compactAt = blackholeCompactPolicy({
+          blackhole: serverSettings?.blackhole,
+          driver: instance?.driverKind,
+          compactAt: input.thread.compactAt ?? modelCompactAt,
+          windowTokens: snapshot?.models?.find((model) => model.slug === input.modelSelection.model)
+            ?.contextWindowTokens,
+        });
         // A Spec lead runs under a top-level thread's policy; its role was admitted at dispatch.
         if (input.thread.agentTask !== undefined && isLeafAgentTask(input.thread.agentTask))
           return yield* ManagedRuntimePolicy.resolve({

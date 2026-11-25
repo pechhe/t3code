@@ -65,8 +65,9 @@ export const ProviderAdapterV2RuntimePolicy = Schema.Struct({
   reasoningEffort: Schema.optional(Schema.String),
   /**
    * The thread's own compact-at point, in context tokens; absent or null follows the provider
-   * instance's "Auto-compact after" setting. Only Claude and Codex compact natively and read
-   * it; every other adapter ignores it.
+   * instance's "Auto-compact after" setting. Claude, Codex and Antigravity compact natively and
+   * read it; every other adapter ignores it. On a thread T3 compacts with Blackhole it is the
+   * harness's later backstop, not the thread's point.
    */
   compactAt: Schema.optional(Schema.NullOr(Schema.Number)),
   /**

@@ -966,6 +966,22 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "blackhole-compaction",
+    title: msg("Blackhole compaction"),
+    to: "/settings/threads",
+    scope: "environment-defaults",
+    searchTerms: [
+      msg("compact context summary fresh session claude codex antigravity auto compact"),
+    ],
+  },
+  {
+    id: "blackhole-memory",
+    title: msg("Blackhole memory"),
+    to: "/settings/threads",
+    scope: "environment-defaults",
+    searchTerms: [msg("observational memory observer reflector dropper recall utility model")],
+  },
+  {
     id: "thread-title-instructions",
     title: msg("Thread title instructions"),
     to: "/settings/threads",

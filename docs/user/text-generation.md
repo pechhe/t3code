@@ -5,8 +5,10 @@ descriptions, branch names, and voice transcript cleanup. Pick the model for thi
 **Settings → Threads → Utility model**. **Settings → Source control & issues** and
 **Settings → Voice** can each pick a different one.
 
-When the utility model is a Pi model and Pi Blackhole is installed, Pi Blackhole's memory worker
-uses it too. Pi Blackhole can only call models Pi knows, so for any other utility model it uses
+Blackhole's memory runs on the utility model for every provider except Pi (see
+[Blackhole compaction and memory](./composer.md#blackhole-compaction-and-memory)). When the
+utility model is a Pi model and Pi Blackhole is installed, Pi Blackhole's memory worker uses it
+too. Pi Blackhole can only call models Pi knows, so for any other utility model it uses
 the Pi provider's **Memory worker** setting (Settings → Providers → Pi), or its own config when
 that is unset. A running Pi session picks up a change the next time it starts.
 

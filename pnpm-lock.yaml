@@ -933,6 +933,9 @@ importers:
       '@napi-rs/keyring':
         specifier: ^2.1.2
         version: 2.1.2
+      '@t3tools/blackhole':
+        specifier: workspace:*
+        version: link:../../packages/blackhole
       '@t3tools/issue-tracker-linear':
         specifier: workspace:*
         version: link:../../packages/issue-tracker-linear
@@ -1560,6 +1563,19 @@ importers:
       '@effect/vitest':
         specifier: 4.1.4
         version: 4.1.4(patch_hash=262b111889698ab1aaa2d439fff4e9da82c3992be451f5dad3f120445bb093a6)(@astrojs/compiler-rs@0.5.3)(@types/node@24.12.4)(@vitest/ui@5.1.0)(@volar/typescript@2.4.28(typescript@6.0.3))(bufferutil@4.1.0)(effect@4.1.4)(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(playwright@1.64.1)(terser@5.48.0)(typescript@6.0.3)(unrun@0.2.39)(utf-8-validate@6.0.6)(yaml@2.9.1)
+      vite-plus:
+        specifier: 1.6.0
+        version: 1.6.0(@astrojs/compiler-rs@0.5.3)(@types/node@24.12.4)(@vitest/ui@5.1.0)(@volar/typescript@2.4.28(typescript@6.0.3))(bufferutil@4.1.0)(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(playwright@1.64.1)(terser@5.48.0)(typescript@6.0.3)(unrun@0.2.39)(utf-8-validate@6.0.6)(yaml@2.9.1)
+
+  packages/blackhole:
+    dependencies:
+      get-east-asian-width:
+        specifier: ^1.6.0
+        version: 1.6.0
+    devDependencies:
+      '@types/node':
+        specifier: 24.12.4
+        version: 24.12.4
       vite-plus:
         specifier: 1.6.0
         version: 1.6.0(@astrojs/compiler-rs@0.5.3)(@types/node@24.12.4)(@vitest/ui@5.1.0)(@volar/typescript@2.4.28(typescript@6.0.3))(bufferutil@4.1.0)(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(playwright@1.64.1)(terser@5.48.0)(typescript@6.0.3)(unrun@0.2.39)(utf-8-validate@6.0.6)(yaml@2.9.1)

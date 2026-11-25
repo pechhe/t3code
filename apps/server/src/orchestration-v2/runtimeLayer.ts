@@ -20,6 +20,8 @@ import * as McpAppModelContext from "../mcpApps/McpAppModelContext.ts";
 import * as PreviewAgentActivity from "../preview/PreviewAgentActivity.ts";
 import * as McpAppRequests from "../mcpApps/McpAppRequests.ts";
 import * as ProviderSessionRuntime from "../persistence/ProviderSessionRuntime.ts";
+import * as BlackholeStatusBoard from "../blackhole/BlackholeStatusBoard.ts";
+import { layerBlackhole } from "../blackhole/layer.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
 import * as ProviderInstallationGate from "../provider/ProviderInstallationGate.ts";
@@ -139,6 +141,7 @@ const layerProviderEventIngestorProvided = ProviderEventIngestor.layer.pipe(
       ProjectionStore.layer,
       ThreadCommandExecutor.layer,
       GitVcsDriver.layer,
+      BlackholeStatusBoard.layer,
     ),
   ),
 );
@@ -225,6 +228,7 @@ const layerProviderTurnStartServiceProvided = ProviderTurnStartService.layer.pip
       layerRuntimePolicyProvided,
       VideoFrames.layerLive,
       TurnItemPositionStore.layer,
+      layerBlackhole,
     ),
   ),
 );

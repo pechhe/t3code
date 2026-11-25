@@ -109,6 +109,8 @@ export function historicalTokens(item: OrchestrationV2TurnItem): number {
 // One UTF-8 byte per token keeps the new turn and imported history pessimistic.
 export function handoffBudget(input: {
   readonly tokenCap: number;
+  /** Every pending handoff is a summary that already stands for the whole history. */
+  readonly summaryOnly?: boolean;
   readonly userText: string;
   readonly attachments: ReadonlyArray<ChatAttachment>;
   readonly providerThread: OrchestrationV2ProviderThread;
@@ -129,9 +131,9 @@ export function handoffBudget(input: {
   return Math.max(
     0,
     Math.min(
-      input.tokenCap,
+      input.summaryOnly === true ? Infinity : input.tokenCap,
       // Cap imported history only; adapters own attachment transport limits.
-      HANDOFF_BYTE_CAP,
+      input.summaryOnly === true ? Infinity : HANDOFF_BYTE_CAP,
       window - native - current - workReserve,
     ),
   );

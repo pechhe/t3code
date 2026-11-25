@@ -244,7 +244,11 @@ import { ComposerFooterPrimaryActions } from "./ComposerFooterControls";
 import { playDeviceSendCue } from "~/lib/interfaceSounds";
 import { recordSendOrigin } from "~/lib/sendMotion";
 import { compactOnSendTokens } from "./compactOnSend.logic";
-import { providerHasBlackhole, type ThreadCompactionSavings } from "./device/blackholeStatus.logic";
+import {
+  blackholeCompactLineThreshold,
+  providerHasBlackhole,
+  type ThreadCompactionSavings,
+} from "./device/blackholeStatus.logic";
 import { DeviceContextBar } from "./device/DeviceContextBar";
 import { type DeviceModelSliderHandle } from "./device/DeviceModelSlider";
 import type { ModelPickerPooling } from "./modelPickerPooling";
@@ -303,6 +307,7 @@ import {
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { Kbd } from "../ui/kbd";
 import { useSoftwareKeyboardOpen } from "../../hooks/useSoftwareKeyboardOpen";
+import { useEnvironmentSettings } from "../../hooks/useSettings";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { usePanelAnimationSettings } from "../../panelAnimations";
 import { readEnvironmentScope, readPreparedConnection } from "../../state/session";
@@ -1099,6 +1104,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const selectedProviderSlashCommands = selectedProviderStatus
     ? resolveProviderSlashCommandsForCwd(selectedProviderStatus, gitCwd)
     : NO_PROVIDER_SLASH_COMMANDS;
+  const serverBlackholeCompaction = useEnvironmentSettings(
+    environmentId,
+    (settings) => settings.blackhole.compaction,
+  );
+  const modelCompactAt = useEnvironmentSettings(
+    environmentId,
+    (settings) => settings.modelCompactAt[selectedModel] ?? null,
+  );
   const { refresh: refreshWorkspaceSnapshotOnTyping, scanning: workspaceSkillsScanning } =
     useProviderWorkspaceSnapshotRefresh({
       environmentId,
@@ -4141,14 +4154,32 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               {deviceComposer && !isComposerApprovalState ? (
                 <DeviceContextBar
                   threadKey={`${routeThreadRef.environmentId}:${routeThreadRef.threadId}`}
-                  usage={activeContextWindow}
+                  usage={
+                    activeContextWindow && {
+                      ...activeContextWindow,
+                      autoCompactThreshold:
+                        blackholeCompactLineThreshold({
+                          driver: selectedProviderStatus?.driver,
+                          serverBlackhole: serverBlackholeCompaction,
+                          compactAt: props.activeThreadShell?.compactAt ?? modelCompactAt,
+                          windowTokens: activeContextWindow.maxTokens,
+                          reported: activeContextWindow.autoCompactThreshold,
+                        }) ?? null,
+                    }
+                  }
                   extensionStatuses={props.extensionStatuses}
                   blackholeInstalled={providerHasBlackhole(
                     selectedProviderStatus?.driver,
                     selectedProviderSlashCommands,
+                    serverBlackholeCompaction,
                   )}
                   compactionSavings={props.blackholeCompactionSavings}
-                  onRunBlackholeCommand={props.onRunBlackholeCommand}
+                  // `/blackhole` commands are pi-blackhole's; T3's memory is a server setting.
+                  onRunBlackholeCommand={
+                    selectedProviderStatus?.driver === "pi"
+                      ? props.onRunBlackholeCommand
+                      : undefined
+                  }
                   threadCompactAt={props.activeThreadShell?.compactAt ?? null}
                   compactAtBounds={compactAtBounds}
                   onCompactAtChange={onCompactAtChange}

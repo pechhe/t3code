@@ -100,6 +100,8 @@ import * as WorkspaceInspection from "../workspace/WorkspaceInspection.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as BitwardenSecrets from "../secrets/BitwardenSecrets.ts";
 import * as BrowserLogins from "../secrets/BrowserLogins.ts";
+import { RecallToolkit } from "./toolkits/blackhole/tools.ts";
+import * as RecallHandlers from "./toolkits/blackhole/handlers.ts";
 import { ThemeToolkit } from "./toolkits/theme/tools.ts";
 import * as ThemeHandlers from "./toolkits/theme/handlers.ts";
 import { ProjectToolkit } from "./toolkits/project/tools.ts";
@@ -1771,6 +1773,9 @@ export const layerSessionToolkits = (families: ReadonlySet<ToolFamily>) =>
     families.has("project") ? toolkitRegistration(ForgeToolkit, ForgeHandlers.layer) : Layer.empty,
     layerSessionWorktree(families),
     families.has("leaf") ? layerSessionHtml() : Layer.empty,
+    families.has("control")
+      ? toolkitRegistration(RecallToolkit, RecallHandlers.layer)
+      : Layer.empty,
     layerSessionBrowser(families),
     layerSessionDevice(families),
     families.has("web") ? toolkitRegistration(WebToolkit, WebHandlers.layer) : Layer.empty,
@@ -1989,6 +1994,7 @@ const layerForgeToolkit = toolkitRegistration(ForgeToolkit, ForgeHandlers.layer)
 
 export const layerTools = Layer.mergeAll(
   layerForgeToolkit,
+  toolkitRegistration(RecallToolkit, RecallHandlers.layer),
   toolkitRegistration(DecisionToolkit, DecisionHandlers.layer),
   layerGuardToolkit,
   layerPreviewToolkit,

@@ -186,6 +186,7 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "list_thread_pull_requests",
   "orchestrator_capabilities",
   "read_pull_request_guide",
+  "recall",
   "t3_background_wait",
   "browser_act",
   "browser_close",

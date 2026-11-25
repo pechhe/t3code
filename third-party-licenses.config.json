@@ -1,6 +1,25 @@
 {
   "customNotices": [
     {
+      "bundles": ["desktop"],
+      "license": "MIT",
+      "name": "pi-blackhole",
+      "sourceUrl": "https://github.com/k0valik/pi-blackhole/tree/v0.5.19",
+      "noticeFile": "packages/blackhole/src/upstream/LICENSE"
+    },
+    {
+      "bundles": ["desktop"],
+      "license": "MIT",
+      "name": "pi (pi-tui text wrapping, pi-ai overflow patterns, pi-coding-agent token estimates)",
+      "sourceUrl": "https://github.com/earendil-works/pi",
+      "generatedNotices": [
+        {
+          "licenseId": "MIT",
+          "copyrights": ["Copyright (c) 2025 Mario Zechner"]
+        }
+      ]
+    },
+    {
       "bundles": ["desktop", "mobile", "web"],
       "license": "MIT",
       "name": "GitHub gemoji alias data",

@@ -1454,6 +1454,22 @@ export const StorageCleanupReport = Schema.Struct({
 });
 export type StorageCleanupReport = typeof StorageCleanupReport.Type;
 
+/**
+ * Blackhole (pi-blackhole's compaction and observational memory) run by T3 for every thread
+ * whose harness is not Pi; Pi threads keep the pi-blackhole extension.
+ */
+export const BlackholeSettings = Schema.Struct({
+  /** Compacts with Blackhole's summary at the compact point; off leaves it to the harness. */
+  compaction: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  /** Runs the observer, reflector and dropper on the Utility model as threads grow. */
+  memory: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  /** Provider drivers whose threads compact with Blackhole but run no memory workers. */
+  memoryOffDrivers: Schema.Array(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+});
+export type BlackholeSettings = typeof BlackholeSettings.Type;
+
 export const StorageCleanupSettings = Schema.Struct({
   worktreeKeepWhen: WorktreeKeepWhen.pipe(
     Schema.withDecodingDefault(Effect.succeed("uncommitted-changes")),
@@ -1547,6 +1563,9 @@ export const ServerSettings = Schema.Struct({
   ),
   /** Where a model's threads compact, in tokens, by model slug. A thread's own point overrides it. */
   modelCompactAt: ModelCompactAt.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  blackhole: BlackholeSettings.pipe(
+    Schema.withDecodingDefault(Effect.succeed(Schema.decodeSync(BlackholeSettings)({}))),
+  ),
   enableProviderUpdateChecks: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   continueThreadsAfterServerUpdate: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(true)),
@@ -2100,6 +2119,13 @@ export const ServerSettingsPatch = Schema.Struct({
   responseStreamingMode: Schema.optionalKey(ResponseStreamingMode),
   /** Replaces the whole map; send every model's point, since a missing model loses its own. */
   modelCompactAt: Schema.optionalKey(ModelCompactAt),
+  blackhole: Schema.optionalKey(
+    Schema.Struct({
+      compaction: Schema.optionalKey(Schema.Boolean),
+      memory: Schema.optionalKey(Schema.Boolean),
+      memoryOffDrivers: Schema.optionalKey(Schema.Array(TrimmedNonEmptyString)),
+    }),
+  ),
   enableProviderUpdateChecks: Schema.optionalKey(Schema.Boolean),
   continueThreadsAfterServerUpdate: Schema.optionalKey(Schema.Boolean),
   keepAwakeWhileAgentsWork: Schema.optionalKey(Schema.Boolean),

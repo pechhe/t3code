@@ -8,6 +8,10 @@ import type {
 } from "@t3tools/contracts";
 import type * as Effect from "effect/Effect";
 
+import type {
+  BlackholeMemoryGenerationInput,
+  BlackholeMemoryGenerationResult,
+} from "./blackholeMemoryGeneration.ts";
 import type { TextGenerationPolicy } from "./textGenerationPolicy.ts";
 import type { ThreadTitleForkSource } from "./textGenerationPrompts.ts";
 
@@ -155,4 +159,9 @@ export interface ProviderTextGeneration {
   readonly generateCompactionSummary: (
     input: CompactionSummaryGenerationInput,
   ) => Effect.Effect<CompactionSummaryGenerationResult, TextGenerationError>;
+
+  /** One Blackhole memory worker's reply (fork: T3-916); drivers without a runner omit it. */
+  readonly generateBlackholeMemory?: (
+    input: BlackholeMemoryGenerationInput,
+  ) => Effect.Effect<BlackholeMemoryGenerationResult, TextGenerationError>;
 }

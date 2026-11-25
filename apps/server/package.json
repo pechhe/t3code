@@ -45,6 +45,7 @@
     "@modelcontextprotocol/sdk": "1.32.2",
     "@muse-code/sdk": "1.4.13",
     "@napi-rs/keyring": "^2.1.2",
+    "@t3tools/blackhole": "workspace:*",
     "@t3tools/issue-tracker-linear": "workspace:*",
     "@t3tools/provider-acp": "workspace:*",
     "@t3tools/provider-acp-registry": "workspace:*",

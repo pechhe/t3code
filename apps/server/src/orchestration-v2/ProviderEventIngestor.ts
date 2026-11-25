@@ -34,6 +34,8 @@ import {
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import { UsageLimitResetFallback } from "../usage/UsageLimitSources.ts";
+import * as Option from "effect/Option";
+import * as BlackholeStatusBoard from "../blackhole/BlackholeStatusBoard.ts";
 import * as EventSink from "./EventSink.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
@@ -253,6 +255,8 @@ export const layer: Layer.Layer<
     const git = yield* GitVcsDriver.GitVcsDriver;
     const projections = yield* ProjectionStore.ProjectionStoreV2;
     const idAllocator = yield* IdAllocator.IdAllocatorV2;
+    // Optional: without Blackhole a session update carries only what the harness reported.
+    const blackholeStatus = yield* Effect.serviceOption(BlackholeStatusBoard.BlackholeStatusBoard);
     const threadCommands = yield* ThreadCommandExecutor.ThreadCommandExecutor;
     const analytics = yield* ProviderTurnAnalytics;
     const agentScope = yield* AgentScope;
@@ -525,7 +529,9 @@ export const layer: Layer.Layer<
               return [
                 yield* makeDomainEvent(input, {
                   type: "provider-session.updated",
-                  payload: input.event.providerSession,
+                  payload: Option.isSome(blackholeStatus)
+                    ? blackholeStatus.value.withStatus(input.event.providerSession)
+                    : input.event.providerSession,
                 }),
               ];
             case "provider_thread.updated": {

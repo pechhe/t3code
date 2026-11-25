@@ -32,6 +32,7 @@ import {
   type SessionEndpointKey,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as BlackholeService from "../blackhole/BlackholeService.ts";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as Layer from "effect/Layer";
 import { McpServer } from "effect/ai";
@@ -143,6 +144,7 @@ const serviceMocks = Layer.mergeAll(
   Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
   Layer.mock(ThreadProjectMoveService.ThreadProjectMoveService)({}),
   Layer.mock(ThreadSearch.ThreadSearch)({}),
+  Layer.mock(BlackholeService.BlackholeService)({}),
   Layer.mock(GitWorkflowService.GitWorkflowService)({}),
   // Never queried: the registry only describes tools.
   Layer.succeed(SqlClient.SqlClient, {} as never),

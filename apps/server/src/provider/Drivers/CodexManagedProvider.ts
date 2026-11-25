@@ -275,6 +275,7 @@ export const makeManagedCodexProvider = Effect.fn("makeManagedCodexProvider")(fu
           }),
       ),
     );
+  const blackholeMemory = nativeGeneration.generateBlackholeMemory;
   const textGeneration: ProviderInstance["textGeneration"] = {
     generateCommitMessage: (value) =>
       protect("generateCommitMessage", nativeGeneration.generateCommitMessage(value)),
@@ -293,6 +294,12 @@ export const makeManagedCodexProvider = Effect.fn("makeManagedCodexProvider")(fu
         "generateTranscriptionPostProcessing",
         nativeGeneration.generateTranscriptionPostProcessing(value),
       ),
+    ...(blackholeMemory === undefined
+      ? {}
+      : {
+          generateBlackholeMemory: (value) =>
+            protect("generateBlackholeMemory", blackholeMemory(value)),
+        }),
   };
   return {
     instanceId,

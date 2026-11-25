@@ -5,6 +5,7 @@ import { type ChatAttachment, type ModelSelection, TextGenerationError } from "@
 import { formatGeneratedBranchName, sanitizeFeatureBranchName } from "@t3tools/shared/git";
 import { extractJsonObject } from "@t3tools/shared/schemaJson";
 
+import { blackholeMemoryFromRunner } from "./blackholeMemoryGeneration.ts";
 import type { ProviderTextGeneration } from "./textGeneration.ts";
 import {
   buildBranchNamePrompt,
@@ -230,5 +231,6 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
     generateReviewGuide,
     generateCompactionSummary,
     generateTranscriptionPostProcessing,
+    generateBlackholeMemory: blackholeMemoryFromRunner(name, run),
   } satisfies ProviderTextGeneration;
 }

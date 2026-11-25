@@ -135,6 +135,21 @@ const extractAntigravitySubagentUpdate: NonNullable<AcpAdapterV2Flavor["extractS
   };
 };
 
+/** The thread's compact point (Blackhole's backstop when T3 compacts it) becomes agy's own. */
+const antigravityCompactEnvironment = (
+  input: Pick<AcpAdapterV2RuntimeInput, "processEnvironment" | "runtimePolicy">,
+): { readonly processEnvironment?: NodeJS.ProcessEnv } => {
+  const compactAt = input.runtimePolicy.compactAt;
+  return compactAt == null
+    ? {}
+    : {
+        processEnvironment: {
+          ...input.processEnvironment,
+          AGY_CLI_AUTO_COMPACT_OVERRIDE: String(Math.floor(compactAt)),
+        },
+      };
+};
+
 interface AntigravityFlavorServices {
   readonly random: SecureRandom.SecureRandom["Service"];
   readonly fileSystem: FileSystem.FileSystem;
@@ -156,6 +171,7 @@ export function makeAntigravityAcpAdapterFlavor(
           Scope.close(scope, Exit.void),
           options.makeRuntime({
             ...input,
+            ...antigravityCompactEnvironment(input),
             clientFileReads: true,
             ...(input.pullRequestLinking === false
               ? {}

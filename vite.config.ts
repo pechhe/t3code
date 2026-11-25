@@ -184,6 +184,10 @@ export default defineConfig({
     ignorePatterns: [
       ".repos/**",
       "infra/task-cache/vendor/**",
+      // Vendored pi-blackhole and pi-tui source, kept byte-for-byte; the golden is upstream's output.
+      "packages/blackhole/src/upstream/**",
+      "packages/blackhole/src/shims/pi-tui.ts",
+      "packages/blackhole/src/golden/**",
       // Macroscope requires one glob per line; Markdown formatting corrupts it.
       ".macroscope/ignore.md",
       ".alchemy",
@@ -220,6 +224,8 @@ export default defineConfig({
       ".repos",
       ".repos/**",
       "infra/task-cache/vendor/**",
+      "packages/blackhole/src/upstream/**",
+      "packages/blackhole/src/shims/pi-tui.ts",
       "dist",
       "dist-electron",
       "node_modules",

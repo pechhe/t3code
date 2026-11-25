@@ -42,6 +42,7 @@ import * as ServerConfig from "../config.ts";
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
+import * as BlackholeService from "../blackhole/BlackholeService.ts";
 import { delegationStanceNote } from "../agents/delegationStanceNote.ts";
 import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
@@ -149,6 +150,8 @@ function makeLocalCommandHarness(input: {
     readonly failure?: unknown;
     readonly contextWindowTokens?: number;
   };
+  /** T3 compacts this Codex thread with Blackhole, whose compiled block is this text. */
+  readonly blackhole?: { readonly text: string };
   /** The chore worker's next model, which writes the summary when `summariser` fails. */
   readonly fallbackSummariser?: {
     readonly instanceId: ProviderInstanceId;
@@ -1021,8 +1024,9 @@ function makeLocalCommandHarness(input: {
   );
   const tryHandlePromptCommand = vi.fn(() =>
     input.logoutFailure === undefined
-      ? // A Claude conversation's /compact is no account command; the provider runs it.
-        Effect.succeed(input.claude === undefined)
+      ? // A Claude conversation's /compact is no account command; the provider runs it, and
+        // on a thread Blackhole compacts T3 runs it.
+        Effect.succeed(input.claude === undefined && input.blackhole === undefined)
       : Effect.fail(
           new ProviderSetupError({
             instanceId: oldInstanceId,
@@ -1195,7 +1199,9 @@ function makeLocalCommandHarness(input: {
               prepareProviderHandoff,
             })
           : // A cross-account compaction writes a real handoff; the other scenarios never do.
-            input.summariser === undefined && input.history === undefined
+            input.summariser === undefined &&
+              input.history === undefined &&
+              input.blackhole === undefined
             ? Layer.mock(ContextHandoffService.ContextHandoffServiceV2)({
                 prepareProviderHandoff,
               })
@@ -1302,6 +1308,22 @@ function makeLocalCommandHarness(input: {
                 Effect.sync(() => warmedForgeItems.push(workItem.number)).pipe(
                   Effect.andThen(Effect.die("Weave unreachable")),
                 ),
+            }),
+        input.blackhole === undefined
+          ? Layer.empty
+          : Layer.mock(BlackholeService.BlackholeService)({
+              settingsFor: () =>
+                Effect.succeed({
+                  blackhole: { compaction: true, memory: true, memoryOffDrivers: [] },
+                  driver: providerThread.driver,
+                }),
+              compile: () =>
+                Effect.succeed({
+                  text: input.blackhole!.text,
+                  summary: input.blackhole!.text,
+                  details: {},
+                  messageCount: 2,
+                }),
             }),
         Layer.mock(ManagedAgent.ManagedAgentService)({
           recoveredRoles: () => Effect.succeed([]),
@@ -1812,4 +1834,65 @@ effectIt.effect(
         slash.startRootRun.mock.calls[0]?.[0]?.message?.text;
       expect(delivered).toBe("/review");
     }).pipe(Effect.scoped),
+);
+
+effectIt.effect(
+  "compacts a Codex thread with Blackhole before any provider turn, opening a fresh session",
+  () =>
+    Effect.gen(function* () {
+      const harness = makeLocalCommandHarness({
+        text: "/compact",
+        previousMessages: ["Fix the login redirect"],
+        nativeSession: true,
+        blackhole: { text: "[Session Goal]\n- Fix the login redirect\n\n## Observations" },
+      });
+
+      yield* harness.start;
+
+      // The compaction never reaches the harness: no session opens and no native turn runs.
+      expect(harness.open).not.toHaveBeenCalled();
+      expect(harness.startRootRun).not.toHaveBeenCalled();
+      expect(harness.projection().runs.at(-1)?.status).toBe("completed");
+      expect(harness.projection().turnItems).toMatchObject([
+        {
+          type: "compaction",
+          status: "completed",
+          driver: "codex",
+          title: "Context compacted by Blackhole",
+          summary: "[Session Goal]\n- Fix the login redirect\n\n## Observations",
+        },
+      ]);
+      // The compiled block is the next session's whole conversation; the old session is dropped.
+      const [handoff] = harness.projection().contextHandoffs;
+      expect(handoff).toMatchObject({
+        strategy: "full_thread_summary",
+        summaryText: "[Session Goal]\n- Fix the login redirect\n\n## Observations",
+      });
+      const thread = harness
+        .projection()
+        .providerThreads.find((candidate) => candidate.nativeThreadRef === null);
+      expect(thread).toMatchObject({ status: "not_loaded", contextUsage: null });
+      expect(thread?.handoffIds).toEqual([handoff?.id]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+effectIt.effect("refuses a Blackhole compaction while the thread's background work runs", () =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({
+      text: "/compact",
+      previousMessages: ["Fix the login redirect"],
+      nativeSession: true,
+      backgroundTasks: 1,
+      blackhole: { text: "[Session Goal]" },
+    });
+
+    yield* harness.start;
+
+    expect(harness.startRootRun).not.toHaveBeenCalled();
+    expect(harness.projection().contextHandoffs).toEqual([]);
+    expect(harness.projection().turnItems).toMatchObject([
+      { type: "error", title: "Cannot compact while this thread's work is running" },
+    ]);
+    expect(harness.projection().providerThreads[0]?.nativeThreadRef).not.toBeNull();
+  }).pipe(Effect.provide(NodeServices.layer)),
 );

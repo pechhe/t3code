@@ -1,3 +1,5 @@
+import { blackholeCompactPoint } from "@t3tools/shared/blackholeCompactPoint";
+
 export type BlackholeWorkerPhase = "observer" | "reflector" | "dropper" | "compact";
 
 export type BlackholeWorkerState =
@@ -70,14 +72,36 @@ export function summarizeThreadCompactionSavings(
 }
 
 /**
- * Pi Blackhole is installed where its Pi instance lists the extension's `/blackhole` command,
- * so the glyph stays while no session is running to report a status.
+ * Pi Blackhole is installed where its Pi instance lists the extension's `/blackhole` command;
+ * every other harness has it when T3 compacts its threads with Blackhole (the server's
+ * `blackhole.compaction`). Either way the glyph stays while no session reports a status.
  */
 export function providerHasBlackhole(
   driver: string | null | undefined,
   slashCommands: ReadonlyArray<{ readonly name: string }>,
+  serverBlackhole: boolean,
 ): boolean {
-  return driver === "pi" && slashCommands.some((command) => command.name === "blackhole");
+  if (driver === "pi") return slashCommands.some((command) => command.name === "blackhole");
+  return serverBlackhole && driver !== null && driver !== undefined;
+}
+
+/**
+ * Where a thread compacts, for the context bar's line: on a harness T3 compacts with Blackhole the
+ * harness reports its own backstop, so the line shows Blackhole's point instead.
+ */
+export function blackholeCompactLineThreshold(input: {
+  readonly driver: string | null | undefined;
+  readonly serverBlackhole: boolean;
+  readonly compactAt: number | null;
+  readonly windowTokens: number | null | undefined;
+  readonly reported: number | null | undefined;
+}): number | null | undefined {
+  if (input.driver === "pi" || !providerHasBlackhole(input.driver, [], input.serverBlackhole))
+    return input.reported;
+  return (
+    blackholeCompactPoint({ compactAt: input.compactAt, windowTokens: input.windowTokens }) ??
+    input.reported
+  );
 }
 
 function stripAnsi(text: string): string {

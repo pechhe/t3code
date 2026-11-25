@@ -359,6 +359,23 @@ Provider commands must start the message to run. T3 Code commands such as
 Send `/compact` in an existing conversation to reduce context usage when the
 provider supports it.
 
+### Blackhole compaction and memory
+
+On every provider except Pi, T3 Code compacts with Blackhole (the compaction and memory of
+pi-blackhole, which Pi threads keep using as a Pi extension). When a thread's context passes its
+compact point, the next turn starts a fresh session from Blackhole's summary: the goals, files
+changed, commits, open work and your preferences, then the thread's memory. It never interrupts a
+running turn, and it makes no model call. `/compact` does the same at any time. The provider's
+own compaction moves later and only steps in when one long turn fills the context first.
+
+As a thread grows, the utility model notes what matters (observations), distils durable
+reflections from them, and prunes the least useful notes, so they survive every compaction. The
+agent can search the whole thread, including what was compacted away, with its `recall` tool.
+
+Turn either off in **Settings → Threads**, or keep compaction and turn memory off for chosen
+providers there. The Blackhole glyph on the context bar shows memory progress and what
+compaction has freed.
+
 Send `/clear` on its own, or pick it from the slash menu, to start a fresh session
 in the same thread. Your next message goes to a new provider session that doesn't see the
 earlier messages, and the thread marks where it began with **New session**.

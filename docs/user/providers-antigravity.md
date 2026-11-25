@@ -90,9 +90,11 @@ Antigravity. Antigravity cannot rewind its own conversation, so the next turn
 starts a fresh Antigravity session and T3 Code sends it the kept conversation,
 without the turns you removed.
 
-Use `/compact` to summarize a long conversation when your Antigravity runtime
-offers that command. If it is unavailable, update Antigravity in provider settings
-or send `/clear` when you need a fresh context.
+T3 Code compacts Antigravity threads with
+[Blackhole](./composer.md#blackhole-compaction-and-memory), and `/compact` runs it at any time.
+Antigravity's own auto-compaction is set to start later, as a backstop. With Blackhole
+compaction off in **Settings → Threads**, `/compact` asks Antigravity to summarize when your
+runtime offers that command.
 
 ### Skills and attachments
 

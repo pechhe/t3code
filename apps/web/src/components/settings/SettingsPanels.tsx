@@ -130,6 +130,7 @@ import { useSearchableSetting } from "./settingsSearch";
 import { nativeLanguageName, SYSTEM_LANGUAGE } from "@t3tools/client-runtime/locales";
 import { SUPPORTED_LOCALES } from "../../i18n/locales";
 import { BackgroundActivitySettingsRow } from "./BackgroundActivitySettings";
+import { BlackholeSettings } from "./BlackholeSettings";
 import { AdvancedSettings } from "./AdvancedSettings";
 import { PullRequestLinksOpenInAppSetting } from "./IntegrationsSettings";
 import { StorageCleanupSections } from "./StorageSettings";
@@ -2182,7 +2183,7 @@ export function ThreadsSettingsPanel() {
           settingKeys={["textGenerationModelSelection"]}
           {...setting("text-generation-model")}
           description={gt(
-            "For background work: thread titles, and Pi Blackhole's memory worker when it's a Pi model. Source control and voice cleanup follow it unless set. Text generators from Providers appear here.",
+            "For background work: thread titles and Blackhole's memory (Pi Blackhole's worker when it's a Pi model). Source control and voice cleanup follow it unless set. Text generators from Providers appear here.",
           )}
           resetAction={
             hasServerTargets && isTextGenerationModelDirty ? (
@@ -2265,6 +2266,7 @@ export function ThreadsSettingsPanel() {
             )
           }
         />
+        {hasServerTargets ? <BlackholeSettings providers={serverProviders} /> : null}
         <AdvancedSettings
           targetIds={[setting("thread-title-instructions").id, setting("response-streaming").id]}
         >

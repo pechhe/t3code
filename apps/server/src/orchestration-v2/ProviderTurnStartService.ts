@@ -71,6 +71,8 @@ import { makeRestoreMissingWorktree } from "../workspace/restoreMissingWorktree.
 import * as EventSink from "./EventSink.ts";
 import * as ProviderUsageAnalytics from "../telemetry/ProviderUsageAnalytics.ts";
 import * as ContextHandoffService from "./ContextHandoffService.ts";
+import * as BlackholeCompactionTurnStart from "../blackhole/BlackholeCompactionTurnStart.ts";
+import * as BlackholeService from "../blackhole/BlackholeService.ts";
 import * as ClaudeCompactionTurnStart from "./ClaudeCompactionTurnStart.ts";
 import { reopenWithCanonicalCatalogue } from "./agentMcpCatalogueReopen.ts";
 import { canForkBusySourceNatively, isActiveRun } from "./CommandPolicy.ts";
@@ -436,6 +438,18 @@ export const layer: Layer.Layer<
     const runtimePolicy = yield* RuntimePolicy.RuntimePolicyV2;
     const videoFramesService = yield* VideoFrames.VideoFrames;
     const claudeCompaction = yield* ClaudeCompactionTurnStart.make;
+    // Optional: a layer without Blackhole leaves `/compact` to the harness (fork: T3-916).
+    const blackholeCompaction = yield* Effect.serviceOption(BlackholeService.BlackholeService).pipe(
+      Effect.flatMap(
+        Option.match({
+          onNone: () => Effect.undefined,
+          onSome: (service) =>
+            BlackholeCompactionTurnStart.make.pipe(
+              Effect.provideService(BlackholeService.BlackholeService, service),
+            ),
+        }),
+      ),
+    );
     const restoreMissingWorktree = yield* makeRestoreMissingWorktree;
     const turnItemPositions = yield* TurnItemPositionStore.TurnItemPositionStoreV2;
 
@@ -1194,6 +1208,14 @@ export const layer: Layer.Layer<
       }
       const resolvedRuntimePolicy = resolvedPolicy.success;
       if (!(yield* isCurrentAttemptInStatus("starting"))) return;
+      const blackholeSettle =
+        blackholeCompaction === undefined
+          ? undefined
+          : yield* blackholeCompaction({ projection, providerThread, run, message });
+      if (blackholeSettle !== undefined) {
+        yield* settleRunStartup(blackholeSettle);
+        return;
+      }
       const plannedCompaction = yield* claudeCompaction.plan({
         projection,
         providerThread,
@@ -1544,6 +1566,14 @@ export const layer: Layer.Layer<
           budget: Effect.gen(function* () {
             return handoffBudget({
               tokenCap,
+              // A summary-only handoff (a compaction) is the whole conversation and is bounded
+              // where it is written, so only the window limits it (fork: T3-916).
+              summaryOnly:
+                handoffs.length > 0 &&
+                handoffs.every(
+                  (handoff) =>
+                    handoff.strategy === "full_thread_summary" && handoff.history === undefined,
+                ),
               modelContextWindow,
               userText: restartNote === "" ? userText : `${restartNote}\n\n${userText}`,
               attachments: providerMessage.attachments,

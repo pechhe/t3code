@@ -44,6 +44,7 @@ export class TextGeneration extends Context.Service<TextGeneration, ProviderText
 ) {}
 
 type TextGenerationOp =
+  | "generateBlackholeMemory"
   | "generateCompactionSummary"
   | "generateCommitMessage"
   | "generatePrContent"
@@ -206,6 +207,22 @@ export const make = Effect.gen(function* () {
         );
       },
     ),
+    generateBlackholeMemory: Effect.fn("TextGeneration.generateBlackholeMemory")(function (input) {
+      return generate(
+        "generateBlackholeMemory",
+        input.modelSelection,
+        input.projectId,
+        (service, modelSelection) =>
+          service.generateBlackholeMemory === undefined
+            ? Effect.fail(
+                new TextGenerationError({
+                  operation: "generateBlackholeMemory",
+                  detail: "This provider cannot run Blackhole's memory workers.",
+                }),
+              )
+            : service.generateBlackholeMemory({ ...input, modelSelection }),
+      );
+    }),
     generateTranscriptionPostProcessing: Effect.fn(
       "TextGeneration.generateTranscriptionPostProcessing",
     )(function (input) {

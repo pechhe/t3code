@@ -1,0 +1,260 @@
+// @ts-nocheck -- vendored pi-blackhole source, type-checked upstream under its own settings.
+/**
+ * Serialize branch entries and render source-addressed chunks.
+ *
+ * Upstream: https://github.com/elpapi42/pi-observational-memory (src/serialize.ts)
+ * Amended: observer-side serialization (serializeBranchEntries /
+ * serializeSourceAddressedBranchEntries / isDeliveredSourceEntry) no longer
+ * renders `custom_message` entries — extension injections aimed at the main
+ * session model must not enter observer chunks or coverage (see
+ * SOURCE_ENTRY_TYPES in om/ledger/progress.ts). Recall rendering
+ * (renderRecallSourceEntry) still surfaces them.
+ */
+import type { Message, TextContent, ToolResultMessage } from "../../shims/pi-ai.ts";
+import { projectUserDecision } from "../extract/user-decisions.ts";
+import type { NormalizedBlock } from "../types.ts";
+
+function pad(n: number): string {
+  return n.toString().padStart(2, "0");
+}
+
+function fmtLocal(d: Date): string {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function formatTimestamp(v: number | string | undefined): string {
+  if (v === undefined) return "????-??-?? ??:??";
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? "????-??-?? ??:??" : fmtLocal(d);
+}
+
+function formatRecallTimestamp(...values: Array<number | string | undefined>): string {
+  for (const v of values) {
+    if (v === undefined) continue;
+    const d = new Date(v);
+    if (!Number.isNaN(d.getTime())) return fmtLocal(d);
+  }
+  return "Unknown time";
+}
+
+function textAndPlaceholders(
+  content: unknown,
+  options: { omitRedactedThinking?: boolean; includeThinking?: boolean } = {},
+): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "[non-text content omitted]";
+
+  const parts: string[] = [];
+  for (const block of content as Array<Record<string, unknown>>) {
+    if (!block || typeof block !== "object") {
+      parts.push("[non-text content omitted]");
+      continue;
+    }
+    if (block.type === "text" && typeof block.text === "string") {
+      parts.push(block.text);
+      continue;
+    }
+    if (block.type === "thinking") {
+      if (options.omitRedactedThinking && block.redacted === true) continue;
+      if (options.includeThinking && typeof block.thinking === "string") {
+        parts.push(`[thinking: ${block.thinking}]`);
+        continue;
+      }
+      parts.push("[non-text content omitted]");
+      continue;
+    }
+    if (block.type === "toolCall" && typeof block.name === "string") {
+      parts.push(`[${block.name}(${JSON.stringify(block.arguments ?? {})})]`);
+      continue;
+    }
+    parts.push("[non-text content omitted]");
+  }
+  return parts.join("\n");
+}
+
+function textOnly(content: unknown): string {
+  if (content == null) return "";
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((b): b is TextContent => b?.type === "text" && typeof b.text === "string")
+    .map((b) => b.text)
+    .join("\n");
+}
+
+export function serializeConversation(messages: Message[]): string {
+  return messages
+    .map((msg): string | null => {
+      const time = formatTimestamp(msg.timestamp);
+      if (msg.role === "user") {
+        const text = textOnly(msg.content);
+        return `[User @ ${time}]: ${text}`;
+      }
+      if (msg.role === "assistant") {
+        const body = textAndPlaceholders(msg.content, {
+          includeThinking: true,
+          omitRedactedThinking: true,
+        })
+          .split("\n")
+          .filter(Boolean)
+          .join("\n");
+        if (!body) return null;
+        return `[Assistant @ ${time}]: ${body}`;
+      }
+      const text = textOnly(msg.content);
+      const toolResult = msg as ToolResultMessage & { details?: unknown };
+      const name = toolResult.toolName;
+      const projection: NormalizedBlock = {
+        kind: "tool_result",
+        name,
+        text,
+        isError: toolResult.isError,
+        ...(toolResult.details !== undefined ? { details: toolResult.details } : {}),
+      };
+      const decision = projectUserDecision(projection);
+      const additions = [
+        ...decision.lines.map((line) => `[Recognized decision projection: ${line}]`),
+        ...(decision.status ? [`[Decision capture: ${decision.status}]`] : []),
+      ];
+      return `[Tool result for ${name} @ ${time}]: ${[text, ...additions].filter(Boolean).join("\n")}`;
+    })
+    .filter((line): line is string => line !== null)
+    .join("\n\n");
+}
+
+export function nowTimestamp(): string {
+  return fmtLocal(new Date());
+}
+
+export const MAX_RECORD_CONTENT_CHARS = 10_000;
+
+export function truncateRecordContent(content: string): string {
+  if (content.length <= MAX_RECORD_CONTENT_CHARS) return content;
+  const head = content.slice(0, MAX_RECORD_CONTENT_CHARS);
+  const dropped = content.length - MAX_RECORD_CONTENT_CHARS;
+  return `${head} … [truncated ${dropped} chars]`;
+}
+
+export type RenderableEntry = {
+  type: string;
+  id?: string;
+  timestamp?: string;
+  message?: unknown;
+  customType?: string;
+  content?: unknown;
+  summary?: unknown;
+};
+
+function renderRecallCustomMessage(entry: RenderableEntry): string {
+  const time = formatRecallTimestamp(entry.timestamp);
+  const text = textAndPlaceholders(entry.content);
+  const origin = entry.customType ? `Custom message (${entry.customType})` : "Custom message";
+  return `[${origin} @ ${time}]: ${text}`;
+}
+
+export function serializeBranchEntries(entries: RenderableEntry[]): string {
+  const blocks: string[] = [];
+  for (const entry of entries) {
+    if (entry.type === "message" && entry.message) {
+      const part = serializeConversation([entry.message as Message]);
+      if (part) blocks.push(part);
+      continue;
+    }
+    // custom_message is deliberately not rendered here: observer input excludes
+    // extension injections (see SOURCE_ENTRY_TYPES in om/ledger/progress.ts).
+    // Recall rendering still surfaces them via renderRecallSourceEntry below.
+    if (entry.type === "branch_summary" && typeof entry.summary === "string") {
+      const time = formatTimestamp(entry.timestamp);
+      blocks.push(`[Branch summary @ ${time}]: ${entry.summary}`);
+    }
+  }
+  return blocks.join("\n\n");
+}
+
+export type SourceAddressedSerialization = {
+  text: string;
+  sourceEntryIds: string[];
+  /** Entry id -> local "YYYY-MM-DD HH:MM" display timestamp, matching the inline time
+   *  rendered for that entry in `text`. Lets callers timestamp derived records
+   *  programmatically instead of trusting LLM-reported times. */
+  sourceEntryTimestamps: Record<string, string>;
+};
+
+function isSourceRenderableEntry(entry: RenderableEntry): boolean {
+  return entry.type === "message" || entry.type === "branch_summary";
+}
+
+function sourceEntryTimestamp(entry: RenderableEntry): string {
+  const msg = entry.message as Message | undefined;
+  if (entry.type === "message" && msg && typeof msg === "object") {
+    return formatTimestamp(msg.timestamp);
+  }
+  return formatTimestamp(entry.timestamp);
+}
+
+/** Rendered observer input for a source entry, or undefined when it is not delivered. */
+function renderDeliveredSourceEntry(entry: RenderableEntry): string | undefined {
+  if (!entry.id || !isSourceRenderableEntry(entry)) return undefined;
+  const rendered = serializeBranchEntries([entry]);
+  return rendered.trim() ? rendered : undefined;
+}
+
+export function isDeliveredSourceEntry(
+  entry: RenderableEntry,
+): entry is RenderableEntry & { id: string } {
+  return renderDeliveredSourceEntry(entry) !== undefined;
+}
+
+export function serializeSourceAddressedBranchEntries(
+  entries: RenderableEntry[],
+): SourceAddressedSerialization {
+  const blocks: string[] = [];
+  const sourceEntryIds: string[] = [];
+  const sourceEntryTimestamps: Record<string, string> = {};
+  for (const entry of entries) {
+    const rendered = renderDeliveredSourceEntry(entry);
+    if (rendered === undefined || !entry.id) continue;
+    sourceEntryIds.push(entry.id);
+    sourceEntryTimestamps[entry.id] = sourceEntryTimestamp(entry);
+    blocks.push(`[Source entry id: ${entry.id}]\n${rendered}`);
+  }
+  return { text: blocks.join("\n\n"), sourceEntryIds, sourceEntryTimestamps };
+}
+
+function renderRecallMessage(entry: RenderableEntry): string | null {
+  if (!entry.message || typeof entry.message !== "object") return null;
+  const msg = entry.message as Message;
+  const time = formatRecallTimestamp(msg.timestamp, entry.timestamp);
+  if (msg.role === "user") {
+    return `[User @ ${time}]: ${textAndPlaceholders(msg.content)}`;
+  }
+  if (msg.role === "assistant") {
+    const body = textAndPlaceholders(msg.content, {
+      includeThinking: true,
+      omitRedactedThinking: true,
+    })
+      .split("\n")
+      .filter(Boolean)
+      .join("\n");
+    if (!body) return null;
+    return `[Assistant @ ${time}]: ${body}`;
+  }
+  return `[Tool result: ${(msg as ToolResultMessage).toolName} @ ${time}]: ${textAndPlaceholders(msg.content)}`;
+}
+
+export function renderRecallSourceEntry(entry: RenderableEntry): string | null {
+  if (entry.type === "message") return renderRecallMessage(entry);
+  if (entry.type === "custom_message") return renderRecallCustomMessage(entry);
+  if (entry.type === "branch_summary" && typeof entry.summary === "string") {
+    const time = formatRecallTimestamp(entry.timestamp);
+    return `[Branch summary @ ${time}]: ${entry.summary}`;
+  }
+  return null;
+}
+
+export function renderRecallSourceEntries(entries: RenderableEntry[]): string {
+  return entries
+    .map(renderRecallSourceEntry)
+    .filter((block): block is string => block !== null && block.trim().length > 0)
+    .join("\n\n");
+}

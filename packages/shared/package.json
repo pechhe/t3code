@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./blackholeCompactPoint": {
+      "types": "./src/blackholeCompactPoint.ts",
+      "import": "./src/blackholeCompactPoint.ts"
+    },
     "./png": {
       "types": "./src/png.ts",
       "import": "./src/png.ts"
