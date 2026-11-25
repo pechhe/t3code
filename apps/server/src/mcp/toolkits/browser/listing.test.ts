@@ -17,11 +17,12 @@ const listed = (tools: ReadonlyArray<Tool.Any>) =>
 it("keeps the browser tools within their listing budget", () => {
   // T3-571's guarded ordinal repeats at every target: task 16,513. T3-853: one family of 25,675
   // replaces the bounded tools (19,188) and the preview and preview-control tools (14,153).
+  // YS-2419: browser_page_tools adds ~0.75K to the family (26,020).
   expect(listed([BrowserToolkit.tools.browser_task])).toBeLessThan(16_600);
   expect(
     listed([
       ...Object.values(BrowserToolkit.tools),
       ...Object.values(BrowserSnapshotToolkit.tools),
     ]),
-  ).toBeLessThan(25_750);
+  ).toBeLessThan(26_100);
 });

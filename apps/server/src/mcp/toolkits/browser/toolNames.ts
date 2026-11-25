@@ -7,6 +7,7 @@ export const BOUNDED_BROWSER_TOOL_NAMES = [
   "browser_status",
   "browser_snapshot",
   "browser_act",
+  "browser_page_tools",
   "browser_task",
   "browser_close",
 ] as const;
@@ -21,6 +22,7 @@ export const MANAGED_BROWSER_TOOL_NAMES = [
   "browser_status",
   "browser_snapshot",
   "browser_act",
+  "browser_page_tools",
   "browser_handoff",
   "browser_close",
   "device_list",

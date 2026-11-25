@@ -94,6 +94,7 @@ import { BrowserRunContexts } from "./BrowserRunContexts.ts";
 import * as DesktopBrowserChannel from "./DesktopBrowserChannel.ts";
 import * as PreviewAgentActivity from "./PreviewAgentActivity.ts";
 import * as PreviewManager from "./Manager.ts";
+import * as PageTools from "./PageTools.ts";
 import * as ServerBrowserPage from "./ServerBrowserPage.ts";
 import * as PreviewBrowser from "./PreviewBrowser.ts";
 import * as JourneyBrowserPolicy from "./JourneyBrowserPolicy.ts";
@@ -566,6 +567,7 @@ const READ_OPERATIONS: ReadonlySet<PreviewAutomationRequest["operation"]> = new 
   "status",
   "snapshot",
   "waitFor",
+  "pageToolList",
 ]);
 
 export const AGENT_TAB_LIMIT = 16;
@@ -3456,6 +3458,9 @@ const make = Effect.gen(function* () {
         );
       case "waitFor":
         return ServerBrowserPage.waitFor(tab.page, input as PreviewAutomationWaitForInput);
+      case "pageToolList":
+      case "pageToolInvoke":
+        return PageTools.run(tab.cdp, request.operation, input, deadlineMs);
       case "recordingStart": {
         const recording = await startRecording(tab);
         return { tabId: tab.tabId, recording: true, startedAt: recording.startedAt };

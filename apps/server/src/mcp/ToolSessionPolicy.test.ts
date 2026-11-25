@@ -108,8 +108,9 @@ const budgets: ReadonlyArray<[string, SessionToolProfile | undefined, number]> =
   // T3-853: the browser family is counted now (browser_task's schema alone is ~29K); the bounded
   // tools it replaced were listed to readers and browser tasks but missing from this catalogue.
   // T3-916: 83_500 for Blackhole's `recall`, which readers keep to search their own history.
-  ["reader", session("source-reader", "reviewer"), 83_500],
-  ["browser", session("phi", "browser"), 58_500],
+  // YS-2419: `browser_page_tools` adds ~0.75K to each of these two.
+  ["reader", session("source-reader", "reviewer"), 84_000],
+  ["browser", session("phi", "browser"), 58_700],
   ["scout", session("web-research", "scout"), 19_500],
 ];
 

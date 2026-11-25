@@ -22,6 +22,7 @@ import * as Schema from "effect/Schema";
 import * as BrowserTaskCalls from "../../../browserTasks/BrowserTaskCalls.ts";
 import * as BrowserTaskService from "../../../browserTasks/BrowserTaskService.ts";
 import type * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
+import { capPageToolsReply } from "../../../preview/PageTools.ts";
 import * as BrowserLogins from "../../../secrets/BrowserLogins.ts";
 import { assertBoundedBrowserCaller } from "../../ManagedBrowserAccess.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
@@ -553,6 +554,23 @@ const make = Effect.gen(function* () {
           tabId,
           completed: steps.length,
           results,
+          ...(toolIcon === undefined ? {} : { toolIcon }),
+        };
+      }),
+    ),
+    browser_page_tools: McpToolAccess.composed(({ tabId: requested, name, input }, run) =>
+      Effect.gen(function* () {
+        const scope = yield* McpInvocationContext.McpInvocationContext;
+        const { lane, tabId } = browserTarget(scope, requested);
+        // Listing is a read, so it works while a person drives the tab; running a tool is an act.
+        const { result, toolIcon } = yield* run(
+          name === undefined ? lanes[lane].read : lanes[lane].act,
+          name === undefined
+            ? { operation: "pageToolList", input: {}, tabId }
+            : { operation: "pageToolInvoke", input: { name, input: input ?? {} }, tabId },
+        );
+        return {
+          ...capPageToolsReply(result as object),
           ...(toolIcon === undefined ? {} : { toolIcon }),
         };
       }),

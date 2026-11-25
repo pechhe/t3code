@@ -191,6 +191,7 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "browser_act",
   "browser_close",
   "browser_open",
+  "browser_page_tools",
   "browser_snapshot",
   "browser_status",
   "browser_task",

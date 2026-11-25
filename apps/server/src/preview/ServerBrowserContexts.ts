@@ -214,6 +214,8 @@ export class ServerBrowserContexts {
         "--disable-gpu",
         "--force-device-scale-factor=2",
         "--disable-blink-features=AutomationControlled",
+        // Lets a page register its own tools (WebMCP) for the agent's page-tools calls.
+        "--enable-features=WebMCP",
         ...(userAgent ? [`--user-agent=${userAgent}`] : []),
       ],
       // Playwright's flooding-protection opt-out lets a page navigate unthrottled, as no real Chrome does.

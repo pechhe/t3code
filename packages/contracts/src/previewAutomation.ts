@@ -52,6 +52,9 @@ export const PREVIEW_AUTOMATION_SERVER_OPERATIONS = [
   "hover",
   "select",
   "drag",
+  // The page's own tools (WebMCP): the server browser alone serves them.
+  "pageToolList",
+  "pageToolInvoke",
 ] as const;
 export const PreviewAutomationOperation = Schema.Literals([
   ...PREVIEW_AUTOMATION_SERVER_OPERATIONS,

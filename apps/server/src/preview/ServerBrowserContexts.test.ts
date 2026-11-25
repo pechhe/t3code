@@ -609,6 +609,7 @@ it("gives each managed context a dedicated proxied launch, credentials and ephem
         expect.arrayContaining([
           "--proxy-bypass-list=<-loopback>",
           "--disable-quic",
+          "--enable-features=WebMCP",
           "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
         ]),
       );
