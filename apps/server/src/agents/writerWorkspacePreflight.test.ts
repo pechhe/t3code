@@ -19,29 +19,31 @@ it.layer(NodeServices.layer)("writer workspace alias guard", (it) => {
       expect(yield* fs.readFileString(`${root}/outside`)).toBe("preserve");
     }),
   );
-  it.effect(
-    "skips hard-linked version-control and package stores but still guards source beside them",
-    () =>
-      Effect.gen(function* () {
-        const fs = yield* FileSystem.FileSystem;
-        const root = yield* fs.makeTempDirectoryScoped();
-        yield* fs.writeFileString(`${root}/store`, "shared");
-        for (const store of [
-          ".git/objects",
-          ".jj/repo",
-          "node_modules/pkg",
-          "packages/app/node_modules/pkg",
-        ]) {
-          yield* fs.makeDirectory(`${root}/workspace/${store}`, { recursive: true });
-          yield* fs.link(`${root}/store`, `${root}/workspace/${store}/linked`);
-        }
-        yield* checkWriterWorkspace(`${root}/workspace`);
-        const alias = `${root}/workspace/packages/app/src.ts`;
-        yield* fs.link(`${root}/store`, alias);
-        expect((yield* checkWriterWorkspace(`${root}/workspace`).pipe(Effect.flip)).path).toBe(
-          alias,
-        );
-      }),
+  it.effect("skips hard-linked tool directories but still guards source beside them", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped();
+      yield* fs.writeFileString(`${root}/store`, "shared");
+      for (const store of [
+        ".git/objects",
+        ".jj/repo",
+        "node_modules/pkg",
+        "packages/app/node_modules/pkg",
+        "packages/app/.svelte-check",
+        "packages/app/.svelte-kit",
+        "packages/app/dist",
+        ".t3/cache",
+      ]) {
+        yield* fs.makeDirectory(`${root}/workspace/${store}`, { recursive: true });
+        yield* fs.link(`${root}/store`, `${root}/workspace/${store}/linked`);
+      }
+      yield* checkWriterWorkspace(`${root}/workspace`);
+      const alias = `${root}/workspace/packages/app/src.ts`;
+      yield* fs.link(`${root}/store`, alias);
+      const error = yield* checkWriterWorkspace(`${root}/workspace`).pipe(Effect.flip);
+      expect(error.reason).toBe("hard-link");
+      expect(error.path).toBe(alias);
+    }),
   );
   it.effect(
     "accepts sources hard-linked only into pnpm's install of a local file: dependency",

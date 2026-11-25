@@ -8087,6 +8087,81 @@ describe("Repository-hosted Champions", () => {
       ),
   );
 
+  it.effect(
+    "skips the agent-config fetch for dirty saves within the poll window, pushes cleanly, and refetches after it",
+    () =>
+      withFolders((f, service, world) =>
+        Effect.gen(function* () {
+          f.realProjectRoot();
+          yield* definitions(service);
+          const tick = f.scheduled.get("champion-folders")!;
+          const purpose = () =>
+            service.get({ id: config.id }).pipe(Effect.map((detail) => detail.champion.purpose));
+          yield* tick;
+          assert.include(world.onMain(`${FOLDER}/champion.md`) ?? "", config.purpose);
+
+          yield* service.upsert({ ...config, purpose: "Keep errors very low" });
+          yield* TestClock.adjust("20 seconds");
+          yield* tick;
+          assert.include(world.onMain(`${FOLDER}/champion.md`) ?? "", "Keep errors very low");
+          assert.equal(
+            git(world.root, "rev-parse", "origin/main"),
+            git(world.root, "--git-dir", world.origin, "rev-parse", "main"),
+          );
+
+          const edited = world
+            .onMain(`${FOLDER}/champion.md`)!
+            .replace("Keep errors very low", "Edited by an agent");
+          world.push({ [`${FOLDER}/champion.md`]: `${edited}\n` });
+          const external = git(world.root, "--git-dir", world.origin, "rev-parse", "main");
+          yield* service.upsert({ ...config, purpose: "Keep errors very low" });
+          yield* TestClock.adjust("20 seconds");
+          yield* tick;
+          assert.notEqual(git(world.root, "rev-parse", "origin/main"), external);
+          assert.equal(yield* purpose(), "Keep errors very low");
+          const settled = world.commits();
+
+          yield* service.upsert({ ...config, purpose: "Keep errors very low" });
+          yield* TestClock.adjust("20 seconds");
+          yield* tick;
+          assert.equal(world.commits(), settled);
+
+          yield* TestClock.adjust("5 minutes");
+          yield* tick;
+          assert.equal(git(world.root, "rev-parse", "origin/main"), external);
+          assert.equal(yield* purpose(), "Edited by an agent");
+        }),
+      ),
+  );
+
+  it.effect("saves a dirty Champion over another machine's push inside the poll window", () =>
+    withFolders((f, service, world) =>
+      Effect.gen(function* () {
+        f.realProjectRoot();
+        yield* definitions(service);
+        const tick = f.scheduled.get("champion-folders")!;
+        yield* tick;
+
+        world.push({ "notes/other.md": "from another machine\n" });
+        yield* service.upsert({ ...config, purpose: "Keep errors very low" });
+        yield* TestClock.adjust("20 seconds");
+        yield* tick;
+        assert.include(world.onMain(`${FOLDER}/champion.md`) ?? "", "Keep errors very low");
+        assert.equal(world.onMain("notes/other.md"), "from another machine");
+        assert.equal(
+          git(world.root, "rev-parse", "origin/main"),
+          git(world.root, "--git-dir", world.origin, "rev-parse", "main"),
+        );
+        const settled = world.commits();
+
+        yield* service.upsert({ ...config, purpose: "Keep errors very low" });
+        yield* TestClock.adjust("20 seconds");
+        yield* tick;
+        assert.equal(world.commits(), settled);
+      }),
+    ),
+  );
+
   it.effect("does not re-arm the dirty save when a sync finds nothing to change", () =>
     withFolders((f, service, world) =>
       Effect.gen(function* () {

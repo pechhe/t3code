@@ -120,11 +120,6 @@
     "reason": "The migration that renames the stored names has to name them."
   },
   {
-    "path": "apps/server/src/persistence/reconcileV2PreviewMigration.test.ts",
-    "category": "append-only-history",
-    "reason": "Lists shipped migration names exactly as databases record them."
-  },
-  {
     "path": "apps/server/src/project/ProjectMutation.test.ts",
     "category": "compatibility-aliases",
     "reason": "Applies the project fields older fork clients send under the retained names."

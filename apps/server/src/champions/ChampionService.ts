@@ -5522,7 +5522,7 @@ const make = Effect.gen(function* () {
       doc: Document,
     ) {
       const repository = yield* repositoryOf(doc);
-      if (repository === null || here === null) return;
+      if (repository === null || here === null) return true;
       const path =
         doc.champion.folder?.path ?? championFolderPath(folderGroup(repository), doc.champion.id);
       const definedIn = doc.champion.folder?.definedIn;
@@ -5615,6 +5615,7 @@ const make = Effect.gen(function* () {
           });
         }),
       );
+      return refused === null;
     },
     (effect, _root, _base, _onMain, doc) =>
       effect.pipe(
@@ -5731,6 +5732,13 @@ const make = Effect.gen(function* () {
       );
     }
   });
+  /** The last fetched agent-config main, reused by dirty saves so they skip the network fetch. */
+  let agentConfigRead: {
+    readonly at: number;
+    readonly root: string;
+    readonly commit: string;
+    readonly files: ReadonlyArray<AgentConfigGit.FolderFile>;
+  } | null = null;
   const syncFoldersWith = Effect.fn("ChampionService.syncFolders")(function* (
     reuseHosted: boolean,
   ) {
@@ -5739,10 +5747,24 @@ const make = Effect.gen(function* () {
       if (Option.isNone(root) || here === null) return;
       yield* folderLock.withPermits(1)(
         Effect.gen(function* () {
-          const commit = yield* AgentConfigGit.fetchMain(root.value).pipe(Effect.mapError(failure));
-          const files = yield* AgentConfigGit.readFiles(root.value, commit, CHAMPIONS_PREFIX).pipe(
-            Effect.mapError(failure),
-          );
+          const readAt = yield* Clock.currentTimeMillis;
+          const cachedRead = agentConfigRead;
+          const reused =
+            reuseHosted &&
+            cachedRead !== null &&
+            cachedRead.root === root.value &&
+            readAt - cachedRead.at < HOSTED_POLL_MS
+              ? cachedRead
+              : null;
+          const commit =
+            reused?.commit ??
+            (yield* AgentConfigGit.fetchMain(root.value).pipe(Effect.mapError(failure)));
+          const files =
+            reused?.files ??
+            (yield* AgentConfigGit.readFiles(root.value, commit, CHAMPIONS_PREFIX).pipe(
+              Effect.mapError(failure),
+            ));
+          agentConfigRead = reused ?? { at: readAt, root: root.value, commit, files };
           const byFolder = filesByFolder(files);
           const hosted = yield* hostedOnMain(byFolder, reuseHosted);
           const folders = [
@@ -5784,6 +5806,7 @@ const make = Effect.gen(function* () {
           }
           const onMain = byFolder;
           const base = { commit };
+          let saveFailed = false;
           const rows = yield* sql<{
             document_json: string;
           }>`SELECT document_json FROM champions ORDER BY id`.pipe(Effect.mapError(failure));
@@ -5808,11 +5831,29 @@ const make = Effect.gen(function* () {
               (doc.champion.lifecycle === "retired" || seen.has(doc.champion.id))
             )
               continue;
-            yield* saveFolder(root.value, base, onMain, doc).pipe(
+            const saved = yield* saveFolder(root.value, base, onMain, doc).pipe(
               Effect.catch((error) =>
                 Effect.logWarning("champions.folder-save-failed", { id: doc.champion.id, error }),
               ),
             );
+            if (saved !== true) saveFailed = true;
+          }
+          if (saveFailed) agentConfigRead = null;
+          else if (base.commit !== commit) {
+            const pushedFiles = yield* AgentConfigGit.readFiles(
+              root.value,
+              base.commit,
+              CHAMPIONS_PREFIX,
+            ).pipe(Effect.orElseSucceed(() => null));
+            agentConfigRead =
+              pushedFiles === null
+                ? null
+                : {
+                    at: agentConfigRead?.at ?? readAt,
+                    root: root.value,
+                    commit: base.commit,
+                    files: pushedFiles,
+                  };
           }
         }),
       );
