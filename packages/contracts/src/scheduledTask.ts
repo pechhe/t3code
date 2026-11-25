@@ -1,6 +1,7 @@
 import * as Schema from "effect/Schema";
 
 import {
+  ChampionId,
   CommandId,
   ForwardCompatibleArray,
   IsoDateTime,
@@ -289,6 +290,7 @@ export const ScheduledTask = Schema.Struct({
   /** The thread the latest successful run started or posted into. */
   lastRunThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   groupId: Schema.optional(Schema.NullOr(ScheduledTaskGroupId)),
+  championId: Schema.optional(Schema.NullOr(ChampionId)),
   agentRole: Schema.optional(Schema.NullOr(ScheduledTaskAgentRole)),
   webhook: Schema.optional(ScheduledTaskWebhookEndpoint),
   /** Why the task cannot run regardless of `enabled`, such as a managed policy refusing webhooks. */
@@ -329,6 +331,8 @@ export const ScheduledTaskUpsertInput = Schema.Struct({
   }),
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
+  /** Omitted: keep the stored Champion; null clears it. */
+  championId: Schema.optional(Schema.NullOr(ChampionId)),
   groupId: Schema.optional(Schema.NullOr(ScheduledTaskGroupId)),
   agentRole: Schema.optional(Schema.NullOr(ScheduledTaskAgentRole)),
   createdBy: Schema.optional(OrchestrationV2Actor),

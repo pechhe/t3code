@@ -56,6 +56,7 @@ const insert = (sql: SqlClient.SqlClient, fixture: Fixture) =>
     run_count: 0,
     webhook_token: fixture.schedule === WEBHOOK ? "token" : null,
     group_id: null,
+    champion_id: null,
     agent_role: fixture.role === undefined ? "implementer" : fixture.role,
   })}`;
 

@@ -9,6 +9,7 @@ import {
   MessageId,
   TrimmedNonEmptyString,
   EnvironmentId,
+  ChampionId,
 } from "./baseSchemas.ts";
 import { StoredAgentRole, AgentTaskClass, AgentTaskBinding } from "./agentPolicy.ts";
 import { CommandId, NodeId } from "./baseSchemas.ts";
@@ -20,8 +21,6 @@ export const ChampionLabel = TrimmedNonEmptyString.check(Schema.isMaxLength(500)
 export const DEFAULT_CHAMPION_INSTRUCTIONS =
   "Inspect and measure without editing the shared root. Delegate bounded repairs into isolated workspaces, independently review their pinned handoff with the appropriate reviewer (and a browser task when needed), apply fixes, then adopt and land once through normal SlipJay. A returned worker commit is a handoff, not delivery. Record the confirmed landing operation before verification; verify a fresh observation on the running revision. Use an advisor on the configured stronger selection for larger work, then shape a Forge Spec and delegate its lead; the lead allocates its own Spec workspace. Record unavailable tools and failures honestly.";
 
-export const ChampionId = TrimmedNonEmptyString.check(Schema.isMaxLength(128));
-export type ChampionId = typeof ChampionId.Type;
 export const ChampionLifecycle = Schema.Literals(["active", "paused", "retired"]);
 export type ChampionLifecycle = typeof ChampionLifecycle.Type;
 export const ChampionMetricCommand = Schema.Array(

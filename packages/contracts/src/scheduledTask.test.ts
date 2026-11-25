@@ -4,6 +4,7 @@ import * as Schema from "effect/Schema";
 import {
   MIN_SCHEDULED_TASK_INTERVAL_MS,
   ScheduledTaskSchedule,
+  ScheduledTaskUpsertInput,
   ScheduledTaskUpsertSchedule,
 } from "./scheduledTask.ts";
 
@@ -72,5 +73,26 @@ describe("webhook filters", () => {
     expect(accepts([{ path: "body.label.name", op: "in", value: ["needs review"] }])).toBe(true);
     expect(accepts([{ path: "body.action", op: "equals" }])).toBe(false);
     expect(accepts([{ path: "body.action", op: "matches", value: "^opened$" }])).toBe(false);
+  });
+});
+
+describe("championId", () => {
+  const upsert = {
+    title: "T",
+    prompt: "P",
+    enabled: true,
+    schedule: { type: "interval", everyMs: 60_000 },
+    projectId: "project:1",
+    workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    runtimeMode: "full-access",
+    interactionMode: "default",
+  };
+  const decode = Schema.decodeUnknownSync(ScheduledTaskUpsertInput);
+
+  it("tells omitted from null from set on a save", () => {
+    expect("championId" in decode(upsert)).toBe(false);
+    expect(decode({ ...upsert, championId: null }).championId).toBeNull();
+    expect(decode({ ...upsert, championId: "quality" }).championId).toBe("quality");
+    expect(() => decode({ ...upsert, championId: " " })).toThrow();
   });
 });

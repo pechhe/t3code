@@ -398,6 +398,7 @@ function scheduledTaskSummary(task: ScheduledTask, mayRun: boolean): Orchestrato
     modelSelection: task.modelSelection,
     freshSession: scheduledTaskThreadMode(task) === "fresh_session",
     purpose: scheduledTaskPurpose(task),
+    ...(task.championId == null ? {} : { championId: task.championId }),
     schedule: task.schedule,
     nextRunAt: task.nextRunAt,
     lastRunStatus: task.lastRunStatus,
@@ -2761,6 +2762,7 @@ const make = Effect.gen(function* () {
             ? "continue"
             : "new_thread",
         purpose: input.purpose,
+        ...(input.championId === undefined ? {} : { championId: input.championId }),
         workspaceStrategy: yield* scheduledTaskWorkspaceStrategy(bindToCurrentThread, projectId),
         modelSelection,
         ...(input.modelSelection !== undefined
@@ -2880,6 +2882,7 @@ const make = Effect.gen(function* () {
                   ? "new_thread"
                   : "continue",
           ...(input.purpose === undefined ? {} : { purpose: input.purpose }),
+          ...(input.championId === undefined ? {} : { championId: input.championId }),
           workspaceStrategy,
           modelSelection:
             input.modelSelection === undefined

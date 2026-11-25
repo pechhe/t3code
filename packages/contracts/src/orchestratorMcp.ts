@@ -19,6 +19,7 @@ export type AgentTaskOutcomeInput = typeof AgentTaskOutcomeInput.Type;
 
 import { AuthMcpClientAccess } from "./auth.ts";
 import {
+  ChampionId,
   ContextTransferId,
   EnvironmentId,
   IsoDateTime,
@@ -1068,6 +1069,12 @@ export const OrchestratorMcpScheduleTaskInput = Schema.Struct({
         "Runs share one thread but each starts a fresh session. Unbound: the first run makes the thread.",
     }),
   ),
+  championId: Schema.optional(
+    Schema.NullOr(ChampionId).annotate({
+      description:
+        "Champion id this automation belongs to; groups it under that Champion. null clears.",
+    }),
+  ),
   purpose: OrchestratorMcpScheduledTaskPurpose,
   clientRequestId: Schema.optional(OrchestratorMcpClientRequestId),
 });
@@ -1094,6 +1101,7 @@ export const OrchestratorMcpScheduledTask = Schema.Struct({
   ...DelegationFields.scheduledTaskRoleFields,
   freshSession: Schema.Boolean,
   purpose: ScheduledTaskPurpose,
+  championId: Schema.optional(ChampionId),
   schedule: ScheduledTaskSchedule,
   nextRunAt: Schema.NullOr(IsoDateTime),
   lastRunStatus: ScheduledTaskRunStatus,
@@ -1140,6 +1148,12 @@ export const OrchestratorMcpUpdateScheduledTaskInput = Schema.Struct({
   ...DelegationFields.updateScheduledTaskRoleFields,
   freshSession: Schema.optional(Schema.Boolean),
   purpose: Schema.optional(ScheduledTaskPurpose),
+  championId: Schema.optional(
+    Schema.NullOr(ChampionId).annotate({
+      description:
+        "Champion id this automation belongs to; groups it under that Champion. null clears.",
+    }),
+  ),
 });
 export type OrchestratorMcpUpdateScheduledTaskInput =
   typeof OrchestratorMcpUpdateScheduledTaskInput.Type;

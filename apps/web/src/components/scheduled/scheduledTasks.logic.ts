@@ -1,3 +1,4 @@
+/* oxlint-disable t3code/no-untranslated-copy -- The fork-only Scheduled page predates the rule and has no translations yet. */
 import {
   parseMaxDeliveryAge,
   parseWebhookFilterDrafts,
@@ -8,6 +9,7 @@ import {
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import {
   EnvironmentId,
+  type ChampionId,
   isListedThreadLineage,
   isWebhookDedupeTemplate,
   MAX_WEBHOOK_DELIVERY_AGE_MINUTES,
@@ -222,6 +224,8 @@ export interface GroupDraftFields {
   /** One thread each run continues or opens a fresh session in; "new_thread" starts one per run. */
   readonly threadMode: ScheduledTaskThreadMode;
   readonly purpose: ScheduledTaskPurpose;
+  /** Absent leaves each stored task's Champion alone; null clears it. */
+  readonly championId?: ChampionId | null;
   /**
    * The thread the person picked for the machine and project it belongs to. Absent or null
    * keeps each stored task's own thread. A pair it does not belong to ignores it, so
@@ -366,6 +370,7 @@ export function planGroupSave(input: {
           runtimeMode: previous?.runtimeMode ?? "full-access",
           interactionMode: previous?.interactionMode ?? "default",
           groupId: input.groupId,
+          ...(draft.championId === undefined ? {} : { championId: draft.championId }),
           creationSource: "web",
         },
       });

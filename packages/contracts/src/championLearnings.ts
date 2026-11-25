@@ -1,8 +1,7 @@
 import * as Schema from "effect/Schema";
-import { EnvironmentId, IsoDateTime, ProjectId } from "./baseSchemas.ts";
+import { ChampionId, EnvironmentId, IsoDateTime, ProjectId } from "./baseSchemas.ts";
 import { StoredAgentRole } from "./agentPolicy.ts";
 import {
-  ChampionId,
   ChampionLabel,
   ChampionLearningRecordInput,
   ChampionLearningRevision,

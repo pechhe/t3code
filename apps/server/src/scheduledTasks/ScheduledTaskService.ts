@@ -244,6 +244,7 @@ interface ScheduledTaskRow {
   readonly webhook_token: string | null;
   readonly webhook_secret: string | null;
   readonly group_id: string | null;
+  readonly champion_id: string | null;
   readonly agent_role: string | null;
   readonly last_run_thread_id: string | null;
 }
@@ -457,6 +458,7 @@ const decodeRow = Effect.fnUntraced(
       runCount: row.run_count,
       lastRunThreadId: row.last_run_thread_id,
       groupId: row.group_id,
+      championId: row.champion_id,
       agentRole: row.agent_role,
       ...(webhook === undefined ? {} : { webhook }),
     });
@@ -657,6 +659,7 @@ export const layer = Layer.effect(
         webhook_token,
         webhook_secret,
         group_id,
+        champion_id,
         agent_role,
         last_run_thread_id
       FROM scheduled_tasks
@@ -703,6 +706,7 @@ export const layer = Layer.effect(
         webhook_token,
         webhook_secret,
         group_id,
+        champion_id,
         agent_role,
         last_run_thread_id
       FROM scheduled_tasks
@@ -785,6 +789,7 @@ export const layer = Layer.effect(
           webhook_token,
           webhook_secret,
           group_id,
+          champion_id,
           agent_role
         )
         SELECT
@@ -813,6 +818,7 @@ export const layer = Layer.effect(
           ${webhook.token},
           ${webhook.secret},
           ${task.groupId ?? null},
+          ${task.championId ?? null},
           ${task.agentRole ?? null}
         WHERE ${requireExisting ? 0 : 1} = 1
            OR EXISTS (SELECT 1 FROM scheduled_tasks WHERE task_id = ${task.id})
@@ -837,6 +843,7 @@ export const layer = Layer.effect(
           runtime_mode = excluded.runtime_mode,
           interaction_mode = excluded.interaction_mode,
           group_id = excluded.group_id,
+          champion_id = excluded.champion_id,
           agent_role = excluded.agent_role,
           creation_source = excluded.creation_source,
           updated_at = excluded.updated_at,
@@ -1827,6 +1834,8 @@ export const layer = Layer.effect(
         // Omitted keeps the stored value, so a caller that does not know these fields
         // (an agent's update tool, an older client) cannot drop them.
         groupId: input.groupId === undefined ? (existingTask?.groupId ?? null) : input.groupId,
+        championId:
+          input.championId === undefined ? (existingTask?.championId ?? null) : input.championId,
         agentRole,
         createdBy: existingTask?.createdBy ?? input.createdBy ?? "user",
         creationSource: input.creationSource ?? "web",

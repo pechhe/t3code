@@ -249,6 +249,9 @@ const makeEntityId = <Brand extends string>(brand: Parameters<typeof Schema.bran
 
 export const ThreadId = makeEntityId("ThreadId");
 export type ThreadId = typeof ThreadId.Type;
+export const ChampionId = TrimmedNonEmptyString.check(Schema.isMaxLength(128));
+export type ChampionId = typeof ChampionId.Type;
+
 export const ProjectId = makeEntityId("ProjectId");
 export type ProjectId = typeof ProjectId.Type;
 export const EnvironmentId = makeEntityId("EnvironmentId");

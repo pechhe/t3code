@@ -33,6 +33,7 @@ import { Skeleton } from "../ui/skeleton";
 import { Spinner } from "../ui/spinner";
 import { Switch } from "../ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { ChampionAutomations } from "./ChampionAutomations";
 import { ChampionActivityList, ChampionDecisionList } from "./ChampionActivityList";
 import { ChampionLearnings, useChampionLearningCount } from "./ChampionLearnings";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
@@ -754,6 +755,7 @@ export function ChampionDetailPage(props: {
           </div>
           <div className="flex flex-col gap-5">
             {pendingDecisions > 0 ? metricsSection : null}
+            <ChampionAutomations environmentId={environmentId} championId={id} />
             {activitySection}
           </div>
         </div>

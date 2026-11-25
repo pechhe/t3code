@@ -1,3 +1,4 @@
+/* oxlint-disable t3code/no-untranslated-copy -- The fork-only Scheduled page predates the rule and has no translations yet. */
 import { useAtomValue } from "@effect/atom-react";
 import {
   DEFAULT_WEBHOOK_PROMPT,
@@ -14,6 +15,7 @@ import {
 import {
   AgentRole,
   AuthOrchestrationOperateScope,
+  type ChampionId,
   type EnvironmentId,
   type ThreadId,
   MAX_WEBHOOK_DELIVERY_AGE_MINUTES,
@@ -49,6 +51,7 @@ import {
   selectProjectGroupingSettings,
 } from "@t3tools/client-runtime/state/project-grouping";
 import { useProjects, useThreadShells, useVisibleThreadShells } from "../../state/entities";
+import { useAllChampions } from "../../state/champions";
 import { useThreadSearch } from "../../state/queries";
 import { environmentAtomList, environmentIdsKey } from "../../state/environmentAtomList";
 import { useEnvironments } from "../../state/environments";
@@ -93,6 +96,7 @@ import {
   scheduleLabel,
   statusVariant,
 } from "./scheduledTaskParts";
+import { championChoices, championOfGroup, groupsByChampion } from "./scheduledTaskChampion.logic";
 import {
   type ProjectChoice,
   type ScheduleDraft,
@@ -143,6 +147,7 @@ const LINKED_THREAD_MODE_LABELS: Record<Exclude<ScheduledTaskThreadMode, "new_th
   continue: "carries on the conversation",
   fresh_session: "starts a fresh session",
 };
+const NO_CHAMPION = "__none__";
 const ROLE_OPTIONS = AgentRole.literals;
 const DEFAULT_ROLE: AgentRole = "implementer";
 
@@ -177,6 +182,8 @@ interface EditorDraft extends ScheduleDraft, WebhookDraft {
   readonly agentRole: AgentRole | null;
   readonly threadMode: ScheduledTaskThreadMode;
   readonly purpose: ScheduledTaskPurpose;
+  /** The Champion the task belongs to; null for none. */
+  readonly championId: ChampionId | null;
   /** The thread picked in this editor; null keeps the one the task is stored with. */
   readonly destination: ScheduledTaskDestination | null;
 }
@@ -265,7 +272,8 @@ export function ScheduledTasksPage(props: {
       source.tasks === null ? [] : [{ environmentId: source.environmentId, tasks: source.tasks }],
     ),
   );
-  const groups = allGroups;
+  const champions = useAllChampions();
+  const groups = groupsByChampion(allGroups, champions);
   const linkedKey = allGroups.find((group) =>
     group.members.some(
       (member) =>
@@ -335,6 +343,7 @@ export function ScheduledTasksPage(props: {
               <TaskListItem
                 key={group.key}
                 group={group}
+                championName={championOfGroup(group, champions)?.name ?? null}
                 active={group.key === activeKey}
                 onSelect={() => setSelected(group.key)}
               />
@@ -379,6 +388,7 @@ function leadEnvironmentOf(group: ScheduledTaskGroup): EnvironmentId | null {
 
 function TaskListItem(props: {
   readonly group: ScheduledTaskGroup;
+  readonly championName: string | null;
   readonly active: boolean;
   readonly onSelect: () => void;
 }) {
@@ -395,6 +405,7 @@ function TaskListItem(props: {
     >
       <span className="flex items-center gap-1.5">
         <span className="min-w-0 truncate font-medium text-sm">{group.lead.title}</span>
+        {props.championName === null ? null : <Badge variant="outline">{props.championName}</Badge>}
         {status === "running" || status === "failed" ? (
           <Badge variant={statusVariant(status === "running" ? "running" : "failed")}>
             {status}
@@ -434,6 +445,7 @@ function draftOf(
     agentRole: lead ? (lead.agentRole ?? null) : DEFAULT_ROLE,
     threadMode: lead ? scheduledTaskThreadMode(lead) : "new_thread",
     purpose: lead ? scheduledTaskPurpose(lead) : "long_running",
+    championId: lead?.championId ?? null,
     destination: null,
   };
 }
@@ -483,6 +495,7 @@ function TaskDetail(props: {
     label: "scheduled task run now",
   });
   const navigate = useNavigate();
+  const championLists = useAllChampions();
   const policyMachine = draft.machines[0] ?? machines[0]?.environmentId ?? null;
   const policy = useEnvironmentQuery(
     policyMachine === null
@@ -492,6 +505,7 @@ function TaskDetail(props: {
   const canOperate = useAtomValue(
     serverEnvironment.upsertScheduledTask.permissionAtom(policyMachine),
   );
+  const championOptions = championChoices(championLists, draft.machines, draft.championId);
   const update = (patch: Partial<EditorDraft>) => setDraft((current) => ({ ...current, ...patch }));
   const leadEnvironmentId = group === null ? null : leadEnvironmentOf(group);
   // The thread the lead task posts into, or the one picked here in its place.
@@ -981,6 +995,30 @@ function TaskDetail(props: {
           </p>
         </>
       )}
+
+      <div className="flex items-center gap-2 text-sm">
+        <span className="text-muted-foreground">Champion</span>
+        <Select
+          value={draft.championId ?? NO_CHAMPION}
+          onValueChange={(value) =>
+            value && update({ championId: value === NO_CHAMPION ? null : (value as ChampionId) })
+          }
+        >
+          <SelectTrigger size="xs" variant="ghost" aria-label="Champion">
+            <SelectValue>
+              {championOptions.find((choice) => choice.id === draft.championId)?.name ?? "None"}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectPopup>
+            <SelectItem value={NO_CHAMPION}>None</SelectItem>
+            {championOptions.map((choice) => (
+              <SelectItem key={choice.id} value={choice.id}>
+                {choice.missing ? `${choice.name} (not found)` : choice.name}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
+      </div>
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="scheduled-task-prompt">Prompt</Label>

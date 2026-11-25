@@ -15,6 +15,7 @@ import {
   OrchestrationV2ThreadStanding,
   RunId,
   ProjectId,
+  ScheduledTask,
   ProviderInstanceId,
   ProviderDriverKind,
   ServerProviderUsageSlot,
@@ -937,4 +938,37 @@ it("a client that predates autonomousRun and decisionLog still decodes a thread 
     ],
   });
   assert.deepEqual(Object.keys(decoded).toSorted(), ["id", "title"]);
+});
+
+const { championId: _championId, ...shippedTaskFields } = ScheduledTask.fields;
+const decodeTask = Schema.decodeSync(ScheduledTask);
+const decodeShippedTask = Schema.decodeSync(Schema.Struct(shippedTaskFields));
+
+it("a shipped client ignores the Champion a scheduled task belongs to", () => {
+  const task = decodeTask({
+    id: "task:1",
+    title: "Watch",
+    prompt: "Look",
+    enabled: true,
+    schedule: { type: "interval", everyMs: 60_000 },
+    projectId: "project:1",
+    threadId: null,
+    workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    modelSelection: { instanceId: "codex", model: "gpt-5" },
+    runtimeMode: "full-access",
+    interactionMode: "default",
+    createdBy: "user",
+    creationSource: "web",
+    createdAt: "2026-11-19T00:00:00.000Z",
+    updatedAt: "2026-11-19T00:00:00.000Z",
+    nextRunAt: null,
+    lastRunAt: null,
+    lastRunStatus: "never",
+    lastRunError: null,
+    runCount: 0,
+    championId: "quality",
+  });
+  const decoded = decodeShippedTask(task);
+  assert.notProperty(decoded, "championId");
+  assert.equal(decoded.title, "Watch");
 });
