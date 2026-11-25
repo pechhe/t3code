@@ -153,9 +153,8 @@ export function ChampionEscalationCard(props: {
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : gt("Could not start investigation."));
-    } finally {
-      setBusy(null);
     }
+    setBusy(null);
   };
 
   const resolvedLabel =
@@ -168,18 +167,21 @@ export function ChampionEscalationCard(props: {
           : gt("Resolved");
 
   return (
+    // The card sits in the chat lane, so the thread details card never floats over it.
     <section
       aria-label={gt("Champion escalation")}
-      className={cn(
-        "chat-composer-lane shrink-0 border-b py-3",
-        state.resolution !== null
-          ? "border-border/70 bg-muted/25"
-          : state.severity === "incident"
-            ? "border-destructive/20 bg-destructive/4"
-            : "border-warning/25 bg-warning/4",
-      )}
+      className="chat-composer-lane shrink-0 pt-3 pb-1"
     >
-      <div className="mx-auto flex w-full min-w-0 max-w-(--chat-content-max-width) flex-col gap-2.5">
+      <div
+        className={cn(
+          "mx-auto flex w-full min-w-0 max-w-(--chat-content-max-width) flex-col gap-2.5 rounded-xl border px-4 py-3",
+          state.resolution !== null
+            ? "border-border/70 bg-muted/25"
+            : state.severity === "incident"
+              ? "border-destructive/20 bg-destructive/4"
+              : "border-warning/25 bg-warning/4",
+        )}
+      >
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
           <span
             aria-hidden
