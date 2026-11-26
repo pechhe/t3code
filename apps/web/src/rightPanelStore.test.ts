@@ -805,20 +805,30 @@ describe("rightPanelStore", () => {
     });
   });
 
-  it("persists inline preference without restoring an open popover", () => {
+  it("persists the global inline preference without restoring an open popover", () => {
     expect(
       migratePersistedRightPanelState({
         threadPanelVisibilityByThreadKey: {
-          "env-1:thread-A": { inlineOpen: false, popoverOpen: true },
-          "env-1:thread-B": { inlineOpen: true, popoverOpen: true },
+          global: { inlineOpen: false, popoverOpen: true },
+          "env-1:thread-A": { inlineOpen: false, popoverOpen: false },
         },
       }),
     ).toEqual({
       byThreadKey: {},
       threadPanelVisibilityByThreadKey: {
-        "env-1:thread-A": { inlineOpen: false, popoverOpen: false },
+        global: { inlineOpen: false, popoverOpen: false },
       },
     });
+  });
+
+  it("shares the thread details panel visibility across threads", () => {
+    useRightPanelStore.getState().setThreadPanelOpen(refA, "inline", false);
+    expect(
+      selectThreadPanelVisibility(
+        useRightPanelStore.getState().threadPanelVisibilityByThreadKey,
+        refB,
+      ).inlineOpen,
+    ).toBe(false);
   });
 
   it("closes the popover atomically when the real right panel opens", () => {
