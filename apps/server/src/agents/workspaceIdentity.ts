@@ -1,5 +1,6 @@
 import type { OrchestrationV2ThreadShell, ThreadId } from "@t3tools/contracts";
 import { liveWorkspaceAttachments } from "@t3tools/shared/workspaceAttachments";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -165,7 +166,12 @@ const workspaceOccupants = (
       ...(primary === undefined ? [] : [primary]),
       ...liveWorkspaceAttachments(shell).map((attachment) => attachment.workspacePath),
     ].map((workspacePath) => ({
+      threadId: shell.id,
       workspacePath,
+      lastRunRequestedAt:
+        shell.latestRunRequestedAt === null || shell.latestRunRequestedAt === undefined
+          ? null
+          : DateTime.toEpochMillis(shell.latestRunRequestedAt),
       owner: threadOwner(shell),
       workId: shell.agentTask?.workId ?? null,
       attemptId: shell.agentTask?.attemptId ?? null,

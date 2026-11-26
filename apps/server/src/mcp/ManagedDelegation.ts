@@ -860,6 +860,29 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
           );
           const projectRoot = (yield* requireProject(taskProjectId)).workspaceRoot;
           const occupants = yield* occupantsEverywhere;
+          // SlipJay hands a released workspace to another thread, which may be idle between
+          // turns; only an isolated task's workspace is its own to keep.
+          if (followupTarget.workspaceAssignment === "isolated") {
+            const finishedAt = Math.max(
+              0,
+              ...child.runs.flatMap((run) =>
+                run.completedAt ? [DateTime.toEpochMillis(run.completedAt)] : [],
+              ),
+            );
+            if (
+              occupants.some(
+                (occupant) =>
+                  occupant.workspacePath === followupTarget.workspacePath &&
+                  occupant.threadId !== child.thread.id &&
+                  occupant.lastRunRequestedAt !== null &&
+                  occupant.lastRunRequestedAt > finishedAt,
+              )
+            )
+              return yield* failure(
+                "invalid_request",
+                `This task's workspace ${followupTarget.workspacePath} was released and given to another thread, so a follow-up would write into that thread's work. Start a new task in a workspace of its own.`,
+              );
+          }
           const validateAt = (target: typeof followupTarget) =>
             managed.value.validate({
               binding: target,

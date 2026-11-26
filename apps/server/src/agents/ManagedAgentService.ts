@@ -130,7 +130,10 @@ const writesStore = (binding: AgentTaskBinding) => binding.sourceAccess === "sco
 
 /** A thread bound to some workspace; unmanaged threads count as writers. */
 export type WorkspaceOccupant = {
+  readonly threadId: ThreadId;
   readonly workspacePath: string;
+  /** When the thread last asked for a run, in epoch milliseconds; null before its first. */
+  readonly lastRunRequestedAt: number | null;
   /** The accountable lead: its root thread, or the external session key. */
   readonly owner: string;
   readonly workId: string | null;

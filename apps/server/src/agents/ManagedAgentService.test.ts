@@ -1241,6 +1241,8 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
       expect(yield* refused({ request: reviewer(foreign) })).toBe("workspace");
       // Another lead's idle workspace is readable; a live writer's is not.
       const writer = {
+        threadId: ThreadId.make("occupant-thread"),
+        lastRunRequestedAt: null,
         workspacePath: allocated,
         owner: "other-lead",
         workId: "other-work",
@@ -1465,6 +1467,8 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
 
       // One writer at a time; a retry of the same work is not a second writer.
       const writer = {
+        threadId: ThreadId.make("occupant-thread"),
+        lastRunRequestedAt: null,
         workspacePath: helper,
         owner: "lead-thread",
         workId: "other-work",

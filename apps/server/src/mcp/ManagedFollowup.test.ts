@@ -3,8 +3,16 @@ import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
-import { EnvironmentId, ThreadId, RunId, NodeId, type AgentTaskBinding } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ThreadId,
+  RunId,
+  NodeId,
+  type AgentTaskBinding,
+  type OrchestrationV2ThreadShell,
+} from "@t3tools/contracts";
 import { derive } from "@t3tools/provider-core/server/IdAllocator";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
@@ -93,6 +101,7 @@ it.effect(
         ],
       };
       let sends = 0;
+      let heldBy: OrchestrationV2ThreadShell[] = [];
       let lastSend: Parameters<Threads.ThreadManagementService["Service"]["sendToThread"]>[0];
       let validations = 0;
       let revoked = false;
@@ -127,12 +136,12 @@ it.effect(
         }),
         Layer.mock(Threads.ThreadManagementService)({
           getThreadRecords: (id) => Effect.succeed(id === parentId ? parent : child),
-          listProjectThreads: () => Effect.succeed([]),
+          listProjectThreads: () => Effect.succeed(heldBy.map(({ id }) => ({ id }) as never)),
           getShellSnapshot: () =>
             Effect.succeed({
               schemaVersion: 1,
               snapshotSequence: 0,
-              threads: [],
+              threads: heldBy,
               archivedThreads: [],
             }),
           isProviderInstanceEnabledForProject: () => Effect.succeed(true),
@@ -331,6 +340,40 @@ it.effect(
             completionDelivery: { state: "acknowledged", observedByRunId: null },
           })),
         };
+        // An isolated writer's workspace may be handed to another thread once it is released;
+        // a follow-up never writes into it, while an earlier holder's idle thread does not count.
+        const isolatedBinding = {
+          ...child.thread.agentTask!,
+          workspaceAssignment: "isolated" as const,
+        };
+        child = { ...child, thread: { ...child.thread, agentTask: isolatedBinding } };
+        const holder = {
+          ...liveThreadShell(ThreadId.make("pool-successor")),
+          worktreePath: childWorkspace,
+        };
+        heldBy = [holder];
+        expect(
+          (yield* service.delegateTask(scope, { ...input, clientRequestId: "never-ran" }))
+            .childThreadId,
+        ).toBe(childId);
+        child = { ...child, runs: child.runs.map((run) => ({ ...run, status: "completed" })) };
+        parent = {
+          ...parent,
+          subagents: parent.subagents.map((task) => ({
+            ...task,
+            status: "completed",
+            result: "Done",
+            completionDelivery: { state: "acknowledged", observedByRunId: null },
+          })),
+        };
+        heldBy = [{ ...holder, latestRunRequestedAt: DateTime.makeUnsafe(1_000) }];
+        const reassigned = yield* service
+          .delegateTask(scope, { ...input, clientRequestId: "after-release" })
+          .pipe(Effect.flip);
+        expect(reassigned.code).toBe("invalid_request");
+        expect(reassigned.message).toContain("given to another thread");
+        heldBy = [];
+        child = { ...child, thread: { ...child.thread, agentTask: binding } };
         // A reviewer or UI verifier that stopped partway continues in its own conversation too;
         // a new independent round is still a fresh delegate_task.
         for (const role of ["reviewer", "ui-verifier"] as const) {
