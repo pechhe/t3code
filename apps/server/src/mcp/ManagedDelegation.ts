@@ -63,7 +63,7 @@ import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { userFacingDispatchErrorMessage } from "../orchestration-v2/UserFacingErrors.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
-import { followupBinding, followupPrompt } from "../agents/followup.ts";
+import { followupBinding, followupPrompt, isAbbreviatedRevision } from "../agents/followup.ts";
 import { managedTaskTitle } from "../agents/taskTitle.ts";
 import { threadOwner } from "../agents/workspaceIdentity.ts";
 import { liveWorkspaceAttachments } from "@t3tools/shared/workspaceAttachments";
@@ -736,6 +736,11 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
       }
       if (input.followup !== undefined) {
         const followup = input.followup;
+        if (followup.sourceRevision !== undefined && isAbbreviatedRevision(followup.sourceRevision))
+          return yield* failure(
+            "invalid_request",
+            "sourceRevision must be the full commit id, not an abbreviation: `jj log -r @ --no-graph -T commit_id` or `git rev-parse HEAD`.",
+          );
         const current = yield* readTask(scope, followup.taskId);
         const remoteTask = parent.subagents.find(
           (task) => task.id === followup.taskId && task.remoteChild !== undefined,

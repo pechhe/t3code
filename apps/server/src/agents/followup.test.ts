@@ -1,7 +1,7 @@
 import { expect, it } from "@effect/vitest";
 import type { AgentTaskBinding } from "@t3tools/contracts";
 
-import { followupBinding, followupPrompt } from "./followup.ts";
+import { followupBinding, followupPrompt, isAbbreviatedRevision } from "./followup.ts";
 import { codex, request, snapshot } from "./agentPolicy.testkit.ts";
 
 const binding = (sourceRevision?: string): AgentTaskBinding => ({
@@ -47,4 +47,10 @@ it("the follow-up message names a revision only when one is stated", () => {
   expect(followupPrompt({ changes: "edited" }, "Ask")).toBe(
     "Changes since your previous task: edited\n\nAsk",
   );
+});
+
+it("an abbreviated commit id cannot be a follow-up's pin", () => {
+  expect(isAbbreviatedRevision("db4a75a2")).toBe(true);
+  expect(isAbbreviatedRevision("88600fe810df89086210e5a64e86b719d135e86c")).toBe(false);
+  expect(isAbbreviatedRevision("revision-one")).toBe(false);
 });

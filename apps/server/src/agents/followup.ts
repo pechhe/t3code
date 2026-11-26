@@ -47,3 +47,11 @@ export const pinnedBinding = (
   followupSourceRevision !== undefined && pinsFollowupRevision(binding)
     ? { ...binding, sourceRevision: followupSourceRevision }
     : binding;
+
+/**
+ * Whether a stated revision looks like an abbreviated commit id. A follow-up's revision is
+ * stored as the thread's pin and compared exactly with full commit ids, so an abbreviation
+ * could never match any checkout.
+ */
+export const isAbbreviatedRevision = (revision: string) =>
+  /^[0-9a-f]+$/i.test(revision) && revision.length !== 40 && revision.length !== 64;

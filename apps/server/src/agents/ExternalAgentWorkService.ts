@@ -45,7 +45,7 @@ import * as Managed from "./ManagedAgentService.ts";
 import type { McpInvocationScope } from "../mcp/McpInvocationContext.ts";
 import { clientModeCeiling } from "../mcp/McpInvocationContext.ts";
 import { subagentResultForRun } from "@t3tools/provider-core/server/subagentProjection";
-import { followupBinding, followupPrompt } from "./followup.ts";
+import { followupBinding, followupPrompt, isAbbreviatedRevision } from "./followup.ts";
 import {
   containingRepositoryStore,
   repositoryStore,
@@ -565,6 +565,11 @@ const make = Effect.gen(function* () {
                 },
               }),
             );
+          if (
+            followup.sourceRevision !== undefined &&
+            isAbbreviatedRevision(followup.sourceRevision)
+          )
+            return yield* new ExternalAgentWorkError({ reason: "source" });
           const followupTarget = followupBinding(
             binding,
             followup,
