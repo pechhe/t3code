@@ -292,6 +292,7 @@ export function makeAntigravityAcpAdapterFlavor(
     preserveRuntimeOnSettledInterrupt: true,
     // `agy acp` reads a prompt sent mid-turn as a steer; cancel-and-restart killed its subagents.
     steersWithPrompt: antigravitySteersWithPrompt,
+    pinsConversationCwd: true,
     ...(options.onSessionEvent === undefined ? {} : { onSessionEvent: options.onSessionEvent }),
     applyModelSelection: Effect.fn("AntigravityAdapterV2.applyModelSelection")(function* ({
       runtime,

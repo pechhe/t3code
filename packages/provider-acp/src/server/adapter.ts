@@ -446,6 +446,11 @@ interface AcpPromptOutcomeFailure {
 }
 
 export interface AcpAdapterV2Flavor {
+  /**
+   * The agent keeps the workspace a conversation was created in and ignores the `cwd` of a later
+   * `session/load`, so a thread moved to another workspace must start a new native session.
+   */
+  readonly pinsConversationCwd?: boolean;
   readonly nativeAttachmentByteLimit?: number;
   readonly buildAttachmentPrompt?: (input: {
     readonly text: string;
@@ -2420,7 +2425,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
         const plansBySessionId = new Map<string, ActiveAcpTurn["plans"]>();
         const initialSessionActivationFailure = yield* Ref.make<{
           readonly sessionId: string;
-          readonly error: EffectAcpErrors.AcpError;
+          readonly error: EffectAcpErrors.AcpError | ProviderAdapter.ProviderAdapterProtocolError;
         } | null>(null);
         const activeSessionSetup =
           yield* Ref.make<AcpSessionRuntime.AcpSessionRuntimeStartResult | null>(null);
@@ -8395,12 +8400,40 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
 
         // Read before the session exists: its own config updates replace what the client showed.
         const unsetOptionDefaults = yield* flavor.unsetOptionDefaults ?? Effect.succeed([]);
-        const initialStart = yield* Effect.result(
-          startAcpRuntime(input.threadId, input.initialNativeThreadId),
+        const resumedCwd = input.resumeFromSession?.cwd;
+        const nativeThreadToResume = input.initialNativeThreadId;
+        const movedWorkspace =
+          flavor.pinsConversationCwd === true &&
+          nativeThreadToResume !== undefined &&
+          resumedCwd !== undefined &&
+          resumedCwd !== "" &&
+          resumedCwd !== (input.runtimePolicy.cwd ?? process.cwd());
+        // A refused or failed load takes the stale-session path: the caller recovers in a fresh session.
+        const startFreshAfterRefusedLoad = Effect.fn("AcpAdapterV2.startFreshAfterRefusedLoad")(
+          function* (
+            sessionId: string,
+            error: EffectAcpErrors.AcpError | ProviderAdapter.ProviderAdapterProtocolError,
+          ) {
+            yield* Ref.set(initialSessionActivationFailure, { sessionId, error });
+            itemIdentityVersion = 2;
+            yield* Ref.set(runtimeRestartRequired, false);
+            prepareClaimableTerminalEnvironment(yield* readMcpContext(input.threadId));
+            return yield* startAcpRuntime(input.threadId);
+          },
         );
-        const started = Result.isSuccess(initialStart)
-          ? initialStart.success
+        const started = movedWorkspace
+          ? yield* startFreshAfterRefusedLoad(
+              nativeThreadToResume,
+              new ProviderAdapter.ProviderAdapterProtocolError({
+                driver,
+                detail: `The native session belongs to ${resumedCwd}, not ${input.runtimePolicy.cwd ?? process.cwd()}.`,
+              }),
+            )
           : yield* Effect.gen(function* () {
+              const initialStart = yield* Effect.result(
+                startAcpRuntime(input.threadId, input.initialNativeThreadId),
+              );
+              if (Result.isSuccess(initialStart)) return initialStart.success;
               const failedMethod =
                 "method" in initialStart.failure ? initialStart.failure.method : undefined;
               if (
@@ -8409,14 +8442,10 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               ) {
                 return yield* initialStart.failure;
               }
-              yield* Ref.set(initialSessionActivationFailure, {
-                sessionId: input.initialNativeThreadId,
-                error: initialStart.failure,
-              });
-              itemIdentityVersion = 2;
-              yield* Ref.set(runtimeRestartRequired, false);
-              prepareClaimableTerminalEnvironment(yield* readMcpContext(input.threadId));
-              return yield* startAcpRuntime(input.threadId);
+              return yield* startFreshAfterRefusedLoad(
+                input.initialNativeThreadId,
+                initialStart.failure,
+              );
             });
         yield* Ref.set(activeSessionId, started.sessionId);
         yield* Ref.set(loadingSessionId, null);

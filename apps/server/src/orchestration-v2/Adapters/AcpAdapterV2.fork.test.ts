@@ -366,4 +366,74 @@ describe("AcpAdapterV2", () => {
         }
       }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
+
+  it.live.each([
+    { pins: true, resumes: false },
+    { pins: false, resumes: true },
+  ] as const)(
+    "resumes a native session after a workspace move only when the agent honours the new cwd (pins: $pins)",
+    ({ pins, resumes }) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path;
+        const protocolEvents = yield* Queue.unbounded<EffectAcpProtocol.AcpProtocolLogEvent>();
+        const instanceId = ProviderInstanceId.make("moved-workspace-" + pins);
+        const threadId = ThreadId.make("moved-workspace-" + pins);
+        const adapter = yield* makeAcpAdapterV2({
+          instanceId,
+          selfInvocation: yield* resolveSelfInvocation(),
+          flavor: {
+            driver: ProviderDriverKind.make("acp-test"),
+            capabilities: AcpProviderCapabilitiesV2,
+            pinsConversationCwd: pins,
+            makeRuntime: makeMockRuntime({
+              childProcessSpawner: yield* ChildProcessSpawner.ChildProcessSpawner,
+              mockAgentPath: yield* path.fromFileUrl(
+                new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
+              ),
+              protocolEvents,
+            }),
+          },
+        });
+        const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          cwd: process.cwd(),
+        });
+        const modelSelection = { instanceId, model: "default" };
+        const now = yield* DateTime.now;
+        const runtime = yield* adapter.openSession({
+          threadId,
+          providerSessionId: ProviderSessionId.make("moved-workspace-session-" + pins),
+          modelSelection,
+          runtimePolicy,
+          initialNativeThreadId: "old-session",
+          resumeFromSession: {
+            id: ProviderSessionId.make("moved-workspace-session-" + pins),
+            driver: ProviderDriverKind.make("acp-test"),
+            providerInstanceId: instanceId,
+            status: "stopped",
+            cwd: path.join(process.cwd(), "removed-workspace"),
+            model: "default",
+            capabilities: AcpProviderCapabilitiesV2,
+            createdAt: now,
+            updatedAt: now,
+            lastError: null,
+          },
+        });
+        const thread = yield* runtime.ensureThread({ threadId, modelSelection, runtimePolicy });
+        const methods: Array<string> = [];
+        while (true) {
+          const event = yield* Queue.take(protocolEvents);
+          const method = rawProtocolMethod(event);
+          if (event.direction === "outgoing" && method !== undefined) methods.push(method);
+          if (method === "session/new" || method === "session/resume" || method === "session/load")
+            break;
+        }
+        assert.equal(
+          methods.some((method) => method === "session/resume" || method === "session/load"),
+          resumes,
+        );
+        assert.equal(thread.nativeThreadRef?.nativeId === "old-session", resumes);
+      }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
 });
