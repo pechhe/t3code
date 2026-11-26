@@ -442,7 +442,9 @@ const runCommand = Command.make("run", {
   ),
 }).pipe(
   Command.withDescription(
-    "Run a browser script as the calling agent in a T3 thread, or as this machine's owner for the project holding the current directory outside one.",
+    "Run a browser script as the calling agent in a T3 thread, or as this machine's owner for the project holding the current directory outside one (under that project's integrated agent browsing setting). " +
+      "Its `tools` offer preview_open, preview_status, preview_navigate, preview_resize, preview_interact, preview_upload, preview_evaluate, preview_wait_for, preview_snapshot, preview_recording_start/stop, t3_browser_run_init_script, t3_browser_run_tabs, t3_browser_login and t3_browser_close, in both modes. " +
+      "The loopback allowlist and the time and output limits apply in both; the run's tabs close when it ends.",
   ),
   Command.withHandler(({ baseDir, script, args, timeLimit, outputLimit }) =>
     Effect.gen(function* () {

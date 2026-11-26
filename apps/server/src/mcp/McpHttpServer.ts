@@ -126,7 +126,11 @@ import * as BrowserHandlers from "./toolkits/browser/handlers.ts";
 import * as ThreadUpdateHandlers from "./toolkits/threadUpdate/handlers.ts";
 import { ThreadUpdateToolkit } from "./toolkits/threadUpdate/tools.ts";
 import * as BrowserRunHandlers from "./toolkits/browserRun/handlers.ts";
-import { BrowserRunSnapshotToolkit, BrowserRunToolkit } from "./toolkits/browserRun/tools.ts";
+import {
+  BrowserRunSnapshotTool,
+  BrowserRunSnapshotToolkit,
+  BrowserRunToolkit,
+} from "./toolkits/browserRun/tools.ts";
 import * as BrowserRuns from "../browserRuns/BrowserRuns.ts";
 import {
   BrowserSnapshotTool,
@@ -1940,7 +1944,7 @@ export const layerBrowserRunToolkit = Layer.fresh(
   Layer.mergeAll(
     toolkitRegistration(BrowserRunToolkit, BrowserRunHandlers.layer),
     imageToolRegistration(
-      registerPreviewSnapshot(BrowserRunSnapshotToolkit, PreviewSnapshotTool),
+      registerPreviewSnapshot(BrowserRunSnapshotToolkit, BrowserRunSnapshotTool),
       BrowserRunHandlers.layerSnapshot,
     ),
   ).pipe((registrations) =>

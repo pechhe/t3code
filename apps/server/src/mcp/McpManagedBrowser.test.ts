@@ -50,6 +50,7 @@ const tokens = {
   bounded: "boundedTokenWithoutDots",
   device: "deviceTokenWithoutDots",
   run: "browserRunTokenWithoutDots",
+  owner: "ownerClientTokenWithoutDots",
 };
 const registry = Layer.mock(McpSessionRegistry.McpSessionRegistry)({
   resolve: (presented) =>
@@ -69,7 +70,22 @@ const registry = Layer.mock(McpSessionRegistry.McpSessionRegistry)({
                     boundedBrowser: true as const,
                     browserRunCredential: true as const,
                   }
-                : undefined,
+                : presented === tokens.owner
+                  ? {
+                      ...scopeFor(false),
+                      // The registry types its scopes as thread scopes; a client's has none.
+                      ...({ thread: undefined } as unknown as Pick<
+                        ReturnType<typeof scopeFor>,
+                        "thread"
+                      >),
+                      capabilities: new Set(["preview"] as const),
+                      client: {
+                        sessionId: "owner-session",
+                        label: "t3 browser run cli",
+                        access: "full-access" as const,
+                      },
+                    }
+                  : undefined,
     ),
 });
 const services = Layer.mergeAll(
@@ -227,6 +243,15 @@ it.effect("serves a managed browser task only the narrow endpoint, and only its 
           ...Object.keys(BrowserRunSnapshotToolkit.tools),
         ].sort(),
       );
+      // `t3 browser run` outside a thread signs in as a client with no thread and lists the same set.
+      const owner = yield* listTools("/mcp/browser-run", tokens.owner);
+      expect(owner.status).toBe(200);
+      expect([...owner.names].sort()).toEqual([...runs.names].sort());
+      const ownerCall = yield* openSession("/mcp/browser-run", tokens.owner);
+      const opened = yield* ownerCall(
+        `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"preview_open","arguments":{}}}`,
+      );
+      expect(opened).not.toMatch(/not found|Unknown tool/i);
       expect((yield* listTools("/mcp", tokens.run)).status).toBe(401);
       expect((yield* listTools("/mcp/browser", tokens.run)).status).toBe(401);
       for (const other of [tokens.general, tokens.managed, tokens.bounded])

@@ -1,6 +1,6 @@
 import { OrchestratorMcpFailure, PreviewAutomationError, PreviewTabId } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
-import { Tool, Toolkit } from "effect/ai";
+import { McpSchema, Tool, Toolkit } from "effect/ai";
 
 import * as BrowserRuns from "../../../browserRuns/BrowserRuns.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
@@ -105,7 +105,16 @@ const CloseTabTool = Tool.make("t3_browser_close", {
   dependencies,
 }).annotate(Tool.Destructive, true);
 
-const { tools: preview } = PreviewToolkit;
+/** Listed to every caller this endpoint admits, thread or not; its handlers recheck access per call. */
+const listedToRunCallers = () => true;
+
+/** Upstream lists its preview tools to thread callers only, which would hide them from `t3 browser run` outside a thread. */
+const forRun = <T extends Tool.Any>(tool: T): T =>
+  tool.annotate(McpSchema.EnabledWhen, listedToRunCallers) as T;
+
+const preview = Object.fromEntries(
+  Object.entries(PreviewToolkit.tools).map(([name, tool]) => [name, forRun(tool)]),
+) as unknown as typeof PreviewToolkit.tools;
 
 /**
  * The browser-run endpoint's tools: upstream's preview operations under their own names, on the
@@ -131,4 +140,5 @@ export const BrowserRunToolkit = Toolkit.make(
 );
 
 /** The snapshot tool returns an image, so it registers apart from the rest. */
-export const BrowserRunSnapshotToolkit = Toolkit.make(preview.preview_snapshot);
+export const BrowserRunSnapshotTool = preview.preview_snapshot;
+export const BrowserRunSnapshotToolkit = Toolkit.make(BrowserRunSnapshotTool);

@@ -463,10 +463,12 @@ Work that needs a script, such as page code, loops over many pages or timings ta
 runs with `t3 browser run <file>`. The file is a JavaScript or TypeScript module whose default
 export receives T3's browser tools and returns a result; `t3 browser run --help` gives the details.
 From an agent's thread it acts as that agent and needs the same browser access as bounded tasks;
-from your own shell it acts as you, for the project that holds the current directory. Each run
-starts with fresh storage that all its tabs share, has a time limit (300 seconds by default, at
-most 1,800) and an output limit, and closes its tabs when it ends, however it ends. A run that has
-run page code cannot type a saved login, and one that typed a login runs no page code.
+from your own shell it acts as you, for the project that holds the current directory. A run from
+your own shell, or from any process outside a thread such as a Champion's collect command, gets
+the same browser tools as an agent's run. Each run starts with fresh storage that all its tabs
+share, has a time limit (300 seconds by default, at most 1,800) and an output limit, and closes
+its tabs when it ends, however it ends. A run that has run page code cannot type a saved login,
+and one that typed a login runs no page code.
 `t3 browser report` also counts runs by agent harness and outcome.
 
 On Cursor, and on OpenCode wherever its threads share one server (newer OpenCode versions, or a
