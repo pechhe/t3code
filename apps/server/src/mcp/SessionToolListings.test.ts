@@ -98,8 +98,8 @@ const weaveConnection = Layer.mock(WeaveAgentConnections.WeaveAgentConnections)(
         expect(args).toEqual({ action: "read", ref: "WV-143" });
         return { origin, connection: "test", value: { id: "spec", kind: "spec", bodyRevision: 3 } };
       }
-      expect(tool).toBe("weave_docs_get_revision");
-      expect(args).toEqual({ recordId: "spec", revision: 2 });
+      expect(tool).toBe("weave_docs_body_query");
+      expect(args).toEqual({ action: "get_revision", recordId: "spec", revision: 2 });
       return { origin, connection: "test", value: { content: "# Pinned Spec", revision: 2 } };
     }),
 });

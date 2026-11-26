@@ -127,8 +127,25 @@ const make = Effect.gen(function* () {
         ),
       );
 
+    // Weave serves Doc reads through its `weave_docs_body_query` resource tool, the action named in the call
+    // (pechhe/yardsmith Spec YS-2533). A Weave from before it has a tool per action and answers the grouped
+    // name `mcp_tool_unavailable`: this read then uses the old tool for every chunk.
+    let grouped = true;
+    const readDoc = (action: "get_body" | "get_revision", args: Record<string, unknown>) =>
+      grouped
+        ? readValue("weave_docs_body_query", { ...args, action }).pipe(
+            Effect.catchIf(
+              (error) => error.reason === "failed" && error.code === "mcp_tool_unavailable",
+              () => {
+                grouped = false;
+                return readValue(`weave_docs_${action}`, args);
+              },
+            ),
+          )
+        : readValue(`weave_docs_${action}`, args);
+
     const readDocChunks = Effect.fn("ForgeReadService.readDocChunks")(function* (
-      tool: "weave_docs_get_body" | "weave_docs_get_revision",
+      action: "get_body" | "get_revision",
       baseArgs: Record<string, unknown>,
     ) {
       const chunks: Array<string> = [];
@@ -137,8 +154,8 @@ const make = Effect.gen(function* () {
       let bytes = 0;
       let revision: number | undefined;
       for (let count = 0; count < MAX_CHUNKS; count++) {
-        const value = yield* readValue(
-          tool,
+        const value = yield* readDoc(
+          action,
           cursor === undefined ? baseArgs : { ...baseArgs, cursor },
         );
         const chunk = decodeChunk(value);
@@ -162,7 +179,7 @@ const make = Effect.gen(function* () {
 
     const body = Effect.gen(function* () {
       const readRevision = (revision: number) =>
-        readDocChunks("weave_docs_get_revision", { recordId: item.id, revision }).pipe(
+        readDocChunks("get_revision", { recordId: item.id, revision }).pipe(
           Effect.filterOrFail(
             (doc) => doc.bodyRevision === revision,
             () => new ForgeReadError({ reason: "invalid_response" }),
@@ -170,7 +187,7 @@ const make = Effect.gen(function* () {
         );
       if (requestedRevision !== undefined && requestedRevision !== currentBodyRevision)
         return yield* readRevision(requestedRevision);
-      const current = readDocChunks("weave_docs_get_body", { recordId: item.id });
+      const current = readDocChunks("get_body", { recordId: item.id });
       const doc = yield* current.pipe(
         Effect.catchIf(
           (error) => error.reason === "failed" && error.code === "chunk_version_changed",

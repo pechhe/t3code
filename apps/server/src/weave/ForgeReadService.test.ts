@@ -51,7 +51,8 @@ it.effect("reads Spec context alongside a complete multi-chunk body", () =>
           Effect.andThen(response({ ...context, brief: "not returned" })),
         );
       }
-      expect(tool).toBe("weave_docs_get_body");
+      expect(tool).toBe("weave_docs_body_query");
+      expect(args.action).toBe("get_body");
       expect(args.recordId).toBe(item.id);
       if (args.cursor === "second")
         return response({ content: "two", revision: 3, nextCursor: null });
@@ -77,18 +78,18 @@ it.effect.each([2, 3])("returns the pinned revision %i even if the live body mov
     const tools: Array<string> = [];
     const doc = yield* read(
       (tool, args) => {
-        tools.push(tool);
+        tools.push(tool === "weave_docs_body_query" ? `${tool}:${String(args.action)}` : tool);
         if (tool === "weave_forge_query") return response(item);
-        if (tool === "weave_docs_get_body") return response({ content: "new", revision: 4 });
-        expect(args).toEqual({ recordId: item.id, revision });
+        if (args.action === "get_body") return response({ content: "new", revision: 4 });
+        expect(args).toEqual({ action: "get_revision", recordId: item.id, revision });
         return response({ content: "pinned", revision });
       },
       { ref: item.ref, bodyRevision: revision, includeContext: false },
     );
     expect(tools).toEqual([
       "weave_forge_query",
-      ...(revision === 3 ? ["weave_docs_get_body"] : []),
-      "weave_docs_get_revision",
+      ...(revision === 3 ? ["weave_docs_body_query:get_body"] : []),
+      "weave_docs_body_query:get_revision",
     ]);
     expect(doc).toMatchObject({ body: "pinned", bodyRevision: revision, currentBodyRevision: 3 });
   }),
@@ -185,5 +186,33 @@ it.effect.each(["chunks", "size", "cursor", "shape"] as const)(
       }).pipe(Effect.flip);
       expect(error.reason).toBe("invalid_response");
       expect(count).toBe(guard === "chunks" ? 64 : guard === "cursor" ? 2 : 1);
+    }),
+);
+
+it.effect(
+  "reads a body from a Weave that still has a tool per Doc action, asking the grouped tool once",
+  () =>
+    Effect.gen(function* () {
+      const tools: Array<string> = [];
+      const doc = yield* read(
+        (tool, args) => {
+          tools.push(tool);
+          if (tool === "weave_forge_query") return response({ ...item, kind: "ticket" });
+          if (tool === "weave_docs_body_query") return refused("failed", "mcp_tool_unavailable");
+          expect(tool).toBe("weave_docs_get_body");
+          expect(args).not.toHaveProperty("action");
+          return args.cursor === "second"
+            ? response({ content: "two", revision: 3 })
+            : response({ content: "one ", revision: 3, nextCursor: "second" });
+        },
+        { ref: item.ref },
+      );
+      expect(tools).toEqual([
+        "weave_forge_query",
+        "weave_docs_body_query",
+        "weave_docs_get_body",
+        "weave_docs_get_body",
+      ]);
+      expect(doc).toMatchObject({ body: "one two", bodyRevision: 3 });
     }),
 );
