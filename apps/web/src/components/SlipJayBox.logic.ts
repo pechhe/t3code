@@ -1,3 +1,4 @@
+/* oxlint-disable t3code/no-untranslated-copy -- The fork-only SlipJay release copy predates the rule and has no translations yet. */
 import type {
   SlipJayRunnerOperation,
   SlipJayRunnerOverview,
@@ -161,7 +162,7 @@ export function resolveReleaseRow(
       tone: "run",
       text:
         sha === ""
-          ? "Starting the release"
+          ? "Working out what to release…"
           : release.waitingOn.kind === "verification"
             ? `Verifying ${sha}, then releasing it`
             : `Releasing ${sha} to production`,

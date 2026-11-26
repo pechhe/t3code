@@ -124,7 +124,7 @@ describe("the SlipJay box", () => {
     });
     expect(
       resolveReleaseRow(waiting("verification"), promotion({ candidate: null })),
-    ).toMatchObject({ text: "Starting the release", action: "releasing" });
+    ).toMatchObject({ text: "Working out what to release…", action: "releasing" });
     expect(resolveReleaseRow(waiting("verification"), promotion({}))).toMatchObject({
       text: "Verifying b42c421, then releasing it",
       action: "releasing",

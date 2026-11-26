@@ -65,6 +65,8 @@ export function promotionNextStep(
   return { next: "confirm", candidate: plan.candidate };
 }
 
+const planPrinted = (stdout: string) => Option.isSome(decodePlan(stdout.trim()));
+
 const decodeConfirm = Schema.decodeUnknownOption(
   Schema.fromJsonString(
     Schema.Struct({
@@ -94,7 +96,7 @@ export function promoteResult(output: { readonly stdout: string; readonly stderr
       .split("\n")
       .map((line) => line.trim())
       .filter((line) => line.length > 0);
-    return { released: false, status: "refused", messages: lines.slice(-1) };
+    return { released: false, status: "refused", messages: lines.slice(-1).map(bounded) };
   }
   const production = result.production;
   const released =
@@ -111,6 +113,19 @@ export function promoteResult(output: { readonly stdout: string; readonly stderr
 }
 
 const PROMOTE_OUTPUT_MAX_BYTES = 1024 * 1024;
+const PLAN_TIMEOUT_MINUTES = 3;
+const CONFIRM_TIMEOUT_HOURS = 3;
+const MESSAGE_MAX_CHARS = 300;
+
+const bounded = (message: string) =>
+  message.length <= MESSAGE_MAX_CHARS ? message : `${message.slice(0, MESSAGE_MAX_CHARS - 1)}…`;
+
+const lastLine = (text: string) =>
+  text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .at(-1);
 
 /**
  * Releases of a repository through `slipjay promote`: its plan, then the confirm of exactly
@@ -131,7 +146,7 @@ export class SlipJayReleases extends Context.Service<
   }
 >()("t3/project/SlipJayReleases") {}
 
-/** @public Service construction is part of the canonical Effect module API. */
+/** @public */
 export const make = Effect.gen(function* () {
   const processes = yield* ProcessRunner.ProcessRunner;
   const landings = yield* SlipJayLandings;
@@ -152,6 +167,22 @@ export const make = Effect.gen(function* () {
       ];
     });
 
+  /** A timed-out SlipJay run becomes the message to show; any other failure stays one. */
+  const timedOutAs =
+    (message: string) =>
+    (
+      run: Effect.Effect<ProcessRunner.ProcessRunOutput, ProcessRunner.ProcessRunError>,
+    ): Effect.Effect<
+      ProcessRunner.ProcessRunOutput | string,
+      Exclude<ProcessRunner.ProcessRunError, ProcessRunner.ProcessTimeoutError>
+    > =>
+      run.pipe(
+        Effect.catchTags({
+          ProcessTimeoutError: (cause) =>
+            Effect.logWarning("SlipJay timed out releasing", { cause }).pipe(Effect.as(message)),
+        }),
+      );
+
   /** Runs the release to its end: null when nothing is left to report, else why it failed. */
   const release = Effect.fn("SlipJayReleases.release")(
     function* (cwd: string, repo: string) {
@@ -168,16 +199,28 @@ export const make = Effect.gen(function* () {
       if (repository?.toLowerCase() !== repo.toLowerCase()) {
         return `This checkout does not publish ${repo}.`;
       }
-      const planned = yield* processes.run({
-        command: "slipjay",
-        args: ["promote"],
-        cwd: project.root,
-        // Planning fetches and asks GitHub about open Specs.
-        timeout: "3 minutes",
-        maxOutputBytes: PROMOTE_OUTPUT_MAX_BYTES,
-        outputMode: "truncate",
-      });
+      const planned = yield* processes
+        .run({
+          command: "slipjay",
+          args: ["promote"],
+          cwd: project.root,
+          // Planning fetches and asks GitHub about open Specs.
+          timeout: `${PLAN_TIMEOUT_MINUTES} minutes`,
+          maxOutputBytes: PROMOTE_OUTPUT_MAX_BYTES,
+          outputMode: "truncate",
+        })
+        .pipe(
+          timedOutAs(
+            `Working out what to release took longer than ${PLAN_TIMEOUT_MINUTES} minutes, so it stopped. Nothing was released.`,
+          ),
+        );
+      if (typeof planned === "string") return planned;
       const step = promotionNextStep(planned.stdout);
+      // Without a plan on stdout, SlipJay's last stderr line says why it exited.
+      const planFailure = planned.code === 0 ? undefined : lastLine(planned.stderr);
+      if (step.next === "stop" && planFailure !== undefined && !planPrinted(planned.stdout)) {
+        return bounded(planFailure);
+      }
       if (step.next === "nothing") return null;
       if (step.next === "stop") return step.reason;
       yield* replace(repo, () => ({
@@ -186,15 +229,22 @@ export const make = Effect.gen(function* () {
         candidate: step.candidate,
         reason: null,
       }));
-      const confirmed = yield* processes.run({
-        command: "slipjay",
-        args: ["promote", "--confirm", step.candidate],
-        cwd: project.root,
-        // Release checks and the production deploy take minutes; the runner bounds them.
-        timeout: "3 hours",
-        maxOutputBytes: PROMOTE_OUTPUT_MAX_BYTES,
-        outputMode: "truncate",
-      });
+      const confirmed = yield* processes
+        .run({
+          command: "slipjay",
+          args: ["promote", "--confirm", step.candidate],
+          cwd: project.root,
+          // Release checks and the production deploy take minutes; the runner bounds them.
+          timeout: `${CONFIRM_TIMEOUT_HOURS} hours`,
+          maxOutputBytes: PROMOTE_OUTPUT_MAX_BYTES,
+          outputMode: "truncate",
+        })
+        .pipe(
+          timedOutAs(
+            `The release step stopped after ${CONFIRM_TIMEOUT_HOURS} hours without finishing. Check the runner.`,
+          ),
+        );
+      if (typeof confirmed === "string") return confirmed;
       const { released, status, messages } = promoteResult(confirmed);
       if (released) return null;
       return messages.length === 0 ? `Release ${status}.` : messages.join("\n");

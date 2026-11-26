@@ -293,6 +293,84 @@ describe("SlipJayReleases.promote", () => {
     ).pipe(Effect.provide(nodeLayer)),
   );
 
+  const failureOf = (run: ProcessRunner.ProcessRunner["Service"]["run"]) =>
+    Effect.gen(function* () {
+      const root = yield* project;
+      const failed = yield* Effect.gen(function* () {
+        const releases = yield* SlipJayReleases;
+        yield* releases.promote({ cwd: root, repo: REPO });
+        return yield* promotionsUntil((all) => all[0]?.status === "failed");
+      }).pipe(Effect.provide(releasesWith(run)));
+      return failed[0]?.reason;
+    }).pipe(Effect.scoped, Effect.provide(nodeLayer));
+
+  const timeout = (timeoutMs: number) =>
+    Effect.fail(
+      new ProcessRunner.ProcessTimeoutError({
+        command: "slipjay",
+        argumentCount: 1,
+        cwd: "/",
+        timeoutMs,
+      }),
+    );
+
+  const exited = (stdout: string, stderr: string) =>
+    Effect.succeed({ ...output({}), stdout, stderr, code: ChildProcessSpawner.ExitCode(1) });
+
+  it.effect("says planning timed out and that nothing was released", () =>
+    Effect.gen(function* () {
+      const reason = yield* failureOf(() => timeout(180_000));
+      assert.strictEqual(
+        reason,
+        "Working out what to release took longer than 3 minutes, so it stopped. Nothing was released.",
+      );
+    }),
+  );
+
+  it.effect("says the confirm step timed out", () =>
+    Effect.gen(function* () {
+      const reason = yield* failureOf((input) =>
+        input.args[1] === "--confirm"
+          ? timeout(3 * 3_600_000)
+          : Effect.succeed(output({ ...PLANNED, verification: { status: "passed" } })),
+      );
+      assert.include(reason ?? "", "stopped after 3 hours");
+      assert.include(reason ?? "", "Check the runner");
+    }),
+  );
+
+  it.effect("shows SlipJay's own words when planning exits non-zero", () =>
+    Effect.gen(function* () {
+      assert.strictEqual(
+        yield* failureOf(() => exited("", "fetching\nError: origin is unreachable\n")),
+        "Error: origin is unreachable",
+      );
+      assert.strictEqual(
+        yield* failureOf(() =>
+          exited(JSON.stringify({ status: "blocked", reason: "A release is already running" }), ""),
+        ),
+        "A release is already running",
+      );
+      assert.isAtMost((yield* failureOf(() => exited("", "x".repeat(5000))))?.length ?? 0, 300);
+    }),
+  );
+
+  it.effect("keeps 'could not be run' for a process that never started", () =>
+    Effect.gen(function* () {
+      const reason = yield* failureOf(() =>
+        Effect.fail(
+          new ProcessRunner.ProcessSpawnError({
+            command: "slipjay",
+            argumentCount: 1,
+            cwd: "/",
+            cause: new Error("ENOENT"),
+          }),
+        ),
+      );
+      assert.strictEqual(reason, "SlipJay could not be run.");
+    }),
+  );
+
   it.effect("fails a directory that is not a SlipJay project, without running SlipJay", () =>
     Effect.scoped(
       Effect.gen(function* () {
