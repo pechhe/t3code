@@ -12,7 +12,9 @@ it.effect("writes the three chunk shapes a chat-completion client reads", () =>
       model: "codex/gpt-6.1-sol",
       choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }],
     });
-    assert.deepStrictEqual(textChunk("id-1", 10, "m", "hello").choices[0]?.delta, { content: "hello" });
+    assert.deepStrictEqual(textChunk("id-1", 10, "m", "hello").choices[0]?.delta, {
+      content: "hello",
+    });
     assert.strictEqual(stopChunk("id-1", 10, "m").choices[0]?.finish_reason, "stop");
   }),
 );

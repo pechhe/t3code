@@ -244,3 +244,15 @@ it.effect("a linked environment's call sets Away here, and reaches no further", 
     );
   }),
 );
+
+it("keeps agent feedback out of the preferences agents read and write", () => {
+  expect(
+    EnvironmentHandlers.preferences({
+      ...DEFAULT_SERVER_SETTINGS,
+      agentFeedback: { mode: "auto" },
+    }),
+  ).not.toHaveProperty("agentFeedback");
+  expect(
+    Object.keys(EnvironmentToolkit.tools.t3_environment_preferences_update.parametersSchema.fields),
+  ).not.toContain("agentFeedback");
+});

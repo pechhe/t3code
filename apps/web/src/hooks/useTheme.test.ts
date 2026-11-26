@@ -45,7 +45,7 @@ describe("project themes", () => {
     localStorage.setItem(THEME_HALVES_STORAGE_KEY, JSON.stringify({ dark: "ember" }));
     vi.stubGlobal("window", {
       localStorage,
-      location: { search: "" },
+      location: { search: "", href: "http://localhost/" },
       matchMedia: () => ({ matches: true }),
     });
 
@@ -98,7 +98,7 @@ describe("theme mode", () => {
     for (const [key, value] of Object.entries(storage)) localStorage.setItem(key, value);
     vi.stubGlobal("window", {
       localStorage,
-      location: { search: "" },
+      location: { search: "", href: "http://localhost/" },
       matchMedia: () => ({ matches: true }),
     });
     const { setActiveProjectTheme, useTheme } = await import("./useTheme");
@@ -173,10 +173,10 @@ describe("theme mode", () => {
       localStorage.setItem("t3code:theme-mode:v1", "rotation");
       localStorage.setItem("t3code:theme-rotation:v1", JSON.stringify({ favourites }));
       vi.stubGlobal("window", {
-      localStorage,
-      location: { search: "" },
-      matchMedia: () => ({ matches: true }),
-    });
+        localStorage,
+        location: { search: "", href: "http://localhost/" },
+        matchMedia: () => ({ matches: true }),
+      });
       const { forgetRotationThemes } = await import("./useTheme");
       forgetRotationThemes(gone);
       return JSON.parse(localStorage.getItem("t3code:theme-rotation:v1")!) as {
@@ -213,10 +213,10 @@ describe("theme mode", () => {
         }),
       );
       vi.stubGlobal("window", {
-      localStorage,
-      location: { search: "" },
-      matchMedia: () => ({ matches: true }),
-    });
+        localStorage,
+        location: { search: "", href: "http://localhost/" },
+        matchMedia: () => ({ matches: true }),
+      });
       const { useNextRotationTheme, useTheme } = await import("./useTheme");
       const before = useNextRotationTheme();
       const changed = before.cycle();

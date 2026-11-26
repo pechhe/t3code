@@ -372,7 +372,11 @@ it.effect("loads editor tools through its own deferred HTTP catalogue", () =>
                 ...(token === "claude"
                   ? {
                       providerDriver: ProviderDriverKind.make("claudeAgent"),
-                      capabilities: new Set(["device" as const]),
+                      capabilities: new Set([
+                        "device" as const,
+                        "background-wait" as const,
+                        "orchestration" as const,
+                      ]),
                     }
                   : {}),
                 endpointKey: keys.find((key) => token.startsWith(key)) ?? "editor",

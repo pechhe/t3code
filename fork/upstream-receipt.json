@@ -3,36 +3,36 @@
   "kind": "update",
   "upstream": {
     "baseline": {
-      "tag": "v0.1.11-nightly.20261118.4903",
-      "sha": "6927cfe2adb0867eb098009a5eb35e42da2b13a1"
-    },
-    "target": {
       "tag": "v0.1.11-nightly.20261120.4979",
       "sha": "59651c1761f6c63e9b6056839067066968e6a406"
+    },
+    "target": {
+      "tag": "v0.1.13-nightly.20261125.5258",
+      "sha": "bf961f8121c6336915ecf7b3f97ce6e68ab38fd7"
     }
   },
   "fork": {
-    "base": "3cab0e406f47c147e4985e343f63ce295353a385"
+    "base": "4f2376a3557f047ddf3af36dd2234c2ea0e70616"
   },
   "record": {
     "path": "fork/differences.md",
-    "blob": "1a3173725e2ddcb37aae395357ab5f83c18f8419"
+    "blob": "196193681f4d2c4be7c9da1fa1bc60c53dace8ab"
   },
   "policy": {
     "requiredLandingVerificationSha256": "230d5ccc7a6f5448a531a1604e1c0b1749bc790393e469a1f5b41771d7269243"
   },
-  "attempt": "v0.1.11-nightly.20261120.4979@1795177516",
-  "reviewedAt": "2026-11-20T15:00:00.000Z",
+  "attempt": "v0.1.13-nightly.20261125.5258@1795636765",
+  "reviewedAt": "2026-11-26T09:00:00.000Z",
   "reviewer": {
-    "thread": "thread:delegated-task:t3peach-4979-sonnet-trial-3",
+    "thread": "thread:931fbe1e-b693-4f2a-aec6-d499b54e6c4c",
     "model": "claude-sonnet-5-5"
   },
   "coverage": {
-    "upstreamCommits": 326,
+    "upstreamCommits": 1202,
     "entriesConsidered": [
       "compact-line",
-      "usage-only-providers",
       "compact-model",
+      "blackhole",
       "utility-model",
       "experiments",
       "agent-policy-roles",
@@ -64,6 +64,7 @@
       "fresh-simulator-discovery",
       "thread-handoff",
       "account-pools",
+      "pi-accounts",
       "phi-browser-backend",
       "managed-browser-roles",
       "preview-browser-lifetime",
@@ -72,7 +73,6 @@
       "device-composer",
       "pi-blackhole-status",
       "image-annotation",
-      "side-chat",
       "no-project-chats",
       "project-themes",
       "saved-icon-compatibility",
@@ -99,6 +99,7 @@
       "delegated-work-visibility",
       "subagent-return-chip",
       "session-tool-listings",
+      "session-tool-surface",
       "run-interrupt-cause",
       "ws-rpc-group-split",
       "voice-bridge",
@@ -121,14 +122,23 @@
       "stop-pauses-delegated-tasks",
       "saved-and-temporary-secrets",
       "pi-idle-compaction",
-      "pi-context-loadout"
+      "pi-context-loadout",
+      "pi-native-mcp",
+      "antigravity-context-loadout",
+      "usage-only-providers",
+      "warm-thread-start",
+      "pi-bolt-updates",
+      "antigravity-user-tooling",
+      "antigravity-usage-limit-reads",
+      "sidebar-thread-row-indicators",
+      "browser-page-tools"
     ],
     "areas": [
-      "Antigravity ACP and auth, Pi MCP bridge and compatibility manifest, Codex adapter (config/read, thread names), MCP pull request/CI tools, orchestration-v2 turn-start and delegated-task reads, linked-environment session renewal, scheduled tasks, side chat, web/mobile i18n, migrations 099-102 (fork 148-151), dev runner, secret store"
+      "orchestration-v2 run lifecycle (runs finish when the provider turn ends), Codex/Claude adapters, usage-limit ingestion, Antigravity provider and usage reads, MCP worktree/TaskFolders, linked-environment peers, web ChatMarkdown renderer, sidebar rows, settings (Secrets, Scheduled tasks), browser history, CLI, migrations, secret store, client-runtime resolver; fork head moved during the update (champions, blackhole, browser page tools): its migrations 158-159 kept, upstream's renumbered to 160-176"
     ],
     "exclusions": [
       {
-        "what": "apps/mobile (other than keeping it compiling and the shared-contract edits)",
+        "what": "apps/mobile (other than keeping it compiling and shared-contract edits)",
         "why": "AGENTS.md: mobile is upstream's; no fork mobile verification"
       },
       {
@@ -143,136 +153,170 @@
   },
   "dispositions": [
     {
-      "entry": "linked-environments",
-      "upstream": "Linked sessions renew while used (#39399), link several environments (#39426)",
-      "decision": "adopt",
+      "entry": "antigravity-usage-limit-reads",
+      "upstream": "Removed Google-internal Antigravity usage read",
+      "decision": "retain",
       "requirements": [
-        "peer-link renewal applied to peerLink MCP client sessions; fork peer-subject sessions unchanged"
+        "probe, clear-on-sign-out and refresh wiring kept on upstream's provider/driver shape (owner decision, Henry)"
       ],
-      "evidence": ["apps/server/src/auth/EnvironmentAuth.test.ts"]
+      "evidence": [
+        "apps/server/src/provider/antigravityUsageLimits.test.ts",
+        "apps/server/src/provider/AntigravityProvider.test.ts",
+        "apps/server/src/provider/Drivers/AntigravityDriver.test.ts"
+      ]
     },
     {
-      "entry": "scheduled-tasks-extensions",
-      "upstream": "Sender note on scheduled prompts; Settings default-branch fix (#32841)",
+      "entry": "sidebar-thread-row-indicators",
+      "upstream": "Environment label in the sidebar row meta slot",
+      "decision": "retain",
+      "requirements": [
+        "fork meta line (worktree icon + branch) and trailing remote-machine icon; label only in hover card (owner decision, Henry)"
+      ],
+      "evidence": [
+        "headless before/after screenshots of worktree and main-checkout rows",
+        "apps/web/src/components/Sidebar.logic.test.ts"
+      ]
+    },
+    {
+      "entry": "slipjay-command-guard",
+      "upstream": "Codex early full-access approval accept (runs before the SlipJay guard)",
       "decision": "adapt",
       "requirements": [
-        "keep frameScheduledTaskPrompt, skip upstream note for scheduled messages; Settings panel stays deleted"
+        "early accept removed; the fork's later accept stays after the guard; managed-network asks still prompt"
       ],
-      "evidence": ["apps/server/src/orchestration-v2/SteeringCompletion.integration.test.ts"]
-    },
-    {
-      "entry": "thread-watches",
-      "upstream": "watch until merged, merged read, settle-on-merge",
-      "decision": "adopt",
-      "requirements": ["subagents may still watch; Watching label kept"],
-      "evidence": ["apps/server/src/orchestration-v2/runtimeLayer.test.ts"]
+      "evidence": [
+        "apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.test.ts",
+        "apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.fork.test.ts"
+      ]
     },
     {
       "entry": "managed-delegation",
-      "upstream": "background subagent delegation, workspace models, uninterruptible launch",
-      "decision": "adapt",
-      "requirements": ["ported into ManagedDelegation.delegateTask"],
-      "evidence": [
-        "apps/server/src/mcp/ManagedDelegation.test.ts: \"stops a caller that goes away while it waits for the isolated launch lock\" (new; interrupt while queued ends without dispatching)",
-        "apps/server/src/mcp/OrchestratorMcpService.test.ts: \"prepares a delegated child whose async caller goes away after its run commits\" and \"...wait caller goes away...\" (interrupt after the dispatch still prepares the run and upgrades the wake)",
-        "apps/server/src/mcp/TaskCancelNativeSubagent.integration.test.ts: \"a native background subagent delegates after its parent's run completes\" (backgroundSubagentRun)",
-        "apps/server/src/mcp/OrchestratorMcpService.test.ts: \"delegates to a model only the parent project's folder config advertises\", \"rechecks a delegated model that is newly advertised / still unavailable\" (cwd on target resolution)"
-      ]
-    },
-    {
-      "entry": "side-chat",
-      "upstream": "Add to chat replaces Bring back (#38323)",
-      "decision": "adapt",
-      "requirements": ["Use in main kept beside it"],
-      "evidence": ["apps/web/src/components/chat/SideChatPane.tsx (no test)"]
-    },
-    {
-      "entry": "perf-persistence-reads",
-      "upstream": "turn-start and delegated-task read narrowing; migrations 099-102",
+      "upstream": "Runs finish when the provider turn ends, not after checkpoint capture (#41362)",
       "decision": "adapt",
       "requirements": [
-        "migrations renumbered 148-151 after Champion migration 147; fork 092 usage-limit index dropped by migration 148 (redundant with upstream indexes; its INDEXED BY hint is removed and the 092 test stops at migration 92)"
+        "a cancelled task publishes from its settled run instead of waiting for the child's background work; background work still holds a non-cancelled task's publication"
       ],
       "evidence": [
-        "apps/server/src/orchestration-v2/ProjectionStore.test.ts: \"reads a delegated child's active turn items beside its runs for task progress\" (new) and \"reads a delegated child's recent, unfinished and task runs without its history\"",
-        "apps/server/src/orchestration-v2/Orchestrator.control-reads.test.ts: \"starts, finishes and follows up a task without reading the parent's history\" (follow-up and finalize paths, bounded reads)",
-        "apps/server/src/persistence/Migrations/151_ThreadItemCounts.test.ts; reconcileV2PreviewMigration.test.ts",
-        "Gap: no test sets pendingBlockingAdvice true through readDelegatedChildControls"
+        "apps/server/src/mcp/TaskCancelNativeSubagent.integration.test.ts",
+        "apps/server/src/peer/ThreadHandoff.test.ts",
+        "apps/server/src/peer/RemoteDelegation.fork.test.ts"
       ]
     },
     {
-      "entry": "saved-and-temporary-secrets",
-      "upstream": "secret name validation (#39483)",
+      "entry": "provider-overload-failover",
+      "upstream": "Upstream usage-limit classification of 429 (#30778)",
       "decision": "adapt",
-      "requirements": ["cache and watcher kept; every name validated"],
-      "evidence": ["apps/server/src/auth/ServerSecretStore.test.ts"]
-    },
-    {
-      "entry": "agent-process-ledger",
-      "upstream": "Pi trackAgent port discovery",
-      "decision": "retain",
-      "requirements": ["added beside process observers"],
-      "evidence": ["packages/provider-pi/src/server/adapter.test.ts"]
-    },
-    {
-      "entry": "dev-state-tooling",
-      "upstream": "apps/server/scripts/dev.ts watcher, live-home guard",
-      "decision": "adopt",
-      "requirements": ["header-size option kept"],
-      "evidence": ["scripts/dev-runner.test.ts"]
-    },
-    {
-      "entry": "agent-policy-roles",
-      "upstream": "Pi min version in manifest, model-only alias tools, Pi PR linking rules",
-      "decision": "adapt",
-      "requirements": ["version 1.0.4 kept in manifest as broken below"],
+      "requirements": [
+        "a bare 429 stays provider_error; a hub-supplied reset time upgrades it to usage_limit in ProviderEventIngestor"
+      ],
       "evidence": [
-        "packages/provider-pi/src/server/mcpExtensionSource.test.ts",
-        "packages/provider-pi/src/server/textGeneration.test.ts"
+        "apps/server/src/orchestration-v2/ProviderEventIngestor tests, ClaudeAdapterV2 usage_limit replay and hub tests"
       ]
+    },
+    {
+      "entry": "live-response-streaming",
+      "upstream": "New HAST/islands ChatMarkdown renderer",
+      "decision": "adapt",
+      "requirements": [
+        "Forge mention chips, inline-code copy and opt-in calm word reveal ported into upstream's renderer; Writing status line kept"
+      ],
+      "evidence": [
+        "apps/web/src/components/ChatMarkdown tests",
+        "apps/web/src/components/chat/MessagesTimeline.logic.test.ts",
+        "headless Replay streaming pass"
+      ]
+    },
+    {
+      "entry": "scheduled-tasks-extensions",
+      "upstream": "Scheduled tasks settings page",
+      "decision": "retain",
+      "requirements": ["the fork's deletion of the Settings page stays; its test is dropped"],
+      "evidence": ["apps/web/src/components/settings tests"]
+    },
+    {
+      "entry": "session-tool-listings",
+      "upstream": "t3_background_wait gated on a background-wait capability",
+      "decision": "adopt",
+      "requirements": ["listing test sessions grant the capability"],
+      "evidence": ["apps/server/src/mcp/SessionToolListings.test.ts"]
+    },
+    {
+      "entry": "account-pools",
+      "upstream": "Upstream peer, secret-store and settings changes",
+      "decision": "adapt",
+      "requirements": [
+        "SshDeviceHost endpoint fixtures carry hubToken; client-runtime resolver expects fork httpUsageLimitSources"
+      ],
+      "evidence": [
+        "apps/server/src/ssh tests",
+        "packages/client-runtime/src/connection/resolver.test.ts"
+      ]
+    },
+    {
+      "entry": "perf-markdown-blocks",
+      "upstream": "HAST/islands ChatMarkdown renderer; patched gt-* i18n packages",
+      "decision": "adapt",
+      "requirements": ["fork chips, copy and calm reveal ported; mdast-util-from-markdown dropped"],
+      "evidence": ["apps/web ChatMarkdown tests"]
+    },
+    {
+      "entry": null,
+      "upstream": "Dependencies: upstream pinned gt-i18n 1.0.40, gt-react(-native) 11.4.18 with T3 patches; fork is on 1.0.43 / 11.4.22",
+      "decision": "adapt",
+      "requirements": [
+        "newer side kept; gt-i18n and gt-react-native patches re-applied to 1.0.43 and 11.4.22; @generaltranslation/format patch dropped (0.1.10 caches locale validity itself); @tiptap/extension-paragraph moved to the fork's ^3.32.2 group"
+      ],
+      "evidence": ["vp i resolves; typecheck clean"]
+    },
+    {
+      "entry": "browser-page-tools",
+      "upstream": "none (landed on t3peach after the merge started)",
+      "decision": "retain",
+      "requirements": ["no upstream overlap"],
+      "evidence": ["rebased onto fork head e12b1dcf71c7; no conflicts in its files"]
     }
   ],
   "unresolved": [],
   "checks": [
     {
-      "command": "pnpm install --lockfile-only (lockfile started from the fork head, not upstream)",
+      "command": "apps/server full test suite (orchestration-v2 in chunks)",
       "result": "passed",
-      "note": "only react-native-screens t3.59 -> t3.61 changed, from upstream apps/mobile/package.json; an earlier regeneration from upstream's lockfile re-resolved 30 packages from unpinned ranges and was discarded"
+      "note": "remaining failures also fail on fork head (ServerBrowser, statement.stat, outboundHttp); none merge-caused"
     },
     {
-      "command": "check-changed --reconcile: format, graphql, unused patches, knip, react compiler",
+      "command": "packages/client-runtime and packages/provider-acp-registry tests",
       "result": "passed",
-      "note": "format re-run on handlers.test.ts and the receipt after the last edits"
+      "note": "one provider-acp-registry and three client-runtime failures were merge fixtures, fixed; rest pre-existing"
     },
     {
-      "command": "check-changed --reconcile: lint",
+      "command": "apps/web full test suite",
+      "result": "passed",
+      "note": "run after reconciliation; sidebar tests re-run after the row restore (211 passed)"
+    },
+    {
+      "command": "vp run typecheck (server, web, client-runtime)",
+      "result": "passed",
+      "note": "0 errors"
+    },
+    {
+      "command": "headless Replay (dev) pass: sidebar rows, markdown showcase, streamed turn",
+      "result": "passed",
+      "note": "Forge chip and calm word-reveal not captured visually; covered by unit tests; Henry approved screenshots"
+    },
+    {
+      "command": "check-changed --reconcile (final run)",
       "result": "failed",
-      "note": "only apps/server/src/serverSettings.test.ts:745 no-inline-schema-compile, present at the same line at fork head beef09b1; this update only removes a duplicate TestClock import from that file; not merge-caused"
+      "note": "lint: only findings identical at fork head (useTheme.test, BranchToolbar.logic, peerLinks, AssistantMessageText, ThreadStatusIndicators, Capture, WebResearchHttp, slipJayRelease, orchestrationInstructions); tests: ServerBrowser (Playwright browser missing, fails at fork head) and two runtimeLayer cases that pass alone and fail only under full-suite load"
     },
     {
-      "command": "vp run -r typecheck (all packages)",
-      "result": "passed",
-      "note": "server, web, mobile and packages clean"
-    },
-    {
-      "command": "apps/server whole suite in foreground batches (orchestration-v2 in 6 chunks; mcp+peer+auth+persistence; provider; every other directory in 6 chunks), run on the final candidate",
-      "result": "passed",
-      "note": "orchestration-v2/mcp/peer/auth/persistence 294 files, 5007 tests; the rest 428 files, 6823 tests; 0 failures. The first full pass found five merge-caused failures, fixed here: CodexAdapterV2.fork.test.ts (13: stale replay scripts lacked upstream's per-thread config/read and thread/name/set exchanges), McpHttpServer dropped the t3-link-expires-at response header (PeerMcpClient test), requeued unread steers released held queues again (Orchestrator resumesThread; ClaudeAutomaticDelivery), CheckpointService.test.ts mock named isGitRepository instead of supportsCheckpoints, ThreadImportService.test.ts did not expect the sender note, and the ToolSessionPolicy editor ceiling is 159_000 for upstream's tool growth."
-    },
-    {
-      "command": "i18n:check",
-      "result": "passed",
-      "note": "two Use in main strings generated"
-    },
-    {
-      "command": "packages/client-runtime and packages/provider-pi whole suites",
+      "command": "rebase onto fork head e12b1dcf71c7 and check-changed --reconcile again",
       "result": "failed",
-      "note": "client-runtime 189 files, 2514 tests passed. provider-pi 388 tests, 387 passed; readOnlyShellSource.test.ts fails on this Linux sandbox and fails identically at the fork head beef09b1, so it is not caused by this update."
+      "note": "only findings that also hold without this merge: lint set above, ServerBrowser (no Playwright browser), effect-tsgo warnings in runtimeLayer.ts:330 and handlers.test.ts:226 that make server typecheck exit 2 with zero TS errors; runtimeLayer and ProviderInstanceRegistry cases pass alone; AgentContextBudget and migration/workflow tests pass; i18n:check clean"
     },
     {
-      "command": "ArcRunReactor.test.ts",
+      "command": "code review (reconciliation)",
       "result": "passed",
-      "note": "53/53, three full-file runs. 'a child can finish before its managed task while the Arc parent is paused or absent' read the task's status after other reads, racing the Orchestrator's background settlement of a task whose child run ended; the same race shows at fork head beef09b1 (status reads completed 1.5s later there too), and this update's timing lost it once three earlier tests ran. The test now reads the status straight after the child finishes, before the reactor handles it; behaviour unchanged"
+      "note": "approve with changes, 0 blocking; both should-fix items answered by recording the Codex managed-network narrowing, cancelled-task publication, hub-429 rule, launch/turn-start and dependency decisions in fork/differences.md"
     }
   ],
   "result": "reconciled"

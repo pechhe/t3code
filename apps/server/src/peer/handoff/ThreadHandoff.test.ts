@@ -1481,6 +1481,16 @@ const delegateThenIdle = (
           projection.subagents.some((task) => task.title === title && task.status === "running"),
       );
     }
+    // A task's turn is steerable only once its provider turn is recorded as running.
+    for (const task of (yield* a.orchestrator.getThreadProjection(threadId)).subagents) {
+      const childId = task.childThreadId;
+      if (childId === null) continue;
+      yield* awaitOrchestratorState(
+        a.orchestrator,
+        a.orchestrator.getThreadProjection(childId),
+        (child) => child.providerTurns.some((turn) => turn.status === "running"),
+      );
+    }
     yield* gates.release(threadId);
     const idleNow = yield* awaitOrchestratorState(
       a.orchestrator,

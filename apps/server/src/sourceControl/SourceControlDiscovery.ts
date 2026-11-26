@@ -17,6 +17,7 @@ import {
   detailFromCause,
   failedProbeHint,
   firstNonEmptyLine,
+  isExecutableOnPath,
 } from "@t3tools/source-control-core/server/discovery";
 import * as SourceControlProviderRegistry from "./SourceControlProviderRegistry.ts";
 
@@ -175,7 +176,20 @@ export const make = Effect.gen(function* () {
       Effect.all({
         versionControlSystems: Effect.all(
           VCS_PROBES.map((entry) =>
-            probe(entry).pipe(Effect.flatMap(withSlipjay)),
+            Effect.flatMap(isExecutableOnPath(entry.executable), (found) =>
+              found
+                ? probe(entry).pipe(Effect.flatMap(withSlipjay))
+                : Effect.succeed({
+                    kind: entry.kind,
+                    label: entry.label,
+                    executable: entry.executable,
+                    implemented: entry.implemented,
+                    status: "missing" as const,
+                    version: Option.none<string>(),
+                    installHint: entry.installHint,
+                    detail: Option.none<string>(),
+                  }),
+            ),
           ) as ReadonlyArray<Effect.Effect<VcsDiscoveryItem>>,
           { concurrency: "unbounded" },
         ),

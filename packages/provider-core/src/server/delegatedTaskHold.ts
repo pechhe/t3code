@@ -35,7 +35,7 @@ export type DelegatedTaskProjection = {
   /** Active turn items are enough: only those can be pending background work. */
   readonly turnItems: Parameters<typeof derivePendingBackgroundWork>[0]["turnItems"];
   readonly messages: ReadonlyArray<
-    Pick<OrchestrationV2ConversationMessage, "runId" | "notification">
+    Pick<OrchestrationV2ConversationMessage, "runId" | "notification" | "createdBy">
   >;
   readonly subagents: ReadonlyArray<
     Pick<OrchestrationV2ThreadProjection["subagents"][number], "status" | "completionDelivery"> &

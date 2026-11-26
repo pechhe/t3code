@@ -685,8 +685,6 @@ const make = Effect.gen(function* () {
           });
           // A scoped snapshot is how an agent reads a capped name in full.
           const scoped = action.target !== undefined;
-          // visibleText already lists every element once, tagged with its ref. Repeating them in
-          // interactiveElements, with no geometry to add, only doubles what an agent has to read.
           return yield* decodeSnapshot({
             url: result.observed.url,
             title: result.observed.title,
@@ -696,7 +694,6 @@ const make = Effect.gen(function* () {
               states,
               result.statesSkipped,
             ),
-            interactiveElements: [],
             accessibilityTree: null,
             captureStatus: { console: false, network: false, actionTimeline: false },
             consoleEntries: [],

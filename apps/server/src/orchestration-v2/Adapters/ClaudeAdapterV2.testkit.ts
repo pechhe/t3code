@@ -848,9 +848,13 @@ function makeReplayQueryRunner(
           replayEffect(() => {
             assertNextOutboundFrame({ type: "query.background_tasks", toolUseId });
           }).pipe(Effect.as(true)),
+        // A result looks for servers that need a sign-in; the replay reports none.
+        mcpServerStatus: Effect.succeed([]),
         // Recorded CLIs predate MCP Apps capabilities, so replays never reach these.
-        mcpServerStatus: Effect.die("unexpected MCP server status in replay"),
         readMcpResource: () => Effect.die("unexpected MCP resource read in replay"),
+        mcpAuthenticate: () => Effect.die("unexpected MCP sign-in in replay"),
+        mcpSubmitOAuthCallbackUrl: () => Effect.die("unexpected MCP sign-in in replay"),
+        reconnectMcpServer: () => Effect.die("unexpected MCP reconnect in replay"),
         callMcpTool: () => Effect.die("unexpected MCP tool call in replay"),
         listPermissionRules: Effect.die("unexpected permission rules read in replay"),
         interrupt: replayEffect(() => {
@@ -1043,9 +1047,10 @@ const writeReplaySessionTranscripts = Effect.fn("ClaudeReplay.writeSessionTransc
       typeof frame.session_id !== "string"
     )
       continue;
-    const lines = sessions.get(frame.session_id) ?? [];
-    lines.push(yield* encodeReplaySessionLine(frame));
-    sessions.set(frame.session_id, lines);
+    // One line makes the conversation resumable. More would hold messages the replay has yet to
+    // emit, which a live process would then read as missed.
+    if (sessions.has(frame.session_id)) continue;
+    sessions.set(frame.session_id, [yield* encodeReplaySessionLine(frame)]);
   }
   for (const [sessionId, lines] of sessions) {
     yield* fileSystem.writeFileString(
@@ -1531,7 +1536,9 @@ const resolveClaudeRecordingExecutablePath = Effect.fn("resolveClaudeRecordingEx
   function* (environment: NodeJS.ProcessEnv) {
     const resolveExecutable = yield* SpawnExecutableResolution;
     const platform = yield* HostProcess.Platform;
-    const resolved = resolveExecutable("claude", platform, environment);
+    const resolved = yield* Effect.promise(async () =>
+      resolveExecutable("claude", platform, environment),
+    );
     if (resolved === undefined) {
       return undefined;
     }

@@ -525,6 +525,37 @@ export const layer: Layer.Layer<
                 }),
               ];
             }
+            case "thread_model_selection.updated": {
+              const { instanceId, changes } = input.event;
+              const thread = yield* projections.getThread(input.event.threadId).pipe(
+                Effect.catchTags({
+                  ProjectionStoreThreadNotFoundError: () => Effect.succeed(null),
+                }),
+              );
+              const current = thread?.modelSelection;
+              if (thread === null || current?.instanceId !== instanceId || !current.options) {
+                return [];
+              }
+              let changed = false;
+              const options = current.options.map((option) => {
+                const change = changes.find(
+                  (candidate) => candidate.id === option.id && candidate.from === option.value,
+                );
+                if (change === undefined) return option;
+                changed = true;
+                return { ...option, value: change.to };
+              });
+              if (!changed) return [];
+              const now = yield* DateTime.now;
+              return [
+                yield* makeDomainEvent(input, {
+                  type: "thread.model-selection-updated",
+                  threadId: thread.id,
+                  payload: { ...thread, modelSelection: { ...current, options }, updatedAt: now },
+                  occurredAt: now,
+                }),
+              ];
+            }
             case "provider_session.updated":
               return [
                 yield* makeDomainEvent(input, {
@@ -697,9 +728,10 @@ export const layer: Layer.Layer<
             }
             case "background_work.updated":
               return [];
+            case "background_work.lost":
             case "command_output.delta":
             case "prompt_suggestion.updated":
-              // The session manager serves these to clients before ingestion.
+              // The session manager handles these before ingestion.
               return [];
             case "turn.terminal":
               const dismissed = yield* dismissNativeUserInputs(
@@ -716,13 +748,18 @@ export const layer: Layer.Layer<
                 ? { ...input.event.failure, message: "Killed: out of memory.", code: "oom_kill" }
                 : input.event.failure;
               // A proxied CLI can drop the reset time; the hub still knows when its pool refills.
-              const endpoint =
-                reported.class === "usage_limit" && reported.resetAt == null
-                  ? (yield* Effect.flatMap(
-                      instances.getInstance(input.providerInstanceId),
-                      (instance) => instance?.snapshot.getSnapshot ?? Effect.undefined,
-                    ))?.auth.endpoint
-                  : undefined;
+              // The adapter reports a bare 429 as a provider error (the fork's rule), which the
+              // hub's reset time turns back into the usage limit it is.
+              const bare429 =
+                reported.resetAt == null &&
+                (reported.class === "usage_limit" ||
+                  (reported.class === "provider_error" && reported.code === "api_error_429"));
+              const endpoint = bare429
+                ? (yield* Effect.flatMap(
+                    instances.getInstance(input.providerInstanceId),
+                    (instance) => instance?.snapshot.getSnapshot ?? Effect.undefined,
+                  ))?.auth.endpoint
+                : undefined;
               const hubResetAt =
                 endpoint === undefined
                   ? null
@@ -744,12 +781,18 @@ export const layer: Layer.Layer<
                         usageLimitResets.resetAt(input.event.driver, endpoint, model),
                       ),
                     );
-              const failure = hubResetAt === null ? reported : { ...reported, resetAt: hubResetAt };
+              const failure =
+                hubResetAt === null
+                  ? reported
+                  : { ...reported, class: "usage_limit" as const, resetAt: hubResetAt };
               return [
                 ...dismissed,
                 yield* makeDomainEvent(input, {
                   type: "turn-item.updated",
                   payload: makeProviderFailureTurnItem({
+                    ...(input.event.failureItemId === undefined
+                      ? {}
+                      : { id: input.event.failureItemId }),
                     driver: input.event.driver,
                     threadId: input.threadId,
                     runId: input.runId ?? null,
@@ -932,7 +975,9 @@ export const layer: Layer.Layer<
               (effect) =>
                 input.event.type === "app_thread.created"
                   ? threadCommands.withLock(input.event.appThread.id, effect)
-                  : effect,
+                  : input.event.type === "thread_model_selection.updated"
+                    ? threadCommands.withLock(input.event.threadId, effect)
+                    : effect,
             ),
         ),
     });

@@ -1,4 +1,5 @@
 import { describe, it, assert } from "@effect/vitest";
+import * as Context from "effect/Context";
 import {
   ProviderDriverKind,
   ProviderInstanceId,
@@ -115,6 +116,7 @@ const makeRunner = (capabilities: () => ProviderMaintenanceCapabilities) =>
       );
     const registry: ProviderRegistry.ProviderRegistry["Service"] = {
       getProviders: Ref.get(providersRef),
+      rebuildMissingAndRefresh: Ref.get(providersRef),
       refresh: () => Ref.get(providersRef),
       refreshInstance: () => Ref.get(providersRef),
       refreshInstanceUsage: () => Ref.get(providersRef),
@@ -143,26 +145,24 @@ const makeRunner = (capabilities: () => ProviderMaintenanceCapabilities) =>
         },
       ],
     };
-    return yield* Effect.service(ProviderMaintenanceRunner.ProviderMaintenanceRunner).pipe(
-      Effect.provide(
-        ProviderMaintenanceRunner.layer.pipe(
-          Layer.provide(
-            Layer.mergeAll(
-              Layer.succeed(ProviderRegistry.ProviderRegistry, registry),
-              Layer.succeed(ModelManifest.ModelManifest, {
-                current: Effect.succeed(manifest),
-                refresh: Effect.succeed(manifest),
-                forceRefresh: Effect.succeed(manifest),
-                refreshOnDemand: Effect.succeed(manifest),
-                refreshInBackground: Effect.void,
-              }),
-              ProviderLatestVersions.layer,
-              ProviderInstallationGate.layer,
-            ),
+    return yield* Layer.build(
+      ProviderMaintenanceRunner.layer.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            Layer.succeed(ProviderRegistry.ProviderRegistry, registry),
+            Layer.succeed(ModelManifest.ModelManifest, {
+              current: Effect.succeed(manifest),
+              refresh: Effect.succeed(manifest),
+              forceRefresh: Effect.succeed(manifest),
+              refreshOnDemand: Effect.succeed(manifest),
+              refreshInBackground: Effect.void,
+            }),
+            ProviderLatestVersions.layer,
+            ProviderInstallationGate.layer,
           ),
         ),
       ),
-    );
+    ).pipe(Effect.map(Context.get(ProviderMaintenanceRunner.ProviderMaintenanceRunner)));
   });
 
 describe("providerMaintenanceRunner with a Pi-Bolt wrapper", () => {

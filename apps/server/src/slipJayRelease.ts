@@ -35,14 +35,23 @@ export type SlipJayRestoreOutcome =
   | { kind: "unavailable"; reason: string };
 
 /** Stable per thread, workspace and settlement: a retry reuses it, a resume does not. */
-export function releaseOperationId(threadId: string, workspacePath: string, settledAt: string | null): string {
+export function releaseOperationId(
+  threadId: string,
+  workspacePath: string,
+  settledAt: string | null,
+): string {
   const settled = settledAt === null ? "unsettled" : String(Date.parse(settledAt) || 0);
   const parts = workspacePath.split(/[\\/]/u).filter(Boolean);
   const workspace = parts.at(-1) ?? "workspace";
   return `t3-${threadId}-${workspace}-${settled}`.replace(/[^A-Za-z0-9._-]/gu, "-").slice(0, 128);
 }
 
-export type ParsedRelease = { state: string; reason?: string; archiveId?: string; workspacePath?: string };
+export type ParsedRelease = {
+  state: string;
+  reason?: string;
+  archiveId?: string;
+  workspacePath?: string;
+};
 
 /** The last JSON line a command printed: SlipJay's result, whatever it logged before it. */
 export function parseReleaseResult(stdout: string): ParsedRelease | null {
@@ -52,9 +61,19 @@ export function parseReleaseResult(stdout: string): ParsedRelease | null {
     .filter((line) => line.startsWith("{"))
     .toReversed();
   for (const line of candidates) {
-    let parsed: { state?: unknown; reason?: unknown; archiveId?: unknown; workspacePath?: unknown } | null = null;
+    let parsed: {
+      state?: unknown;
+      reason?: unknown;
+      archiveId?: unknown;
+      workspacePath?: unknown;
+    } | null = null;
     try {
-      parsed = JSON.parse(line) as { state?: unknown; reason?: unknown; archiveId?: unknown; workspacePath?: unknown };
+      parsed = JSON.parse(line) as {
+        state?: unknown;
+        reason?: unknown;
+        archiveId?: unknown;
+        workspacePath?: unknown;
+      };
     } catch {
       continue;
     }
@@ -63,7 +82,9 @@ export function parseReleaseResult(stdout: string): ParsedRelease | null {
         state: parsed.state,
         ...(typeof parsed.reason === "string" ? { reason: parsed.reason } : {}),
         ...(typeof parsed.archiveId === "string" ? { archiveId: parsed.archiveId } : {}),
-        ...(typeof parsed.workspacePath === "string" ? { workspacePath: parsed.workspacePath } : {}),
+        ...(typeof parsed.workspacePath === "string"
+          ? { workspacePath: parsed.workspacePath }
+          : {}),
       };
     }
   }
@@ -79,15 +100,27 @@ export async function releaseSlipJayWorkspace(input: {
   const operationId = releaseOperationId(input.threadId, input.workspacePath, input.settledAt);
   let outcome: { code: number; stdout: string; stderr: string };
   try {
-    outcome = await input.run("slipjay", ["retire", input.workspacePath, "--operation", operationId]);
+    outcome = await input.run("slipjay", [
+      "retire",
+      input.workspacePath,
+      "--operation",
+      operationId,
+    ]);
   } catch (error) {
     // No SlipJay on this host is a reason to keep the checkout, never to fall back to git.
-    return { kind: "unavailable", reason: `slipjay could not be run: ${error instanceof Error ? error.message : String(error)}` };
+    return {
+      kind: "unavailable",
+      reason: `slipjay could not be run: ${error instanceof Error ? error.message : String(error)}`,
+    };
   }
   const result = parseReleaseResult(outcome.stdout);
   if (!result) {
-    const detail = (outcome.stderr || outcome.stdout).trim().split("\n").slice(-1)[0] ?? "no output";
-    return { kind: "unavailable", reason: `slipjay gave no result (exit ${outcome.code}): ${detail}` };
+    const detail =
+      (outcome.stderr || outcome.stdout).trim().split("\n").slice(-1)[0] ?? "no output";
+    return {
+      kind: "unavailable",
+      reason: `slipjay gave no result (exit ${outcome.code}): ${detail}`,
+    };
   }
   switch (result.state) {
     case "retired":
@@ -95,7 +128,10 @@ export async function releaseSlipJayWorkspace(input: {
     case "refused":
       return { kind: "refused", reason: result.reason ?? "slipjay refused to release it" };
     case "uncertain":
-      return { kind: "uncertain", reason: result.reason ?? "slipjay could not say whether it released it" };
+      return {
+        kind: "uncertain",
+        reason: result.reason ?? "slipjay could not say whether it released it",
+      };
     default:
       return { kind: "unavailable", reason: `slipjay answered "${result.state}"` };
   }
@@ -114,14 +150,23 @@ export async function restoreSlipJayWorkspace(input: {
   try {
     outcome = await input.run("slipjay", ["restore", "--latest", "--path", input.workspacePath]);
   } catch (error) {
-    return { kind: "unavailable", reason: `slipjay could not be run: ${error instanceof Error ? error.message : String(error)}` };
+    return {
+      kind: "unavailable",
+      reason: `slipjay could not be run: ${error instanceof Error ? error.message : String(error)}`,
+    };
   }
   const result = parseReleaseResult(outcome.stdout);
   if (result?.state === "restored" && typeof result.workspacePath === "string") {
     return { kind: "restored", workspacePath: result.workspacePath };
   }
-  const detail = result?.reason ?? (outcome.stderr || outcome.stdout).trim().split("\n").slice(-1)[0] ?? "no output";
-  return { kind: "unavailable", reason: `no archived checkout to restore (exit ${outcome.code}): ${detail}` };
+  const detail =
+    result?.reason ??
+    (outcome.stderr || outcome.stdout).trim().split("\n").slice(-1)[0] ??
+    "no output";
+  return {
+    kind: "unavailable",
+    reason: `no archived checkout to restore (exit ${outcome.code}): ${detail}`,
+  };
 }
 
 /**
@@ -153,17 +198,37 @@ export async function unresolvedRelease(input: {
 }
 
 /** Whether a path is one SlipJay keeps its workspaces in. */
-export function isSlipJayWorkspacePath(worktreePath: string, home: string, separator: string): boolean {
+export function isSlipJayWorkspacePath(
+  worktreePath: string,
+  home: string,
+  separator: string,
+): boolean {
   if (home === "") return false;
-  const homes = [".slipjay", ".slipway", ".pi"].map((name) => `${home}${separator}${name}${separator}workspaces`);
-  return homes.some((root) => worktreePath === root || worktreePath.startsWith(`${root}${separator}`));
+  const homes = [".slipjay", ".slipway", ".pi"].map(
+    (name) => `${home}${separator}${name}${separator}workspaces`,
+  );
+  return homes.some(
+    (root) => worktreePath === root || worktreePath.startsWith(`${root}${separator}`),
+  );
 }
 
 /** The default runner: `slipjay` from the host's PATH, with a bounded wait. */
 export const hostReleaseRunner: ReleaseRunner = (command, args) =>
   new Promise((resolve, reject) => {
-    NodeChildProcess.execFile(command, [...args], { timeout: 10 * 60_000, maxBuffer: 4 * 1024 * 1024 }, (error, stdout, stderr) => {
-      if (error && typeof (error as { code?: unknown }).code === "string") return reject(error);
-      resolve({ code: error && typeof (error as { code?: unknown }).code === "number" ? (error as { code: number }).code : 0, stdout, stderr });
-    });
+    NodeChildProcess.execFile(
+      command,
+      [...args],
+      { timeout: 10 * 60_000, maxBuffer: 4 * 1024 * 1024 },
+      (error, stdout, stderr) => {
+        if (error && typeof (error as { code?: unknown }).code === "string") return reject(error);
+        resolve({
+          code:
+            error && typeof (error as { code?: unknown }).code === "number"
+              ? (error as { code: number }).code
+              : 0,
+          stdout,
+          stderr,
+        });
+      },
+    );
   });

@@ -294,6 +294,7 @@ it.layer(Layer.mergeAll(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer), Ne
         const { service, uninstalls } = makeTestService({
           ...status,
           installedBaseDir: input.otherHome ? "/home/me/.t3" : baseDir,
+          ...(input.otherHome ? { otherBaseDir: "/home/me/.t3" } : {}),
         });
         vi.spyOn(BootService, "layer").mockReturnValue(
           Layer.succeed(

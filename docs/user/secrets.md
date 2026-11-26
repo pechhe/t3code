@@ -77,6 +77,11 @@ where the value will live before you enter it:
   tool reference is consumed once or expires after 24 hours; a private file for commands is
   deleted after 24 hours or earlier removal.
 
+If the environment has a secret provider, the card also lets you pick it and enter a reference
+instead of the value. Answering with a reference needs permission to manage providers, as saving a
+reference in Settings does; a session without it sees only the value field. T3 Code reads the secret once, when you answer. If 1Password is locked, the
+card says so and the request stays open: unlock it and try again, or enter the value.
+
 Choose **Decline** to continue without the secret. You can answer from web, desktop or an
 updated mobile client. An older client cannot save an ambiguous answer to Bitwarden; use
 an updated client for that request.

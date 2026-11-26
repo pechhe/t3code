@@ -68,9 +68,16 @@ const layerFailingDispatchHandler =
     );
   };
 
+const noPendingRuntimeRequests: ThreadManagementService.ThreadManagementServiceShape["getThreadRecords"] =
+  () =>
+    Effect.succeed({ runtimeRequests: [] } as unknown as Effect.Success<
+      ReturnType<ThreadManagementService.ThreadManagementServiceShape["getThreadRecords"]>
+    >);
+
 const layerFailingDispatch = (captured: OrchestrationV2ServerCommand[]) =>
   Layer.mock(ThreadManagementService.ThreadManagementService)({
     dispatch: layerFailingDispatchHandler(captured),
+    getThreadRecords: noPendingRuntimeRequests,
   });
 
 const NOW = DateTime.makeUnsafe("2026-09-13T00:00:00.000Z");
@@ -151,6 +158,60 @@ it.effect("claims question uploads and passes readable paths through the V2 requ
       "Selected option",
       `Attached image "screen.png": ${JSON.stringify(path)}`,
     ]);
+  }).pipe(Effect.provide(layerIntakeTest)),
+);
+
+it.effect("leaves an async answer's text alone so its files travel as message attachments", () =>
+  Effect.gen(function* () {
+    const config = yield* ServerConfig.ServerConfig;
+    const id = ChatAttachmentId.make(createPendingAttachmentId()!);
+    NodeFS.writeFileSync(
+      NodePath.join(config.attachmentsDir, `${id}.png`),
+      new Uint8Array([1, 2, 3]),
+    );
+    const threadId = ThreadId.make("thread-async-answer");
+    const requestId = RuntimeRequestId.make("request-async");
+    const captured: OrchestrationV2ServerCommand[] = [];
+    yield* dispatchCommand({
+      type: "runtime-request.respond",
+      commandId: CommandId.make("answer-async"),
+      threadId,
+      requestId,
+      answers: { q: "" },
+      attachmentsByQuestionId: {
+        q: [{ type: "image", id, name: "screen.png", mimeType: "image/png", sizeBytes: 3 }],
+      },
+    }).pipe(
+      Effect.provide(
+        Layer.mock(ThreadManagementService.ThreadManagementService)({
+          dispatch: layerFailingDispatchHandler(captured),
+          getThreadRecords: () =>
+            Effect.succeed({
+              runtimeRequests: [
+                {
+                  id: requestId,
+                  nodeId: null,
+                  providerTurnId: null,
+                  nativeRequestRef: null,
+                  kind: "user_input",
+                  status: "pending",
+                  responseCapability: { type: "message" },
+                  createdAt: NOW,
+                  resolvedAt: null,
+                },
+              ],
+            } as unknown as Effect.Success<
+              ReturnType<ThreadManagementService.ThreadManagementServiceShape["getThreadRecords"]>
+            >),
+        }),
+      ),
+      Effect.result,
+    );
+    expect(captured).toHaveLength(1);
+    const command = captured[0]!;
+    if (command.type !== "runtime-request.respond") throw new Error("expected a response");
+    expect(command.answers).toEqual({ q: "" });
+    expect(command.attachmentsByQuestionId?.q).toHaveLength(1);
   }).pipe(Effect.provide(layerIntakeTest)),
 );
 
@@ -235,6 +296,7 @@ it.effect("releases claimed copies when the command was already rejected", () =>
     }).pipe(
       Effect.provide(
         Layer.mock(ThreadManagementService.ThreadManagementService)({
+          getThreadRecords: noPendingRuntimeRequests,
           dispatch: (command) =>
             Effect.fail(
               new OrchestratorCommandPreviouslyRejectedError({
@@ -302,6 +364,7 @@ it.effect("releases claimed copies when dispatch replays an earlier accepted res
     }).pipe(
       Effect.provide(
         Layer.mock(ThreadManagementService.ThreadManagementService)({
+          getThreadRecords: noPendingRuntimeRequests,
           dispatch: () => Effect.succeed({ sequence: 1, storedEvents }),
         }),
       ),
@@ -372,6 +435,7 @@ it.effect("a retried response re-claims the preserved pending uploads", () =>
     const retry = yield* dispatchCommand(command).pipe(
       Effect.provide(
         Layer.mock(ThreadManagementService.ThreadManagementService)({
+          getThreadRecords: noPendingRuntimeRequests,
           dispatch: (dispatched) => {
             captured.push(dispatched);
             return Effect.succeed({ sequence: 1, storedEvents: [] });

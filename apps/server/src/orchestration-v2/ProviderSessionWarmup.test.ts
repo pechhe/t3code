@@ -23,7 +23,6 @@ import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 
-import * as ServerSettings from "../serverSettings.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as EffectWorker from "./EffectWorker.ts";
@@ -196,7 +195,14 @@ const withHarness = <A, E>(
             makeAdapter(counts, otherInstance),
           ]),
           ProjectionStore.layer.pipe(Layer.provide(database)),
-          RuntimePolicy.layer.pipe(Layer.provide(ServerSettings.layerTest())),
+          Layer.succeed(RuntimePolicy.RuntimePolicyV2, {
+            resolve: (input) =>
+              Effect.succeed({
+                runtimeMode: input.thread.runtimeMode,
+                interactionMode: input.thread.interactionMode,
+                cwd: input.thread.worktreePath,
+              }),
+          }),
           IdAllocator.layer,
           Layer.mock(CheckpointService.CheckpointServiceV2)({
             captureFirstRunBaseline: ({ threadId, cwd }) =>

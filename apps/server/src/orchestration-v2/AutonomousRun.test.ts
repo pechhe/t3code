@@ -39,7 +39,10 @@ import {
   isCoveredByAway,
   MAX_DECISION_LOG_ENTRIES,
 } from "./arcRun.ts";
-import { ARC_RUN_WAKE_MESSAGE_PREFIX, UNATTENDED_CONTINUATION_MESSAGE_PREFIX } from "./serverContinuation.ts";
+import {
+  ARC_RUN_WAKE_MESSAGE_PREFIX,
+  UNATTENDED_CONTINUATION_MESSAGE_PREFIX,
+} from "./serverContinuation.ts";
 import * as ProviderReplayHarness from "./testkit/ProviderReplayHarness.ts";
 
 const instanceId = ProviderInstanceId.make("codex");
@@ -213,47 +216,45 @@ it("describeUnattendedTurnNote injects authority for Away, Arc, Spec and task ru
   assert.include(specNote, "op decision");
 });
 
-it.effect(
-  "away-off exempts a thread from global Away until away-on or a run starts",
-  () =>
-    Effect.gen(function* () {
-      const orchestrator = yield* Orchestrator.OrchestratorV2;
-      const projections = yield* ProjectionStore.ProjectionStoreV2;
-      const now = yield* DateTime.now;
-      const threadId = yield* createThread("away-opt-out", "Away opt-out");
-      const arcRun = (op: "away-off" | "away-on" | "start" | "end", n: number) =>
-        orchestrator.dispatch({
-          type: "thread.arc-run",
-          commandId: CommandId.make(`cmd:away-opt:${op}:${n}`),
-          threadId,
-          op,
-          ...(op === "start" ? { label: "Pinned" } : {}),
-        });
+it.effect("away-off exempts a thread from global Away until away-on or a run starts", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const now = yield* DateTime.now;
+    const threadId = yield* createThread("away-opt-out", "Away opt-out");
+    const arcRun = (op: "away-off" | "away-on" | "start" | "end", n: number) =>
+      orchestrator.dispatch({
+        type: "thread.arc-run",
+        commandId: CommandId.make(`cmd:away-opt:${op}:${n}`),
+        threadId,
+        op,
+        ...(op === "start" ? { label: "Pinned" } : {}),
+      });
 
-      assert.isTrue(isCoveredByAway(yield* projections.getThread(threadId), now));
+    assert.isTrue(isCoveredByAway(yield* projections.getThread(threadId), now));
 
-      yield* arcRun("away-off", 1);
-      const off = yield* projections.getThread(threadId);
-      assert.isTrue(off.awayOptOut);
-      assert.isFalse(isCoveredByAway(off, now));
-      assert.strictEqual(describeUnattendedTurnNote({ thread: off, away: true }), "");
-      assert.isTrue((yield* projections.getThreadShell(threadId))?.awayOptOut);
+    yield* arcRun("away-off", 1);
+    const off = yield* projections.getThread(threadId);
+    assert.isTrue(off.awayOptOut);
+    assert.isFalse(isCoveredByAway(off, now));
+    assert.strictEqual(describeUnattendedTurnNote({ thread: off, away: true }), "");
+    assert.isTrue((yield* projections.getThreadShell(threadId))?.awayOptOut);
 
-      yield* arcRun("away-on", 2);
-      const on = yield* projections.getThread(threadId);
-      assert.isUndefined(on.awayOptOut);
-      assert.isTrue(isCoveredByAway(on, now));
-      assert.include(describeUnattendedTurnNote({ thread: on, away: true }), "Global Away is on");
+    yield* arcRun("away-on", 2);
+    const on = yield* projections.getThread(threadId);
+    assert.isUndefined(on.awayOptOut);
+    assert.isTrue(isCoveredByAway(on, now));
+    assert.include(describeUnattendedTurnNote({ thread: on, away: true }), "Global Away is on");
 
-      // Ending a run keeps the opt-out; starting one is an explicit "on" and clears it.
-      yield* arcRun("away-off", 3);
-      yield* arcRun("end", 4);
-      assert.isTrue((yield* projections.getThread(threadId)).awayOptOut);
-      yield* arcRun("start", 5);
-      const started = yield* projections.getThread(threadId);
-      assert.isUndefined(started.awayOptOut);
-      assert.strictEqual(started.autonomousRun?.state, "active");
-    }).pipe(Effect.provide(layerTest)),
+    // Ending a run keeps the opt-out; starting one is an explicit "on" and clears it.
+    yield* arcRun("away-off", 3);
+    yield* arcRun("end", 4);
+    assert.isTrue((yield* projections.getThread(threadId)).awayOptOut);
+    yield* arcRun("start", 5);
+    const started = yield* projections.getThread(threadId);
+    assert.isUndefined(started.awayOptOut);
+    assert.strictEqual(started.autonomousRun?.state, "active");
+  }).pipe(Effect.provide(layerTest)),
 );
 
 it.effect(
@@ -293,7 +294,11 @@ it.effect(
       assert.strictEqual(shell1?.autonomousRun?.spec?.number, 8708);
 
       // Completing a turn without op end triggers an autonomous wake.
-      const { completedEvent } = yield* completeTurnWithAssistantText(t1, "s1", "Partial progress.");
+      const { completedEvent } = yield* completeTurnWithAssistantText(
+        t1,
+        "s1",
+        "Partial progress.",
+      );
       yield* arcReactor.handle(completedEvent);
       const afterWake = yield* projections.getThreadRecords(t1, ["messages"]);
       const wake = afterWake.messages.find((m) => m.id.startsWith(ARC_RUN_WAKE_MESSAGE_PREFIX));
@@ -419,16 +424,16 @@ it.effect(
         "All finished.\n\n🟢 Status: Done — nothing pending.",
       );
       yield* unattended.handle(doneEvt);
-      const doneCont = (yield* projections.getThreadRecords(doneThread, ["messages"])).messages.filter(
-        (m) => m.id.startsWith(UNATTENDED_CONTINUATION_MESSAGE_PREFIX),
-      );
+      const doneCont = (yield* projections.getThreadRecords(doneThread, [
+        "messages",
+      ])).messages.filter((m) => m.id.startsWith(UNATTENDED_CONTINUATION_MESSAGE_PREFIX));
       assert.strictEqual(doneCont.length, 0);
 
       // Even a fresh Away sweep leaves a 🟢 Status: Done thread untouched.
       yield* unattended.sweep;
-      const doneAfterSweep = (
-        yield* projections.getThreadRecords(doneThread, ["messages"])
-      ).messages.filter((m) => m.id.startsWith(UNATTENDED_CONTINUATION_MESSAGE_PREFIX));
+      const doneAfterSweep = (yield* projections.getThreadRecords(doneThread, [
+        "messages",
+      ])).messages.filter((m) => m.id.startsWith(UNATTENDED_CONTINUATION_MESSAGE_PREFIX));
       assert.strictEqual(doneAfterSweep.length, 0);
 
       // A thread stopping mid-work without 🟢 Status: Done or an owner hold IS woken to continue.
@@ -438,9 +443,9 @@ it.effect(
         "Completed step 1. Want me to proceed to step 2?\n\n🟡 Status: Checkpoint — step 2 remains.",
       );
       yield* unattended.handle(midEvt);
-      const midCont = (yield* projections.getThreadRecords(midThread, ["messages"])).messages.filter(
-        (m) => m.id.startsWith(UNATTENDED_CONTINUATION_MESSAGE_PREFIX),
-      );
+      const midCont = (yield* projections.getThreadRecords(midThread, [
+        "messages",
+      ])).messages.filter((m) => m.id.startsWith(UNATTENDED_CONTINUATION_MESSAGE_PREFIX));
       assert.strictEqual(midCont.length, 1);
       assert.include(midCont[0]!.text, "🟢 Status: Done");
     }).pipe(Effect.provide(layerTest)),
@@ -533,63 +538,65 @@ it.effect(
     }).pipe(Effect.provide(layerTest)),
 );
 
-it.effect(
-  "ThreadMetadataMcpService returns decisionLog on op end for autonomous runs",
-  () =>
-    Effect.gen(function* () {
-      const threadId = yield* createThread("mcp-end", "MCP End Test");
-      const metadata = yield* ThreadMetadataMcp.ThreadMetadataMcpService;
-      const scope = {
-        environmentId: "env:test" as never,
-        capabilities: new Set(["orchestration"]),
-        thread: { threadId },
-      } as never;
+it.effect("ThreadMetadataMcpService returns decisionLog on op end for autonomous runs", () =>
+  Effect.gen(function* () {
+    const threadId = yield* createThread("mcp-end", "MCP End Test");
+    const metadata = yield* ThreadMetadataMcp.ThreadMetadataMcpService;
+    const scope = {
+      environmentId: "env:test" as never,
+      capabilities: new Set(["orchestration"]),
+      thread: { threadId },
+    } as never;
 
-      yield* metadata.update(scope, {
-        action: "arc_run",
-        arcRun: { op: "start", label: "Refactor cache" },
-      });
-      yield* metadata.update(scope, {
-        action: "arc_run",
-        arcRun: {
-          op: "decision",
-          decision: {
-            decision: "Use LRU with 500 entries",
-            alternative: "Unbounded Map",
-            why: "Bounds memory under 10 MB",
-            howToReverse: "Change MAX_ENTRIES constant",
-          },
+    yield* metadata.update(scope, {
+      action: "arc_run",
+      arcRun: { op: "start", label: "Refactor cache" },
+    });
+    yield* metadata.update(scope, {
+      action: "arc_run",
+      arcRun: {
+        op: "decision",
+        decision: {
+          decision: "Use LRU with 500 entries",
+          alternative: "Unbounded Map",
+          why: "Bounds memory under 10 MB",
+          howToReverse: "Change MAX_ENTRIES constant",
         },
-      });
-      const ended = yield* metadata.update(scope, {
-        action: "arc_run",
-        arcRun: { op: "end" },
-      });
-      assert.isUndefined(ended.autonomousRun);
-      assert.strictEqual(ended.decisionLog?.length, 1);
-      assert.strictEqual(ended.decisionLog?.[0]?.decision, "Use LRU with 500 entries");
+      },
+    });
+    const ended = yield* metadata.update(scope, {
+      action: "arc_run",
+      arcRun: { op: "end" },
+    });
+    assert.isUndefined(ended.autonomousRun);
+    assert.strictEqual(ended.decisionLog?.length, 1);
+    assert.strictEqual(ended.decisionLog?.[0]?.decision, "Use LRU with 500 entries");
 
-      // Starting a brand-new run on the same thread clears the prior ended run's decisionLog,
-      // and thread shells never broadcast decisionLog.
-      yield* metadata.update(scope, {
-        action: "arc_run",
-        arcRun: { op: "start", label: "Second run" },
-      });
-      const projections = yield* ProjectionStore.ProjectionStoreV2;
-      const reloaded = yield* projections.getThread(threadId);
-      assert.isUndefined(reloaded.decisionLog);
-      const shell = yield* projections.getThreadShell(threadId);
-      assert.isDefined(shell);
-      assert.isUndefined((shell as Record<string, unknown>).decisionLog);
-    }).pipe(
-      Effect.provide(
-        ThreadMetadataMcp.layer.pipe(
-          Layer.provideMerge(ThreadManagementService.layer.pipe(Layer.provide(CommandReceiptStore.layer.pipe(Layer.provide(layerDatabase))))),
-          Layer.provideMerge(Layer.mock(ForgeWorkItems.ForgeWorkItems)({})),
-          Layer.provideMerge(layerBase),
+    // Starting a brand-new run on the same thread clears the prior ended run's decisionLog,
+    // and thread shells never broadcast decisionLog.
+    yield* metadata.update(scope, {
+      action: "arc_run",
+      arcRun: { op: "start", label: "Second run" },
+    });
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const reloaded = yield* projections.getThread(threadId);
+    assert.isUndefined(reloaded.decisionLog);
+    const shell = yield* projections.getThreadShell(threadId);
+    assert.isDefined(shell);
+    assert.isUndefined((shell as Record<string, unknown>).decisionLog);
+  }).pipe(
+    Effect.provide(
+      ThreadMetadataMcp.layer.pipe(
+        Layer.provideMerge(
+          ThreadManagementService.layer.pipe(
+            Layer.provide(CommandReceiptStore.layer.pipe(Layer.provide(layerDatabase))),
+          ),
         ),
+        Layer.provideMerge(Layer.mock(ForgeWorkItems.ForgeWorkItems)({})),
+        Layer.provideMerge(layerBase),
       ),
     ),
+  ),
 );
 
 it.effect(
@@ -648,23 +655,25 @@ it.effect(
     }).pipe(Effect.provide(layerTest)),
 );
 
-it.effect("appendDecisionLogEntry caps the log at MAX_DECISION_LOG_ENTRIES keeping newest entries", () =>
-  Effect.sync(() => {
-    let entries: ReadonlyArray<any> = [];
-    for (let i = 0; i < MAX_DECISION_LOG_ENTRIES + 5; i++) {
-      entries = appendDecisionLogEntry(entries, {
-        id: `d:${i}`,
-        decision: `Decision ${i}`,
-        alternative: "Alt",
-        why: "Why",
-        howToReverse: "Revert",
-        recordedAt: "2026-11-22T15:00:00.000Z",
-      });
-    }
-    assert.strictEqual(entries.length, MAX_DECISION_LOG_ENTRIES);
-    assert.strictEqual(entries[0]?.id, "d:5");
-    assert.strictEqual(entries[entries.length - 1]?.id, `d:${MAX_DECISION_LOG_ENTRIES + 4}`);
-  }),
+it.effect(
+  "appendDecisionLogEntry caps the log at MAX_DECISION_LOG_ENTRIES keeping newest entries",
+  () =>
+    Effect.sync(() => {
+      let entries: ReadonlyArray<any> = [];
+      for (let i = 0; i < MAX_DECISION_LOG_ENTRIES + 5; i++) {
+        entries = appendDecisionLogEntry(entries, {
+          id: `d:${i}`,
+          decision: `Decision ${i}`,
+          alternative: "Alt",
+          why: "Why",
+          howToReverse: "Revert",
+          recordedAt: "2026-11-22T15:00:00.000Z",
+        });
+      }
+      assert.strictEqual(entries.length, MAX_DECISION_LOG_ENTRIES);
+      assert.strictEqual(entries[0]?.id, "d:5");
+      assert.strictEqual(entries[entries.length - 1]?.id, `d:${MAX_DECISION_LOG_ENTRIES + 4}`);
+    }),
 );
 
 it.effect(
@@ -932,13 +941,10 @@ it.effect(
       yield* unattended.handle(completedEvt);
 
       const leadMsgs = (yield* projections.getThreadRecords(leadId, ["messages"])).messages;
-      const cont = leadMsgs.find((m) =>
-        m.id.startsWith(UNATTENDED_CONTINUATION_MESSAGE_PREFIX),
-      );
+      const cont = leadMsgs.find((m) => m.id.startsWith(UNATTENDED_CONTINUATION_MESSAGE_PREFIX));
       assert.isDefined(cont);
       assert.include(cont!.text, "close-out report");
       assert.notInclude(cont!.text, "op decision");
       assert.notInclude(cont!.text, "op start");
     }).pipe(Effect.provide(layerTest)),
 );
-

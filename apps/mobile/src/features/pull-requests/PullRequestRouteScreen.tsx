@@ -62,6 +62,8 @@ import { RegistryContext, useAtomRefresh, useAtomValue } from "@effect/atom-reac
 import { runAtomCommand } from "@t3tools/client-runtime/state/runtime";
 import { pullRequestReviewKey } from "./pullRequestReviewDrafts";
 import {
+  EnvironmentId,
+  ProjectId,
   pullRequestConversationThreads,
   type PullRequestDetail,
   type PullRequestListEntry,
@@ -71,7 +73,8 @@ import { PullRequestOverviewLoading } from "./PullRequestOverviewLoading";
 import { copyPullRequestLink, sharePullRequestLink } from "./pullRequestLink";
 import { pullRequestStatus } from "./pullRequestStatus";
 import { use, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
-import { Linking, Platform, Pressable, StyleSheet, View } from "react-native";
+import { Platform, Pressable, StyleSheet, View } from "react-native";
+import { tryOpenExternalUrl } from "../../lib/openExternalUrl";
 import { RefreshControl } from "../../components/ui/RefreshControl";
 import { NativeScrollView } from "../../native/NativeScrollViewMarker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -85,6 +88,7 @@ import { useAndroidWorkspaceBack } from "../layout/workspace/useAndroidWorkspace
 import { EmptyState } from "../../components/ui/EmptyState";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import { SymbolView } from "../../components/ui/AppSymbol";
+import { PullRequestGlyph } from "./pullRequestGlyphs";
 import { ScreenContent } from "../../components/ui/ScreenContent";
 import { RelativeTime } from "../../components/RelativeTime";
 import { usePullRequestConnected } from "./usePullRequestConnected";
@@ -114,6 +118,7 @@ import {
   usePullRequestVerticalControls,
 } from "./PullRequestControls";
 import {
+  pullRequestParams,
   pullRequestTarget as requestTarget,
   usePullRequestDiff,
   usePullRequestDiffEntry,
@@ -143,6 +148,7 @@ import { usePullRequestEnvironmentFallback } from "./usePullRequestEnvironmentFa
 import { subscribePullRequestFileJump } from "./pullRequestFileJump";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import { changeRequestTermKind } from "../../lib/changeRequestTerm";
+import { WorkflowRunsAbout } from "../workflows/WorkflowRunsAbout";
 
 function usePullRequestActivityRows(params: PullRequestParams, filter: ActivityFilter) {
   const navigation = useNavigation();
@@ -227,6 +233,16 @@ function PullRequestIdentity(props: {
             <Text className={`text-xs font-t3-medium ${status.text}`}>{status.label}</Text>
           </View>
         )}
+        {"visibility" in pr && pr.visibility === "private" ? (
+          <View className="flex-row items-center gap-1">
+            <SymbolView
+              name={PullRequestGlyph.private}
+              size={12}
+              tintColorClassName="accent-icon-muted"
+            />
+            <Text className="text-xs font-t3-medium text-foreground-muted">{gt("Private")}</Text>
+          </View>
+        ) : null}
         <PullRequestDiffStats additions={pr.additions ?? 0} deletions={pr.deletions ?? 0} compact />
         {"changedFiles" in pr && pr.changedFiles !== undefined ? (
           <Text className="text-2xs text-foreground-muted">
@@ -376,6 +392,19 @@ function PullRequestOverview(props: {
           footer={<PullRequestReactions params={props.params} />}
         />
       </Animated.View>
+      <WorkflowRunsAbout
+        environmentId={EnvironmentId.make(props.params.environmentId)}
+        item={{
+          subject: pr.url,
+          pullRequest: {
+            projectId: ProjectId.make(props.params.projectId),
+            repository: props.params.repository,
+            number: props.params.number,
+            host:
+              props.params.host ?? (URL.canParse(pr.url) ? new URL(pr.url).hostname : undefined),
+          },
+        }}
+      />
     </View>
   );
 }
@@ -396,7 +425,8 @@ export function PullRequestRouteScreen({ route }: StaticScreenProps<PullRequestP
   const contentTopInset = useContentTopInset();
   // Only iOS lists run under the bottom safe area; Android's floating toolbar pads its own.
   const contentBottomInset = Platform.OS === "ios" ? insets.bottom : 0;
-  const params = route.params;
+  // A link's query lands on this route; only the pull request's own fields go further.
+  const params = useMemo(() => pullRequestParams(route.params), [route.params]);
   usePullRequestEnvironmentFallback(params);
   const connected = usePullRequestConnected(params.environmentId);
   const [chosenSection, setSection] = useState<"overview" | "activity" | "guide">(() => {
@@ -614,7 +644,11 @@ export function PullRequestRouteScreen({ route }: StaticScreenProps<PullRequestP
               title: gt("Submit review"),
               icon: "text.bubble",
               onPress: () =>
-                navigation.navigate("PullRequestReview", { ...params, mode: "review" }),
+                navigation.navigate("PullRequestReview", {
+                  ...params,
+                  mode: "review",
+                  reviewedHeadSha: pr?.headSha,
+                }),
             },
           ]
         : []),
@@ -666,7 +700,7 @@ export function PullRequestRouteScreen({ route }: StaticScreenProps<PullRequestP
               id: "open-on-provider",
               title: openOnProviderLabel(identity.provider, messages),
               icon: "arrow.up.right",
-              onPress: () => void Linking.openURL(identity.url),
+              onPress: () => void tryOpenExternalUrl(identity.url, "pull-request"),
             },
             {
               id: "copy-link",
@@ -1259,6 +1293,7 @@ function PullRequestFileRouteContent({ route }: PullRequestFileRouteProps) {
                 navigation.navigate("PullRequestReview", {
                   ...route.params,
                   mode: "review",
+                  reviewedHeadSha: diffHead.sha ?? undefined,
                 }),
             },
           ]
@@ -1479,7 +1514,7 @@ function PullRequestFileRouteContent({ route }: PullRequestFileRouteProps) {
               <Button
                 label={gt("Retry loading remaining files")}
                 tone="text"
-                onPress={result.refresh}
+                onPress={result.retry}
               />
             </View>
           ) : null}
@@ -1491,6 +1526,7 @@ function PullRequestFileRouteContent({ route }: PullRequestFileRouteProps) {
       <PullRequestActionToolbar
         pr={detail.data}
         params={route.params}
+        reviewedHeadSha={diffHead.sha ?? undefined}
         filePath={visibleFile?.path}
         menu={diffMenu}
         onOpenFiles={() => navigation.navigate("PullRequestFiles", route.params)}

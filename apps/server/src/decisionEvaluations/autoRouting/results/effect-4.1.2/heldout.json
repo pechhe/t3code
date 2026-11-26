@@ -800,10 +800,7 @@
     }
   ],
   "runAt": "2026-11-08T17:28:26.160Z",
-  "engines": [
-    "jev",
-    "luna"
-  ],
+  "engines": ["jev", "luna"],
   "run": {
     "checkout": {
       "head": "28994c54a73344de2d62fa1b08b12a98d63b2332",
@@ -7664,12 +7661,7 @@
         "fallback": 20,
         "under": [],
         "over": [],
-        "lateral": [
-          "h-subdir-projects",
-          "h-lead-role",
-          "h-usage-harness",
-          "h-ys-smith-reconnect"
-        ],
+        "lateral": ["h-subdir-projects", "h-lead-role", "h-usage-harness", "h-ys-smith-reconnect"],
         "correctWhenDecided": {
           "numerator": 7,
           "denominator": 9,
@@ -7730,11 +7722,7 @@
         "fromConstraint": 3,
         "fromEngine": 10,
         "fallback": 19,
-        "under": [
-          "h-lead-role",
-          "h-away",
-          "h-inspection"
-        ],
+        "under": ["h-lead-role", "h-away", "h-inspection"],
         "over": [],
         "lateral": [],
         "correctWhenDecided": {
@@ -7871,10 +7859,7 @@
         "fromEngine": 30,
         "fallback": 2,
         "under": [],
-        "over": [
-          "h-return-chip",
-          "h-agents-advisor"
-        ],
+        "over": ["h-return-chip", "h-agents-advisor"],
         "lateral": [],
         "correctWhenDecided": {
           "numerator": 18,
@@ -7950,12 +7935,7 @@
         "fallback": 15,
         "under": [],
         "over": [],
-        "lateral": [
-          "h-subdir-projects",
-          "h-lead-role",
-          "h-usage-harness",
-          "h-ys-smith-reconnect"
-        ],
+        "lateral": ["h-subdir-projects", "h-lead-role", "h-usage-harness", "h-ys-smith-reconnect"],
         "correctWhenDecided": {
           "numerator": 10,
           "denominator": 12,
@@ -8019,11 +7999,7 @@
         "fromConstraint": 3,
         "fromEngine": 12,
         "fallback": 17,
-        "under": [
-          "h-lead-role",
-          "h-away",
-          "h-inspection"
-        ],
+        "under": ["h-lead-role", "h-away", "h-inspection"],
         "over": [],
         "lateral": [],
         "correctWhenDecided": {
@@ -8086,12 +8062,7 @@
         "fromEngine": 19,
         "fallback": 12,
         "under": [],
-        "over": [
-          "h-fork-docs",
-          "h-chat-repo",
-          "h-explicit-model",
-          "h-explicit-project"
-        ],
+        "over": ["h-fork-docs", "h-chat-repo", "h-explicit-model", "h-explicit-project"],
         "lateral": [],
         "correctWhenDecided": {
           "numerator": 15,
@@ -8162,9 +8133,7 @@
         "fromEngine": 18,
         "fallback": 14,
         "under": [],
-        "over": [
-          "h-agents-advisor"
-        ],
+        "over": ["h-agents-advisor"],
         "lateral": [],
         "correctWhenDecided": {
           "numerator": 16,
@@ -8308,17 +8277,8 @@
         "fromConstraint": 3,
         "fromEngine": 29,
         "fallback": 0,
-        "under": [
-          "h-readonly-provider",
-          "h-lead-role",
-          "h-away",
-          "h-inspection"
-        ],
-        "over": [
-          "h-chat-concept",
-          "h-chat-repo",
-          "h-explicit-project"
-        ],
+        "under": ["h-readonly-provider", "h-lead-role", "h-away", "h-inspection"],
+        "over": ["h-chat-concept", "h-chat-repo", "h-explicit-project"],
         "lateral": [],
         "correctWhenDecided": {
           "numerator": 16,
@@ -8539,10 +8499,7 @@
         "fallback": 0,
         "under": [],
         "over": [],
-        "lateral": [
-          "h-subdir-projects",
-          "h-usage-harness"
-        ],
+        "lateral": ["h-subdir-projects", "h-usage-harness"],
         "correctWhenDecided": {
           "numerator": 19,
           "denominator": 21,
@@ -8614,14 +8571,8 @@
         "fromConstraint": 3,
         "fromEngine": 29,
         "fallback": 0,
-        "under": [
-          "h-lead-role",
-          "h-away",
-          "h-inspection"
-        ],
-        "over": [
-          "h-explicit-project"
-        ],
+        "under": ["h-lead-role", "h-away", "h-inspection"],
+        "over": ["h-explicit-project"],
         "lateral": [],
         "correctWhenDecided": {
           "numerator": 19,
@@ -8695,10 +8646,7 @@
           "h-sj-promote-times",
           "h-ys-smith-reconnect"
         ],
-        "over": [
-          "h-fork-docs",
-          "h-explicit-model"
-        ],
+        "over": ["h-fork-docs", "h-explicit-model"],
         "lateral": [],
         "correctWhenDecided": {
           "numerator": 15,
@@ -8770,9 +8718,7 @@
           "h-sj-promote-times",
           "h-ys-smith-reconnect"
         ],
-        "over": [
-          "h-fork-docs"
-        ],
+        "over": ["h-fork-docs"],
         "lateral": [],
         "correctWhenDecided": {
           "numerator": 13,
@@ -8913,17 +8859,8 @@
         "fromConstraint": 3,
         "fromEngine": 29,
         "fallback": 0,
-        "under": [
-          "h-readonly-provider",
-          "h-lead-role",
-          "h-away",
-          "h-inspection"
-        ],
-        "over": [
-          "h-chat-concept",
-          "h-chat-repo",
-          "h-explicit-project"
-        ],
+        "under": ["h-readonly-provider", "h-lead-role", "h-away", "h-inspection"],
+        "over": ["h-chat-concept", "h-chat-repo", "h-explicit-project"],
         "lateral": [],
         "correctWhenDecided": {
           "numerator": 16,
@@ -8995,9 +8932,7 @@
           "h-explicit-lead",
           "h-risk-guard"
         ],
-        "over": [
-          "h-explicit-model"
-        ],
+        "over": ["h-explicit-model"],
         "lateral": [],
         "correctWhenDecided": {
           "numerator": 7,
@@ -13263,16 +13198,12 @@
   "overrideAttempts": [
     {
       "engine": "jev",
-      "attempts": [
-        "h-explicit-model:mainModel"
-      ],
+      "attempts": ["h-explicit-model:mainModel"],
       "violations": []
     },
     {
       "engine": "luna",
-      "attempts": [
-        "h-explicit-model:mainModel"
-      ],
+      "attempts": ["h-explicit-model:mainModel"],
       "violations": []
     }
   ],
@@ -13290,20 +13221,14 @@
       "costUsd": 0.003140087999999999,
       "knownCostUsd": 0.003140087999999999,
       "costKnownCalls": 128,
-      "costStatuses": [
-        "estimated"
-      ],
+      "costStatuses": ["estimated"],
       "attempts": 128,
       "failedAttempts": 0,
       "failureCodes": [],
       "unanswered": [],
       "outputTokensKnown": 8029,
-      "requestedModels": [
-        "jev-1.14.0"
-      ],
-      "resolvedModels": [
-        "jev-1.14.0"
-      ]
+      "requestedModels": ["jev-1.14.0"],
+      "resolvedModels": ["jev-1.14.0"]
     },
     "luna": {
       "calls": 128,
@@ -13318,22 +13243,14 @@
       "costUsd": 0.004492299999999999,
       "knownCostUsd": 0.004492299999999999,
       "costKnownCalls": 128,
-      "costStatuses": [
-        "estimated"
-      ],
+      "costStatuses": ["estimated"],
       "attempts": 128,
       "failedAttempts": 0,
       "failureCodes": [],
-      "unanswered": [
-        "h-ys-smith-reconnect:workflow"
-      ],
+      "unanswered": ["h-ys-smith-reconnect:workflow"],
       "outputTokensKnown": 0,
-      "requestedModels": [
-        "gpt-6-luna"
-      ],
-      "resolvedModels": [
-        "gpt-6-luna"
-      ]
+      "requestedModels": ["gpt-6-luna"],
+      "resolvedModels": ["gpt-6-luna"]
     }
   },
   "sensitivity": {
@@ -13449,11 +13366,7 @@
           "fromConstraint": 3,
           "fromEngine": 10,
           "fallback": 19,
-          "under": [
-            "h-lead-role",
-            "h-away",
-            "h-inspection"
-          ],
+          "under": ["h-lead-role", "h-away", "h-inspection"],
           "over": [],
           "lateral": [],
           "correctWhenDecided": {
@@ -13761,11 +13674,7 @@
           "fromConstraint": 3,
           "fromEngine": 12,
           "fallback": 17,
-          "under": [
-            "h-lead-role",
-            "h-away",
-            "h-inspection"
-          ],
+          "under": ["h-lead-role", "h-away", "h-inspection"],
           "over": [],
           "lateral": [],
           "correctWhenDecided": {
@@ -13915,12 +13824,7 @@
           "fromEngine": 18,
           "fallback": 14,
           "under": [],
-          "over": [
-            "h-temp-dir",
-            "h-export",
-            "h-agents-advisor",
-            "h-lodestone-keep"
-          ],
+          "over": ["h-temp-dir", "h-export", "h-agents-advisor", "h-lodestone-keep"],
           "lateral": [],
           "correctWhenDecided": {
             "numerator": 17,
@@ -14074,17 +13978,8 @@
           "fromConstraint": 3,
           "fromEngine": 29,
           "fallback": 0,
-          "under": [
-            "h-readonly-provider",
-            "h-lead-role",
-            "h-away",
-            "h-inspection"
-          ],
-          "over": [
-            "h-chat-concept",
-            "h-chat-repo",
-            "h-explicit-project"
-          ],
+          "under": ["h-readonly-provider", "h-lead-role", "h-away", "h-inspection"],
+          "over": ["h-chat-concept", "h-chat-repo", "h-explicit-project"],
           "lateral": [],
           "correctWhenDecided": {
             "numerator": 19,
@@ -14323,12 +14218,7 @@
           "fallback": 0,
           "under": [],
           "over": [],
-          "lateral": [
-            "h-subdir-projects",
-            "h-weave-signin",
-            "h-usage-harness",
-            "h-chat-talk"
-          ],
+          "lateral": ["h-subdir-projects", "h-weave-signin", "h-usage-harness", "h-chat-talk"],
           "correctWhenDecided": {
             "numerator": 21,
             "denominator": 25,
@@ -14405,14 +14295,8 @@
           "fromConstraint": 3,
           "fromEngine": 29,
           "fallback": 0,
-          "under": [
-            "h-lead-role",
-            "h-away",
-            "h-inspection"
-          ],
-          "over": [
-            "h-explicit-project"
-          ],
+          "under": ["h-lead-role", "h-away", "h-inspection"],
+          "over": ["h-explicit-project"],
           "lateral": [],
           "correctWhenDecided": {
             "numerator": 22,
@@ -14494,11 +14378,7 @@
             "h-sj-promote-times",
             "h-ys-smith-reconnect"
           ],
-          "over": [
-            "h-fork-docs",
-            "h-explicit-model",
-            "h-risk-timeout"
-          ],
+          "over": ["h-fork-docs", "h-explicit-model", "h-risk-timeout"],
           "lateral": [],
           "correctWhenDecided": {
             "numerator": 20,
@@ -14579,10 +14459,7 @@
             "h-sj-promote-times",
             "h-ys-smith-reconnect"
           ],
-          "over": [
-            "h-fork-docs",
-            "h-risk-timeout"
-          ],
+          "over": ["h-fork-docs", "h-risk-timeout"],
           "lateral": [],
           "correctWhenDecided": {
             "numerator": 17,
@@ -14736,17 +14613,8 @@
           "fromConstraint": 3,
           "fromEngine": 29,
           "fallback": 0,
-          "under": [
-            "h-readonly-provider",
-            "h-lead-role",
-            "h-away",
-            "h-inspection"
-          ],
-          "over": [
-            "h-chat-concept",
-            "h-chat-repo",
-            "h-explicit-project"
-          ],
+          "under": ["h-readonly-provider", "h-lead-role", "h-away", "h-inspection"],
+          "over": ["h-chat-concept", "h-chat-repo", "h-explicit-project"],
           "lateral": [],
           "correctWhenDecided": {
             "numerator": 19,
@@ -14827,9 +14695,7 @@
             "h-explicit-lead",
             "h-risk-guard"
           ],
-          "over": [
-            "h-explicit-model"
-          ],
+          "over": ["h-explicit-model"],
           "lateral": [],
           "correctWhenDecided": {
             "numerator": 12,
@@ -15055,9 +14921,7 @@
             "h-lodestone-keep"
           ],
           "over": [],
-          "lateral": [
-            "h-amb-faster"
-          ],
+          "lateral": ["h-amb-faster"],
           "correctWhenDecided": {
             "numerator": 8,
             "denominator": 10,
@@ -15209,12 +15073,7 @@
           "fromEngine": 30,
           "fallback": 2,
           "under": [],
-          "over": [
-            "h-usage-harness",
-            "h-return-chip",
-            "h-agents-advisor",
-            "h-amb-budget"
-          ],
+          "over": ["h-usage-harness", "h-return-chip", "h-agents-advisor", "h-amb-budget"],
           "lateral": [],
           "correctWhenDecided": {
             "numerator": 21,
@@ -15379,9 +15238,7 @@
             "h-lodestone-keep"
           ],
           "over": [],
-          "lateral": [
-            "h-amb-faster"
-          ],
+          "lateral": ["h-amb-faster"],
           "correctWhenDecided": {
             "numerator": 10,
             "denominator": 12,
@@ -15445,10 +15302,7 @@
           "fromConstraint": 1,
           "fromEngine": 19,
           "fallback": 12,
-          "under": [
-            "h-chat-talk",
-            "h-risk-timeout"
-          ],
+          "under": ["h-chat-talk", "h-risk-timeout"],
           "over": [
             "h-usage-harness",
             "h-fork-docs",
@@ -15532,14 +15386,8 @@
           "fromConstraint": 0,
           "fromEngine": 18,
           "fallback": 14,
-          "under": [
-            "h-risk-timeout"
-          ],
-          "over": [
-            "h-usage-harness",
-            "h-agents-advisor",
-            "h-amb-budget"
-          ],
+          "under": ["h-risk-timeout"],
+          "over": ["h-usage-harness", "h-agents-advisor", "h-amb-budget"],
           "lateral": [],
           "correctWhenDecided": {
             "numerator": 16,
@@ -15699,14 +15547,8 @@
             "h-sj-promote-times",
             "h-lodestone-keep"
           ],
-          "over": [
-            "h-chat-concept",
-            "h-chat-repo",
-            "h-explicit-project"
-          ],
-          "lateral": [
-            "h-amb-faster"
-          ],
+          "over": ["h-chat-concept", "h-chat-repo", "h-explicit-project"],
+          "lateral": ["h-amb-faster"],
           "correctWhenDecided": {
             "numerator": 17,
             "denominator": 28,
@@ -15956,11 +15798,7 @@
           "fallback": 0,
           "under": [],
           "over": [],
-          "lateral": [
-            "h-subdir-projects",
-            "h-usage-harness",
-            "h-explicit-lead"
-          ],
+          "lateral": ["h-subdir-projects", "h-usage-harness", "h-explicit-lead"],
           "correctWhenDecided": {
             "numerator": 22,
             "denominator": 25,
@@ -16044,12 +15882,8 @@
             "h-sj-promote-times",
             "h-lodestone-keep"
           ],
-          "over": [
-            "h-explicit-project"
-          ],
-          "lateral": [
-            "h-amb-budget"
-          ],
+          "over": ["h-explicit-project"],
+          "lateral": ["h-amb-budget"],
           "correctWhenDecided": {
             "numerator": 20,
             "denominator": 28,
@@ -16129,12 +15963,7 @@
             "h-lodestone-keep",
             "h-chat-talk"
           ],
-          "over": [
-            "h-usage-harness",
-            "h-fork-docs",
-            "h-explicit-model",
-            "h-amb-budget"
-          ],
+          "over": ["h-usage-harness", "h-fork-docs", "h-explicit-model", "h-amb-budget"],
           "lateral": [],
           "correctWhenDecided": {
             "numerator": 17,
@@ -16213,11 +16042,7 @@
             "h-ys-smith-reconnect",
             "h-lodestone-keep"
           ],
-          "over": [
-            "h-usage-harness",
-            "h-fork-docs",
-            "h-amb-budget"
-          ],
+          "over": ["h-usage-harness", "h-fork-docs", "h-amb-budget"],
           "lateral": [],
           "correctWhenDecided": {
             "numerator": 15,
@@ -16376,14 +16201,8 @@
             "h-sj-promote-times",
             "h-lodestone-keep"
           ],
-          "over": [
-            "h-chat-concept",
-            "h-chat-repo",
-            "h-explicit-project"
-          ],
-          "lateral": [
-            "h-amb-faster"
-          ],
+          "over": ["h-chat-concept", "h-chat-repo", "h-explicit-project"],
+          "lateral": ["h-amb-faster"],
           "correctWhenDecided": {
             "numerator": 17,
             "denominator": 28,
@@ -16463,9 +16282,7 @@
             "h-risk-timeout",
             "h-risk-guard"
           ],
-          "over": [
-            "h-explicit-model"
-          ],
+          "over": ["h-explicit-model"],
           "lateral": [],
           "correctWhenDecided": {
             "numerator": 9,
@@ -17262,12 +17079,7 @@
           "fallback": 0,
           "under": [],
           "over": [],
-          "lateral": [
-            "h-subdir-projects",
-            "h-weave-signin",
-            "h-gates-worktree",
-            "h-usage-harness"
-          ],
+          "lateral": ["h-subdir-projects", "h-weave-signin", "h-gates-worktree", "h-usage-harness"],
           "correctWhenDecided": {
             "numerator": 16,
             "denominator": 20,
@@ -17356,10 +17168,7 @@
           "fromConstraint": 1,
           "fromEngine": 31,
           "fallback": 0,
-          "under": [
-            "h-temp-dir",
-            "h-export"
-          ],
+          "under": ["h-temp-dir", "h-export"],
           "over": [
             "h-full-access-codex",
             "h-dpop-https",
@@ -17424,10 +17233,7 @@
           "fromConstraint": 0,
           "fromEngine": 32,
           "fallback": 0,
-          "under": [
-            "h-temp-dir",
-            "h-export"
-          ],
+          "under": ["h-temp-dir", "h-export"],
           "over": [
             "h-full-access-codex",
             "h-dpop-https",

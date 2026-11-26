@@ -25,6 +25,7 @@ import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
+import * as WorkspaceFolders from "../workspace/WorkspaceFolders.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import * as ManagedRuntimePolicy from "./ManagedRuntimePolicy.ts";
 
@@ -88,19 +89,6 @@ export class RuntimePolicyV2 extends Context.Service<RuntimePolicyV2, RuntimePol
   "t3/orchestration-v2/RuntimePolicy/RuntimePolicyV2",
 ) {}
 
-// The thread's `compactAt` rides on every policy built here. Only the Claude and Codex adapters
-// read it: no other provider is known to compact natively, so the rest ignore it.
-export const layer: Layer.Layer<RuntimePolicyV2> = Layer.succeed(RuntimePolicyV2, {
-  resolve: Effect.fn("RuntimePolicyV2.resolve")(function (input) {
-    return Effect.succeed({
-      runtimeMode: input.thread.runtimeMode,
-      interactionMode: input.thread.interactionMode,
-      cwd: input.thread.worktreePath,
-      ...(input.thread.compactAt == null ? {} : { compactAt: input.thread.compactAt }),
-    });
-  }),
-});
-
 export function providerRuntimeMode(
   runtimeMode: RuntimeMode,
   supportedRuntimeModes: ReadonlyArray<RuntimeMode> | undefined,
@@ -159,10 +147,12 @@ export const layerFromProjectStore: Layer.Layer<
   | Path.Path
   | Digest.Digest
   | ServerSettings.ServerSettingsService
+  | WorkspaceFolders.WorkspaceFolders
 > = Layer.effect(
   RuntimePolicyV2,
   Effect.gen(function* () {
     const projects = yield* ProjectStore.ProjectStoreV2;
+    const workspaceFolders = yield* WorkspaceFolders.WorkspaceFolders;
     const providerInstances = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
     const config = yield* ServerConfig.ServerConfig;
     const path = yield* Path.Path;
@@ -212,6 +202,19 @@ export const layerFromProjectStore: Layer.Layer<
               }),
             ),
           ));
+        // The turn can still run in its own cwd, as a single-folder thread does.
+        const workspace = yield* workspaceFolders
+          .forThread({
+            projectId: input.thread.projectId,
+            worktreePath: input.thread.worktreePath,
+          })
+          .pipe(
+            Effect.catch((cause) =>
+              Effect.logWarning("Could not resolve the thread's tracked folders.", cause).pipe(
+                Effect.as(undefined),
+              ),
+            ),
+          );
         const serverSettings = yield* Effect.serviceOption(
           ServerSettings.ServerSettingsService,
         ).pipe(
@@ -262,6 +265,7 @@ export const layerFromProjectStore: Layer.Layer<
           ...(modelCompactAt == null ? {} : { modelCompactAt }),
           ...(utilityModel === undefined ? {} : { utilityModel }),
           ...(maxRuntimeMode === undefined ? {} : { maxRuntimeMode }),
+          ...(workspace === undefined || workspace.folders.length === 0 ? {} : { workspace }),
         });
       }),
     });

@@ -4,8 +4,8 @@ This record lists the material, deliberate differences between the T3peach fork 
 
 ## Baseline
 
-- Upstream: v0.1.11-nightly.20261120.4979 (`59651c1761f6c63e9b6056839067066968e6a406`)
-- Fork before merge: `3cab0e406f47c147e4985e343f63ce295353a385`
+- Upstream: v0.1.13-nightly.20261125.5258 (`bf961f8121c6336915ecf7b3f97ce6e68ab38fd7`)
+- Fork before merge: `4f2376a3557f047ddf3af36dd2234c2ea0e70616`
 
 ## Coverage
 
@@ -171,6 +171,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### provider-overload-failover
 
+- **Decision:** `adapt` (v0.1.13-nightly.20261125.5258, 2026-11-26): upstream's usage-limit classification of a 429 (#30778) is adopted only where a hub supplies a reset time: `ProviderEventIngestor` upgrades `provider_error`/`api_error_429` to `usage_limit` then. A bare 429 stays `provider_error` and backs off as before; account failover reads the upgraded class as a usage limit. Evidence: ClaudeAdapterV2 usage_limit replay and hub tests.
+
 - **Kind:** durable extension
 - **Why:** a provider that says it is overloaded can stay that way for hours (Pi's DeepSeek upstream on 5–6 Nov 2026), and the cheap roles that list it first kept starting work on it while the role lists already named fallbacks.
 - **Requirements:** a turn item whose failure code says the provider was overloaded (`overloaded` from a Pi upstream 429 whose body says it is overloaded, bracketed `[overloaded]` or not, Codex's `serverOverloaded`, Claude's `api_error_529`) is an account failure: since T3-869 it holds that account for that model with the transient backoff in `account-pools` (2, 10, then 30 minutes), and the turn or delegated task moves to another account of the model. The 15-minute in-memory overload marking, its candidate ranking and the `overloaded` list in `agent_roles` are retired (`AgentRolesResult.overloaded` still decodes, never sent). A Champion check whose run ended on an overload, with no report, retries itself under the same claim, re-resolving its model, at most three times per claim. After that, attention says so and a manual retry still works. A delegated task whose run fails with an upstream error and has no other account passes the failure to its parent when the role has another model to move to; when it has none, the same child thread retries the model after 30 seconds, up to three more times, before the parent hears the provider's error (T3-562). A connection error or a 5xx is never an account failure. A parent that cancels the task while that recovery waits ends it as `cancelled`, and the held recovery never resumes it.
@@ -185,6 +187,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Owner:** T3-401.
 
 ### managed-delegation
+
+- **Decision:** `adapt` (v0.1.13-nightly.20261125.5258, 2026-11-26): upstream finishes a run when the provider turn ends, before checkpoint capture (#41362). The follow-up publication guard (`DelegatedCompletionGuard`, `finalizeAppOwnedSubagentTask`) no longer holds a cancelled task open for its child's background work: it publishes from the settled run, still only while that run is the task's result, so a repeat publishes nothing. A task that was not cancelled still waits for background work. A native subagent's launch honours the SlipJay branch-name rule below. Evidence: TaskCancelNativeSubagent.integration.test.ts, ThreadHandoff.test.ts, RemoteDelegation.fork.test.ts.
 
 - **Decision:** `adapt` (v0.1.11-nightly.20261120.4979, 2026-11-20): upstream lets a background subagent delegate after its parent's turn ends, scans the folder's own provider config for models when resolving a target, and keeps a launch whose caller goes away from stopping half-way (#38869, #39247, #36499). Ported into `ManagedDelegation.delegateTask` (latest active run or the background subagent run, `cwd` on target resolution, the launch under `uninterruptibleMask`) because the fork's delegation lives there, not in `OrchestratorMcpService`. Antigravity's own `start_subagent`/`invoke_subagent` stay disabled, so upstream's native Antigravity subagent handling goes unused. Evidence: ManagedDelegation.test.ts; OrchestratorMcpService.test.ts.
 
@@ -284,6 +288,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Owner:** pechhe/t3code#19, #20, #39 (closed).
 
 ### slipjay-workspaces
+
+- **Decision:** `adapt` (v0.1.13-nightly.20261125.5258, 2026-11-26): upstream's early branch-name generation in `ThreadLaunchService` is skipped for SlipJay workspaces, whose branch the workspace owns; slash commands (`goalCommand || slashCommand`) in `ProviderTurnStartService` take no inline context, as upstream. Evidence: ThreadLaunchService and ProviderTurnStartService tests.
 
 - **Decision:** `adapt` (v0.1.11-nightly.20261118.4903, 2026-11-19): Adopt upstream's launch retry project check, outside-client worktree default, non-Git project fallback and `ThreadLaunchBranchExistsError` in `ThreadLaunchService` and the project launch tool; in a SlipJay repository a worktree base still resolves to a SlipJay workspace. Storage cleanup keeps SlipJay workspaces out of upstream's branch-following and linked-worktree removal. Upstream leaves a running root command open when a write fails under a live provider; adopted, while the fork still interrupts open background items whenever the provider stream itself ends, a workspace handoff included. The fork's older `.git`-must-be-a-file gate in storage cleanup is removed, since upstream's annex-aware `worktreePathReason` covers it. Evidence: ThreadLaunchService.test.ts; handlers.test.ts.
 
@@ -432,6 +438,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Decision:** `adapt` (v0.1.9-nightly.20261110.4449, 2026-11-10): `@pierre/diffs` and `@pierre/highlights` follow upstream, which is ahead on both — 1.7.0-beta.3 with the replacement patch (`patches/@pierre__diffs@1.7.0-beta.3.patch`, which also makes find reach folded files and collapsed context) and 0.5.0 — while the fork stays ahead on `@noble/curves`/`@noble/hashes` 2.4.0, `@tailwindcss/*` 4.3.5, `@electron-webauthn/macos` 1.4.0 and pnpm 12.15.0, so each catalogue entry, override, patch and install permission keeps the newer side. The regenerated lockfile moves only those entries, upstream's own patch swap, a floating `@cloudflare/workers-types` date version and pnpm's `packageManagerDependencies` record for the already-pinned 12.15.0; a second `vp i` leaves it byte-identical and the supply-chain policies pass on 2,033 entries.
 
 ### slipjay-command-guard
+
+- **Decision:** `adapt` (v0.1.13-nightly.20261125.5258, 2026-11-26): upstream's Codex full-access accept ran before the SlipJay guard and bypassed it; removed. The accept after the guard is the only one left, and it covers full-access requests except a managed-network ask (a `networkApprovalContext` or proposed network-policy amendments), which now falls through to the allowance check and then prompts, so the user's allowlist is enforced. This narrows the fork's earlier rule that full access never prompts. Evidence: CodexAdapterV2.test.ts and CodexAdapterV2.fork.test.ts.
 
 - **Decision:** `retain` (v0.1.11-nightly.20261118.4903, 2026-11-19): Codex keeps `untrusted` approval under the command guard and uses upstream's granular policy otherwise. Evidence: CodexAdapterV2.test.ts.
 
@@ -1010,6 +1018,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### web-client-customisation
 
+- **Decision:** `adapt` (v0.1.13-nightly.20261125.5258, 2026-11-26): the T3 gt-i18n and gt-react-native patches (ICU skip, message-hash cache, Android locale write) are re-applied to gt-i18n 1.0.43 and gt-react-native 11.4.22, where the fork already was; the `@generaltranslation/format` patch is dropped because 0.1.10 caches locale validity itself; `@tiptap/extension-paragraph` follows the fork's ^3.32.2 group; `mdast-util-from-markdown` is removed with the old renderer. Retire the patches when upstream ships them.
+
 - **Decision:** `adapt` (v0.1.11-nightly.20261118.4903, 2026-11-19): Upstream translated the whole client (gt-react, `msg`/`m`, `no-untranslated-copy`). Fork behaviour is kept on upstream's translated structure; copy the merge touched in fork features is wrapped, while fork-only files the merge did not touch stay English and are reported by the lint rule (i18n debt, not yet in upstream's catalogs). `gt-i18n` moves to 1.0.43 in client-runtime, shared and desktop so web and shared helpers share one message type. Evidence: web, mobile and client-runtime typechecks; focused web logic tests.
 
 - **Decision:** `retain` (v0.1.10-nightly.20261113.4643, 2026-11-13): Adopt queued-edit terminal attachments, host-qualified PR suggestions, reconnect-on-server-ready, named Workspace dialog, incomplete-diff warning and publish-toggle accessibility. Keep the fork composer, sidebar, export and settings behaviors in their existing seams; no fork visual redesign is introduced. Evidence: updateEverythingRun.test.ts; composer-logic.test.ts; the queued-edit, command-palette, diff-panel and right-panel UI has no automated proof since T3-760 removed web browser tests.
@@ -1309,6 +1319,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Owner:** Weave Forge #3350; #4415; #3724 (T3-60).
 
 ### perf-markdown-blocks
+
+- **Decision:** `adapt` (v0.1.13-nightly.20261125.5258, 2026-11-26): upstream replaced the renderer with a HAST/islands pipeline (parsed once, cached). Adopt it and port the fork's extensions into it: Forge mention chips (`data-forge-mention`, applied to cloned cached trees), inline-code click-to-copy and the opt-in calm word reveal. The fork's `mdast-util-from-markdown` dependency is dropped. Proof: ChatMarkdown unit tests and a headless Replay pass (calm streaming and Forge chips are unit-tested only).
 
 - **Decision:** `adapt` (v0.1.11-nightly.20261118.4903, 2026-11-19): Adopt upstream's finished-block render-once fix (#33794: `render.remember` after commit) inside the fork's renderer; it does not meet the retirement condition (heading IDs, whole-message offsets, per-origin links, newest-two reveal), so the fork's fallbacks stay. Adopt upstream's double-click selection of inline code beside the fork's click-to-copy wrapper.
 
@@ -1823,6 +1835,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### stop-pauses-delegated-tasks
 
+- **Decision:** `adapt` (v0.1.13-nightly.20261125.5258, 2026-11-26): a Stop's cancelled task publishes from its settled run rather than waiting on its child's background work; see managed-delegation. Evidence: TaskCancelNativeSubagent.integration.test.ts.
+
 - **Decision:** `adapt` (v0.1.10-nightly.20261114.4669, 2026-11-14): Adopt upstream Stop cleanup for a finished child held by stale native work (#32307), preserving paused-child state and human-message-only resume authority. Evidence: ThreadStop.test.ts and DelegatedCompletionDelivery tests pass.
 
 - **Decision:** `retain` (v0.1.10-nightly.20261113.4643, 2026-11-13): Keep paused-child resume tied to a human-started run. Upstream scheduled fresh-session conversation selection does not grant a scheduled or agent wake the authority to resume a stopped task tree. Evidence: ThreadStop.test.ts; Orchestrator.ts dispatchMessage and startNextQueuedRun.
@@ -1953,3 +1967,23 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** apps/server/src/provider/antigravityUserTooling.test.ts; `AntigravityDriver.test.ts` runs with its own `HOME` so a developer's `~/.gemini` tooling cannot change its results.
 - **Upstream:** none; upstream keeps MCP servers and hooks out of the profile (`antigravityAuthSupport.ts`, #39531 for rules).
 - **Retire when:** upstream links or passes the user's own Antigravity MCP servers, hooks, plugins and agents and lets an instance choose its agent.
+
+### antigravity-usage-limit-reads
+
+- **Kind:** durable extension
+- **Why:** Antigravity's own limits (daily and weekly quota windows per model family) are only visible to the signed-in Google account, and Henry's Gemini work runs on the Antigravity provider. Upstream's nightly 20261125.5258 removed the Google-internal usage read and shows no limits for it; Henry chose to keep reading them (25 Nov 2026) so the Usage page, usage-left card and account routing still see Antigravity allowance.
+- **Requirements:** each Antigravity provider instance probes Google's internal quota endpoint with its own login (`makeAntigravityUsageProbe`) and reports the windows through the shared usage-limit shape; a failed probe reports unavailable limits rather than an error; signing out clears the stored limits (`clearAccountMetadata` sets `usageLimits: undefined`); a provider or driver refresh re-runs the probe.
+- **Integration points:** `apps/server/src/provider/antigravityUsageLimits.ts`; its wiring in `AntigravityProvider.ts` (probe, clear and reset) and `Drivers/AntigravityDriver.ts` (refresh, `onSignedIn`, `HttpClient` in the layer).
+- **Proof:** `antigravityUsageLimits.test.ts`; `AntigravityProvider.test.ts` (sign-out clears limits); `AntigravityDriver.test.ts`.
+- **Upstream:** removed the read in v0.1.13-nightly.20261125.5258; decision `retain`.
+- **Retire when:** upstream exposes Antigravity quota windows to the usage panel by another route.
+
+### sidebar-thread-row-indicators
+
+- **Kind:** durable extension
+- **Why:** Henry reads a thread's checkout from its sidebar row: the worktree icon and branch name, and a remote-machine icon when threads span environments. Upstream's nightly 20261125.5258 replaced that slot with an environment label, which on a single-environment setup repeats the machine name on every row.
+- **Requirements:** `SidebarThreadRow` leads its meta line with `ThreadWorktreeIndicator` and the branch name (`MiddleTruncate`); `metaLineEmpty` keys on the checkout's branch; `remoteMachineIcon` shows in the trailing icon group, or on the title line when the meta line is empty, only when the environment is not the primary one or projects span environments (`currentEnvironmentId`, `showsEnvironmentMachines`). Upstream's environment label stays in the hover card only.
+- **Integration points:** `apps/web/src/components/sidebar/SidebarThreadRow.tsx`; `ThreadWorktreeIndicator` in `ThreadStatusIndicators.tsx`; the two props passed from `Sidebar.tsx`.
+- **Proof:** headless screenshots of the worktree and main-checkout rows (merge of v0.1.13-nightly.20261125.5258); `Sidebar.logic.test.ts`.
+- **Upstream:** environment label on the row (same slot); decision `retain` with the label moved to the hover.
+- **Retire when:** upstream's row shows branch and worktree on its meta line and the machine icon only across environments.

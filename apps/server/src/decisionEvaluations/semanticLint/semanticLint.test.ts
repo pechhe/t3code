@@ -165,7 +165,6 @@ it("never invents a reference label for cases a view does not cover", () => {
   const held = HELDOUT_CASES[0]!.id;
   for (const [name, view] of Object.entries(labelViews)) {
     expect(["defect", "ok", "uncertain"]).toContain(view(held));
-    if (name !== "adjudicated")
-      expect(() => view(TUNE_CASES[0]!.id)).toThrow(/No held-out label/);
+    if (name !== "adjudicated") expect(() => view(TUNE_CASES[0]!.id)).toThrow(/No held-out label/);
   }
 });

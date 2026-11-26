@@ -17,7 +17,7 @@ import {
   makeUsageLimits,
 } from "@t3tools/provider-core/server/usageLimits";
 
-export function antigravityUserAgent(platform: NodeJS.Platform, architecture: NodeJS.Architecture) {
+function antigravityUserAgent(platform: NodeJS.Platform, architecture: NodeJS.Architecture) {
   return `antigravity/hub/2.24.0 (aidev_client; os_type=${platform}; arch=${architecture}; cl=963137146)`;
 }
 
@@ -243,16 +243,8 @@ const readCliKeyringSecret = (platform: NodeJS.Platform, architecture: NodeJS.Ar
   });
 
 /** Keys an account by its Google ID, which matches across machines and hubs; refresh tokens do not. */
-export const antigravityAccountFingerprint = (userInfo: unknown) =>
+const antigravityAccountFingerprint = (userInfo: unknown) =>
   decodeUserInfo(userInfo).pipe(Effect.flatMap((info) => sha256(`google-account\0${info.id}`)));
-
-/** Windows from a `retrieveUserQuotaSummary` answer requested at `requestedAt`. */
-export const antigravitySummaryWindows = (response: unknown, requestedAt: number) =>
-  decodeSummary(response).pipe(
-    Effect.map((summary) =>
-      [...summaryBuckets(summary, requestedAt).values()].filter((window) => window !== undefined),
-    ),
-  );
 
 /** Each reported bucket's window, or undefined for one the host reports disabled or without a reading. */
 function summaryBuckets(summary: typeof Summary.Type, requestedAt: number) {

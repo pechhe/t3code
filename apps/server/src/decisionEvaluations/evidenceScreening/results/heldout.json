@@ -332,10 +332,7 @@
     }
   ],
   "runAt": "2026-11-16T13:42:21.130Z",
-  "engines": [
-    "jev",
-    "luna"
-  ],
+  "engines": ["jev", "luna"],
   "run": {
     "checkout": {
       "head": "d214a9fa302a762e0d7cb8180e3213e4abc6f6ff",
@@ -2203,10 +2200,7 @@
             "low": 0.040093073737921175,
             "high": 0.39941907763863693
           },
-          "cases": [
-            "h-t357-stale-digest",
-            "h-syn-stale-revision"
-          ]
+          "cases": ["h-t357-stale-digest", "h-syn-stale-revision"]
         },
         "reviewRecall": {
           "numerator": 12,
@@ -2258,9 +2252,7 @@
             "low": 0.0614903152761605,
             "high": 0.7923450448735121
           },
-          "cases": [
-            "h-t356-accuracy"
-          ]
+          "cases": ["h-t356-accuracy"]
         },
         "flagged": 13,
         "abstentions": 0,
@@ -2323,12 +2315,7 @@
             "low": 0.21521252682444186,
             "high": 0.7847874731755582
           },
-          "cases": [
-            "h-d-compaction",
-            "h-d-processes",
-            "h-d-origins",
-            "h-d-syn-exports"
-          ]
+          "cases": ["h-d-compaction", "h-d-processes", "h-d-origins", "h-d-syn-exports"]
         },
         "missedCandidates": {
           "numerator": 4,
@@ -2338,12 +2325,7 @@
             "low": 0.21521252682444186,
             "high": 0.7847874731755582
           },
-          "cases": [
-            "h-d-chat-tables",
-            "h-d-highlights",
-            "h-d-invariant",
-            "h-d-syn-agreed"
-          ]
+          "cases": ["h-d-chat-tables", "h-d-highlights", "h-d-invariant", "h-d-syn-agreed"]
         },
         "falseEscalations": {
           "numerator": 1,
@@ -2353,9 +2335,7 @@
             "low": 0.02567895594897479,
             "high": 0.51313450331903
           },
-          "cases": [
-            "h-d-restated-origins"
-          ]
+          "cases": ["h-d-restated-origins"]
         },
         "falseEscalationsByReference": {
           "duplicate": 1
@@ -2468,10 +2448,7 @@
             "low": 0.2076549551264879,
             "high": 0.9385096847238394
           },
-          "cases": [
-            "h-t356-cost",
-            "h-syn-rename-complete"
-          ]
+          "cases": ["h-t356-cost", "h-syn-rename-complete"]
         },
         "flagged": 16,
         "abstentions": 0,
@@ -2688,11 +2665,7 @@
             "low": 0.43849391955098227,
             "high": 1
           },
-          "cases": [
-            "h-t356-accuracy",
-            "h-t356-cost",
-            "h-syn-rename-complete"
-          ]
+          "cases": ["h-t356-accuracy", "h-t356-cost", "h-syn-rename-complete"]
         },
         "flagged": 17,
         "abstentions": 0,
@@ -2790,9 +2763,7 @@
             "low": 0.02567895594897479,
             "high": 0.51313450331903
           },
-          "cases": [
-            "h-d-restated-origins"
-          ]
+          "cases": ["h-d-restated-origins"]
         },
         "falseEscalationsByReference": {
           "duplicate": 1
@@ -2915,10 +2886,7 @@
             "low": 0.2076549551264879,
             "high": 0.9385096847238394
           },
-          "cases": [
-            "h-t356-cost",
-            "h-syn-rename-complete"
-          ]
+          "cases": ["h-t356-cost", "h-syn-rename-complete"]
         },
         "flagged": 16,
         "abstentions": 0,
@@ -3004,9 +2972,7 @@
             "low": 0.02241690886329617,
             "high": 0.4708948057698615
           },
-          "cases": [
-            "h-d-chat-tables"
-          ]
+          "cases": ["h-d-chat-tables"]
         },
         "falseEscalations": {
           "numerator": 0,
@@ -3135,10 +3101,7 @@
             "low": 0.2076549551264879,
             "high": 0.9385096847238394
           },
-          "cases": [
-            "h-t356-accuracy",
-            "h-syn-rename-complete"
-          ]
+          "cases": ["h-t356-accuracy", "h-syn-rename-complete"]
         },
         "flagged": 16,
         "abstentions": 0,
@@ -3224,9 +3187,7 @@
             "low": 0.02241690886329617,
             "high": 0.4708948057698615
           },
-          "cases": [
-            "h-d-invariant"
-          ]
+          "cases": ["h-d-invariant"]
         },
         "falseEscalations": {
           "numerator": 0,
@@ -3355,10 +3316,7 @@
             "low": 0.2076549551264879,
             "high": 0.9385096847238394
           },
-          "cases": [
-            "h-t356-accuracy",
-            "h-syn-rename-complete"
-          ]
+          "cases": ["h-t356-accuracy", "h-syn-rename-complete"]
         },
         "flagged": 16,
         "abstentions": 0,
@@ -3444,9 +3402,7 @@
             "low": 0.02241690886329617,
             "high": 0.4708948057698615
           },
-          "cases": [
-            "h-d-invariant"
-          ]
+          "cases": ["h-d-invariant"]
         },
         "falseEscalations": {
           "numerator": 1,
@@ -3456,9 +3412,7 @@
             "low": 0.02567895594897479,
             "high": 0.51313450331903
           },
-          "cases": [
-            "h-d-restated-origins"
-          ]
+          "cases": ["h-d-restated-origins"]
         },
         "falseEscalationsByReference": {
           "duplicate": 1
@@ -3524,9 +3478,7 @@
             "low": 0.012721886112291636,
             "high": 0.3146926955395781
           },
-          "cases": [
-            "h-t359-reliability"
-          ]
+          "cases": ["h-t359-reliability"]
         },
         "reviewRecall": {
           "numerator": 13,
@@ -3581,10 +3533,7 @@
             "low": 0.2076549551264879,
             "high": 0.9385096847238394
           },
-          "cases": [
-            "h-t356-accuracy",
-            "h-syn-rename-complete"
-          ]
+          "cases": ["h-t356-accuracy", "h-syn-rename-complete"]
         },
         "flagged": 15,
         "abstentions": 0,
@@ -3669,9 +3618,7 @@
             "low": 0.02241690886329617,
             "high": 0.4708948057698615
           },
-          "cases": [
-            "h-d-invariant"
-          ]
+          "cases": ["h-d-invariant"]
         },
         "falseEscalations": {
           "numerator": 0,
@@ -3800,11 +3747,7 @@
             "low": 0.43849391955098227,
             "high": 1
           },
-          "cases": [
-            "h-t356-accuracy",
-            "h-t356-cost",
-            "h-syn-rename-complete"
-          ]
+          "cases": ["h-t356-accuracy", "h-t356-cost", "h-syn-rename-complete"]
         },
         "flagged": 17,
         "abstentions": 0,
@@ -4109,20 +4052,14 @@
       "costUsd": 0.0011464320000000002,
       "knownCostUsd": 0.0011464320000000002,
       "costKnownCalls": 37,
-      "costStatuses": [
-        "estimated"
-      ],
+      "costStatuses": ["estimated"],
       "attempts": 37,
       "failedAttempts": 0,
       "failureCodes": [],
       "unanswered": [],
       "outputTokensKnown": 1832,
-      "requestedModels": [
-        "jev-1.14.0"
-      ],
-      "resolvedModels": [
-        "jev-1.14.0"
-      ]
+      "requestedModels": ["jev-1.14.0"],
+      "resolvedModels": ["jev-1.14.0"]
     },
     "luna": {
       "calls": 37,
@@ -4137,20 +4074,14 @@
       "costUsd": 0.0017944,
       "knownCostUsd": 0.0017944,
       "costKnownCalls": 37,
-      "costStatuses": [
-        "estimated"
-      ],
+      "costStatuses": ["estimated"],
       "attempts": 37,
       "failedAttempts": 0,
       "failureCodes": [],
       "unanswered": [],
       "outputTokensKnown": 0,
-      "requestedModels": [
-        "gpt-6-luna"
-      ],
-      "resolvedModels": [
-        "gpt-6-luna"
-      ]
+      "requestedModels": ["gpt-6-luna"],
+      "resolvedModels": ["gpt-6-luna"]
     }
   },
   "verdicts": {
@@ -5909,10 +5840,7 @@
               "low": 0.040093073737921175,
               "high": 0.39941907763863693
             },
-            "cases": [
-              "h-t357-stale-digest",
-              "h-syn-stale-revision"
-            ]
+            "cases": ["h-t357-stale-digest", "h-syn-stale-revision"]
           },
           "reviewRecall": {
             "numerator": 12,
@@ -5964,10 +5892,7 @@
               "low": 0.0822171657090155,
               "high": 0.6410709098517873
             },
-            "cases": [
-              "h-t356-accuracy",
-              "h-syn-flaky-retried"
-            ]
+            "cases": ["h-t356-accuracy", "h-syn-flaky-retried"]
           },
           "flagged": 14,
           "abstentions": 0,
@@ -6034,12 +5959,7 @@
               "low": 0.188775429471914,
               "high": 0.7333526542559703
             },
-            "cases": [
-              "h-d-compaction",
-              "h-d-processes",
-              "h-d-origins",
-              "h-d-syn-exports"
-            ]
+            "cases": ["h-d-compaction", "h-d-processes", "h-d-origins", "h-d-syn-exports"]
           },
           "missedCandidates": {
             "numerator": 5,
@@ -6065,9 +5985,7 @@
               "low": 0.02567895594897479,
               "high": 0.51313450331903
             },
-            "cases": [
-              "h-d-restated-origins"
-            ]
+            "cases": ["h-d-restated-origins"]
           },
           "falseEscalationsByReference": {
             "duplicate": 1
@@ -6530,9 +6448,7 @@
               "low": 0.02567895594897479,
               "high": 0.51313450331903
             },
-            "cases": [
-              "h-d-restated-origins"
-            ]
+            "cases": ["h-d-restated-origins"]
           },
           "falseEscalationsByReference": {
             "duplicate": 1
@@ -6657,10 +6573,7 @@
               "low": 0.0822171657090155,
               "high": 0.6410709098517873
             },
-            "cases": [
-              "h-t356-cost",
-              "h-syn-rename-complete"
-            ]
+            "cases": ["h-t356-cost", "h-syn-rename-complete"]
           },
           "flagged": 16,
           "abstentions": 0,
@@ -6751,9 +6664,7 @@
               "low": 0.019890371327130535,
               "high": 0.4350062147680601
             },
-            "cases": [
-              "h-d-chat-tables"
-            ]
+            "cases": ["h-d-chat-tables"]
           },
           "falseEscalations": {
             "numerator": 0,
@@ -6983,9 +6894,7 @@
               "low": 0.019890371327130535,
               "high": 0.4350062147680601
             },
-            "cases": [
-              "h-d-invariant"
-            ]
+            "cases": ["h-d-invariant"]
           },
           "falseEscalations": {
             "numerator": 0,
@@ -7215,9 +7124,7 @@
               "low": 0.019890371327130535,
               "high": 0.4350062147680601
             },
-            "cases": [
-              "h-d-invariant"
-            ]
+            "cases": ["h-d-invariant"]
           },
           "falseEscalations": {
             "numerator": 1,
@@ -7227,9 +7134,7 @@
               "low": 0.02567895594897479,
               "high": 0.51313450331903
             },
-            "cases": [
-              "h-d-restated-origins"
-            ]
+            "cases": ["h-d-restated-origins"]
           },
           "falseEscalationsByReference": {
             "duplicate": 1
@@ -7297,9 +7202,7 @@
               "low": 0.012721886112291636,
               "high": 0.3146926955395781
             },
-            "cases": [
-              "h-t359-reliability"
-            ]
+            "cases": ["h-t359-reliability"]
           },
           "reviewRecall": {
             "numerator": 13,
@@ -7450,9 +7353,7 @@
               "low": 0.019890371327130535,
               "high": 0.4350062147680601
             },
-            "cases": [
-              "h-d-invariant"
-            ]
+            "cases": ["h-d-invariant"]
           },
           "falseEscalations": {
             "numerator": 0,
@@ -7961,9 +7862,7 @@
               "low": 0.0614903152761605,
               "high": 0.7923450448735121
             },
-            "cases": [
-              "h-t356-accuracy"
-            ]
+            "cases": ["h-t356-accuracy"]
           },
           "flagged": 13,
           "abstentions": 0,
@@ -8026,12 +7925,7 @@
               "low": 0.21521252682444186,
               "high": 0.7847874731755582
             },
-            "cases": [
-              "h-d-compaction",
-              "h-d-processes",
-              "h-d-origins",
-              "h-d-syn-exports"
-            ]
+            "cases": ["h-d-compaction", "h-d-processes", "h-d-origins", "h-d-syn-exports"]
           },
           "missedCandidates": {
             "numerator": 4,
@@ -8041,12 +7935,7 @@
               "low": 0.21521252682444186,
               "high": 0.7847874731755582
             },
-            "cases": [
-              "h-d-chat-tables",
-              "h-d-highlights",
-              "h-d-invariant",
-              "h-d-syn-agreed"
-            ]
+            "cases": ["h-d-chat-tables", "h-d-highlights", "h-d-invariant", "h-d-syn-agreed"]
           },
           "falseEscalations": {
             "numerator": 1,
@@ -8056,9 +7945,7 @@
               "low": 0.02567895594897479,
               "high": 0.51313450331903
             },
-            "cases": [
-              "h-d-restated-origins"
-            ]
+            "cases": ["h-d-restated-origins"]
           },
           "falseEscalationsByReference": {
             "duplicate": 1
@@ -8174,10 +8061,7 @@
               "low": 0.2076549551264879,
               "high": 0.9385096847238394
             },
-            "cases": [
-              "h-t356-cost",
-              "h-syn-rename-complete"
-            ]
+            "cases": ["h-t356-cost", "h-syn-rename-complete"]
           },
           "flagged": 19,
           "abstentions": 0,
@@ -8400,11 +8284,7 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": [
-              "h-t356-accuracy",
-              "h-t356-cost",
-              "h-syn-rename-complete"
-            ]
+            "cases": ["h-t356-accuracy", "h-t356-cost", "h-syn-rename-complete"]
           },
           "flagged": 20,
           "abstentions": 0,
@@ -8505,9 +8385,7 @@
               "low": 0.02567895594897479,
               "high": 0.51313450331903
             },
-            "cases": [
-              "h-d-restated-origins"
-            ]
+            "cases": ["h-d-restated-origins"]
           },
           "falseEscalationsByReference": {
             "duplicate": 1
@@ -8574,11 +8452,7 @@
               "low": 0.0619101371254899,
               "high": 0.41029929017375777
             },
-            "cases": [
-              "h-t359-scope",
-              "h-t357-checks",
-              "h-t357-recall"
-            ]
+            "cases": ["h-t359-scope", "h-t357-checks", "h-t357-recall"]
           },
           "reviewRecall": {
             "numerator": 14,
@@ -8634,10 +8508,7 @@
               "low": 0.2076549551264879,
               "high": 0.9385096847238394
             },
-            "cases": [
-              "h-t356-cost",
-              "h-syn-rename-complete"
-            ]
+            "cases": ["h-t356-cost", "h-syn-rename-complete"]
           },
           "flagged": 16,
           "abstentions": 0,
@@ -8723,9 +8594,7 @@
               "low": 0.02241690886329617,
               "high": 0.4708948057698615
             },
-            "cases": [
-              "h-d-chat-tables"
-            ]
+            "cases": ["h-d-chat-tables"]
           },
           "falseEscalations": {
             "numerator": 0,
@@ -8857,10 +8726,7 @@
               "low": 0.2076549551264879,
               "high": 0.9385096847238394
             },
-            "cases": [
-              "h-t356-accuracy",
-              "h-syn-rename-complete"
-            ]
+            "cases": ["h-t356-accuracy", "h-syn-rename-complete"]
           },
           "flagged": 19,
           "abstentions": 0,
@@ -8952,9 +8818,7 @@
               "low": 0.02241690886329617,
               "high": 0.4708948057698615
             },
-            "cases": [
-              "h-d-invariant"
-            ]
+            "cases": ["h-d-invariant"]
           },
           "falseEscalations": {
             "numerator": 0,
@@ -9086,10 +8950,7 @@
               "low": 0.2076549551264879,
               "high": 0.9385096847238394
             },
-            "cases": [
-              "h-t356-accuracy",
-              "h-syn-rename-complete"
-            ]
+            "cases": ["h-t356-accuracy", "h-syn-rename-complete"]
           },
           "flagged": 19,
           "abstentions": 0,
@@ -9181,9 +9042,7 @@
               "low": 0.02241690886329617,
               "high": 0.4708948057698615
             },
-            "cases": [
-              "h-d-invariant"
-            ]
+            "cases": ["h-d-invariant"]
           },
           "falseEscalations": {
             "numerator": 1,
@@ -9193,9 +9052,7 @@
               "low": 0.02567895594897479,
               "high": 0.51313450331903
             },
-            "cases": [
-              "h-d-restated-origins"
-            ]
+            "cases": ["h-d-restated-origins"]
           },
           "falseEscalationsByReference": {
             "duplicate": 1
@@ -9261,9 +9118,7 @@
               "low": 0.01046013064516424,
               "high": 0.269825452035628
             },
-            "cases": [
-              "h-t359-reliability"
-            ]
+            "cases": ["h-t359-reliability"]
           },
           "reviewRecall": {
             "numerator": 16,
@@ -9321,10 +9176,7 @@
               "low": 0.2076549551264879,
               "high": 0.9385096847238394
             },
-            "cases": [
-              "h-t356-accuracy",
-              "h-syn-rename-complete"
-            ]
+            "cases": ["h-t356-accuracy", "h-syn-rename-complete"]
           },
           "flagged": 18,
           "abstentions": 0,
@@ -9415,9 +9267,7 @@
               "low": 0.02241690886329617,
               "high": 0.4708948057698615
             },
-            "cases": [
-              "h-d-invariant"
-            ]
+            "cases": ["h-d-invariant"]
           },
           "falseEscalations": {
             "numerator": 0,
@@ -9549,11 +9399,7 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": [
-              "h-t356-accuracy",
-              "h-t356-cost",
-              "h-syn-rename-complete"
-            ]
+            "cases": ["h-t356-accuracy", "h-t356-cost", "h-syn-rename-complete"]
           },
           "flagged": 20,
           "abstentions": 0,

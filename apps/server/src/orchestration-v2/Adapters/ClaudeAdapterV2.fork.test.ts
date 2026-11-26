@@ -616,6 +616,9 @@ describe("ClaudeAdapterV2 background wake turns", () => {
                       offeredMessages.push(message);
                     }).pipe(Effect.andThen(changes.notify)),
                   setModel: () => Effect.void,
+                  mcpAuthenticate: () => Effect.die("unexpected MCP sign-in"),
+                  mcpSubmitOAuthCallbackUrl: () => Effect.die("unexpected MCP sign-in"),
+                  reconnectMcpServer: () => Effect.die("unexpected MCP reconnect"),
                   applyFlagSettings: () => Effect.void,
                   setPermissionMode: (mode) =>
                     Effect.sync(() => {
@@ -653,6 +656,9 @@ describe("ClaudeAdapterV2 background wake turns", () => {
                   }).pipe(
                     Effect.andThen(() => options?.setModel?.(model, offerAndWait) ?? Effect.void),
                   ),
+                mcpAuthenticate: () => Effect.die("unexpected MCP sign-in"),
+                mcpSubmitOAuthCallbackUrl: () => Effect.die("unexpected MCP sign-in"),
+                reconnectMcpServer: () => Effect.die("unexpected MCP reconnect"),
                 applyFlagSettings: (settings) =>
                   Effect.sync(() => {
                     liveSelectionChanges.push(settings);

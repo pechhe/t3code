@@ -109,7 +109,8 @@ const defaultDiscoveries = [
   }),
 ];
 
-const layerDiscoveryWith = (...args: Parameters<typeof layerDiscovery>) => layerDiscovery(...args);
+const onPath = (command: string) => `/usr/local/bin/${command}`;
+
 const layerDiscovery = (
   processRun = run,
   discoveries: ReadonlyArray<SourceControlProviderDiscoverySpec> = defaultDiscoveries,
@@ -178,7 +179,10 @@ it.effect("reports every hosting integration in registry order with its sign-in"
         ["jj", "available"],
       ],
     );
-  }).pipe(Effect.provide(SourceControlDiscovery.layer.pipe(Layer.provide(layerDiscoveryWith())))),
+  }).pipe(
+    Effect.provide(SourceControlDiscovery.layer.pipe(Layer.provide(layerDiscovery()))),
+    Effect.provideService(SpawnExecutableResolution, onPath),
+  ),
 );
 
 it.effect("explains a CLI whose version probe failed instead of advising an install", () =>
@@ -207,6 +211,7 @@ it.effect("explains a CLI whose version probe failed instead of advising an inst
     assert.notInclude(git.installHint, "Install Git from");
     assert.include(git.installHint, "`git --version` exited with status 1");
   }).pipe(
+    Effect.provideService(SpawnExecutableResolution, onPath),
     Effect.provide(
       SourceControlDiscovery.layer.pipe(
         Layer.provide(
@@ -255,10 +260,8 @@ it.effect.each(["darwin", "linux"] as const)(
         }
       }
     }).pipe(
-      Effect.provide(
-        SourceControlDiscovery.layer.pipe(Layer.provide(layerDiscoveryWith(runProcess))),
-      ),
-      Effect.provideService(SpawnExecutableResolution, (command) => `/usr/local/bin/${command}`),
+      Effect.provide(SourceControlDiscovery.layer.pipe(Layer.provide(layerDiscovery(runProcess)))),
+      Effect.provideService(SpawnExecutableResolution, onPath),
       Effect.provideService(HostProcess.Platform, platform),
       Effect.provideService(HostProcess.Architecture, "arm64"),
     );
@@ -307,9 +310,7 @@ const discoverWith = (processRun: DiscoveryRun = run) =>
     const discovery = yield* SourceControlDiscovery.SourceControlDiscovery;
     return yield* discovery.discover;
   }).pipe(
-    Effect.provide(
-      SourceControlDiscovery.layer.pipe(Layer.provide(layerDiscoveryWith(processRun))),
-    ),
+    Effect.provide(SourceControlDiscovery.layer.pipe(Layer.provide(layerDiscovery(processRun)))),
   );
 
 /** The rows that mention SlipJay, as the user sees them in Settings. */

@@ -14,12 +14,14 @@ import {
   IDLE_COMPACTION_TITLES,
 } from "@t3tools/client-runtime/user-message";
 import type { HandoffTimelineRun } from "@t3tools/client-runtime/handoff";
-import { renderCodexDirectivesForCopy } from "@t3tools/shared/codexMarkdownDirectives";
+import { renderCodexDirectivesForCopy } from "~/markdown/markdownText";
 import {
   commandDisplayText,
   commandProgramName,
 } from "@t3tools/client-runtime/work-log/command-label";
 import {
+  commandlessCommandLabel,
+  genericCommandStatusLabel,
   liveActivityToolStatus,
   normalizeCompactToolLabel,
   resolveWorkEntryToolPresentation,
@@ -28,8 +30,9 @@ import {
   toolGroupSummaryKind,
   contextCompactionModelName,
   contextCompactionTokenCounts,
-  workEntriesViewedImagePaths,
+  workEntriesViewedImages,
   type ToolGroupSummaryKind,
+  type ViewedImage,
   liveThoughtLine,
   workEntryHiddenByToolCallVisibility,
 } from "@t3tools/client-runtime/work-log/presentation";
@@ -158,6 +161,12 @@ export function workEntryDisplayLabel(
   const toolPresentation = resolveWorkEntryToolPresentation(entry, undefined, resolve);
   if (toolPresentation) return toolPresentation.displayName;
   if (entry.command?.trim()) return commandDisplayText(entry.command);
+  const commandless = commandlessCommandLabel(
+    entry,
+    liveActivityToolStatus(entry.toolLifecycleStatus, false),
+    resolve,
+  );
+  if (commandless) return commandless;
   const action = toolGroupAction(entry);
   if (action === "code-search" || action === "search") {
     const searchLabel =
@@ -272,17 +281,7 @@ export function liveWorkEntryLabel(
   if (command) {
     const program = commandProgramName(command);
     if (program == null) {
-      return resolve(
-        status === "inProgress"
-          ? msg("Running command")
-          : status === "failed"
-            ? msg("Failed command")
-            : status === "declined"
-              ? msg("Declined command")
-              : status === "stopped"
-                ? msg("Stopped command")
-                : msg("Ran command"),
-      );
+      return genericCommandStatusLabel(status, resolve);
     }
     return resolve(
       status === "inProgress"
@@ -296,7 +295,10 @@ export function liveWorkEntryLabel(
               : msg("Ran {program}", { program }),
     );
   }
-  return workEntryDisplayLabel(entry, workspaceRoot, resolve);
+  return (
+    commandlessCommandLabel(entry, status, resolve) ??
+    workEntryDisplayLabel(entry, workspaceRoot, resolve)
+  );
 }
 
 export function workEntryIsVisibleInGroup(
@@ -464,40 +466,30 @@ export function resolveTimelineMinimapCurrentIndex(input: {
   return precedingIndex;
 }
 
-function resolveTimelineSideGutter(viewportWidth: number, contentWidth: number): number {
-  if (!Number.isFinite(viewportWidth) || viewportWidth <= 0 || !Number.isFinite(contentWidth)) {
-    return 0;
-  }
-  return Math.max(0, (viewportWidth - Math.min(viewportWidth, contentWidth)) / 2);
+export function resolveTimelineMinimapHasPersistentGutter(sideGutter: number): boolean {
+  return sideGutter >= TIMELINE_MINIMAP_PERSISTENT_GUTTER;
 }
 
-export function resolveTimelineMinimapHasPersistentGutter(
-  viewportWidth: number,
-  contentWidth: number,
-): boolean {
-  return (
-    resolveTimelineSideGutter(viewportWidth, contentWidth) >= TIMELINE_MINIMAP_PERSISTENT_GUTTER
-  );
-}
-
-const TIMELINE_MINIMAP_HIT_STRIP_LEFT = 12;
+const TIMELINE_MINIMAP_HIT_STRIP_LEFT = 32;
 const TIMELINE_MINIMAP_HIT_STRIP_MAX_WIDTH = 40;
-
-export function resolveTimelineMinimapHitStripWidth(
-  viewportWidth: number,
-  contentWidth: number,
-): number {
-  const sideGutter = resolveTimelineSideGutter(viewportWidth, contentWidth);
-  return Math.max(
-    0,
-    Math.min(
-      TIMELINE_MINIMAP_HIT_STRIP_MAX_WIDTH,
-      Math.floor(sideGutter) - TIMELINE_MINIMAP_HIT_STRIP_LEFT,
-    ),
-  );
-}
-
 const TIMELINE_MINIMAP_NAVIGATION_REACH = 14;
+
+export function resolveTimelineMinimapHitStrip(measuredSideGutter: number) {
+  const sideGutter = Number.isFinite(measuredSideGutter)
+    ? Math.max(0, Math.floor(measuredSideGutter))
+    : 0;
+  if (sideGutter < TIMELINE_MINIMAP_HIT_STRIP_LEFT + TIMELINE_MINIMAP_NAVIGATION_REACH) {
+    // Keep a hover target in the gutter, to the left of the sidebar restore handle.
+    return { left: 0, width: Math.min(8, sideGutter) };
+  }
+  return {
+    left: TIMELINE_MINIMAP_HIT_STRIP_LEFT,
+    width: Math.min(
+      TIMELINE_MINIMAP_HIT_STRIP_MAX_WIDTH,
+      sideGutter - TIMELINE_MINIMAP_HIT_STRIP_LEFT,
+    ),
+  };
+}
 
 export function resolveTimelineMinimapNavigationInteractive(collapsedWidth: number): boolean {
   return collapsedWidth >= TIMELINE_MINIMAP_NAVIGATION_REACH;
@@ -616,7 +608,7 @@ type MessagesTimelineRowContent =
       kind: "viewed-images";
       id: string;
       createdAt: string;
-      paths: ReadonlyArray<string>;
+      images: ReadonlyArray<ViewedImage>;
     }
   | {
       kind: "turn-fold";
@@ -665,7 +657,6 @@ type MessagesTimelineRowContent =
       suppressEmptyResponse?: boolean;
       showAssistantCopyButton: boolean;
       assistantCopyStreaming: boolean;
-      assistantTurnDiffSummary?: TurnDiffSummary | undefined;
       revertTurnCount?: number | undefined;
       /** Another of your messages follows directly, so the two sit closer together. */
       groupedWithNext?: boolean;
@@ -802,10 +793,10 @@ function viewedImagesRows(
   createdAt: string,
   groupedEntries: ReadonlyArray<WorkLogEntry>,
 ): Array<Extract<MessagesTimelineRow, { kind: "viewed-images" }>> {
-  const paths = workEntriesViewedImagePaths(groupedEntries);
-  return paths.length === 0
+  const images = workEntriesViewedImages(groupedEntries);
+  return images.length === 0
     ? []
-    : [{ kind: "viewed-images", id: `${groupId}:viewed-images`, createdAt, paths }];
+    : [{ kind: "viewed-images", id: `${groupId}:viewed-images`, createdAt, images }];
 }
 
 export function resolveAssistantMessageCopyState({
@@ -1170,8 +1161,9 @@ function workEntryIsReturnChip(entry: WorkLogEntry): boolean {
 function itemizedFailedRunIds(
   entries: ReadonlyArray<TimelineEntry>,
   failedRunIds: ReadonlySet<RunId>,
+  usageLimitRunId: RunId | null,
 ) {
-  const usageLimited = new Set<RunId>();
+  const usageLimited = new Set<RunId>(usageLimitRunId ? [usageLimitRunId] : []);
   const otherFailures = new Set<RunId>();
   for (const entry of entries) {
     const item = timelineEntryFailedItem(entry);
@@ -1711,6 +1703,15 @@ function runningSubagentsAtRunTail(entries: ReadonlyArray<TimelineEntry>, runId:
   let running = 0;
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = entries[index]!;
+    // The run's own finished reply is the parent parking on the children, not new work.
+    if (
+      entry.kind === "message" &&
+      entry.message.role === "assistant" &&
+      !entry.message.streaming &&
+      entry.message.runId === runId
+    ) {
+      continue;
+    }
     if (entry.kind !== "event") break;
     const { item } = entry.projectedItem;
     if (item.type !== "subagent" || item.runId !== runId) break;
@@ -1806,6 +1807,8 @@ export function deriveMessagesTimelineRows(
     timelineEntries: ReadonlyArray<TimelineEntry>;
     pendingApprovalRequestIds?: ReadonlySet<RuntimeRequestId>;
     latestRun?: TimelineLatestRun | null;
+    /** The usage-limited run whose failure row the recovery notice replaces. */
+    usageLimitRunId?: RunId | null;
     runningRunId?: RunId | null;
     expandedRunIds?: ReadonlySet<RunId>;
     expandedAttemptIds?: ReadonlySet<RunAttemptId>;
@@ -1838,12 +1841,6 @@ export function deriveMessagesTimelineRows(
       input.pendingApprovalRequestIds?.has(item.requestId) === true
     );
   };
-  const turnDiffSummaryByAssistantMessageId = new Map<MessageId, TurnDiffSummary>();
-  for (const summary of input.turnDiffSummaries) {
-    if (summary.assistantMessageId) {
-      turnDiffSummaryByAssistantMessageId.set(summary.assistantMessageId, summary);
-    }
-  }
   const unsettledRunId = deriveUnsettledRunId(input.latestRun ?? null, input.runningRunId ?? null);
   const revertTurnCountByUserMessageId = input.supportsConversationRollback
     ? deriveRevertTurnCountByUserMessageId({
@@ -1857,7 +1854,11 @@ export function deriveMessagesTimelineRows(
   const nextRows: MessagesTimelineRow[] = [];
   const terminalAssistantMessageIds = deriveTerminalAssistantMessageIds(timelineEntries);
   const failedRunIds = failedTimelineRunIds(timelineEntries, input.latestRun ?? null);
-  const itemizedRunIds = itemizedFailedRunIds(timelineEntries, failedRunIds);
+  const itemizedRunIds = itemizedFailedRunIds(
+    timelineEntries,
+    failedRunIds,
+    input.usageLimitRunId ?? null,
+  );
   const liveSubagentEntryIds = liveSubagentCardEntryIds(timelineEntries);
   const retainedAssistantReplyIds = retainedAssistantReplyEntryIds(timelineEntries);
   const supersededFoldsByAnchorEntryId = deriveSupersededAttemptFolds(
@@ -2586,10 +2587,6 @@ export function deriveMessagesTimelineRows(
         embeddedResultRunIds.has(timelineEntry.message.runId),
       showAssistantCopyButton: showAssistantMeta,
       assistantCopyStreaming: timelineEntry.message.streaming || assistantResponseStillInProgress,
-      assistantTurnDiffSummary:
-        timelineEntry.message.role === "assistant"
-          ? turnDiffSummaryByAssistantMessageId.get(timelineEntry.message.id)
-          : undefined,
       revertTurnCount:
         timelineEntry.message.role === "user"
           ? revertTurnCountByUserMessageId.get(timelineEntry.message.id)
@@ -3087,8 +3084,11 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
       const bv = b as typeof a;
       return (
         a.createdAt === bv.createdAt &&
-        a.paths.length === bv.paths.length &&
-        a.paths.every((path, index) => path === bv.paths[index])
+        a.images.length === bv.images.length &&
+        a.images.every(
+          (image, index) =>
+            image.path === bv.images[index]?.path && image.pending === bv.images[index]?.pending,
+        )
       );
     }
 
@@ -3171,7 +3171,6 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.suppressEmptyResponse === bm.suppressEmptyResponse &&
         a.showAssistantCopyButton === bm.showAssistantCopyButton &&
         a.assistantCopyStreaming === bm.assistantCopyStreaming &&
-        a.assistantTurnDiffSummary === bm.assistantTurnDiffSummary &&
         a.revertTurnCount === bm.revertTurnCount &&
         a.groupedWithNext === bm.groupedWithNext &&
         a.groupedWithPrevious === bm.groupedWithPrevious &&

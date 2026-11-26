@@ -422,6 +422,7 @@ export interface SnoozePreset {
 export interface SnoozePresetOptions {
   readonly presets?: ReadonlyArray<SnoozePresetSetting>;
   readonly formatTime?: (date: Date) => string;
+  readonly locale?: string | undefined;
 }
 
 function snoozeTimeOfDayLabel(date: Date): string {
@@ -519,6 +520,7 @@ export function resolveSnoozePreset(
   now: Date,
   formatTime: (date: Date) => string = snoozeTimeOfDayLabel,
   resolve: MFunctionType = mFallback,
+  locale?: string,
 ): SnoozePreset | null {
   let wake: Date;
   let daysAhead = 0;
@@ -541,7 +543,7 @@ export function resolveSnoozePreset(
     whenLabel:
       labelNamesDay || wake.toDateString() === now.toDateString()
         ? time
-        : `${wake.toLocaleDateString(undefined, { weekday: "short" })} ${time}`,
+        : `${wake.toLocaleDateString(locale, { weekday: "short" })} ${time}`,
     snoozedUntil: wake.toISOString(),
   };
 }
@@ -558,7 +560,10 @@ export function resolveSnoozePresets(
   const seen = new Set<number>();
   return (
     (options.presets ?? DEFAULT_SNOOZE_PRESETS)
-      .flatMap((setting) => resolveSnoozePreset(setting, now, options.formatTime, resolve) ?? [])
+      .flatMap(
+        (setting) =>
+          resolveSnoozePreset(setting, now, options.formatTime, resolve, options.locale) ?? [],
+      )
       // flatMap returned a new array; Hermes has no `toSorted`.
       .sort((a, b) => wakeMinute(a) - wakeMinute(b))
       .filter((preset) => {
@@ -579,6 +584,7 @@ export function pickSnoozePreset(input: {
   readonly now: Date;
   readonly presets?: ReadonlyArray<SnoozePresetSetting>;
   readonly formatTime?: (date: Date) => string;
+  readonly locale?: string | undefined;
   readonly resolve?: MFunctionType;
 }): SnoozePreset | undefined {
   const original = input.shown.find((preset) => preset.id === input.id);
@@ -588,7 +594,9 @@ export function pickSnoozePreset(input: {
     (candidate) => candidate.kind === "after" && snoozePresetId(candidate) === input.id,
   );
   return (
-    (setting && resolveSnoozePreset(setting, input.now, input.formatTime, input.resolve)) ?? ahead
+    (setting &&
+      resolveSnoozePreset(setting, input.now, input.formatTime, input.resolve, input.locale)) ??
+    ahead
   );
 }
 

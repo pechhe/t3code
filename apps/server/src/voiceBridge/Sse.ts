@@ -28,7 +28,12 @@ export function roleChunk(id: string, created: number, model: string): Completio
   };
 }
 
-export function textChunk(id: string, created: number, model: string, content: string): CompletionChunk {
+export function textChunk(
+  id: string,
+  created: number,
+  model: string,
+  content: string,
+): CompletionChunk {
   return {
     id,
     object: "chat.completion.chunk",

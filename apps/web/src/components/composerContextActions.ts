@@ -6,6 +6,7 @@ export interface ComposerContextActions {
   cwd?: string | undefined;
   projectId?: ProjectId | undefined;
   expandImage: (imageId: string) => void;
+  annotateImage: (imageId: string) => void;
   expandVideo: (fileId: string) => void;
   openFile: (fileId: string) => void;
   openMention: (path: string) => void;
@@ -15,6 +16,7 @@ export interface ComposerContextActions {
 export const ComposerContextActionsContext = createContext<ComposerContextActions>({
   environmentId: null,
   expandImage: () => {},
+  annotateImage: () => {},
   expandVideo: () => {},
   openFile: () => {},
   openMention: () => {},

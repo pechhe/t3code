@@ -89,7 +89,10 @@ snapshot counts against it.
 
 ## Verify and retain
 
-Exercise the affected flow and capture the state that proves it works. If the page
+Exercise the affected flow and capture the state that proves it works. Actually
+look at the rendered result and think as a user using the feature—check layout,
+visual hierarchy, alignment, and end-to-end flow—and iterate on anything that
+feels awkward or unfinished until you are satisfied before handing back. If the page
 still shows code you changed, fetch that module from the web port (`curl
 localhost:<webPort>/src/<path>`): when it serves the old source, Vite's transform cache
 is stale, so restart the dev server. Keep

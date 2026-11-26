@@ -1,6 +1,7 @@
 import {
   CommandId,
   type GitCommandError,
+  type TaskFolderError,
   MessageId,
   type ProjectId,
   type ThreadId,
@@ -37,6 +38,7 @@ import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.t
 import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as VcsStatusBroadcaster from "../vcs/VcsStatusBroadcaster.ts";
+import * as TaskFolders from "../workspace/TaskFolders.ts";
 import type { McpInvocationScope, McpThreadInvocationScope } from "./McpInvocationContext.ts";
 
 export class WorktreeMcpService extends Context.Service<
@@ -107,6 +109,9 @@ const make = Effect.gen(function* () {
   const setupScriptRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
   const workspaces = yield* WorkspaceProvider.WorkspaceProvider;
   const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
+  const taskFolders = yield* TaskFolders.TaskFolders;
+  // The administrator's limit, fixed for the server's life as it is where turns start.
+  const maxRuntimeMode = serverSettings.managedPolicy?.limits?.maxRuntimeMode;
   const attachments = yield* WorkspaceAttachments.WorkspaceAttachments;
 
   // Serializes handoffs per thread: two concurrent calls could otherwise both
@@ -244,7 +249,12 @@ const make = Effect.gen(function* () {
             scope.thread.threadId,
             project.weaveRepositoryKey ?? null,
           )
-        : yield* prepareGitCheckout(projectCwd, project.id, { ...input, branch });
+        : yield* prepareGitCheckout(
+            projectCwd,
+            project.id,
+            { ...input, branch },
+            projectCommandsNowFor(scope),
+          );
     }
 
     const ids = yield* handoffIds(scope);
@@ -341,7 +351,11 @@ const make = Effect.gen(function* () {
           .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach);
 
         let setupScript: WorktreeMcpSetupScriptStatus = { status: "skipped" };
-        if (input.runSetupScript ?? input.worktreePath === undefined) {
+        const runSetup = input.runSetupScript ?? input.worktreePath === undefined;
+        // The saved setup script is the project's code too: below Full access it waits for a person.
+        const setupWaitsForFullAccess =
+          runSetup && (yield* projectCommandsNowFor(scope)) === "agent-below-full-access";
+        if (runSetup && !setupWaitsForFullAccess) {
           setupScript = yield* setupScriptRunner
             .runForThread({
               threadId: scope.thread.threadId,
@@ -375,28 +389,51 @@ const make = Effect.gen(function* () {
           startedFromOrigin: checkout.startedFromOrigin,
           setupScript,
           continuation,
-          note:
+          note: `${
             continuation.status === "scheduled"
               ? "Handoff recorded. Changing the workspace detaches this provider session, so the current turn ends shortly after this call; the queued continuation prompt then starts the next turn inside the worktree with the conversation preserved. The worktree is not removed automatically when the thread is deleted."
-              : "Handoff recorded. Changing the workspace detaches this provider session, so the current turn ends shortly after this call; the conversation continues inside the worktree when the thread receives its next message. Pass continuationPrompt to resume automatically. The worktree is not removed automatically when the thread is deleted.",
+              : "Handoff recorded. Changing the workspace detaches this provider session, so the current turn ends shortly after this call; the conversation continues inside the worktree when the thread receives its next message. Pass continuationPrompt to resume automatically. The worktree is not removed automatically when the thread is deleted."
+          }${
+            setupWaitsForFullAccess
+              ? " Project setup scripts do not run for a handoff from a thread below Full access."
+              : ""
+          }`,
         };
         return result;
       }),
     );
   });
 
+  // The agent asks, so its thread's modes decide what of the project's own code runs for it:
+  // as they are when each piece is about to run, since the fetch in between can take a while.
+  const projectCommandsNowFor = (scope: McpThreadInvocationScope) =>
+    loadThread(scope).pipe(
+      Effect.map(({ thread }) =>
+        TaskFolders.projectCommandsForAgent(thread.linkOrigin, thread, maxRuntimeMode),
+      ),
+      // A thread that cannot be read might be below Full access.
+      Effect.orElseSucceed((): TaskFolders.ProjectCommands => "agent-below-full-access"),
+    );
+
   const prepareGitCheckout = Effect.fn("WorktreeMcpService.prepareGitCheckout")(function* (
     projectCwd: string,
     projectId: ProjectId,
     input: WorktreeMcpHandoffInput & { readonly branch: string },
+    projectCommandsNow: Effect.Effect<TaskFolders.ProjectCommands>,
   ) {
+    // A project that tracks repositories moves into a task folder: its own folder, which need
+    // not be a repository, and a worktree of each tracked one.
+    const taskPlan = yield* taskFolders
+      .plan({ projectId })
+      .pipe(asOperationFailed("Unable to read the project's repositories"));
+    const projectIsRepository = taskPlan === null || taskPlan.projectIsRepository;
     // The repo check runs regardless of whether baseRef was supplied, so a
     // non-repository workspace fails with an actionable error instead of an
     // opaque git failure further down.
     const localStatus = yield* gitWorkflow
       .localStatus({ cwd: projectCwd })
       .pipe(asOperationFailed("Unable to read git status"));
-    if (!localStatus.isRepo) {
+    if (projectIsRepository && !localStatus.isRepo) {
       return yield* failure(
         "invalid_request",
         `Project workspace '${projectCwd}' is not a git repository.`,
@@ -405,9 +442,11 @@ const make = Effect.gen(function* () {
 
     // The git driver's errors omit stderr, so reject existing branches with an actionable error.
     // Use the complete branch list for exact existence; paginated search only adds checkout location.
-    const localBranchNames = yield* gitWorkflow
-      .listLocalBranchNames(projectCwd)
-      .pipe(asOperationFailed("Unable to list branches"));
+    const localBranchNames = projectIsRepository
+      ? yield* gitWorkflow
+          .listLocalBranchNames(projectCwd)
+          .pipe(asOperationFailed("Unable to list branches"))
+      : [];
     if (localBranchNames.includes(input.branch)) {
       const existingRef = yield* gitWorkflow
         .listRefs({ cwd: projectCwd, query: input.branch, refKind: "local" })
@@ -429,7 +468,10 @@ const make = Effect.gen(function* () {
     }
 
     let baseRef = input.baseRef;
-    if (baseRef === undefined) {
+    if (baseRef === undefined && !projectIsRepository) {
+      // Each repository starts from its own default branch.
+      baseRef = "HEAD";
+    } else if (baseRef === undefined) {
       if (localStatus.refName === null) {
         return yield* failure(
           "invalid_request",
@@ -444,7 +486,7 @@ const make = Effect.gen(function* () {
     let worktreeBaseRef = baseRef;
     let baseRefName = baseRef;
     let startedFromOrigin = false;
-    if (startFromOrigin) {
+    if (startFromOrigin && projectIsRepository) {
       const remote = yield* gitWorkflow
         .fetchWorktreeBaseCommit({ cwd: projectCwd, refName: baseRef })
         .pipe(asOperationFailed(`Unable to fetch the remote base of '${baseRef}'`));
@@ -455,36 +497,75 @@ const make = Effect.gen(function* () {
       }
     }
 
+    let createdTaskFolder: string | null = null;
     return {
       baseRef,
-      startedFromOrigin,
-      create: gitWorkflow
-        .createWorktree({
-          cwd: projectCwd,
-          refName: worktreeBaseRef,
-          newRefName: input.branch,
-          baseRefName,
-          path: null,
-        })
-        .pipe(
-          Effect.map(({ worktree }) => ({ path: worktree.path, branch: worktree.refName })),
-          asOperationFailed("Unable to create the worktree"),
-        ),
+      get startedFromOrigin() {
+        return startedFromOrigin;
+      },
+      create: Effect.suspend(
+        (): Effect.Effect<
+          { readonly path: string; readonly branch: string | null },
+          WorktreeMcpFailure
+        > =>
+          taskPlan === null
+            ? gitWorkflow
+                .createWorktree({
+                  cwd: projectCwd,
+                  refName: worktreeBaseRef,
+                  newRefName: input.branch,
+                  baseRefName,
+                  path: null,
+                })
+                .pipe(
+                  Effect.map(({ worktree }) => ({ path: worktree.path, branch: worktree.refName })),
+                  asOperationFailed("Unable to create the worktree"),
+                )
+            : taskFolders
+                .create({
+                  plan: taskPlan,
+                  branch: input.branch,
+                  projectStart: { refName: worktreeBaseRef, baseRefName },
+                  baseBranch: input.baseRef,
+                  startFromOrigin,
+                  projectCommands: projectCommandsNow,
+                })
+                .pipe(
+                  Effect.map((created) => {
+                    // A layout command is handed the branch name, not the fetched commit.
+                    startedFromOrigin =
+                      !created.laidOutByProject &&
+                      (startedFromOrigin || created.repositoriesStartedFromOrigin);
+                    createdTaskFolder = created.taskFolder.root;
+                    return { path: created.taskFolder.projectPath, branch: created.branch };
+                  }),
+                  asOperationFailed("Unable to create the worktree"),
+                ),
+      ),
       // Removing the worktree must succeed before deleting its freshly created
       // branch; otherwise the branch may still be checked out there.
-      remove: (worktreePath: string) =>
-        gitWorkflow.removeWorktree({ cwd: projectCwd, path: worktreePath, force: true }).pipe(
-          Effect.andThen(
-            Effect.suspend(() =>
-              gitWorkflow.deleteLocalBranch({
-                cwd: projectCwd,
-                refName: input.branch,
+      remove: (worktreePath: string): Effect.Effect<void> =>
+        Effect.suspend((): Effect.Effect<unknown, GitCommandError | TaskFolderError> =>
+          createdTaskFolder === null
+            ? gitWorkflow.removeWorktree({ cwd: projectCwd, path: worktreePath, force: true }).pipe(
+                Effect.andThen(
+                  Effect.suspend(() =>
+                    gitWorkflow.deleteLocalBranch({
+                      cwd: projectCwd,
+                      refName: input.branch,
+                      force: true,
+                    }),
+                  ),
+                ),
+              )
+            : taskFolders.remove({
+                root: createdTaskFolder,
                 force: true,
+                forget: true,
+                projectCommands: projectCommandsNow,
+                deleteBranch: input.branch,
               }),
-            ),
-          ),
-          Effect.ignoreCause({ log: true }),
-        ),
+        ).pipe(Effect.ignoreCause({ log: true })),
     } satisfies CheckoutPlan;
   });
 
@@ -674,7 +755,12 @@ const make = Effect.gen(function* () {
             scope.thread.threadId,
             project.weaveRepositoryKey ?? null,
           )
-        : yield* prepareGitCheckout(projectCwd, project.id, { ...input, branch: input.branch });
+        : yield* prepareGitCheckout(
+            projectCwd,
+            project.id,
+            { ...input, branch: input.branch },
+            projectCommandsNowFor(scope),
+          );
     }
     const ids = yield* handoffIds(scope);
     return yield* Effect.uninterruptibleMask((restore) =>
@@ -728,7 +814,10 @@ const make = Effect.gen(function* () {
           .refreshStatus(created.path)
           .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach);
         let setupScript: WorktreeMcpSetupScriptStatus = { status: "skipped" };
-        if (input.runSetupScript ?? adopted === undefined) {
+        const runSetup = input.runSetupScript ?? adopted === undefined;
+        const setupWaitsForFullAccess =
+          runSetup && (yield* projectCommandsNowFor(scope)) === "agent-below-full-access";
+        if (runSetup && !setupWaitsForFullAccess) {
           setupScript = yield* setupScriptRunner
             .runForThread({
               threadId: scope.thread.threadId,
@@ -847,6 +936,7 @@ export const layer: Layer.Layer<
   | GitWorkflowService.GitWorkflowService
   | ProjectSetupScriptRunner.ProjectSetupScriptRunner
   | VcsStatusBroadcaster.VcsStatusBroadcaster
+  | TaskFolders.TaskFolders
   | WorkspaceProvider.WorkspaceProvider
   | WorkspaceAttachments.WorkspaceAttachments
 > = Layer.effect(WorktreeMcpService, make);

@@ -66,7 +66,9 @@ const startStub = (mode: "success" | "auth" | "malformed") =>
                         path: body.params?.arguments?.calls?.path,
                         ok: true,
                         value: {
-                          results: [{ title: "Source", url: "https://example.com", content: "Snippet" }],
+                          results: [
+                            { title: "Source", url: "https://example.com", content: "Snippet" },
+                          ],
                         },
                       },
                     };
@@ -82,14 +84,18 @@ const startStub = (mode: "success" | "auth" | "malformed") =>
           server.listen(0, "127.0.0.1", () => {
             const addr = server.address() as AddressInfo;
             state.url = `http://127.0.0.1:${addr.port}/mcp`;
-            resolve({ ...state, server, get terminated() { return state.terminated; } });
+            resolve({
+              ...state,
+              server,
+              get terminated() {
+                return state.terminated;
+              },
+            });
           });
         }),
     ),
     ({ server }) =>
-      Effect.promise(
-        () => new Promise<void>((resolve) => server.close(() => resolve())),
-      ),
+      Effect.promise(() => new Promise<void>((resolve) => server.close(() => resolve()))),
   );
 
 const clientLayer = (url: string) =>
@@ -106,17 +112,19 @@ const clientLayer = (url: string) =>
     ),
   );
 
-it.live("connects directly to hosted Executor HTTP MCP with Bearer auth and terminates its session", () =>
-  Effect.gen(function* () {
-    const stub = yield* startStub("success");
-    const result = yield* Effect.gen(function* () {
-      const web = yield* WebResearch.WebResearch;
-      return yield* web.search({ query: "question" });
-    }).pipe(Effect.provide(WebResearch.layer.pipe(Layer.provide(clientLayer(stub.url)))));
-    expect(result).toEqual([{ title: "Source", url: "https://example.com", snippet: "Snippet" }]);
-    expect(stub.seenAuth.every((header) => header === "Bearer fixture-secret")).toBe(true);
-    expect(stub.terminated).toBe(true);
-  }).pipe(Effect.scoped),
+it.live(
+  "connects directly to hosted Executor HTTP MCP with Bearer auth and terminates its session",
+  () =>
+    Effect.gen(function* () {
+      const stub = yield* startStub("success");
+      const result = yield* Effect.gen(function* () {
+        const web = yield* WebResearch.WebResearch;
+        return yield* web.search({ query: "question" });
+      }).pipe(Effect.provide(WebResearch.layer.pipe(Layer.provide(clientLayer(stub.url)))));
+      expect(result).toEqual([{ title: "Source", url: "https://example.com", snippet: "Snippet" }]);
+      expect(stub.seenAuth.every((header) => header === "Bearer fixture-secret")).toBe(true);
+      expect(stub.terminated).toBe(true);
+    }).pipe(Effect.scoped),
 );
 
 it.live.each(["auth", "malformed"] as const)(

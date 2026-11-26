@@ -51,7 +51,6 @@ const snapshot = (tree: string): PreviewAutomationSnapshot => {
     title: "Form",
     loading: false,
     visibleText: "",
-    interactiveElements: [],
     accessibilityTree: tree,
     consoleEntries: [],
     networkEntries: [],

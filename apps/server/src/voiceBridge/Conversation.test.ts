@@ -11,7 +11,13 @@ import {
   threadLink,
   turnMessage,
 } from "./Conversation.ts";
-import { decodeSessions, EMPTY_SESSIONS, pruneSessions, rememberThread, threadFor } from "./Sessions.ts";
+import {
+  decodeSessions,
+  EMPTY_SESSIONS,
+  pruneSessions,
+  rememberThread,
+  threadFor,
+} from "./Sessions.ts";
 
 const messages: ReadonlyArray<ChatMessage> = [
   { role: "system", content: "You are a helpful assistant." },
@@ -41,8 +47,10 @@ it.effect("identifies a conversation by the answer the bridge produced last", ()
   Effect.sync(() => {
     const askedOnly = messages.filter((message) => message.role !== "assistant");
     assert.isNull(lastAssistantText(askedOnly));
-    assert.strictEqual(lastAssistantText([...messages, { role: "assistant", content: "It is a pricing page." }]),
-      "It is a pricing page.");
+    assert.strictEqual(
+      lastAssistantText([...messages, { role: "assistant", content: "It is a pricing page." }]),
+      "It is a pricing page.",
+    );
 
     const answer = "It is a pricing page.\n\nhttp://127.0.0.1:3773/env-1/thread-1";
     // Resent with a different system prompt, the same answer still names the
@@ -97,10 +105,13 @@ it.effect("treats a broken session file as empty rather than failing", () =>
   Effect.sync(() => {
     assert.deepStrictEqual(decodeSessions(undefined), EMPTY_SESSIONS);
     assert.deepStrictEqual(decodeSessions({ entries: "nope" }), EMPTY_SESSIONS);
+    assert.deepStrictEqual(decodeSessions({ entries: { "key-a": { threadId: "thread-1" } } }), {
+      version: 1,
+      entries: { "key-a": { threadId: "thread-1", updatedAt: 0 } },
+    });
     assert.deepStrictEqual(
-      decodeSessions({ entries: { "key-a": { threadId: "thread-1" } } }),
-      { version: 1, entries: { "key-a": { threadId: "thread-1", updatedAt: 0 } } },
+      decodeSessions({ entries: { "key-a": { threadId: 7 } } }),
+      EMPTY_SESSIONS,
     );
-    assert.deepStrictEqual(decodeSessions({ entries: { "key-a": { threadId: 7 } } }), EMPTY_SESSIONS);
   }),
 );

@@ -22,16 +22,15 @@ interface CollectState {
   readonly truncated: boolean;
 }
 
-export const collectUint8StreamText = <E>(input: {
+interface CollectUint8StreamInput<E> {
   readonly stream: Stream.Stream<Uint8Array, E>;
   readonly maxBytes?: number | undefined;
-  readonly truncatedMarker?: string | null | undefined;
   /** Which end survives truncation; a command that reports its failure last needs the tail. */
   readonly keep?: "head" | "tail" | undefined;
-}): Effect.Effect<CollectedUint8StreamText, E> => {
+}
+
+export const collectUint8StreamChunks = <E>(input: CollectUint8StreamInput<E>) => {
   const maxBytes = input.maxBytes ?? Number.POSITIVE_INFINITY;
-  const truncatedMarker = input.truncatedMarker ?? "";
-  if (input.keep === "tail") return collectTail(input.stream, maxBytes, truncatedMarker);
 
   return input.stream.pipe(
     Stream.runFold(
@@ -67,20 +66,30 @@ export const collectUint8StreamText = <E>(input: {
         };
       },
     ),
-    Effect.map((state): CollectedUint8StreamText => {
-      const decoded = decodeUtf8(Buffer.concat(state.chunks, state.bytes));
-      return {
-        text:
-          state.truncated && truncatedMarker.length > 0
-            ? `${decoded.text}${truncatedMarker}`
-            : decoded.text,
-        bytes: state.bytes,
-        truncated: state.truncated,
-        invalidUtf8: decoded.invalidUtf8,
-      };
-    }),
   );
 };
+
+export const collectUint8StreamText = <E>(
+  input: CollectUint8StreamInput<E> & { readonly truncatedMarker?: string | null | undefined },
+): Effect.Effect<CollectedUint8StreamText, E> =>
+  input.keep === "tail"
+    ? collectTail(
+        input.stream,
+        input.maxBytes ?? Number.POSITIVE_INFINITY,
+        input.truncatedMarker ?? "",
+      )
+    : collectUint8StreamChunks(input).pipe(
+        Effect.map(({ chunks, bytes, truncated }) => {
+          const decoded = decodeUtf8(Buffer.concat(chunks, bytes));
+          const marker = input.truncatedMarker ?? "";
+          return {
+            text: truncated ? decoded.text + marker : decoded.text,
+            bytes,
+            truncated,
+            invalidUtf8: decoded.invalidUtf8,
+          };
+        }),
+      );
 
 const collectTail = <E>(
   stream: Stream.Stream<Uint8Array, E>,

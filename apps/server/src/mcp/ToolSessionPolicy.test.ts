@@ -102,9 +102,9 @@ const session = (
 // Raise one only in the change that grows it, and say why in that change.
 const budgets: ReadonlyArray<[string, SessionToolProfile | undefined, number]> = [
   // T3-814: 152_300 for t3_champions_models (replacing the class-choices tool) and how to clear an override.
-  // 159_000: upstream v0.1.11-nightly.20261120.4979 grew the editor listing to 158_736.
-  ["editor", undefined, 159_000],
-  ["editor worker", session("implementation", "implementer"), 159_000],
+  // 161_000: upstream v0.1.13-nightly.20261125.5258 grew the editor listing to 160_469.
+  ["editor", undefined, 161_000],
+  ["editor worker", session("implementation", "implementer"), 161_000],
   // T3-853: the browser family is counted now (browser_task's schema alone is ~29K); the bounded
   // tools it replaced were listed to readers and browser tasks but missing from this catalogue.
   // T3-916: 83_500 for Blackhole's `recall`, which readers keep to search their own history.

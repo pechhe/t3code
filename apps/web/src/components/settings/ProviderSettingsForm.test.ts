@@ -52,6 +52,51 @@ describe("ProviderSettingsForm helpers", () => {
     expect(next).toEqual({ forkOwned: 1 });
   });
 
+  it("shows Antigravity credential fields only for the sign-in methods that read them, or while set", () => {
+    const antigravity = providerClients.get(ProviderDriverKind.make("antigravity"));
+    expect(antigravity).toBeDefined();
+    const keysFor = (value?: unknown) =>
+      deriveProviderSettingsFields(antigravity!, value).map((field) => field.key);
+
+    expect(keysFor({})).toEqual(["authMethod", "binaryPath", "agent"]);
+    expect(
+      keysFor({
+        authMethod: "oauth-personal",
+        apiKey: { provider: "vault", reference: "antigravity" },
+        gcpLocation: "us-central1",
+      }),
+    ).toEqual(["authMethod", "apiKey", "gcpLocation", "binaryPath", "agent"]);
+    expect(keysFor({ authMethod: "oauth-business" })).toEqual([
+      "authMethod",
+      "gcpProject",
+      "gcpLocation",
+      "binaryPath",
+      "agent",
+    ]);
+    expect(keysFor({ authMethod: "gemini-api-key" })).toEqual([
+      "authMethod",
+      "apiKey",
+      "binaryPath",
+      "agent",
+    ]);
+    expect(keysFor({ authMethod: "agent-platform" })).toEqual([
+      "authMethod",
+      "apiKey",
+      "gcpProject",
+      "gcpLocation",
+      "binaryPath",
+      "agent",
+    ]);
+    expect(keysFor()).toEqual([
+      "authMethod",
+      "apiKey",
+      "gcpProject",
+      "gcpLocation",
+      "binaryPath",
+      "agent",
+    ]);
+  });
+
   it("offers the compact model picker only where the environment's accounts are known", () => {
     const claude = providerClients.get(ProviderDriverKind.make("claudeAgent"));
     expect(claude).toBeDefined();

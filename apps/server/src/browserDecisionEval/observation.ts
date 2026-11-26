@@ -45,8 +45,15 @@ const stateOf = (tree: string, locator: string, role: string): string | undefine
 export const observationFromSnapshot = (snapshot: PreviewAutomationSnapshot): Observation => {
   const tree = typeof snapshot.accessibilityTree === "string" ? snapshot.accessibilityTree : "";
   const elements: ObservedElement[] = [];
-  for (const entry of snapshot.interactiveElements) {
-    const role = entry.role ?? "";
+  // The snapshot no longer lists elements apart from the tree, so read each ref's role and name there.
+  const entries = tree.split("\n").flatMap((line) => {
+    const match = /^\s*- ([\w-]+)(?: "((?:[^"\\]|\\.)*)")?.*\[ref=([^\]]+)\]/.exec(line);
+    return match === null
+      ? []
+      : [{ role: match[1]!, name: match[2] ?? "", selector: `aria-ref=${match[3]!}` }];
+  });
+  for (const entry of entries) {
+    const role = entry.role;
     const operations: TargetOperation[] = [];
     if (TEXT_ROLES.has(role)) operations.push("TYPE_TEXT");
     else if (SELECT_ROLES.has(role)) operations.push("SELECT");

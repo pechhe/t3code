@@ -225,7 +225,7 @@ const WorkflowStopTool = Tool.make("t3_workflow_stop", {
 
 const BackgroundWaitTool = Tool.make("t3_background_wait", {
   description:
-    "Mark background commands or Monitors you will act on when they end, by task ID, so the thread stays Working. Never mark a dev server or watcher. waiting=false unmarks; stopping is separate. Claude/OpenCode only.",
+    "Keep this thread in Working while background work runs. Pass its task ID once started. Not for work left running (dev server, watcher). `waiting=false` clears. Doesn't stop tasks.",
   parameters: Schema.Struct({
     taskIds: Schema.Array(TrimmedNonEmptyString).check(
       Schema.isMinLength(1),
@@ -244,7 +244,7 @@ const BackgroundWaitTool = Tool.make("t3_background_wait", {
   .annotate(Tool.Title, "Wait on background work")
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false)
-  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenWithoutBackgroundWait);
 
 const ScheduleTaskTool = Tool.make("schedule_task", {
   description:
@@ -293,7 +293,7 @@ const DeleteScheduledTaskTool = Tool.make("delete_scheduled_task", {
 
 const RequestSecretTool = Tool.make("request_secret", {
   description:
-    'Canonical secret handoff. Search with search_secrets first. Always state storage: bws for reusable keys, temporary for sudo/OTP/pairing. Reuse savedSecretId without secretKey; to create/replace name secretKey and enter through the card. Never ask in chat. One secret per card. Open it, don\'t offer it. Returns one-use `secretRef`, or `delivery: "file"` a file read only in its command, e.g. `adb pair <ip:port> "$(cat <file>)"`. Asked how: call now. Sign-in link: `url`. Pasted secret for child/script: `value`. Never from an old thread.',
+    'Canonical secret handoff. Search with search_secrets first. Always state storage: bws for reusable keys, temporary for sudo/OTP/pairing. Reuse savedSecretId without secretKey; to create/replace name secretKey and enter through the card. Never ask in chat. One value per single-line input; never combine values in one. Open it, don\'t offer it. Returns one-use `secretRef`, or `delivery: "file"` a file read only in its command, e.g. `adb pair <ip:port> "$(cat <file>)"`. Asked how: call now. Sign-in link: `url`. Pasted secret for child/script: `value`. Never from an old thread.',
   parameters: OrchestratorMcpRequestSecretInput,
   success: OrchestratorMcpRequestSecretResult,
   failure: OrchestratorMcpFailure,
@@ -511,7 +511,7 @@ const EnvironmentLinkTool = Tool.make("t3_environment_link", {
 
 const EnvironmentUnlinkTool = Tool.make("t3_environment_unlink", {
   description:
-    "Forget a linked environment. That machine's Connections list its session until revoked there.",
+    "Forget a linked environment. Its session on that machine ends too when the machine answers.",
   parameters: OrchestratorMcpEnvironmentUnlinkInput,
   success: OrchestratorMcpEnvironmentUnlinkResult,
   failure: OrchestratorMcpFailure,

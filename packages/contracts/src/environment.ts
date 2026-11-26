@@ -29,6 +29,8 @@ export const SETTINGS_SECRET_REFERENCES_CAPABILITY = "settingsSecretReferences";
 export const IMPLEMENTER_ROLE_CAPABILITY = "implementerRole";
 /** The client keeps Champion threads out of its lists itself; one that omits this is not sent them. */
 export const CHAMPION_THREADS_CAPABILITY = "championThreads";
+/** Usage limit sources may be of kind "http", not only "cliproxy". */
+export const HTTP_USAGE_LIMIT_SOURCES_CAPABILITY = "httpUsageLimitSources";
 
 export const ExecutionEnvironmentPlatformOs = Schema.Literals([
   "darwin",
@@ -204,6 +206,14 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
       (`linkOrigin`). Another environment links to this one only when it is
       set, since without it that work could change the user's own threads. */
   linkFence: Schema.optionalKey(Schema.Boolean),
+  /** Serves a thread's stream, history pages and item detail to a link's session
+      (`PEER_LINK_THREAD_STREAM_ROUTE`), so a client of the linking environment can read it. */
+  linkThreadStream: Schema.optionalKey(Schema.Boolean),
+  /** A full-access link can ask this server for a one-time pairing credential for a client
+      of the linking environment. Absent on servers from before it. */
+  linkClientPairing: Schema.optionalKey(Schema.Boolean),
+  /** The same route also mints a pairing code for a link from another environment. */
+  linkPairingForLink: Schema.optionalKey(Schema.Boolean),
   /** Mints pairing codes that approve one agent sign-in at a set level (`AUTO-…`). */
   mcpApprovalCodes: Schema.optionalKey(Schema.Boolean),
   peerLinkPairingCodes: Schema.optionalKey(Schema.Boolean),
@@ -234,8 +244,12 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   linkedThreadRefreshes: Schema.optionalKey(Schema.Boolean),
   /** Serves `server.applySharedModelPreferences` for catching up favorites and per-model preferences. */
   sharedModelPreferences: Schema.optionalKey(Schema.Boolean),
+  /** Honors the `agentFeedback` setting; older servers drop it, so hide its switch where absent. */
+  agentFeedback: Schema.optionalKey(Schema.Boolean),
   /** Answers `issues.linkedThreads`, the threads an issue is linked to. */
   issueLinkedThreads: Schema.optionalKey(Schema.Boolean),
+  /** Keeps more than one account per standalone issue tracker; older servers keep one. */
+  issueTrackerAccounts: Schema.optionalKey(Schema.Boolean),
 });
 export type ExecutionEnvironmentCapabilities = typeof ExecutionEnvironmentCapabilities.Type;
 

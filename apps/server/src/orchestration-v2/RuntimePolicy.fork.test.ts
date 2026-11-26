@@ -1,4 +1,5 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import * as WorkspaceFolders from "../workspace/WorkspaceFolders.ts";
 import { assert, it } from "@effect/vitest";
 import {
   type AgentTaskBinding,
@@ -98,6 +99,11 @@ const layerWithPolicy = (policy?: ManagedPolicySummary) =>
       }),
     ),
     Layer.provide(
+      Layer.mock(WorkspaceFolders.WorkspaceFolders)({
+        forThread: () => Effect.succeed({ folders: [], extraRoots: [] }),
+      }),
+    ),
+    Layer.provide(
       Layer.mock(ProjectStore.ProjectStoreV2)({
         get: () =>
           Effect.succeedSome({
@@ -107,6 +113,7 @@ const layerWithPolicy = (policy?: ManagedPolicySummary) =>
             defaultModelSelection: null,
             defaultThreadEnvMode: null,
             hasCustomTitle: false,
+            trackedFolders: [],
             autoPull: false,
             faviconPath: null,
             projectIcon: null,

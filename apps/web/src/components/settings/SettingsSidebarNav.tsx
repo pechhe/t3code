@@ -58,14 +58,17 @@ import { scrollToSettingsTarget } from "./settingsLayout";
 import {
   searchSettings,
   revealSettingsSearchTarget,
-  SETTINGS_NAV_GROUPS,
+  settingsNavGroups,
   SETTINGS_NAV_LABELS,
   SETTINGS_SECTION_LABELS,
   type SettingsPath,
   type SettingsSearchItem,
 } from "./settingsSearch";
 import { useSettingsSearchQuery } from "./settingsSearchStore";
-import { useAvailableSettingsSearchItems } from "./useAvailableSettingsSearchItems";
+import {
+  useAvailableSettingsSearchItems,
+  useHasSecretProvidersEnvironment,
+} from "./useAvailableSettingsSearchItems";
 import { validateSettingsScopeSearch, type SettingsScopeSearch } from "./settingsScope";
 import { defaultSettingsProjectKey } from "./settingsScopeNavigation";
 import { useSettingsProjectGroups } from "./useSettingsProjectGroups";
@@ -143,6 +146,7 @@ function SettingsSectionIcon({ to }: { to: SettingsPath }) {
   return <Icon className="size-4 h-5 shrink-0 text-(--sidebar-icon-color)" />;
 }
 
+const navGroups = settingsNavGroups(useHasSecretProvidersEnvironment());
 export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   const gt = useGT();
   const m = useMessages();
@@ -276,7 +280,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
 
   const handleSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
-    if (event.key === "Escape" && isSearching) {
+    if (event.key === "Escape" && (query || event.repeat)) {
       event.preventDefault();
       event.stopPropagation();
       clearSearch();
@@ -427,7 +431,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                   </SidebarMenu>
                 )}
                 <div onKeyDown={handleSettingsSectionKeyDown} className="flex flex-col gap-4">
-                  {SETTINGS_NAV_GROUPS.map((group, index) => (
+                  {navGroups.map((group, index) => (
                     <div
                       key={group.heading}
                       className="flex flex-col gap-1 max-md:border-t max-md:border-sidebar-border max-md:pt-4 max-md:first:border-t-0 max-md:first:pt-0"

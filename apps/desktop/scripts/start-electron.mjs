@@ -3,7 +3,11 @@ import * as NodePath from "node:path";
 
 import { desktopDir, resolveElectronLaunchCommand } from "./electron-launcher.mjs";
 
-for (const script of ["build-browser-secret.mjs", "build-screen-picker.mjs"]) {
+for (const script of [
+  "build-browser-secret.mjs",
+  "build-screen-picker.mjs",
+  "build-apple-speech.mjs",
+]) {
   NodeChildProcess.execFileSync(process.execPath, [NodePath.join(desktopDir, "scripts", script)], {
     stdio: "inherit",
   });

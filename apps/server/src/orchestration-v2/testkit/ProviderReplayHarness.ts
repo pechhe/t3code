@@ -20,6 +20,7 @@ import type * as SqlClient from "effect/sql/SqlClient";
 import type { MigrationError } from "effect/sql/Migrator";
 import type { SqlError } from "effect/sql/SqlError";
 
+import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
 import * as CheckpointStore from "../../checkpointing/CheckpointStore.ts";
 import * as ServerConfig from "../../config.ts";
 import * as SqlitePersistence from "../../persistence/Sqlite.ts";
@@ -45,6 +46,7 @@ import * as ThreadViewers from "../ThreadViewers.ts";
 import * as EventStore from "../EventStore.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as Orchestrator from "../Orchestrator.ts";
+import * as ProjectionMaintenance from "../ProjectionMaintenance.ts";
 import * as ProjectionStore from "../ProjectionStore.ts";
 import * as ProjectStore from "../ProjectStore.ts";
 import * as ProviderAdapterRegistry from "../ProviderAdapterRegistry.ts";
@@ -69,10 +71,13 @@ import * as RunExecutionService from "../RunExecutionService.ts";
 import * as RunFinalizationService from "../RunFinalizationService.ts";
 import * as ThreadTitleRegenerationService from "../ThreadTitleRegenerationService.ts";
 import * as RuntimePolicy from "../RuntimePolicy.ts";
+import * as WorkspaceFolders from "../../workspace/WorkspaceFolders.ts";
+import * as TaskFolderStore from "../../workspace/TaskFolderStore.ts";
 import * as TurnItemPositionStore from "../TurnItemPositionStore.ts";
 import * as RuntimeRequestService from "../RuntimeRequestService.ts";
 import * as ThreadCommandExecutor from "../ThreadCommandExecutor.ts";
 import * as ThreadForkService from "../ThreadForkService.ts";
+import { ThreadWorktreeRestore } from "../../workspace/restoreMissingWorktree.ts";
 import {
   runOrchestratorV2Scenario,
   type OrchestratorV2ScenarioStepError,
@@ -156,6 +161,7 @@ export function makeReplayServerConfig(
       providerStatusCacheDir,
       worktreesDir,
       worktreeCheckoutCacheDir: path.join(providerStatusCacheDir, "worktree-checkouts"),
+      workflowsDir: path.join(baseDir, "workflows"),
       attachmentsDir,
       browserArtifactsDir: path.join(stateDir, "browser-artifacts"),
       environmentThemesDir,
@@ -216,6 +222,9 @@ export function runOrchestratorV2ProviderReplayScenario<
     readonly continueThreadsAfterServerUpdate?: boolean;
     readonly advisorIdleCloseMinutes?: number | null;
     readonly managedPolicy?: ManagedPolicyDocument;
+    readonly providerInstances?: Partial<
+      ProviderInstanceRegistry.ProviderInstanceRegistry["Service"]
+    >;
   } = {},
 ): Effect.Effect<
   OrchestratorV2ScenarioResult,
@@ -261,6 +270,9 @@ export function layerProviderReplay<Transcript extends ProviderReplayTranscript,
     readonly advisorIdleCloseMinutes?: number | null;
     readonly managedPolicy?: ManagedPolicyDocument;
     readonly replayGate?: ProviderReplayGate;
+    readonly providerInstances?: Partial<
+      ProviderInstanceRegistry.ProviderInstanceRegistry["Service"]
+    >;
   } = {},
 ): Layer.Layer<
   | Orchestrator.OrchestratorV2
@@ -304,6 +316,10 @@ export function layerWithRegistry<Error>(
     /** Exercises callers when a transactional event publication is refused. */
     readonly wrapEventSink?: (sink: EventSink.EventSinkV2Shape) => EventSink.EventSinkV2Shape;
     readonly managedPolicy?: ManagedPolicyDocument;
+    /** The instances the ingestor reads snapshots from, such as an endpoint behind a hub. */
+    readonly providerInstances?: Partial<
+      ProviderInstanceRegistry.ProviderInstanceRegistry["Service"]
+    >;
   } = {},
 ): Layer.Layer<
   | Orchestrator.OrchestratorV2
@@ -321,11 +337,29 @@ export function layerWithRegistry<Error>(
     ServerConfig.ServerConfig,
     makeReplayServerConfig(scenario.name).pipe(Effect.orDie),
   ).pipe(Layer.provide(NodeServices.layer));
+  // A thread without a worktree would otherwise fall back to process.cwd(), so checkpoints
+  // would run git against the checkout running the tests and race its other users.
+  const layerScenarioWorkspacePolicy = Layer.effect(
+    RuntimePolicy.RuntimePolicyV2,
+    Effect.gen(function* () {
+      const workspace = yield* checkpointWorkspace(
+        scenario.name.replace(/[^a-z0-9_-]+/gi, "-"),
+      ).pipe(Effect.orDie);
+      return {
+        resolve: (input) =>
+          Effect.succeed({
+            runtimeMode: input.thread.runtimeMode,
+            interactionMode: input.thread.interactionMode,
+            cwd: input.thread.worktreePath ?? workspace,
+          }),
+      };
+    }),
+  );
   const layerRuntimeBase =
     scenario.runtimePolicyOverride === undefined
-      ? RuntimePolicy.layer
+      ? layerScenarioWorkspacePolicy
       : RuntimePolicy.layerWithOverride(scenario.runtimePolicyOverride).pipe(
-          Layer.provide(RuntimePolicy.layer),
+          Layer.provide(layerScenarioWorkspacePolicy),
         );
   const layerDatabase = options.databaseLayer ?? SqlitePersistence.layerMemory;
   // Share one continuation queue across adapters, orchestrator, and worker through layer memoization.
@@ -386,9 +420,9 @@ export function layerWithRegistry<Error>(
   const layerProviderEventIngestorProvided = ProviderEventIngestor.layer.pipe(
     Layer.provide(
       Layer.mergeAll(
-        Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
-          getInstance: () => Effect.undefined,
-        }),
+        Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)(
+          options.providerInstances ?? { getInstance: () => Effect.undefined },
+        ),
         layerStores,
         layerEventSinkProvided,
         IdAllocator.layer,
@@ -410,7 +444,16 @@ export function layerWithRegistry<Error>(
     Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
   );
   const layerCheckpointServiceProvided = CheckpointService.layer.pipe(
-    Layer.provide(Layer.mergeAll(layerCheckpointStore, IdAllocator.layer)),
+    Layer.provide(
+      Layer.mergeAll(
+        layerCheckpointStore,
+        IdAllocator.layer,
+        WorkspaceFolders.layer.pipe(
+          Layer.provide(layerStores),
+          Layer.provide(TaskFolderStore.layer.pipe(Layer.provide(layerDatabase))),
+        ),
+      ),
+    ),
   );
   const layerContextHandoffServiceProvided = ContextHandoffService.layer.pipe(
     Layer.provide(IdAllocator.layer),
@@ -482,6 +525,7 @@ export function layerWithRegistry<Error>(
         layerRuntime,
         layerServerConfig,
         layerServerSettings,
+        Layer.mock(ThreadWorktreeRestore)({ takeRecreated: () => Effect.undefined }),
       ),
     ),
   );
@@ -525,6 +569,7 @@ export function layerWithRegistry<Error>(
         layerEventSinkProvided,
         IdAllocator.layer,
         layerStores,
+        ThreadCommandExecutor.layer,
       ),
     ),
   );
@@ -555,6 +600,7 @@ export function layerWithRegistry<Error>(
         layerProviderSwitchServiceProvided,
         layerRunExecutionServiceProvided,
         layerServerSettings,
+        TaskFolderStore.layer.pipe(Layer.provide(layerDatabase)),
         ThreadForkService.layer,
       ),
     ),
@@ -598,6 +644,7 @@ export function layerWithRegistry<Error>(
         layerServerSettings,
         layerThreadManagementProvided,
         layerStores,
+        ProjectionMaintenance.layer.pipe(Layer.provide(layerDatabase)),
       ),
     ),
   );

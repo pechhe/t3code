@@ -35,6 +35,7 @@ export const CLI_COMMAND_INSTALL_CHANNEL = "desktop:cli-command-install";
 export const CLI_COMMAND_UNINSTALL_CHANNEL = "desktop:cli-command-uninstall";
 export const CLI_COMMAND_ADD_TO_PATH_CHANNEL = "desktop:cli-command-add-to-path";
 export const GET_APP_BRANDING_CHANNEL = "desktop:get-app-branding";
+export const GET_DATABASE_MIGRATION_PROGRESS_CHANNEL = "desktop:get-database-migration-progress";
 export const GET_RELAY_TELEMETRY_ENABLED_CHANNEL = "desktop:get-relay-telemetry-enabled";
 export const GET_SYSTEM_LOCALE_CHANNEL = "desktop:get-system-locale";
 export const GET_PREFERRED_SYSTEM_LANGUAGES_CHANNEL = "desktop:get-preferred-system-languages";
@@ -159,6 +160,9 @@ export const SCREEN_RECORDING_INDICATOR_ACTION_CHANNEL =
   "desktop:screen-recording-indicator-action";
 export const SCREEN_RECORDING_INDICATOR_STATE_CHANNEL = "desktop:screen-recording-indicator-state";
 export const SCREEN_RECORDING_INDICATOR_PILL_CHANNEL = "desktop:screen-recording-indicator-pill";
+export const APPLE_SPEECH_AVAILABLE_CHANNEL = "desktop:apple-speech-available";
+export const APPLE_SPEECH_PREPARE_CHANNEL = "desktop:apple-speech-prepare";
+export const APPLE_SPEECH_TRANSCRIBE_CHANNEL = "desktop:apple-speech-transcribe";
 
 export const PREVIEW_RECORDING_INPUT_CHANNEL = "desktop:preview-recording-input";
 

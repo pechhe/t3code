@@ -36,10 +36,7 @@
     }
   },
   "runAt": "2026-11-16T13:39:21.161Z",
-  "engines": [
-    "jev",
-    "luna"
-  ],
+  "engines": ["jev", "luna"],
   "run": {
     "checkout": {
       "head": "d214a9fa302a762e0d7cb8180e3213e4abc6f6ff",
@@ -672,11 +669,7 @@
             "high": 0.8672020613444361
           },
           "criticalOmissionCases": 3,
-          "criticalOmissionIds": [
-            "t-dpop-tunnel",
-            "t-install-on-quit",
-            "t-eval-run-script"
-          ],
+          "criticalOmissionIds": ["t-dpop-tunnel", "t-install-on-quit", "t-eval-run-script"],
           "allNeededRetainedCases": 5,
           "included": {
             "needed": 12,
@@ -1091,10 +1084,7 @@
             "high": 0.967120919987079
           },
           "criticalOmissionCases": 2,
-          "criticalOmissionIds": [
-            "t-install-on-quit",
-            "t-close-report"
-          ],
+          "criticalOmissionIds": ["t-install-on-quit", "t-close-report"],
           "allNeededRetainedCases": 6,
           "included": {
             "needed": 15,
@@ -1130,10 +1120,7 @@
             "high": 0.9380898628745101
           },
           "criticalOmissionCases": 2,
-          "criticalOmissionIds": [
-            "t-followup-workspace",
-            "t-install-on-quit"
-          ],
+          "criticalOmissionIds": ["t-followup-workspace", "t-install-on-quit"],
           "allNeededRetainedCases": 6,
           "included": {
             "needed": 14,
@@ -1275,9 +1262,7 @@
             "high": 0.9895398693548358
           },
           "criticalOmissionCases": 1,
-          "criticalOmissionIds": [
-            "t-eval-run-script"
-          ],
+          "criticalOmissionIds": ["t-eval-run-script"],
           "allNeededRetainedCases": 7,
           "included": {
             "needed": 16,
@@ -1313,9 +1298,7 @@
             "high": 0.9895398693548358
           },
           "criticalOmissionCases": 1,
-          "criticalOmissionIds": [
-            "t-label-rename"
-          ],
+          "criticalOmissionIds": ["t-label-rename"],
           "allNeededRetainedCases": 7,
           "included": {
             "needed": 16,
@@ -1351,10 +1334,7 @@
             "high": 0.9380898628745101
           },
           "criticalOmissionCases": 2,
-          "criticalOmissionIds": [
-            "t-followup-workspace",
-            "t-install-on-quit"
-          ],
+          "criticalOmissionIds": ["t-followup-workspace", "t-install-on-quit"],
           "allNeededRetainedCases": 6,
           "included": {
             "needed": 14,
@@ -1490,42 +1470,26 @@
         "better": 0,
         "worse": 4,
         "betterCases": [],
-        "worseCases": [
-          "t-followup-workspace",
-          "t-close-report",
-          "t-weekly-bump",
-          "t-review-pilot"
-        ]
+        "worseCases": ["t-followup-workspace", "t-close-report", "t-weekly-bump", "t-review-pilot"]
       },
       "budget": {
         "better": 0,
         "worse": 3,
         "betterCases": [],
-        "worseCases": [
-          "t-eval-run-script",
-          "t-weekly-bump",
-          "t-review-pilot"
-        ]
+        "worseCases": ["t-eval-run-script", "t-weekly-bump", "t-review-pilot"]
       }
     },
     "jev": {
       "topK": {
         "better": 3,
         "worse": 0,
-        "betterCases": [
-          "t-dpop-tunnel",
-          "t-install-on-quit",
-          "t-eval-run-script"
-        ],
+        "betterCases": ["t-dpop-tunnel", "t-install-on-quit", "t-eval-run-script"],
         "worseCases": []
       },
       "budget": {
         "better": 2,
         "worse": 0,
-        "betterCases": [
-          "t-dpop-tunnel",
-          "t-close-report"
-        ],
+        "betterCases": ["t-dpop-tunnel", "t-close-report"],
         "worseCases": []
       }
     },
@@ -1533,19 +1497,13 @@
       "topK": {
         "better": 2,
         "worse": 0,
-        "betterCases": [
-          "t-dpop-tunnel",
-          "t-install-on-quit"
-        ],
+        "betterCases": ["t-dpop-tunnel", "t-install-on-quit"],
         "worseCases": []
       },
       "budget": {
         "better": 2,
         "worse": 0,
-        "betterCases": [
-          "t-dpop-tunnel",
-          "t-close-report"
-        ],
+        "betterCases": ["t-dpop-tunnel", "t-close-report"],
         "worseCases": []
       }
     }
@@ -1564,9 +1522,7 @@
       "costUsd": 0.001034628,
       "knownCostUsd": 0.001034628,
       "costKnownCalls": 8,
-      "costStatuses": [
-        "estimated"
-      ],
+      "costStatuses": ["estimated"],
       "attempts": 8,
       "failedAttempts": 0,
       "failureCodes": [],
@@ -1594,9 +1550,7 @@
       "costUsd": 0.0036616,
       "knownCostUsd": 0.0036616,
       "costKnownCalls": 8,
-      "costStatuses": [
-        "estimated"
-      ],
+      "costStatuses": ["estimated"],
       "attempts": 8,
       "failedAttempts": 0,
       "failureCodes": [],
@@ -1627,11 +1581,7 @@
               "high": 0.8672020613444361
             },
             "criticalOmissionCases": 3,
-            "criticalOmissionIds": [
-              "t-dpop-tunnel",
-              "t-install-on-quit",
-              "t-eval-run-script"
-            ],
+            "criticalOmissionIds": ["t-dpop-tunnel", "t-install-on-quit", "t-eval-run-script"],
             "allNeededRetainedCases": 5,
             "included": {
               "needed": 12,
@@ -2046,10 +1996,7 @@
               "high": 0.967120919987079
             },
             "criticalOmissionCases": 2,
-            "criticalOmissionIds": [
-              "t-install-on-quit",
-              "t-close-report"
-            ],
+            "criticalOmissionIds": ["t-install-on-quit", "t-close-report"],
             "allNeededRetainedCases": 6,
             "included": {
               "needed": 15,
@@ -2085,10 +2032,7 @@
               "high": 0.9380898628745101
             },
             "criticalOmissionCases": 2,
-            "criticalOmissionIds": [
-              "t-followup-workspace",
-              "t-install-on-quit"
-            ],
+            "criticalOmissionIds": ["t-followup-workspace", "t-install-on-quit"],
             "allNeededRetainedCases": 6,
             "included": {
               "needed": 14,
@@ -2230,9 +2174,7 @@
               "high": 0.9895398693548358
             },
             "criticalOmissionCases": 1,
-            "criticalOmissionIds": [
-              "t-eval-run-script"
-            ],
+            "criticalOmissionIds": ["t-eval-run-script"],
             "allNeededRetainedCases": 7,
             "included": {
               "needed": 16,
@@ -2268,9 +2210,7 @@
               "high": 0.9895398693548358
             },
             "criticalOmissionCases": 1,
-            "criticalOmissionIds": [
-              "t-label-rename"
-            ],
+            "criticalOmissionIds": ["t-label-rename"],
             "allNeededRetainedCases": 7,
             "included": {
               "needed": 16,
@@ -2306,10 +2246,7 @@
               "high": 0.9380898628745101
             },
             "criticalOmissionCases": 2,
-            "criticalOmissionIds": [
-              "t-followup-workspace",
-              "t-install-on-quit"
-            ],
+            "criticalOmissionIds": ["t-followup-workspace", "t-install-on-quit"],
             "allNeededRetainedCases": 6,
             "included": {
               "needed": 14,
@@ -2838,10 +2775,7 @@
               "high": 0.9786453608166245
             },
             "criticalOmissionCases": 2,
-            "criticalOmissionIds": [
-              "t-eval-run-script",
-              "t-review-pilot"
-            ],
+            "criticalOmissionIds": ["t-eval-run-script", "t-review-pilot"],
             "allNeededRetainedCases": 6,
             "included": {
               "needed": 24,
@@ -2918,10 +2852,7 @@
               "high": 0.959968281788505
             },
             "criticalOmissionCases": 2,
-            "criticalOmissionIds": [
-              "t-followup-workspace",
-              "t-install-on-quit"
-            ],
+            "criticalOmissionIds": ["t-followup-workspace", "t-install-on-quit"],
             "allNeededRetainedCases": 6,
             "included": {
               "needed": 23,
@@ -3063,11 +2994,7 @@
               "high": 0.959968281788505
             },
             "criticalOmissionCases": 3,
-            "criticalOmissionIds": [
-              "t-install-on-quit",
-              "t-eval-run-script",
-              "t-review-pilot"
-            ],
+            "criticalOmissionIds": ["t-install-on-quit", "t-eval-run-script", "t-review-pilot"],
             "allNeededRetainedCases": 5,
             "included": {
               "needed": 23,
@@ -3103,11 +3030,7 @@
               "high": 0.959968281788505
             },
             "criticalOmissionCases": 3,
-            "criticalOmissionIds": [
-              "t-followup-workspace",
-              "t-install-on-quit",
-              "t-label-rename"
-            ],
+            "criticalOmissionIds": ["t-followup-workspace", "t-install-on-quit", "t-label-rename"],
             "allNeededRetainedCases": 5,
             "included": {
               "needed": 23,
@@ -3143,10 +3066,7 @@
               "high": 0.959968281788505
             },
             "criticalOmissionCases": 2,
-            "criticalOmissionIds": [
-              "t-followup-workspace",
-              "t-install-on-quit"
-            ],
+            "criticalOmissionIds": ["t-followup-workspace", "t-install-on-quit"],
             "allNeededRetainedCases": 6,
             "included": {
               "needed": 23,
@@ -3674,9 +3594,7 @@
               "high": 0.9915442305280766
             },
             "criticalOmissionCases": 1,
-            "criticalOmissionIds": [
-              "t-review-pilot"
-            ],
+            "criticalOmissionIds": ["t-review-pilot"],
             "allNeededRetainedCases": 7,
             "included": {
               "needed": 20,
@@ -3712,10 +3630,7 @@
               "high": 0.9734817912030528
             },
             "criticalOmissionCases": 2,
-            "criticalOmissionIds": [
-              "t-install-on-quit",
-              "t-close-report"
-            ],
+            "criticalOmissionIds": ["t-install-on-quit", "t-close-report"],
             "allNeededRetainedCases": 6,
             "included": {
               "needed": 19,
@@ -3751,10 +3666,7 @@
               "high": 0.950190782017865
             },
             "criticalOmissionCases": 2,
-            "criticalOmissionIds": [
-              "t-followup-workspace",
-              "t-install-on-quit"
-            ],
+            "criticalOmissionIds": ["t-followup-workspace", "t-install-on-quit"],
             "allNeededRetainedCases": 6,
             "included": {
               "needed": 18,
@@ -3896,10 +3808,7 @@
               "high": 0.9734817912030528
             },
             "criticalOmissionCases": 2,
-            "criticalOmissionIds": [
-              "t-eval-run-script",
-              "t-review-pilot"
-            ],
+            "criticalOmissionIds": ["t-eval-run-script", "t-review-pilot"],
             "allNeededRetainedCases": 6,
             "included": {
               "needed": 19,
@@ -3935,9 +3844,7 @@
               "high": 0.9915442305280766
             },
             "criticalOmissionCases": 1,
-            "criticalOmissionIds": [
-              "t-label-rename"
-            ],
+            "criticalOmissionIds": ["t-label-rename"],
             "allNeededRetainedCases": 7,
             "included": {
               "needed": 20,
@@ -3973,10 +3880,7 @@
               "high": 0.950190782017865
             },
             "criticalOmissionCases": 2,
-            "criticalOmissionIds": [
-              "t-followup-workspace",
-              "t-install-on-quit"
-            ],
+            "criticalOmissionIds": ["t-followup-workspace", "t-install-on-quit"],
             "allNeededRetainedCases": 6,
             "included": {
               "needed": 18,
@@ -4504,9 +4408,7 @@
               "high": 0.9919307806988522
             },
             "criticalOmissionCases": 1,
-            "criticalOmissionIds": [
-              "t-eval-run-script"
-            ],
+            "criticalOmissionIds": ["t-eval-run-script"],
             "allNeededRetainedCases": 7,
             "included": {
               "needed": 21,
@@ -4583,10 +4485,7 @@
               "high": 0.9525108273576373
             },
             "criticalOmissionCases": 2,
-            "criticalOmissionIds": [
-              "t-followup-workspace",
-              "t-install-on-quit"
-            ],
+            "criticalOmissionIds": ["t-followup-workspace", "t-install-on-quit"],
             "allNeededRetainedCases": 6,
             "included": {
               "needed": 19,
@@ -4728,10 +4627,7 @@
               "high": 0.9747051037171622
             },
             "criticalOmissionCases": 2,
-            "criticalOmissionIds": [
-              "t-install-on-quit",
-              "t-eval-run-script"
-            ],
+            "criticalOmissionIds": ["t-install-on-quit", "t-eval-run-script"],
             "allNeededRetainedCases": 6,
             "included": {
               "needed": 20,
@@ -4767,11 +4663,7 @@
               "high": 0.9525108273576373
             },
             "criticalOmissionCases": 3,
-            "criticalOmissionIds": [
-              "t-followup-workspace",
-              "t-install-on-quit",
-              "t-label-rename"
-            ],
+            "criticalOmissionIds": ["t-followup-workspace", "t-install-on-quit", "t-label-rename"],
             "allNeededRetainedCases": 5,
             "included": {
               "needed": 19,
@@ -4807,10 +4699,7 @@
               "high": 0.9525108273576373
             },
             "criticalOmissionCases": 2,
-            "criticalOmissionIds": [
-              "t-followup-workspace",
-              "t-install-on-quit"
-            ],
+            "criticalOmissionIds": ["t-followup-workspace", "t-install-on-quit"],
             "allNeededRetainedCases": 6,
             "included": {
               "needed": 19,

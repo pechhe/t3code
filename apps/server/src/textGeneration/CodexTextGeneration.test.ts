@@ -1,5 +1,6 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import {
+  DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   ProjectId,
   ProviderDriverKind,
   type ModelSelection,
@@ -661,10 +662,14 @@ const PREFLIGHT_PRIMARY_STATES = [
   "exhausted",
   "not installed",
   "not installed, fallback disabled for project",
+  "not installed, fallback model cannot generate text",
   "signed out",
   "signed out, fallback failed",
   "cannot generate text",
   "model cannot generate text",
+  "disabled",
+  "disabled, thread default model cannot generate text",
+  "disabled, fallback disabled for project",
 ] as const;
 
 it.effect.each(PREFLIGHT_PRIMARY_STATES)("text generation preflight: %s", (primaryState) =>
@@ -725,6 +730,24 @@ it.effect.each(PREFLIGHT_PRIMARY_STATES)("text generation preflight: %s", (prima
               ],
             }
           : {}),
+        ...((primaryState === "not installed, fallback model cannot generate text" ||
+          primaryState === "disabled, thread default model cannot generate text") &&
+        instanceId === fallback
+          ? {
+              models: [
+                {
+                  slug: threadDefault.model,
+                  name: threadDefault.model,
+                  isCustom: true,
+                  supportsTextGeneration: false,
+                  capabilities: null,
+                },
+              ],
+            }
+          : {}),
+        ...(primaryState.startsWith("disabled") && instanceId === primary
+          ? { enabled: false, status: "disabled" }
+          : {}),
         ...(primaryState === "exhausted" && instanceId === primary
           ? {
               usageLimits: {
@@ -774,7 +797,7 @@ it.effect.each(PREFLIGHT_PRIMARY_STATES)("text generation preflight: %s", (prima
               },
             },
             defaultModelSelection: threadDefault,
-            ...(primaryState === "not installed, fallback disabled for project"
+            ...(primaryState.endsWith("fallback disabled for project")
               ? {
                   projectSettingsOverrides: {
                     [projectId]: { providerInstances: { [fallback]: { enabled: false } } },
@@ -790,22 +813,38 @@ it.effect.each(PREFLIGHT_PRIMARY_STATES)("text generation preflight: %s", (prima
         ),
       ),
     );
-    expect(
-      yield* service.generateThreadTitle({
+    const generated = yield* service
+      .generateThreadTitle({
         cwd: "/tmp",
         message: "hello",
         linkedContext: "",
-        modelSelection: selection,
+        modelSelection:
+          primaryState === "disabled, thread default model cannot generate text"
+            ? threadDefault
+            : selection,
         projectId,
-      }),
-    ).toEqual({ title: "Generated title" });
+      })
+      .pipe(Effect.exit);
+    if (primaryState === "disabled, fallback disabled for project") {
+      expect(Exit.isFailure(generated)).toBe(true);
+      expect(calls).toEqual([]);
+      return;
+    }
+    expect(generated).toEqual(Exit.succeed({ title: "Generated title" }));
     expect(calls).toEqual([
       primaryState === "ready" ||
       primaryState === "pending" ||
       primaryState === "not installed, fallback disabled for project" ||
       primaryState === "signed out, fallback failed"
         ? selection
-        : threadDefault,
+        : primaryState === "not installed, fallback model cannot generate text" ||
+            primaryState === "disabled, thread default model cannot generate text"
+          ? {
+              instanceId: fallback,
+              model:
+                DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER[ProviderDriverKind.make("claudeAgent")],
+            }
+          : threadDefault,
     ]);
   }),
 );
@@ -880,6 +919,7 @@ it.effect(
         );
       const input = {
         cwd: "/tmp",
+        projectCwd: "/tmp",
         number: 1,
         title: "Change",
         description: "",

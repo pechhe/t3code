@@ -1,4 +1,5 @@
 import { SourceControlProviderError, SourceControlProviderKind } from "@t3tools/contracts";
+import * as NodeChildProcessSpawner from "@effect/platform-node/NodeChildProcessSpawner";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as ServerConfig from "../config.ts";
@@ -10,6 +11,7 @@ import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
+import * as VideoFrames from "../videoFrames/VideoFrames.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
@@ -20,8 +22,31 @@ import * as Layer from "effect/Layer";
 
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
+import * as TaskFolders from "../workspace/TaskFolders.ts";
 
-export const layer = Layer.merge(
+// No project in these tests tracks a repository, so no thread works in a task folder.
+export const layerNoTaskFolders = Layer.mock(TaskFolders.TaskFolders)({
+  plan: () => Effect.succeed(null),
+  find: () => Effect.succeed(null),
+});
+
+// What the turn start reads beyond the upstream testkit: video frames and a spawner for the
+// workspace notes.
+const layerForkBase = Layer.mergeAll(
+  Layer.mock(VideoFrames.VideoFrames)({
+    framesForMessage: () => Effect.succeed({ frames: [], guide: "" }),
+  }),
+  NodeChildProcessSpawner.layer.pipe(
+    Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+  ),
+);
+
+export const layer = Layer.mergeAll(
+  Layer.mock(ProjectSetupScriptRunner.ProjectSetupScriptRunner)({
+    runForThread: () => Effect.succeed({ status: "no-script" }),
+  }),
+  layerNoTaskFolders,
+  layerForkBase,
   Layer.mock(GitWorkflow.GitWorkflowService)({
     pruneWorktrees: () => Effect.void,
     createWorktree: () => Effect.succeed({} as never),

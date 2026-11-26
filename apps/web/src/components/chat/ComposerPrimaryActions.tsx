@@ -51,6 +51,8 @@ interface ComposerPrimaryActionsProps {
   /** Dictation is running; Send finishes it and submits once the transcript lands. */
   voiceInputActive?: boolean;
   isSendBusy: boolean;
+  /** A send is armed and waiting for its attachments to finish preparing or uploading. */
+  isSendHeld?: boolean;
   sendDisabledReason: string | null;
   isEnvironmentUnavailable: boolean;
   isPreparingWorktree: boolean;
@@ -249,6 +251,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   alternateShortcutLabel = null,
   voiceInputActive = false,
   isSendBusy,
+  isSendHeld = false,
   sendDisabledReason,
   isEnvironmentUnavailable,
   isPreparingWorktree,
@@ -499,7 +502,8 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   if (
     (canInterrupt || stopPhase === "pending" || stopPhase === "timedOut") &&
     !hasSendableContent &&
-    !isEditingQueuedMessage
+    !isEditingQueuedMessage &&
+    !isSendHeld
   ) {
     return (
       <>
@@ -530,14 +534,16 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
             : gt("Submit message");
   const submitStatus = isEnvironmentUnavailable
     ? gt("Environment disconnected")
-    : (sendDisabledReason ??
-      (isPreparingWorktree
-        ? gt("Preparing worktree")
-        : isSendBusy
-          ? isEditingQueuedMessage
-            ? gt("Updating queued message")
-            : gt("Submitting message")
-          : null));
+    : isSendHeld
+      ? gt("Sending when ready")
+      : (sendDisabledReason ??
+        (isPreparingWorktree
+          ? gt("Preparing worktree")
+          : isSendBusy
+            ? isEditingQueuedMessage
+              ? gt("Updating queued message")
+              : gt("Submitting message")
+            : null));
   const modifier = isMacPlatform(navigator.platform) ? "⌘" : "Ctrl";
   const dispatchTooltip =
     alternateAction === "queue"
@@ -566,11 +572,12 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         ? dispatchTooltip
         : submitLabel);
 
+  const isBusyOrHeld = isSendBusy || isSendHeld;
   const deviceCaption = isEnvironmentUnavailable
     ? "Offline"
     : isPreparingWorktree
       ? "Worktree"
-      : isSendBusy
+      : isBusyOrHeld
         ? "Sending"
         : showResume
           ? "Resume"
@@ -597,10 +604,10 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
               compactsBeforeSend && submitStatus === null && "send-dial--compact",
             )
           : cn(
-              "relative isolate flex h-9 w-9 items-center justify-center overflow-hidden rounded-full shadow-xs transition-all duration-150 enabled:cursor-pointer enabled:inset-shadow-control-highlight hover:scale-105 active:inset-shadow-control-pressed active:shadow-none disabled:pointer-events-none disabled:opacity-64 disabled:shadow-none disabled:hover:scale-100 sm:h-8 sm:w-8 [&_svg]:pointer-events-none",
+              "relative isolate flex h-9 w-9 items-center justify-center overflow-hidden rounded-full shadow-xs transition-all duration-150 enabled:cursor-pointer enabled:inset-shadow-control-highlight hover:scale-105 active:inset-shadow-control-pressed active:shadow-none disabled:pointer-events-none disabled:shadow-none disabled:hover:scale-100 sm:h-8 sm:w-8 [&_svg]:pointer-events-none",
               stageBackdropVariant
-                ? "bg-transparent text-white enabled:shadow-black/24 enabled:hover:brightness-110"
-                : "bg-message-action text-message-action-foreground enabled:shadow-message-action/24 hover:bg-message-action-hover",
+                ? "bg-transparent text-white enabled:shadow-black/24 enabled:hover:brightness-110 disabled:opacity-64"
+                : "bg-message-action text-message-action-foreground enabled:shadow-message-action/24 hover:bg-message-action-hover disabled:bg-foreground/12 disabled:text-muted-foreground",
             )
       }
       {...pointerPropsFor(() => showResume || dialClicks(dispatchesQueued))}
@@ -613,19 +620,20 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         else onSubmitMessage?.(event);
       }}
       disabled={
-        isSendBusy ||
+        isBusyOrHeld ||
         isSendDisabled ||
         isEnvironmentUnavailable ||
         (!hasSendableContent && !showResume)
       }
       aria-label={submitStatus ?? submitLabel}
+      aria-busy={isBusyOrHeld || undefined}
     >
       {stageBackdropVariant && !device ? (
         <span className="pointer-events-none absolute inset-0 -z-10" aria-hidden="true">
           <StageBackdropButtonArt variant={stageBackdropVariant} />
         </span>
       ) : null}
-      {isSendBusy ? (
+      {isBusyOrHeld ? (
         <Spinner size="sm" aria-hidden="true" />
       ) : showResume ? (
         <PlayIcon className="size-4 fill-current" aria-hidden="true" />

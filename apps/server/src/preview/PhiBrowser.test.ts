@@ -447,7 +447,6 @@ it.effect("scopes refs to a tab and snapshot generation without prefix collision
         );
       const [locator, second] = refsIn(shot);
       // Each element is listed once, in the prose, rather than again as a geometry-less record.
-      expect(shot.interactiveElements).toEqual([]);
       expect(refsIn(shot)).toHaveLength(2);
       expect(second).toBeDefined();
       expect(shot.visibleText).not.toContain("ref=12");

@@ -88,7 +88,9 @@ it.effect("follows activity pages to the current approval, not the first page's"
     );
 
     assert.strictEqual(yield* port.pendingApproval("thread-1"), "Run the tests?");
-    const activityReads = (yield* Ref.get(calls)).filter((call) => call.args["view"] === "activity");
+    const activityReads = (yield* Ref.get(calls)).filter(
+      (call) => call.args["view"] === "activity",
+    );
     assert.lengthOf(activityReads, 2);
     assert.strictEqual(activityReads[1]?.args["afterPosition"], 1);
   }),
@@ -101,7 +103,10 @@ it.effect("names a question before an approval, and falls back to no name", () =
       makeClient(calls, (call) => {
         if (call.tool === "t3_pending_request_list") return { requestIds: ["request-1"] };
         if (call.tool === "t3_pending_request_read")
-          return { requestId: "request-1", questions: [{ header: "Which branch?", question: "Which?" }] };
+          return {
+            requestId: "request-1",
+            questions: [{ header: "Which branch?", question: "Which?" }],
+          };
         return readResult({ items: [] });
       }),
       "http://127.0.0.1:3773/mcp",
@@ -157,10 +162,7 @@ it.effect("builds a thread link the reader's app can open, and falls back withou
       ),
       "http://127.0.0.1:3773/mcp",
     );
-    assert.strictEqual(
-      yield* withId.threadUrl("thread-1"),
-      "http://127.0.0.1:3773/env-1/thread-1",
-    );
+    assert.strictEqual(yield* withId.threadUrl("thread-1"), "http://127.0.0.1:3773/env-1/thread-1");
 
     const withoutId = makePort(
       makeClient(calls, () => ({ providers: [] })),

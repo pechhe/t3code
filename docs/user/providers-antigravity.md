@@ -104,26 +104,10 @@ wins in this order: `.gemini/skills`, `.agents/skills`, `.agent/skills`. See
 [commands and skills](./composer.md#commands-and-skills) for invoking them.
 
 Skills for every project go in `~/.gemini/config/skills` or
-`~/.gemini/antigravity-cli/skills`. Antigravity does not read `~/.agents/skills`,
-so a skill there only appears when the project itself is your home directory; link
-`~/.gemini/config/skills` to it to share those skills.
-
-### MCP servers, hooks and plugins
-
-Antigravity threads use the MCP servers, hooks and plugins in `~/.gemini/config`,
-such as servers added with `agy mcp add` or the `rtk` plugin, alongside T3 Code's own
-tools. Start a new thread after changing them. While any are set up, Antigravity is
-not offered as the Utility model, which writes titles and other generated text.
-
-### Custom agent
-
-To replace Antigravity's built-in system prompt and tools, put a custom agent in
-`~/.gemini/config/agents/<name>.md` and enter its name in **Agent** under the
-instance's settings in **Settings > Providers**. The file's body becomes the system
-prompt and its `tools` list the only built-in tools. A custom agent reaches MCP servers
-only by name: list `t3-code` (and any other servers T3 Code adds to the thread) under
-`mcpServers`, and set `inheritMcp: true` for servers in `~/.gemini/config`. New threads
-use the agent; leave **Agent** empty for Antigravity's default.
+`~/.gemini/antigravity-cli/skills`. Antigravity does not read `~/.agents/skills`
+on its own; to share a folder like that one, list it in `~/.gemini/config/skills.json`
+(or a project's `.agents/skills.json`), and T3 Code shows the skills it declares,
+honoring `inherits`, `include_only`, and `exclude`.
 
 Antigravity receives images and audio directly, and reads PDFs and text files as
 documents. Other attachments, including videos, are passed as a saved file path for

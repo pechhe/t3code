@@ -21,7 +21,13 @@ import * as KeyedLock from "@t3tools/shared/KeyedLock";
 
 import { forkParked } from "../serverActivation.ts";
 import * as ServerSettings from "../serverSettings.ts";
-import { activeRunOf, arcLeadThreadId, HARD_STOP_BOUNDARY, isArcRunObject, isCoveredByAway } from "./arcRun.ts";
+import {
+  activeRunOf,
+  arcLeadThreadId,
+  HARD_STOP_BOUNDARY,
+  isArcRunObject,
+  isCoveredByAway,
+} from "./arcRun.ts";
 import { requestPrompt } from "./threadWatch.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
@@ -70,7 +76,7 @@ const make = Effect.gen(function* () {
     const answering =
       unattendedMode !== undefined
         ? `You answer for this ${unattendedMode === "arc" ? "Arc" : "unattended run"}: decide reversible choices yourself from the evidence, testing and governing intent, log consequential decisions with t3_thread_update (action arc_run, op decision), then answer with action respond. Ask the owner only for what is truly hard to reverse (${HARD_STOP_BOUNDARY}).`
-      : "Answer it with action respond when the answer follows from the task or the user's instructions; otherwise ask the user, then answer it.";
+        : "Answer it with action respond when the answer follows from the task or the user's instructions; otherwise ask the user, then answer it.";
     const situation =
       request.responseCapability.type === "message"
         ? `Delegated task ${task.id} asked a question and is still working.`

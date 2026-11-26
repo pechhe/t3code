@@ -24,7 +24,6 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     projectThemeByKey: {},
     sidebarProjectScopeKeys: [],
     threadLastVisitedAtById: {},
-    threadChangedFilesExpandedById: {},
     defaultAdvertisedEndpointKey: null,
     pullRequestMergeMethod: "merge",
     newThreadEnvironmentId: null,
@@ -146,13 +145,6 @@ describe("parsePersistedState", () => {
         invalid: "not-a-date",
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
-      threadChangedFilesExpansionVersion: 2,
-      threadChangedFilesExpandedById: {
-        "environment:thread-1": {
-          "turn-1": false,
-          "turn-2": true,
-        },
-      },
     });
 
     expect(parsed).toEqual({
@@ -168,12 +160,6 @@ describe("parsePersistedState", () => {
       sidebarProjectScopeKeys: [],
       pullRequestMergeMethod: "merge",
       newThreadEnvironmentId: null,
-      threadChangedFilesExpandedById: {
-        "environment:thread-1": {
-          "turn-1": false,
-          "turn-2": true,
-        },
-      },
     });
   });
 
@@ -181,19 +167,6 @@ describe("parsePersistedState", () => {
     expect(
       parsePersistedState({ pullRequestMergeMethod: "fast-forward" }).pullRequestMergeMethod,
     ).toBe("fast-forward");
-  });
-
-  it.each([undefined, 1])("ignores changed-file expansion version %s", (version) => {
-    const parsed = parsePersistedState({
-      ...(version === undefined ? {} : { threadChangedFilesExpansionVersion: version }),
-      threadChangedFilesExpandedById: {
-        "environment:thread-1": {
-          "turn-1": false,
-        },
-      },
-    });
-
-    expect(parsed.threadChangedFilesExpandedById).toEqual({});
   });
 
   it("migrates legacy CWD project preferences into local alias keys", () => {
@@ -254,12 +227,6 @@ describe("uiStateStore persistence", () => {
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
-      threadChangedFilesExpandedById: {
-        "environment:thread-1": {
-          "turn-1": false,
-          "turn-2": true,
-        },
-      },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       projectThemeByKey: { logical: { theme: "ocean", dark: "grove" } },
       newThreadEnvironmentId: "peach-box",
@@ -282,13 +249,6 @@ describe("uiStateStore persistence", () => {
       sidebarProjectScopeKey: null,
       sidebarProjectScopeKeys: [],
       projectThemeByKey: { logical: { theme: "ocean", dark: "grove" } },
-      threadChangedFilesExpansionVersion: 2,
-      threadChangedFilesExpandedById: {
-        "environment:thread-1": {
-          "turn-1": false,
-          "turn-2": true,
-        },
-      },
       pullRequestMergeMethod: "merge",
       newThreadEnvironmentId: "peach-box",
     });

@@ -8,10 +8,7 @@
   "baselineVersion": "exit-signature-v1",
   "corpusDigest": "a5c91a79816257670aef35f8da893d9c8b6830ccaf870eeffac10f186a5d37f2",
   "runAt": "2026-11-09T13:01:49.135Z",
-  "engines": [
-    "jev",
-    "luna"
-  ],
+  "engines": ["jev", "luna"],
   "run": {
     "checkout": {
       "head": "a4351370529b842e2cdb1db052965b83bff54b39",
@@ -462,12 +459,7 @@
           "low": 0.21521252682444186,
           "high": 0.7847874731755582
         },
-        "cases": [
-          "t-syn-regression-1",
-          "t-syn-environment-1",
-          "t-syn-flake-1",
-          "t-syn-unknown-1"
-        ]
+        "cases": ["t-syn-regression-1", "t-syn-environment-1", "t-syn-flake-1", "t-syn-unknown-1"]
       },
       "dangerousStrict": {
         "numerator": 0,
@@ -527,12 +519,7 @@
           "low": 0.5100999795960008,
           "high": 1
         },
-        "cases": [
-          "t-audit-10-29",
-          "t-audit-10-30",
-          "t-audit-10-31",
-          "t-syn-unknown-1"
-        ]
+        "cases": ["t-audit-10-29", "t-audit-10-30", "t-audit-10-31", "t-syn-unknown-1"]
       },
       "confusion": {
         "unknown": {
@@ -562,11 +549,7 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": [
-              "t-audit-10-29",
-              "t-audit-10-30",
-              "t-audit-10-31"
-            ]
+            "cases": ["t-audit-10-29", "t-audit-10-30", "t-audit-10-31"]
           },
           "dangerousWide": {
             "numerator": 0,
@@ -624,12 +607,7 @@
           "low": 0.21521252682444186,
           "high": 0.7847874731755582
         },
-        "cases": [
-          "t-audit-10-29",
-          "t-audit-10-30",
-          "t-audit-10-31",
-          "t-syn-unknown-1"
-        ]
+        "cases": ["t-audit-10-29", "t-audit-10-30", "t-audit-10-31", "t-syn-unknown-1"]
       },
       "resolvedRecovery": {
         "numerator": 1,
@@ -639,9 +617,7 @@
           "low": 0.02241690886329617,
           "high": 0.4708948057698615
         },
-        "cases": [
-          "t-syn-unknown-1"
-        ]
+        "cases": ["t-syn-unknown-1"]
       },
       "dangerousStrict": {
         "numerator": 0,
@@ -691,12 +667,7 @@
           "low": 0.5100999795960008,
           "high": 1
         },
-        "cases": [
-          "t-syn-regression-1",
-          "t-syn-fixture-1",
-          "t-syn-environment-1",
-          "t-syn-flake-1"
-        ]
+        "cases": ["t-syn-regression-1", "t-syn-fixture-1", "t-syn-environment-1", "t-syn-flake-1"]
       },
       "appropriateAbstention": {
         "numerator": 4,
@@ -706,12 +677,7 @@
           "low": 0.5100999795960008,
           "high": 1
         },
-        "cases": [
-          "t-audit-10-29",
-          "t-audit-10-30",
-          "t-audit-10-31",
-          "t-syn-unknown-1"
-        ]
+        "cases": ["t-audit-10-29", "t-audit-10-30", "t-audit-10-31", "t-syn-unknown-1"]
       },
       "confusion": {
         "unknown": {
@@ -741,11 +707,7 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": [
-              "t-audit-10-29",
-              "t-audit-10-30",
-              "t-audit-10-31"
-            ]
+            "cases": ["t-audit-10-29", "t-audit-10-30", "t-audit-10-31"]
           },
           "dangerousWide": {
             "numerator": 0,
@@ -768,9 +730,7 @@
               "low": 0.03622316096978745,
               "high": 0.6244717358814613
             },
-            "cases": [
-              "t-syn-unknown-1"
-            ]
+            "cases": ["t-syn-unknown-1"]
           },
           "dangerousWide": {
             "numerator": 0,
@@ -818,12 +778,7 @@
           "low": 0.21521252682444186,
           "high": 0.7847874731755582
         },
-        "cases": [
-          "t-syn-regression-1",
-          "t-syn-environment-1",
-          "t-syn-flake-1",
-          "t-syn-unknown-1"
-        ]
+        "cases": ["t-syn-regression-1", "t-syn-environment-1", "t-syn-flake-1", "t-syn-unknown-1"]
       },
       "dangerousStrict": {
         "numerator": 0,
@@ -883,12 +838,7 @@
           "low": 0.5100999795960008,
           "high": 1
         },
-        "cases": [
-          "t-audit-10-29",
-          "t-audit-10-30",
-          "t-audit-10-31",
-          "t-syn-unknown-1"
-        ]
+        "cases": ["t-audit-10-29", "t-audit-10-30", "t-audit-10-31", "t-syn-unknown-1"]
       },
       "confusion": {
         "unknown": {
@@ -918,11 +868,7 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": [
-              "t-audit-10-29",
-              "t-audit-10-30",
-              "t-audit-10-31"
-            ]
+            "cases": ["t-audit-10-29", "t-audit-10-30", "t-audit-10-31"]
           },
           "dangerousWide": {
             "numerator": 0,
@@ -998,12 +944,7 @@
           "low": 0.21521252682444186,
           "high": 0.7847874731755582
         },
-        "cases": [
-          "t-syn-regression-1",
-          "t-syn-environment-1",
-          "t-syn-flake-1",
-          "t-syn-unknown-1"
-        ]
+        "cases": ["t-syn-regression-1", "t-syn-environment-1", "t-syn-flake-1", "t-syn-unknown-1"]
       },
       "dangerousStrict": {
         "numerator": 0,
@@ -1063,12 +1004,7 @@
           "low": 0.5100999795960008,
           "high": 1
         },
-        "cases": [
-          "t-audit-10-29",
-          "t-audit-10-30",
-          "t-audit-10-31",
-          "t-syn-unknown-1"
-        ]
+        "cases": ["t-audit-10-29", "t-audit-10-30", "t-audit-10-31", "t-syn-unknown-1"]
       },
       "confusion": {
         "unknown": {
@@ -1098,11 +1034,7 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": [
-              "t-audit-10-29",
-              "t-audit-10-30",
-              "t-audit-10-31"
-            ]
+            "cases": ["t-audit-10-29", "t-audit-10-30", "t-audit-10-31"]
           },
           "dangerousWide": {
             "numerator": 0,
@@ -1160,9 +1092,7 @@
       "costUsd": 0.000490728,
       "knownCostUsd": 0.000490728,
       "costKnownCalls": 8,
-      "costStatuses": [
-        "estimated"
-      ],
+      "costStatuses": ["estimated"],
       "attempts": 8,
       "failedAttempts": 0,
       "choiceDisagreesWithArgmax": 0,
@@ -1181,9 +1111,7 @@
       "costUsd": 0.0008734000000000001,
       "knownCostUsd": 0.0008734000000000001,
       "costKnownCalls": 8,
-      "costStatuses": [
-        "estimated"
-      ],
+      "costStatuses": ["estimated"],
       "attempts": 8,
       "failedAttempts": 0,
       "choiceDisagreesWithArgmax": 0,

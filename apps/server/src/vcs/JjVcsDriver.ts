@@ -573,7 +573,19 @@ const makeVcsDriverShape = Effect.fn("makeJjVcsDriverShape")(function* () {
         input.checkpointRef,
         commit.stdout.trim(),
       ]);
+      // The range is a Git-driver shortcut; a jj checkpoint has none to hand on.
+      return null;
     }),
+    // A Git-driver shortcut: no jj folder is ever reported clean, so a capture always runs.
+    resolveCleanHead: () => Effect.succeed(null),
+    captureHeadCheckpoint: () =>
+      Effect.fail(
+        new VcsUnsupportedOperationError({
+          operation: "JjVcsDriver.checkpoints.captureHead",
+          kind: "jj",
+          detail: "A jj folder is never captured from HEAD.",
+        }),
+      ),
     hasCheckpointRef: (input) =>
       checkpointCommit(input.cwd, input.checkpointRef).pipe(
         Effect.map((commit) => commit !== null),

@@ -56,10 +56,14 @@ function parseHelperReply(lines: ReadonlyArray<string>): HelperReply | null {
 /** Asks the shared JXA helper for the frontmost window, writing it to `outputPath` when it can. */
 function readFrontWindow(outputPath: string): Promise<HelperReply | null> {
   return new Promise((resolve) => {
-    const child = NodeChildProcess.spawn(OSASCRIPT_PATH, ["-l", "JavaScript", "-e", MAC_WINDOW_CAPTURE_SCRIPT], {
-      stdio: ["pipe", "ignore", "pipe"],
-      env: { ...process.env, T3_CAPTURE_SKIP_BUNDLE_IDS: captureSkipBundleIds() },
-    });
+    const child = NodeChildProcess.spawn(
+      OSASCRIPT_PATH,
+      ["-l", "JavaScript", "-e", MAC_WINDOW_CAPTURE_SCRIPT],
+      {
+        stdio: ["pipe", "ignore", "pipe"],
+        env: { ...process.env, T3_CAPTURE_SKIP_BUNDLE_IDS: captureSkipBundleIds() },
+      },
+    );
     const lines: Array<string> = [];
     let buffered = "";
     let settled = false;
@@ -118,9 +122,18 @@ export async function captureFrontWindow(outputPath: string): Promise<CapturedWi
   } catch {
     return null;
   }
-  if (png.length < PNG_SIGNATURE.length || !png.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)) {
+  if (
+    png.length < PNG_SIGNATURE.length ||
+    !png.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)
+  ) {
     return null;
   }
   const name = `SnapShot-${window.owner.name || "window"}.png`;
-  return { png, name, mimeType: "image/png", sizeBytes: png.length, appName: window.owner.name || null };
+  return {
+    png,
+    name,
+    mimeType: "image/png",
+    sizeBytes: png.length,
+    appName: window.owner.name || null,
+  };
 }

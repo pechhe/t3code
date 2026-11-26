@@ -41,7 +41,7 @@ function RestoreDeviceDefaultsButton({ onRestored }: { onRestored: () => void })
       disabled={changedSettingLabels.length === 0}
       onClick={() => void restoreDefaults()}
     >
-      <RotateCcwIcon className="mx-1 size-3.5" />
+      <RotateCcwIcon className="size-3.5" />
       <span className="max-sm:sr-only">
         <T>Restore device defaults</T>
       </span>
@@ -56,22 +56,41 @@ function SettingsScopeBoundary({ pathname, children }: { pathname: string; child
   const m = useMessages();
   const hash = useLocation({ select: (location) => location.hash });
   const searchTarget = getSettingsSearchTargetScope(hash);
-  const autoSettlementAvailability = searchTarget?.requiresThreadAutoSettlement
-    ? getThreadAutoSettlementSearchAvailability(environments, scope)
+  const agentFeedbackAvailability = searchTarget?.agentFeedbackOnly
+    ? {
+        eligibleEnvironmentIds: environments
+          .filter(
+            (environment) =>
+              environment.connection.phase === "connected" &&
+              environment.serverConfig?.environment.capabilities.agentFeedback === true,
+          )
+          .map((environment) => environment.environmentId),
+        isTargetAvailable:
+          connectedEnvironments.length > 0 &&
+          connectedEnvironments.every(
+            (environment) =>
+              environment.serverConfig?.environment.capabilities.agentFeedback === true,
+          ),
+      }
     : null;
+  const targetAvailability =
+    agentFeedbackAvailability ??
+    (searchTarget?.requiresThreadAutoSettlement
+      ? getThreadAutoSettlementSearchAvailability(environments, scope)
+      : null);
   if (
     scope.kind !== "unavailable" &&
     searchTarget &&
-    autoSettlementAvailability &&
-    !autoSettlementAvailability.isTargetAvailable
+    targetAvailability &&
+    !targetAvailability.isTargetAvailable
   ) {
     return (
       <SettingsScopeNotice
         target="environment"
         targetId={hash}
-        eligibleEnvironmentIds={autoSettlementAvailability.eligibleEnvironmentIds}
+        eligibleEnvironmentIds={targetAvailability.eligibleEnvironmentIds}
       >
-        {autoSettlementAvailability.eligibleEnvironmentIds.length > 0
+        {targetAvailability.eligibleEnvironmentIds.length > 0
           ? gt("{title} requires a supporting environment. Choose one to continue.", {
               title: m(searchTarget.title),
             })

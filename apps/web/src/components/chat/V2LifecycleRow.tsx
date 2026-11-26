@@ -11,11 +11,11 @@ import {
   PAUSED_SUBAGENT_LABEL,
   projectedSubagentsToRuntime,
 } from "@t3tools/client-runtime/state/subagentRuntime";
-import type { ReactNode } from "react";
+import { use, type ReactNode } from "react";
 import { useThreadShell, useProject } from "../../state/entities";
-import { useEnvironment } from "../../state/environments";
-import { buildThreadRouteParams } from "../../threadRoutes";
-import { useNavigate } from "@tanstack/react-router";
+import type { SideThreadOpenIntent } from "@t3tools/client-runtime/side-thread";
+import { SideThreadsOpenContext, useSideThreadTrigger } from "../../hooks/useSideThreadTrigger";
+import { useLinkedThreadOpener } from "../../state/linkedThreadView";
 import { isSubagentDoer } from "@t3tools/client-runtime/state/threads";
 import { removedDetailText } from "@t3tools/client-runtime/work-log/item-detail";
 import { SubagentModelMeta } from "./SubagentModelMeta";
@@ -107,7 +107,11 @@ export function V2LifecycleRow(props: {
   readonly resourceSummary?: boolean | undefined;
   readonly timestampFormat?: TimestampFormat | undefined;
   readonly runs: ReadonlyArray<HandoffTimelineRun>;
-  readonly onOpenThread: (threadId: ThreadId, hash?: string) => void;
+  readonly onOpenThread: (
+    threadId: ThreadId,
+    target?: string,
+    intent?: SideThreadOpenIntent,
+  ) => void;
 }) {
   const { item } = props;
   const gt = useGT();
@@ -641,7 +645,11 @@ function SubagentTimelineLink(props: {
   readonly completedAt: DateTime.Utc | null;
   readonly threadId: ThreadId | null;
   readonly timestampFormat: TimestampFormat;
-  readonly onOpenThread: (threadId: ThreadId, hash?: string) => void;
+  readonly onOpenThread: (
+    threadId: ThreadId,
+    target?: string,
+    intent?: SideThreadOpenIntent,
+  ) => void;
   /** The thread in a linked environment that runs this task, when it runs there. */
   readonly remote?: OrchestrationV2RemoteTaskChild | undefined;
   readonly event?: {
@@ -667,20 +675,18 @@ function SubagentTimelineLink(props: {
   )?.source.agentTask?.role;
   const role = localRole ?? remote?.agentTask?.role;
   const topic = role ? agentTaskTopic(props.title, role) : props.title;
-  const remoteEnvironment = useEnvironment(remote?.environmentId ?? null);
   const gt = useGT();
-  const navigate = useNavigate();
-  // A task in a linked environment opens there, if this client is connected to it.
-  const open =
-    threadId !== null
-      ? () => props.onOpenThread(threadId)
-      : remote !== undefined && remoteEnvironment !== null
-        ? () =>
-            void navigate({
-              to: "/$environmentId/$threadId",
-              params: buildThreadRouteParams(scopeThreadRef(remote.environmentId, remote.threadId)),
-            })
-        : null;
+  // A task in a linked environment opens there, or read-only through this one.
+  const remoteOpener = useLinkedThreadOpener(props.parentRef, remote, props.title);
+  const trigger = useSideThreadTrigger();
+  const canOpen = use(SideThreadsOpenContext);
+  const open = !canOpen
+    ? null
+    : threadId !== null
+      ? (intent: SideThreadOpenIntent) => props.onOpenThread(threadId, undefined, intent)
+      : (remoteOpener?.open ?? null);
+  // A task on a connected linked environment opens there, on the main screen only.
+  const panel = threadId !== null || remoteOpener?.mode === "linked";
   const liveStatus = agent?.status ?? props.status;
   const status = liveStatus;
   const paused = agent ? isSubagentPausedByParentStop(agent) : false;
@@ -701,8 +707,10 @@ function SubagentTimelineLink(props: {
   if (followUpRound !== null) {
     const openFollowUp =
       threadId !== null
-        ? () => props.onOpenThread(threadId, subagentRoundHash(props.subagentId))
-        : (open ?? undefined);
+        ? () => props.onOpenThread(threadId, subagentRoundHash(props.subagentId), "primary")
+        : open === null
+          ? undefined
+          : () => open("primary");
     return (
       <SubagentFollowUpChip
         parentRef={props.parentRef}
@@ -794,7 +802,7 @@ function SubagentTimelineLink(props: {
               data-subagent-id={props.subagentId}
               aria-label={gt("Open {title}", { title: props.title })}
               aria-description={statusLabel}
-              onClick={open}
+              {...trigger(open, { panel })}
               className={cn(
                 className,
                 "cursor-pointer transition-colors hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70",

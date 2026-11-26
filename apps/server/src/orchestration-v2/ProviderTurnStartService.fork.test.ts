@@ -1,4 +1,8 @@
+import "./ThreadManagementService.ts";
 import * as NodeChildProcessSpawner from "@effect/platform-node/NodeChildProcessSpawner";
+import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
+import { ThreadWorktreeRestore } from "../workspace/restoreMissingWorktree.ts";
+import { layerNoTaskFolders } from "./ProviderTurnStartService.testkit.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import type { ChatAttachment, ForgeWorkItemSummary } from "@t3tools/contracts";
 import * as ProcessRunner from "../processRunner.ts";
@@ -291,6 +295,8 @@ function makeLocalCommandHarness(input: {
       id: threadId,
       activeProviderThreadId: providerThreadId,
       projectId: ProjectId.make("project-native-account-command"),
+      runtimeMode: "full-access",
+      interactionMode: "default",
       branch:
         input.branch !== undefined
           ? input.branch
@@ -1226,6 +1232,11 @@ function makeLocalCommandHarness(input: {
         NodeChildProcessSpawner.layer.pipe(
           Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
         ),
+        Layer.mock(ProjectSetupScriptRunner.ProjectSetupScriptRunner)({
+          runForThread: () => Effect.succeed({ status: "no-script" }),
+        }),
+        Layer.mock(ThreadWorktreeRestore)({ takeRecreated: () => Effect.undefined }),
+        layerNoTaskFolders,
         layerWorktreeLocation(
           input.worktreesDir,
           {

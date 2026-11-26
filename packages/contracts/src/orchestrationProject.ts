@@ -3,7 +3,7 @@ import * as Schema from "effect/Schema";
 import { IsoDateTime, ProjectId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { RepositoryIdentity, ThreadEnvMode } from "./environment.ts";
 import { ModelSelection } from "./modelSelection.ts";
-import { ProjectScript, ReceivedProjectIcon } from "./project.ts";
+import { ProjectScript, ProjectTrackedFolders, ReceivedProjectIcon } from "./project.ts";
 import { RetainedWeaveProjectFields } from "./weaveNames.ts";
 
 export const OrchestrationProjectShell = Schema.Struct({
@@ -25,6 +25,8 @@ export const OrchestrationProjectShell = Schema.Struct({
   faviconPath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   projectIcon: Schema.optional(Schema.NullOr(ReceivedProjectIcon)),
   scripts: Schema.Array(ProjectScript),
+  // Absent from older servers; that means a single-folder project.
+  trackedFolders: Schema.optional(ProjectTrackedFolders),
   // Pinned projects lead project pickers; archived ones leave them. Optional so older servers decode.
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),

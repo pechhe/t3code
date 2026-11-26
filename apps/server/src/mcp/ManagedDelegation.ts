@@ -328,6 +328,10 @@ export interface ManagedDelegationDeps {
     acknowledgeTerminal?: boolean,
     acknowledgementOperation?: string,
   ) => Effect.Effect<OrchestratorMcpDelegateTaskResult, Failure>;
+  readonly taskNotFound: (
+    scope: McpThreadInvocationScope,
+    taskId: NodeId,
+  ) => Effect.Effect<never, Failure>;
   readonly requestKey: (clientRequestId: string | undefined) => Effect.Effect<string>;
   readonly requireCapability: (scope: McpInvocationScope) => Effect.Effect<void, Failure>;
   readonly requireProject: (
@@ -395,6 +399,7 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
     occupantsEverywhere,
     readTask,
     requestKey,
+    taskNotFound,
     requireCapability,
     requireProject,
     resolveTargetRechecking,
@@ -1448,7 +1453,14 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
             : input.forgeItem;
         workspaceStrategy = { type: "worktree", baseRef: "HEAD", forgeItem };
       }
-      if (input.isolation === "worktree" && !isRetryOfAcceptedDelegation) {
+      if (
+        input.isolation === "worktree" &&
+        !isRetryOfAcceptedDelegation &&
+        (yield* threadLaunch.isNonGitProject(parent.thread.projectId))
+      ) {
+        // A plain project folder has no commit of its own; `HEAD` leaves each repository on its default branch.
+        workspaceStrategy = { type: "worktree", baseRef: "HEAD" };
+      } else if (input.isolation === "worktree" && !isRetryOfAcceptedDelegation) {
         const project = yield* requireProject(parent.thread.projectId).pipe(
           Effect.tapError((error) => recordExperimentFailure(error.message)),
         );
@@ -1483,7 +1495,18 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
                 Effect.tapError((error) => recordExperimentFailure(error.message)),
               );
           }
-          baseRef = base.commitSha;
+          // Other repositories in the project can only match a branch name, so name the
+          // parent's branch when it still points at the parent's commit.
+          const branch = parent.thread.branch;
+          const branchAtBase =
+            branch !== null &&
+            (yield* gitDriver
+              .resolveCommit({ cwd: project.workspaceRoot, revision: `refs/heads/${branch}` })
+              .pipe(
+                Effect.map((resolved) => resolved.commitSha === base.commitSha),
+                Effect.orElseSucceed(() => false),
+              ));
+          baseRef = branchAtBase && branch !== null ? branch : base.commitSha;
         }
         workspaceStrategy = { type: "worktree", baseRef, startFromOrigin: false };
       }
@@ -2000,10 +2023,7 @@ export const make = Effect.fn("ManagedDelegation.make")(function* (deps: Managed
             task.remoteChild !== undefined,
         );
         if (remoteTask === undefined) {
-          return yield* failure(
-            "task_not_found",
-            `Delegated task ${input.taskId} does not belong to thread ${scope.thread.threadId}.`,
-          );
+          return yield* taskNotFound(scope, input.taskId);
         }
         return yield* remoteDelegation.cancel(scope, remoteTask, input);
       }

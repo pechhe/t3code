@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema";
 
-import { ProjectId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { GitRefName, ProjectId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { OrchestrationV2WorkspaceAttachment } from "./orchestrationV2.ts";
 
 const AbsolutePath = TrimmedNonEmptyString.check(Schema.isPattern(/^(?:[A-Za-z]:[\\/]|[\\/])/));
@@ -8,7 +8,7 @@ const AbsolutePath = TrimmedNonEmptyString.check(Schema.isPattern(/^(?:[A-Za-z]:
 /** Uses the managed worktree folder; handoff detaches the provider, ending this turn and resuming there next run. */
 export const WorktreeMcpHandoffInput = Schema.Struct({
   branch: Schema.optional(
-    TrimmedNonEmptyString.annotate({
+    GitRefName.annotate({
       description:
         "Branch to create for a new worktree (e.g. 'feature/my-change'); in a SlipJay project, the new workspace's task name. Required unless worktreePath is given.",
     }),
@@ -20,7 +20,7 @@ export const WorktreeMcpHandoffInput = Schema.Struct({
     }),
   ),
   baseRef: Schema.optional(
-    TrimmedNonEmptyString.annotate({
+    GitRefName.annotate({
       description: "Default: checked-out branch.",
     }),
   ),
@@ -80,10 +80,10 @@ export type WorktreeMcpContinuationStatus = typeof WorktreeMcpContinuationStatus
 
 export const WorktreeMcpHandoffResult = Schema.Struct({
   worktreePath: TrimmedNonEmptyString,
-  branch: Schema.NullOr(TrimmedNonEmptyString).annotate({
+  branch: Schema.NullOr(GitRefName).annotate({
     description: "The worktree's branch; null for a SlipJay workspace, which has none.",
   }),
-  baseRef: Schema.NullOr(TrimmedNonEmptyString).annotate({
+  baseRef: Schema.NullOr(GitRefName).annotate({
     description:
       "The ref a new worktree started from; null for a SlipJay workspace or an existing worktree.",
   }),
@@ -158,7 +158,7 @@ export type WorktreeMcpDetachResult = typeof WorktreeMcpDetachResult.Type;
 export const WorktreeMcpStatusResult = Schema.Struct({
   attached: Schema.Boolean,
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
-  branch: Schema.NullOr(TrimmedNonEmptyString),
+  branch: Schema.NullOr(GitRefName),
   projectWorkspaceRoot: TrimmedNonEmptyString,
   defaultStartFromOrigin: Schema.Boolean.annotate({
     description: "`startFromOrigin` default for `t3_worktree_handoff`.",

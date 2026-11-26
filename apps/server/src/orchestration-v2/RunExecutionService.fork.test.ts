@@ -253,6 +253,7 @@ function captureRootRunTermination(input: {
           }),
           ServerSettings.layerTest(),
           Layer.succeed(RunFinalizationService.RunFinalizationObserver, {
+            refreshRepositories: () => Effect.void,
             refresh: () => Effect.void,
             recordHandoff: () => Effect.void,
             refreshAfterTurn: () =>

@@ -48,6 +48,18 @@ import * as BrowserLogins from "../secrets/BrowserLogins.ts";
 import { boundedBrowserScope } from "../mcp/ManagedBrowserAccess.ts";
 import { bindingSatisfied, pageModelFromSnapshot, resolveTarget } from "./pageModel.ts";
 
+/** The locator for the element a snapshot's accessibility tree names. */
+const selectorNamed = (
+  snapshot: { readonly accessibilityTree?: unknown },
+  name: string,
+): string => {
+  const tree = typeof snapshot.accessibilityTree === "string" ? snapshot.accessibilityTree : "";
+  const line = tree.split("\n").find((entry) => entry.includes(`"${name}"`));
+  const ref = /\[ref=([^\]]+)\]/.exec(line ?? "")?.[1];
+  if (ref === undefined) throw new Error(`No ${name} ref in the snapshot tree`);
+  return `aria-ref=${ref}`;
+};
+
 // Every suite here launches a real browser, so they run only when T3's pinned shell resolved.
 const browserPath = await pinnedBrowser();
 
@@ -576,9 +588,7 @@ describe.skipIf(browserPath === null)("browser tasks", () => {
             operation: "snapshot",
             input: {},
           });
-          const emailRef = before.interactiveElements.find(
-            (entry) => entry.name === "Email",
-          )!.selector;
+          const emailRef = selectorNamed(before, "Email");
           fixture.script.push("save");
           const task = request({
             requestId: "withheld",
@@ -703,7 +713,7 @@ describe.skipIf(browserPath === null)("browser tasks", () => {
             input: {},
           });
           expect(inspection.visibleText).toContain("Saved a@b.c");
-          const other = inspection.interactiveElements.find((entry) => entry.name === "Other")!;
+          const other = { selector: selectorNamed(inspection, "Other") };
           yield* broker.invoke({
             scope,
             tabId,
@@ -934,7 +944,7 @@ describe.skipIf(browserPath === null)("browser tasks", () => {
           operation: "snapshot",
           input: {},
         });
-        const save = page.interactiveElements.find((entry) => entry.name === "Save")!;
+        const save = { selector: selectorNamed(page, "Save") };
         yield* broker.invoke({
           scope,
           tabId,

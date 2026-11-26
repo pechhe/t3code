@@ -104,7 +104,6 @@ const pageSnapshot = (page: FakePage, generation: number): PreviewAutomationSnap
     title: "Form",
     loading: false,
     visibleText: page.text ?? (page.submits > 0 ? "Saved" : "Fill the form"),
-    interactiveElements: [],
     accessibilityTree: tree,
     consoleEntries: [],
     networkEntries: [],

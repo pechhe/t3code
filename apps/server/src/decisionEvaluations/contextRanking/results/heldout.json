@@ -36,10 +36,7 @@
     }
   },
   "runAt": "2026-11-16T13:38:41.558Z",
-  "engines": [
-    "jev",
-    "luna"
-  ],
+  "engines": ["jev", "luna"],
   "run": {
     "checkout": {
       "head": "d214a9fa302a762e0d7cb8180e3213e4abc6f6ff",
@@ -3142,10 +3139,7 @@
             "high": 0.9904922711335143
           },
           "criticalOmissionCases": 2,
-          "criticalOmissionIds": [
-            "h-readonly-enforcing-provider",
-            "h-cost-aggregation"
-          ],
+          "criticalOmissionIds": ["h-readonly-enforcing-provider", "h-cost-aggregation"],
           "allNeededRetainedCases": 28,
           "included": {
             "needed": 56,
@@ -3423,9 +3417,7 @@
       "budget": {
         "better": 1,
         "worse": 6,
-        "betterCases": [
-          "h-write-recommendation"
-        ],
+        "betterCases": ["h-write-recommendation"],
         "worseCases": [
           "h-weave-signin-post",
           "h-single-label",
@@ -3449,18 +3441,12 @@
           "h-single-label",
           "h-provider-docs"
         ],
-        "worseCases": [
-          "h-cost-aggregation",
-          "h-unattended-spec"
-        ]
+        "worseCases": ["h-cost-aggregation", "h-unattended-spec"]
       },
       "budget": {
         "better": 2,
         "worse": 0,
-        "betterCases": [
-          "h-write-recommendation",
-          "h-provider-docs"
-        ],
+        "betterCases": ["h-write-recommendation", "h-provider-docs"],
         "worseCases": []
       }
     },
@@ -3478,17 +3464,12 @@
           "h-dev-pairing",
           "h-provider-docs"
         ],
-        "worseCases": [
-          "h-cost-aggregation"
-        ]
+        "worseCases": ["h-cost-aggregation"]
       },
       "budget": {
         "better": 2,
         "worse": 0,
-        "betterCases": [
-          "h-write-recommendation",
-          "h-provider-docs"
-        ],
+        "betterCases": ["h-write-recommendation", "h-provider-docs"],
         "worseCases": []
       }
     }
@@ -3507,9 +3488,7 @@
       "costUsd": 0.004118604,
       "knownCostUsd": 0.004118604,
       "costKnownCalls": 32,
-      "costStatuses": [
-        "estimated"
-      ],
+      "costStatuses": ["estimated"],
       "attempts": 32,
       "failedAttempts": 0,
       "failureCodes": [],
@@ -3537,9 +3516,7 @@
       "costUsd": 0.014583099999999998,
       "knownCostUsd": 0.014583099999999998,
       "costKnownCalls": 32,
-      "costStatuses": [
-        "estimated"
-      ],
+      "costStatuses": ["estimated"],
       "attempts": 32,
       "failedAttempts": 0,
       "failureCodes": [],
@@ -4312,10 +4289,7 @@
               "high": 0.9904922711335143
             },
             "criticalOmissionCases": 2,
-            "criticalOmissionIds": [
-              "h-readonly-enforcing-provider",
-              "h-cost-aggregation"
-            ],
+            "criticalOmissionIds": ["h-readonly-enforcing-provider", "h-cost-aggregation"],
             "allNeededRetainedCases": 28,
             "included": {
               "needed": 56,

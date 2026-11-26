@@ -132,10 +132,7 @@
     }
   ],
   "runAt": "2026-11-08T17:32:04.233Z",
-  "engines": [
-    "jev",
-    "luna"
-  ],
+  "engines": ["jev", "luna"],
   "run": {
     "checkout": {
       "head": "28994c54a73344de2d62fa1b08b12a98d63b2332",
@@ -793,12 +790,7 @@
             "low": 0.5100999795960008,
             "high": 1
           },
-          "cases": [
-            "t-t355-checks",
-            "t-audit-oct26",
-            "t-syn-tests-not-run",
-            "t-syn-truncated"
-          ]
+          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
         },
         "contradictedRecall": {
           "numerator": 2,
@@ -808,10 +800,7 @@
             "low": 0.34237195288961925,
             "high": 1
           },
-          "cases": [
-            "t-audit-oct26",
-            "t-syn-tests-not-run"
-          ]
+          "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
         },
         "falseAlarms": {
           "numerator": 0,
@@ -833,12 +822,7 @@
             "low": 0.29998832134152864,
             "high": 0.9032306674407831
           },
-          "cases": [
-            "t-t355-checks",
-            "t-audit-oct26",
-            "t-syn-tests-not-run",
-            "t-syn-truncated"
-          ]
+          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
         },
         "exact": {
           "numerator": 4,
@@ -848,12 +832,7 @@
             "low": 0.29998832134152864,
             "high": 0.9032306674407831
           },
-          "cases": [
-            "t-t355-checks",
-            "t-t355-cost",
-            "t-syn-tests-passed",
-            "t-syn-truncated"
-          ]
+          "cases": ["t-t355-checks", "t-t355-cost", "t-syn-tests-passed", "t-syn-truncated"]
         }
       },
       "decision": {
@@ -868,10 +847,7 @@
             "low": 0.2076549551264879,
             "high": 0.9385096847238394
           },
-          "cases": [
-            "t-d-adopt-force-kill",
-            "t-d-syn-settled"
-          ]
+          "cases": ["t-d-adopt-force-kill", "t-d-syn-settled"]
         },
         "missedCandidates": {
           "numerator": 1,
@@ -881,9 +857,7 @@
             "low": 0.0614903152761605,
             "high": 0.7923450448735121
           },
-          "cases": [
-            "t-d-upstream-policy"
-          ]
+          "cases": ["t-d-upstream-policy"]
         },
         "falseEscalations": {
           "numerator": 0,
@@ -906,10 +880,7 @@
             "low": 0.09676933255921683,
             "high": 0.7000116786584712
           },
-          "cases": [
-            "t-d-adopt-force-kill",
-            "t-d-syn-settled"
-          ]
+          "cases": ["t-d-adopt-force-kill", "t-d-syn-settled"]
         },
         "exact": {
           "numerator": 5,
@@ -952,12 +923,7 @@
             "low": 0.5100999795960008,
             "high": 1
           },
-          "cases": [
-            "t-t355-checks",
-            "t-audit-oct26",
-            "t-syn-tests-not-run",
-            "t-syn-truncated"
-          ]
+          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
         },
         "contradictedRecall": {
           "numerator": 2,
@@ -967,10 +933,7 @@
             "low": 0.34237195288961925,
             "high": 1
           },
-          "cases": [
-            "t-audit-oct26",
-            "t-syn-tests-not-run"
-          ]
+          "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
         },
         "falseAlarms": {
           "numerator": 1,
@@ -980,9 +943,7 @@
             "low": 0.09452865480086614,
             "high": 0.9054713451991339
           },
-          "cases": [
-            "t-syn-tests-passed"
-          ]
+          "cases": ["t-syn-tests-passed"]
         },
         "flagged": 5,
         "abstentions": 0,
@@ -1031,11 +992,7 @@
             "low": 0.43849391955098227,
             "high": 1
           },
-          "cases": [
-            "t-d-upstream-policy",
-            "t-d-adopt-force-kill",
-            "t-d-syn-settled"
-          ]
+          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
         },
         "missedCandidates": {
           "numerator": 0,
@@ -1068,11 +1025,7 @@
             "low": 0.18761280689940868,
             "high": 0.8123871931005913
           },
-          "cases": [
-            "t-d-upstream-policy",
-            "t-d-adopt-force-kill",
-            "t-d-syn-settled"
-          ]
+          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
         },
         "exact": {
           "numerator": 6,
@@ -1116,12 +1069,7 @@
             "low": 0.5100999795960008,
             "high": 1
           },
-          "cases": [
-            "t-t355-checks",
-            "t-audit-oct26",
-            "t-syn-tests-not-run",
-            "t-syn-truncated"
-          ]
+          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
         },
         "contradictedRecall": {
           "numerator": 2,
@@ -1131,10 +1079,7 @@
             "low": 0.34237195288961925,
             "high": 1
           },
-          "cases": [
-            "t-audit-oct26",
-            "t-syn-tests-not-run"
-          ]
+          "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
         },
         "falseAlarms": {
           "numerator": 1,
@@ -1144,9 +1089,7 @@
             "low": 0.09452865480086614,
             "high": 0.9054713451991339
           },
-          "cases": [
-            "t-syn-tests-passed"
-          ]
+          "cases": ["t-syn-tests-passed"]
         },
         "flagged": 5,
         "abstentions": 0,
@@ -1195,11 +1138,7 @@
             "low": 0.43849391955098227,
             "high": 1
           },
-          "cases": [
-            "t-d-upstream-policy",
-            "t-d-adopt-force-kill",
-            "t-d-syn-settled"
-          ]
+          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
         },
         "missedCandidates": {
           "numerator": 0,
@@ -1232,11 +1171,7 @@
             "low": 0.18761280689940868,
             "high": 0.8123871931005913
           },
-          "cases": [
-            "t-d-upstream-policy",
-            "t-d-adopt-force-kill",
-            "t-d-syn-settled"
-          ]
+          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
         },
         "exact": {
           "numerator": 6,
@@ -1280,12 +1215,7 @@
             "low": 0.5100999795960008,
             "high": 1
           },
-          "cases": [
-            "t-t355-checks",
-            "t-audit-oct26",
-            "t-syn-tests-not-run",
-            "t-syn-truncated"
-          ]
+          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
         },
         "contradictedRecall": {
           "numerator": 2,
@@ -1295,10 +1225,7 @@
             "low": 0.34237195288961925,
             "high": 1
           },
-          "cases": [
-            "t-audit-oct26",
-            "t-syn-tests-not-run"
-          ]
+          "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
         },
         "falseAlarms": {
           "numerator": 1,
@@ -1308,9 +1235,7 @@
             "low": 0.09452865480086614,
             "high": 0.9054713451991339
           },
-          "cases": [
-            "t-syn-tests-passed"
-          ]
+          "cases": ["t-syn-tests-passed"]
         },
         "flagged": 5,
         "abstentions": 0,
@@ -1359,11 +1284,7 @@
             "low": 0.43849391955098227,
             "high": 1
           },
-          "cases": [
-            "t-d-upstream-policy",
-            "t-d-adopt-force-kill",
-            "t-d-syn-settled"
-          ]
+          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
         },
         "missedCandidates": {
           "numerator": 0,
@@ -1396,11 +1317,7 @@
             "low": 0.18761280689940868,
             "high": 0.8123871931005913
           },
-          "cases": [
-            "t-d-upstream-policy",
-            "t-d-adopt-force-kill",
-            "t-d-syn-settled"
-          ]
+          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
         },
         "exact": {
           "numerator": 6,
@@ -1444,12 +1361,7 @@
             "low": 0.5100999795960008,
             "high": 1
           },
-          "cases": [
-            "t-t355-checks",
-            "t-audit-oct26",
-            "t-syn-tests-not-run",
-            "t-syn-truncated"
-          ]
+          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
         },
         "contradictedRecall": {
           "numerator": 2,
@@ -1459,10 +1371,7 @@
             "low": 0.34237195288961925,
             "high": 1
           },
-          "cases": [
-            "t-audit-oct26",
-            "t-syn-tests-not-run"
-          ]
+          "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
         },
         "falseAlarms": {
           "numerator": 1,
@@ -1472,9 +1381,7 @@
             "low": 0.09452865480086614,
             "high": 0.9054713451991339
           },
-          "cases": [
-            "t-syn-tests-passed"
-          ]
+          "cases": ["t-syn-tests-passed"]
         },
         "flagged": 5,
         "abstentions": 0,
@@ -1524,11 +1431,7 @@
             "low": 0.43849391955098227,
             "high": 1
           },
-          "cases": [
-            "t-d-upstream-policy",
-            "t-d-adopt-force-kill",
-            "t-d-syn-settled"
-          ]
+          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
         },
         "missedCandidates": {
           "numerator": 0,
@@ -1561,11 +1464,7 @@
             "low": 0.18761280689940868,
             "high": 0.8123871931005913
           },
-          "cases": [
-            "t-d-upstream-policy",
-            "t-d-adopt-force-kill",
-            "t-d-syn-settled"
-          ]
+          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
         },
         "exact": {
           "numerator": 6,
@@ -1609,12 +1508,7 @@
             "low": 0.5100999795960008,
             "high": 1
           },
-          "cases": [
-            "t-t355-checks",
-            "t-audit-oct26",
-            "t-syn-tests-not-run",
-            "t-syn-truncated"
-          ]
+          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
         },
         "contradictedRecall": {
           "numerator": 2,
@@ -1624,10 +1518,7 @@
             "low": 0.34237195288961925,
             "high": 1
           },
-          "cases": [
-            "t-audit-oct26",
-            "t-syn-tests-not-run"
-          ]
+          "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
         },
         "falseAlarms": {
           "numerator": 1,
@@ -1637,9 +1528,7 @@
             "low": 0.09452865480086614,
             "high": 0.9054713451991339
           },
-          "cases": [
-            "t-syn-tests-passed"
-          ]
+          "cases": ["t-syn-tests-passed"]
         },
         "flagged": 5,
         "abstentions": 0,
@@ -1689,11 +1578,7 @@
             "low": 0.43849391955098227,
             "high": 1
           },
-          "cases": [
-            "t-d-upstream-policy",
-            "t-d-adopt-force-kill",
-            "t-d-syn-settled"
-          ]
+          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
         },
         "missedCandidates": {
           "numerator": 0,
@@ -1726,11 +1611,7 @@
             "low": 0.18761280689940868,
             "high": 0.8123871931005913
           },
-          "cases": [
-            "t-d-upstream-policy",
-            "t-d-adopt-force-kill",
-            "t-d-syn-settled"
-          ]
+          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
         },
         "exact": {
           "numerator": 6,
@@ -1774,12 +1655,7 @@
             "low": 0.5100999795960008,
             "high": 1
           },
-          "cases": [
-            "t-t355-checks",
-            "t-audit-oct26",
-            "t-syn-tests-not-run",
-            "t-syn-truncated"
-          ]
+          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
         },
         "contradictedRecall": {
           "numerator": 2,
@@ -1789,10 +1665,7 @@
             "low": 0.34237195288961925,
             "high": 1
           },
-          "cases": [
-            "t-audit-oct26",
-            "t-syn-tests-not-run"
-          ]
+          "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
         },
         "falseAlarms": {
           "numerator": 0,
@@ -1814,12 +1687,7 @@
             "low": 0.29998832134152864,
             "high": 0.9032306674407831
           },
-          "cases": [
-            "t-t355-checks",
-            "t-audit-oct26",
-            "t-syn-tests-not-run",
-            "t-syn-truncated"
-          ]
+          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
         },
         "exact": {
           "numerator": 6,
@@ -1851,11 +1719,7 @@
             "low": 0.43849391955098227,
             "high": 1
           },
-          "cases": [
-            "t-d-upstream-policy",
-            "t-d-adopt-force-kill",
-            "t-d-syn-settled"
-          ]
+          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
         },
         "missedCandidates": {
           "numerator": 0,
@@ -1888,11 +1752,7 @@
             "low": 0.18761280689940868,
             "high": 0.8123871931005913
           },
-          "cases": [
-            "t-d-upstream-policy",
-            "t-d-adopt-force-kill",
-            "t-d-syn-settled"
-          ]
+          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
         },
         "exact": {
           "numerator": 6,
@@ -1936,12 +1796,7 @@
             "low": 0.5100999795960008,
             "high": 1
           },
-          "cases": [
-            "t-t355-checks",
-            "t-audit-oct26",
-            "t-syn-tests-not-run",
-            "t-syn-truncated"
-          ]
+          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
         },
         "contradictedRecall": {
           "numerator": 2,
@@ -1951,10 +1806,7 @@
             "low": 0.34237195288961925,
             "high": 1
           },
-          "cases": [
-            "t-audit-oct26",
-            "t-syn-tests-not-run"
-          ]
+          "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
         },
         "falseAlarms": {
           "numerator": 2,
@@ -1964,10 +1816,7 @@
             "low": 0.34237195288961925,
             "high": 1
           },
-          "cases": [
-            "t-t355-cost",
-            "t-syn-tests-passed"
-          ]
+          "cases": ["t-t355-cost", "t-syn-tests-passed"]
         },
         "flagged": 6,
         "abstentions": 0,
@@ -2011,11 +1860,7 @@
             "low": 0.43849391955098227,
             "high": 1
           },
-          "cases": [
-            "t-d-upstream-policy",
-            "t-d-adopt-force-kill",
-            "t-d-syn-settled"
-          ]
+          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
         },
         "missedCandidates": {
           "numerator": 0,
@@ -2035,11 +1880,7 @@
             "low": 0.43849391955098227,
             "high": 1
           },
-          "cases": [
-            "t-d-syn-tentative",
-            "t-d-syn-routine",
-            "t-d-syn-duplicate"
-          ]
+          "cases": ["t-d-syn-tentative", "t-d-syn-routine", "t-d-syn-duplicate"]
         },
         "falseEscalationsByReference": {
           "tentative": 1,
@@ -2090,12 +1931,7 @@
             "low": 0.5100999795960008,
             "high": 1
           },
-          "cases": [
-            "t-t355-checks",
-            "t-audit-oct26",
-            "t-syn-tests-not-run",
-            "t-syn-truncated"
-          ]
+          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
         },
         "reviewRecall": {
           "numerator": 0,
@@ -2172,11 +2008,7 @@
             "low": 0.43849391955098227,
             "high": 1
           },
-          "cases": [
-            "t-d-upstream-policy",
-            "t-d-adopt-force-kill",
-            "t-d-syn-settled"
-          ]
+          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
         },
         "falseEscalations": {
           "numerator": 0,
@@ -2228,20 +2060,14 @@
       "costUsd": 0.000340494,
       "knownCostUsd": 0.000340494,
       "costKnownCalls": 12,
-      "costStatuses": [
-        "estimated"
-      ],
+      "costStatuses": ["estimated"],
       "attempts": 12,
       "failedAttempts": 0,
       "failureCodes": [],
       "unanswered": [],
       "outputTokensKnown": 601,
-      "requestedModels": [
-        "jev-1.14.0"
-      ],
-      "resolvedModels": [
-        "jev-1.14.0"
-      ]
+      "requestedModels": ["jev-1.14.0"],
+      "resolvedModels": ["jev-1.14.0"]
     },
     "luna": {
       "calls": 12,
@@ -2256,20 +2082,14 @@
       "costUsd": 0.0005260999999999999,
       "knownCostUsd": 0.0005260999999999999,
       "costKnownCalls": 12,
-      "costStatuses": [
-        "estimated"
-      ],
+      "costStatuses": ["estimated"],
       "attempts": 12,
       "failedAttempts": 0,
       "failureCodes": [],
       "unanswered": [],
       "outputTokensKnown": 0,
-      "requestedModels": [
-        "gpt-6-luna"
-      ],
-      "resolvedModels": [
-        "gpt-6-luna"
-      ]
+      "requestedModels": ["gpt-6-luna"],
+      "resolvedModels": ["gpt-6-luna"]
     }
   },
   "verdicts": {
@@ -2863,12 +2683,7 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": [
-              "t-t355-checks",
-              "t-audit-oct26",
-              "t-syn-tests-not-run",
-              "t-syn-truncated"
-            ]
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
           },
           "contradictedRecall": {
             "numerator": 2,
@@ -2878,10 +2693,7 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": [
-              "t-audit-oct26",
-              "t-syn-tests-not-run"
-            ]
+            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
           },
           "falseAlarms": {
             "numerator": 0,
@@ -2903,12 +2715,7 @@
               "low": 0.29998832134152864,
               "high": 0.9032306674407831
             },
-            "cases": [
-              "t-t355-checks",
-              "t-audit-oct26",
-              "t-syn-tests-not-run",
-              "t-syn-truncated"
-            ]
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
           },
           "exact": {
             "numerator": 4,
@@ -2918,12 +2725,7 @@
               "low": 0.29998832134152864,
               "high": 0.9032306674407831
             },
-            "cases": [
-              "t-t355-checks",
-              "t-t355-cost",
-              "t-syn-tests-passed",
-              "t-syn-truncated"
-            ]
+            "cases": ["t-t355-checks", "t-t355-cost", "t-syn-tests-passed", "t-syn-truncated"]
           }
         },
         "decision": {
@@ -2938,10 +2740,7 @@
               "low": 0.2076549551264879,
               "high": 0.9385096847238394
             },
-            "cases": [
-              "t-d-adopt-force-kill",
-              "t-d-syn-settled"
-            ]
+            "cases": ["t-d-adopt-force-kill", "t-d-syn-settled"]
           },
           "missedCandidates": {
             "numerator": 1,
@@ -2951,9 +2750,7 @@
               "low": 0.0614903152761605,
               "high": 0.7923450448735121
             },
-            "cases": [
-              "t-d-upstream-policy"
-            ]
+            "cases": ["t-d-upstream-policy"]
           },
           "falseEscalations": {
             "numerator": 0,
@@ -2976,10 +2773,7 @@
               "low": 0.09676933255921683,
               "high": 0.7000116786584712
             },
-            "cases": [
-              "t-d-adopt-force-kill",
-              "t-d-syn-settled"
-            ]
+            "cases": ["t-d-adopt-force-kill", "t-d-syn-settled"]
           },
           "exact": {
             "numerator": 5,
@@ -3022,12 +2816,7 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": [
-              "t-t355-checks",
-              "t-audit-oct26",
-              "t-syn-tests-not-run",
-              "t-syn-truncated"
-            ]
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
           },
           "contradictedRecall": {
             "numerator": 2,
@@ -3037,10 +2826,7 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": [
-              "t-audit-oct26",
-              "t-syn-tests-not-run"
-            ]
+            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
           },
           "falseAlarms": {
             "numerator": 1,
@@ -3050,9 +2836,7 @@
               "low": 0.09452865480086614,
               "high": 0.9054713451991339
             },
-            "cases": [
-              "t-syn-tests-passed"
-            ]
+            "cases": ["t-syn-tests-passed"]
           },
           "flagged": 5,
           "abstentions": 0,
@@ -3101,11 +2885,7 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": [
-              "t-d-upstream-policy",
-              "t-d-adopt-force-kill",
-              "t-d-syn-settled"
-            ]
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
           },
           "missedCandidates": {
             "numerator": 0,
@@ -3138,11 +2918,7 @@
               "low": 0.18761280689940868,
               "high": 0.8123871931005913
             },
-            "cases": [
-              "t-d-upstream-policy",
-              "t-d-adopt-force-kill",
-              "t-d-syn-settled"
-            ]
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
           },
           "exact": {
             "numerator": 6,
@@ -3186,12 +2962,7 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": [
-              "t-t355-checks",
-              "t-audit-oct26",
-              "t-syn-tests-not-run",
-              "t-syn-truncated"
-            ]
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
           },
           "contradictedRecall": {
             "numerator": 2,
@@ -3201,10 +2972,7 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": [
-              "t-audit-oct26",
-              "t-syn-tests-not-run"
-            ]
+            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
           },
           "falseAlarms": {
             "numerator": 1,
@@ -3214,9 +2982,7 @@
               "low": 0.09452865480086614,
               "high": 0.9054713451991339
             },
-            "cases": [
-              "t-syn-tests-passed"
-            ]
+            "cases": ["t-syn-tests-passed"]
           },
           "flagged": 5,
           "abstentions": 0,
@@ -3265,11 +3031,7 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": [
-              "t-d-upstream-policy",
-              "t-d-adopt-force-kill",
-              "t-d-syn-settled"
-            ]
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
           },
           "missedCandidates": {
             "numerator": 0,
@@ -3302,11 +3064,7 @@
               "low": 0.18761280689940868,
               "high": 0.8123871931005913
             },
-            "cases": [
-              "t-d-upstream-policy",
-              "t-d-adopt-force-kill",
-              "t-d-syn-settled"
-            ]
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
           },
           "exact": {
             "numerator": 6,
@@ -3350,12 +3108,7 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": [
-              "t-t355-checks",
-              "t-audit-oct26",
-              "t-syn-tests-not-run",
-              "t-syn-truncated"
-            ]
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
           },
           "contradictedRecall": {
             "numerator": 2,
@@ -3365,10 +3118,7 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": [
-              "t-audit-oct26",
-              "t-syn-tests-not-run"
-            ]
+            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
           },
           "falseAlarms": {
             "numerator": 1,
@@ -3378,9 +3128,7 @@
               "low": 0.09452865480086614,
               "high": 0.9054713451991339
             },
-            "cases": [
-              "t-syn-tests-passed"
-            ]
+            "cases": ["t-syn-tests-passed"]
           },
           "flagged": 5,
           "abstentions": 0,
@@ -3429,11 +3177,7 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": [
-              "t-d-upstream-policy",
-              "t-d-adopt-force-kill",
-              "t-d-syn-settled"
-            ]
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
           },
           "missedCandidates": {
             "numerator": 0,
@@ -3466,11 +3210,7 @@
               "low": 0.18761280689940868,
               "high": 0.8123871931005913
             },
-            "cases": [
-              "t-d-upstream-policy",
-              "t-d-adopt-force-kill",
-              "t-d-syn-settled"
-            ]
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
           },
           "exact": {
             "numerator": 6,
@@ -3514,12 +3254,7 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": [
-              "t-t355-checks",
-              "t-audit-oct26",
-              "t-syn-tests-not-run",
-              "t-syn-truncated"
-            ]
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
           },
           "contradictedRecall": {
             "numerator": 2,
@@ -3529,10 +3264,7 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": [
-              "t-audit-oct26",
-              "t-syn-tests-not-run"
-            ]
+            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
           },
           "falseAlarms": {
             "numerator": 1,
@@ -3542,9 +3274,7 @@
               "low": 0.09452865480086614,
               "high": 0.9054713451991339
             },
-            "cases": [
-              "t-syn-tests-passed"
-            ]
+            "cases": ["t-syn-tests-passed"]
           },
           "flagged": 5,
           "abstentions": 0,
@@ -3594,11 +3324,7 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": [
-              "t-d-upstream-policy",
-              "t-d-adopt-force-kill",
-              "t-d-syn-settled"
-            ]
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
           },
           "missedCandidates": {
             "numerator": 0,
@@ -3631,11 +3357,7 @@
               "low": 0.18761280689940868,
               "high": 0.8123871931005913
             },
-            "cases": [
-              "t-d-upstream-policy",
-              "t-d-adopt-force-kill",
-              "t-d-syn-settled"
-            ]
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
           },
           "exact": {
             "numerator": 6,
@@ -3679,12 +3401,7 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": [
-              "t-t355-checks",
-              "t-audit-oct26",
-              "t-syn-tests-not-run",
-              "t-syn-truncated"
-            ]
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
           },
           "contradictedRecall": {
             "numerator": 2,
@@ -3694,10 +3411,7 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": [
-              "t-audit-oct26",
-              "t-syn-tests-not-run"
-            ]
+            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
           },
           "falseAlarms": {
             "numerator": 1,
@@ -3707,9 +3421,7 @@
               "low": 0.09452865480086614,
               "high": 0.9054713451991339
             },
-            "cases": [
-              "t-syn-tests-passed"
-            ]
+            "cases": ["t-syn-tests-passed"]
           },
           "flagged": 5,
           "abstentions": 0,
@@ -3759,11 +3471,7 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": [
-              "t-d-upstream-policy",
-              "t-d-adopt-force-kill",
-              "t-d-syn-settled"
-            ]
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
           },
           "missedCandidates": {
             "numerator": 0,
@@ -3796,11 +3504,7 @@
               "low": 0.18761280689940868,
               "high": 0.8123871931005913
             },
-            "cases": [
-              "t-d-upstream-policy",
-              "t-d-adopt-force-kill",
-              "t-d-syn-settled"
-            ]
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
           },
           "exact": {
             "numerator": 6,
@@ -3844,12 +3548,7 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": [
-              "t-t355-checks",
-              "t-audit-oct26",
-              "t-syn-tests-not-run",
-              "t-syn-truncated"
-            ]
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
           },
           "contradictedRecall": {
             "numerator": 2,
@@ -3859,10 +3558,7 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": [
-              "t-audit-oct26",
-              "t-syn-tests-not-run"
-            ]
+            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
           },
           "falseAlarms": {
             "numerator": 0,
@@ -3884,12 +3580,7 @@
               "low": 0.29998832134152864,
               "high": 0.9032306674407831
             },
-            "cases": [
-              "t-t355-checks",
-              "t-audit-oct26",
-              "t-syn-tests-not-run",
-              "t-syn-truncated"
-            ]
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
           },
           "exact": {
             "numerator": 6,
@@ -3921,11 +3612,7 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": [
-              "t-d-upstream-policy",
-              "t-d-adopt-force-kill",
-              "t-d-syn-settled"
-            ]
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
           },
           "missedCandidates": {
             "numerator": 0,
@@ -3958,11 +3645,7 @@
               "low": 0.18761280689940868,
               "high": 0.8123871931005913
             },
-            "cases": [
-              "t-d-upstream-policy",
-              "t-d-adopt-force-kill",
-              "t-d-syn-settled"
-            ]
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
           },
           "exact": {
             "numerator": 6,
@@ -4006,12 +3689,7 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": [
-              "t-t355-checks",
-              "t-audit-oct26",
-              "t-syn-tests-not-run",
-              "t-syn-truncated"
-            ]
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
           },
           "contradictedRecall": {
             "numerator": 2,
@@ -4021,10 +3699,7 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": [
-              "t-audit-oct26",
-              "t-syn-tests-not-run"
-            ]
+            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
           },
           "falseAlarms": {
             "numerator": 2,
@@ -4034,10 +3709,7 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": [
-              "t-t355-cost",
-              "t-syn-tests-passed"
-            ]
+            "cases": ["t-t355-cost", "t-syn-tests-passed"]
           },
           "flagged": 6,
           "abstentions": 0,
@@ -4081,11 +3753,7 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": [
-              "t-d-upstream-policy",
-              "t-d-adopt-force-kill",
-              "t-d-syn-settled"
-            ]
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
           },
           "missedCandidates": {
             "numerator": 0,
@@ -4105,11 +3773,7 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": [
-              "t-d-syn-tentative",
-              "t-d-syn-routine",
-              "t-d-syn-duplicate"
-            ]
+            "cases": ["t-d-syn-tentative", "t-d-syn-routine", "t-d-syn-duplicate"]
           },
           "falseEscalationsByReference": {
             "tentative": 1,
@@ -4160,12 +3824,7 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": [
-              "t-t355-checks",
-              "t-audit-oct26",
-              "t-syn-tests-not-run",
-              "t-syn-truncated"
-            ]
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
           },
           "reviewRecall": {
             "numerator": 0,
@@ -4242,11 +3901,7 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": [
-              "t-d-upstream-policy",
-              "t-d-adopt-force-kill",
-              "t-d-syn-settled"
-            ]
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
           },
           "falseEscalations": {
             "numerator": 0,
@@ -4308,12 +3963,7 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": [
-              "t-t355-checks",
-              "t-audit-oct26",
-              "t-syn-tests-not-run",
-              "t-syn-truncated"
-            ]
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
           },
           "contradictedRecall": {
             "numerator": 2,
@@ -4323,10 +3973,7 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": [
-              "t-audit-oct26",
-              "t-syn-tests-not-run"
-            ]
+            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
           },
           "falseAlarms": {
             "numerator": 0,
@@ -4348,12 +3995,7 @@
               "low": 0.29998832134152864,
               "high": 0.9032306674407831
             },
-            "cases": [
-              "t-t355-checks",
-              "t-audit-oct26",
-              "t-syn-tests-not-run",
-              "t-syn-truncated"
-            ]
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
           },
           "exact": {
             "numerator": 4,
@@ -4363,12 +4005,7 @@
               "low": 0.29998832134152864,
               "high": 0.9032306674407831
             },
-            "cases": [
-              "t-t355-checks",
-              "t-t355-cost",
-              "t-syn-tests-passed",
-              "t-syn-truncated"
-            ]
+            "cases": ["t-t355-checks", "t-t355-cost", "t-syn-tests-passed", "t-syn-truncated"]
           }
         },
         "decision": {
@@ -4383,10 +4020,7 @@
               "low": 0.2076549551264879,
               "high": 0.9385096847238394
             },
-            "cases": [
-              "t-d-adopt-force-kill",
-              "t-d-syn-settled"
-            ]
+            "cases": ["t-d-adopt-force-kill", "t-d-syn-settled"]
           },
           "missedCandidates": {
             "numerator": 1,
@@ -4396,9 +4030,7 @@
               "low": 0.0614903152761605,
               "high": 0.7923450448735121
             },
-            "cases": [
-              "t-d-upstream-policy"
-            ]
+            "cases": ["t-d-upstream-policy"]
           },
           "falseEscalations": {
             "numerator": 0,
@@ -4421,10 +4053,7 @@
               "low": 0.09676933255921683,
               "high": 0.7000116786584712
             },
-            "cases": [
-              "t-d-adopt-force-kill",
-              "t-d-syn-settled"
-            ]
+            "cases": ["t-d-adopt-force-kill", "t-d-syn-settled"]
           },
           "exact": {
             "numerator": 5,
@@ -4467,12 +4096,7 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": [
-              "t-t355-checks",
-              "t-audit-oct26",
-              "t-syn-tests-not-run",
-              "t-syn-truncated"
-            ]
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
           },
           "contradictedRecall": {
             "numerator": 2,
@@ -4482,10 +4106,7 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": [
-              "t-audit-oct26",
-              "t-syn-tests-not-run"
-            ]
+            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
           },
           "falseAlarms": {
             "numerator": 1,
@@ -4495,9 +4116,7 @@
               "low": 0.09452865480086614,
               "high": 0.9054713451991339
             },
-            "cases": [
-              "t-syn-tests-passed"
-            ]
+            "cases": ["t-syn-tests-passed"]
           },
           "flagged": 5,
           "abstentions": 0,
@@ -4546,11 +4165,7 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": [
-              "t-d-upstream-policy",
-              "t-d-adopt-force-kill",
-              "t-d-syn-settled"
-            ]
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
           },
           "missedCandidates": {
             "numerator": 0,
@@ -4583,11 +4198,7 @@
               "low": 0.18761280689940868,
               "high": 0.8123871931005913
             },
-            "cases": [
-              "t-d-upstream-policy",
-              "t-d-adopt-force-kill",
-              "t-d-syn-settled"
-            ]
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
           },
           "exact": {
             "numerator": 6,
@@ -4631,12 +4242,7 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": [
-              "t-t355-checks",
-              "t-audit-oct26",
-              "t-syn-tests-not-run",
-              "t-syn-truncated"
-            ]
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
           },
           "contradictedRecall": {
             "numerator": 2,
@@ -4646,10 +4252,7 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": [
-              "t-audit-oct26",
-              "t-syn-tests-not-run"
-            ]
+            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
           },
           "falseAlarms": {
             "numerator": 1,
@@ -4659,9 +4262,7 @@
               "low": 0.09452865480086614,
               "high": 0.9054713451991339
             },
-            "cases": [
-              "t-syn-tests-passed"
-            ]
+            "cases": ["t-syn-tests-passed"]
           },
           "flagged": 5,
           "abstentions": 0,
@@ -4710,11 +4311,7 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": [
-              "t-d-upstream-policy",
-              "t-d-adopt-force-kill",
-              "t-d-syn-settled"
-            ]
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
           },
           "missedCandidates": {
             "numerator": 0,
@@ -4747,11 +4344,7 @@
               "low": 0.18761280689940868,
               "high": 0.8123871931005913
             },
-            "cases": [
-              "t-d-upstream-policy",
-              "t-d-adopt-force-kill",
-              "t-d-syn-settled"
-            ]
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
           },
           "exact": {
             "numerator": 6,
@@ -4795,12 +4388,7 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": [
-              "t-t355-checks",
-              "t-audit-oct26",
-              "t-syn-tests-not-run",
-              "t-syn-truncated"
-            ]
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
           },
           "contradictedRecall": {
             "numerator": 2,
@@ -4810,10 +4398,7 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": [
-              "t-audit-oct26",
-              "t-syn-tests-not-run"
-            ]
+            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
           },
           "falseAlarms": {
             "numerator": 1,
@@ -4823,9 +4408,7 @@
               "low": 0.09452865480086614,
               "high": 0.9054713451991339
             },
-            "cases": [
-              "t-syn-tests-passed"
-            ]
+            "cases": ["t-syn-tests-passed"]
           },
           "flagged": 5,
           "abstentions": 0,
@@ -4874,11 +4457,7 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": [
-              "t-d-upstream-policy",
-              "t-d-adopt-force-kill",
-              "t-d-syn-settled"
-            ]
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
           },
           "missedCandidates": {
             "numerator": 0,
@@ -4911,11 +4490,7 @@
               "low": 0.18761280689940868,
               "high": 0.8123871931005913
             },
-            "cases": [
-              "t-d-upstream-policy",
-              "t-d-adopt-force-kill",
-              "t-d-syn-settled"
-            ]
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
           },
           "exact": {
             "numerator": 6,
@@ -4959,12 +4534,7 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": [
-              "t-t355-checks",
-              "t-audit-oct26",
-              "t-syn-tests-not-run",
-              "t-syn-truncated"
-            ]
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
           },
           "contradictedRecall": {
             "numerator": 2,
@@ -4974,10 +4544,7 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": [
-              "t-audit-oct26",
-              "t-syn-tests-not-run"
-            ]
+            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
           },
           "falseAlarms": {
             "numerator": 1,
@@ -4987,9 +4554,7 @@
               "low": 0.09452865480086614,
               "high": 0.9054713451991339
             },
-            "cases": [
-              "t-syn-tests-passed"
-            ]
+            "cases": ["t-syn-tests-passed"]
           },
           "flagged": 5,
           "abstentions": 0,
@@ -5039,11 +4604,7 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": [
-              "t-d-upstream-policy",
-              "t-d-adopt-force-kill",
-              "t-d-syn-settled"
-            ]
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
           },
           "missedCandidates": {
             "numerator": 0,
@@ -5076,11 +4637,7 @@
               "low": 0.18761280689940868,
               "high": 0.8123871931005913
             },
-            "cases": [
-              "t-d-upstream-policy",
-              "t-d-adopt-force-kill",
-              "t-d-syn-settled"
-            ]
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
           },
           "exact": {
             "numerator": 6,
@@ -5124,12 +4681,7 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": [
-              "t-t355-checks",
-              "t-audit-oct26",
-              "t-syn-tests-not-run",
-              "t-syn-truncated"
-            ]
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
           },
           "contradictedRecall": {
             "numerator": 2,
@@ -5139,10 +4691,7 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": [
-              "t-audit-oct26",
-              "t-syn-tests-not-run"
-            ]
+            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
           },
           "falseAlarms": {
             "numerator": 1,
@@ -5152,9 +4701,7 @@
               "low": 0.09452865480086614,
               "high": 0.9054713451991339
             },
-            "cases": [
-              "t-syn-tests-passed"
-            ]
+            "cases": ["t-syn-tests-passed"]
           },
           "flagged": 5,
           "abstentions": 0,
@@ -5204,11 +4751,7 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": [
-              "t-d-upstream-policy",
-              "t-d-adopt-force-kill",
-              "t-d-syn-settled"
-            ]
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
           },
           "missedCandidates": {
             "numerator": 0,
@@ -5241,11 +4784,7 @@
               "low": 0.18761280689940868,
               "high": 0.8123871931005913
             },
-            "cases": [
-              "t-d-upstream-policy",
-              "t-d-adopt-force-kill",
-              "t-d-syn-settled"
-            ]
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
           },
           "exact": {
             "numerator": 6,
@@ -5289,12 +4828,7 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": [
-              "t-t355-checks",
-              "t-audit-oct26",
-              "t-syn-tests-not-run",
-              "t-syn-truncated"
-            ]
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
           },
           "contradictedRecall": {
             "numerator": 2,
@@ -5304,10 +4838,7 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": [
-              "t-audit-oct26",
-              "t-syn-tests-not-run"
-            ]
+            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
           },
           "falseAlarms": {
             "numerator": 0,
@@ -5329,12 +4860,7 @@
               "low": 0.29998832134152864,
               "high": 0.9032306674407831
             },
-            "cases": [
-              "t-t355-checks",
-              "t-audit-oct26",
-              "t-syn-tests-not-run",
-              "t-syn-truncated"
-            ]
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
           },
           "exact": {
             "numerator": 6,
@@ -5366,11 +4892,7 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": [
-              "t-d-upstream-policy",
-              "t-d-adopt-force-kill",
-              "t-d-syn-settled"
-            ]
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
           },
           "missedCandidates": {
             "numerator": 0,
@@ -5403,11 +4925,7 @@
               "low": 0.18761280689940868,
               "high": 0.8123871931005913
             },
-            "cases": [
-              "t-d-upstream-policy",
-              "t-d-adopt-force-kill",
-              "t-d-syn-settled"
-            ]
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
           },
           "exact": {
             "numerator": 6,
@@ -5451,12 +4969,7 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": [
-              "t-t355-checks",
-              "t-audit-oct26",
-              "t-syn-tests-not-run",
-              "t-syn-truncated"
-            ]
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
           },
           "contradictedRecall": {
             "numerator": 2,
@@ -5466,10 +4979,7 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": [
-              "t-audit-oct26",
-              "t-syn-tests-not-run"
-            ]
+            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
           },
           "falseAlarms": {
             "numerator": 2,
@@ -5479,10 +4989,7 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": [
-              "t-t355-cost",
-              "t-syn-tests-passed"
-            ]
+            "cases": ["t-t355-cost", "t-syn-tests-passed"]
           },
           "flagged": 6,
           "abstentions": 0,
@@ -5526,11 +5033,7 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": [
-              "t-d-upstream-policy",
-              "t-d-adopt-force-kill",
-              "t-d-syn-settled"
-            ]
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
           },
           "missedCandidates": {
             "numerator": 0,
@@ -5550,11 +5053,7 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": [
-              "t-d-syn-tentative",
-              "t-d-syn-routine",
-              "t-d-syn-duplicate"
-            ]
+            "cases": ["t-d-syn-tentative", "t-d-syn-routine", "t-d-syn-duplicate"]
           },
           "falseEscalationsByReference": {
             "tentative": 1,
@@ -5605,12 +5104,7 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": [
-              "t-t355-checks",
-              "t-audit-oct26",
-              "t-syn-tests-not-run",
-              "t-syn-truncated"
-            ]
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
           },
           "reviewRecall": {
             "numerator": 0,
@@ -5687,11 +5181,7 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": [
-              "t-d-upstream-policy",
-              "t-d-adopt-force-kill",
-              "t-d-syn-settled"
-            ]
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
           },
           "falseEscalations": {
             "numerator": 0,

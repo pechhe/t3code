@@ -674,11 +674,44 @@
     "./provider-instance-ids": {
       "types": "./src/providerInstanceIds.ts",
       "default": "./src/providerInstanceIds.ts"
+    },
+    "./workflows": {
+      "types": "./src/workflows.ts",
+      "default": "./src/workflows.ts"
+    },
+    "./feedback-request": {
+      "types": "./src/feedbackRequest.ts",
+      "default": "./src/feedbackRequest.ts"
+    },
+    "./linked-thread": {
+      "types": "./src/linkedThread.ts",
+      "default": "./src/linkedThread.ts"
+    },
+    "./side-thread": {
+      "types": "./src/sideThread.ts",
+      "default": "./src/sideThread.ts"
+    },
+    "./connect-device-notices": {
+      "types": "./src/connectDeviceNotices.ts",
+      "default": "./src/connectDeviceNotices.ts"
+    },
+    "./state/thread-stream": {
+      "types": "./src/state/threadStream.ts",
+      "default": "./src/state/threadStream.ts"
+    },
+    "./state/thread-repositories": {
+      "types": "./src/state/threadRepositories.ts",
+      "default": "./src/state/threadRepositories.ts"
+    },
+    "./pull-request-references": {
+      "types": "./src/pullRequestReferences.ts",
+      "default": "./src/pullRequestReferences.ts"
     }
   },
   "scripts": {
     "typecheck": "effect-tsgo tsrs --noEmit",
-    "test": "vp test run"
+    "test": "vp test run",
+    "bench": "vp test bench"
   },
   "dependencies": {
     "@pierre/diffs": "catalog:",
@@ -700,16 +733,16 @@
     "effect": "catalog:",
     "gt-i18n": "1.0.43",
     "jszip": "3.10.2",
-    "remark-gfm": "catalog:",
-    "remark-parse": "catalog:",
     "three": "0.187.0",
-    "unbash": "^6.0.2",
-    "unified": "catalog:"
+    "unbash": "^6.0.2"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@types/mdast": "^4.0.4",
     "@types/three": "0.187.0",
+    "remark-gfm": "catalog:",
+    "remark-parse": "catalog:",
+    "unified": "catalog:",
     "vite-plus": "catalog:"
   }
 }

@@ -39,7 +39,9 @@ export function rememberThread(
 
 /** Drops sessions nobody has used recently, then the oldest beyond the cap. */
 export function pruneSessions(store: SessionStore, now: number): SessionStore {
-  const live = Object.entries(store.entries).filter(([, entry]) => now - entry.updatedAt <= MAX_AGE_MS);
+  const live = Object.entries(store.entries).filter(
+    ([, entry]) => now - entry.updatedAt <= MAX_AGE_MS,
+  );
   live.sort((left, right) => right[1].updatedAt - left[1].updatedAt);
   return { version: 1, entries: Object.fromEntries(live.slice(0, MAX_ENTRIES)) };
 }

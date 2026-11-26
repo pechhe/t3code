@@ -1,4 +1,5 @@
 import { layerNonSlipJay } from "./testkit/runWorkspaceCustody.ts";
+import * as TaskFolders from "../workspace/TaskFolders.ts";
 import * as RunCustody from "./RunWorkspaceCustody.ts";
 import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
 import * as ProjectCloneTracker from "../project/ProjectCloneTracker.ts";
@@ -203,6 +204,7 @@ function makeHarness(options: HarnessOptions = {}) {
   const releasedPaths = new Set<string>();
   const recreatedPaths = new Set<string>();
   const layerExternalServices = Layer.mergeAll(
+    Layer.mock(TaskFolders.TaskFolders)({ plan: () => Effect.succeed(null) }),
     FileSystem.layerNoop({
       exists: (path) => Effect.sync(() => recreatedPaths.has(path) || !releasedPaths.has(path)),
     }),
@@ -363,6 +365,7 @@ function makeHarness(options: HarnessOptions = {}) {
               defaultModelSelection: project.defaultModelSelection,
               defaultThreadEnvMode: null,
               hasCustomTitle: false,
+              trackedFolders: [],
               autoPull: false,
               faviconPath: null,
               projectIcon: null,

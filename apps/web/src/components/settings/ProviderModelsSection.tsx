@@ -229,6 +229,10 @@ export function ProviderModelsSection({
   const editAttemptRef = useRef(0);
   const listRef = useRef<HTMLDivElement>(null);
   const scrollToSlugRef = useRef<string | null>(null);
+  // A row toggled on its own keeps its placement until a bulk toggle or remount regroups the list.
+  const [heldPlacements, setHeldPlacements] = useState<ReadonlyMap<string, boolean>>(
+    () => new Map(),
+  );
   const hiddenModelSet = new Set(hiddenModels);
   const favoriteModelSet = new Set(favoriteModels);
   const reportedSlugs = new Set(models.map((model) => model.slug));
@@ -237,9 +241,15 @@ export function ProviderModelsSection({
   const unreportedFavoriteModels = favoriteModels.flatMap((slug): ServerProviderModel[] =>
     reportedSlugs.has(slug) ? [] : [{ slug, name: slug, isCustom: false, capabilities: null }],
   );
-  const displayModels = groupModelsForDisplay([...models, ...unreportedFavoriteModels], {
+  const listedModels = [...models, ...unreportedFavoriteModels];
+  const placedHiddenSet = new Set(
+    listedModels
+      .filter((model) => heldPlacements.get(model.slug) ?? hiddenModelSet.has(model.slug))
+      .map((model) => model.slug),
+  );
+  const displayModels = groupModelsForDisplay(listedModels, {
     favoriteModels: favoriteModelSet,
-    hiddenModels: hiddenModelSet,
+    hiddenModels: placedHiddenSet,
     modelOrder,
   });
   const favoriteCount = displayModels.filter((model) => favoriteModelSet.has(model.slug)).length;
@@ -348,6 +358,9 @@ export function ProviderModelsSection({
 
   const setHidden = (slug: string, hidden: boolean) => {
     if (!canWritePreferences || hidden === hiddenModelSet.has(slug)) return;
+    setHeldPlacements((current) =>
+      current.has(slug) ? current : new Map(current).set(slug, hiddenModelSet.has(slug)),
+    );
     onHiddenModelsChange(
       hidden ? [...hiddenModels, slug] : hiddenModels.filter((model) => model !== slug),
       [slug],
@@ -362,7 +375,7 @@ export function ProviderModelsSection({
   const groupOf = (model: (typeof displayModels)[number]) =>
     favoriteModelSet.has(model.slug)
       ? "favorite"
-      : !model.isCustom && hiddenModelSet.has(model.slug)
+      : !model.isCustom && placedHiddenSet.has(model.slug)
         ? "hidden"
         : "visible";
   const handleMove = (slug: string, direction: -1 | 1) => {
@@ -454,6 +467,13 @@ export function ProviderModelsSection({
           <Input
             value={filter}
             onChange={(event) => setFilter(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== "Escape" || event.nativeEvent.isComposing || event.keyCode === 229)
+                return;
+              if (!filter && !event.repeat) return;
+              event.stopPropagation();
+              setFilter("");
+            }}
             placeholder={gt("Filter models")}
             size="sm"
             className="w-56 max-w-full"
@@ -467,12 +487,13 @@ export function ProviderModelsSection({
               type="button"
               size="xs"
               variant="ghost-muted"
-              onClick={() =>
+              onClick={() => {
+                setHeldPlacements(new Map());
                 onHiddenModelsChange(
                   nextHiddenModelsForBulkToggle(models, hiddenModels),
                   builtInModels.map((model) => model.slug),
-                )
-              }
+                );
+              }}
             >
               {allBuiltInModelsHidden ? gt("Enable all") : gt("Disable all")}
             </Button>
@@ -569,8 +590,10 @@ export function ProviderModelsSection({
               if (error) setError(null);
             }}
             onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing || event.keyCode === 229) return;
               if (event.key === "Escape") {
                 event.preventDefault();
+                event.stopPropagation();
                 cancelAdd();
                 return;
               }

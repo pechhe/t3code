@@ -513,7 +513,9 @@ const boxToolkitLayer = (
                   },
                 ]),
           ]
-        ).map((entry, position) => ({ ...entry, position }));
+        )
+          // Position 0 is the task's prompt, which the follower reads past.
+          .map((entry, index) => ({ ...entry, position: index + 1 }));
         const visible =
           options.itemId === undefined
             ? replies.filter(
@@ -554,7 +556,7 @@ const boxToolkitLayer = (
                   }),
             } as never,
           })),
-          totalItems: replies.length,
+          totalItems: replies.length + 1,
           hasMore:
             options.itemId === undefined &&
             matching.length > 0 &&

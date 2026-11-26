@@ -116,7 +116,15 @@ function resultFromThread(input: {
   readonly sequence: number;
   readonly thread: Pick<
     OrchestrationV2AppThread,
-    "id" | "title" | "titleRegeneration" | "linkedPullRequest" | "workItem" | "arcRun" | "autonomousRun" | "decisionLog" | "updatedAt"
+    | "id"
+    | "title"
+    | "titleRegeneration"
+    | "linkedPullRequest"
+    | "workItem"
+    | "arcRun"
+    | "autonomousRun"
+    | "decisionLog"
+    | "updatedAt"
   >;
 }): ThreadMetadataMcpUpdateResult {
   return {
@@ -135,7 +143,9 @@ function resultFromThread(input: {
     linkedPullRequest: input.thread.linkedPullRequest ?? null,
     workItem: input.thread.workItem ?? null,
     ...(input.thread.arcRun === undefined ? {} : { arcRun: input.thread.arcRun }),
-    ...(input.thread.autonomousRun === undefined ? {} : { autonomousRun: input.thread.autonomousRun }),
+    ...(input.thread.autonomousRun === undefined
+      ? {}
+      : { autonomousRun: input.thread.autonomousRun }),
     ...(input.thread.decisionLog === undefined ? {} : { decisionLog: input.thread.decisionLog }),
     updatedAt: DateTime.formatIso(input.thread.updatedAt),
   };

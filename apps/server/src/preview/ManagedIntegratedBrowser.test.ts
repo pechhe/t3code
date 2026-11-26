@@ -212,7 +212,6 @@ describe.skipIf(browserPath === null)("managed integrated browser", () => {
             expect(snapshot.networkEntries).toContainEqual(
               expect.objectContaining({ status: 200, failed: false }),
             );
-            expect(snapshot.interactiveElements.length).toBeGreaterThan(0);
             expect(snapshot.accessibilityTree).toBeTruthy();
             expect(snapshot.captureStatus).toEqual({
               console: true,

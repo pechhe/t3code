@@ -3537,11 +3537,11 @@ it.layer(layerTest)("parked waits", (it) => {
 
         const overdue = yield* createThread("check-back-overdue");
         const past = DateTime.formatIso(DateTime.subtract(yield* DateTime.now, { hours: 1 }));
+        const woken = yield* awaitParkedWake(overdue);
         const parked = yield* convert(overdue, past);
-        // The timer starts as the reactor indexes the wait and fires at once; a moment of test
-        // time lets its dispatch finish, and moves no deadline that is not already due.
+        // The timer starts as the reactor indexes the wait and fires at once, on its own fiber.
         for (const stored of parked.storedEvents) yield* reactor.handle(stored.event);
-        yield* TestClock.adjust("1 second");
+        yield* Fiber.join(woken);
         assert.lengthOf(yield* parkedWakes(overdue), 1);
         assert.lengthOf(yield* parkedOf(overdue), 0);
       }),

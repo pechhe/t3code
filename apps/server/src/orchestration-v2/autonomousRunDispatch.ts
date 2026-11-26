@@ -189,7 +189,11 @@ export const dispatchAutonomousRun = Effect.fn("orchestrationV2.dispatch.arcRun"
       threadId: thread.id,
       providerInstanceId: thread.providerInstanceId,
       occurredAt: now,
-      payload: { ...withoutOptOut, ...(optOut ? { awayOptOut: true as const } : {}), updatedAt: now },
+      payload: {
+        ...withoutOptOut,
+        ...(optOut ? { awayOptOut: true as const } : {}),
+        updatedAt: now,
+      },
     });
     return;
   }

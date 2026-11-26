@@ -11,7 +11,7 @@ const REF_MOVE_REFLOG_SUBJECT =
 // A turn with more recent commits than this skips the HEAD probe and scans every reflog.
 const HEAD_REFLOG_PROBE_LIMIT = 512;
 
-function parseCheckpointReflogEntry(line: string) {
+export function parseCheckpointReflogEntry(line: string) {
   const [commit = "", selector = "", ...subject] = line.split(" ");
   return {
     commit,
@@ -20,7 +20,7 @@ function parseCheckpointReflogEntry(line: string) {
   };
 }
 
-function isLocalReflogCreation(entry: ReturnType<typeof parseCheckpointReflogEntry>) {
+export function isLocalReflogCreation(entry: ReturnType<typeof parseCheckpointReflogEntry>) {
   return !entry.fetched && !REF_MOVE_REFLOG_SUBJECT.test(entry.subject);
 }
 

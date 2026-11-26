@@ -62,7 +62,7 @@ import { titleRegenerationToast } from "../threadTitleRegenerationToast";
 import { newMessageId } from "~/lib/utils";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { composerDraftHasUserContent, useComposerDraftStore } from "../../composerDraftStore";
-import { useEnvironmentScope } from "~/state/session";
+import { useEnvironmentScope, useEnvironmentScopeDenied } from "~/state/session";
 import { threadEnvironment } from "../../state/threads";
 import { vcsEnvironment } from "../../state/vcs";
 import {
@@ -79,7 +79,10 @@ import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { readEnvironmentScope } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { useOrchestrationCommand } from "../../state/use-orchestration-command";
+import {
+  threadTriagePermitted,
+  useOrchestrationCommand,
+} from "../../state/use-orchestration-command";
 import { childInputNowItem, goalNowItem, runStopNowItem } from "./ThreadActivityBanners";
 import { Button } from "../ui/button";
 import {
@@ -93,7 +96,8 @@ import { useAtomValue } from "@effect/atom-react";
 import type { RunStopPresentation } from "@t3tools/client-runtime/state/thread-execution";
 import { Atom } from "effect/reactivity";
 import { environmentThreadDetails } from "../../state/threads";
-import { resolveThreadOpenRoute } from "../../lib/sideChatPane";
+import { type SideThreadOpenIntent, sideThreadKindOf } from "@t3tools/client-runtime/side-thread";
+import { openSideThread, resolveThreadOpenRoute } from "../../lib/sideChatPane";
 import type { useLocalDispatchState } from "./useLocalDispatchState";
 const RELATED_THREAD_SHELL_WAIT_MS = 1_000;
 const NO_PARKED_WAITS: ReadonlyArray<OrchestrationV2ParkedWait> = Object.freeze([]);
@@ -209,6 +213,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
   const router = useRouter();
   const { settleThread, pinThread, confirmAndUnpinThread } = useThreadActions();
   const canWriteSourceControl = useEnvironmentScope(environmentId, AuthSourceControlWriteScope);
+  const canTriageThread = !useEnvironmentScopeDenied(environmentId, AuthOrchestrationOperateScope);
   const switchGitRef = useAtomCommand(vcsEnvironment.switchRef, { reportFailure: false });
   const updateThreadMetadata = useOrchestrationCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
@@ -259,17 +264,15 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
   });
   const activeThreadSettled =
     serverConfigLoaded && activeThreadShell?.settledOverride === "settled";
-  const unsettleThreadMutation = useOrchestrationCommand(threadEnvironment.unsettle, {
-    reportFailure: false,
-  });
+  const unsettleThreadMutation = useOrchestrationCommand(
+    threadEnvironment.unsettle,
+    { reportFailure: false },
+    threadTriagePermitted,
+  );
   const [unsettlingThreadKey, setUnsettlingThreadKey] = useState<string | null>(null);
   const isUnsettling = unsettlingThreadKey !== null && unsettlingThreadKey === activeThreadKey;
   const handleUnsettleActiveThread = async () => {
-    if (
-      !activeThreadRef ||
-      !readEnvironmentScope(activeThreadRef.environmentId, AuthOrchestrationOperateScope)
-    )
-      return;
+    if (!activeThreadRef || !threadTriagePermitted(activeThreadRef.environmentId)) return;
     const threadKey = scopedThreadKey(activeThreadRef);
     setUnsettlingThreadKey(threadKey);
     // Commands settle into a result, so this always runs.
@@ -290,17 +293,15 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
     setUnsettlingThreadKey((current) => (current === threadKey ? null : current));
   };
   const handleUnsettleActiveThreadStable = useStableCallback(handleUnsettleActiveThread);
-  const unsnoozeThreadMutation = useOrchestrationCommand(threadEnvironment.unsnooze, {
-    reportFailure: false,
-  });
+  const unsnoozeThreadMutation = useOrchestrationCommand(
+    threadEnvironment.unsnooze,
+    { reportFailure: false },
+    threadTriagePermitted,
+  );
   const [unsnoozingThreadKey, setUnsnoozingThreadKey] = useState<string | null>(null);
   const isUnsnoozing = unsnoozingThreadKey !== null && unsnoozingThreadKey === activeThreadKey;
   const handleUnsnoozeActiveThread = async () => {
-    if (
-      !activeThreadRef ||
-      !readEnvironmentScope(activeThreadRef.environmentId, AuthOrchestrationOperateScope)
-    )
-      return;
+    if (!activeThreadRef || !threadTriagePermitted(activeThreadRef.environmentId)) return;
     const threadKey = scopedThreadKey(activeThreadRef);
     setUnsnoozingThreadKey(threadKey);
     // Commands settle into a result, so this always runs.
@@ -490,7 +491,13 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
   };
   const handleStopBackgroundWorkStable = useStableCallback(handleStopBackgroundWork);
   const openRelatedThreadGenerationRef = useRef(0);
-  const onOpenRelatedThread = async (threadId: ThreadId, target?: string) => {
+  // A task delegated to a linked environment opens there; the default is this thread's own.
+  // `intent` comes from the rows that open a subagent, and says the thread is one.
+  const onOpenRelatedThread = async (
+    threadId: ThreadId,
+    target?: string,
+    intent?: SideThreadOpenIntent,
+  ) => {
     const hash = target?.startsWith("subagent-round=") ? target : undefined;
     const threadEnvironmentId =
       target === undefined || hash !== undefined ? environmentId : EnvironmentId.make(target);
@@ -518,6 +525,21 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
     const shell = readThreadShell(threadRef);
     if (shell === null ? !shellOmitsChildren && isEnvironmentLive() : shell.deletedAt != null) {
       toastManager.add({ type: "info", title: m(msg("This thread is no longer available")) });
+      return;
+    }
+    // A subagent or side chat opens beside this thread or in its place; its own parent, like any
+    // other thread, only in its place.
+    if (
+      (intent !== undefined || sideThreadKindOf(shell) !== null) &&
+      activeThread?.lineage.parentThreadId !== threadId
+    ) {
+      openSideThread({
+        threadRef,
+        panelRef: activeThreadRef,
+        intent: intent ?? "primary",
+        navigate: (ref) =>
+          void navigate({ to: "/$environmentId/$threadId", params: buildThreadRouteParams(ref) }),
+      });
       return;
     }
     const routeRef = resolveThreadOpenRoute(threadRef, shell);
@@ -753,7 +775,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
         }
         clockMinute={nowMinute}
         actionLabel={isUnsnoozing ? gt("Waking...") : gt("Wake now")}
-        actionDisabled={!canOperateThread || isUnsnoozing}
+        actionDisabled={!canTriageThread || isUnsnoozing}
         onAction={() => void handleUnsnoozeActiveThreadStable()}
       />
     )
@@ -767,7 +789,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
       }
       clockMinute={nowMinute}
       actionLabel={isUnsettling ? gt("Un-settling...") : gt("Un-settle")}
-      actionDisabled={!canOperateThread || isUnsettling}
+      actionDisabled={!canTriageThread || isUnsettling}
       onAction={() => void handleUnsettleActiveThreadStable()}
     />
   ) : activeThreadWokeVisible ? (
@@ -792,7 +814,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
     };
   const shortcuts = {
     "thread.settle": () => {
-      if (!readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) return false;
+      if (!threadTriagePermitted(environmentId)) return false;
       if (!activeThreadShell || !activeThreadRef || !serverConfigLoaded) return;
       if (activeThreadSettled) {
         void handleUnsettleActiveThread();

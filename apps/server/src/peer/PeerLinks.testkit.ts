@@ -32,6 +32,8 @@ import * as ServerHttp from "../http.ts";
 import * as McpHttpServer from "../mcp/McpHttpServer.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
+import * as PeerHttp from "./http.ts";
+import * as PeerClientPairing from "./PeerClientPairing.ts";
 import * as PeerLinks from "./PeerLinks.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as PeerMcpClient from "./PeerMcpClient.ts";
@@ -39,7 +41,8 @@ import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 
 class PeerTestApi extends HttpApi.make("environment")
   .add(EnvironmentHttpApi.groups.metadata)
-  .add(EnvironmentHttpApi.groups.mcpOAuth) {}
+  .add(EnvironmentHttpApi.groups.mcpOAuth)
+  .add(EnvironmentHttpApi.groups.peerLink) {}
 
 export const descriptorOf = (
   environmentId: string,
@@ -58,6 +61,28 @@ export const descriptorOf = (
   },
 });
 
+/** An environment's own sessions and pairing links, on a database and secret store of its own. */
+export const layerEnvironmentAuth = (
+  prefix: string,
+  /** The environment's own config and secret store, when its tools need the same ones its auth uses. */
+  base?: Context.Context<ServerConfig.ServerConfig | ServerSecretStore.ServerSecretStore>,
+) =>
+  EnvironmentAuth.layer.pipe(
+    Layer.provide(ManagedPolicy.layerTest()),
+    Layer.provideMerge(ServerSettings.layerTest({ linkedEnvironmentsEnabled: true })),
+    Layer.provide(Sqlite.layerMemory),
+    Layer.provideMerge(ServerEnvironment.layerIdentity),
+    Layer.provideMerge(
+      base === undefined
+        ? ServerSecretStore.layer.pipe(
+            Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix })),
+          )
+        : Layer.succeedContext(base),
+    ),
+    Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+    Layer.fresh,
+  );
+
 /**
  * The environment a link points at, as it runs: its descriptor, MCP OAuth,
  * and `/mcp` with `tools` behind the real client authenticator, on a real
@@ -67,12 +92,9 @@ export const descriptorOf = (
 export const servePeer = <E, R, E2 = never, R2 = never>(
   initial: ExecutionEnvironmentDescriptor,
   tools: Layer.Layer<never, E, R>,
-  /** More routes the peer serves, such as attachment uploads. */
-  routes: Layer.Layer<never, E2, R2> = Layer.empty as Layer.Layer<never, E2, R2>,
-  /**
-   * The peer's own config and secret store, when its tools need the same ones
-   * its auth uses, as signed uploads do. A fresh pair otherwise.
-   */
+  /** More of its HTTP routes, whose handlers get the same auth and settings. */
+  routes: Layer.Layer<never, E2, R2> = Layer.empty,
+  /** The peer's own config and secret store, as signed uploads need. A fresh pair otherwise. */
   base?: Context.Context<ServerConfig.ServerConfig | ServerSecretStore.ServerSecretStore>,
 ) =>
   Effect.gen(function* () {
@@ -86,24 +108,7 @@ export const servePeer = <E, R, E2 = never, R2 = never>(
       getEnvironmentId: Ref.get(descriptor).pipe(Effect.map((current) => current.environmentId)),
       getDescriptor: Ref.get(descriptor),
     });
-    const layerBase =
-      base === undefined
-        ? ServerSecretStore.layer.pipe(
-            Layer.provideMerge(
-              ServerConfig.layerTest(process.cwd(), { prefix: "t3-peer-link-peer-" }),
-            ),
-          )
-        : Layer.succeedContext(base);
-    const authContext = yield* EnvironmentAuth.layer.pipe(
-      Layer.provide(ManagedPolicy.layerTest()),
-      Layer.provideMerge(ServerSettings.layerTest({ linkedEnvironmentsEnabled: true })),
-      Layer.provide(Sqlite.layerMemory),
-      Layer.provideMerge(ServerEnvironment.layerIdentity),
-      Layer.provideMerge(layerBase),
-      Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
-      Layer.fresh,
-      Layer.build,
-    );
+    const authContext = yield* Layer.build(layerEnvironmentAuth("t3-peer-link-peer-", base));
     const layerRecordBearers = HttpRouter.middleware(
       (httpEffect) =>
         Effect.gen(function* () {
@@ -143,6 +148,7 @@ export const servePeer = <E, R, E2 = never, R2 = never>(
             ),
           ),
         ),
+        Layer.provide(PeerHttp.layer.pipe(Layer.provide(PeerClientPairing.layerIssuer))),
         Layer.provide(ServerHttp.layerServerEnvironmentHttpApi),
         Layer.provide(AuthHttp.layerAuthenticatedAuth),
       ),
@@ -163,6 +169,7 @@ export const servePeer = <E, R, E2 = never, R2 = never>(
     // Fresh, so the peer never shares a toolkit or MCP server with the
     // environment that links to it in the same test.
     yield* HttpRouter.serve(layerRoutes, { disableListenLog: true, disableLogger: true }).pipe(
+      Layer.provide(Layer.succeedContext(authContext)),
       Layer.fresh,
       Layer.build,
     );

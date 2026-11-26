@@ -102,6 +102,8 @@ export const layer: Layer.Layer<ThreadForkServiceV2> = Layer.succeed(
       const {
         agentTask,
         delegatedFrom: _sourceDelegatedFrom,
+        // Nor is a fork a step of the run its source was one of.
+        workflowRun: _sourceWorkflowRun,
         projectSuggestion: _sourceProjectSuggestion,
         // Attachments stay held by the thread that attached them, and a move's Undo belongs
         // to the moved thread.

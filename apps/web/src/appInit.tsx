@@ -13,6 +13,7 @@ import { applyAppearanceFontVariables, TYPOGRAPHY_ADVANCED_STORAGE_KEY } from ".
 import { startElectronBrowserHost } from "./browser/ElectronBrowserHost";
 import { startBrowserProfileReporting } from "./browser/BrowserProfileReporter";
 import { startPreviewTitleRecording } from "./browserHistoryStore";
+import { setServerRelayTelemetry } from "./cloud/publicConfig";
 import { retainThreadOverlaysForThread } from "./components/chat/threadOverlayRetention";
 import { resolveWindowTitleThreadStatus } from "./components/Sidebar.logic";
 import { startBackgroundThreadAnnouncements } from "./components/BackgroundThreadAnnouncer";
@@ -58,12 +59,13 @@ import { startProviderAuthDelivery } from "./providerAuthDelivery";
 import { getRouter, type AppRouter } from "./router";
 import { appAtomRegistry } from "./rpc/atomRegistry";
 import { environmentProjects } from "./state/projects";
-import { primaryServerConfigAtom } from "./state/server";
+import { primaryRelayTracingAllowedAtom, primaryServerConfigAtom } from "./state/server";
 import { environmentShell } from "./state/shell";
 import { installChatRouteCommands } from "./shortcuts/chatRouteCommands";
 import { startWorkspaceFocus } from "./lib/workspaceFocus";
 import { m } from "./i18n/messages";
 import { startI18n, subscribeI18n } from "./i18n/runtime";
+import { guardDomAgainstPageTranslation } from "./lib/pageTranslationGuard";
 import { installCommandPaletteCommands } from "./shortcuts/commandPaletteCommands";
 import { registerOpenFavoriteEditorCommand } from "./components/chat/OpenInPickerShortcut";
 import { environmentThreadShells, threadEnvironment } from "./state/threads";
@@ -90,6 +92,9 @@ function startClientAppearance(): void {
     }
     if (previous?.chatWidth !== settings.chatWidth) {
       root.dataset.chatWidth = settings.chatWidth;
+    }
+    if (previous?.htmlPreviewWidth !== settings.htmlPreviewWidth) {
+      root.dataset.htmlPreviewWidth = settings.htmlPreviewWidth;
     }
     if (previous?.themeTypeface !== settings.themeTypeface) {
       if (settings.themeTypeface) root.dataset.themeTypeface = "";
@@ -275,11 +280,15 @@ export function startAppServices(): AppRouter {
   }
 
   installDesktopPasteAsText(window.desktopBridge, window);
+  guardDomAgainstPageTranslation();
 
   startClientAppearance();
   startI18n();
   startDocumentTitle(router);
   startHostEnvironmentLookup();
+  appAtomRegistry.subscribe(primaryRelayTracingAllowedAtom, setServerRelayTelemetry, {
+    immediate: true,
+  });
   startEnvironmentThemeRepaint();
   startThemeBackground();
   startBrowserChromeThemeSync(router);

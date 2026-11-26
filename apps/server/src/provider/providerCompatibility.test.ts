@@ -9,6 +9,7 @@ import {
   type ServerSettings as ContractSettings,
 } from "@t3tools/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
 import * as Effect from "effect/Effect";
@@ -378,6 +379,8 @@ it.effect.each(["no-settings", "settings-present", "settings-event"] as const)(
             ),
           ),
         ),
+        // A login shell that prints nothing, so the refresh never takes PATH from the developer's profile.
+        Effect.provideService(HostProcess.Environment, { ...process.env, SHELL: "/usr/bin/true" }),
       );
     }),
 );

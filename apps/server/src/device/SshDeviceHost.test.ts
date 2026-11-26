@@ -79,6 +79,7 @@ it.effect("preserves installed status after probes and cleans failed agent activ
             hostPlatform: "darwin",
             platforms: [{ platform: "ios", available: true }],
             hubPort: 1234,
+            hubToken: "hub-token",
             helpers: { serveSimAxSettings: null, serveSimCli: null },
             ...(mode === "agent-start"
               ? { daemonPort: 1235, token: "fixture", entryPath: "/agent.mjs" }
@@ -224,6 +225,7 @@ it.effect("releases the forward of a bootstrap interrupted before its hub answer
               hostPlatform: "darwin",
               platforms: [{ platform: "ios", available: true }],
               hubPort: 1234,
+              hubToken: "hub-token",
               helpers: { serveSimAxSettings: null, serveSimCli: null },
             });
         return ChildProcessSpawner.makeHandle({
@@ -346,6 +348,7 @@ it.effect.each([
                       },
                     ],
                     hubPort: 1234,
+                    hubToken: "hub-token",
                     helpers: { serveSimAxSettings: null, serveSimCli: null },
                   });
           }
@@ -478,6 +481,7 @@ it.effect(
             hostPlatform: "darwin",
             platforms: [{ platform: "ios", available: true }],
             hubPort: 1234,
+            hubToken: "hub-token",
             helpers: { serveSimAxSettings: null, serveSimCli: null },
           });
           return ChildProcessSpawner.makeHandle({

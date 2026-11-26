@@ -114,7 +114,7 @@ export function DraftHeroHeadline({
     primaryEnvironmentId,
     environmentMachineById,
   } = useDraftProjectChoice({ draftId, activeProjectRef, activeProjectTitle });
-  const openAddProject = () => openCommandPalette({ open: "add-project" });
+  const openAddProject = () => openCommandPalette({ open: "add-project", draftId });
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const noProjectShortcut = shortcutLabelForCommand(keybindings, "chat.newWithoutProject");
   const { refFor, capture } = useFlip(chosenGroup?.projectKey ?? NO_PROJECT_KEY);

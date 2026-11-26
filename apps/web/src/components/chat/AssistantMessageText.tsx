@@ -1,4 +1,4 @@
-import { shouldPreserveAssistantLineBreaks } from "@t3tools/shared/markdownPipeline";
+import { shouldPreserveAssistantLineBreaks } from "@t3tools/shared/assistantInsights";
 import { useEffect, useLayoutEffect, useRef, useState, type ComponentProps } from "react";
 
 import { cn } from "~/lib/utils";
@@ -96,7 +96,7 @@ function useEasedHeight(active: boolean) {
 
 type AssistantMessageTextProps = Omit<
   ComponentProps<typeof ChatMarkdown>,
-  "isStreaming" | "revealWords" | "lineBreaks" | "headingLevelOffset"
+  "isStreaming" | "lineBreaks" | "headingLevelOffset"
 > & {
   readonly streaming: boolean;
   /**
@@ -146,7 +146,6 @@ function CalmAssistantMessageText({
           className={cn("font-response", className)}
           text={reveal.text}
           isStreaming={active}
-          revealWords
           lineBreaks={shouldPreserveAssistantLineBreaks(reveal.text)}
           headingLevelOffset={MESSAGE_HEADING_LEVEL}
         />

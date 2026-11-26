@@ -74,6 +74,11 @@ const shouldActivate = (url: string, platform: NodeJS.Platform) =>
   platform !== "darwin" ||
   !SAFE_WEB_PROTOCOLS.has(new URL(url).protocol) ||
   Electron.app.getApplicationNameForProtocol("https://") !== "Phi";
+/** Links that open in the browser, for callers such as popups that carry no identity. */
+export const parseWebExternalUrl = (rawUrl: unknown): Option.Option<string> =>
+  Option.filter(parseSafeExternalUrl(rawUrl), (url) =>
+    SAFE_WEB_PROTOCOLS.has(new URL(url).protocol),
+  );
 
 export class ElectronShell extends Context.Service<
   ElectronShell,

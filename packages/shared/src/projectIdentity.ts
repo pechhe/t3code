@@ -3,6 +3,7 @@ import {
   type RepositoryIdentity,
   type ProjectIconColor,
 } from "@t3tools/contracts";
+import { projectMonogram } from "./projectMonogram.ts";
 
 const PROJECT_ICON_COLORS = [
   "gray",
@@ -34,22 +35,9 @@ function normalizeProjectName(projectName: string): string {
   return projectName.normalize("NFKC").trim();
 }
 
-function projectMonogram(projectName: string): string {
-  const words =
-    normalizeProjectName(projectName)
-      .replace(/(\p{Ll})(\p{Lu})/gu, "$1 $2")
-      .match(/[\p{L}\p{N}]+/gu) ?? [];
-  const firstWord = words[0];
-  if (!firstWord) return "PR";
-
-  const glyphs = Array.from(firstWord);
-  const first = glyphs[0] ?? "P";
-  const second =
-    glyphs.slice(1).find((glyph) => /\p{N}/u.test(glyph)) ??
-    (words.length > 1 ? Array.from(words.at(-1) ?? "")[0] : glyphs.at(-1)) ??
-    first;
-  return Array.from(`${first}${second}`.toUpperCase()).slice(0, 2).join("");
-}
+// The fork also splits camelCase names into words before upstream's monogram rules apply.
+const forkMonogram = (projectName: string): string =>
+  projectMonogram(normalizeProjectName(projectName).replace(/(\p{Ll})(\p{Lu})/gu, "$1 $2"));
 
 function projectColor(projectName: string): ProjectIconColor {
   const seed = normalizeProjectName(projectName).toLocaleLowerCase("en-US") || "project";
@@ -62,7 +50,7 @@ function projectColor(projectName: string): ProjectIconColor {
 
 export function deriveProjectIdentity(projectName: string): ProjectIdentity {
   return {
-    monogram: projectMonogram(projectName),
+    monogram: forkMonogram(projectName),
     color: projectColor(projectName),
   };
 }

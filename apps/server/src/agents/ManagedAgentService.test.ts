@@ -34,6 +34,7 @@ import * as Managed from "./ManagedAgentService.ts";
 import * as Store from "./AgentPolicyStore.ts";
 import * as Policy from "./AgentPolicyService.ts";
 import * as RuntimePolicy from "../orchestration-v2/RuntimePolicy.ts";
+import * as WorkspaceFolders from "../workspace/WorkspaceFolders.ts";
 import * as ServerConfig from "../config.ts";
 import * as Projects from "../orchestration-v2/ProjectStore.ts";
 import * as Providers from "../provider/ProviderInstanceRegistry.ts";
@@ -535,6 +536,9 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         const runtimeLayer = RuntimePolicy.layerFromProjectStore.pipe(
           Layer.provide(
             Layer.mergeAll(
+              Layer.mock(WorkspaceFolders.WorkspaceFolders)({
+                forThread: () => Effect.succeed({ folders: [], extraRoots: [] }),
+              }),
               Layer.mock(Projects.ProjectStoreV2)({
                 get: () => Effect.succeedSome({ workspaceRoot: f.workspacePath } as never),
               }),
@@ -733,6 +737,9 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         const runtimeLayer = RuntimePolicy.layerFromProjectStore.pipe(
           Layer.provide(
             Layer.mergeAll(
+              Layer.mock(WorkspaceFolders.WorkspaceFolders)({
+                forThread: () => Effect.succeed({ folders: [], extraRoots: [] }),
+              }),
               Layer.mock(Projects.ProjectStoreV2)({
                 get: () => Effect.succeedSome({ workspaceRoot: f.workspacePath } as never),
               }),
@@ -1317,6 +1324,9 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         const runtimeLayer = RuntimePolicy.layerFromProjectStore.pipe(
           Layer.provide(
             Layer.mergeAll(
+              Layer.mock(WorkspaceFolders.WorkspaceFolders)({
+                forThread: () => Effect.succeed({ folders: [], extraRoots: [] }),
+              }),
               Layer.mock(Projects.ProjectStoreV2)({
                 get: () => Effect.succeedSome({ workspaceRoot: projectRoot } as never),
               }),

@@ -102,7 +102,7 @@ describe("Antigravity process environment", () => {
         SSH_CONNECTION: "127.0.0.1 0 127.0.0.1 0",
         GEMINI_HOME: profile.geminiHome,
         AGY_ACP_FORCE_FILE_STORAGE: "1",
-        AGY_CLI_DISABLE_AUTO_UPDATE: "1",
+        AGY_CLI_DISABLE_AUTO_UPDATE: "true",
         BROWSER: profile.browserCommand,
         PYTHONUNBUFFERED: "1",
         ELECTRON_RUN_AS_NODE: "1",
@@ -739,9 +739,13 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
         });
         const profileAgents = path.join(profileDirectory, "AGENTS.md");
         const profileGemini = path.join(profileDirectory, "GEMINI.md");
-        yield* fs.makeDirectory(userGemini, { recursive: true });
+        yield* fs.makeDirectory(path.join(userGemini, "config"), { recursive: true });
         yield* fs.writeFileString(path.join(userGemini, "AGENTS.md"), "global agents rule");
         yield* fs.writeFileString(path.join(userGemini, "GEMINI.md"), "global gemini rule");
+        yield* fs.writeFileString(
+          path.join(userGemini, "config", "skills.json"),
+          JSON.stringify({ entries: [{ path: "/tmp/shared-skills" }] }),
+        );
 
         yield* prepare;
         expect(yield* fs.readFileString(profileAgents)).toBe("global agents rule");

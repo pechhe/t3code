@@ -86,9 +86,11 @@ type SavedBackendListRowProps = {
   onAddRoute: (environment: EnvironmentPresentation) => void;
   /** Extra addresses this device's own server advertises, which a linked peer may dial. */
   advertisedUrls: ReadonlyArray<string>;
+  /** The map's details open on a machine's routes; the list keeps them folded. */
+  initialRoutesOpen?: boolean;
 };
 
-function savedBackendStatus(
+export function savedBackendStatus(
   environment: EnvironmentPresentation,
   resolve: MessageResolver = m,
 ): {
@@ -134,13 +136,14 @@ export function SavedBackendListRow({
   environment,
   removingEnvironmentId,
   onSetEnabled,
+  advertisedUrls,
   onRemove,
   onAddRoute,
-  advertisedUrls,
+  initialRoutesOpen = false,
 }: SavedBackendListRowProps) {
   const messages = useMessages();
   const gt = useGT();
-  const [routesOpen, setRoutesOpen] = useState(false);
+  const [routesOpen, setRoutesOpen] = useState(initialRoutesOpen);
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [diagnosisOpen, setDiagnosisOpen] = useState(false);
   const environmentId = environment.environmentId;
@@ -922,10 +925,21 @@ function EmptyRemoteEnvironments({ cloudEnabled = true }: { readonly cloudEnable
 export function CloudRemoteEnvironmentRows({
   primaryEnvironmentId,
   savedEnvironments,
+  only,
 }: {
   readonly primaryEnvironmentId: EnvironmentId | null;
   readonly savedEnvironments: ReadonlyArray<EnvironmentPresentation>;
+  readonly only?: EnvironmentId;
 }) {
+  if (only !== undefined) {
+    return (
+      <CloudEnvironmentConnectRows
+        only={only}
+        primaryEnvironmentId={primaryEnvironmentId}
+        savedEnvironments={savedEnvironments}
+      />
+    );
+  }
   return hasCloudPublicConfig() ? (
     <CloudEnvironmentConnectRows
       primaryEnvironmentId={primaryEnvironmentId}

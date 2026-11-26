@@ -13,6 +13,8 @@ export interface DelegatedCompletionGuard {
   readonly threadId: ThreadId;
   readonly runId: RunId;
   readonly taskId?: NodeId;
+  /** The parent cancelled the task: its settled run ends it without waiting on background work. */
+  readonly cancelled?: boolean;
 }
 
 /** True when the run is no longer the delegated task's result, so its completion must not commit. */
@@ -44,8 +46,10 @@ export const refuses = Effect.fnUntraced(function* (
   return (
     run === undefined ||
     latestTaskRun?.id !== guard.runId ||
-    (followup
-      ? delegatedTaskRunHold(projection, run, ownedRunIds).held
-      : progress.state !== "result_available")
+    (guard.cancelled === true
+      ? false
+      : followup
+        ? delegatedTaskRunHold(projection, run, ownedRunIds).held
+        : progress.state !== "result_available")
   );
 });

@@ -5,6 +5,7 @@ export type ModelPickerSearchableModel = {
   providerDisplayName: string;
   name: string;
   customName?: string;
+  slug?: string;
   shortName?: string;
   subProvider?: string;
   isFavorite?: boolean;
@@ -22,6 +23,7 @@ function getModelPickerSearchFields(model: ModelPickerSearchableModel): string[]
     normalizeSearchQuery(model.driverKind),
     normalizeSearchQuery(model.providerDisplayName),
     buildModelPickerSearchText(model),
+    ...(model.slug ? [normalizeSearchQuery(model.slug)] : []),
   ];
 }
 

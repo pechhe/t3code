@@ -1,5 +1,6 @@
 import {
   CHATGPT_USAGE_URL,
+  collectHttpQuotaSources,
   collectLimitAccounts,
   collectLimitPools,
   displayLimitWindows,
@@ -15,7 +16,7 @@ import {
   type ResetCreditChoice,
   withoutHiddenLimits,
 } from "@t3tools/shared/usageLimits";
-import { T, useGT, useLocale, useMessages } from "gt-react";
+import { T, Var, useGT, useLocale, useMessages } from "gt-react";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { formatUsd } from "@t3tools/shared/usageFormat";
 import type { Popover as PopoverPrimitive } from "@base-ui/react/popover";
@@ -58,6 +59,7 @@ import {
   collectExternalUsageLinks,
   collectLimitNotices,
   cursorUsageWindowDetails,
+  formatDuration,
   formatResetsIn,
   resetCreditChoices,
 } from "@t3tools/shared/usageLimitsCopy";
@@ -440,7 +442,9 @@ function SegmentTriggers({
                 className="absolute inset-y-0 right-0 opacity-20"
                 style={{
                   width: `${Math.min(100 - remaining, refillPercent)}%`,
-                  backgroundImage: `repeating-linear-gradient(135deg, ${color} 0 1px, transparent 1px 5px)`,
+                  // A bare 45° gradient repeats every 5√2px, so some stripes rasterize thinner; a whole-pixel tile doesn't.
+                  backgroundImage: `repeating-linear-gradient(135deg, transparent 0 1px, ${color} 1px 2px, transparent 2px 50%)`,
+                  backgroundSize: "7px 7px",
                 }}
               />
             ) : null}
@@ -628,7 +632,8 @@ function PoolWindowRow({
   readonly emphasis: "title" | "level";
   readonly description?: string | undefined;
 }) {
-  const nextRefill = pool.resets.find((reset) => reset.restoresPercent > 0);
+  const m = useMessages();
+  const nextRefill = pool.resets.find((reset) => reset.at > now && reset.restoresPercent > 0);
   return (
     <div className="grid items-center gap-x-6 gap-y-3 md:grid-cols-[11rem_minmax(0,1fr)]">
       <div className="flex flex-col gap-1">
@@ -655,8 +660,13 @@ function PoolWindowRow({
           </span>
         </span>
         {nextRefill && pool.columns.length > 1 ? (
-          <span className="text-xs font-medium text-foreground tabular-nums">
-            ↻ +{nextRefill.restoresPercent}%
+          <span className="text-xs text-muted-foreground tabular-nums">
+            <T context="usage limit refill">
+              <span className="font-medium text-foreground">
+                ↻ +<Var>{nextRefill.restoresPercent}</Var>%
+              </span>{" "}
+              in <Var>{formatDuration(nextRefill.at - now, m)}</Var>
+            </T>
           </span>
         ) : null}
       </div>
@@ -892,11 +902,15 @@ export function UsageLimitsPooled({
   const pools = allPools.filter((pool) => !hiddenPools.has(limitPoolKey(pool)));
   const hidden = allPools.filter((pool) => hiddenPools.has(limitPoolKey(pool)));
   const shown = withoutHiddenLimits(presentations, hiddenLimitsOf(hidden));
+  const quotaSources = collectHttpQuotaSources(presentations);
   const notices = collectLimitNotices(shown, m);
   const externalLinks = collectExternalUsageLinks(shown, m);
   return (
     <div className="flex flex-col gap-8">
-      {allPools.length === 0 && notices.length === 0 && externalLinks.length === 0 ? (
+      {allPools.length === 0 &&
+      notices.length === 0 &&
+      externalLinks.length === 0 &&
+      quotaSources.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           <T>No provider on the selected environments reports subscription limits.</T>
         </p>
@@ -925,6 +939,31 @@ export function UsageLimitsPooled({
           ) : null
         }
       </Popover>
+      {quotaSources.map((source) => (
+        <section key={source.key} className="space-y-3 rounded-xl border p-4">
+          <h2 className="text-sm font-medium">{source.label}</h2>
+          {source.quotaAccounts?.map((account) => (
+            <div key={account.id} className="space-y-1">
+              <h3 className="text-sm font-medium">{account.label}</h3>
+              {account.windows.map((window) => {
+                const reset = formatResetsIn(window, now, m);
+                return (
+                  <div
+                    key={window.id}
+                    className="flex justify-between gap-3 text-sm text-muted-foreground"
+                  >
+                    <span>{window.label}</span>
+                    <span>
+                      {gt("{remaining}% left", { remaining: remainingPercent(window) })}
+                      {reset ? ` · ${reset}` : ""}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </section>
+      ))}
       {externalLinks.map((link) => (
         <section
           key={link.url}

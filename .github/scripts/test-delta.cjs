@@ -45,7 +45,7 @@ function render(delta) {
     `This PR changes the test suite by **${signed(delta.net)} test cases** ` +
       `(unit ${signed(delta.kinds.unit)}, server ${signed(delta.kinds.server)}).`,
     "",
-    "Keep tests that would fail for a real reason, and test logic below the UI where it can be. See [Testing](https://github.com/pingdotgg/t3code/blob/main/docs/internals/testing.md).",
+    "Keep tests that would fail for a real reason, and test logic below the UI where it can be. See [Testing](https://github.com/pingdotgg/t3code/blob/main/docs/internals/15_testing.md).",
   ].join("\n");
 }
 

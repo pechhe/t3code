@@ -77,6 +77,7 @@ it.effect("gives a fork its parent's history and the memory written at it", () =
                       },
                 )) as never,
               getTurnStartHistory: () => Effect.succeed([forkItem]),
+              getForkSourceRunIds: () => Effect.succeed([parentRun.id] as never),
             }),
             Layer.mock(ProjectStore.ProjectStoreV2)({}),
             ServerSettings.layerTest(),

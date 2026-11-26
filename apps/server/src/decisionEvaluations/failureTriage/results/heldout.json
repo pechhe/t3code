@@ -8,10 +8,7 @@
   "baselineVersion": "exit-signature-v1",
   "corpusDigest": "532f93e24649781f90a32501cf70cae1678ec97183c184fa392a5db00da928c6",
   "runAt": "2026-11-09T13:01:18.941Z",
-  "engines": [
-    "jev",
-    "luna"
-  ],
+  "engines": ["jev", "luna"],
   "run": {
     "checkout": {
       "head": "a4351370529b842e2cdb1db052965b83bff54b39",
@@ -1501,9 +1498,7 @@
           "low": 0.0068218089769898765,
           "high": 0.18893176991958405
         },
-        "cases": [
-          "h-syn-flake-registered-different-error"
-        ]
+        "cases": ["h-syn-flake-registered-different-error"]
       },
       "overAbstention": {
         "numerator": 4,
@@ -1605,10 +1600,7 @@
               "low": 0.2076549551264879,
               "high": 0.9385096847238394
             },
-            "cases": [
-              "h-recon-partial-clone",
-              "h-recon-electron-install"
-            ]
+            "cases": ["h-recon-partial-clone", "h-recon-electron-install"]
           },
           "dangerousWide": {
             "numerator": 0,
@@ -1858,10 +1850,7 @@
               "low": 0.2076549551264879,
               "high": 0.9385096847238394
             },
-            "cases": [
-              "h-recon-partial-clone",
-              "h-recon-electron-install"
-            ]
+            "cases": ["h-recon-partial-clone", "h-recon-electron-install"]
           },
           "dangerousWide": {
             "numerator": 0,
@@ -2001,9 +1990,7 @@
           "low": 0.01111905730833121,
           "high": 0.2832926836802987
         },
-        "cases": [
-          "h-audit-11-04"
-        ]
+        "cases": ["h-audit-11-04"]
       },
       "falseFlake": {
         "numerator": 0,
@@ -2023,9 +2010,7 @@
           "low": 0.01111905730833121,
           "high": 0.2832926836802987
         },
-        "cases": [
-          "h-syn-regression-deadlock"
-        ]
+        "cases": ["h-syn-regression-deadlock"]
       },
       "appropriateAbstention": {
         "numerator": 9,
@@ -2079,12 +2064,7 @@
               "low": 0.29998832134152864,
               "high": 0.9032306674407831
             },
-            "cases": [
-              "h-audit-10-26",
-              "h-audit-10-27",
-              "h-audit-10-28",
-              "h-audit-11-02"
-            ]
+            "cases": ["h-audit-10-26", "h-audit-10-27", "h-audit-10-28", "h-audit-11-02"]
           },
           "dangerousWide": {
             "numerator": 0,
@@ -2107,9 +2087,7 @@
               "low": 0.0614903152761605,
               "high": 0.7923450448735121
             },
-            "cases": [
-              "h-recon-partial-clone"
-            ]
+            "cases": ["h-recon-partial-clone"]
           },
           "dangerousWide": {
             "numerator": 0,
@@ -2232,9 +2210,7 @@
           "low": 0.019890371327130535,
           "high": 0.4350062147680601
         },
-        "cases": [
-          "h-syn-regression-oom"
-        ]
+        "cases": ["h-syn-regression-oom"]
       },
       "dangerousWide": {
         "numerator": 1,
@@ -2244,9 +2220,7 @@
           "low": 0.01111905730833121,
           "high": 0.2832926836802987
         },
-        "cases": [
-          "h-syn-regression-oom"
-        ]
+        "cases": ["h-syn-regression-oom"]
       },
       "unsafeDiversion": {
         "numerator": 2,
@@ -2256,10 +2230,7 @@
           "low": 0.034976749337057134,
           "high": 0.3602333143674828
         },
-        "cases": [
-          "h-audit-11-04",
-          "h-syn-regression-oom"
-        ]
+        "cases": ["h-audit-11-04", "h-syn-regression-oom"]
       },
       "falseFlake": {
         "numerator": 0,
@@ -2373,9 +2344,7 @@
               "low": 0.0614903152761605,
               "high": 0.7923450448735121
             },
-            "cases": [
-              "h-recon-partial-clone"
-            ]
+            "cases": ["h-recon-partial-clone"]
           },
           "dangerousWide": {
             "numerator": 0,
@@ -2420,9 +2389,7 @@
               "low": 0.014864709450773478,
               "high": 0.35388592179859524
             },
-            "cases": [
-              "h-syn-regression-oom"
-            ]
+            "cases": ["h-syn-regression-oom"]
           }
         }
       }
@@ -2442,9 +2409,7 @@
       "costUsd": 0.001429176,
       "knownCostUsd": 0.001429176,
       "costKnownCalls": 28,
-      "costStatuses": [
-        "estimated"
-      ],
+      "costStatuses": ["estimated"],
       "attempts": 28,
       "failedAttempts": 0,
       "choiceDisagreesWithArgmax": 0,
@@ -2463,9 +2428,7 @@
       "costUsd": 0.0024896999999999996,
       "knownCostUsd": 0.0024896999999999996,
       "costKnownCalls": 28,
-      "costStatuses": [
-        "estimated"
-      ],
+      "costStatuses": ["estimated"],
       "attempts": 28,
       "failedAttempts": 0,
       "choiceDisagreesWithArgmax": 0,
@@ -2930,9 +2893,7 @@
             "low": 0.0068218089769898765,
             "high": 0.18893176991958405
           },
-          "cases": [
-            "h-syn-flake-registered-different-error"
-          ]
+          "cases": ["h-syn-flake-registered-different-error"]
         },
         "overAbstention": {
           "numerator": 4,
@@ -3034,10 +2995,7 @@
                 "low": 0.2076549551264879,
                 "high": 0.9385096847238394
               },
-              "cases": [
-                "h-recon-partial-clone",
-                "h-recon-electron-install"
-              ]
+              "cases": ["h-recon-partial-clone", "h-recon-electron-install"]
             },
             "dangerousWide": {
               "numerator": 0,
@@ -3287,10 +3245,7 @@
                 "low": 0.2076549551264879,
                 "high": 0.9385096847238394
               },
-              "cases": [
-                "h-recon-partial-clone",
-                "h-recon-electron-install"
-              ]
+              "cases": ["h-recon-partial-clone", "h-recon-electron-install"]
             },
             "dangerousWide": {
               "numerator": 0,
@@ -3430,9 +3385,7 @@
             "low": 0.01111905730833121,
             "high": 0.2832926836802987
           },
-          "cases": [
-            "h-audit-11-04"
-          ]
+          "cases": ["h-audit-11-04"]
         },
         "falseFlake": {
           "numerator": 0,
@@ -3452,9 +3405,7 @@
             "low": 0.01111905730833121,
             "high": 0.2832926836802987
           },
-          "cases": [
-            "h-syn-regression-deadlock"
-          ]
+          "cases": ["h-syn-regression-deadlock"]
         },
         "appropriateAbstention": {
           "numerator": 9,
@@ -3508,12 +3459,7 @@
                 "low": 0.29998832134152864,
                 "high": 0.9032306674407831
               },
-              "cases": [
-                "h-audit-10-26",
-                "h-audit-10-27",
-                "h-audit-10-28",
-                "h-audit-11-02"
-              ]
+              "cases": ["h-audit-10-26", "h-audit-10-27", "h-audit-10-28", "h-audit-11-02"]
             },
             "dangerousWide": {
               "numerator": 0,
@@ -3536,9 +3482,7 @@
                 "low": 0.0614903152761605,
                 "high": 0.7923450448735121
               },
-              "cases": [
-                "h-recon-partial-clone"
-              ]
+              "cases": ["h-recon-partial-clone"]
             },
             "dangerousWide": {
               "numerator": 0,
@@ -3661,9 +3605,7 @@
             "low": 0.019890371327130535,
             "high": 0.4350062147680601
           },
-          "cases": [
-            "h-syn-regression-oom"
-          ]
+          "cases": ["h-syn-regression-oom"]
         },
         "dangerousWide": {
           "numerator": 1,
@@ -3673,9 +3615,7 @@
             "low": 0.01111905730833121,
             "high": 0.2832926836802987
           },
-          "cases": [
-            "h-syn-regression-oom"
-          ]
+          "cases": ["h-syn-regression-oom"]
         },
         "unsafeDiversion": {
           "numerator": 2,
@@ -3685,10 +3625,7 @@
             "low": 0.034976749337057134,
             "high": 0.3602333143674828
           },
-          "cases": [
-            "h-audit-11-04",
-            "h-syn-regression-oom"
-          ]
+          "cases": ["h-audit-11-04", "h-syn-regression-oom"]
         },
         "falseFlake": {
           "numerator": 0,
@@ -3802,9 +3739,7 @@
                 "low": 0.0614903152761605,
                 "high": 0.7923450448735121
               },
-              "cases": [
-                "h-recon-partial-clone"
-              ]
+              "cases": ["h-recon-partial-clone"]
             },
             "dangerousWide": {
               "numerator": 0,
@@ -3849,9 +3784,7 @@
                 "low": 0.014864709450773478,
                 "high": 0.35388592179859524
               },
-              "cases": [
-                "h-syn-regression-oom"
-              ]
+              "cases": ["h-syn-regression-oom"]
             }
           }
         }
@@ -3964,9 +3897,7 @@
             "low": 0.008881219432873136,
             "high": 0.23613589351256675
           },
-          "cases": [
-            "h-syn-flake-registered-different-error"
-          ]
+          "cases": ["h-syn-flake-registered-different-error"]
         },
         "overAbstention": {
           "numerator": 4,
@@ -4032,10 +3963,7 @@
                 "low": 0.34237195288961925,
                 "high": 1
               },
-              "cases": [
-                "h-audit-10-27",
-                "h-audit-10-28"
-              ]
+              "cases": ["h-audit-10-27", "h-audit-10-28"]
             },
             "dangerousWide": {
               "numerator": 0,
@@ -4058,9 +3986,7 @@
                 "low": 0.09452865480086614,
                 "high": 0.9054713451991339
               },
-              "cases": [
-                "h-recon-partial-clone"
-              ]
+              "cases": ["h-recon-partial-clone"]
             },
             "dangerousWide": {
               "numerator": 0,
@@ -4267,10 +4193,7 @@
                 "low": 0.34237195288961925,
                 "high": 1
               },
-              "cases": [
-                "h-audit-10-27",
-                "h-audit-10-28"
-              ]
+              "cases": ["h-audit-10-27", "h-audit-10-28"]
             },
             "dangerousWide": {
               "numerator": 0,
@@ -4293,9 +4216,7 @@
                 "low": 0.09452865480086614,
                 "high": 0.9054713451991339
               },
-              "cases": [
-                "h-recon-partial-clone"
-              ]
+              "cases": ["h-recon-partial-clone"]
             },
             "dangerousWide": {
               "numerator": 0,
@@ -4431,9 +4352,7 @@
             "low": 0.01111905730833121,
             "high": 0.2832926836802987
           },
-          "cases": [
-            "h-audit-11-04"
-          ]
+          "cases": ["h-audit-11-04"]
         },
         "falseFlake": {
           "numerator": 0,
@@ -4453,9 +4372,7 @@
             "low": 0.01111905730833121,
             "high": 0.2832926836802987
           },
-          "cases": [
-            "h-syn-regression-deadlock"
-          ]
+          "cases": ["h-syn-regression-deadlock"]
         },
         "appropriateAbstention": {
           "numerator": 6,
@@ -4504,10 +4421,7 @@
                 "low": 0.34237195288961925,
                 "high": 1
               },
-              "cases": [
-                "h-audit-10-27",
-                "h-audit-10-28"
-              ]
+              "cases": ["h-audit-10-27", "h-audit-10-28"]
             },
             "dangerousWide": {
               "numerator": 0,
@@ -4530,9 +4444,7 @@
                 "low": 0.09452865480086614,
                 "high": 0.9054713451991339
               },
-              "cases": [
-                "h-recon-partial-clone"
-              ]
+              "cases": ["h-recon-partial-clone"]
             },
             "dangerousWide": {
               "numerator": 0,
@@ -4650,9 +4562,7 @@
             "low": 0.019890371327130535,
             "high": 0.4350062147680601
           },
-          "cases": [
-            "h-syn-regression-oom"
-          ]
+          "cases": ["h-syn-regression-oom"]
         },
         "dangerousWide": {
           "numerator": 1,
@@ -4662,9 +4572,7 @@
             "low": 0.01111905730833121,
             "high": 0.2832926836802987
           },
-          "cases": [
-            "h-syn-regression-oom"
-          ]
+          "cases": ["h-syn-regression-oom"]
         },
         "unsafeDiversion": {
           "numerator": 2,
@@ -4674,10 +4582,7 @@
             "low": 0.034976749337057134,
             "high": 0.3602333143674828
           },
-          "cases": [
-            "h-audit-11-04",
-            "h-syn-regression-oom"
-          ]
+          "cases": ["h-audit-11-04", "h-syn-regression-oom"]
         },
         "falseFlake": {
           "numerator": 0,
@@ -4756,10 +4661,7 @@
                 "low": 0.34237195288961925,
                 "high": 1
               },
-              "cases": [
-                "h-audit-10-27",
-                "h-audit-10-28"
-              ]
+              "cases": ["h-audit-10-27", "h-audit-10-28"]
             },
             "dangerousWide": {
               "numerator": 0,
@@ -4782,9 +4684,7 @@
                 "low": 0.09452865480086614,
                 "high": 0.9054713451991339
               },
-              "cases": [
-                "h-recon-partial-clone"
-              ]
+              "cases": ["h-recon-partial-clone"]
             },
             "dangerousWide": {
               "numerator": 0,
@@ -4828,9 +4728,7 @@
                 "low": 0.014864709450773478,
                 "high": 0.35388592179859524
               },
-              "cases": [
-                "h-syn-regression-oom"
-              ]
+              "cases": ["h-syn-regression-oom"]
             }
           }
         }
@@ -4949,9 +4847,7 @@
             "low": 0.0068218089769898765,
             "high": 0.18893176991958405
           },
-          "cases": [
-            "h-syn-flake-registered-different-error"
-          ]
+          "cases": ["h-syn-flake-registered-different-error"]
         },
         "overAbstention": {
           "numerator": 4,
@@ -5053,10 +4949,7 @@
                 "low": 0.2076549551264879,
                 "high": 0.9385096847238394
               },
-              "cases": [
-                "h-recon-partial-clone",
-                "h-recon-electron-install"
-              ]
+              "cases": ["h-recon-partial-clone", "h-recon-electron-install"]
             },
             "dangerousWide": {
               "numerator": 0,
@@ -5306,10 +5199,7 @@
                 "low": 0.2076549551264879,
                 "high": 0.9385096847238394
               },
-              "cases": [
-                "h-recon-partial-clone",
-                "h-recon-electron-install"
-              ]
+              "cases": ["h-recon-partial-clone", "h-recon-electron-install"]
             },
             "dangerousWide": {
               "numerator": 0,
@@ -5449,9 +5339,7 @@
             "low": 0.01111905730833121,
             "high": 0.2832926836802987
           },
-          "cases": [
-            "h-audit-11-04"
-          ]
+          "cases": ["h-audit-11-04"]
         },
         "falseFlake": {
           "numerator": 0,
@@ -5471,9 +5359,7 @@
             "low": 0.01111905730833121,
             "high": 0.2832926836802987
           },
-          "cases": [
-            "h-syn-regression-deadlock"
-          ]
+          "cases": ["h-syn-regression-deadlock"]
         },
         "appropriateAbstention": {
           "numerator": 9,
@@ -5527,12 +5413,7 @@
                 "low": 0.29998832134152864,
                 "high": 0.9032306674407831
               },
-              "cases": [
-                "h-audit-10-26",
-                "h-audit-10-27",
-                "h-audit-10-28",
-                "h-audit-11-02"
-              ]
+              "cases": ["h-audit-10-26", "h-audit-10-27", "h-audit-10-28", "h-audit-11-02"]
             },
             "dangerousWide": {
               "numerator": 0,
@@ -5555,9 +5436,7 @@
                 "low": 0.0614903152761605,
                 "high": 0.7923450448735121
               },
-              "cases": [
-                "h-recon-partial-clone"
-              ]
+              "cases": ["h-recon-partial-clone"]
             },
             "dangerousWide": {
               "numerator": 0,
@@ -5680,9 +5559,7 @@
             "low": 0.019890371327130535,
             "high": 0.4350062147680601
           },
-          "cases": [
-            "h-syn-regression-oom"
-          ]
+          "cases": ["h-syn-regression-oom"]
         },
         "dangerousWide": {
           "numerator": 1,
@@ -5692,9 +5569,7 @@
             "low": 0.01111905730833121,
             "high": 0.2832926836802987
           },
-          "cases": [
-            "h-syn-regression-oom"
-          ]
+          "cases": ["h-syn-regression-oom"]
         },
         "unsafeDiversion": {
           "numerator": 2,
@@ -5704,10 +5579,7 @@
             "low": 0.034976749337057134,
             "high": 0.3602333143674828
           },
-          "cases": [
-            "h-audit-11-04",
-            "h-syn-regression-oom"
-          ]
+          "cases": ["h-audit-11-04", "h-syn-regression-oom"]
         },
         "falseFlake": {
           "numerator": 0,
@@ -5821,9 +5693,7 @@
                 "low": 0.0614903152761605,
                 "high": 0.7923450448735121
               },
-              "cases": [
-                "h-recon-partial-clone"
-              ]
+              "cases": ["h-recon-partial-clone"]
             },
             "dangerousWide": {
               "numerator": 0,
@@ -5868,9 +5738,7 @@
                 "low": 0.014864709450773478,
                 "high": 0.35388592179859524
               },
-              "cases": [
-                "h-syn-regression-oom"
-              ]
+              "cases": ["h-syn-regression-oom"]
             }
           }
         }
@@ -5983,9 +5851,7 @@
             "low": 0.0068218089769898765,
             "high": 0.18893176991958405
           },
-          "cases": [
-            "h-syn-flake-registered-different-error"
-          ]
+          "cases": ["h-syn-flake-registered-different-error"]
         },
         "overAbstention": {
           "numerator": 10,
@@ -6058,10 +5924,7 @@
                 "low": 0.09676933255921683,
                 "high": 0.7000116786584712
               },
-              "cases": [
-                "h-audit-10-27",
-                "h-audit-10-28"
-              ]
+              "cases": ["h-audit-10-27", "h-audit-10-28"]
             },
             "dangerousWide": {
               "numerator": 0,
@@ -6084,9 +5947,7 @@
                 "low": 0.0614903152761605,
                 "high": 0.7923450448735121
               },
-              "cases": [
-                "h-recon-partial-clone"
-              ]
+              "cases": ["h-recon-partial-clone"]
             },
             "dangerousWide": {
               "numerator": 0,
@@ -6299,10 +6160,7 @@
                 "low": 0.09676933255921683,
                 "high": 0.7000116786584712
               },
-              "cases": [
-                "h-audit-10-27",
-                "h-audit-10-28"
-              ]
+              "cases": ["h-audit-10-27", "h-audit-10-28"]
             },
             "dangerousWide": {
               "numerator": 0,
@@ -6325,9 +6183,7 @@
                 "low": 0.0614903152761605,
                 "high": 0.7923450448735121
               },
-              "cases": [
-                "h-recon-partial-clone"
-              ]
+              "cases": ["h-recon-partial-clone"]
             },
             "dangerousWide": {
               "numerator": 0,
@@ -6466,9 +6322,7 @@
             "low": 0.01111905730833121,
             "high": 0.2832926836802987
           },
-          "cases": [
-            "h-audit-11-04"
-          ]
+          "cases": ["h-audit-11-04"]
         },
         "falseFlake": {
           "numerator": 0,
@@ -6543,12 +6397,7 @@
                 "low": 0.29998832134152864,
                 "high": 0.9032306674407831
               },
-              "cases": [
-                "h-audit-10-27",
-                "h-audit-10-28",
-                "h-audit-11-03",
-                "h-audit-11-04"
-              ]
+              "cases": ["h-audit-10-27", "h-audit-10-28", "h-audit-11-03", "h-audit-11-04"]
             },
             "dangerousWide": {
               "numerator": 0,
@@ -6571,10 +6420,7 @@
                 "low": 0.2076549551264879,
                 "high": 0.9385096847238394
               },
-              "cases": [
-                "h-recon-partial-clone",
-                "h-recon-electron-install"
-              ]
+              "cases": ["h-recon-partial-clone", "h-recon-electron-install"]
             },
             "dangerousWide": {
               "numerator": 0,
@@ -6694,9 +6540,7 @@
             "low": 0.019890371327130535,
             "high": 0.4350062147680601
           },
-          "cases": [
-            "h-syn-regression-oom"
-          ]
+          "cases": ["h-syn-regression-oom"]
         },
         "dangerousWide": {
           "numerator": 1,
@@ -6706,9 +6550,7 @@
             "low": 0.01111905730833121,
             "high": 0.2832926836802987
           },
-          "cases": [
-            "h-syn-regression-oom"
-          ]
+          "cases": ["h-syn-regression-oom"]
         },
         "unsafeDiversion": {
           "numerator": 2,
@@ -6718,10 +6560,7 @@
             "low": 0.034976749337057134,
             "high": 0.3602333143674828
           },
-          "cases": [
-            "h-audit-11-04",
-            "h-syn-regression-oom"
-          ]
+          "cases": ["h-audit-11-04", "h-syn-regression-oom"]
         },
         "falseFlake": {
           "numerator": 0,
@@ -6805,11 +6644,7 @@
                 "low": 0.18761280689940868,
                 "high": 0.8123871931005913
               },
-              "cases": [
-                "h-audit-10-27",
-                "h-audit-10-28",
-                "h-audit-11-04"
-              ]
+              "cases": ["h-audit-10-27", "h-audit-10-28", "h-audit-11-04"]
             },
             "dangerousWide": {
               "numerator": 0,
@@ -6832,10 +6667,7 @@
                 "low": 0.2076549551264879,
                 "high": 0.9385096847238394
               },
-              "cases": [
-                "h-recon-partial-clone",
-                "h-recon-electron-install"
-              ]
+              "cases": ["h-recon-partial-clone", "h-recon-electron-install"]
             },
             "dangerousWide": {
               "numerator": 0,
@@ -6879,9 +6711,7 @@
                 "low": 0.014864709450773478,
                 "high": 0.35388592179859524
               },
-              "cases": [
-                "h-syn-regression-oom"
-              ]
+              "cases": ["h-syn-regression-oom"]
             }
           }
         }

@@ -38,6 +38,8 @@ export const OrchestrationEffectRequestV2 = Schema.Union([
     type: Schema.Literal("provider-runtime.continue"),
     sourceRunId: RunId,
     processLossCount: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+    /** Set when the provider process exited under a live server; absent means a server restart. */
+    cause: Schema.optional(Schema.Literal("provider_exit")),
   }),
   /** A delegated task's failed run: fail over, retry, or let the parent hear of it. */
   Schema.Struct({
@@ -139,6 +141,9 @@ export const OrchestrationEffectRequestV2 = Schema.Union([
     skipReferenced: Schema.optional(Schema.Boolean),
   }),
   Schema.Struct({
+    type: Schema.Literal("thread-content.purge"),
+  }),
+  Schema.Struct({
     type: Schema.Literal("thread-title.generate"),
     kind: Schema.Union([
       Schema.Struct({ type: Schema.Literal("initial"), messageId: MessageId }),
@@ -165,6 +170,7 @@ export const REPLAY_SAFE_EFFECT_TYPES_AFTER_PROCESS_LOSS = [
   "thread-workspace.release",
   "browser-sessions.release",
   "attachment.cleanup",
+  "thread-content.purge",
   "thread-title.generate",
   "delegated-tasks.stop",
   "delegated-tasks.resume",

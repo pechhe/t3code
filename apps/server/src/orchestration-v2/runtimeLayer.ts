@@ -19,6 +19,7 @@ import * as InstructionOverlay from "../experiments/InstructionOverlay.ts";
 import * as McpAppModelContext from "../mcpApps/McpAppModelContext.ts";
 import * as PreviewAgentActivity from "../preview/PreviewAgentActivity.ts";
 import * as McpAppRequests from "../mcpApps/McpAppRequests.ts";
+import * as McpSignIn from "../mcpApps/McpSignIn.ts";
 import * as ProviderSessionRuntime from "../persistence/ProviderSessionRuntime.ts";
 import * as BlackholeStatusBoard from "../blackhole/BlackholeStatusBoard.ts";
 import { layerBlackhole } from "../blackhole/layer.ts";
@@ -77,19 +78,31 @@ import * as ForgeArcRuns from "../weave/ForgeArcRuns.ts";
 import * as ForgeHome from "../weave/ForgeHome.ts";
 import * as ThreadProjectMoveService from "./ThreadProjectMoveService.ts";
 import * as ThreadImportService from "./ThreadImportService.ts";
+import * as PeerLinks from "../peer/PeerLinks.ts";
+import * as PeerMcpClient from "../peer/PeerMcpClient.ts";
+import * as WorkflowRuntime from "../workflows/WorkflowRuntime.ts";
+import * as ThreadIssueService from "./ThreadIssueService.ts";
 import * as ThreadLaunchService from "./ThreadLaunchService.ts";
 import * as ThreadForkService from "./ThreadForkService.ts";
 import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as ReleaseApprovals from "../releases/ReleaseApprovals.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
+import * as FeedbackStore from "../feedback/FeedbackStore.ts";
+import * as WorkspaceFolders from "../workspace/WorkspaceFolders.ts";
+import * as TaskFolderStore from "../workspace/TaskFolderStore.ts";
 
 export const layerEventInfrastructure = Layer.mergeAll(
   OrchestrationEventStore.layer,
   OrchestrationCommandReceipts.layer,
 );
 
+const layerWorkspaceFoldersProvided = WorkspaceFolders.layer.pipe(
+  Layer.provide(Layer.merge(ProjectStore.layer, TaskFolderStore.layer)),
+);
+
 const layerRuntimePolicyProvided = RuntimePolicy.layerFromProjectStore.pipe(
+  Layer.provide(layerWorkspaceFoldersProvided),
   Layer.provide(ProjectStore.layer),
 );
 
@@ -147,7 +160,7 @@ const layerProviderEventIngestorProvided = ProviderEventIngestor.layer.pipe(
 );
 
 const layerCheckpointServiceProvided = CheckpointService.layer.pipe(
-  Layer.provide(IdAllocator.layer),
+  Layer.provide(Layer.merge(IdAllocator.layer, layerWorkspaceFoldersProvided)),
 );
 const layerContextHandoffServiceProvided = ContextHandoffService.layer.pipe(
   Layer.provide(IdAllocator.layer),
@@ -206,6 +219,8 @@ const layerRunExecutionServiceProvided = RunExecutionService.layer.pipe(
     Layer.mergeAll(
       McpAppModelContext.layer,
       PreviewAgentActivity.layer,
+      // The same instance as thread management's, which hands over send-time recreations.
+      layerThreadWorktreeRestore,
       layerCheckpointServiceProvided,
       layerEventSink,
       IdAllocator.layer,
@@ -230,6 +245,8 @@ const layerProviderTurnStartServiceProvided = ProviderTurnStartService.layer.pip
       VideoFrames.layerLive,
       TurnItemPositionStore.layer,
       layerBlackhole,
+      // The same instance as thread management's, which hands over send-time recreations.
+      layerThreadWorktreeRestore,
     ),
   ),
 );
@@ -269,6 +286,7 @@ const layerCheckpointCaptureServiceProvided = CheckpointCaptureService.layer.pip
       layerEventSink,
       IdAllocator.layer,
       ProjectionStore.layer,
+      ThreadCommandExecutor.layer,
     ),
   ),
 );
@@ -287,6 +305,7 @@ const layerOrchestratorProvided = Orchestrator.layer.pipe(
       layerContextHandoffServiceProvided,
       IdAllocator.layer,
       ProjectStore.layer,
+      TaskFolderStore.layer,
       ProviderAdapterRegistry.layerFromProviderInstanceRegistry,
       // Reuse the continuation worker's layer reference so memoization shares one request queue.
       ProviderContinuationRequests.layer,
@@ -308,14 +327,13 @@ const layerAgentSessionImporterProvided = AgentSessionImporter.layer.pipe(
   Layer.provide(
     Layer.mergeAll(
       layerAgentSessionScannerProvided,
-      layerProjectService,
       layerOrchestratorProvided,
       layerEventSink,
       IdAllocator.layer,
       ProviderSessionRuntime.layer,
       ProviderAdapterRegistry.layerFromProviderInstanceRegistry,
       ThreadCommandExecutor.layer,
-    ),
+    ).pipe(Layer.provideMerge(layerProjectService)),
   ),
 );
 
@@ -365,8 +383,23 @@ const layerWorkspaceAttachmentsProvided = WorkspaceAttachments.layer.pipe(
   ),
 );
 const layerSavedSecrets = SavedSecrets.layer.pipe(Layer.provide(BwsClient.layer));
+const layerWorkflowsProvided = WorkflowRuntime.layer.pipe(
+  Layer.provide(
+    Layer.mergeAll(
+      layerThreadLaunchProvided,
+      layerThreadManagementProvided,
+      ThreadIssueService.layer.pipe(Layer.provide(layerOrchestratorProvided)),
+    ).pipe(Layer.provideMerge(layerProjectService)),
+  ),
+  // Layers memoize by reference, so these are the links Settings and agents use.
+  Layer.provide(PeerMcpClient.layer.pipe(Layer.provideMerge(PeerLinks.layer))),
+);
 const layerSecretRequestsProvided = SecretRequests.layer.pipe(
   Layer.provide(Layer.merge(layerThreadManagementProvided, layerSavedSecrets)),
+);
+// Cards are shown from /mcp and answered over WebSocket; one instance serializes both.
+const layerFeedbackStoreProvided = FeedbackStore.layer.pipe(
+  Layer.provide(layerThreadManagementProvided),
 );
 const layerScheduledTaskProvided = ScheduledTaskService.layer.pipe(
   Layer.provide(
@@ -438,6 +471,7 @@ const layerEffectExecutorProvided = EffectWorker.layerExecutor.pipe(
       layerThreadTitleRegenerationProvided,
       layerThreadManagementProvided,
       ProjectionStore.layer,
+      layerProjectionMaintenanceProvided,
     ),
   ),
 );
@@ -469,10 +503,15 @@ const layerMcpAppRequestsProvided = McpAppRequests.layer.pipe(
 
 // Runs read their instruction experiment overlay; production supplies the experiment-backed
 // overlay and every other composition runs without instruction experiments.
+const layerMcpSignInProvided = McpSignIn.layer.pipe(
+  Layer.provide(Layer.merge(layerThreadManagementProvided, layerProviderSessionManagerProvided)),
+);
+
 const layerWithoutInstructionOverlay = Layer.mergeAll(
   layerCommandOutputHubProvided,
   layerOrchestratorProvided,
   layerMcpAppRequestsProvided,
+  layerMcpSignInProvided,
   layerThreadManagementProvided,
   layerEffectWorkerProvided,
   layerProviderSessionManagerProvided,
@@ -518,8 +557,10 @@ export const layerProduction = Layer.mergeAll(
   layerChampionsProvided,
   layerThreadProjectMoveProvided,
   RunSetupStore.storeLayer,
+  layerWorkflowsProvided,
   layerScratchThreadPromotionProvided,
   layerSecretRequestsProvided,
+  layerFeedbackStoreProvided,
   layerSavedSecrets,
   ReleaseApprovals.layer.pipe(Layer.provide(layerThreadManagementProvided)),
   layerForgeWorkItems,

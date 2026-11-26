@@ -1,4 +1,5 @@
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
+import { useEffect, useRef } from "react";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { requestCustomSnooze } from "../components/CustomSnoozeDialog";
 import { openGuestShareDialog } from "../components/chat/guestShareDialogState";
@@ -10,18 +11,19 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import { canSnooze, effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 import {
-  isDelegatedTaskThread,
   AuthOrchestrationOperateScope,
+  isDelegatedTaskThread,
   type ScopedThreadRef,
   type ThreadId,
+  type ContextMenuSource,
 } from "@t3tools/contracts";
 import { useRouter } from "@tanstack/react-router";
 import { msg } from "gt-react";
-import { useEffect, useRef } from "react";
 
 import { pickSnoozePreset, resolveSnoozePresets } from "../components/Sidebar.snooze";
 import {
   buildThreadActionMenuItems,
+  isThreadTriageAction,
   threadActionRequiresOperate,
   type ThreadActionMenuId,
 } from "../components/threadActionMenu.logic";
@@ -30,13 +32,15 @@ import {
   readThreadHandoffTargets,
   startThreadHandoff,
 } from "../components/threadHandoffMenu";
+import { openLinkForgeItemDialog } from "../components/forgeItem/LinkForgeItemDialog";
+import { openExportTranscriptDialog } from "../components/ExportTranscriptDialog";
 import { titleRegenerationToast } from "../components/threadTitleRegenerationToast";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { copyThreadReference } from "../lib/copyThreadReference";
 import { m } from "../i18n/messages";
 import { threadChipCopyTarget } from "@t3tools/client-runtime/thread-reference";
 import { threadEnvironment } from "../state/threads";
-import { useOrchestrationCommand } from "../state/use-orchestration-command";
+import { threadTriagePermitted, useOrchestrationCommand } from "../state/use-orchestration-command";
 import { readEnvironmentScope } from "../state/session";
 import {
   readEnvironmentServerConfigLoaded,
@@ -58,8 +62,6 @@ import { useCopyToClipboard } from "./useCopyToClipboard";
 import { useNewThreadHandler } from "./useHandleNewThread";
 import { useClientSettings } from "./useSettings";
 import { canTurnThreadIntoProject, useThreadActions } from "./useThreadActions";
-import { openLinkForgeItemDialog } from "../components/forgeItem/LinkForgeItemDialog";
-import { openExportTranscriptDialog } from "../components/ExportTranscriptDialog";
 
 function failureToast(title: string, error: unknown) {
   toastManager.add(
@@ -74,10 +76,10 @@ function failureToast(title: string, error: unknown) {
 export function useThreadActionMenu(input: {
   readonly threadRef: ScopedThreadRef | null;
   readonly projectCwd: string | null;
-  readonly onStartRename: () => void;
+  /** Omitted where no inline title editor is rendered; the rename item is then disabled. */
+  readonly onStartRename?: (() => void) | undefined;
   /** Offered only where the caller knows the project is connected to Weave. */
   readonly canLinkForgeItem?: boolean;
-  /** Guest links need their own grant, so the caller passes whether the environment offers it. */
   readonly onFind?: ((threadRef: ScopedThreadRef) => void) | undefined;
   readonly canShareWithGuest: boolean;
 }) {
@@ -89,6 +91,16 @@ export function useThreadActionMenu(input: {
     onFind,
     canShareWithGuest,
   } = input;
+  // Waiting for move targets can outlast the open that asked for them: a newer
+  // open, a close, or a switch to another thread each make the pending one stale.
+  const latestOpenRef = useRef(0);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- retires a menu open still awaiting move targets when the thread changes
+  useEffect(() => {
+    if (threadRef === null) return;
+    return () => {
+      latestOpenRef.current += 1;
+    };
+  }, [threadRef]);
   const router = useRouter();
   const projects = useProjects();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
@@ -133,75 +145,52 @@ export function useThreadActionMenu(input: {
     onError: (error) => failureToast(m(msg("Failed to copy thread ID")), error),
   });
 
-  // Waiting for move targets can outlast the open that asked for them: a newer
-  // open, a close, or a switch to another thread each make the pending one stale.
-  const latestOpenRef = useRef(0);
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- retires a menu open still awaiting move targets when the thread changes or the menu unmounts
-  useEffect(() => {
-    if (threadRef === null) return;
-    return () => {
-      latestOpenRef.current += 1;
+  /** The thread's menu as of now, and a runner for its actions. Null until the thread loads. */
+  const readMenu = (handoffTargets?: Awaited<ReturnType<typeof readThreadHandoffTargets>>) => {
+    if (threadRef === null) return null;
+    const thread = readThreadShell(threadRef);
+    if (!thread) return null;
+    const now = new Date();
+    const configLoaded = readEnvironmentServerConfigLoaded(threadRef.environmentId);
+    const supports = {
+      settlement: configLoaded,
+      autoSettleOptOut: readEnvironmentSupportsAutoSettleOptOut(threadRef.environmentId),
+      snooze: configLoaded,
+      pinning: configLoaded,
+      titleRegeneration: configLoaded,
     };
-  }, [threadRef]);
-
-  const openMenu = (position: { x: number; y: number }) => {
-    if (threadRef === null) return;
-    const open = ++latestOpenRef.current;
-    void (async () => {
+    const isRegeneratingTitle = thread.titleRegeneration != null;
+    const snoozePresets = resolveSnoozePresets(now, timestampFormat, threadRef.environmentId);
+    const items = buildThreadActionMenuItems({
+      canOperate: readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope),
+      canTriage: threadTriagePermitted(threadRef.environmentId),
+      canFind: onFind !== undefined,
+      canRename: onStartRename !== undefined,
+      branch: thread.branch ?? null,
+      projectFilter: null,
+      isPinned: thread.pinnedAt != null,
+      isSettled: supports.settlement && thread.settledOverride === "settled",
+      autoSettleEnabled: thread.autoSettleDisabledAt == null,
+      isSnoozed: supports.snooze && effectiveSnoozed(thread, { now: now.toISOString() }),
+      canSnoozeNow: canSnooze(thread, { now: now.toISOString() }),
+      isRegeneratingTitle,
+      isRunning: !threadRuntimeCanArchive(thread.runtime),
+      hasCompletedRun: thread.latestRun?.completedAt != null,
+      supports,
+      snoozePresets,
+      canShareWithGuest,
+      canTurnIntoProject: canTurnThreadIntoProject(threadRef),
+      canLinkForgeItem,
+      ...(handoffTargets === undefined ? {} : { handoffTargets }),
+    });
+    const run = async (action: ThreadActionMenuId) => {
       const api = readLocalApi();
       if (!api) return;
-      const thread = readThreadShell(threadRef);
-      if (!thread) {
-        failureToast(
-          m(msg("Thread actions unavailable")),
-          new Error(m(msg("This thread has not loaded yet."))),
-        );
-        return;
-      }
-      const now = new Date();
-      const configLoaded = readEnvironmentServerConfigLoaded(threadRef.environmentId);
-      const supports = {
-        settlement: configLoaded,
-        autoSettleOptOut: readEnvironmentSupportsAutoSettleOptOut(threadRef.environmentId),
-        snooze: configLoaded,
-        pinning: configLoaded,
-        titleRegeneration: configLoaded,
-      };
-      const isRegeneratingTitle = thread.titleRegeneration != null;
-      const snoozePresets = resolveSnoozePresets(now, timestampFormat, threadRef.environmentId);
-      // Only an environment that can move threads makes the menu wait for targets.
-      const handoffTargets =
-        readThreadHandoffSupported(threadRef.environmentId) &&
-        !isDelegatedTaskThread(thread) &&
-        (thread.handoff == null || thread.handoff.state === "failed")
-          ? await readThreadHandoffTargets(threadRef.environmentId, threadRef.threadId)
-          : undefined;
-      if (open !== latestOpenRef.current) return;
-      const items = buildThreadActionMenuItems({
-        canOperate: readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope),
-        canFind: onFind !== undefined,
-        branch: thread.branch ?? null,
-        projectFilter: null,
-        isPinned: thread.pinnedAt != null,
-        isSettled: supports.settlement && thread.settledOverride === "settled",
-        autoSettleEnabled: thread.autoSettleDisabledAt == null,
-        isSnoozed: supports.snooze && effectiveSnoozed(thread, { now: now.toISOString() }),
-        canSnoozeNow: canSnooze(thread, { now: now.toISOString() }),
-        isRegeneratingTitle,
-        isRunning: !threadRuntimeCanArchive(thread.runtime),
-        supports,
-        snoozePresets,
-        canLinkForgeItem,
-        canShareWithGuest,
-        canTurnIntoProject: canTurnThreadIntoProject(threadRef),
-        ...(handoffTargets === undefined ? {} : { handoffTargets }),
-      });
-      const clicked = await settlePromise(() => api.contextMenu.show(items, position));
-      if (clicked._tag === "Failure" || clicked.value === null) return;
-      const action: ThreadActionMenuId = clicked.value;
       if (
         threadActionRequiresOperate(action) &&
-        !readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope)
+        !(isThreadTriageAction(action)
+          ? threadTriagePermitted(threadRef.environmentId)
+          : readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope))
       ) {
         failureToast(
           m(msg("Thread action unavailable")),
@@ -303,7 +292,7 @@ export function useThreadActionMenu(input: {
           );
           return;
         case "rename":
-          onStartRename();
+          onStartRename?.();
           return;
         case "regenerate-title": {
           if (isRegeneratingTitle) return;
@@ -319,14 +308,14 @@ export function useThreadActionMenu(input: {
         case "mark-unread":
           markThreadUnread(threadRef);
           return;
+        case "share-guest":
+          openGuestShareDialog(threadRef);
+          return;
         case "link-build-item":
           openLinkForgeItemDialog(threadRef);
           return;
         case "export-transcript":
           openExportTranscriptDialog(threadRef);
-          return;
-        case "share-guest":
-          openGuestShareDialog(threadRef);
           return;
         case "turn-into-project": {
           const result = await turnThreadIntoProject(threadRef);
@@ -422,6 +411,36 @@ export function useThreadActionMenu(input: {
         default:
           return;
       }
+    };
+    return { items, run };
+  };
+
+  const openMenu = (position: { x: number; y: number }, source?: ContextMenuSource) => {
+    void (async () => {
+      const api = readLocalApi();
+      if (!api || threadRef === null) return;
+      const open = ++latestOpenRef.current;
+      const shell = readThreadShell(threadRef);
+      // Only an environment that can move threads makes the menu wait for targets.
+      const handoffTargets =
+        shell &&
+        readThreadHandoffSupported(threadRef.environmentId) &&
+        !isDelegatedTaskThread(shell) &&
+        (shell.handoff == null || shell.handoff.state === "failed")
+          ? await readThreadHandoffTargets(threadRef.environmentId, threadRef.threadId)
+          : undefined;
+      if (open !== latestOpenRef.current) return;
+      const menu = readMenu(handoffTargets);
+      if (!menu) {
+        failureToast(
+          m(msg("Thread actions unavailable")),
+          new Error(m(msg("This thread has not loaded yet."))),
+        );
+        return;
+      }
+      const clicked = await settlePromise(() => api.contextMenu.show(menu.items, position, source));
+      if (clicked._tag === "Failure" || clicked.value === null) return;
+      await menu.run(clicked.value);
     })();
   };
 
@@ -435,5 +454,5 @@ export function useThreadActionMenu(input: {
     copyThreadIdToClipboard(threadRef.threadId, { threadId: threadRef.threadId });
   };
 
-  return { openMenu, closeMenu, copyThreadId };
+  return { openMenu, closeMenu, readMenu, copyThreadId };
 }

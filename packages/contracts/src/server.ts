@@ -432,6 +432,8 @@ export const ServerObservability = Schema.Struct({
   otlpLogsSource: Schema.optional(OtlpEndpointSource),
   otlpLogsVariable: Schema.optional(TrimmedNonEmptyString),
   otlpLogsEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  /** Relay tracing policy for browsers opened from this server. */
+  relayTracingAllowed: Schema.optionalKey(Schema.Boolean),
 });
 export type ServerObservability = typeof ServerObservability.Type;
 
@@ -758,6 +760,13 @@ export const ServerEventLoopStall = Schema.Struct({
 });
 export type ServerEventLoopStall = typeof ServerEventLoopStall.Type;
 
+/** The boolean `T3CODE_FEATURE_FLAGS` a server started with. Unset flags are off. */
+export const ServerFeatureFlags = Schema.Struct({
+  secretProviders: Schema.optionalKey(Schema.Boolean),
+  tanstackSource: Schema.optionalKey(Schema.Boolean),
+});
+export type ServerFeatureFlags = typeof ServerFeatureFlags.Type;
+
 export const ServerConfig = Schema.Struct({
   environment: ExecutionEnvironmentDescriptor,
   auth: ServerAuthDescriptor,
@@ -795,6 +804,7 @@ export const ServerConfig = Schema.Struct({
   threadSnapshotPagination: Schema.optionalKey(Schema.Boolean),
   threadFind: Schema.optionalKey(Schema.Boolean),
   threadFindProgressive: Schema.optionalKey(Schema.Boolean),
+  featureFlags: Schema.optionalKey(ServerFeatureFlags),
   /** Settings patches may carry `secretProviders`; older servers drop the key without an error. */
   secretProviderSettings: Schema.optionalKey(Schema.Boolean),
   /** This server routes decisions by its own settings; older servers have no such settings to write. */
@@ -1065,6 +1075,18 @@ export class ServerProviderUpdateError extends Schema.TaggedError<ServerProvider
   }
 }
 
+export const DatabaseMigrationProgress = Schema.Struct({
+  current: Schema.Int.check(Schema.isGreaterThan(0)),
+  total: Schema.Int.check(Schema.isGreaterThan(0)),
+});
+export type DatabaseMigrationProgress = typeof DatabaseMigrationProgress.Type;
+
+export const ServerStartupStatus = Schema.Struct({
+  status: Schema.Literal("starting"),
+  migration: Schema.NullOr(DatabaseMigrationProgress),
+});
+export type ServerStartupStatus = typeof ServerStartupStatus.Type;
+
 export const ServerNpmReleaseInput = Schema.Struct({
   spec: Schema.String.check(
     Schema.isMaxLength(64),
@@ -1131,6 +1153,13 @@ export class ServerSelfUpdateError extends Schema.TaggedError<ServerSelfUpdateEr
   "ServerSelfUpdateError",
   {
     reason: TrimmedNonEmptyString,
+    /** Set when the host's desktop app refused only because its build and saved tracks differ. */
+    trackMismatch: Schema.optionalKey(
+      Schema.Struct({
+        buildChannel: DesktopUpdateChannelSchema,
+        savedChannel: DesktopUpdateChannelSchema,
+      }),
+    ),
     cause: Schema.optional(Schema.Defect()),
   },
 ) {

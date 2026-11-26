@@ -11,6 +11,7 @@ import {
   ThreadId,
   RunId,
   OrchestrationV2DelegatedFrom,
+  OrchestrationV2WorkflowOrigin,
   OrchestrationV2RunStatus,
   OrchestrationV2ThreadLaunchWorkspaceStrategy,
   RuntimeMode,
@@ -158,6 +159,7 @@ const ThreadLaunchTool = Tool.make("t3_thread_launch", {
       }),
     ),
     title: TrimmedNonEmptyString,
+    generateTitle: Schema.optional(Schema.Boolean),
     modelSelection: Schema.optional(ModelSelection),
     runtimeMode: Schema.optional(RuntimeMode),
     interactionMode: Schema.optional(ProviderInteractionMode),
@@ -186,6 +188,11 @@ const ThreadLaunchTool = Tool.make("t3_thread_launch", {
           "Watch the new thread from this one, as watch does, starting before its first message.",
       }),
     ),
+    outputSchema: Schema.optional(
+      Schema.Record(Schema.String, Schema.Json).annotate({
+        description: "As in `t3_thread_send`. Needs `message`.",
+      }),
+    ),
     clientRequestId: Schema.optional(OrchestratorMcpClientRequestId),
     whyNotDelegated: Schema.optional(
       Schema.String.annotate({
@@ -197,6 +204,8 @@ const ThreadLaunchTool = Tool.make("t3_thread_launch", {
     delegatedFrom: Schema.optional(OrchestrationV2DelegatedFrom),
     /** Set by a linked environment delegating a managed role here, with delegatedFrom. */
     delegatedRole: Schema.optional(AgentTaskLinkedRequest),
+    /** Set by a linked environment whose workflow run this thread is a step of; ignored otherwise. */
+    workflowRun: Schema.optional(OrchestrationV2WorkflowOrigin),
   }),
   success: Schema.Struct({
     threadId: ThreadId,

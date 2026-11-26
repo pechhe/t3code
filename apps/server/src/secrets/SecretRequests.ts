@@ -6,6 +6,7 @@ import {
   CommandId,
   SecretRef,
   SecretRequestError,
+  type OrchestrationV2TurnItem,
   type ProjectId,
   type SecretReference,
   type SecretRequestAnswerInput,
@@ -45,6 +46,31 @@ const StoredSecret = Schema.fromJsonString(
 const encodeStored = Schema.encodeEffect(StoredSecret);
 const decodeStored = Schema.decodeUnknownOption(StoredSecret);
 
+type SecretRequestItem = Extract<OrchestrationV2TurnItem, { readonly type: "secret_request" }>;
+/** `undefined` names the value of a request without fields. */
+type FieldName = string | undefined;
+const fieldNames = (item: SecretRequestItem): ReadonlyArray<FieldName> =>
+  item.fields?.map((field) => field.name) ?? [undefined];
+
+/** The answer's value per field, or undefined when it does not answer exactly those fields. */
+function answerValues(
+  item: SecretRequestItem,
+  answer: Exclude<SecretRequestAnswerInput["answer"], { readonly type: "decline" }>,
+): ReadonlyArray<readonly [FieldName, string]> | undefined {
+  if (item.fields === undefined)
+    return "secret" in answer ? [[undefined, answer.secret]] : undefined;
+  if (!("values" in answer)) return undefined;
+  const { values } = answer;
+  if (Object.keys(values).length !== item.fields.length) return undefined;
+  const entries: Array<readonly [string, string]> = [];
+  for (const field of item.fields) {
+    const value = Object.hasOwn(values, field.name) ? values[field.name] : undefined;
+    if (value === undefined) return undefined;
+    entries.push([field.name, value]);
+  }
+  return entries;
+}
+
 export class SecretRequests extends Context.Service<
   SecretRequests,
   {
@@ -76,11 +102,14 @@ export class SecretRequests extends Context.Service<
       readonly ref: SecretRef;
       readonly projectId: ProjectId;
     }) => Effect.Effect<string, SecretRequestError>;
-    /** Moves a saved `file` request's value to an owner-only file and returns its path. */
+    /** Moves a saved `file` request's values to owner-only files, one per field. */
     readonly saveToFile: (input: {
       readonly threadId: ThreadId;
       readonly turnItemId: string;
-    }) => Effect.Effect<string, SecretRequestError>;
+    }) => Effect.Effect<
+      { readonly file: string } | { readonly files: { readonly [name: string]: string } },
+      SecretRequestError
+    >;
     /** Writes a secret the user pasted in chat to an owner-only file and returns its path. */
     readonly savePasted: (input: {
       readonly threadId: ThreadId;
@@ -111,10 +140,23 @@ const make = Effect.gen(function* () {
       Hex.encode(yield* store.getOrCreateRandom("secret-request-salt", 32).pipe(Effect.orDie)),
     ),
   ).pipe(Effect.orDie);
-  const refFor = (threadId: ThreadId, turnItemId: string) =>
-    mac.sign(refKey, new TextEncoder().encode(`${threadId}\u0000${turnItemId}`)).pipe(
-      Effect.orDie,
-      Effect.map((tag) => SecretRef.make(`${SECRET_REF_PREFIX}${Hex.encode(tag).slice(0, 32)}`)),
+  const refFor = (threadId: ThreadId, turnItemId: string, field?: string) =>
+    mac
+      .sign(
+        refKey,
+        new TextEncoder().encode(
+          field === undefined
+            ? `${threadId}\u0000${turnItemId}`
+            : `${threadId}\u0000${turnItemId}\u0000${field}`,
+        ),
+      )
+      .pipe(
+        Effect.orDie,
+        Effect.map((tag) => SecretRef.make(`${SECRET_REF_PREFIX}${Hex.encode(tag).slice(0, 32)}`)),
+      );
+  const removeAnswered = (threadId: ThreadId, item: SecretRequestItem) =>
+    Effect.forEach(fieldNames(item), (field) =>
+      refFor(threadId, item.id, field).pipe(Effect.flatMap((ref) => removeLogged(storeName(ref)))),
     );
 
   const readReference = Effect.fn("SecretRequests.readReference")(function* (
@@ -132,6 +174,8 @@ const make = Effect.gen(function* () {
     return value;
   });
 
+  // One answer at a time: fields are stored one by one, so two racing answers could otherwise
+  // each keep some of their values on one card.
   const metadataName = (id: string) => `secret-handoff-${id}`;
   const encodeMetadata = Schema.encodeEffect(Schema.fromJsonString(TemporarySecretMetadata));
   const decodeMetadata = Schema.decodeUnknownOption(Schema.fromJsonString(TemporarySecretMetadata));
@@ -144,6 +188,7 @@ const make = Effect.gen(function* () {
       .pipe(Effect.mapError(() => new SecretRequestError({ reason: "store_failed" })));
   });
 
+  const answerLock = yield* Semaphore.make(1);
   const answerRequest = Effect.fn("SecretRequests.answer")(function* (
     input: SecretRequestAnswerInput,
     allowDurable: boolean,
@@ -173,6 +218,7 @@ const make = Effect.gen(function* () {
       if (
         !allowDurable ||
         input.answer.type !== "save" ||
+        !("secret" in input.answer) ||
         !item.secretKey ||
         !item.secretProjectId
       ) {
@@ -202,41 +248,53 @@ const make = Effect.gen(function* () {
           ),
         );
     }
-    const secret =
-      input.answer.type === "save"
-        ? input.answer.secret
-        : input.answer.type === "reference"
-          ? yield* readReference(input.answer.reference)
-          : undefined;
     // Create before recording so racing answers cannot overwrite values or show saved before storage.
     // Existing values on pending cards finish earlier saves whose recording failed.
-    if (secret !== undefined) {
-      const encoded = yield* encodeStored({
-        projectId: records.thread.projectId,
-        value: secret,
-        savedAt: yield* Clock.currentTimeMillis,
-      }).pipe(Effect.orDie);
-      yield* store
-        .create(
-          storeName(yield* refFor(input.threadId, item.id)),
-          new TextEncoder().encode(encoded),
-        )
-        .pipe(
-          Effect.catchIf(ServerSecretStore.isSecretAlreadyExistsError, () => Effect.void),
-          Effect.mapError(
-            (error) => new SecretRequestError({ reason: "store_failed", cause: error }),
-          ),
-        );
+    const values =
+      input.answer.type === "decline"
+        ? undefined
+        : input.answer.type === "reference" && item.fields === undefined
+          ? [[undefined, yield* readReference(input.answer.reference)] as const]
+          : (answerValues(item, input.answer) ??
+            (yield* new SecretRequestError({ reason: "fields_mismatch" })));
+    if (values !== undefined) {
+      const savedAt = yield* Clock.currentTimeMillis;
+      // Cleared when interrupted too, or a retry would keep these values beside its own.
+      yield* Effect.forEach(values, ([field, value]) =>
+        Effect.gen(function* () {
+          const encoded = yield* encodeStored({
+            projectId: records.thread.projectId,
+            value,
+            savedAt,
+          }).pipe(Effect.orDie);
+          yield* store
+            .create(
+              storeName(yield* refFor(input.threadId, item.id, field)),
+              new TextEncoder().encode(encoded),
+            )
+            .pipe(
+              Effect.catchIf(ServerSecretStore.isSecretAlreadyExistsError, () => Effect.void),
+              Effect.mapError(
+                (error) => new SecretRequestError({ reason: "store_failed", cause: error }),
+              ),
+            );
+        }),
+      ).pipe(Effect.onError(() => removeAnswered(input.threadId, item)));
+      const expiresAt = (yield* Clock.currentTimeMillis) + SECRET_REF_TTL_MS;
+      yield* Effect.forEach(values, ([field]) =>
+        Effect.gen(function* () {
+          const ref = yield* refFor(input.threadId, item.id, field);
+          yield* remember({
+            id: ref.slice(SECRET_REF_PREFIX.length),
+            label: item.fields?.find((candidate) => candidate.name === field)?.label ?? item.label,
+            threadId: input.threadId,
+            delivery: "secretRef",
+            expiresAt,
+          });
+        }),
+      );
     }
-    if (secret !== undefined)
-      yield* remember({
-        id: (yield* refFor(input.threadId, item.id)).slice(SECRET_REF_PREFIX.length),
-        label: item.label,
-        threadId: input.threadId,
-        delivery: "secretRef",
-        expiresAt: (yield* Clock.currentTimeMillis) + SECRET_REF_TTL_MS,
-      });
-    const secretStatus = secret === undefined ? "declined" : "saved";
+    const secretStatus = values === undefined ? "declined" : "saved";
     yield* threadManagement
       .dispatch({
         type: "secret_request.record",
@@ -250,6 +308,7 @@ const make = Effect.gen(function* () {
         ...(item.url === undefined ? {} : { url: item.url }),
         ...(item.placeholder === undefined ? {} : { placeholder: item.placeholder }),
         ...(item.delivery === undefined ? {} : { delivery: item.delivery }),
+        ...(item.fields === undefined ? {} : { fields: item.fields }),
         ...(item.storage === undefined ? {} : { storage: item.storage }),
         ...(item.secretKey === undefined ? {} : { secretKey: item.secretKey }),
         ...(item.savedSecretId === undefined ? {} : { savedSecretId: item.savedSecretId }),
@@ -260,14 +319,10 @@ const make = Effect.gen(function* () {
         Effect.mapError((cause) => new SecretRequestError({ reason: "record_failed", cause })),
         // Clear failed saves so the pending card can be answered again.
         Effect.tapError(() =>
-          secret !== undefined
-            ? refFor(input.threadId, item.id).pipe(
-                Effect.flatMap((ref) => removeLogged(storeName(ref))),
-              )
-            : Effect.void,
+          values !== undefined ? removeAnswered(input.threadId, item) : Effect.void,
         ),
       );
-    if (secret === undefined) return;
+    if (values === undefined) return;
     // The wait may have closed the card; delete unrecorded answers because no one receives their refs.
     const recorded = yield* threadManagement
       .getThreadRecords(input.threadId, ["turnItems"], {
@@ -277,10 +332,10 @@ const make = Effect.gen(function* () {
       .pipe(Effect.mapError((cause) => new SecretRequestError({ reason: "record_failed", cause })));
     const card = recorded.turnItems.find((candidate) => candidate.id === item.id);
     if (card?.type === "secret_request" && card.secretStatus !== "saved") {
-      yield* removeLogged(storeName(yield* refFor(input.threadId, item.id)));
+      yield* removeAnswered(input.threadId, item);
       return yield* new SecretRequestError({ reason: "agent_stopped" });
     }
-  });
+  }, answerLock.withPermits(1));
 
   const savedRef: SecretRequests["Service"]["savedRef"] = Effect.fn("SecretRequests.savedRef")(
     function* (input) {
@@ -385,9 +440,10 @@ const make = Effect.gen(function* () {
       return yield* new SecretRequestError({ reason: "not_a_file_request" });
     }
     if (filesDir === undefined) return yield* new SecretRequestError({ reason: "store_failed" });
-    const ref = yield* refFor(input.threadId, item.id);
-    const file = path.join(filesDir, ref.slice(SECRET_REF_PREFIX.length));
-    return yield* Effect.gen(function* () {
+    const projectId = records.thread.projectId;
+    const deliver = Effect.fn("SecretRequests.deliverFile")(function* (field: FieldName) {
+      const ref = yield* refFor(input.threadId, item.id, field);
+      const file = path.join(filesDir, ref.slice(SECRET_REF_PREFIX.length));
       // One use: the file counts as delivered only once the stored copy is gone. A retry with the
       // same clientRequestId gets the file the first call wrote and finishes that removal.
       const removeStored = removeLogged(storeName(ref)).pipe(
@@ -399,7 +455,7 @@ const make = Effect.gen(function* () {
         return yield* removeStored;
       }
       // The stored value goes only after the file is complete, so a failed write can retry.
-      const value = yield* readRef({ ref, projectId: records.thread.projectId });
+      const value = yield* readRef({ ref, projectId });
       yield* writeSecretFile(filesDir, file, value);
       yield* remember({
         id: ref.slice(SECRET_REF_PREFIX.length),
@@ -409,6 +465,13 @@ const make = Effect.gen(function* () {
         expiresAt: (yield* Clock.currentTimeMillis) + SECRET_REF_TTL_MS,
       });
       return yield* removeStored;
+    });
+    const { fields } = item;
+    return yield* Effect.gen(function* () {
+      if (fields === undefined) return { file: yield* deliver(undefined) };
+      const files: Record<string, string> = {};
+      for (const field of fields) files[field.name] = yield* deliver(field.name);
+      return { files };
     }).pipe(consumeLock.withPermits(1));
   });
 

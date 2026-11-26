@@ -15,17 +15,12 @@ import {
   isSettingsSearchScopeAvailable,
   movedSettingsPath,
   searchSettings,
-  SETTINGS_NAV_GROUPS,
+  settingsNavGroups,
   SETTINGS_SEARCH_ITEMS,
   sourceControlHostSearchItems,
   sourceControlHostSettingsSearchId,
   type SettingsSearchItem,
 } from "./settingsSearch";
-
-vi.mock("~/env", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("~/env")>()),
-  isSecretsFeatureEnabled: false,
-}));
 
 const ITEMS: ReadonlyArray<SettingsSearchItem> = [
   {
@@ -76,12 +71,35 @@ describe("searchSettings", () => {
     }
   });
 
-  it("keeps secret management discoverable while provider configuration is disabled", () => {
-    expect(SETTINGS_NAV_GROUPS.flatMap((group) => group.paths)).toContain("/settings/secrets");
-    expect(searchSettings("bitwarden").map((item) => item.id)).toContain("secret-management");
-    expect(searchSettings("1password").map((item) => item.to)).not.toContain("/settings/secrets");
+  it("lists the Secrets page in nav always, and its provider search only when an environment enables secret providers", () => {
+    const availability = {
+      hasCloudPublicConfig: false,
+      hasEnvironment: true,
+      hasProviderSettingsEnvironment: true,
+      canManageLocalBackend: false,
+      isWslSettingsRowVisible: false,
+      hasThreadAutoSettlement: false,
+    };
+    for (const enabled of [false, true]) {
+      const navPaths = settingsNavGroups(enabled).flatMap((group) => group.paths);
+      const searchPaths = searchSettings(
+        "1password",
+        filterAvailableSettingsSearchItems({
+          ...availability,
+          hasSecretProvidersEnvironment: enabled,
+        }),
+      ).map((item) => item.to);
+      // Saved and temporary secrets need no provider, so the page is always in the nav.
+      expect(navPaths.includes("/settings/secrets")).toBe(true);
+      expect(searchPaths.includes("/settings/secrets")).toBe(enabled);
+    }
   });
 
+  it("finds where subagents and side chats open by any of its names", () => {
+    for (const query of ["side panel", "subagent", "side chat", "linked thread", "middle click"]) {
+      expect(searchSettings(query).map((item) => item.id)).toContain("side-thread-open-target");
+    }
+  });
 
   it("matches normalized title substrings", () => {
     expect(searchSettings("  WORD   WRAP  ", ITEMS).map((item) => item.id)).toEqual(["word-wrap"]);
@@ -144,6 +162,7 @@ describe("searchSettings", () => {
       "auto-settle-merged-threads",
       "days-before-auto-settle",
       "linked-environments",
+      "agent-feedback",
     ]);
     expect(available.map((item) => item.id).filter((id) => gatedIds.has(id))).toEqual([]);
   });
