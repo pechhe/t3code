@@ -173,6 +173,21 @@ const withOmitted = (text: string, omitted: number | undefined) =>
 const isInputError = Schema.is(PhiBrowserInputError);
 const isRunnerError = Schema.is(PhiBrowserRunner.PhiBrowserRunnerError);
 const isBackendError = Schema.is(PreviewAutomationBackendError);
+const describeRunnerCause = (cause: unknown): string | undefined => {
+  if (!isRunnerError(cause) || cause.reason !== "connection-failed") return undefined;
+  const inner = cause.cause;
+  if (typeof inner === "object" && inner !== null && "timedOut" in inner) {
+    const { timedOut, code, stderr } = inner as {
+      timedOut?: boolean;
+      code?: unknown;
+      stderr?: unknown;
+    };
+    if (timedOut) return "the Phi runner timed out";
+    const tail = typeof stderr === "string" ? stderr.trim().slice(-300) : "";
+    return `the Phi runner exited with code ${String(code)}${tail ? `: ${tail}` : ""}`;
+  }
+  return inner instanceof Error ? inner.message : "the Phi runner could not be started";
+};
 const failure = (reason: PreviewAutomationBackendError["reason"], cause?: unknown) => {
   if (isBackendError(cause)) return cause;
   if (
@@ -197,6 +212,9 @@ const failure = (reason: PreviewAutomationBackendError["reason"], cause?: unknow
   return new PreviewAutomationBackendError({
     backend: "phi",
     reason,
+    ...(reason === "unavailable" && describeRunnerCause(cause) !== undefined
+      ? { detail: describeRunnerCause(cause) }
+      : {}),
     ...(unmet === undefined ? {} : { unmet }),
     ...(cause === undefined ? {} : { cause }),
   });

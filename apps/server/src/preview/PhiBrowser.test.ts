@@ -57,6 +57,7 @@ interface Fixture {
   readonly control: {
     human: boolean;
     blockOpen: boolean;
+    openCause: unknown;
     probeError: "missing-skill" | "connection-failed" | undefined;
   };
   readonly started: Deferred.Deferred<void>;
@@ -85,6 +86,7 @@ const withFixture = (
       const control = {
         human: false,
         blockOpen: false,
+        openCause: undefined as unknown,
         probeError: undefined as "missing-skill" | "connection-failed" | undefined,
       };
       const started = yield* Deferred.make<void>();
@@ -130,6 +132,11 @@ const withFixture = (
                 });
               return { result: {}, context: null };
             }
+            if (request.action.operation === "open" && control.openCause !== undefined)
+              return yield* new PhiBrowserRunner.PhiBrowserRunnerError({
+                reason: "connection-failed",
+                cause: control.openCause,
+              });
             if (request.action.operation === "open") {
               // The real filesystem journal must precede the external allocation.
               expect(yield* journal).toContain(
@@ -317,6 +324,30 @@ it.effect("rechecks an unreachable Phi soon while keeping a reachable answer", (
       yield* TestClock.adjust("20 seconds");
       expect(yield* discover).toBe("available");
       expect(calls).toHaveLength(2);
+    }),
+  ),
+);
+
+it.effect("names the runner's real failure instead of blaming the skill directory", () =>
+  withFixture(({ browser, control }) =>
+    Effect.gen(function* () {
+      const open = browser
+        .invoke({
+          scope,
+          operation: "open",
+          input: { url: "https://example.com" },
+        })
+        .pipe(
+          Effect.flip,
+          Effect.orDie,
+          Effect.map((error) => error.message),
+        );
+      control.openCause = { code: null, timedOut: true, stderr: "" };
+      expect(yield* open).toContain("timed out");
+      control.openCause = { code: 3, timedOut: false, stderr: "boom\n" };
+      const exited = yield* open;
+      expect(exited).toContain("code 3: boom");
+      expect(exited).not.toContain("skill directory");
     }),
   ),
 );

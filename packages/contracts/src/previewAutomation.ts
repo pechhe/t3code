@@ -1131,6 +1131,8 @@ export class PreviewAutomationBackendError extends Schema.TaggedError<PreviewAut
     ]),
     /** For a wait that timed out: the conditions that never held. */
     unmet: Schema.optional(Schema.Array(PreviewAutomationWaitCondition)),
+    /** What actually went wrong when `reason` is the generic "unavailable". */
+    detail: Schema.optional(Schema.String),
     cause: Schema.optional(Schema.Defect()),
   },
 ) {
@@ -1145,7 +1147,9 @@ export class PreviewAutomationBackendError extends Schema.TaggedError<PreviewAut
       case "disabled":
         return `${this.backend} is disabled for this agent session.`;
       case "unavailable":
-        return `${this.backend} is unavailable. Check the installed Phi skill directory and its connection route when using Phi; no other backend was substituted.`;
+        return this.detail === undefined
+          ? `${this.backend} is unavailable. Check the installed Phi skill directory and its connection route when using Phi; no other backend was substituted.`
+          : `${this.backend} is unavailable: ${this.detail}. No other backend was substituted.`;
       case "ownership":
         return "This browser tab does not belong to the calling task. Open an owned tab and use its returned tabId.";
       case "conflicting-binding":
