@@ -23,6 +23,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import type * as EffectAcpProtocol from "effect-acp/protocol";
 
@@ -368,16 +369,58 @@ describe("AcpAdapterV2", () => {
   );
 
   it.live.each([
-    { pins: true, resumes: false },
-    { pins: false, resumes: true },
-  ] as const)(
-    "resumes a native session after a workspace move only when the agent honours the new cwd (pins: $pins)",
-    ({ pins, resumes }) =>
+    {
+      id: "moved-no-session",
+      label: "moved native thread without resumeFromSession",
+      pins: true,
+      initialNativeThreadCwd: "other" as const,
+      resumeFromSessionCwd: undefined,
+      resumes: false,
+    },
+    {
+      id: "same-no-session",
+      label: "unchanged native thread without resumeFromSession",
+      pins: true,
+      initialNativeThreadCwd: "same" as const,
+      resumeFromSessionCwd: undefined,
+      resumes: true,
+    },
+    {
+      id: "legacy-session-cwd",
+      label: "legacy fallback to resumeFromSession.cwd",
+      pins: true,
+      initialNativeThreadCwd: undefined,
+      resumeFromSessionCwd: "other" as const,
+      resumes: false,
+    },
+    {
+      id: "non-pinning-native",
+      label: "non-pinning flavor with moved native thread",
+      pins: false,
+      initialNativeThreadCwd: "other" as const,
+      resumeFromSessionCwd: undefined,
+      resumes: true,
+    },
+    {
+      id: "non-pinning-session",
+      label: "non-pinning flavor with moved resumeFromSession",
+      pins: false,
+      initialNativeThreadCwd: undefined,
+      resumeFromSessionCwd: "other" as const,
+      resumes: true,
+    },
+  ])(
+    "resumes a native session after a workspace move only when the agent honours the new cwd ($label)",
+    ({ id, pins, initialNativeThreadCwd, resumeFromSessionCwd, resumes }) =>
       Effect.gen(function* () {
         const path = yield* Path.Path;
         const protocolEvents = yield* Queue.unbounded<EffectAcpProtocol.AcpProtocolLogEvent>();
-        const instanceId = ProviderInstanceId.make("moved-workspace-" + pins);
-        const threadId = ThreadId.make("moved-workspace-" + pins);
+        const instanceId = ProviderInstanceId.make("moved-workspace-" + id);
+        const threadId = ThreadId.make("moved-workspace-" + id);
+        const currentCwd = process.cwd();
+        const removedCwd = path.join(currentCwd, "removed-workspace");
+        const resolveCwd = (which: "same" | "other" | undefined) =>
+          which === "same" ? currentCwd : which === "other" ? removedCwd : undefined;
         const adapter = yield* makeAcpAdapterV2({
           instanceId,
           selfInvocation: yield* resolveSelfInvocation(),
@@ -387,9 +430,7 @@ describe("AcpAdapterV2", () => {
             pinsConversationCwd: pins,
             makeRuntime: makeMockRuntime({
               childProcessSpawner: yield* ChildProcessSpawner.ChildProcessSpawner,
-              mockAgentPath: yield* path.fromFileUrl(
-                new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
-              ),
+              mockAgentPath: (yield* Deferred.await(bundledAgents)).mock,
               protocolEvents,
             }),
           },
@@ -397,28 +438,35 @@ describe("AcpAdapterV2", () => {
         const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
           runtimeMode: "full-access",
           interactionMode: "default",
-          cwd: process.cwd(),
+          cwd: currentCwd,
         });
         const modelSelection = { instanceId, model: "default" };
         const now = yield* DateTime.now;
+        const recordedCwd = resolveCwd(initialNativeThreadCwd);
+        const sessionCwd = resolveCwd(resumeFromSessionCwd);
         const runtime = yield* adapter.openSession({
           threadId,
-          providerSessionId: ProviderSessionId.make("moved-workspace-session-" + pins),
+          providerSessionId: ProviderSessionId.make("moved-workspace-session-" + id),
           modelSelection,
           runtimePolicy,
           initialNativeThreadId: "old-session",
-          resumeFromSession: {
-            id: ProviderSessionId.make("moved-workspace-session-" + pins),
-            driver: ProviderDriverKind.make("acp-test"),
-            providerInstanceId: instanceId,
-            status: "stopped",
-            cwd: path.join(process.cwd(), "removed-workspace"),
-            model: "default",
-            capabilities: AcpProviderCapabilitiesV2,
-            createdAt: now,
-            updatedAt: now,
-            lastError: null,
-          },
+          ...(recordedCwd === undefined ? {} : { initialNativeThreadCwd: recordedCwd }),
+          ...(sessionCwd === undefined
+            ? {}
+            : {
+                resumeFromSession: {
+                  id: ProviderSessionId.make("moved-workspace-session-" + id),
+                  driver: ProviderDriverKind.make("acp-test"),
+                  providerInstanceId: instanceId,
+                  status: "stopped",
+                  cwd: sessionCwd,
+                  model: "default",
+                  capabilities: AcpProviderCapabilitiesV2,
+                  createdAt: now,
+                  updatedAt: now,
+                  lastError: null,
+                },
+              }),
         });
         const thread = yield* runtime.ensureThread({ threadId, modelSelection, runtimePolicy });
         const methods: Array<string> = [];
@@ -433,7 +481,147 @@ describe("AcpAdapterV2", () => {
           methods.some((method) => method === "session/resume" || method === "session/load"),
           resumes,
         );
+        assert.equal(
+          methods.some((method) => method === "session/new"),
+          !resumes,
+        );
         assert.equal(thread.nativeThreadRef?.nativeId === "old-session", resumes);
+        if (pins) {
+          assert.equal(thread.nativeMetadata?.conversationCwd, currentCwd);
+        } else {
+          assert.isUndefined(thread.nativeMetadata?.conversationCwd);
+        }
+      }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.live(
+    "records conversationCwd on new pinning sessions and preserves the recorded value across resumes",
+    () =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path;
+        const workspaceA = process.cwd();
+        const workspaceB = path.join(workspaceA, "other-workspace");
+        const instanceId = ProviderInstanceId.make("conversation-cwd-recording");
+        const adapter = yield* makeAcpAdapterV2({
+          instanceId,
+          selfInvocation: yield* resolveSelfInvocation(),
+          flavor: {
+            driver: ProviderDriverKind.make("acp-test"),
+            capabilities: AcpProviderCapabilitiesV2,
+            pinsConversationCwd: true,
+            makeRuntime: makeMockRuntime({
+              childProcessSpawner: yield* ChildProcessSpawner.ChildProcessSpawner,
+              mockAgentPath: (yield* Deferred.await(bundledAgents)).mock,
+            }),
+          },
+        });
+        const modelSelection = { instanceId, model: "default" };
+        const policyA = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          cwd: workspaceA,
+        });
+        const policyB = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          cwd: workspaceB,
+        });
+
+        // New session records its session cwd on the emitted provider thread.
+        const freshThreadId = ThreadId.make("conversation-cwd-fresh");
+        const freshRuntime = yield* adapter.openSession({
+          threadId: freshThreadId,
+          providerSessionId: ProviderSessionId.make("conversation-cwd-fresh-session"),
+          modelSelection,
+          runtimePolicy: policyA,
+        });
+        const freshThread = yield* freshRuntime.ensureThread({
+          threadId: freshThreadId,
+          modelSelection,
+          runtimePolicy: policyA,
+        });
+        assert.equal(freshThread.nativeMetadata?.conversationCwd, workspaceA);
+        yield* freshRuntime.startTurn(
+          makeTurnInput({
+            threadId: freshThreadId,
+            providerThread: freshThread,
+            instanceId,
+            runtimePolicy: policyA,
+            now: yield* DateTime.now,
+            ordinal: 1,
+          }),
+        );
+        const freshEvents = yield* freshRuntime.events.pipe(
+          Stream.takeUntil((event) => event.type === "turn.terminal"),
+          Stream.runCollect,
+        );
+        const freshUpdated = freshEvents.filter(
+          (event) => event.type === "provider_thread.updated",
+        );
+        assert.isNotEmpty(freshUpdated);
+        for (const event of freshUpdated) {
+          assert.equal(event.providerThread.nativeMetadata?.conversationCwd, workspaceA);
+        }
+
+        // Resumed session keeps the recorded conversationCwd rather than the turn's cwd.
+        const resumedThreadId = ThreadId.make("conversation-cwd-resumed");
+        const resumedRuntime = yield* adapter.openSession({
+          threadId: resumedThreadId,
+          providerSessionId: ProviderSessionId.make("conversation-cwd-resumed-session"),
+          modelSelection,
+          runtimePolicy: policyA,
+          initialNativeThreadId: "recorded-session",
+          initialNativeThreadCwd: workspaceA,
+        });
+        const resumedBase = yield* resumedRuntime.ensureThread({
+          threadId: resumedThreadId,
+          modelSelection,
+          runtimePolicy: policyB,
+        });
+        assert.equal(resumedBase.nativeMetadata?.conversationCwd, workspaceA);
+        const resumed = yield* resumedRuntime.resumeThread({
+          providerThread: resumedBase,
+          modelSelection,
+          runtimePolicy: policyB,
+        });
+        assert.equal(resumed.nativeMetadata?.conversationCwd, workspaceA);
+        yield* resumedRuntime.startTurn(
+          makeTurnInput({
+            threadId: resumedThreadId,
+            providerThread: resumed,
+            instanceId,
+            runtimePolicy: policyB,
+            now: yield* DateTime.now,
+            ordinal: 2,
+          }),
+        );
+        const resumedEvents = yield* resumedRuntime.events.pipe(
+          Stream.takeUntil((event) => event.type === "turn.terminal"),
+          Stream.runCollect,
+        );
+        const resumedUpdated = resumedEvents.filter(
+          (event) => event.type === "provider_thread.updated",
+        );
+        assert.isNotEmpty(resumedUpdated);
+        for (const event of resumedUpdated) {
+          assert.equal(event.providerThread.nativeMetadata?.conversationCwd, workspaceA);
+        }
+
+        // Resumed legacy session with no recorded cwd stays unrecorded.
+        const legacyThreadId = ThreadId.make("conversation-cwd-legacy");
+        const legacyRuntime = yield* adapter.openSession({
+          threadId: legacyThreadId,
+          providerSessionId: ProviderSessionId.make("conversation-cwd-legacy-session"),
+          modelSelection,
+          runtimePolicy: policyA,
+          initialNativeThreadId: "legacy-session",
+        });
+        const legacyThread = yield* legacyRuntime.ensureThread({
+          threadId: legacyThreadId,
+          modelSelection,
+          runtimePolicy: policyA,
+        });
+        assert.isUndefined(legacyThread.nativeMetadata?.conversationCwd);
       }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 });

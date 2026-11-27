@@ -1472,7 +1472,12 @@ export const layer: Layer.Layer<
             : { resumeFromSession: existingSessionProjection }),
           ...(fresh || providerThread.nativeThreadRef?.nativeId == null || brokenNativeThread
             ? {}
-            : { initialNativeThreadId: providerThread.nativeThreadRef.nativeId }),
+            : {
+                initialNativeThreadId: providerThread.nativeThreadRef.nativeId,
+                ...(providerThread.nativeMetadata?.conversationCwd === undefined
+                  ? {}
+                  : { initialNativeThreadCwd: providerThread.nativeMetadata.conversationCwd }),
+              }),
           ...(fresh || providerThread.nativeMetadata?.itemIdentityVersion === undefined
             ? {}
             : {

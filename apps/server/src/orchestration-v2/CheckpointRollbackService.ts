@@ -407,7 +407,12 @@ export const layer: Layer.Layer<
         ...(existingSession === undefined ? {} : { resumeFromSession: existingSession }),
         ...(providerThread.nativeThreadRef?.nativeId == null
           ? {}
-          : { initialNativeThreadId: providerThread.nativeThreadRef.nativeId }),
+          : {
+              initialNativeThreadId: providerThread.nativeThreadRef.nativeId,
+              ...(providerThread.nativeMetadata?.conversationCwd === undefined
+                ? {}
+                : { initialNativeThreadCwd: providerThread.nativeMetadata.conversationCwd }),
+            }),
         ...(providerThread.nativeMetadata?.itemIdentityVersion === undefined
           ? {}
           : {

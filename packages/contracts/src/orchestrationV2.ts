@@ -1760,6 +1760,8 @@ export type OrchestrationV2PendingBackgroundTask = typeof OrchestrationV2Pending
 export const OrchestrationV2ProviderThreadNativeMetadata = Schema.Struct({
   agentMcpRegistration: Schema.optional(Schema.Literals(["canonical", "legacy"])),
   cursorStoreCwd: Schema.optional(TrimmedNonEmptyString),
+  /** The workspace the native conversation was created in, recorded for agents that keep it. */
+  conversationCwd: Schema.optional(TrimmedNonEmptyString),
   modelSelection: Schema.optional(ModelSelection),
   title: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   updatedAt: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),

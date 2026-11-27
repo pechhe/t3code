@@ -2418,6 +2418,21 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
         const nativeMetadataBySessionId = yield* Ref.make(
           new Map<string, OrchestrationV2ProviderThreadNativeMetadata>(),
         );
+        const sessionCwd = input.runtimePolicy.cwd ?? process.cwd();
+        const recordConversationCwd = (sessionId: string, cwd: string | undefined) => {
+          const trimmed = cwd?.trim();
+          if (
+            flavor.pinsConversationCwd !== true ||
+            trimmed === undefined ||
+            trimmed.length === 0
+          ) {
+            return Effect.void;
+          }
+          return Ref.update(nativeMetadataBySessionId, (current) => {
+            const existing = current.get(sessionId);
+            return new Map(current).set(sessionId, { ...existing, conversationCwd: trimmed });
+          });
+        };
         const providerThreadByNativeSessionId = yield* Ref.make(
           new Map<string, OrchestrationV2ProviderThread>(),
         );
@@ -2934,6 +2949,11 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           );
           if (knownProviderThread === undefined) return;
           const now = yield* DateTime.now;
+          const rememberedMetadata = (yield* Ref.get(nativeMetadataBySessionId)).get(sessionId);
+          const nativeMetadata =
+            rememberedMetadata === undefined
+              ? (knownProviderThread.nativeMetadata ?? null)
+              : { ...knownProviderThread.nativeMetadata, ...rememberedMetadata };
           const providerThread: OrchestrationV2ProviderThread = {
             ...knownProviderThread,
             // The settled turn's snapshot is still cached as active; no turn runs now.
@@ -2944,10 +2964,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               (yield* Ref.get(contextUsageBySessionId)).get(sessionId) ??
               knownProviderThread.contextUsage ??
               null,
-            nativeMetadata:
-              (yield* Ref.get(nativeMetadataBySessionId)).get(sessionId) ??
-              knownProviderThread.nativeMetadata ??
-              null,
+            nativeMetadata,
             updatedAt: now,
           };
           yield* Ref.update(providerThreadByNativeSessionId, (current) =>
@@ -8367,6 +8384,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             candidate: AcpSessionRuntime.AcpSessionRuntimeStartResult,
           ) {
             rememberTerminalEnvironment(candidate.sessionId, yield* readMcpContext(threadId));
+            yield* recordConversationCwd(candidate.sessionId, sessionCwd);
             yield* Ref.set(runtimeRestartRequired, false);
             yield* Ref.set(activeSessionId, candidate.sessionId);
             yield* setActiveSessionSetup(candidate);
@@ -8400,14 +8418,14 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
 
         // Read before the session exists: its own config updates replace what the client showed.
         const unsetOptionDefaults = yield* flavor.unsetOptionDefaults ?? Effect.succeed([]);
-        const resumedCwd = input.resumeFromSession?.cwd;
+        const resumedCwd = input.initialNativeThreadCwd ?? input.resumeFromSession?.cwd;
         const nativeThreadToResume = input.initialNativeThreadId;
         const movedWorkspace =
           flavor.pinsConversationCwd === true &&
           nativeThreadToResume !== undefined &&
           resumedCwd !== undefined &&
           resumedCwd !== "" &&
-          resumedCwd !== (input.runtimePolicy.cwd ?? process.cwd());
+          resumedCwd !== sessionCwd;
         // A refused or failed load takes the stale-session path: the caller recovers in a fresh session.
         const startFreshAfterRefusedLoad = Effect.fn("AcpAdapterV2.startFreshAfterRefusedLoad")(
           function* (
@@ -8421,19 +8439,27 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             return yield* startAcpRuntime(input.threadId);
           },
         );
-        const started = movedWorkspace
-          ? yield* startFreshAfterRefusedLoad(
-              nativeThreadToResume,
-              new ProviderAdapter.ProviderAdapterProtocolError({
-                driver,
-                detail: `The native session belongs to ${resumedCwd}, not ${input.runtimePolicy.cwd ?? process.cwd()}.`,
-              }),
-            )
+        const { started, startedFresh } = movedWorkspace
+          ? {
+              started: yield* startFreshAfterRefusedLoad(
+                nativeThreadToResume,
+                new ProviderAdapter.ProviderAdapterProtocolError({
+                  driver,
+                  detail: `The native session belongs to ${resumedCwd}, not ${sessionCwd}.`,
+                }),
+              ),
+              startedFresh: true,
+            }
           : yield* Effect.gen(function* () {
               const initialStart = yield* Effect.result(
                 startAcpRuntime(input.threadId, input.initialNativeThreadId),
               );
-              if (Result.isSuccess(initialStart)) return initialStart.success;
+              if (Result.isSuccess(initialStart)) {
+                return {
+                  started: initialStart.success,
+                  startedFresh: input.initialNativeThreadId === undefined,
+                };
+              }
               const failedMethod =
                 "method" in initialStart.failure ? initialStart.failure.method : undefined;
               if (
@@ -8442,11 +8468,18 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               ) {
                 return yield* initialStart.failure;
               }
-              return yield* startFreshAfterRefusedLoad(
-                input.initialNativeThreadId,
-                initialStart.failure,
-              );
+              return {
+                started: yield* startFreshAfterRefusedLoad(
+                  input.initialNativeThreadId,
+                  initialStart.failure,
+                ),
+                startedFresh: true,
+              };
             });
+        yield* recordConversationCwd(
+          started.sessionId,
+          startedFresh ? sessionCwd : input.initialNativeThreadCwd,
+        );
         yield* Ref.set(activeSessionId, started.sessionId);
         yield* Ref.set(loadingSessionId, null);
         yield* setActiveSessionSetup(started);
@@ -10676,10 +10709,22 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                       new Map(current).set(sessionId, contextUsage),
                     );
                   }
+                  const rememberedMetadata = (yield* Ref.get(nativeMetadataBySessionId)).get(
+                    sessionId,
+                  );
+                  const nativeMetadata =
+                    rememberedMetadata === undefined
+                      ? created.nativeMetadata
+                      : { ...created.nativeMetadata, ...rememberedMetadata };
+                  if (nativeMetadata != null) {
+                    yield* Ref.update(nativeMetadataBySessionId, (current) =>
+                      new Map(current).set(sessionId, nativeMetadata),
+                    );
+                  }
                   const providerThread =
                     threadInput.forceNewNativeThread && threadInput.existingProviderThread
-                      ? { ...created, id: threadInput.existingProviderThread.id }
-                      : { ...created, contextUsage };
+                      ? { ...created, id: threadInput.existingProviderThread.id, nativeMetadata }
+                      : { ...created, contextUsage, nativeMetadata };
                   yield* Ref.update(providerThreadByNativeSessionId, (current) =>
                     new Map(current).set(sessionId, providerThread),
                   );
@@ -10739,13 +10784,34 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                     yield* Ref.set(activeSelection, nextSelection);
                     yield* Ref.set(activeInteractionMode, nextRuntimePolicy.interactionMode);
                   }
+                  const existingMetadata = threadInput.providerThread.nativeMetadata;
+                  if (existingMetadata != null) {
+                    yield* Ref.update(nativeMetadataBySessionId, (current) => {
+                      const remembered = current.get(sessionId);
+                      return new Map(current).set(
+                        sessionId,
+                        remembered === undefined
+                          ? existingMetadata
+                          : { ...existingMetadata, ...remembered },
+                      );
+                    });
+                  }
+                  const nativeMetadata =
+                    (yield* Ref.get(nativeMetadataBySessionId)).get(sessionId) ??
+                    existingMetadata ??
+                    null;
                   const now = yield* DateTime.now;
-                  return {
+                  const resumedProviderThread: OrchestrationV2ProviderThread = {
                     ...threadInput.providerThread,
                     providerSessionId: input.providerSessionId,
+                    nativeMetadata,
                     status: "idle" as const,
                     updatedAt: now,
                   };
+                  yield* Ref.update(providerThreadByNativeSessionId, (current) =>
+                    new Map(current).set(sessionId, resumedProviderThread),
+                  );
+                  return resumedProviderThread;
                 }),
               );
             },
@@ -11384,6 +11450,9 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                     (candidate) =>
                       commitReplacementSession(rollbackInput.providerThread.appThreadId, candidate),
                   ).pipe(Effect.retry({ times: 1 }));
+                  const replacementMetadata = (yield* Ref.get(nativeMetadataBySessionId)).get(
+                    replacement.sessionId,
+                  );
                   const now = yield* DateTime.now;
                   return {
                     providerThread: {
@@ -11396,6 +11465,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                       nativeConversationHeadRef: null,
                       nativeMetadata: {
                         ...rollbackInput.providerThread.nativeMetadata,
+                        ...replacementMetadata,
                         itemIdentityVersion: 2 as const,
                       },
                       status: "idle" as const,

@@ -1282,6 +1282,7 @@ function makeLocalCommandHarness(input: {
         }),
         Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({
           open,
+          isLive: () => Effect.succeed(false),
           get: () =>
             Effect.succeed(
               input.previousTurn?.liveSession === false
@@ -1906,4 +1907,80 @@ effectIt.effect("refuses a Blackhole compaction while the thread's background wo
     ]);
     expect(harness.projection().providerThreads[0]?.nativeThreadRef).not.toBeNull();
   }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+effectIt.effect(
+  "forwards providerThread conversationCwd as initialNativeThreadCwd on resume and drops it when reopening fresh",
+  () =>
+    Effect.gen(function* () {
+      const harness = makeLocalCommandHarness({
+        text: "Continue",
+        claude: { usages: [] },
+        nativeSession: true,
+        deliverTurn: true,
+        nativeResumeFails: true,
+        agentMcpRegistration: "legacy",
+        history: [],
+      });
+      const current = harness.projection();
+      harness.setProjection({
+        ...current,
+        providerThreads: current.providerThreads.map((thread, index) =>
+          index === 0
+            ? {
+                ...thread,
+                nativeMetadata: {
+                  ...thread.nativeMetadata,
+                  conversationCwd: "/workspaces/pinned-a",
+                },
+              }
+            : thread,
+        ),
+      });
+
+      yield* harness.start;
+
+      expect(harness.open).toHaveBeenCalledTimes(2);
+      expect(harness.open.mock.calls[0]![0]).toMatchObject({
+        initialNativeThreadId: "existing-session",
+        initialNativeThreadCwd: "/workspaces/pinned-a",
+      });
+      expect(harness.open.mock.calls[1]![0]).not.toHaveProperty("initialNativeThreadId");
+      expect(harness.open.mock.calls[1]![0]).not.toHaveProperty("initialNativeThreadCwd");
+    }),
+);
+
+effectIt.effect(
+  "omits initialNativeThreadCwd when opening a broken native thread without initialNativeThreadId",
+  () =>
+    Effect.gen(function* () {
+      const harness = makeLocalCommandHarness({
+        text: "Continue",
+        claude: { usages: [] },
+        nativeSession: true,
+        deliverTurn: true,
+      });
+      const current = harness.projection();
+      harness.setProjection({
+        ...current,
+        providerThreads: current.providerThreads.map((thread, index) =>
+          index === 0
+            ? {
+                ...thread,
+                status: "error",
+                nativeMetadata: {
+                  ...thread.nativeMetadata,
+                  conversationCwd: "/workspaces/pinned-a",
+                },
+              }
+            : thread,
+        ),
+      });
+
+      yield* harness.start;
+
+      expect(harness.open).toHaveBeenCalledTimes(1);
+      expect(harness.open.mock.calls[0]![0]).not.toHaveProperty("initialNativeThreadId");
+      expect(harness.open.mock.calls[0]![0]).not.toHaveProperty("initialNativeThreadCwd");
+    }),
 );

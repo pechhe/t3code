@@ -280,6 +280,7 @@ export interface ProviderSessionManagerV2Shape {
     readonly initialNativeThreadId?: string;
     readonly agentMcpRegistration?: AgentMcpServers.Registration;
     readonly initialProviderItemIdentityVersion?: 2;
+    readonly initialNativeThreadCwd?: string;
   }) => Effect.Effect<
     ProviderAdapter.ProviderAdapterV2SessionRuntime,
     ProviderSessionManagerV2Error
@@ -3580,6 +3581,9 @@ export const layerWithOptions = (
                           initialProviderItemIdentityVersion:
                             input.initialProviderItemIdentityVersion,
                         }),
+                    ...(input.initialNativeThreadCwd === undefined
+                      ? {}
+                      : { initialNativeThreadCwd: input.initialNativeThreadCwd }),
                   }),
                 )
                 .pipe(
