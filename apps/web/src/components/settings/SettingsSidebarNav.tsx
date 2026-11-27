@@ -146,7 +146,6 @@ function SettingsSectionIcon({ to }: { to: SettingsPath }) {
   return <Icon className="size-4 h-5 shrink-0 text-(--sidebar-icon-color)" />;
 }
 
-const navGroups = settingsNavGroups(useHasSecretProvidersEnvironment());
 export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   const gt = useGT();
   const m = useMessages();
@@ -171,6 +170,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   const setQuery = useSettingsSearchQuery((state) => state.setQuery);
   const [activeResultIndex, setActiveResultIndex] = useState(0);
   const searchableItems = useAvailableSettingsSearchItems();
+  const navGroups = settingsNavGroups(useHasSecretProvidersEnvironment());
   // The list lags the box by a render, so a keystroke never waits on up to
   // hundreds of result rows.
   const listedQuery = useDeferredValue(query);
