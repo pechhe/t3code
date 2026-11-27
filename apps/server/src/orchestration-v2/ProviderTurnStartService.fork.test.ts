@@ -27,10 +27,12 @@ import {
   RunId,
   ScheduledTaskId,
   ThreadId,
+  TurnItemId,
   ProjectId,
   type OrchestrationV2ProviderTurnTokenUsage,
   type OrchestrationV2ThreadProjection,
   type OrchestrationV2TurnItem,
+  type ServerProvider,
   OrchestrationV2DomainEvent,
 } from "@t3tools/contracts";
 
@@ -41,6 +43,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import * as TestClock from "effect/testing/TestClock";
 
 import * as ServerConfig from "../config.ts";
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
@@ -51,6 +54,7 @@ import { delegationStanceNote } from "../agents/delegationStanceNote.ts";
 import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
+import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ContextHandoffService from "./ContextHandoffService.ts";
 import * as EventSink from "./EventSink.ts";
@@ -162,6 +166,8 @@ function makeLocalCommandHarness(input: {
     readonly model: string;
     readonly summary: string;
   };
+  /** Merged provider snapshots exposed through ProviderRegistry for compaction model lookup. */
+  readonly registryProviders?: ReadonlyArray<ServerProvider>;
   readonly missingProviderSession?: boolean;
   readonly recoveryReadFailure?: string;
   readonly previousTurn?: {
@@ -1190,6 +1196,8 @@ function makeLocalCommandHarness(input: {
       projection.runs.find((candidate) => candidate.id === id),
     ),
   );
+  let sawRegistryWithoutScan = false;
+  const rankedTextModelProviders: Array<ReadonlyArray<ServerProvider>> = [];
   const layer = ProviderTurnStart.layer.pipe(
     Layer.provide(
       input.failFramePreparation === true
@@ -1311,6 +1319,14 @@ function makeLocalCommandHarness(input: {
           getInstance: (requested) => Effect.succeed(summariserInstances.get(requested)),
           listInstances: Effect.succeed([...summariserInstances.values()]),
         }),
+        input.registryProviders === undefined
+          ? Layer.empty
+          : Layer.mock(ProviderRegistry.ProviderRegistry)({
+              getProviders: Effect.gen(function* () {
+                sawRegistryWithoutScan = yield* ProviderRegistry.ProviderUsageWithoutScan;
+                return input.registryProviders!;
+              }),
+            }),
         input.forgeSummary === undefined
           ? Layer.empty
           : Layer.mock(ForgeWorkItems.ForgeWorkItems)({
@@ -1344,17 +1360,18 @@ function makeLocalCommandHarness(input: {
               stance: thread?.stanceChoice?.stance ?? "implement",
               source: thread?.stanceChoice?.chosenBy ?? "fallback",
             }),
-          rankedTextModels: () =>
-            Effect.succeed(
-              input.fallbackSummariser === undefined
+          rankedTextModels: ({ providers }) =>
+            Effect.sync(() => {
+              rankedTextModelProviders.push(providers);
+              return input.fallbackSummariser === undefined
                 ? []
                 : [
                     {
                       instanceId: input.fallbackSummariser.instanceId,
                       model: input.fallbackSummariser.model,
                     },
-                  ],
-            ),
+                  ];
+            }),
         }),
       ),
     ),
@@ -1367,6 +1384,8 @@ function makeLocalCommandHarness(input: {
     getThreadRecords,
     getTurnStartContext,
     generateCompactionSummary,
+    rankedTextModelProviders,
+    sawRegistryWithoutScan: () => sawRegistryWithoutScan,
     getRuntimeRecoveryProjection,
     getRun,
     setProjection: (next: OrchestrationV2ThreadProjection) => {
@@ -1982,5 +2001,90 @@ effectIt.effect(
       expect(harness.open).toHaveBeenCalledTimes(1);
       expect(harness.open.mock.calls[0]![0]).not.toHaveProperty("initialNativeThreadId");
       expect(harness.open.mock.calls[0]![0]).not.toHaveProperty("initialNativeThreadCwd");
+    }),
+);
+
+effectIt.effect(
+  "passes ProviderRegistry's merged snapshots to rankedTextModels without scanning usage during Claude compaction",
+  () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(Date.parse("2026-09-04T12:00:00Z"));
+      const summariserInstanceId = ProviderInstanceId.make("antigravity");
+      const mergedAntigravity = {
+        instanceId: summariserInstanceId,
+        driver: ProviderDriverKind.make("antigravity"),
+        enabled: true,
+        installed: true,
+        status: "ready",
+        auth: { status: "authenticated" },
+        models: [
+          {
+            slug: "gemini-4-hydrogen",
+            name: "Gemini 4 Hydrogen",
+            isCustom: false,
+            capabilities: {
+              optionDescriptors: [
+                {
+                  id: "thought_level",
+                  label: "Thinking Level",
+                  type: "select",
+                  options: [{ id: "high", label: "High" }],
+                },
+              ],
+            },
+          },
+        ],
+      } as unknown as ServerProvider;
+      const at = DateTime.makeUnsafe("2026-09-04T10:00:00.000Z");
+      const harness = makeLocalCommandHarness({
+        text: "/compact",
+        previousMessages: ["Earlier work"],
+        nativeSession: true,
+        history: [
+          {
+            id: TurnItemId.make("item-compaction-user"),
+            threadId: ThreadId.make("thread-compaction"),
+            runId: RunId.make("run-compaction-prev"),
+            nodeId: null,
+            providerThreadId: null,
+            providerTurnId: null,
+            nativeItemRef: null,
+            parentItemId: null,
+            ordinal: 1,
+            type: "user_message",
+            status: "completed",
+            title: null,
+            startedAt: at,
+            completedAt: at,
+            updatedAt: at,
+            messageId: MessageId.make("message-compaction-user"),
+            createdBy: "user",
+            creationSource: "web",
+            inputIntent: "turn_start",
+            text: "Earlier work",
+            attachments: [],
+          },
+        ],
+        claude: {
+          usages: [
+            {
+              usedTokens: 150_000,
+              updatedAt: "2026-09-04T10:00:00.000Z",
+              promptCacheExpiresAt: "2026-09-04T11:00:00.000Z",
+            },
+          ],
+        },
+        fallbackSummariser: {
+          instanceId: summariserInstanceId,
+          model: "gemini-4-hydrogen",
+          summary: "Compacted summary.",
+        },
+        registryProviders: [mergedAntigravity],
+      });
+
+      yield* harness.start;
+
+      expect(harness.sawRegistryWithoutScan()).toBe(true);
+      expect(harness.rankedTextModelProviders).toEqual([[mergedAntigravity]]);
     }),
 );

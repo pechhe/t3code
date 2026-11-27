@@ -12,6 +12,7 @@ import { pinnedBinding } from "../agents/followup.ts";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import type * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
+import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import type * as ProjectStore from "./ProjectStore.ts";
 import type { RuntimePolicyResolveError } from "./RuntimePolicy.ts";
@@ -53,14 +54,16 @@ export const resolve = Effect.fn("RuntimePolicyV2.resolveManaged")(function* <E>
       return yield* fail();
   }
   const settings = yield* Effect.serviceOption(ServerSettings.ServerSettingsService);
+  const currentSettings = Option.isNone(settings)
+    ? undefined
+    : yield* settings.value.getSettings.pipe(Effect.orElseSucceed(() => undefined));
   if (
-    Option.isNone(settings) ||
-    !(yield* settings.value.getSettings.pipe(
-      Effect.map((value) =>
-        resolveProjectProviderInstanceEnabled(value, thread.projectId, modelSelection.instanceId),
-      ),
-      Effect.orElseSucceed(() => false),
-    ))
+    currentSettings === undefined ||
+    !resolveProjectProviderInstanceEnabled(
+      currentSettings,
+      thread.projectId,
+      modelSelection.instanceId,
+    )
   )
     return yield* fail();
   // An isolated helper is the only thread in its workspace, so judged as that
@@ -75,12 +78,31 @@ export const resolve = Effect.fn("RuntimePolicyV2.resolveManaged")(function* <E>
         Effect.mapError((cause) => fail(cause)),
       )
     : cwd;
+  const registry = yield* Effect.serviceOption(ProviderRegistry.ProviderRegistry);
+  // Merged snapshots retain cached per-model options (such as Antigravity thought_level) and peer
+  // accounts for pooled models; the raw instance snapshot lacks both until each model runs live.
+  const registryProviders = Option.isSome(registry)
+    ? (yield* registry.value.getProviders.pipe(
+        Effect.provideService(ProviderRegistry.ProviderUsageWithoutScan, true),
+      )).filter((provider) =>
+        resolveProjectProviderInstanceEnabled(
+          currentSettings,
+          thread.projectId,
+          provider.instanceId,
+        ),
+      )
+    : [];
+  const providers = registryProviders.some(
+    (provider) => provider.instanceId === modelSelection.instanceId,
+  )
+    ? registryProviders
+    : [...registryProviders, yield* instance.snapshot.getSnapshot];
   yield* managed.value
     .validate({
       binding: pinnedBinding(agentTask, thread.followupSourceRevision),
       selection: modelSelection,
       projectId: thread.projectId,
-      providers: [yield* instance.snapshot.getSnapshot],
+      providers,
       ceiling: thread.runtimeMode,
       runtimeMode: thread.runtimeMode,
       workspacePath: isolated ? null : thread.worktreePath,

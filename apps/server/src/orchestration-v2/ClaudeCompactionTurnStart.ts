@@ -20,6 +20,7 @@ import * as Schema from "effect/Schema";
 
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
+import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { planClaudeCompaction } from "./ClaudeCompactionPlan.ts";
 import {
@@ -72,6 +73,7 @@ export const make = Effect.gen(function* () {
   const contextHandoffService = yield* ContextHandoffService.ContextHandoffServiceV2;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const providerInstances = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
+  const providerRegistry = yield* Effect.serviceOption(ProviderRegistry.ProviderRegistry);
   // Optional: a layer without managed agents has no chore worker to fall back on.
   const managedAgents = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
   const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
@@ -110,16 +112,18 @@ export const make = Effect.gen(function* () {
       plannedCompaction.kind === "summary" || plannedCompaction.kind === "choreWorker"
         ? yield* Effect.gen(function* () {
             if (Option.isNone(managedAgents)) return [];
-            const providers = yield* Effect.forEach(
-              yield* providerInstances.listInstances,
-              (instance) =>
-                instance.snapshot.getSnapshot.pipe(Effect.orElseSucceed(() => undefined)),
-            );
-            return yield* managedAgents.value.rankedTextModels({
-              providers: providers.filter(
-                (provider): provider is ServerProvider => provider !== undefined,
-              ),
-            });
+            const registryProviders = Option.isSome(providerRegistry)
+              ? yield* providerRegistry.value.getProviders.pipe(
+                  Effect.provideService(ProviderRegistry.ProviderUsageWithoutScan, true),
+                )
+              : [];
+            const providers =
+              registryProviders.length > 0
+                ? registryProviders
+                : (yield* Effect.forEach(yield* providerInstances.listInstances, (instance) =>
+                    instance.snapshot.getSnapshot.pipe(Effect.orElseSucceed(() => undefined)),
+                  )).filter((provider): provider is ServerProvider => provider !== undefined);
+            return yield* managedAgents.value.rankedTextModels({ providers });
           }).pipe(Effect.orElseSucceed(() => [] as ReadonlyArray<ModelSelection>))
         : [];
     const compactionPlan =
@@ -191,9 +195,15 @@ export const make = Effect.gen(function* () {
             `The account chosen to compact this thread is no longer available.`,
           );
         }
-        const summariserSnapshot = yield* summariserInstance.snapshot.getSnapshot.pipe(
-          Effect.orElseSucceed(() => undefined),
-        );
+        const summariserSnapshot =
+          (Option.isSome(providerRegistry)
+            ? (yield* providerRegistry.value.getProviders.pipe(
+                Effect.provideService(ProviderRegistry.ProviderUsageWithoutScan, true),
+              )).find((provider) => provider.instanceId === candidate.instanceId)
+            : undefined) ??
+          (yield* summariserInstance.snapshot.getSnapshot.pipe(
+            Effect.orElseSucceed(() => undefined),
+          ));
         const windowTokens =
           summariserSnapshot?.models.find((model) => model.slug === candidate.model)
             ?.contextWindowTokens ?? DEFAULT_COMPACTION_WINDOW_TOKENS;

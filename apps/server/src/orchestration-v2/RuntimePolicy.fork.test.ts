@@ -22,6 +22,7 @@ import * as Stream from "effect/Stream";
 import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
+import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
@@ -488,5 +489,74 @@ it.layer(layerTest)("managed RuntimePolicyV2", (it) => {
         assert.equal(validations, 1);
       }).pipe(Effect.provide(Layer.mergeAll(guard, ServerSettings.layerTest())));
     }),
+  );
+
+  it.effect(
+    "validates against ProviderRegistry's merged project-enabled snapshots without scanning usage",
+    () =>
+      Effect.gen(function* () {
+        const policy = yield* RuntimePolicy.RuntimePolicyV2;
+        const now = yield* DateTime.now;
+        const mergedTarget = {
+          instanceId: providerInstanceId,
+          driver: "codex",
+          models: [{ slug: "gpt-5.5", name: "gpt-5.5", isCustom: false }],
+        } as unknown as ServerProvider;
+        const enabledPeer = {
+          instanceId: antigravityInstanceId,
+          driver: "antigravity",
+          models: [],
+        } as unknown as ServerProvider;
+        const disabledPeer = {
+          instanceId: grokInstanceId,
+          driver: "grok",
+          models: [],
+        } as unknown as ServerProvider;
+        let sawWithoutScan = false;
+        const seenProviders: Array<ReadonlyArray<ServerProvider>> = [];
+        const providerRegistry = Layer.mock(ProviderRegistry.ProviderRegistry)({
+          getProviders: Effect.gen(function* () {
+            sawWithoutScan = yield* ProviderRegistry.ProviderUsageWithoutScan;
+            return [mergedTarget, enabledPeer, disabledPeer];
+          }),
+        });
+        yield* Effect.gen(function* () {
+          const settings = yield* ServerSettings.ServerSettingsService;
+          yield* settings.updateSettings({
+            projectSettingsOverrides: {
+              [projectId]: {
+                providerInstances: {
+                  [providerInstanceId]: { enabled: true },
+                  [antigravityInstanceId]: { enabled: true },
+                  [grokInstanceId]: { enabled: false },
+                },
+              },
+            },
+          });
+          yield* policy.resolve({
+            thread: {
+              ...makeThread({ now, worktreePath: managedBinding.workspacePath }),
+              agentTask: managedBinding,
+            },
+            modelSelection,
+          });
+        }).pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              ServerSettings.layerTest(),
+              providerRegistry,
+              Layer.mock(ManagedAgent.ManagedAgentService)({
+                validate: (input) =>
+                  Effect.sync(() => {
+                    seenProviders.push(input.providers);
+                  }),
+              }),
+            ),
+          ),
+        );
+        assert.equal(sawWithoutScan, true);
+        assert.lengthOf(seenProviders, 1);
+        assert.deepEqual(seenProviders[0], [mergedTarget, enabledPeer]);
+      }),
   );
 });

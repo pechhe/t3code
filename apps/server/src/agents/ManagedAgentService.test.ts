@@ -2351,4 +2351,159 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
       expect(live.reads).toBe(0);
     }),
   );
+
+  it.effect(
+    "validates an Antigravity advisor model whose thought_level is cached in ProviderRegistry but absent from the raw instance snapshot",
+    () =>
+      Effect.gen(function* () {
+        const f = yield* fixture;
+        const antigravity = (carbonHasOptions: boolean): ServerProvider => ({
+          ...provider("antigravity", "antigravity", []),
+          readOnlySourceAccess: "enforced",
+          models: [
+            {
+              slug: "gemini-4-neon",
+              name: "Gemini 4 Neon",
+              isCustom: false,
+              capabilities: {
+                optionDescriptors: [
+                  {
+                    id: "thought_level",
+                    label: "Thinking Level",
+                    type: "select",
+                    options: ["low", "medium", "high", "xhigh"].map((id) => ({ id, label: id })),
+                  },
+                ],
+              },
+            },
+            {
+              slug: "gemini-4-carbon",
+              name: "Gemini 4 Carbon",
+              isCustom: false,
+              capabilities: {
+                optionDescriptors: carbonHasOptions
+                  ? [
+                      {
+                        id: "thought_level",
+                        label: "Thinking Level",
+                        type: "select",
+                        options: ["low", "medium", "high"].map((id) => ({ id, label: id })),
+                      },
+                    ]
+                  : [],
+              },
+            },
+          ],
+        });
+        const cachedProvider = antigravity(true);
+        const rawUnobservedProvider = antigravity(false);
+        yield* f.writeManifest({
+          ...f.manifest,
+          models: {
+            ...f.manifest.models,
+            neon: {
+              driverKind: ProviderDriverKind.make("antigravity"),
+              model: "gemini-4-neon",
+              effortOption: "thought_level",
+            },
+            carbon: {
+              driverKind: ProviderDriverKind.make("antigravity"),
+              model: "gemini-4-carbon",
+              effortOption: "thought_level",
+            },
+          },
+          lists: {
+            ...f.manifest.lists,
+            advisor: [
+              { model: "neon", effort: "high" },
+              { model: "carbon", effort: "high" },
+            ],
+          },
+          roles: {
+            ...f.manifest.roles,
+            advisor: {
+              list: "advisor",
+              brief: f.manifest.roles.advisor.brief,
+              sourceAccess: f.manifest.roles.advisor.sourceAccess,
+              toolProfile: f.manifest.roles.advisor.toolProfile,
+              taskClasses: f.manifest.roles.advisor.taskClasses,
+            },
+          },
+        });
+        const accepted = yield* f.prepare({
+          providers: [cachedProvider],
+          request: request({
+            role: "advisor",
+            workspacePath: f.workspacePath,
+            readOnly: true,
+          }),
+          selection: { model: "gemini-4-carbon" },
+        });
+        expect(accepted.binding.effective).toEqual({
+          instanceId: cachedProvider.instanceId,
+          model: "gemini-4-carbon",
+          pinned: true,
+          options: [{ id: "thought_level", value: "high" }],
+        });
+        const runtimeLayer = RuntimePolicy.layerFromProjectStore.pipe(
+          Layer.provide(
+            Layer.mergeAll(
+              Layer.mock(WorkspaceFolders.WorkspaceFolders)({
+                forThread: () => Effect.succeed({ folders: [], extraRoots: [] }),
+              }),
+              Layer.mock(Projects.ProjectStoreV2)({
+                get: () => Effect.succeedSome({ workspaceRoot: f.workspacePath } as never),
+              }),
+              Layer.mock(Providers.ProviderInstanceRegistry)({
+                getInstance: () =>
+                  Effect.succeed({
+                    snapshot: { getSnapshot: Effect.succeed(rawUnobservedProvider) },
+                  } as ProviderInstance),
+              }),
+            ),
+          ),
+          Layer.provide(
+            ServerConfig.layerTest(f.workspacePath, { prefix: "t3-managed-antigravity-" }).pipe(
+              Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+            ),
+          ),
+          Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+        );
+        const projectId = ProjectId.make("antigravity-advisor-project");
+        const resolved = yield* Effect.gen(function* () {
+          const runtime = yield* RuntimePolicy.RuntimePolicyV2;
+          const settings = yield* Settings.ServerSettingsService;
+          yield* settings.updateSettings({
+            projectSettingsOverrides: {
+              [projectId]: {
+                providerInstances: { [cachedProvider.instanceId]: { enabled: true } },
+              },
+            },
+          });
+          return yield* runtime.resolve({
+            thread: {
+              projectId,
+              worktreePath: f.workspacePath,
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              agentTask: accepted.binding,
+            } as OrchestrationV2AppThread,
+            modelSelection: accepted.binding.effective,
+          });
+        }).pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              runtimeLayer,
+              Layer.succeed(
+                ProviderRegistry.ProviderRegistry,
+                makeProviderRegistryMock([cachedProvider]),
+              ),
+            ).pipe(Layer.provideMerge(Settings.layerTest())),
+          ),
+          Effect.provideService(HostProcess.Environment, f.environment),
+        );
+        expect(resolved.managedAgent).toBe(true);
+        expect(resolved.sandboxPolicy).toEqual({ type: "readOnly", networkAccess: true });
+      }),
+  );
 });
