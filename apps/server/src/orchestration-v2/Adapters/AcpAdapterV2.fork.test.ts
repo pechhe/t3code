@@ -624,4 +624,223 @@ describe("AcpAdapterV2", () => {
         assert.isUndefined(legacyThread.nativeMetadata?.conversationCwd);
       }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
+
+  it.live(
+    "leaves non-pinning ensureThread/resumeThread metadata unchanged on startup updates while pinning preserves conversationCwd across session_info_update",
+    () =>
+      Effect.gen(function* () {
+        const workspaceA = process.cwd();
+        const policyA = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          cwd: workspaceA,
+        });
+        const makeStartupTitleAdapter = (pins: boolean, suffix: string) =>
+          Effect.gen(function* () {
+            type SessionUpdateNotification = Parameters<
+              Parameters<AcpSessionRuntime.AcpSessionRuntime["Service"]["handleSessionUpdate"]>[0]
+            >[0];
+            let sessionUpdateHandler:
+              | ((notification: SessionUpdateNotification) => Effect.Effect<void, never, never>)
+              | undefined;
+            const instanceId = ProviderInstanceId.make(`startup-title-${suffix}`);
+            const adapter = yield* makeAcpAdapterV2({
+              instanceId,
+              selfInvocation: yield* resolveSelfInvocation(),
+              flavor: {
+                driver: ProviderDriverKind.make("acp-test"),
+                capabilities: AcpProviderCapabilitiesV2,
+                pinsConversationCwd: pins,
+                makeRuntime: makeMockRuntime({
+                  childProcessSpawner: yield* ChildProcessSpawner.ChildProcessSpawner,
+                  mockAgentPath: (yield* Deferred.await(bundledAgents)).mock,
+                  wrapRuntime: (runtime) => ({
+                    ...runtime,
+                    handleSessionUpdate: (handler) => {
+                      sessionUpdateHandler = (notification) =>
+                        handler(notification).pipe(Effect.ignore);
+                      return runtime.handleSessionUpdate(handler);
+                    },
+                    start: () =>
+                      runtime.start().pipe(
+                        Effect.tap((started) =>
+                          sessionUpdateHandler === undefined
+                            ? Effect.void
+                            : sessionUpdateHandler({
+                                sessionId: started.sessionId,
+                                update: {
+                                  sessionUpdate: "session_info_update",
+                                  title: "Startup title",
+                                },
+                              }),
+                        ),
+                      ),
+                  }),
+                }),
+              },
+            });
+            return {
+              instanceId,
+              adapter,
+              emitSessionInfoUpdate: (sessionId: string, title: string) =>
+                sessionUpdateHandler === undefined
+                  ? Effect.die("missing sessionUpdateHandler")
+                  : sessionUpdateHandler({
+                      sessionId,
+                      update: {
+                        sessionUpdate: "session_info_update",
+                        title,
+                      },
+                    }),
+            };
+          });
+
+        // Non-pinning flavor: startup title is not merged into ensureThread or resumeThread.
+        const nonPinning = yield* makeStartupTitleAdapter(false, "non-pinning");
+        const nonPinningThreadId = ThreadId.make("startup-title-non-pinning");
+        const nonPinningSelection = { instanceId: nonPinning.instanceId, model: "default" };
+        const nonPinningRuntime = yield* nonPinning.adapter.openSession({
+          threadId: nonPinningThreadId,
+          providerSessionId: ProviderSessionId.make("startup-title-non-pinning-session"),
+          modelSelection: nonPinningSelection,
+          runtimePolicy: policyA,
+        });
+        const nonPinningThread = yield* nonPinningRuntime.ensureThread({
+          threadId: nonPinningThreadId,
+          modelSelection: nonPinningSelection,
+          runtimePolicy: policyA,
+        });
+        assert.deepEqual(nonPinningThread.nativeMetadata, { itemIdentityVersion: 2 });
+        const nonPinningResumed = yield* nonPinningRuntime.resumeThread({
+          providerThread: nonPinningThread,
+          modelSelection: nonPinningSelection,
+          runtimePolicy: policyA,
+        });
+        assert.deepEqual(nonPinningResumed.nativeMetadata, { itemIdentityVersion: 2 });
+
+        // Pinning flavor: ensureThread carries conversationCwd (not startup title),
+        // and a live session_info_update keeps conversationCwd alongside the new title.
+        const pinning = yield* makeStartupTitleAdapter(true, "pinning");
+        const pinningThreadId = ThreadId.make("startup-title-pinning");
+        const pinningSelection = { instanceId: pinning.instanceId, model: "default" };
+        const pinningRuntime = yield* pinning.adapter.openSession({
+          threadId: pinningThreadId,
+          providerSessionId: ProviderSessionId.make("startup-title-pinning-session"),
+          modelSelection: pinningSelection,
+          runtimePolicy: policyA,
+        });
+        const pinningThread = yield* pinningRuntime.ensureThread({
+          threadId: pinningThreadId,
+          modelSelection: pinningSelection,
+          runtimePolicy: policyA,
+        });
+        assert.deepEqual(pinningThread.nativeMetadata, {
+          itemIdentityVersion: 2,
+          conversationCwd: workspaceA,
+        });
+        const pinningSessionId = pinningThread.nativeThreadRef?.nativeId;
+        assert.isString(pinningSessionId);
+        yield* pinning.emitSessionInfoUpdate(pinningSessionId!, "Updated title");
+        const updatedEvent = yield* pinningRuntime.events.pipe(
+          Stream.filter(
+            (event) =>
+              event.type === "provider_thread.updated" &&
+              event.providerThread.nativeMetadata?.title === "Updated title",
+          ),
+          Stream.runHead,
+        );
+        assert.isTrue(Option.isSome(updatedEvent));
+        if (Option.isSome(updatedEvent) && updatedEvent.value.type === "provider_thread.updated") {
+          assert.equal(updatedEvent.value.providerThread.nativeMetadata?.title, "Updated title");
+          assert.equal(
+            updatedEvent.value.providerThread.nativeMetadata?.conversationCwd,
+            workspaceA,
+          );
+        }
+      }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.live(
+    "preserves itemIdentityVersion and conversationCwd on an idle usage update before the first turn",
+    () =>
+      Effect.gen(function* () {
+        const workspaceA = process.cwd();
+        const instanceId = ProviderInstanceId.make("pinning-idle-usage");
+        const threadId = ThreadId.make("pinning-idle-usage");
+        const policyA = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          cwd: workspaceA,
+        });
+        type SessionUpdateNotification = Parameters<
+          Parameters<AcpSessionRuntime.AcpSessionRuntime["Service"]["handleSessionUpdate"]>[0]
+        >[0];
+        let sessionUpdateHandler:
+          | ((notification: SessionUpdateNotification) => Effect.Effect<void, never, never>)
+          | undefined;
+        const adapter = yield* makeAcpAdapterV2({
+          instanceId,
+          selfInvocation: yield* resolveSelfInvocation(),
+          flavor: {
+            driver: ProviderDriverKind.make("acp-test"),
+            capabilities: AcpProviderCapabilitiesV2,
+            pinsConversationCwd: true,
+            makeRuntime: makeMockRuntime({
+              childProcessSpawner: yield* ChildProcessSpawner.ChildProcessSpawner,
+              mockAgentPath: (yield* Deferred.await(bundledAgents)).mock,
+              wrapRuntime: (runtime) => ({
+                ...runtime,
+                handleSessionUpdate: (handler) => {
+                  sessionUpdateHandler = (notification) =>
+                    handler(notification).pipe(Effect.ignore);
+                  return runtime.handleSessionUpdate(handler);
+                },
+              }),
+            }),
+          },
+        });
+        const modelSelection = { instanceId, model: "default" };
+        const runtime = yield* adapter.openSession({
+          threadId,
+          providerSessionId: ProviderSessionId.make("pinning-idle-usage-session"),
+          modelSelection,
+          runtimePolicy: policyA,
+        });
+        const thread = yield* runtime.ensureThread({
+          threadId,
+          modelSelection,
+          runtimePolicy: policyA,
+        });
+        assert.deepEqual(thread.nativeMetadata, {
+          itemIdentityVersion: 2,
+          conversationCwd: workspaceA,
+        });
+        const sessionId = thread.nativeThreadRef?.nativeId;
+        assert.isString(sessionId);
+        assert.isDefined(sessionUpdateHandler);
+        yield* sessionUpdateHandler!({
+          sessionId: sessionId!,
+          update: {
+            sessionUpdate: "usage_update",
+            used: 123,
+            size: 1000,
+          },
+        });
+        const usageEvent = yield* runtime.events.pipe(
+          Stream.filter(
+            (event) =>
+              event.type === "provider_thread.updated" &&
+              event.providerThread.contextUsage?.usedTokens === 123,
+          ),
+          Stream.runHead,
+        );
+        assert.isTrue(Option.isSome(usageEvent));
+        if (Option.isSome(usageEvent) && usageEvent.value.type === "provider_thread.updated") {
+          assert.deepEqual(usageEvent.value.providerThread.nativeMetadata, {
+            itemIdentityVersion: 2,
+            conversationCwd: workspaceA,
+          });
+        }
+      }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
 });

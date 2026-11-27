@@ -2,6 +2,7 @@ import { assert, it } from "@effect/vitest";
 import {
   CommandId,
   MessageId,
+  type ModelSelection,
   type OrchestrationV2ProviderCapabilities,
   type OrchestrationV2ProviderThread,
   ProjectId,
@@ -14,17 +15,30 @@ import {
   ThreadId,
   type OrchestrationV2ReplacedWorkspaceOutcome,
 } from "@t3tools/contracts";
+import * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
+import { AcpProviderCapabilitiesV2, makeAcpAdapterV2 } from "@t3tools/provider-acp/server/adapter";
+import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
+import * as TestProviderHost from "@t3tools/provider-testing/TestProviderHost";
 import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
+import { resolveSelfInvocation } from "@t3tools/shared/nodeRuntime";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
+import type * as EffectAcpProtocol from "effect-acp/protocol";
 
+import * as DocumentText from "../provider/DocumentText.ts";
 import { ClaudeProviderCapabilitiesV2 } from "./Adapters/ClaudeAdapterV2.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as EffectWorker from "./EffectWorker.ts";
@@ -248,6 +262,251 @@ it.live.each([
         assert.deepEqual(
           turns.map((turn) => turn.input.includes(note)),
           [false, true, false],
+        );
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+const decodeUnknownJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown));
+
+function outgoingAcpMethod(event: EffectAcpProtocol.AcpProtocolLogEvent): string | undefined {
+  if (event.direction !== "outgoing" || event.stage !== "raw" || typeof event.payload !== "string")
+    return undefined;
+  for (const line of event.payload.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    const decoded = Option.getOrUndefined(decodeUnknownJson(trimmed));
+    if (typeof decoded === "object" && decoded !== null && "method" in decoded) {
+      const method = (decoded as { readonly method?: unknown }).method;
+      if (typeof method === "string") return method;
+    }
+  }
+  return undefined;
+}
+
+it.live(
+  "starts a fresh pinning ACP session after switching providers and rebinding to a new workspace",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const first = `${yield* checkpointWorkspace("rebind-acp-first")}/workspace`;
+        yield* fs.makeDirectory(first);
+        const fresh = yield* checkpointWorkspace("rebind-acp-fresh");
+        const threadId = ThreadId.make("thread:rebind:pinning-acp");
+        const acpDriver = ProviderDriverKind.make("antigravity");
+        const acpInstanceId = ProviderInstanceId.make("acp-pinning-rebind");
+        const codexDriver = ProviderDriverKind.make("codex");
+        const codexTurns = yield* Ref.make<ReadonlyArray<StartedTurn>>([]);
+        const codexAdapter = makeRecordingAdapter(
+          codexDriver,
+          CodexProviderCapabilitiesV2,
+          codexTurns,
+        );
+        const acpModelSelection: ModelSelection = {
+          instanceId: acpInstanceId,
+          model: "default",
+        };
+        const codexModelSelection: ModelSelection = {
+          instanceId: codexAdapter.instanceId,
+          model: "rebind-model",
+        };
+        const outgoingMethods = yield* Ref.make<ReadonlyArray<string>>([]);
+        const mockAgentPath = yield* path.fromFileUrl(
+          new URL("../../scripts/acp-mock-agent.ts", import.meta.url),
+        );
+        const acpDeps = Layer.mergeAll(
+          NodeServices.layer,
+          NodeCrypto.layer,
+          IdAllocator.layer,
+          TestProviderHost.layer().pipe(
+            Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+          ),
+          DocumentText.layer.pipe(
+            Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+          ),
+        );
+        const registryLayer = ProviderAdapterRegistry.layerFromAdaptersEffect(
+          Effect.gen(function* () {
+            const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+            let runtimeOrdinal = 0;
+            const acpAdapter = yield* makeAcpAdapterV2({
+              instanceId: acpInstanceId,
+              selfInvocation: yield* resolveSelfInvocation(),
+              flavor: {
+                driver: acpDriver,
+                capabilities: AcpProviderCapabilitiesV2,
+                pinsConversationCwd: true,
+                makeRuntime: (runtimeInput) =>
+                  Effect.gen(function* () {
+                    const ordinal = ++runtimeOrdinal;
+                    const context = yield* Layer.build(
+                      AcpSessionRuntime.layer({
+                        ...runtimeInput,
+                        protocolLogging: {
+                          ...runtimeInput.protocolLogging,
+                          logIncoming: true,
+                          logOutgoing: true,
+                          logger: (event) => {
+                            const method = outgoingAcpMethod(event);
+                            return (
+                              method === undefined
+                                ? Effect.void
+                                : Ref.update(outgoingMethods, (methods) => [...methods, method])
+                            ).pipe(
+                              Effect.andThen(
+                                runtimeInput.protocolLogging.logger?.(event) ?? Effect.void,
+                              ),
+                              Effect.asVoid,
+                            );
+                          },
+                        },
+                        spawn: {
+                          command: process.execPath,
+                          args: [mockAgentPath],
+                          cwd: runtimeInput.cwd,
+                          env: { T3_ACP_SESSION_LIFECYCLE: "1" },
+                        },
+                        authMethodId: "test",
+                      }).pipe(
+                        Layer.provide(
+                          Layer.succeed(
+                            ChildProcessSpawner.ChildProcessSpawner,
+                            childProcessSpawner,
+                          ),
+                        ),
+                      ),
+                    );
+                    const runtime = yield* Effect.service(AcpSessionRuntime.AcpSessionRuntime).pipe(
+                      Effect.provide(context),
+                    );
+                    return {
+                      ...runtime,
+                      start: () =>
+                        runtime
+                          .start()
+                          .pipe(
+                            Effect.map((started) =>
+                              runtimeInput.resumeSessionId === undefined
+                                ? { ...started, sessionId: `mock-rebind-session-${ordinal}` }
+                                : started,
+                            ),
+                          ),
+                    };
+                  }),
+              },
+            });
+            return [acpAdapter, codexAdapter] as const;
+          }),
+        ).pipe(Layer.provide(acpDeps));
+
+        yield* Effect.gen(function* () {
+          const orchestrator = yield* Orchestrator.OrchestratorV2;
+          const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+          const eventSink = yield* EventSink.EventSinkV2;
+          const runTurn = (text: string, modelSelection: ModelSelection) =>
+            Effect.gen(function* () {
+              const completed = yield* eventSink
+                .stream({ threadId, afterSequence: yield* eventSink.latestSequence({ threadId }) })
+                .pipe(
+                  Stream.filter(
+                    ({ event }) =>
+                      event.type === "run.updated" && event.payload.status === "completed",
+                  ),
+                  Stream.runHead,
+                  Effect.forkScoped,
+                );
+              yield* orchestrator.dispatch({
+                type: "message.dispatch",
+                createdBy: "user",
+                creationSource: "web",
+                commandId: CommandId.make(`command:rebind:acp:${text}`),
+                threadId,
+                messageId: MessageId.make(`message:rebind:acp:${text}`),
+                text,
+                attachments: [],
+                modelSelection,
+                dispatchMode: { type: "start_immediately" },
+              });
+              yield* Fiber.join(completed);
+              yield* worker.drain();
+            });
+
+          yield* orchestrator.dispatch({
+            type: "thread.create",
+            createdBy: "user",
+            creationSource: "web",
+            commandId: CommandId.make("command:rebind:acp:create"),
+            threadId,
+            projectId: ProjectId.make("project:rebind-acp"),
+            title: "Rebind ACP",
+            modelSelection: acpModelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: first,
+          });
+          yield* runTurn("first-acp", acpModelSelection);
+
+          const afterFirst = yield* orchestrator.getThreadProjection(threadId);
+          const firstAcpThread = afterFirst.providerThreads.find(
+            (thread) => thread.providerInstanceId === acpInstanceId,
+          );
+          assert.isDefined(firstAcpThread);
+          const firstNativeId = firstAcpThread!.nativeThreadRef?.nativeId;
+          const firstAcpSessionId = firstAcpThread!.providerSessionId;
+          assert.isDefined(firstNativeId);
+          assert.equal(firstAcpThread!.nativeMetadata?.conversationCwd, first);
+
+          // Switching to another provider detaches the ACP session binding.
+          yield* runTurn("second-codex", codexModelSelection);
+          const detachedEvents = yield* eventSink.stream({ threadId }).pipe(
+            Stream.filter(
+              (stored) =>
+                stored.event.type === "provider-session.detached" &&
+                stored.event.payload.providerSessionId === firstAcpSessionId,
+            ),
+            Stream.take(1),
+            Stream.runCollect,
+          );
+          assert.lengthOf(detachedEvents, 1);
+
+          // Workspace A is removed and the thread is rebound to workspace B.
+          yield* fs.remove(first, { recursive: true });
+          yield* orchestrator.dispatch({
+            type: "thread.metadata.update",
+            commandId: CommandId.make("command:rebind:acp:rebind"),
+            threadId,
+            branch: null,
+            worktreePath: fresh,
+            expectedWorktreePath: first,
+            workspaceReplaced: { outcome: "fresh" },
+          });
+
+          // Switch back to the pinning ACP provider: must open a fresh session in B.
+          yield* Ref.set(outgoingMethods, []);
+          yield* runTurn("third-acp", acpModelSelection);
+
+          const returnMethods = yield* Ref.get(outgoingMethods);
+          assert.include(returnMethods, "session/new");
+          assert.notInclude(returnMethods, "session/resume");
+          assert.notInclude(returnMethods, "session/load");
+
+          const afterReturn = yield* orchestrator.getThreadProjection(threadId);
+          const returnedAcpThread = afterReturn.providerThreads.find(
+            (thread) => thread.id === afterReturn.thread.activeProviderThreadId,
+          );
+          assert.isDefined(returnedAcpThread);
+          assert.notEqual(returnedAcpThread!.nativeThreadRef?.nativeId, firstNativeId);
+          assert.equal(returnedAcpThread!.nativeMetadata?.conversationCwd, fresh);
+        }).pipe(
+          Effect.provide(
+            ProviderReplayHarness.layerWithRegistry(
+              { name: "workspace-rebind-pinning-acp" },
+              registryLayer,
+            ),
+          ),
         );
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
